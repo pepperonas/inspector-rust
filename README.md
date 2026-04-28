@@ -5,7 +5,7 @@
 
   **Fast, lightweight clipboard history manager + text expander for Windows 11**
 
-  [![Version](https://img.shields.io/badge/version-0.2.11-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.2.12-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -90,10 +90,10 @@ Notes are **persistent, categorized clipboard items** — they live in their own
 - **Tray shortcut** — **Manage Notes** opens the popup directly on the Notes tab.
 - Full reference: [`docs/notes.md`](./docs/notes.md).
 
-### Backup — full app export / import (v0.2.6)
-The Notes tab toolbar includes **Export…** and **Import…** for a single-file JSON backup of the whole app.
+### Backup — full app export / import (v0.2.6, refined in v0.2.12)
+The **Settings** tab's *Backup & restore* section has **Export…** and **Import…** for a single-file JSON backup of the whole app, plus three checkboxes to pick which sections (history / snippets / notes) the export contains.
 
-- **Export** writes a pretty-printed JSON file containing `{ version, exported_at, history, snippets, notes }` to a path of your choice (native save dialog).
+- **Export** writes a pretty-printed JSON file containing `{ version, exported_at, history, snippets, notes }` to a path of your choice (native save dialog). Unticked sections are written as empty arrays — useful for sharing snippets without leaking your clipboard history.
 - **Import** merges that file back into the live database with sensible per-table semantics:
   - Snippets — **upsert by `abbreviation`** (existing rows overwritten).
   - History — **upsert by SHA-256 hash** (duplicates bump `last_used_at`; the 1 000-entry cap still applies).
@@ -220,11 +220,11 @@ See [`docs/snippets-import.md`](./docs/snippets-import.md) for the full schema, 
 
 ### Notes & Backup
 
-Notes get their own tab; the toolbar at the bottom of the categories sidebar has **+ New Note**, **Export…**, **Import…**, **Clear All**.
+Notes have their own tab; the categories sidebar has **+ New Note** and **Clear All**. Backup lives in the **Settings** tab now.
 
 - **Save a clipboard entry as a note:** hover any History row → click the bookmark icon → the entry lands in the `Uncategorized` bucket of the Notes tab. Move it to a category by editing the note.
-- **Export full backup:** Notes tab → **Export…** → choose a path. ClipSnap writes a single JSON file with `history + snippets + notes` (default name `clipsnap-backup-<timestamp>.json`).
-- **Import a backup:** Notes tab → **Import…** → pick the JSON file. Snippets and history merge by their natural keys (abbreviation / SHA-256 hash); notes are appended.
+- **Export full backup:** Settings tab → **Backup & restore** → tick what to export (Clipboard history / Snippets / Notes — all default on) → **Export…** → choose a path. ClipSnap writes a single JSON file (default name `clipsnap-backup-<timestamp>.json`); unticked sections are written as empty arrays so you can share snippets without leaking your clipboard.
+- **Import a backup:** Settings tab → **Backup & restore** → **Import…** → pick the JSON file. Snippets and history merge by their natural keys (abbreviation / SHA-256 hash); notes are appended. Notes / Snippets / History tabs auto-refresh.
 
 Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema and merge semantics: [`docs/backup.md`](./docs/backup.md).
 
@@ -232,7 +232,7 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 
 ```bash
 pnpm test               # frontend unit tests (vitest + happy-dom) — 53 tests
-cargo test --workspace  # Rust unit tests — 71 tests (db, snippets, notes, backup, settings, expander, hotkey parser, clipboard_watcher, models)
+cargo test --workspace  # Rust unit tests — 74 tests (db, snippets, notes, backup, settings, expander, hotkey parser, clipboard_watcher, models)
 ```
 
 The same commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR.

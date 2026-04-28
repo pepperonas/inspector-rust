@@ -268,22 +268,43 @@ pub fn paste_note(
 
 // ── Backup (full app export / import) ────────────────────────────────────────
 
-/// Build a backup JSON document covering history + snippets + notes.
-/// The frontend takes the returned string and writes it to a user-chosen
-/// file via `tauri-plugin-dialog`'s `save()`.
+/// Build a backup JSON document. Each section (history / snippets /
+/// notes) is included only if the corresponding flag is `true` — lets
+/// the user opt out of, say, exporting their clipboard history when
+/// sharing snippets with a colleague. Defaults to *all true* if invoked
+/// without the flags (legacy callers).
 #[tauri::command]
-pub fn export_backup(db: State<'_, DbHandle>) -> Result<String, String> {
-    backup::export_json(&db).map_err(map_err)
+pub fn export_backup(
+    db: State<'_, DbHandle>,
+    include_history: Option<bool>,
+    include_snippets: Option<bool>,
+    include_notes: Option<bool>,
+) -> Result<String, String> {
+    let opts = backup::ExportOptions {
+        include_history: include_history.unwrap_or(true),
+        include_snippets: include_snippets.unwrap_or(true),
+        include_notes: include_notes.unwrap_or(true),
+    };
+    backup::export_json(&db, opts).map_err(map_err)
 }
 
 /// Convenience: build the backup JSON and write it directly to `path`.
-/// Returns the number of bytes written.
+/// Returns the number of bytes written. Same selective semantics as
+/// `export_backup`.
 #[tauri::command]
 pub fn save_backup_to_file(
     db: State<'_, DbHandle>,
     path: String,
+    include_history: Option<bool>,
+    include_snippets: Option<bool>,
+    include_notes: Option<bool>,
 ) -> Result<usize, String> {
-    let json = backup::export_json(&db).map_err(map_err)?;
+    let opts = backup::ExportOptions {
+        include_history: include_history.unwrap_or(true),
+        include_snippets: include_snippets.unwrap_or(true),
+        include_notes: include_notes.unwrap_or(true),
+    };
+    let json = backup::export_json(&db, opts).map_err(map_err)?;
     std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
     Ok(json.len())
 }

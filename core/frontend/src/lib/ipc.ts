@@ -144,15 +144,36 @@ export function pasteNote(id: number): Promise<void> {
 
 // ── Backup (full app export / import) ────────────────────────────────────────
 
-/** Returns a pretty-printed JSON string covering history + snippets + notes. */
-export function exportBackup(): Promise<string> {
-  return invoke("export_backup");
+export interface BackupExportOptions {
+  includeHistory?: boolean;
+  includeSnippets?: boolean;
+  includeNotes?: boolean;
 }
 
-/** Build the backup JSON and write it directly to `path`. Returns
- *  the number of bytes written. */
-export function saveBackupToFile(path: string): Promise<number> {
-  return invoke("save_backup_to_file", { path });
+/** Returns a pretty-printed JSON string. Each section is included only
+ *  when the corresponding flag is true (or undefined — defaults to true
+ *  for backwards compatibility). */
+export function exportBackup(opts: BackupExportOptions = {}): Promise<string> {
+  return invoke("export_backup", {
+    includeHistory: opts.includeHistory ?? true,
+    includeSnippets: opts.includeSnippets ?? true,
+    includeNotes: opts.includeNotes ?? true,
+  });
+}
+
+/** Build the backup JSON (with the same selective semantics as
+ *  `exportBackup`) and write it directly to `path`. Returns the number
+ *  of bytes written. */
+export function saveBackupToFile(
+  path: string,
+  opts: BackupExportOptions = {},
+): Promise<number> {
+  return invoke("save_backup_to_file", {
+    path,
+    includeHistory: opts.includeHistory ?? true,
+    includeSnippets: opts.includeSnippets ?? true,
+    includeNotes: opts.includeNotes ?? true,
+  });
 }
 
 // ── Text expander ────────────────────────────────────────────────────────────

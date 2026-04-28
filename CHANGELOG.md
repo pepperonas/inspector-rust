@@ -4,6 +4,20 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.2.12] — 2026-04-28
+
+### Changed
+
+- **Backup Export / Import moved to the Settings tab.** Lived under the Notes tab's sidebar since v0.2.6, but conceptually belonged with the rest of the app-level configuration. The Notes tab keeps **+ New Note** and **Clear All**; everything backup-related is now under the new **Backup & restore** section in Settings. — *#feat(settings)*
+- **Selective export.** Three checkboxes — *Clipboard history*, *Snippets*, *Notes* — let you choose which sections land in the file. All checked by default; unchecking any of them writes an empty array for that section in the JSON. Intended use: share snippets without leaking your clipboard history.
+  - Backend: new `backup::ExportOptions { include_history, include_snippets, include_notes }` with `::all()` / `::default()` constructors. Both `export_backup` and `save_backup_to_file` IPC commands take three optional flags (default `true`). Existing callers stay backward-compatible.
+  - Frontend: `BackupExportOptions` interface in `ipc.ts`. `exportBackup()` / `saveBackupToFile(path, opts)` accept the same fields.
+  - 3 new Rust unit tests (`export_with_only_snippets…`, `export_with_all_off…`, `export_options_default…`). Backend total: 71 → **74 green**.
+
+### Fixed
+
+- After an Import, the Notes / Snippets / History tabs now refresh immediately. The Settings panel takes an `onBackupImported` prop from `App.tsx` that re-fires the three list hooks (`refreshHistory`, `refreshSnippets`, `refreshNotes`) once the merge returns.
+
 ## [0.2.11] — 2026-04-26
 
 ### Fixed
@@ -277,6 +291,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 - System tray menu: Open · Pause Capture · Clear History · Start with Windows · Quit.
 - pnpm + Cargo workspaces with shared [`core/`](./core) and [`win/`](./win) bundle shell.
 
+[0.2.12]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.12
 [0.2.11]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.11
 [0.2.10]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.10
 [0.2.9]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.9

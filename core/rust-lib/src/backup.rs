@@ -44,22 +44,62 @@ pub struct BackupImportResult {
     pub errors: Vec<String>,
 }
 
-/// Build the backup document from the live database.
-pub fn export(db: &DbHandle) -> Result<Backup> {
+/// Which sections of the database to include in an export. All true by
+/// default — `ExportOptions::all()` matches the previous behaviour of
+/// `export()`. Stored separately from [`Backup`] because the user picks
+/// these in the Settings panel.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+pub struct ExportOptions {
+    pub include_history: bool,
+    pub include_snippets: bool,
+    pub include_notes: bool,
+}
+
+impl ExportOptions {
+    pub fn all() -> Self {
+        Self {
+            include_history: true,
+            include_snippets: true,
+            include_notes: true,
+        }
+    }
+}
+
+impl Default for ExportOptions {
+    fn default() -> Self {
+        Self::all()
+    }
+}
+
+/// Build the backup document from the live database. Empty `Vec`s are
+/// written for sections the user opted out of via [`ExportOptions`].
+pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
     Ok(Backup {
         version: CURRENT_VERSION,
         exported_at: Utc::now().timestamp_millis(),
-        // Pull *all* history entries, not the default 500 page size, so a
-        // backup is actually complete.
-        history: db::list(db, 100_000, 0)?,
-        snippets: snippets::list_all(db)?,
-        notes: notes::list_all(db)?,
+        // Pull *all* history entries (not the default 500 page size) when
+        // included, so a backup is actually complete.
+        history: if opts.include_history {
+            db::list(db, 100_000, 0)?
+        } else {
+            Vec::new()
+        },
+        snippets: if opts.include_snippets {
+            snippets::list_all(db)?
+        } else {
+            Vec::new()
+        },
+        notes: if opts.include_notes {
+            notes::list_all(db)?
+        } else {
+            Vec::new()
+        },
     })
 }
 
 /// Serialize the backup as pretty-printed JSON.
-pub fn export_json(db: &DbHandle) -> Result<String> {
-    let backup = export(db)?;
+pub fn export_json(db: &DbHandle, opts: ExportOptions) -> Result<String> {
+    let backup = export(db, opts)?;
     serde_json::to_string_pretty(&backup).map_err(Into::into)
 }
 
@@ -201,7 +241,7 @@ mod tests {
     fn export_and_import_roundtrip_into_empty_db() {
         let src = fresh_db();
         seed(&src);
-        let json = export_json(&src).unwrap();
+        let json = export_json(&src, ExportOptions::all()).unwrap();
 
         let dst = fresh_db();
         let r = import_json(&dst, &json).unwrap();
@@ -223,7 +263,7 @@ mod tests {
 
         // Re-import the same backup. History should dedupe; snippet should
         // upsert in place; notes will *append* (acceptable per design).
-        let json = export_json(&db).unwrap();
+        let json = export_json(&db, ExportOptions::all()).unwrap();
         let r = import_json(&db, &json).unwrap();
         assert!(r.errors.is_empty(), "no errors: {:?}", r.errors);
 
@@ -242,6 +282,47 @@ mod tests {
             2,
             "notes are appended (no natural dedup key)"
         );
+    }
+
+    #[test]
+    fn export_with_only_snippets_emits_empty_other_sections() {
+        let db = fresh_db();
+        seed(&db);
+        let opts = ExportOptions {
+            include_history: false,
+            include_snippets: true,
+            include_notes: false,
+        };
+        let backup = export(&db, opts).unwrap();
+        assert!(backup.history.is_empty(), "history should be empty");
+        assert_eq!(backup.snippets.len(), 1, "snippet should be present");
+        assert!(backup.notes.is_empty(), "notes should be empty");
+    }
+
+    #[test]
+    fn export_with_all_off_emits_everything_empty() {
+        let db = fresh_db();
+        seed(&db);
+        let opts = ExportOptions {
+            include_history: false,
+            include_snippets: false,
+            include_notes: false,
+        };
+        let backup = export(&db, opts).unwrap();
+        assert!(backup.history.is_empty());
+        assert!(backup.snippets.is_empty());
+        assert!(backup.notes.is_empty());
+        // Version + timestamp must still be set so the file is parseable.
+        assert_eq!(backup.version, CURRENT_VERSION);
+        assert!(backup.exported_at > 0);
+    }
+
+    #[test]
+    fn export_options_default_includes_everything() {
+        let opts = ExportOptions::default();
+        assert!(opts.include_history);
+        assert!(opts.include_snippets);
+        assert!(opts.include_notes);
     }
 
     #[test]

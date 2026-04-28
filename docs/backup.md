@@ -6,21 +6,27 @@ ClipSnap's **Backup** feature exports the complete database (`history` + `snippe
 - snapshot your state before risky edits or before importing someone else's snippets,
 - share a curated set of notes/snippets with a colleague (after editing the JSON to keep just what's relevant).
 
-Backup was introduced in **v0.2.6**.
+Backup was introduced in **v0.2.6**. Moved to the **Settings** tab and gained per-section selection in **v0.2.12**.
 
 ## How to export
 
 1. Open the popup (`Ctrl+Shift+V`).
-2. Click the **Notes** tab.
-3. In the categories sidebar at the bottom, click **Export…**.
-4. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `clipsnap-backup-<ISO timestamp>.json`. Pick a location and confirm.
+2. Click the **Settings** tab → **Backup & restore** section.
+3. Tick which sections to include — *Clipboard history*, *Snippets*, *Notes*. All three are checked by default; uncheck any you don't want in the file.
+4. Click **Export…**. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `clipsnap-backup-<ISO timestamp>.json`. Pick a location and confirm.
 
 The status line shows the bytes written, e.g. `Exported 124.5 KB to clipsnap-backup-2026-04-25T09-30-15.json`.
 
+> **Tip — share snippets without leaking history.** Untick *Clipboard history* and *Notes* for a snippets-only file you can hand to a colleague. They run **Import…** and only your snippets get merged into their database (history dedupes against an empty array, notes append zero rows).
+
+Sections that are unticked are written as empty `Vec`s in the JSON — version + timestamp are still set so the resulting file is always parseable on import.
+
 ## How to import
 
-1. Open the popup → **Notes** tab → **Import…** in the sidebar.
+1. Open the popup → **Settings** tab → **Backup & restore** → **Import…**.
 2. Pick a `.json` file in the open dialog.
+
+Import is always full-merge; whatever sections the file actually contains get merged into the live database. Empty sections in the file are no-ops.
 
 The status line summarizes the merge:
 
@@ -154,13 +160,19 @@ jq -s '
 
 ## IPC surface
 
-| Command                | Args         | Returns                                            |
-|------------------------|--------------|----------------------------------------------------|
-| `export_backup`        | —            | `string` — pretty-printed JSON                     |
-| `save_backup_to_file`  | `path`       | `usize` — bytes written                            |
-| `import_backup`        | `path`       | `BackupImportResult`                               |
+| Command                | Args                                                             | Returns                                            |
+|------------------------|------------------------------------------------------------------|----------------------------------------------------|
+| `export_backup`        | `include_history?, include_snippets?, include_notes?` (all default `true`) | `string` — pretty-printed JSON         |
+| `save_backup_to_file`  | `path, include_history?, include_snippets?, include_notes?`       | `usize` — bytes written                            |
+| `import_backup`        | `path`                                                           | `BackupImportResult`                               |
 
 ```ts
+interface BackupExportOptions {
+  includeHistory?: boolean;   // default true
+  includeSnippets?: boolean;  // default true
+  includeNotes?: boolean;     // default true
+}
+
 interface BackupImportResult {
   history_imported: number;
   snippets_imported: number;
@@ -169,9 +181,9 @@ interface BackupImportResult {
 }
 ```
 
-Frontend wrappers in [`core/frontend/src/lib/ipc.ts`](../core/frontend/src/lib/ipc.ts); backend in [`core/rust-lib/src/backup.rs`](../core/rust-lib/src/backup.rs) and [`core/rust-lib/src/commands.rs`](../core/rust-lib/src/commands.rs).
+Frontend wrappers in [`core/frontend/src/lib/ipc.ts`](../core/frontend/src/lib/ipc.ts); backend in [`core/rust-lib/src/backup.rs`](../core/rust-lib/src/backup.rs) (`ExportOptions::all()` / `ExportOptions::default()`) and [`core/rust-lib/src/commands.rs`](../core/rust-lib/src/commands.rs).
 
-The Notes panel uses `save_backup_to_file` (one IPC hop = export + write), and `import_backup` after the file picker resolves.
+The Settings panel calls `save_backup_to_file` (one IPC hop = export + write) for export and `import_backup` after the file picker resolves for import.
 
 ## Capabilities
 

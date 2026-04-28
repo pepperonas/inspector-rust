@@ -544,7 +544,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-core"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-macos"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "clipsnap-core",
  "tauri",
@@ -583,7 +583,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-win"
-version = "0.2.11"
+version = "0.2.12"
 dependencies = [
  "clipsnap-core",
  "tauri",

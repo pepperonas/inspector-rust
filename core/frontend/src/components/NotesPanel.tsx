@@ -1,8 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   Bookmark,
-  Download,
   FileCode2,
   FileText,
   Files,
@@ -12,20 +10,16 @@ import {
   Send,
   Trash2,
   Type,
-  Upload,
 } from "lucide-react";
 import {
   clearNotes,
   createNote,
   deleteNote,
-  importBackup,
   pasteNote,
-  saveBackupToFile,
-  setSuppressHide,
   updateNote,
 } from "../lib/ipc";
-import type { BackupImportResult, ContentType, Note } from "../lib/types";
-import { formatBytes, relativeTime, truncateOneLine } from "../lib/format";
+import type { ContentType, Note } from "../lib/types";
+import { relativeTime, truncateOneLine } from "../lib/format";
 
 interface Props {
   notes: Note[];
@@ -77,13 +71,6 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
   const [form, setForm] = useState<FormState | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"export" | "import" | null>(null);
-  const [importStatus, setImportStatus] = useState<
-    | { kind: "ok"; result: BackupImportResult }
-    | { kind: "info"; message: string }
-    | { kind: "err"; message: string }
-    | null
-  >(null);
 
   const filtered = useMemo(() => {
     if (activeCategory === ALL) return notes;
@@ -204,53 +191,8 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
     await onRefresh();
   };
 
-  const onExport = async () => {
-    setImportStatus(null);
-    setBusy("export");
-    await setSuppressHide(true).catch(() => {});
-    try {
-      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
-      const path = await saveDialog({
-        title: "Save ClipSnap backup",
-        defaultPath: `clipsnap-backup-${stamp}.json`,
-        filters: [{ name: "JSON", extensions: ["json"] }],
-      });
-      if (!path) return;
-      const bytes = await saveBackupToFile(path);
-      setImportStatus({
-        kind: "info",
-        message: `Exported ${formatBytes(bytes)} to ${path.split("/").pop() ?? path}`,
-      });
-    } catch (e) {
-      setImportStatus({ kind: "err", message: String(e) });
-    } finally {
-      await setSuppressHide(false).catch(() => {});
-      setBusy(null);
-    }
-  };
-
-  const onImport = async () => {
-    setImportStatus(null);
-    setBusy("import");
-    await setSuppressHide(true).catch(() => {});
-    try {
-      const path = await openDialog({
-        multiple: false,
-        directory: false,
-        filters: [{ name: "JSON", extensions: ["json"] }],
-        title: "Select ClipSnap backup file",
-      });
-      if (!path) return;
-      const result = await importBackup(path);
-      setImportStatus({ kind: "ok", result });
-      await onRefresh();
-    } catch (e) {
-      setImportStatus({ kind: "err", message: String(e) });
-    } finally {
-      await setSuppressHide(false).catch(() => {});
-      setBusy(null);
-    }
-  };
+  // Backup Export/Import lives in the Settings tab now (with checkboxes
+  // for selective export). NotesPanel no longer owns those buttons.
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -286,18 +228,6 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
         <div className="border-t border-[var(--color-border)]">
           <SidebarAction icon={<Plus size={13} />} label="New Note" onClick={openNew} />
           <SidebarAction
-            icon={<Download size={13} />}
-            label={busy === "export" ? "Exporting…" : "Export…"}
-            onClick={() => void onExport()}
-            disabled={busy !== null}
-          />
-          <SidebarAction
-            icon={<Upload size={13} />}
-            label={busy === "import" ? "Importing…" : "Import…"}
-            onClick={() => void onImport()}
-            disabled={busy !== null}
-          />
-          <SidebarAction
             icon={<Trash2 size={13} />}
             label="Clear All"
             onClick={() => void onClearAll()}
@@ -309,39 +239,6 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
 
       {/* Note list */}
       <div className="flex w-2/5 flex-col border-r border-[var(--color-border)]">
-        {importStatus && (
-          <div
-            className={
-              "border-b border-[var(--color-border)] px-3 py-1.5 text-[11px] " +
-              (importStatus.kind === "err"
-                ? "text-red-400"
-                : "text-[var(--color-muted)]")
-            }
-          >
-            {importStatus.kind === "ok" ? (
-              <>
-                Imported{" "}
-                <b>{importStatus.result.notes_imported}</b> notes,{" "}
-                <b>{importStatus.result.snippets_imported}</b> snippets,{" "}
-                <b>{importStatus.result.history_imported}</b> history
-                {importStatus.result.errors.length > 0 && (
-                  <>
-                    {" — "}
-                    <span className="text-red-400">
-                      {importStatus.result.errors[0]}
-                      {importStatus.result.errors.length > 1 &&
-                        ` (+${importStatus.result.errors.length - 1} more)`}
-                    </span>
-                  </>
-                )}
-              </>
-            ) : importStatus.kind === "info" ? (
-              importStatus.message
-            ) : (
-              <>Failed: {importStatus.message}</>
-            )}
-          </div>
-        )}
         <div className="flex-1 overflow-auto">
           {filtered.length === 0 ? (
             <div className="flex h-full items-center justify-center px-4 text-center text-[12px] text-[var(--color-muted)]">

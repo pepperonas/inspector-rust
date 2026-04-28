@@ -1,22 +1,43 @@
 import { useEffect, useRef, useState } from "react";
-import { AlertTriangle, CheckCircle2, Keyboard, PlayCircle, Wand2, Zap } from "lucide-react";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import {
+  AlertTriangle,
+  Archive,
+  CheckCircle2,
+  Download,
+  Keyboard,
+  PlayCircle,
+  Upload,
+  Wand2,
+  Zap,
+} from "lucide-react";
 import {
   diagnoseExpandAtCursor,
   getAccessibilityStatus,
   getExpanderConfig,
+  importBackup,
   openAccessibilitySettings,
   quitApp,
   relaunchApp,
   requestAccessibilityGrant,
+  saveBackupToFile,
   setExpanderConfig,
+  setSuppressHide,
   type DiagnoseResult,
   type ExpanderConfig,
 } from "../lib/ipc";
+import type { BackupImportResult } from "../lib/types";
+import { formatBytes } from "../lib/format";
 import { HotkeyCapture } from "./HotkeyCapture";
 
 const DEFAULT_HOTKEY = "Alt+Backquote";
 
-export function SettingsPanel() {
+interface Props {
+  /** Notes-tab refresh — used to reflect imported notes immediately. */
+  onBackupImported?: () => Promise<void> | void;
+}
+
+export function SettingsPanel({ onBackupImported }: Props = {}) {
   const [cfg, setCfg] = useState<ExpanderConfig | null>(null);
   const [hotkey, setHotkey] = useState<string>(DEFAULT_HOTKEY);
   const [enabled, setEnabled] = useState(false);
@@ -40,6 +61,78 @@ export function SettingsPanel() {
     | null
   >(null);
   const pollRef = useRef<number | null>(null);
+
+  // ── Backup section state ────────────────────────────────────────────────
+  const [includeHistory, setIncludeHistory] = useState(true);
+  const [includeSnippets, setIncludeSnippets] = useState(true);
+  const [includeNotes, setIncludeNotes] = useState(true);
+  const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
+  const [backupStatus, setBackupStatus] = useState<
+    | { kind: "ok"; message: string }
+    | { kind: "import-ok"; result: BackupImportResult }
+    | { kind: "err"; message: string }
+    | null
+  >(null);
+
+  const onExport = async () => {
+    if (!includeHistory && !includeSnippets && !includeNotes) {
+      setBackupStatus({
+        kind: "err",
+        message: "Select at least one section to export.",
+      });
+      return;
+    }
+    setBackupStatus(null);
+    setBackupBusy("export");
+    await setSuppressHide(true).catch(() => {});
+    try {
+      const stamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+      const path = await saveDialog({
+        title: "Save ClipSnap backup",
+        defaultPath: `clipsnap-backup-${stamp}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!path) return;
+      const bytes = await saveBackupToFile(path, {
+        includeHistory,
+        includeSnippets,
+        includeNotes,
+      });
+      const filename = path.split("/").pop() ?? path;
+      setBackupStatus({
+        kind: "ok",
+        message: `Exported ${formatBytes(bytes)} to ${filename}`,
+      });
+    } catch (e) {
+      setBackupStatus({ kind: "err", message: String(e) });
+    } finally {
+      await setSuppressHide(false).catch(() => {});
+      setBackupBusy(null);
+    }
+  };
+
+  const onImport = async () => {
+    setBackupStatus(null);
+    setBackupBusy("import");
+    await setSuppressHide(true).catch(() => {});
+    try {
+      const path = await openDialog({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+        title: "Select ClipSnap backup file",
+      });
+      if (!path) return;
+      const result = await importBackup(path);
+      setBackupStatus({ kind: "import-ok", result });
+      if (onBackupImported) await onBackupImported();
+    } catch (e) {
+      setBackupStatus({ kind: "err", message: String(e) });
+    } finally {
+      await setSuppressHide(false).catch(() => {});
+      setBackupBusy(null);
+    }
+  };
 
   // Initial load.
   useEffect(() => {
@@ -444,8 +537,115 @@ export function SettingsPanel() {
             </ul>
           </details>
         </Section>
+
+        {/* Backup & restore section */}
+        <div className="mt-6">
+          <Section
+            icon={<Archive size={16} className="text-[var(--color-accent)]" />}
+            title="Backup & restore"
+            subtitle="Export everything (or just parts) to a single JSON file. Import merges back: snippets upsert by abbreviation, history dedupes by SHA-256, notes append."
+          >
+            <Row label="What to export">
+              <div className="flex flex-col gap-1.5 text-[12px]">
+                <BackupCheckbox
+                  label="Clipboard history"
+                  checked={includeHistory}
+                  onChange={setIncludeHistory}
+                />
+                <BackupCheckbox
+                  label="Snippets"
+                  checked={includeSnippets}
+                  onChange={setIncludeSnippets}
+                />
+                <BackupCheckbox
+                  label="Notes"
+                  checked={includeNotes}
+                  onChange={setIncludeNotes}
+                />
+              </div>
+            </Row>
+
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <button
+                onClick={() => void onExport()}
+                disabled={backupBusy !== null}
+                className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
+              >
+                <Download size={12} />
+                {backupBusy === "export" ? "Exporting…" : "Export…"}
+              </button>
+              <button
+                onClick={() => void onImport()}
+                disabled={backupBusy !== null}
+                className="flex items-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
+              >
+                <Upload size={12} />
+                {backupBusy === "import" ? "Importing…" : "Import…"}
+              </button>
+              <span className="ml-auto text-[11px] text-[var(--color-muted)]">
+                Import merges into the current database
+              </span>
+            </div>
+
+            {backupStatus && (
+              <div
+                className={
+                  "mt-3 rounded border px-2.5 py-1.5 text-[11px] " +
+                  (backupStatus.kind === "err"
+                    ? "border-red-500/40 bg-red-500/5 text-red-400"
+                    : "border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-muted)]")
+                }
+              >
+                {backupStatus.kind === "ok" ? (
+                  backupStatus.message
+                ) : backupStatus.kind === "import-ok" ? (
+                  <>
+                    Imported{" "}
+                    <b>{backupStatus.result.notes_imported}</b> notes,{" "}
+                    <b>{backupStatus.result.snippets_imported}</b> snippets,{" "}
+                    <b>{backupStatus.result.history_imported}</b> history
+                    {backupStatus.result.errors.length > 0 && (
+                      <>
+                        {" — "}
+                        <span className="text-red-400">
+                          {backupStatus.result.errors[0]}
+                          {backupStatus.result.errors.length > 1 &&
+                            ` (+${backupStatus.result.errors.length - 1} more)`}
+                        </span>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>Failed: {backupStatus.message}</>
+                )}
+              </div>
+            )}
+          </Section>
+        </div>
       </div>
     </div>
+  );
+}
+
+function BackupCheckbox({
+  label,
+  checked,
+  onChange,
+}: {
+  label: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex cursor-pointer items-center gap-2">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={(e) => onChange(e.target.checked)}
+        className="accent-[var(--color-accent)]"
+      />
+      <span>{label}</span>
+    </label>
   );
 }
 

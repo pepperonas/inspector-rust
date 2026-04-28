@@ -244,7 +244,15 @@ function App() {
         ) : activeTab === "notes" ? (
           <NotesPanel notes={notes} categories={noteCategories} onRefresh={refreshNotes} />
         ) : (
-          <SettingsPanel />
+          <SettingsPanel
+            onBackupImported={async () => {
+              // After a Backup → Import, refresh every list that might
+              // have new rows. History reloads itself via the
+              // `clipboard-changed` event the watcher emits, but Notes
+              // and Snippets need an explicit nudge.
+              await Promise.all([refreshHistory(), refreshSnippets(), refreshNotes()]);
+            }}
+          />
         )}
 
         <Footer

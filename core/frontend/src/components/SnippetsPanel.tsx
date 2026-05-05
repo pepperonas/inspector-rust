@@ -1,9 +1,10 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import { Plus, Trash2, Upload, Zap } from "lucide-react";
+import { Plus, RotateCcw, Trash2, Upload, Zap } from "lucide-react";
 import {
   deleteSnippet,
   importSnippetsFromFile,
+  restoreDefaultPrompts,
   setSuppressHide,
   upsertSnippet,
   type ImportResult,
@@ -79,6 +80,27 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
     await onRefresh();
   };
 
+  const onRestoreDefaults = async () => {
+    if (
+      !window.confirm(
+        "Re-import the bundled default AI-prompt templates (~25 prompts).\n\nExisting snippets with the same abbreviation will be overwritten with the latest version. Your other snippets stay untouched.\n\nContinue?",
+      )
+    ) {
+      return;
+    }
+    setImportStatus(null);
+    setImporting(true);
+    try {
+      const result = await restoreDefaultPrompts();
+      setImportStatus({ kind: "ok", result });
+      await onRefresh();
+    } catch (err) {
+      setImportStatus({ kind: "err", message: String(err) });
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const onPickFile = async () => {
     setImportStatus(null);
     setImporting(true);
@@ -125,6 +147,15 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
           >
             <Upload size={13} />
             {importing ? "Importing…" : "Import"}
+          </button>
+          <button
+            onClick={() => void onRestoreDefaults()}
+            disabled={importing}
+            title="Re-import the bundled default AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
+            className="flex items-center gap-1.5 border-l border-[var(--color-border)] px-3 py-2 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+          >
+            <RotateCcw size={13} />
+            Restore defaults
           </button>
         </div>
 

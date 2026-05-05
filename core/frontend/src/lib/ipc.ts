@@ -108,6 +108,14 @@ export function importSnippetsFromFile(path: string): Promise<ImportResult> {
   return invoke("import_snippets_from_file", { path });
 }
 
+/** Re-import the bundled default AI-prompt snippets. Existing snippets
+ *  sharing an `abbreviation` get overwritten; user-added snippets with
+ *  distinct abbreviations are untouched. Surfaced via the Snippets-tab
+ *  "Restore defaults" button. */
+export function restoreDefaultPrompts(): Promise<ImportResult> {
+  return invoke("restore_default_prompts");
+}
+
 // ── Notes ────────────────────────────────────────────────────────────────────
 
 export function listNotes(): Promise<Note[]> {

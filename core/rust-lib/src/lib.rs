@@ -9,6 +9,7 @@ mod hotkey;
 mod models;
 mod notes;
 mod paste;
+mod seed;
 mod settings;
 mod snippets;
 mod text_field;
@@ -49,6 +50,14 @@ pub fn run(context: tauri::Context<Wry>) {
             snippets::init_table(&db_handle)?;
             notes::init_table(&db_handle)?;
             settings::init_table(&db_handle)?;
+
+            // First-run: seed the curated default AI-prompt snippets.
+            // Idempotent — runs once per database lifetime, then the
+            // settings flag prevents re-import. User-deleted snippets
+            // stay deleted.
+            if let Err(e) = seed::maybe_seed_defaults(&db_handle) {
+                tracing::warn!("default snippet seed failed: {e:#}");
+            }
 
             let watcher_state = WatcherState::new();
             let paused = watcher_state.paused.clone();
@@ -137,6 +146,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::paste_note_formatted,
             commands::import_snippets,
             commands::import_snippets_from_file,
+            commands::restore_default_prompts,
             commands::set_suppress_hide,
             commands::list_notes,
             commands::list_note_categories,

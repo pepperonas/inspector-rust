@@ -4,6 +4,29 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] — 2026-05-05
+
+### Added — 25 default AI prompt snippets, working color picker
+
+- **Bundled default snippet library — 25 curated AI prompts.** First-launch seeds your snippet table with `ai*`-prefixed prompts covering programming (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aibench`), web/frontend (`aithumb`, `aimobile`, `aia11y`, `aiseo`, `aicomponent`), IT security (`aithreat`, `aipentest`, `aiauth`, `aigdpr`), business workflows (`aibrief`, `airfp`, `aiokr`, `aichange`), data analysis (`aidataq`, `aiml`, `aidashboard`), and architecture (`aiapi`). Each prompt is a structured, opinionated brief — sections, bullets, output-format directives — written to be handed straight to an LLM without further massaging. Type the abbreviation in the search field, press Enter (or use the text expander), get the full prompt. — *#feat(snippets)*
+  - **Idempotent seeding.** Tracked via `seed.default_snippets_v1` in the settings table. Runs once on first install; user-deleted prompts stay deleted on subsequent launches.
+  - **Restore defaults button** in the Snippets-tab sidebar (rotate-counter-clockwise icon, next to Import). Re-imports all 25 prompts, upsert-by-abbreviation — your custom snippets with different abbreviations are untouched, but a deleted/edited `aiplan` *is* reset to the bundled version.
+  - Embedded via `include_str!` so no external file is needed at runtime.
+  - 3 new Rust unit tests (`embedded_json_parses_and_has_25_prompts`, `maybe_seed_inserts_on_first_run_and_skips_after`, `restore_defaults_re_imports_explicitly`).
+- **Working cross-platform color picker.** v0.4.0's HTML5 `<input type="color">` was unreliable in WKWebView (Tauri's macOS renderer) — the OS picker often didn't open, and even when it did, `navigator.clipboard.writeText` got blocked because the `change` event fires outside the user-gesture context. Replaced with a **custom modal** that runs entirely in the WebView. — *#fix(colors)*
+  - Hue slider + 2D saturation/value picker + live hex input + format tabs (HEX/RGB/HSL) + WCAG-readable preview swatch + Copy button.
+  - Clipboard write goes through `@tauri-apps/plugin-clipboard-manager`'s `writeText` (no browser-API restrictions).
+  - Esc / backdrop-click closes; copy feedback flashes "Copied!" for 2s.
+  - Capabilities updated: `clipboard-manager:allow-write-text` added to both `macos/src-tauri/capabilities/default.json` and `win/src-tauri/capabilities/default.json`.
+
+### Why 0.5.0 (not 0.4.3)
+
+The 25-prompt seed is a real new feature surface, AND first-run behavior changes (new users automatically get a populated snippet library — that's an opinion, not a fix). Bumping minor signals it.
+
+### Tests
+
+`cargo test --workspace`: **84 → 87 green** (+3 seed). `pnpm test`: **77 → 85 green** (+8 HSV/HSL/hex helpers).
+
 ## [0.4.2] — 2026-05-05
 
 ### Fixed
@@ -377,6 +400,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 - System tray menu: Open · Pause Capture · Clear History · Start with Windows · Quit.
 - pnpm + Cargo workspaces with shared [`core/`](./core) and [`win/`](./win) bundle shell.
 
+[0.5.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.5.0
 [0.4.2]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.2
 [0.4.1]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.1
 [0.4.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.0

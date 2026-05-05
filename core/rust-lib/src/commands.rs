@@ -10,6 +10,7 @@ use crate::hotkey::{self, ExpanderShortcutState};
 use crate::models::ClipEntry;
 use crate::notes::{self, Note};
 use crate::paste;
+use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
 use crate::ui_state::UiState;
@@ -265,6 +266,15 @@ pub fn import_snippets_from_file(
     let json = std::fs::read_to_string(&path)
         .map_err(|e| format!("read {path}: {e}"))?;
     snippets::import_from_json(&db, &json).map_err(map_err)
+}
+
+/// Re-import the bundled default AI-prompt snippets. Existing rows
+/// sharing an `abbreviation` get overwritten; user snippets with
+/// distinct abbreviations are untouched. Surfaced via the Snippets-tab
+/// "Restore defaults" button.
+#[tauri::command]
+pub fn restore_default_prompts(db: State<'_, DbHandle>) -> Result<ImportResult, String> {
+    seed::restore_defaults(&db).map_err(map_err)
 }
 
 // ── Notes ────────────────────────────────────────────────────────────────────

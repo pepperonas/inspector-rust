@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readableForeground, rgbToHsl, tryParseColor } from "./colors";
+import { hsvToRgb, readableForeground, rgbToHex, rgbToHsl, rgbToHsv, tryParseColor } from "./colors";
 
 describe("tryParseColor — happy paths", () => {
   it("parses 6-digit hex with hash", () => {
@@ -128,6 +128,58 @@ describe("rgb / hsl conversions", () => {
   it("formats RGB string with alpha", () => {
     const c = tryParseColor("#3366FF80")!;
     expect(c.rgbString).toMatch(/^rgba\(51, 102, 255, 0\.50?\)$/);
+  });
+});
+
+describe("hsv ⇄ rgb roundtrip", () => {
+  it("converts pure red HSV(0, 100, 100) → RGB(255,0,0)", () => {
+    expect(hsvToRgb(0, 100, 100)).toEqual([255, 0, 0]);
+  });
+
+  it("converts pure green HSV(120, 100, 100) → RGB(0,255,0)", () => {
+    expect(hsvToRgb(120, 100, 100)).toEqual([0, 255, 0]);
+  });
+
+  it("converts pure blue HSV(240, 100, 100) → RGB(0,0,255)", () => {
+    expect(hsvToRgb(240, 100, 100)).toEqual([0, 0, 255]);
+  });
+
+  it("rgbToHsv on pure red", () => {
+    expect(rgbToHsv(255, 0, 0)).toEqual([0, 100, 100]);
+  });
+
+  it("rgbToHsv on white (no saturation)", () => {
+    const [, s] = rgbToHsv(255, 255, 255);
+    expect(s).toBe(0);
+  });
+
+  it("hsv → rgb → hsv round-trips for representative samples", () => {
+    const samples: Array<[number, number, number]> = [
+      [0, 100, 100],
+      [60, 50, 50],
+      [120, 100, 100],
+      [180, 80, 60],
+      [240, 100, 100],
+      [300, 70, 90],
+    ];
+    for (const [h, s, v] of samples) {
+      const [r, g, b] = hsvToRgb(h, s, v);
+      const [h2, s2, v2] = rgbToHsv(r, g, b);
+      // Allow ±2 deg / ±2 % rounding error from 8-bit channels.
+      expect(Math.abs(h2 - h)).toBeLessThanOrEqual(2);
+      expect(Math.abs(s2 - s)).toBeLessThanOrEqual(2);
+      expect(Math.abs(v2 - v)).toBeLessThanOrEqual(2);
+    }
+  });
+});
+
+describe("rgbToHex", () => {
+  it("formats with leading hash, uppercase", () => {
+    expect(rgbToHex(51, 102, 255)).toBe("#3366FF");
+  });
+
+  it("clamps out-of-range values", () => {
+    expect(rgbToHex(-5, 999, 128)).toBe("#00FF80");
   });
 });
 

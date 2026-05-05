@@ -156,3 +156,54 @@ export function readableForeground(r: number, g: number, b: number): "#000000" |
   const lum = (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
   return lum > 0.55 ? "#000000" : "#FFFFFF";
 }
+
+/** Convert HSV (hue 0-360, sat 0-100, val 0-100) to sRGB triplet (0-255). */
+export function hsvToRgb(h: number, s: number, v: number): [number, number, number] {
+  const sf = s / 100;
+  const vf = v / 100;
+  const c = vf * sf;
+  const hh = (((h % 360) + 360) % 360) / 60;
+  const x = c * (1 - Math.abs((hh % 2) - 1));
+  let rf: number;
+  let gf: number;
+  let bf: number;
+  if (hh < 1) [rf, gf, bf] = [c, x, 0];
+  else if (hh < 2) [rf, gf, bf] = [x, c, 0];
+  else if (hh < 3) [rf, gf, bf] = [0, c, x];
+  else if (hh < 4) [rf, gf, bf] = [0, x, c];
+  else if (hh < 5) [rf, gf, bf] = [x, 0, c];
+  else [rf, gf, bf] = [c, 0, x];
+  const m = vf - c;
+  return [
+    Math.round((rf + m) * 255),
+    Math.round((gf + m) * 255),
+    Math.round((bf + m) * 255),
+  ];
+}
+
+/** Convert sRGB triplet (0-255) to HSV (hue 0-360, sat 0-100, val 0-100). */
+export function rgbToHsv(r: number, g: number, b: number): [number, number, number] {
+  const rf = r / 255;
+  const gf = g / 255;
+  const bf = b / 255;
+  const max = Math.max(rf, gf, bf);
+  const min = Math.min(rf, gf, bf);
+  const d = max - min;
+  let h = 0;
+  if (d !== 0) {
+    if (max === rf) h = ((gf - bf) / d) % 6;
+    else if (max === gf) h = (bf - rf) / d + 2;
+    else h = (rf - gf) / d + 4;
+    h *= 60;
+    if (h < 0) h += 360;
+  }
+  const s = max === 0 ? 0 : (d / max) * 100;
+  const v = max * 100;
+  return [Math.round(h), Math.round(s), Math.round(v)];
+}
+
+/** Build a `#RRGGBB` (uppercase, no alpha) from an sRGB triplet. */
+export function rgbToHex(r: number, g: number, b: number): string {
+  const pad = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0").toUpperCase();
+  return `#${pad(r)}${pad(g)}${pad(b)}`;
+}

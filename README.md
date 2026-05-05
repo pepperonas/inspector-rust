@@ -5,7 +5,7 @@
 
   **Fast, lightweight clipboard history manager + text expander for Windows 11**
 
-  [![Version](https://img.shields.io/badge/version-0.4.2-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.5.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -84,6 +84,14 @@ Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a
 - 3/4-digit forms require the `#` prefix; 6/8-digit forms accept either form (so `abc` stays a search query but `abcdef` is a color).
 - Preview pane shows a 128 px swatch with the hex overlaid (foreground auto-picked black/white via WCAG luminance) plus copy buttons for hex / RGB / HSL strings.
 - Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
+
+### 25 bundled AI prompt snippets (v0.5.0)
+First-launch seeds your snippet table with **`ai*`-prefixed prompts** covering programming (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aibench`), web (`aithumb`, `aimobile`, `aia11y`, `aiseo`, `aicomponent`), IT security (`aithreat`, `aipentest`, `aiauth`, `aigdpr`), business workflows (`aibrief`, `airfp`, `aiokr`, `aichange`), data (`aidataq`, `aiml`, `aidashboard`), and API design (`aiapi`). Each prompt is a structured, opinionated brief — sections, bullets, output-format directives — written to be handed straight to an LLM without massaging.
+
+- **Idempotent first-run seed** (deleted prompts stay deleted on relaunch)
+- **Restore defaults** button in the Snippets-tab sidebar re-imports them all (upsert by abbreviation; your custom snippets are untouched)
+- Pure data — embedded via `include_str!`. Edit, delete, extend in the Snippets tab like any other snippet.
+- Full reference + the 25 abbreviations: [`docs/ai-prompts.md`](./docs/ai-prompts.md).
 
 ### Plain-text paste (default on, v0.4.0)
 HTML / RTF clipboard entries are stripped to their plain-text preview at paste time, so copy-from-Word / browser / mail and paste-into-anything no longer leaks the source app's styling. Toggle in **Settings → Paste**. Hold <kbd>Shift</kbd> + <kbd>Enter</kbd> in the popup to override and paste with original formatting just for that one entry.
@@ -170,6 +178,7 @@ clipsnap/
 │   ├── backup.md            # Full-app export/import — schema, merge semantics, jq recipes
 │   ├── text-expander.md     # System-wide expander — workflow, hotkey format, per-OS caveats
 │   ├── colors.md            # Inline hex preview + OS-native color picker
+│   ├── ai-prompts.md        # 25 bundled default AI prompt snippets
 │   ├── RELEASING.md         # Release procedure
 │   └── examples/
 │       └── snippets/        # 5 themed JSON examples + their own README
@@ -243,8 +252,8 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 ### Tests
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 77 tests
-cargo test --workspace  # Rust unit tests — 84 tests (db, snippets, notes, backup, settings, expander, text_field, hotkey parser, clipboard_watcher, models)
+pnpm test               # frontend unit tests (vitest + happy-dom) — 85 tests
+cargo test --workspace  # Rust unit tests — 87 tests (db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models)
 ```
 
 The same commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR.

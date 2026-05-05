@@ -1,6 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Palette, Trash2 } from "lucide-react";
+import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
 import type { ListEntry } from "../lib/types";
 
@@ -29,7 +30,7 @@ export function HistoryList({
   onClearAll,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
-  const colorInputRef = useRef<HTMLInputElement>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -60,28 +61,10 @@ export function HistoryList({
             {clipCount} clip{clipCount === 1 ? "" : "s"}
           </span>
           <div className="flex items-center gap-1">
-            {/* Hidden HTML5 color input — clicking the visible button
-                programmatically opens the OS-native color picker
-                (NSColorPanel on macOS, Win32 ColorDialog on Windows,
-                GTK ColorChooser on Linux). The result is written to
-                the OS clipboard so the watcher captures it as a fresh
-                clip in this list. */}
-            <input
-              ref={colorInputRef}
-              type="color"
-              defaultValue="#3366FF"
-              onChange={(e) => {
-                const hex = e.target.value.toUpperCase();
-                void navigator.clipboard.writeText(hex).catch(() => {});
-              }}
-              className="absolute -z-10 h-0 w-0 opacity-0"
-              aria-hidden
-              tabIndex={-1}
-            />
             <button
-              onClick={() => colorInputRef.current?.click()}
+              onClick={() => setPickerOpen(true)}
               className="flex items-center gap-1 rounded px-2 py-0.5 hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)]"
-              title="Open the system color picker; the chosen hex is copied to your clipboard"
+              title="Open the color picker; the chosen value can be copied in HEX, RGB, or HSL"
             >
               <Palette size={11} />
               Color picker
@@ -159,6 +142,8 @@ export function HistoryList({
           </div>
         </div>
       )}
+
+      <ColorPickerModal open={pickerOpen} onClose={() => setPickerOpen(false)} />
     </div>
   );
 }

@@ -26,6 +26,7 @@ use tauri::{
     Emitter, Manager, Wry, WindowEvent,
 };
 use tauri_plugin_autostart::{ManagerExt, MacosLauncher};
+use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 
 use crate::clipboard_watcher::WatcherState;
 
@@ -233,12 +234,31 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
             }
             "clear" => {
-                if let Some(db) = app.try_state::<db::DbHandle>() {
-                    if let Err(e) = db::clear(&db) {
-                        tracing::warn!("clear: {e:#}");
-                    }
-                    let _ = app.emit("clipboard-changed", ());
-                }
+                // Native confirm — the tray menu has no UI surface of its own,
+                // so we can't reuse the popup's `window.confirm` flow without
+                // first showing the popup. A modal dialog keeps the user where
+                // they are; the OK button is destructive on macOS / labeled
+                // "Yes" on Windows.
+                let app2 = app.clone();
+                app.dialog()
+                    .message("Delete all clipboard history? This cannot be undone.")
+                    .title("ClipSnap")
+                    .kind(MessageDialogKind::Warning)
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Delete".to_string(),
+                        "Cancel".to_string(),
+                    ))
+                    .show(move |confirmed| {
+                        if !confirmed {
+                            return;
+                        }
+                        if let Some(db) = app2.try_state::<db::DbHandle>() {
+                            if let Err(e) = db::clear(&db) {
+                                tracing::warn!("clear: {e:#}");
+                            }
+                            let _ = app2.emit("clipboard-changed", ());
+                        }
+                    });
             }
             "autostart" => {
                 let am = app.autolaunch();

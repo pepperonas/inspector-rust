@@ -243,6 +243,10 @@ pub fn hide_popup(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(POPUP_LABEL) {
         let _ = w.hide();
     }
+    // Tell the frontend the popup is gone so it can drop transient state
+    // (e.g., close any open modal so the next "open popup" shows the
+    // default History view, not the modal that was up at hide-time).
+    let _ = app.emit("popup-hidden", ());
     // On macOS, hiding the window alone does not reliably return key focus
     // to the previously active app — especially with `ActivationPolicy::
     // Accessory`. Hiding the whole app (NSApp.hide(nil)) makes the OS

@@ -1,5 +1,6 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Palette, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
@@ -44,6 +45,23 @@ export function HistoryList({
       virtualizer.scrollToIndex(selectedIndex, { align: "auto" });
     }
   }, [selectedIndex, virtualizer, entries.length]);
+
+  // When the popup is dismissed (focus loss → hide_popup, or any other
+  // path that closes the popup window), tear the modal down so re-opening
+  // the popup shows the default History view, not whatever modal happened
+  // to be up at hide-time. Note: the screen eyedropper hides the popup
+  // via `w.hide()` *directly* — not through `hide_popup` — so it does
+  // NOT emit `popup-hidden`, and the modal correctly stays open across
+  // a sample.
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    listen("popup-hidden", () => setPickerOpen(false)).then((u) => {
+      unlisten = u;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
+  }, []);
 
   // Number of clipboard entries (the toolbar's "Clear all" only refers to
   // those — snippets and calc rows are virtual and aren't deleted by it).

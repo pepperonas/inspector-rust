@@ -17,7 +17,7 @@
 //!   thread, so the UI stays responsive. Press Escape to cancel.
 
 #[cfg(target_os = "macos")]
-pub use macos_impl::pick_color_async;
+pub use macos_impl::{demote_to_accessory, pick_color_async};
 
 #[cfg(target_os = "windows")]
 pub use windows_impl::pick_color_blocking;
@@ -61,16 +61,20 @@ mod macos_impl {
             // The block is `Block_copy`'d by NSColorSampler before it
             // returns from showSampler:; our RcBlock can drop after the
             // msg_send call without leaking.
-            let app_cls_for_block = app_cls;
+            //
+            // Note: we deliberately do NOT demote the activation policy
+            // back to Accessory inside this block. Switching policies
+            // synchronously inside the selection handler caused the
+            // popup window to disappear (the focus-loss handler ran
+            // before the suppress-hide clear could take effect). The
+            // demote happens later, in `clear_pick_suppress_hide`, after
+            // the popup has been re-shown.
             let block = RcBlock::new(move |color: *mut AnyObject| {
                 let hex = if color.is_null() {
                     None
                 } else {
                     extract_hex_from_nscolor(color)
                 };
-                // Demote app back to Accessory so the Dock icon goes away.
-                let shared_app: *mut AnyObject = msg_send![app_cls_for_block, sharedApplication];
-                let _: bool = msg_send![shared_app, setActivationPolicy: 1i64];
                 on_result(hex);
             });
 
@@ -80,6 +84,20 @@ mod macos_impl {
             ];
         }
         Ok(())
+    }
+
+    /// Demote the calling app back to `NSApplicationActivationPolicyAccessory`
+    /// (Dock-hidden tray app) after a screen-pick is fully done — i.e.
+    /// after the popup has been re-shown. Doing this from inside the
+    /// NSColorSampler selection handler caused the popup to disappear,
+    /// so the demotion is delegated to the IPC tail handler instead.
+    pub fn demote_to_accessory() {
+        unsafe {
+            if let Some(app_cls) = AnyClass::get(c"NSApplication") {
+                let shared_app: *mut AnyObject = msg_send![app_cls, sharedApplication];
+                let _: bool = msg_send![shared_app, setActivationPolicy: 1i64];
+            }
+        }
     }
 
     /// Convert an NSColor to a `#RRGGBB` hex string in sRGB space.

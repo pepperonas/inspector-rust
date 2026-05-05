@@ -574,30 +574,15 @@ pub fn relaunch_app(app: AppHandle) {
 /// pixels including the popup's).
 #[tauri::command]
 pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
-    use tauri::Manager;
-
-    let popup = app.get_webview_window(crate::hotkey::POPUP_LABEL);
-    if let Some(w) = &popup {
-        let _ = w.hide();
-    }
-    // Suppress the focus-loss auto-hide handler so when we re-show the
-    // popup after sampling, it stays visible.
+    // Suppress the focus-loss auto-hide handler so the popup stays
+    // visible while NSColorSampler's loupe is up. Hiding the popup
+    // entirely turned out to break the loupe rendering on macOS Tahoe
+    // (no key window → no loupe), so we keep it visible. The popup is
+    // alwaysOnTop and may obscure parts of the desktop — the user can
+    // move it before picking, or pick from any area it doesn't cover.
     if let Some(ui) = app.try_state::<UiState>() {
         ui.suppress_hide.store(true, Ordering::Relaxed);
     }
-
-    let restore_popup = {
-        let app = app.clone();
-        move || {
-            if let Some(ui) = app.try_state::<UiState>() {
-                ui.suppress_hide.store(false, Ordering::Relaxed);
-            }
-            if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
-                let _ = w.show();
-                let _ = w.set_focus();
-            }
-        }
-    };
 
     #[cfg(target_os = "macos")]
     {
@@ -607,15 +592,14 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
             let app_for_restore = app_inner.clone();
             if let Err(e) = crate::screen_picker::pick_color_async(move |hex| {
                 let _ = app_for_event.emit("color-picked", hex);
-                restore_popup_after_pick(&app_for_event);
+                clear_pick_suppress_hide(&app_for_event);
             }) {
                 tracing::warn!("pick_screen_color: pick_color_async err: {e}");
                 let _ = app_inner.emit("color-picked", Option::<String>::None);
-                restore_popup_after_pick(&app_for_restore);
+                clear_pick_suppress_hide(&app_for_restore);
             }
         })
         .map_err(map_err)?;
-        let _ = restore_popup; // silence unused-variable lint on success path
         Ok(())
     }
     #[cfg(target_os = "windows")]
@@ -624,30 +608,52 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
         std::thread::spawn(move || {
             let result = crate::screen_picker::pick_color_blocking().ok();
             let _ = app_for_thread.emit("color-picked", result);
-            restore_popup_after_pick(&app_for_thread);
+            clear_pick_suppress_hide(&app_for_thread);
         });
-        let _ = restore_popup;
         Ok(())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        restore_popup();
+        clear_pick_suppress_hide(&app);
         Err("screen color picker not implemented on this platform".to_string())
     }
 }
 
-/// Restore the popup after the screen sampler closes — clears the
-/// suppress-hide flag and re-shows the window. Called from the
-/// platform-specific result paths in [`pick_screen_color`].
-#[cfg(any(target_os = "macos", target_os = "windows"))]
-fn restore_popup_after_pick(app: &AppHandle) {
-    if let Some(ui) = app.try_state::<UiState>() {
-        ui.suppress_hide.store(false, Ordering::Relaxed);
-    }
+/// Restores the popup-and-modal state after a screen-pick finishes.
+///
+/// Sequencing here is delicate. The naïve order — show window, demote
+/// activation policy, clear suppress-hide — caused the popup to vanish
+/// the instant the policy demote ran on macOS Tahoe (the demote
+/// dispatched a focus-loss event, the focus handler ran with the
+/// suppress-hide flag *just* cleared, and called `hide_popup` before
+/// the user saw the result).
+///
+/// Fix: defer the suppress-hide clear *and* the policy demote to a
+/// background thread that sleeps long enough for the focus events
+/// from the show / set_focus calls to drain. The popup stays visible,
+/// the user sees the picked color, and the Dock icon disappears half
+/// a second later.
+fn clear_pick_suppress_hide(app: &AppHandle) {
+    use tauri::Manager;
     if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
         let _ = w.show();
         let _ = w.set_focus();
     }
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if let Some(ui) = app2.try_state::<UiState>() {
+            ui.suppress_hide.store(false, Ordering::Relaxed);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // Demote on the main thread — AppKit policy changes are
+            // expected from the main run loop.
+            let _ = app2.run_on_main_thread(|| {
+                crate::screen_picker::demote_to_accessory();
+            });
+        }
+    });
 }
 
 /// Persist a new expander config and re-register the global hotkey.

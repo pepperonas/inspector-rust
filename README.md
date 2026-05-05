@@ -78,12 +78,13 @@ Type a math expression in the search field and the result appears as the top lis
 - **Gating:** plain numbers (`42`) and plain text don't trigger calc mode — the input must contain at least one operator, function, or constant. Prefix with `=` to force evaluation of a single literal (`=pi`).
 - **Implementation:** safe recursive-descent parser in [`core/frontend/src/lib/calc.ts`](./core/frontend/src/lib/calc.ts) — no `eval`. 27 unit tests in [`calc.test.ts`](./core/frontend/src/lib/calc.test.ts).
 
-### Hex color preview + picker (v0.4.0)
-Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a color row appears at the top with a swatch + hex + RGB. Press Enter to paste the canonical `#RRGGBB` uppercase. The History tab's toolbar also has a **Color picker** button that opens the OS-native picker (NSColorPanel / Win32 ColorDialog / GTK ColorChooser) and writes the chosen hex to the clipboard.
+### Hex color preview + picker (v0.4.0, custom modal v0.5.0, click-to-select v0.5.1)
+Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a color row appears at the top with a swatch + hex + RGB. Press Enter to paste the canonical `#RRGGBB` uppercase. The History tab's toolbar also has a **Color picker** button that opens an in-app **HSV picker modal** with hue slider, big preview swatch, and hex / RGB / HSL output tabs — click **Copy** to write the chosen value to the clipboard.
 
 - 3/4-digit forms require the `#` prefix; 6/8-digit forms accept either form (so `abc` stays a search query but `abcdef` is a color).
 - Preview pane shows a 128 px swatch with the hex overlaid (foreground auto-picked black/white via WCAG luminance) plus copy buttons for hex / RGB / HSL strings.
-- Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
+- **Two-click selection** (v0.5.1): opening the picker is *click 1*; the first click in the SV picker (or typing a hex) is *click 2 — the actual selection*. The big swatch and outputs stay in a placeholder state until then, so opening the modal never silently commits a default color.
+- Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
 
 ### 25 bundled AI prompt snippets (v0.5.0)
 First-launch seeds your snippet table with **`ai*`-prefixed prompts** covering programming (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aibench`), web (`aithumb`, `aimobile`, `aia11y`, `aiseo`, `aicomponent`), IT security (`aithreat`, `aipentest`, `aiauth`, `aigdpr`), business workflows (`aibrief`, `airfp`, `aiokr`, `aichange`), data (`aidataq`, `aiml`, `aidashboard`), and API design (`aiapi`). Each prompt is a structured, opinionated brief — sections, bullets, output-format directives — written to be handed straight to an LLM without massaging.
@@ -272,7 +273,7 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **No sensitive-app detection** | ClipSnap captures everything without filtering. |
 | **No cloud sync** | No automatic sync or multi-device support — but the [Backup](./docs/backup.md) export/import gives you a portable JSON file you can move between machines manually. |
 | **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; ClipSnap falls back to pasting the newline-joined list of paths as text. |
-| **macOS accessibility** | Paste simulation (`enigo`) requires Accessibility access. macOS will prompt on first use — grant it in System Preferences → Privacy & Security → Accessibility. |
+| **macOS accessibility** | Paste simulation (`enigo`) requires Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If it isn't granted, ClipSnap shows an amber banner with an "Open Settings" shortcut on the next paste attempt instead of silently failing or re-firing the system dialog (v0.5.1). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose Open to bypass Gatekeeper on first launch. |
 
 ## Contributing

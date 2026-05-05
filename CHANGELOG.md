@@ -4,6 +4,16 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] — 2026-05-06
+
+### Added — System-wide screen color picker (eyedropper)
+
+- **The Color picker modal now has a "Pick from screen" button** that lets you sample a color from anywhere on the desktop, not just inside ClipSnap's own UI. The picked hex is automatically inserted into the modal — ready to copy as HEX / RGB / HSL. — *#feat(colors)*
+  - **macOS:** uses Apple's own `NSColorSampler` (AppKit, 10.15+) — the same magnifier-loupe used by Pages, Keynote, and Sketch. Clicking outside the loupe cancels.
+  - **Windows:** spawns a fullscreen layered overlay; click anywhere on screen to sample (`GetPixel` on the desktop DC). Press Esc to cancel.
+  - **Async architecture.** The `pick_screen_color` IPC returns immediately; the result arrives later via the `color-picked` Tauri event with `string | null` payload. Keeps the UI responsive while the user is targeting their click.
+  - New module `core/rust-lib/src/screen_picker.rs` (≈170 lines, fully `#[cfg(target_os = …)]`-gated). Adds `objc2` 0.6 + `block2` 0.6 as macOS-only deps for the Objective-C runtime calls; Windows reuses the existing `windows` 0.61 crate with extra features (`Win32_UI_WindowsAndMessaging`, `Win32_Graphics_Gdi`, `Win32_UI_Input_KeyboardAndMouse`).
+
 ## [0.5.1] — 2026-05-06
 
 ### Fixed — Accessibility prompt fired on every paste

@@ -544,14 +544,16 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-core"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
+ "block2 0.6.2",
  "chrono",
  "clipboard-rs",
  "dirs 5.0.1",
  "enigo",
+ "objc2 0.6.4",
  "parking_lot",
  "rusqlite",
  "serde",
@@ -570,7 +572,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-macos"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clipsnap-core",
  "tauri",
@@ -584,7 +586,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-win"
-version = "0.5.1"
+version = "0.5.2"
 dependencies = [
  "clipsnap-core",
  "tauri",

@@ -5,7 +5,7 @@
 
   **Fast, lightweight clipboard history manager + text expander for Windows 11**
 
-  [![Version](https://img.shields.io/badge/version-0.5.1-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.5.2-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![Platform](https://img.shields.io/badge/platform-Windows%2011-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -84,6 +84,7 @@ Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a
 - 3/4-digit forms require the `#` prefix; 6/8-digit forms accept either form (so `abc` stays a search query but `abcdef` is a color).
 - Preview pane shows a 128 px swatch with the hex overlaid (foreground auto-picked black/white via WCAG luminance) plus copy buttons for hex / RGB / HSL strings.
 - **Two-click selection** (v0.5.1): opening the picker is *click 1*; the first click in the SV picker (or typing a hex) is *click 2 — the actual selection*. The big swatch and outputs stay in a placeholder state until then, so opening the modal never silently commits a default color.
+- **Pick from screen** (v0.5.2): the modal's *Pick from screen* button samples a color from anywhere on the desktop. macOS uses Apple's own `NSColorSampler` magnifier loupe; Windows uses a fullscreen overlay + `GetPixel`. Cross-platform sampler in [`core/rust-lib/src/screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
 - Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
 
 ### 25 bundled AI prompt snippets (v0.5.0)

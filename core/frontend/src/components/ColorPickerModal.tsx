@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { Check, Copy, X } from "lucide-react";
+import { listen } from "@tauri-apps/api/event";
+import { Check, Copy, Pipette, X } from "lucide-react";
+import { pickScreenColor } from "../lib/ipc";
 import {
   hsvToRgb,
   readableForeground,
@@ -49,6 +51,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
   const [hexInputValid, setHexInputValid] = useState(true);
   const [format, setFormat] = useState<Format>("hex");
   const [copied, setCopied] = useState(false);
+  const [picking, setPicking] = useState(false);
 
   // Reset selection when the modal closes so re-opening starts fresh.
   useEffect(() => {
@@ -56,7 +59,35 @@ export function ColorPickerModal({ open, onClose }: Props) {
       setHasSelection(false);
       setHexInput("");
       setCopied(false);
+      setPicking(false);
     }
+  }, [open]);
+
+  // Listen for the eyedropper result event from the Rust side. Mounts
+  // once, only acts on events while the modal is open. Payload is a hex
+  // string or null (user cancelled / picker failed).
+  useEffect(() => {
+    if (!open) return;
+    let unlisten: (() => void) | null = null;
+    listen<string | null>("color-picked", (event) => {
+      setPicking(false);
+      const hex = event.payload;
+      if (typeof hex !== "string") return;
+      const parsed = tryParseColor(hex);
+      if (!parsed) return;
+      const [hh, ss, vv] = rgbToHsv(parsed.r, parsed.g, parsed.b);
+      setHue(hh);
+      setSat(ss);
+      setVal(vv);
+      setHasSelection(true);
+      setHexInput(hex.toUpperCase());
+      setHexInputValid(true);
+    }).then((u) => {
+      unlisten = u;
+    });
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, [open]);
 
   // Once the user has selected a color (via SV picker, hue slider, or
@@ -125,6 +156,16 @@ export function ColorPickerModal({ open, onClose }: Props) {
     }
   };
 
+  const onPickFromScreen = async () => {
+    setPicking(true);
+    try {
+      await pickScreenColor();
+    } catch (err) {
+      console.error("pick_screen_color failed", err);
+      setPicking(false);
+    }
+  };
+
   if (!open) return null;
 
   return (
@@ -139,13 +180,29 @@ export function ColorPickerModal({ open, onClose }: Props) {
         {/* Header */}
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold">Color picker</h2>
-          <button
-            onClick={onClose}
-            className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
-            title="Close (Esc)"
-          >
-            <X size={14} />
-          </button>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => void onPickFromScreen()}
+              disabled={picking}
+              className={
+                "flex items-center gap-1 rounded px-2 py-1 text-[11px] font-medium " +
+                (picking
+                  ? "cursor-wait bg-[var(--color-surface)] text-[var(--color-muted)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-fg)] hover:bg-[var(--color-accent)] hover:text-[var(--color-accent-fg)]")
+              }
+              title="Pick a color from anywhere on screen"
+            >
+              <Pipette size={12} />
+              {picking ? "Picking…" : "Pick from screen"}
+            </button>
+            <button
+              onClick={onClose}
+              className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+              title="Close (Esc)"
+            >
+              <X size={14} />
+            </button>
+          </div>
         </div>
 
         {/* Saturation/Value 2D picker. The crosshair is only visible

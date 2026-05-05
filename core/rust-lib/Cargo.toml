@@ -36,10 +36,21 @@ enigo = { workspace = true }
 
 # Windows UI Automation bindings — only pulled in on Windows targets so
 # macOS / Linux builds stay slim. Used by the text_field/windows module
-# to read the focused field's selection without keystroke synthesis.
+# to read the focused field's selection without keystroke synthesis,
+# and by screen_picker (eyedropper) for the fullscreen overlay + GetPixel.
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
     "Win32_UI_Accessibility",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_Graphics_Gdi",
+    "Win32_UI_Input_KeyboardAndMouse",
 ] }
+
+# macOS-only Cocoa bindings for the screen color picker (NSColorSampler).
+# objc2 + block2 give us safe-ish msg_send + stack-allocated Objective-C
+# blocks without dragging in the deprecated `cocoa` crate.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+block2 = "0.6"

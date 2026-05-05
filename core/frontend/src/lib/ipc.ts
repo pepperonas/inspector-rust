@@ -296,3 +296,14 @@ export function relaunchApp(): Promise<void> {
 export function importBackup(path: string): Promise<BackupImportResult> {
   return invoke("import_backup", { path });
 }
+
+/** Show the system-wide screen color picker (eyedropper). Returns
+ *  immediately. The result arrives later via the Tauri event
+ *  `"color-picked"` with payload `string | null` (`null` = cancelled).
+ *
+ *  - macOS: invokes Apple's NSColorSampler (the same magnifier-loupe
+ *    used by Pages / Keynote / Sketch). 10.15+.
+ *  - Windows: pops up a fullscreen overlay; click anywhere to sample. */
+export function pickScreenColor(): Promise<void> {
+  return invoke("pick_screen_color");
+}

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="win/src-tauri/icons/icon.png" alt="ClipSnap" width="120" />
+  <img src="docs/clipsnap.png" alt="ClipSnap" width="900" />
 
   # ClipSnap
 

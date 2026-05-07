@@ -187,9 +187,9 @@ export function ColorPickerModal({ open, onClose }: Props) {
       }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
     >
-      <div className="w-[420px] max-w-[92vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4 shadow-2xl">
+      <div className="w-[380px] max-w-[92vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
         {/* Header */}
-        <div className="mb-3 flex items-center justify-between">
+        <div className="mb-2 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold">Color picker</h2>
           <div className="flex items-center gap-1">
             <button
@@ -232,7 +232,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
         />
 
         {/* Hue slider */}
-        <div className="mt-3">
+        <div className="mt-2">
           <HueSlider
             hue={hue}
             onChange={(h) => {
@@ -246,19 +246,19 @@ export function ColorPickerModal({ open, onClose }: Props) {
             is selected. */}
         {hasSelection ? (
           <div
-            className="mt-3 flex h-16 items-center justify-center rounded border border-[var(--color-border)] font-[var(--font-mono)] text-[16px] font-semibold tracking-wide"
+            className="mt-2 flex h-10 items-center justify-center rounded border border-[var(--color-border)] font-[var(--font-mono)] text-[14px] font-semibold tracking-wide"
             style={{ backgroundColor: hex, color: fg }}
           >
             {hex}
           </div>
         ) : (
-          <div className="mt-3 flex h-16 items-center justify-center rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] text-[12px] text-[var(--color-muted)]">
+          <div className="mt-2 flex h-10 items-center justify-center rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] text-[11px] text-[var(--color-muted)]">
             Click in the picker above (or type a hex) to select a color
           </div>
         )}
 
         {/* Hex input */}
-        <div className="mt-3 flex items-center gap-2">
+        <div className="mt-2 flex items-center gap-2">
           <label className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
             Hex
           </label>
@@ -281,7 +281,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
         </div>
 
         {/* Format tabs + output */}
-        <div className="mt-3 flex items-center gap-1">
+        <div className="mt-2 flex items-center gap-1">
           {(["hex", "rgb", "hsl"] as const).map((f) => (
             <button
               key={f}
@@ -302,7 +302,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
         </div>
 
         {/* Action buttons */}
-        <div className="mt-4 flex items-center justify-end gap-2">
+        <div className="mt-3 flex items-center justify-end gap-2">
           <button
             onClick={onClose}
             className="rounded px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
@@ -380,7 +380,7 @@ function SVPicker({
         setDragging(true);
         updateFromEvent(e.clientX, e.clientY);
       }}
-      className="relative h-44 w-full cursor-crosshair select-none overflow-hidden rounded border border-[var(--color-border)]"
+      className="relative h-32 w-full cursor-crosshair select-none overflow-hidden rounded border border-[var(--color-border)]"
       style={{ backgroundColor: `hsl(${hue}, 100%, 50%)` }}
     >
       {/* White → transparent (left → right) for saturation */}

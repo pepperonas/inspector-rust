@@ -9,19 +9,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 pnpm install
 
 # Dev servers (hot-reload Rust + frontend)
-pnpm dev:win          # Windows — launches Tauri dev window
-pnpm dev:macos        # macOS — launches Tauri dev window
+pnpm dev:win          # Windows
+pnpm dev:macos        # macOS
 
 # Production builds
 pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/clipsnap.exe
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
 
 # Tests
-pnpm test                        # frontend vitest (all)
-pnpm --filter clipsnap-frontend test:watch   # frontend vitest watch mode
-cargo test --workspace           # all Rust unit tests
+pnpm test                                     # frontend vitest (all, single run)
+pnpm --filter clipsnap-frontend test:watch    # frontend vitest watch mode
+cargo test --workspace                        # all Rust unit tests
 
-# Static analysis (runs clippy + tsc + eslint together)
+# Static analysis (clippy + tsc + eslint in one shot)
 pnpm check            # or: bash scripts/check.sh
 
 # Individual checks
@@ -40,61 +40,96 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev 
 ### Workspace layout
 
 ```
-core/rust-lib/   — clipsnap-core rlib: all business logic (DB, clipboard, hotkey, paste, snippets)
+core/rust-lib/   — clipsnap-core rlib: ALL business logic (DB, clipboard, hotkey, paste, snippets, notes, settings, backup, expander)
 core/frontend/   — React 19 + TS + Tailwind v4 + Vite 7 (shared by all platforms)
-win/src-tauri/   — Windows bundle shell: thin main.rs + Tauri config + capabilities
-macos/src-tauri/ — macOS bundle shell: thin main.rs + Tauri config + capabilities
+win/src-tauri/   — Windows bundle shell: 2-line main.rs + Tauri config + capabilities
+macos/src-tauri/ — macOS bundle shell: 2-line main.rs + Tauri config + capabilities
 ```
 
-The platform shells (`win/`, `macos/`) contain only a 2-line `main.rs` that calls `clipsnap_core::run(tauri::generate_context!())`. All logic lives in `core/rust-lib`. The Tauri CLI is invoked via `pnpm --filter clipsnap-{win,macos} tauri {dev,build}`.
+Both platform shells contain only `clipsnap_core::run(tauri::generate_context!())`. All logic is in `core/rust-lib`. The Tauri CLI is invoked per platform via `pnpm --filter clipsnap-{win,macos} tauri {dev,build}`.
 
 ### Adding a new IPC command (end-to-end)
 
-1. Implement the function in the relevant `core/rust-lib/src/*.rs` module.
+1. Implement logic in the relevant `core/rust-lib/src/*.rs` module.
 2. Add a `#[tauri::command]` wrapper in `core/rust-lib/src/commands.rs`.
 3. Register it in the `invoke_handler![]` macro in `core/rust-lib/src/lib.rs`.
 4. Add a typed `invoke("command_name", { ...args })` wrapper in `core/frontend/src/lib/ipc.ts`.
 
-### Database
+### Database — four tables in one SQLite file
 
-`DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. Two tables:
-- `entries` — clipboard history; SHA-256 deduped; capped at 1 000 rows via `prune_locked`; sorted by `last_used_at DESC`.
-- `snippets` — text expander templates with `abbreviation`, `title`, `body`.
-
-Data lives at `dirs::data_dir()/ClipSnap/history.db`:
+`DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. File location:
 - Windows: `%APPDATA%\ClipSnap\history.db`
 - macOS: `~/Library/Application Support/ClipSnap/history.db`
 
-Rust unit tests use `Connection::open_in_memory()` via a `test_db()` helper — no temp files needed.
+| Table | Purpose | Notes |
+|---|---|---|
+| `entries` | Clipboard history | SHA-256 deduped; capped at 1 000 rows via `prune_locked`; sorted by `last_used_at DESC` |
+| `snippets` | Text expander templates | `abbreviation` + `title` + `body`; index on `abbreviation` |
+| `notes` | Persistent bookmarks | Not pruned; `title` + `category`; any clipboard entry can be saved here |
+| `settings` | Key/value app settings | Simple `key TEXT PK, value TEXT`; used for expander hotkey & enabled flag |
 
-### Frontend data flow
+Rust unit tests use `Connection::open_in_memory()` — no temp files needed.
 
-`useClipboardHistory` polls on mount and re-fetches on the `clipboard-changed` Tauri event. `useFuzzySearch` runs fuse.js (threshold 0.4) over the fetched entries. The combined list passed to `HistoryList` is a `ListEntry` discriminated union:
+### Frontend data flow and `ListEntry` union
+
+The history tab renders a unified `ListEntry` discriminated union:
 
 ```ts
-type ListEntry = { kind: "clip"; data: ClipEntry } | { kind: "snippet"; data: Snippet }
+type ListEntry =
+  | { kind: "clip";    data: ClipEntry }
+  | { kind: "snippet"; data: Snippet }
+  | { kind: "calc";    data: { display: string; ... } }
 ```
 
-Snippet matches (from `findSnippets`) are prepended to fuzzy clip results whenever the search query is non-empty.
+Assembly order in `App.tsx`: calc result first → snippet matches → fuzzy clips. Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`core/frontend/src/lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant (plain numbers/text are ignored).
+
+### Tabs
+
+`App.tsx` manages `activeTab: "history" | "snippets" | "notes" | "settings"`. Each tab is a separate panel component:
+
+| Tab | Component | Backing data |
+|---|---|---|
+| History | `HistoryList` + `PreviewPanel` | `useClipboardHistory` + `useFuzzySearch` |
+| Snippets | `SnippetsPanel` | `useSnippets` |
+| Notes | `NotesPanel` | `useNotes` |
+| Settings | `SettingsPanel` | IPC to `settings.rs` + `expander.rs` |
 
 ### Tauri events
 
-| Rust `app.emit(...)` | Frontend `listen(...)` | Purpose |
-|---|---|---|
-| `"clipboard-changed"` | `useClipboardHistory` | Refresh list after new clip captured |
-| `"window-shown"` | `App.tsx` | Reset to history tab + focus search on hotkey |
-| `"open-snippets-tab"` | `App.tsx` | Switch to Snippets tab (tray "Manage Snippets") |
+| Rust `app.emit(...)` | Purpose |
+|---|---|
+| `"clipboard-changed"` | Triggers history re-fetch in `useClipboardHistory` |
+| `"window-shown"` | Resets to history tab + focuses search on hotkey press |
+| `"open-snippets-tab"` | Tray "Manage Snippets" → switches tab |
+| `"open-notes-tab"` | Tray "Manage Notes" → switches tab |
+
+### Text expander (`expander.rs`)
+
+Two separate expansion modes exist:
+
+1. **Search-based** (always on): type an abbreviation in the search field → matching snippets appear at top of list → Enter pastes. Handled entirely in the frontend via `findSnippets()`.
+
+2. **Hotkey-based** (`expander.rs`, default hotkey `Alt+Backquote`): fires from any app without opening the popup. Cycle: save clipboard → `Opt/Ctrl+Shift+←` selects previous word → copy → look up in DB → paste body over selection → restore original clipboard. Enabled/disabled + hotkey configurable in Settings tab.
+
+The Settings panel includes a **"Test now"** button that calls `diagnose_at_cursor` — runs the capture half (no paste) and returns what would have been matched, for debugging.
+
+### `UiState` and modal focus
+
+`UiState.suppress_hide` (AtomicBool, Tauri state) prevents the popup's "hide on focus-loss" handler from firing while a native file dialog is open. The frontend toggles it via `set_suppress_hide` before/after calling `tauri-plugin-dialog` commands (`dialog:allow-open`, `dialog:allow-save`).
 
 ### Platform-specific behaviour in shared code
 
-- **Paste shortcut** (`core/rust-lib/src/paste.rs`): `#[cfg(target_os = "macos")]` uses `Key::Meta` (Cmd+V); all other platforms use `Key::Control` (Ctrl+V).
-- **Dock visibility** (`core/rust-lib/src/lib.rs`): `#[cfg(target_os = "macos")]` calls `app.set_activation_policy(Accessory)` to hide from Dock.
-- **Autostart tray label**: `cfg!(target_os = "windows")` → "Start with Windows", else "Start at Login".
-
-### Clipboard watcher
-
-`clipboard_watcher::spawn` launches a dedicated thread running `clipboard-rs`'s `ClipboardWatcherContext::start_watch()` (event-driven, no polling). The watcher checks `WatcherState.paused` (AtomicBool) before each capture. Priority order: files → image → html → rtf → text.
+- **Paste shortcut** (`paste.rs`): `Key::Meta` (Cmd+V) on macOS; `Key::Control` (Ctrl+V) elsewhere.
+- **Focus-settle delay** (`paste.rs`): 120 ms on macOS, 50 ms on Windows/Linux.
+- **Word-select modifier** (`expander.rs`): `Key::Alt` (Option) on macOS; `Key::Control` elsewhere.
+- **Accessibility check** (`expander.rs`): `AXIsProcessTrusted()` via direct CoreFoundation FFI on macOS; always `true` on other platforms.
+- **Dock visibility** (`lib.rs`): `set_activation_policy(Accessory)` on macOS.
+- **Autostart tray label** (`lib.rs`): `cfg!(target_os = "windows")` → "Start with Windows", else "Start at Login".
 
 ### macOS notes
 
-The first paste operation will trigger a macOS Accessibility permission dialog — this is required for `enigo` to simulate Cmd+V. Release builds are unsigned; users must right-click → Open on first launch to bypass Gatekeeper. The `.icns` icons are shared from `win/src-tauri/icons/` via relative paths in `macos/src-tauri/tauri.conf.json`.
+`macos/src-tauri/Cargo.toml` requires `tauri = { features = ["macos-private-api"] }` for transparent windows. The `entitlements.plist` intentionally **omits** `com.apple.security.automation.apple-events` — `enigo`'s `CGEventPost` is gated by the TCC Accessibility permission (System Settings → Privacy → Accessibility), not that entitlement. The first paste or expander use triggers the Accessibility prompt. After granting, a relaunch is required (macOS caches `AXIsProcessTrusted` per process). The Settings panel detects the just-granted state and offers a one-click relaunch.
+
+### Backup
+
+`backup.rs` serialises history + snippets + notes into a single versioned JSON document. Import merges: snippets upsert by abbreviation, history upserts by hash (dedup), notes append verbatim (no dedup key → re-import creates duplicates). `CURRENT_VERSION = 1`; importing a higher version is rejected.

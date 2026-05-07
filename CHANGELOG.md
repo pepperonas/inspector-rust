@@ -4,6 +4,14 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] — 2026-05-07
+
+### Fixed
+
+- **Clear all confirmation** — replaced unreliable `window.confirm` (silent in Tauri's WebView2) with an inline "Delete N clips? Yes / Cancel" prompt in the history toolbar. — *#fix(ui)*
+- **Bookmark visual feedback** — clicking the bookmark icon now shows a filled `BookmarkCheck` icon in accent color for 1.5 s so the user can see the note was saved. — *#fix(ui)*
+- **Color picker modal height** — reduced SVPicker height (`h-44 → h-32`), swatch height (`h-16 → h-10`), and tightened margins so the modal fits inside the 500 px popup on Windows without scrolling. — *#fix(color-picker)*
+
 ## [0.6.0] — 2026-05-06
 
 ### Added — At-rest encryption for sensitive content

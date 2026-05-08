@@ -4,6 +4,22 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] — 2026-05-08
+
+### Added — Image recolor
+
+- **Recolor toolbar in the image preview pane.** Selecting a mostly-grayscale image entry (logo, icon, silhouette) reveals a row of 9 preset swatches plus a hex input below the preview. Clicking a swatch or pressing Enter on a hex tints the image and stores the result as a new history entry — the original stays put. — *#feat(image)*
+  - **Algorithm.** Decode PNG → for each RGBA pixel, replace RGB with `lerp(target, white, BT.601_luminance)`, preserve alpha → re-encode. Equivalent to ImageMagick's `+level-colors target,white`. Pure Rust via the `image` 0.25 crate (PNG-only feature set, no other format codecs pulled in).
+  - **Photo guard.** Chromaticity sampling (`max((max-min)/max)` over up to 4096 opaque pixels) gates the UI: ≥ 0.12 hides the toolbar so saturated photos can't get accidentally tinted into Photoshop disasters.
+  - **Bounds.** Hard cap at 16 megapixels to keep the synchronous recolor on the UI thread responsive on slower hardware.
+  - **Module:** [`core/rust-lib/src/recolor.rs`](./core/rust-lib/src/recolor.rs) (~140 LOC). 6 unit tests cover dark→target mapping, white→white anchor, alpha preservation, oversize rejection, and chromaticity probe edges (pure-grayscale → ~0, pure-red → > 0.9).
+  - **IPC:** `recolor_image_entry(id, hex) → new_id`, `image_chromaticity(id) → 0..1`. Frontend wrapper in [`core/frontend/src/lib/ipc.ts`](./core/frontend/src/lib/ipc.ts); UI in `RecolorToolbar` inside [`PreviewPanel.tsx`](./core/frontend/src/components/PreviewPanel.tsx).
+  - **Deps added:** `image` 0.25 with `default-features = false, features = ["png"]` (avoids BMP/GIF/HDR/EXR/etc. baggage).
+
+### Fixed — Clipboard capture priority
+
+- **Image-before-files in the watcher.** macOS puts both the bitmap *and* the file path on the pasteboard when you copy an image file (PNG / JPG / HEIC) from Finder or use "Share → Copy Image" in many apps. The previous priority order (`files → image → …`) meant ClipSnap stored only the path — users would see `/Users/.../foo.png` in history instead of the actual picture. Order is now `image → files → html → rtf → text`; pure file copies (PDFs, ZIPs, …) still capture as Files exactly as before. — *#fix(watcher)*
+
 ## [0.6.1] — 2026-05-07
 
 ### Fixed

@@ -307,3 +307,18 @@ export function importBackup(path: string): Promise<BackupImportResult> {
 export function pickScreenColor(): Promise<void> {
   return invoke("pick_screen_color");
 }
+
+/** Tint an image clipboard entry to `hex` (with or without leading `#`).
+ *  Creates a NEW history entry containing the recolored PNG; the
+ *  original stays put. Returns the new entry id. The popup list
+ *  auto-refreshes via the `clipboard-changed` event. */
+export function recolorImageEntry(id: number, hex: string): Promise<number> {
+  return invoke("recolor_image_entry", { id, hex });
+}
+
+/** Returns max chromaticity (0..1) from a sample of opaque pixels in an
+ *  image entry. ~0 means grayscale silhouette → tint will look clean.
+ *  ~0.5+ means a saturated photo → tint will look weird. */
+export function imageChromaticity(id: number): Promise<number> {
+  return invoke("image_chromaticity", { id });
+}

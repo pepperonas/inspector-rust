@@ -10,6 +10,7 @@ mod hotkey;
 mod models;
 mod notes;
 mod paste;
+mod recolor;
 mod screen_picker;
 mod seed;
 mod settings;
@@ -204,6 +205,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::quit_app,
             commands::relaunch_app,
             commands::pick_screen_color,
+            commands::recolor_image_entry,
+            commands::image_chromaticity,
         ])
         .run(context)
         .expect("error while running ClipSnap");

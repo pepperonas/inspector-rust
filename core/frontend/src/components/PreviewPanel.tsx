@@ -1,8 +1,9 @@
-import { useMemo } from "react";
-import { Calculator, Copy, Palette, Zap } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Calculator, Copy, Palette, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
-import { readableForeground } from "../lib/colors";
+import { readableForeground, tryParseColor } from "../lib/colors";
+import { imageChromaticity, recolorImageEntry } from "../lib/ipc";
 
 interface Props {
   entry: ListEntry | null;
@@ -141,6 +142,7 @@ export function PreviewPanel({ entry }: Props) {
             className="max-h-full max-w-full object-contain"
           />
         </div>
+        <RecolorToolbar entryId={clip.id} />
       </div>
     );
   }
@@ -207,5 +209,130 @@ function CopyButton({ onClick }: { onClick: () => void }) {
     >
       <Copy size={11} />
     </button>
+  );
+}
+
+// ── Recolor toolbar (image entries only) ────────────────────────────────────
+
+const PRESETS: Array<{ hex: string; label: string }> = [
+  { hex: "#CE422B", label: "Rust" },
+  { hex: "#DC2626", label: "Red" },
+  { hex: "#16A34A", label: "Green" },
+  { hex: "#2563EB", label: "Blue" },
+  { hex: "#9333EA", label: "Purple" },
+  { hex: "#F59E0B", label: "Amber" },
+  { hex: "#0891B2", label: "Cyan" },
+  { hex: "#6B7280", label: "Gray" },
+  { hex: "#000000", label: "Black" },
+];
+
+/** Inline recolor strip rendered below an image preview.
+ *
+ *  Renders only when the image looks "mostly grayscale" — saturated
+ *  photos get hidden controls because tinting them produces the kind of
+ *  Photoshop disaster nobody wants. Threshold is conservative (~12%
+ *  chromaticity); silhouettes and logos pass, screenshots with a few
+ *  coloured accents may not — by design. */
+function RecolorToolbar({ entryId }: { entryId: number }) {
+  const [eligible, setEligible] = useState<boolean | null>(null);
+  const [hexInput, setHexInput] = useState("");
+  const [hexValid, setHexValid] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset and re-probe whenever the entry changes.
+  useEffect(() => {
+    let cancelled = false;
+    setEligible(null);
+    setError(null);
+    imageChromaticity(entryId)
+      .then((c) => {
+        if (!cancelled) setEligible(c < 0.12);
+      })
+      .catch(() => {
+        if (!cancelled) setEligible(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entryId]);
+
+  if (eligible !== true) return null;
+
+  const apply = async (hex: string) => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await recolorImageEntry(entryId, hex);
+      // Frontend list refetches via "clipboard-changed" emitted by the
+      // backend, so we don't need to do anything else here.
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const onHexChange = (value: string) => {
+    setHexInput(value);
+    setHexValid(value === "" || tryParseColor(value) !== null);
+  };
+
+  const onCustomApply = () => {
+    const parsed = tryParseColor(hexInput);
+    if (!parsed) {
+      setHexValid(false);
+      return;
+    }
+    void apply(`#${[parsed.r, parsed.g, parsed.b].map((n) => n.toString(16).padStart(2, "0")).join("")}`);
+  };
+
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+      <Wand2 size={13} className="shrink-0 text-[var(--color-muted)]" />
+      <span className="shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+        Recolor
+      </span>
+      <div className="flex flex-wrap items-center gap-1">
+        {PRESETS.map((p) => (
+          <button
+            key={p.hex}
+            onClick={() => void apply(p.hex)}
+            disabled={busy}
+            title={`${p.label} (${p.hex})`}
+            className="h-5 w-5 shrink-0 rounded border border-[var(--color-border)] disabled:opacity-50"
+            style={{ backgroundColor: p.hex }}
+            aria-label={`Recolor to ${p.label}`}
+          />
+        ))}
+      </div>
+      <input
+        type="text"
+        value={hexInput}
+        onChange={(e) => onHexChange(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            onCustomApply();
+          }
+        }}
+        spellCheck={false}
+        autoComplete="off"
+        placeholder="#hex"
+        disabled={busy}
+        className={
+          "ml-auto w-20 rounded border bg-[var(--color-bg)] px-1.5 py-0.5 font-[var(--font-mono)] text-[11px] outline-none disabled:opacity-50 " +
+          (hexValid
+            ? "border-[var(--color-border)] focus:border-[var(--color-accent)]"
+            : "border-red-500 focus:border-red-500")
+        }
+      />
+      {error && (
+        <span className="text-[10px] text-red-400" title={error}>
+          failed
+        </span>
+      )}
+    </div>
   );
 }

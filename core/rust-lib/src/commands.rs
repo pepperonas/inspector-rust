@@ -10,6 +10,7 @@ use crate::hotkey::{self, ExpanderShortcutState};
 use crate::models::ClipEntry;
 use crate::notes::{self, Note};
 use crate::paste;
+use crate::recolor;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
@@ -743,4 +744,87 @@ pub fn diagnose_expand_at_cursor(
     .map_err(|e| format!("dispatch to main thread: {e}"))?;
     rx.recv()
         .map_err(|e| format!("main thread didn't reply: {e}"))?
+}
+
+// ── Image recolor ───────────────────────────────────────────────────────────
+
+fn parse_hex_rgb(hex: &str) -> Result<(u8, u8, u8), String> {
+    let s = hex.trim().trim_start_matches('#');
+    if s.len() != 6 {
+        return Err(format!("hex must be 6 chars, got {:?}", hex));
+    }
+    let r = u8::from_str_radix(&s[0..2], 16).map_err(|e| format!("invalid red: {e}"))?;
+    let g = u8::from_str_radix(&s[2..4], 16).map_err(|e| format!("invalid green: {e}"))?;
+    let b = u8::from_str_radix(&s[4..6], 16).map_err(|e| format!("invalid blue: {e}"))?;
+    Ok((r, g, b))
+}
+
+/// Tint an image entry to `hex` and store the result as a new history
+/// entry. The original is left untouched so the user can recover it.
+/// Emits `clipboard-changed` to refresh the popup list.
+#[tauri::command]
+pub fn recolor_image_entry(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    id: i64,
+    hex: String,
+) -> Result<i64, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+
+    let (r, g, b) = parse_hex_rgb(&hex)?;
+    let entry = db::get(&db, id)
+        .map_err(map_err)?
+        .ok_or_else(|| "entry not found".to_string())?;
+    if !matches!(entry.content_type, crate::models::ContentType::Image) {
+        return Err("entry is not an image".to_string());
+    }
+
+    let png_bytes = B64
+        .decode(entry.content_data.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    let recolored = recolor::recolor_png(&png_bytes, r, g, b).map_err(map_err)?;
+    let b64 = B64.encode(&recolored);
+    let byte_size = recolored.len() as i64;
+
+    // Use the brightness/dimensions plus the chosen tint as the
+    // human-readable preview line. Keeps it visually distinct from the
+    // source entry in the history list.
+    let summary = format!("[image · tinted #{}]", hex.trim_start_matches('#').to_uppercase());
+
+    let new_id = db::upsert_clip(
+        &db,
+        &crate::models::NewClip {
+            content_type: crate::models::ContentType::Image,
+            content_text: summary,
+            content_data: b64,
+            byte_size,
+        },
+    )
+    .map_err(map_err)?;
+
+    // Refresh the list so the new entry surfaces at the top.
+    let _ = app.emit("clipboard-changed", ());
+    Ok(new_id)
+}
+
+/// Sample-based "is this image mostly grayscale?" probe. Returned value
+/// is in [0, 1] — frontend treats anything below ~0.1 as "looks
+/// monochrome, recolor button worth showing".
+#[tauri::command]
+pub fn image_chromaticity(
+    db: State<'_, DbHandle>,
+    id: i64,
+) -> Result<f32, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+
+    let entry = db::get(&db, id)
+        .map_err(map_err)?
+        .ok_or_else(|| "entry not found".to_string())?;
+    if !matches!(entry.content_type, crate::models::ContentType::Image) {
+        return Err("entry is not an image".to_string());
+    }
+    let png_bytes = B64
+        .decode(entry.content_data.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    recolor::max_chromaticity_sample(&png_bytes, 4096).map_err(map_err)
 }

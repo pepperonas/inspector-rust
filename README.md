@@ -7,7 +7,7 @@
 
   **Fast, lightweight clipboard history manager + text expander for Windows 11 & macOS**
 
-  [![Version](https://img.shields.io/badge/version-0.6.1-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.7.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
   [![macOS](https://img.shields.io/badge/macOS-10.15+-000000?style=flat-square&logo=apple&logoColor=white)](./macos)
@@ -98,6 +98,14 @@ Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a
 - **Two-click selection** (v0.5.1): opening the picker is *click 1*; the first click in the SV picker (or typing a hex) is *click 2 — the actual selection*. The big swatch and outputs stay in a placeholder state until then, so opening the modal never silently commits a default color.
 - **Pick from screen** (v0.5.2): the modal's *Pick from screen* button samples a color from anywhere on the desktop. macOS uses Apple's own `NSColorSampler` magnifier loupe; Windows uses a fullscreen overlay + `GetPixel`. Cross-platform sampler in [`core/rust-lib/src/screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
 - Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
+
+### Image recolor (v0.7.0)
+When the selected entry in the History tab is a **mostly-grayscale PNG** (logos, icons, silhouettes), a Recolor strip appears below the preview with 9 preset swatches (Rust, Red, Green, Blue, Purple, Amber, Cyan, Gray, Black) plus a custom hex input. Click a swatch — or type a hex and hit Enter — and a tinted copy is added to history as a new entry, leaving the original untouched.
+
+- **Tint algorithm** — each pixel's RGB is replaced with `lerp(target, white, perceptualLuminance)`, alpha preserved verbatim. Matches ImageMagick's `+level-colors target,white`. Pure Rust via the `image` crate; identical output on Windows and macOS.
+- **Photo guard** — eligibility uses a sample-based chromaticity probe (`max((max-min)/max)` over 4096 opaque pixels). Anything ≥ 12 % saturation hides the toolbar entirely so you can't tint a vacation photo by accident.
+- **Size cap** — 16 megapixels (4K × 4K) to keep the recolor latency on the UI thread bounded.
+- Module: [`core/rust-lib/src/recolor.rs`](./core/rust-lib/src/recolor.rs). 6 unit tests.
 
 ### 25 bundled AI prompt snippets (v0.5.0)
 First-launch seeds your snippet table with **`ai*`-prefixed prompts** covering programming (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aibench`), web (`aithumb`, `aimobile`, `aia11y`, `aiseo`, `aicomponent`), IT security (`aithreat`, `aipentest`, `aiauth`, `aigdpr`), business workflows (`aibrief`, `airfp`, `aiokr`, `aichange`), data (`aidataq`, `aiml`, `aidashboard`), and API design (`aiapi`). Each prompt is a structured, opinionated brief — sections, bullets, output-format directives — written to be handed straight to an LLM without massaging.

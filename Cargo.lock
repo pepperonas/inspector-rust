@@ -589,7 +589,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -599,6 +599,7 @@ dependencies = [
  "clipboard-rs",
  "dirs 5.0.1",
  "enigo",
+ "image",
  "keyring",
  "objc2 0.6.4",
  "parking_lot",
@@ -620,7 +621,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-macos"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clipsnap-core",
  "tauri",
@@ -634,7 +635,7 @@ dependencies = [
 
 [[package]]
 name = "clipsnap-win"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "clipsnap-core",
  "tauri",

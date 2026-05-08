@@ -64,23 +64,15 @@ impl ClipboardHandler for Handler {
 
 impl Handler {
     fn capture(&self) -> Result<()> {
-        // Priority: files > image > html > rtf > text.
-        if self.ctx.has(ContentFormat::Files) {
-            if let Ok(paths) = self.ctx.get_files() {
-                if !paths.is_empty() {
-                    let json = serde_json::to_string(&paths)?;
-                    let text = paths.join("\n");
-                    let byte_size = json.len() as i64;
-                    self.store(NewClip {
-                        content_type: ContentType::Files,
-                        content_text: text,
-                        content_data: json,
-                        byte_size,
-                    })?;
-                    return Ok(());
-                }
-            }
-        }
+        // Priority: image > files > html > rtf > text.
+        //
+        // macOS puts both image data AND file paths on the pasteboard when
+        // you copy an image file (PNG/JPG/HEIC) from Finder or use
+        // "Share → Copy Image" in many apps. Capturing as Files first meant
+        // the user only ever saw the file path in history. Preferring image
+        // here matches the "I copied a picture, store the picture"
+        // expectation. Pure file copies (no image data) still fall through
+        // to the Files branch below.
         if self.ctx.has(ContentFormat::Image) {
             if let Ok(img) = self.ctx.get_image() {
                 let (w, h) = img.get_size();
@@ -104,6 +96,22 @@ impl Handler {
                             MAX_IMAGE_BYTES
                         );
                     }
+                }
+            }
+        }
+        if self.ctx.has(ContentFormat::Files) {
+            if let Ok(paths) = self.ctx.get_files() {
+                if !paths.is_empty() {
+                    let json = serde_json::to_string(&paths)?;
+                    let text = paths.join("\n");
+                    let byte_size = json.len() as i64;
+                    self.store(NewClip {
+                        content_type: ContentType::Files,
+                        content_text: text,
+                        content_data: json,
+                        byte_size,
+                    })?;
+                    return Ok(());
                 }
             }
         }

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri"]
 
 [workspace.package]
-version = "0.6.1"
+version = "0.7.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -38,6 +38,9 @@ keyring = "3"
 clipboard-rs = "0.2"
 enigo = "0.3"
 dirs = "5"
+# PNG decode/encode for the image-recolor feature. Default features are
+# overkill (BMP/GIF/HDR/etc.); we only need PNG.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 # Observability / errors / concurrency
 anyhow = "1"

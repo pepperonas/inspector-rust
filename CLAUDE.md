@@ -113,6 +113,16 @@ Two separate expansion modes exist:
 
 The Settings panel includes a **"Test now"** button that calls `diagnose_at_cursor` — runs the capture half (no paste) and returns what would have been matched, for debugging.
 
+### Image recolor (`recolor.rs`)
+
+When the selected entry in the popup is an image, the preview pane shows a recolor strip with preset swatches + a hex input. Backend pipeline: `image::load_from_memory_with_format(Png)` → for each RGBA pixel, replace RGB with `lerp(target, white, luminance)` (alpha untouched) → re-encode → `db::upsert_clip` as a new history row (original is preserved). Capped at 16 MP to keep latency bounded.
+
+Eligibility is gated client-side: `image_chromaticity` samples up to 4096 opaque pixels, returns `max((max-min)/max)`. The toolbar is rendered only when chromaticity < 0.12 — i.e. logos / silhouettes. Saturated photos hide the controls because tinting them produces unusable output.
+
+### Clipboard capture priority
+
+`clipboard_watcher::capture` checks formats in this order: **image → files → html → rtf → text**. Image-before-files matters on macOS, where copying a PNG/JPG/HEIC from Finder puts both the bitmap and the file path on the pasteboard — capturing as Files first meant the user only saw paths in history.
+
 ### `UiState` and modal focus
 
 `UiState.suppress_hide` (AtomicBool, Tauri state) prevents the popup's "hide on focus-loss" handler from firing while a native file dialog is open. The frontend toggles it via `set_suppress_hide` before/after calling `tauri-plugin-dialog` commands (`dialog:allow-open`, `dialog:allow-save`).

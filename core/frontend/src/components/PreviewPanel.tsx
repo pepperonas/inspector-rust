@@ -3,7 +3,7 @@ import { Calculator, Check, Copy, Palette, Scissors, Wand2, Zap } from "lucide-r
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
-import { cutOutImageEntry, imageChromaticity, recolorImageEntry } from "../lib/ipc";
+import { cutOutImageEntry, cutOutImageFile, imageChromaticity, recolorImageEntry } from "../lib/ipc";
 
 interface Props {
   entry: ListEntry | null;
@@ -142,13 +142,22 @@ export function PreviewPanel({ entry }: Props) {
             className="max-h-full max-w-full object-contain"
           />
         </div>
-        <CutoutButton entryId={clip.id} />
+        <CutoutButton source={{ kind: "entry", entryId: clip.id }} />
         <RecolorToolbar entryId={clip.id} />
       </div>
     );
   }
 
   if (clip.content_type === "files" && parsedFiles) {
+    // Single image file → enable cutout. Detection is purely
+    // extension-based; the backend re-validates by trying to decode
+    // the bytes, so a misleading extension (".png" file that's
+    // actually a text file) just surfaces a clear error instead of
+    // crashing. HEIC isn't in the `image` crate's decoder set, so
+    // it's deliberately omitted from the trigger list.
+    const imageExt = /\.(png|jpe?g|webp|gif|bmp)$/i;
+    const lone = parsedFiles.length === 1 ? parsedFiles[0] : null;
+    const cutoutTarget = lone && imageExt.test(lone) ? lone : null;
     return (
       <div className="flex h-full flex-col p-4">
         {meta}
@@ -159,6 +168,7 @@ export function PreviewPanel({ entry }: Props) {
             </div>
           ))}
         </div>
+        {cutoutTarget && <CutoutButton source={{ kind: "file", path: cutoutTarget }} />}
       </div>
     );
   }
@@ -215,33 +225,43 @@ function CopyButton({ onClick }: { onClick: () => void }) {
 
 // ── Cut-out background button (image entries only) ──────────────────────────
 
+/** Source the cutout reads from. `entry` mode pulls the PNG bytes
+ *  from a clipboard image entry in the DB; `file` mode reads from disk
+ *  (so JPG / WebP / GIF / BMP files dragged from Finder also work). */
+type CutoutSource =
+  | { kind: "entry"; entryId: number }
+  | { kind: "file"; path: string };
+
 /** "Freistellen" / background-removal action. Chroma-keys the image
  *  using the four corner colours, writes the transparent PNG to
- *  `~/Downloads/clipsnap-cutout-<ts>.png`, and shows the saved filename
- *  for a few seconds.
+ *  `~/Downloads/`, and shows the saved filename for a few seconds.
  *
- *  Always available on image entries — works best on uniform
- *  backgrounds (sky / studio / solid logo backdrop). The last-saved
+ *  Works on any clipboard image entry (PNG-encoded by the watcher) and
+ *  on any single-file Files entry pointing at an image. The last-saved
  *  filename remains visible so the user knows where the file went;
- *  cleared on entry change. */
-function CutoutButton({ entryId }: { entryId: number }) {
+ *  cleared whenever the source changes. */
+function CutoutButton({ source }: { source: CutoutSource }) {
   const [busy, setBusy] = useState(false);
   const [savedTo, setSavedTo] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Reset feedback when the selection changes — the previous filename
-  // belongs to a different entry.
+  // Re-key on the source identity so feedback resets when the user
+  // moves between entries (different ids OR different file paths).
+  const sourceKey = source.kind === "entry" ? `e:${source.entryId}` : `f:${source.path}`;
   useEffect(() => {
     setSavedTo(null);
     setError(null);
-  }, [entryId]);
+  }, [sourceKey]);
 
   const run = async () => {
     if (busy) return;
     setBusy(true);
     setError(null);
     try {
-      const path = await cutOutImageEntry(entryId);
+      const path =
+        source.kind === "entry"
+          ? await cutOutImageEntry(source.entryId)
+          : await cutOutImageFile(source.path);
       setSavedTo(path);
     } catch (e) {
       setError(String(e));
@@ -252,9 +272,9 @@ function CutoutButton({ entryId }: { entryId: number }) {
 
   // Cmd/Ctrl+B is the documented shortcut. Registered at the window
   // level so it fires regardless of focus, but scoped to the lifetime
-  // of this component — i.e. only while an image entry is selected.
-  // Non-image entries don't render the button, so the handler isn't
-  // active on them, which means the shortcut is implicitly gated.
+  // of this component — i.e. only while a cutout-eligible entry is
+  // selected. Non-eligible entries don't render the button, so the
+  // shortcut is implicitly gated.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
@@ -264,10 +284,10 @@ function CutoutButton({ entryId }: { entryId: number }) {
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-    // `run` closes over `busy` / `entryId`; re-binding on each change
-    // is cheap and keeps the closure correct.
+    // `run` closes over `busy` and the source; re-binding on each
+    // change is cheap and keeps the closure current.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [entryId, busy]);
+  }, [sourceKey, busy]);
 
   const filename = savedTo ? savedTo.split("/").pop() : null;
 

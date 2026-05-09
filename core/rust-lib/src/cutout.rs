@@ -1,4 +1,4 @@
-//! Background removal for clipboard PNGs ("Freistellen").
+//! Background removal for clipboard / file images ("Freistellen").
 //!
 //! Strategy: chroma-key the four corner regions. We assume the corners
 //! are background — a reasonable bet for product shots, "flugzeug am
@@ -7,6 +7,10 @@
 //! every pixel within `inner_dist` of that color becomes fully
 //! transparent, every pixel beyond `outer_dist` stays opaque, and the
 //! band between them is alpha-feathered to avoid hard cutout edges.
+//!
+//! Input formats: anything the `image` crate decodes — PNG, JPEG, WebP,
+//! GIF, BMP. Output is always PNG (so the alpha channel survives even
+//! if the input was a flat JPEG).
 //!
 //! Limits of this approach (call them out so the UI can manage
 //! expectations): clutter / busy backgrounds, subjects coloured like
@@ -48,11 +52,15 @@ pub struct CutoutResult {
     pub png: Vec<u8>,
 }
 
-/// Decode `png_bytes`, knock out the corner-sampled background colour,
-/// re-encode as RGBA PNG. Pure function — does no IO.
-pub fn cut_out_background(png_bytes: &[u8]) -> Result<CutoutResult> {
-    let img = image::load_from_memory_with_format(png_bytes, ImageFormat::Png)
-        .context("decode PNG")?;
+/// Decode `image_bytes` (any format the `image` crate supports — PNG,
+/// JPEG, WebP, GIF, BMP), knock out the corner-sampled background
+/// colour, re-encode as RGBA PNG. Pure function — does no IO.
+pub fn cut_out_background(image_bytes: &[u8]) -> Result<CutoutResult> {
+    // `load_from_memory` sniffs the format from the magic bytes — we
+    // don't need to know the source extension, which matters for the
+    // file-cutout path where users pass JPEGs without extension hints.
+    let img = image::load_from_memory(image_bytes)
+        .context("decode image (unsupported format or corrupt)")?;
     let (w, h) = (img.width(), img.height());
     if w == 0 || h == 0 {
         anyhow::bail!("empty image");
@@ -88,7 +96,7 @@ pub fn cut_out_background(png_bytes: &[u8]) -> Result<CutoutResult> {
         *px_out = Rgba([r, g, b, new_alpha]);
     }
 
-    let mut buf: Vec<u8> = Vec::with_capacity(png_bytes.len());
+    let mut buf: Vec<u8> = Vec::with_capacity(image_bytes.len());
     out.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png)
         .context("encode PNG")?;
     Ok(CutoutResult { background: bg, png: buf })

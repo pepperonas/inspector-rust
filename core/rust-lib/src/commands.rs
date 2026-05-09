@@ -948,7 +948,6 @@ pub fn cut_out_image_entry(
     id: i64,
 ) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
-    use chrono::Local;
 
     let entry = db::get(&db, id)
         .map_err(map_err)?
@@ -960,7 +959,35 @@ pub fn cut_out_image_entry(
         .decode(entry.content_data.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
 
-    let result = cutout::cut_out_background(&png_bytes).map_err(map_err)?;
+    write_cutout(&png_bytes, None)
+}
+
+/// Same as `cut_out_image_entry` but for an arbitrary image file on
+/// disk (any of the formats `image::load_from_memory` supports — PNG,
+/// JPEG, WebP, GIF, BMP). Used when the selected history row is a
+/// **Files** entry pointing at a single image — copying a JPG/HEIC out
+/// of Finder is the typical path. Output is still PNG with alpha so
+/// the cutout's transparency survives.
+#[tauri::command]
+pub fn cut_out_image_file(path: String) -> Result<String, String> {
+    let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
+    // The output filename embeds the input's stem so the user can
+    // tell two cutouts apart in Downloads (timestamp alone makes them
+    // anonymous). Falls back to "image" if the path has no stem.
+    let stem = std::path::Path::new(&path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("image");
+    write_cutout(&bytes, Some(stem))
+}
+
+/// Internal helper: run cutout, write to ~/Downloads, return the saved
+/// path. `name_hint` becomes the filename prefix when present, falling
+/// back to the timestamp-only name when absent.
+fn write_cutout(image_bytes: &[u8], name_hint: Option<&str>) -> Result<String, String> {
+    use chrono::Local;
+
+    let result = cutout::cut_out_background(image_bytes).map_err(map_err)?;
 
     // ~/Downloads is the agreed output location. Falls back to the
     // home directory only if Downloads doesn't resolve (very unusual on
@@ -971,7 +998,10 @@ pub fn cut_out_image_entry(
     std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
 
     let stamp = Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("clipsnap-cutout-{}.png", stamp);
+    let filename = match name_hint {
+        Some(n) if !n.is_empty() => format!("{n}-cutout-{stamp}.png"),
+        _ => format!("clipsnap-cutout-{stamp}.png"),
+    };
     let out_path = dir.join(&filename);
     std::fs::write(&out_path, &result.png).map_err(|e| format!("write {filename}: {e}"))?;
 

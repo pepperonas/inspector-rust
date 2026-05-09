@@ -211,6 +211,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::recolor_image_entry,
             commands::image_chromaticity,
             commands::cut_out_image_entry,
+            commands::cut_out_image_file,
             commands::ocr_region,
         ])
         .run(context)

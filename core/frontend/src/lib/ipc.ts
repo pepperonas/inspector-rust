@@ -330,6 +330,14 @@ export function cutOutImageEntry(id: number): Promise<string> {
   return invoke("cut_out_image_entry", { id });
 }
 
+/** Same as `cutOutImageEntry` but reads the image from a file path on
+ *  disk (any supported format: PNG, JPEG, WebP, GIF, BMP). Output is
+ *  always PNG with alpha. Used when the selected entry is a single-file
+ *  Files-typed clipboard entry pointing at an image. */
+export function cutOutImageFile(path: string): Promise<string> {
+  return invoke("cut_out_image_file", { path });
+}
+
 /** Result of an OCR run. `cancelled` distinguishes user-pressed-Esc
  *  from "ran but no text detected". `chars` is the unicode character
  *  count of the recognized text, included so toasts don't have to

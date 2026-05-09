@@ -4,6 +4,18 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.3] — 2026-05-09
+
+### Added — History time chip is now interactive
+
+- **Hover the relative-time chip** (`just now`, `1h ago`, `3d ago`) on any history row → tooltip shows the absolute timestamps for both `Captured` and `Last used` (or `Captured: ... · (never re-used since)` when the entry hasn't been pasted again). — *#feat(history)*
+- **Click the chip** → toggles the chip text in place between relative (`1h ago`) and absolute (`9 May 2026, 06:41:05`) display. `stopPropagation` so the click doesn't double-fire the row-select handler. Per-row state, so different rows can be in different display modes simultaneously.
+- New `formatAbsolute(unixMs)` helper in [`core/frontend/src/lib/format.ts`](./core/frontend/src/lib/format.ts) using `Intl.DateTimeFormat` with the user's locale — matches Finder / Mail formatting muscle memory.
+
+### Fixed — Snippets sidebar toolbar layout
+
+- **Three sidebar actions are now icon-only.** `+ New Snippet`, `Import`, and `Restore defaults` previously wrapped two-line in the ~40 % sidebar column, with `Restore defaults` spilling outside the section. Replaced with three 28×28 icon buttons (`Plus`, `Upload`, `RotateCcw`) carrying the labels in `title` tooltips and `aria-label`s. — *#fix(snippets)*
+
 ## [0.10.2] — 2026-05-09
 
 ### Fixed — CI build on Linux runners

@@ -91,7 +91,11 @@
 | **macOS Intel** | — | Build from source: [`macos/README.md`](./macos/README.md) |
 | **Linux** | — | Planned for a later release |
 
-> **macOS Gatekeeper note.** Local-build releases are **not Apple-signed**. On first launch macOS will refuse to open the app — right-click → **Open** → confirm, or **System Settings → Privacy & Security → "Open Anyway"**. Then grant **Accessibility** access (for paste). Full setup in [`macos/README.md`](./macos/README.md).
+> **macOS Gatekeeper note.** Local-build releases are **not Apple-signed**. On first launch macOS will refuse to open the app — right-click → **Open** → confirm, or **System Settings → Privacy & Security → "Open Anyway"**. Then grant **two** TCC permissions:
+> - **Accessibility** — required for paste (`enigo` synthesizes Cmd+V) and the system-wide text expander (Cmd+Shift+← / Cmd+C / Cmd+V cycle).
+> - **Screen Recording** — required for the OCR shortcut (`screencapture -i` is attributed to ClipSnap and macOS denies it without this grant). The Settings tab surfaces both with collapsible amber banners and one-click jumps to the right Privacy pane.
+>
+> Full setup in [`macos/README.md`](./macos/README.md).
 
 ---
 
@@ -109,7 +113,9 @@ All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`)
 
 ClipSnap is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
 
-Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to.
+A second global shortcut, **`Cmd/Ctrl+Shift+O`**, fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; ClipSnap's window doesn't need to be open or focused.
+
+Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
 ## Features
 
@@ -143,7 +149,7 @@ Type a math expression in the search field, the result appears as the top list i
 - **Inline hex preview** — type `#3366FF` (also `3366ff`, `#abc`, `#abcdef12`) → swatch + hex + RGB row at top → Enter pastes uppercase `#RRGGBB`.
 - **HSV picker modal** — hue slider, big swatch, output tabs for hex / RGB / HSL, two-click selection (no silent default), copy via Tauri clipboard plugin (sidesteps WKWebView restrictions).
 - **Pick from screen** — sample any pixel on the desktop. macOS: Apple's `NSColorSampler` magnifier loupe. Windows: fullscreen overlay + `GetPixel`. Module: [`screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
-- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 24 tests. Reference: [`docs/colors.md`](./docs/colors.md).
+- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 tests. Reference: [`docs/colors.md`](./docs/colors.md).
 
 ### Screen-region OCR (v0.9.0, macOS)
 Press `Cmd+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands in the History tab and the source PNG is kept as a separate image entry so you can re-OCR a different region without rescreenshotting.
@@ -154,14 +160,14 @@ Press `Cmd+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee 
 - **Windows** — implementation pending (will use `Windows.Media.Ocr`).
 - Modules: [`region_picker.rs`](./core/rust-lib/src/region_picker.rs), [`ocr.rs`](./core/rust-lib/src/ocr.rs).
 
-### Image tools — recolor + ML cutout + save (v0.7.0 → v0.10.1)
+### Image tools — recolor + ML cutout + save (v0.7.0 → v0.10.x)
 On selected image entries, the preview pane exposes three actions:
 
 - **Recolor** (v0.7.0) — for mostly-grayscale PNGs (logos / icons / silhouettes), 9 preset swatches + custom hex tint the image. RGB lerps from target → white by per-pixel luminance, alpha preserved. Saturated photos are auto-hidden from the toolbar (chromaticity gate). Adds the tinted version as a new history entry; original stays.
-- **Cut out background** (v0.10.0) — runs the **U2Netp ONNX model** (~4.5 MB embedded) over the image to detect the foreground subject; output is a transparent PNG saved to `~/Downloads/<name>-cutout-<ts>.png`. Shortcut `Cmd/Ctrl+B`. Works on real photos (airplane in sky, person against cluttered background, …) — same architecture as Python's `rembg`, just without Python. Inference runs via `ort` (ONNX Runtime, statically linked).
+- **Cut out background** (v0.10.0) — runs the **U²-Net (U2Netp) ONNX model** (~4.5 MB embedded) over the image to detect the foreground subject; output is a transparent PNG saved to `~/Downloads/<name>-cutout-<ts>.png`. Shortcut `Cmd/Ctrl+B`. Works on real photos (airplane in sky, person against cluttered background, …) — same architecture as Python's `rembg`, just without Python. Inference runs via `ort` (ONNX Runtime, statically linked into the binary).
 - **Save to Downloads** (v0.10.1) — drop the selected image entry to disk as `~/Downloads/clipsnap-image-<ts>.png` unchanged. Shortcut `Cmd/Ctrl+S`. Companion to recolor: select the freshly-tinted history entry, hit `Cmd+S`, your file is in Downloads.
 - **Inputs:** PNG, JPEG, WebP, GIF, BMP — for clipboard image entries *and* single-file Files entries (so a JPG copied from Finder works too). Output is always RGBA PNG.
-- Modules: [`recolor.rs`](./core/rust-lib/src/recolor.rs), [`cutout_ml.rs`](./core/rust-lib/src/cutout_ml.rs). 16 MP cap on inputs.
+- Modules: [`recolor.rs`](./core/rust-lib/src/recolor.rs), [`cutout_ml.rs`](./core/rust-lib/src/cutout_ml.rs). Legacy chroma-key cutout in [`cutout.rs`](./core/rust-lib/src/cutout.rs) is kept as a fast-path option but unused by default. 16 MP cap on inputs. Bundled model: [`core/rust-lib/models/u2netp.onnx`](./core/rust-lib/models/u2netp.onnx) (Apache-2.0).
 
 ### Notes (v0.2.6)
 Persistent, categorized clipboard items in a separate SQLite table — **not** subject to the 1 000-entry pruning.
@@ -177,8 +183,21 @@ Settings tab → *Backup & restore* → tick history / snippets / notes individu
 ### Plain-text paste (default on, v0.4.0)
 HTML / RTF clipboard entries are stripped to their text preview at paste time, so copy-from-Word / browser / mail no longer leaks styling into other apps. Toggle in Settings → Paste. Shift+Enter in the popup overrides for one paste.
 
+### Permissions UX (v0.11.0)
+ClipSnap needs **two** independent macOS TCC grants — Accessibility (paste) and Screen Recording (OCR). The Settings tab surfaces each as a collapsible amber banner that:
+
+- Stays loud (border + warning icon + primary `Open System Settings` button) when missing, but collapses to a single row by default so the page isn't cluttered.
+- Pre-checks before invoking the relevant native call. OCR returns a `screen.permission_denied` sentinel rather than failing silently when Screen Recording is denied; a Tauri event opens the popup + flips an in-app toast banner pointing at the right pane.
+- Polls the grant once per second while not granted, so the badge flips green ~1 s after the user toggles the System Settings switch — no panel reload needed.
+- Each banner has a `tccutil reset` recovery button for the "toggle says on but the running process still sees denied" stale-cdhash state.
+
+### Discoverability (v0.10.7)
+- **Footer hint** — `⌘⇧O OCR` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the OCR shortcut every time they open the popup.
+- **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
+- **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
+
 ### System tray + multi-monitor
-- **Tray menu:** Open · Manage Snippets · Manage Notes · Pause Capture · Clear History · Start with Windows / Start at Login · Quit.
+- **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (⌘⇧O / Ctrl+Shift+O)** · Pause Capture · Clear History · Start with Windows / Start at Login · Quit.
 - **Multi-monitor placement:** popup opens on the monitor with the cursor, horizontally centered, ~⅓ from the top, clamped to the active monitor's bounds (matters on mixed-DPI setups).
 
 ## Repository layout
@@ -192,19 +211,33 @@ clipsnap/
 │   │       ├── hooks/       # useClipboardHistory, useFuzzySearch, useSnippets, useNotes, useKeyboardNav
 │   │       └── lib/         # ipc.ts, types.ts, calc.ts (Alfred-style evaluator), format.ts
 │   └── rust-lib/            # Shared Rust app logic
+│       ├── build.rs         # Links the macOS Vision framework for OCR
+│       ├── models/
+│       │   └── u2netp.onnx  # U²-Net cutout model (~4.5 MB, Apache-2.0)
 │       └── src/
-│           ├── lib.rs       # Tauri builder, plugin/tray setup, invoke_handler
-│           ├── db.rs        # entries table, hash-dedup, prune
-│           ├── snippets.rs  # snippets table, JSON upsert, exact-abbreviation lookup
-│           ├── notes.rs     # notes table, categories, save_from_clip
-│           ├── backup.rs    # full-app export/import (versioned JSON)
-│           ├── settings.rs  # key/value store (expander hotkey + future prefs)
-│           ├── expander.rs  # trigger-based text expander (AX/UIA primary, clipboard fallback)
-│           ├── text_field/  # FieldAccess trait + macOS AX + Windows UIA implementations
-│           ├── paste.rs     # write_to_clipboard + enigo paste shortcut
-│           ├── hotkey.rs    # global Ctrl+Shift+V + expander hotkey, multi-monitor placement
-│           ├── clipboard_watcher.rs  # event-driven capture, RTF stripping
-│           └── commands.rs  # all #[tauri::command] wrappers
+│           ├── lib.rs                # Tauri builder, plugin/tray setup, invoke_handler
+│           ├── commands.rs           # all #[tauri::command] wrappers
+│           ├── models.rs             # ContentType / ClipEntry / NewClip + caps
+│           ├── db.rs                 # entries table, hash-dedup, prune
+│           ├── crypto.rs             # AES-256-GCM at-rest encryption + OS-keychain key
+│           ├── snippets.rs           # snippets table, JSON upsert, exact-abbreviation lookup
+│           ├── seed.rs               # default AI-prompt snippets bundled at first launch
+│           ├── notes.rs              # notes table, categories, save_from_clip
+│           ├── backup.rs             # full-app export/import (versioned JSON)
+│           ├── settings.rs           # key/value store (expander hotkey + future prefs)
+│           ├── ui_state.rs           # suppress_hide flag for native-modal interaction
+│           ├── expander.rs           # trigger-based text expander (AX/UIA primary, clipboard fallback)
+│           ├── text_field/           # FieldAccess trait + macOS AX + Windows UIA implementations
+│           ├── paste.rs              # write_to_clipboard + enigo paste shortcut
+│           ├── hotkey.rs             # global Ctrl+Shift+V + Cmd+Shift+O + expander hotkey
+│           ├── clipboard_watcher.rs  # event-driven capture, RTF stripping (image > files priority)
+│           ├── recolor.rs            # image tint (lerp target ↔ white by per-pixel luminance)
+│           ├── cutout.rs             # legacy chroma-key cutout (kept as fast-path option)
+│           ├── cutout_ml.rs          # U²-Net-based subject cutout via `ort` (ONNX Runtime)
+│           ├── screen_picker.rs      # color eyedropper (NSColorSampler / GDI overlay)
+│           ├── region_picker.rs      # screencapture -i wrapper for OCR region selection
+│           ├── ocr.rs                # Apple Vision (VNRecognizeTextRequest) wrapper
+│           └── screen_recording.rs   # macOS Screen Recording TCC permission API
 ├── win/                     # Windows-specific bundle shell
 │   ├── README.md            # Windows install & build details
 │   ├── package.json         # Tauri CLI entry
@@ -233,7 +266,7 @@ clipsnap/
 │   └── check.sh             # cargo clippy + tsc + eslint
 ├── Cargo.toml               # Rust workspace (members: core/rust-lib, win/src-tauri, macos/src-tauri)
 ├── pnpm-workspace.yaml      # pnpm workspace (core/frontend, win, macos)
-└── package.json             # Root scripts (dev:win, build:win, dev:macos, build:macos, lint, typecheck, test)
+└── package.json             # Root scripts: dev:{win,macos}, build:{win,macos}, lint, typecheck, format, test, check
 ```
 
 ## Quick start
@@ -319,8 +352,11 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **No sensitive-app detection** | ClipSnap captures everything without filtering. |
 | **No cloud sync** | No automatic sync or multi-device support — but the [Backup](./docs/backup.md) export/import gives you a portable JSON file you can move between machines manually. |
 | **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; ClipSnap falls back to pasting the newline-joined list of paths as text. |
-| **macOS accessibility** | Paste simulation (`enigo`) requires Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If it isn't granted, ClipSnap shows an amber banner with an "Open Settings" shortcut on the next paste attempt instead of silently failing or re-firing the system dialog (v0.5.1). |
-| **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose Open to bypass Gatekeeper on first launch. |
+| **macOS Accessibility** | Paste simulation (`enigo`) and the system-wide text expander require Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If missing, ClipSnap shows an amber banner with an `Open Settings` button on the next paste attempt instead of silently failing or re-firing the system dialog (v0.5.1). |
+| **macOS Screen Recording** | OCR (`Cmd+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to ClipSnap and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
+| **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
+| **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
+| **OCR is macOS-only for now** | Region capture and Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows path will use `Windows.Media.Ocr` in a follow-up release. |
 
 ## Contributing
 

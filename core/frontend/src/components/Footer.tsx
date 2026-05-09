@@ -1,3 +1,5 @@
+import { IS_MAC } from "../lib/platform";
+
 interface Props {
   index: number;
   total: number;
@@ -8,12 +10,18 @@ interface Props {
 
 export function Footer({ index, total, version }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
+  // OCR is the most-hidden global shortcut — it fires from anywhere on
+  // the system without needing the popup open. Surfaced in the footer
+  // so users discover it without having to dig into the tray menu or
+  // Settings → Keyboard shortcuts.
+  const ocrKey = IS_MAC ? "⌘⇧O" : "Ctrl+⇧+O";
   return (
     <div className="flex h-8 items-center justify-between border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
       <div className="flex items-center gap-3">
         <Hint k="⏎" label="Paste" />
         <Hint k="↑↓" label="Navigate" />
         <Hint k="Esc" label="Close" />
+        <Hint k={ocrKey} label="OCR" />
       </div>
       <div className="flex items-center gap-3">
         <span title="Made with love by Martin Pfeffer">

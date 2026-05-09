@@ -17,6 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { AboutModal } from "./AboutModal";
+import { IS_MAC } from "../lib/platform";
 import {
   diagnoseExpandAtCursor,
   forceResetAndRequestGrant,
@@ -701,6 +702,17 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           </Section>
         </div>
 
+        {/* Keyboard shortcuts cheat sheet */}
+        <div className="mt-6">
+          <Section
+            icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
+            title="Keyboard shortcuts"
+            subtitle="Global shortcuts fire from anywhere on your system. Popup shortcuts only fire while ClipSnap's popup is visible."
+          >
+            <ShortcutsTable />
+          </Section>
+        </div>
+
         {/* Backup & restore section */}
         <div className="mt-6">
           <Section
@@ -888,3 +900,75 @@ function Row({
 // Re-export so `import { Keyboard } from ...` keeps the icon utility nearby
 // when we add more settings sections.
 export { Keyboard };
+
+// ── Keyboard shortcuts cheat sheet ─────────────────────────────────────────
+
+/** Reference table for every shortcut the app binds. Three groups so
+ *  the user can scan quickly for "what fires from anywhere" vs.
+ *  "what only works inside the popup". Modifier glyphs adapt to the
+ *  current OS via `IS_MAC` from `lib/platform.ts`. */
+function ShortcutsTable() {
+  const cmd = IS_MAC ? "⌘" : "Ctrl";
+  const shift = IS_MAC ? "⇧" : "Shift";
+  const alt = IS_MAC ? "⌥" : "Alt";
+  const join = IS_MAC ? "" : "+";
+  const k = (...parts: string[]) => parts.join(join);
+
+  const groups: Array<{ heading: string; rows: Array<[string, string, string?]> }> = [
+    {
+      heading: "Global — work from anywhere",
+      rows: [
+        [k("Ctrl", shift, "V"), "Open ClipSnap popup", "OS-locked, not configurable"],
+        [k(cmd, shift, "O"), "OCR region capture", IS_MAC ? "Drag a marquee over text on screen → text → clipboard" : "Stub — macOS-only for now"],
+        [k(alt, "`"), "Trigger text expander", "Configurable above; opt-in"],
+      ],
+    },
+    {
+      heading: "Popup — list navigation",
+      rows: [
+        ["⏎", "Paste selected entry", "Plain text downgrade follows the Paste setting"],
+        [k(shift, "⏎"), "Paste with original formatting", "One-shot override of the plain-text setting"],
+        ["↑ / ↓", "Navigate entries"],
+        ["Esc", "Close popup"],
+      ],
+    },
+    {
+      heading: "Popup — image entry actions",
+      rows: [
+        [k(cmd, "B"), "Cut out background → ~/Downloads", "Real subject segmentation via U²-Net"],
+        [k(cmd, "S"), "Save image to Downloads", "Saves the entry's PNG bytes unchanged"],
+      ],
+    },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {groups.map((g) => (
+        <div key={g.heading}>
+          <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+            {g.heading}
+          </div>
+          <table className="w-full text-[12px]">
+            <tbody>
+              {g.rows.map(([keys, action, hint]) => (
+                <tr key={keys + action} className="align-top">
+                  <td className="w-[140px] py-1 pr-3">
+                    <kbd className="inline-block rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 font-[var(--font-mono)] text-[11px]">
+                      {keys}
+                    </kbd>
+                  </td>
+                  <td className="py-1 pr-2">{action}</td>
+                  {hint && (
+                    <td className="py-1 text-right text-[10px] text-[var(--color-muted)]">
+                      {hint}
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ))}
+    </div>
+  );
+}

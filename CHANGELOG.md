@@ -4,6 +4,14 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.7] — 2026-05-10
+
+### Added — Shortcut discovery
+
+- **Footer now surfaces the OCR shortcut** (`⌘⇧O` on macOS, `Ctrl+⇧+O` elsewhere) next to the existing Paste / Navigate / Close hints. OCR was previously discoverable only via the tray menu, which most users rarely open. — *#feat(ui)*
+- **New "Keyboard shortcuts" section in Settings** with a three-group cheat sheet: Global (Ctrl+Shift+V open popup, ⌘⇧O OCR, ⌥+` text expander), Popup list (Enter / Shift+Enter / arrows / Esc), and Image entry actions (⌘B cutout, ⌘S save). Modifier glyphs adapt to the running OS via the new `IS_MAC` helper in `core/frontend/src/lib/platform.ts`. — *#feat(ui)*
+- The platform helper also exposes a `shortcut(...keys)` formatter so any future shortcut-rendering site can stay consistent without re-detecting macOS each time.
+
 ## [0.10.6] — 2026-05-09
 
 ### Changed — Accessibility banner is now collapsible

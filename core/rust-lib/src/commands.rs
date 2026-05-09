@@ -962,6 +962,41 @@ pub fn cut_out_image_entry(
     write_cutout(&png_bytes, None)
 }
 
+/// Save an image clipboard entry (PNG bytes already in the row) to
+/// `~/Downloads/clipsnap-image-<ts>.png`. Doesn't transform the image
+/// in any way — it's the "I want this on disk" companion to cutout /
+/// recolor. Particularly useful after a recolor since the new tinted
+/// entry only lives in the SQLite history otherwise.
+#[tauri::command]
+pub fn save_image_entry_to_downloads(
+    db: State<'_, DbHandle>,
+    id: i64,
+) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use chrono::Local;
+
+    let entry = db::get(&db, id)
+        .map_err(map_err)?
+        .ok_or_else(|| "entry not found".to_string())?;
+    if !matches!(entry.content_type, crate::models::ContentType::Image) {
+        return Err("entry is not an image".to_string());
+    }
+    let png_bytes = B64
+        .decode(entry.content_data.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no Downloads or home directory available".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
+
+    let stamp = Local::now().format("%Y%m%d-%H%M%S");
+    let filename = format!("clipsnap-image-{stamp}.png");
+    let out_path = dir.join(&filename);
+    std::fs::write(&out_path, &png_bytes).map_err(|e| format!("write {filename}: {e}"))?;
+    Ok(out_path.to_string_lossy().into_owned())
+}
+
 /// Same as `cut_out_image_entry` but for an arbitrary image file on
 /// disk (any of the formats `image::load_from_memory` supports — PNG,
 /// JPEG, WebP, GIF, BMP). Used when the selected history row is a

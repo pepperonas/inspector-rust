@@ -213,6 +213,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::image_chromaticity,
             commands::cut_out_image_entry,
             commands::cut_out_image_file,
+            commands::save_image_entry_to_downloads,
             commands::ocr_region,
         ])
         .run(context)

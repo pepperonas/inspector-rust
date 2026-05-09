@@ -338,6 +338,14 @@ export function cutOutImageFile(path: string): Promise<string> {
   return invoke("cut_out_image_file", { path });
 }
 
+/** Save a clipboard image entry to `~/Downloads/clipsnap-image-<ts>.png`
+ *  unchanged. Companion to recolor — recolor produces a new history
+ *  entry with the tinted image; this lets the user grab that entry as
+ *  a real file on disk. Returns the saved absolute path. */
+export function saveImageEntryToDownloads(id: number): Promise<string> {
+  return invoke("save_image_entry_to_downloads", { id });
+}
+
 /** Result of an OCR run. `cancelled` distinguishes user-pressed-Esc
  *  from "ran but no text detected". `chars` is the unicode character
  *  count of the recognized text, included so toasts don't have to

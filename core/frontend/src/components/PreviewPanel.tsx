@@ -1,9 +1,15 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calculator, Check, Copy, Palette, Scissors, Wand2, Zap } from "lucide-react";
+import { Calculator, Check, Copy, Download, Palette, Scissors, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
-import { cutOutImageEntry, cutOutImageFile, imageChromaticity, recolorImageEntry } from "../lib/ipc";
+import {
+  cutOutImageEntry,
+  cutOutImageFile,
+  imageChromaticity,
+  recolorImageEntry,
+  saveImageEntryToDownloads,
+} from "../lib/ipc";
 
 interface Props {
   entry: ListEntry | null;
@@ -143,6 +149,7 @@ export function PreviewPanel({ entry }: Props) {
           />
         </div>
         <CutoutButton source={{ kind: "entry", entryId: clip.id }} />
+        <SaveImageButton entryId={clip.id} />
         <RecolorToolbar entryId={clip.id} />
       </div>
     );
@@ -309,6 +316,88 @@ function CutoutButton({ source }: { source: CutoutSource }) {
       </button>
       <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]">
         ⌘B
+      </kbd>
+      {savedTo && (
+        <span className="ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
+          <Check size={11} />
+          Saved <span className="font-[var(--font-mono)]">{filename}</span>
+        </span>
+      )}
+      {error && (
+        <span className="ml-auto text-[11px] text-red-400" title={error}>
+          failed
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ── Save-image-to-Downloads button (image entries only) ─────────────────────
+
+/** "Save to Downloads" — writes the selected image entry's PNG bytes
+ *  unchanged to `~/Downloads/clipsnap-image-<ts>.png`. The companion
+ *  to the recolor flow: clicking a recolor swatch creates a new
+ *  history entry, and this button takes that new entry off the
+ *  in-app DB and onto disk. Same UX shape as `CutoutButton`. */
+function SaveImageButton({ entryId }: { entryId: number }) {
+  const [busy, setBusy] = useState(false);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSavedTo(null);
+    setError(null);
+  }, [entryId]);
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const path = await saveImageEntryToDownloads(entryId);
+      setSavedTo(path);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Cmd/Ctrl+S — handler is scoped to the lifetime of this component,
+  // so it only fires when an image entry is the current selection.
+  // Non-image entries don't render the button → handler isn't bound.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.shiftKey && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void run();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryId, busy]);
+
+  const filename = savedTo ? savedTo.split("/").pop() : null;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+      <button
+        onClick={() => void run()}
+        disabled={busy}
+        title="Save current image to Downloads (Cmd/Ctrl+S)"
+        className={
+          "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
+          (busy
+            ? "cursor-wait bg-[var(--color-bg)] text-[var(--color-muted)]"
+            : "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90")
+        }
+      >
+        <Download size={12} />
+        {busy ? "Saving…" : "Save to Downloads"}
+      </button>
+      <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]">
+        ⌘S
       </kbd>
       {savedTo && (
         <span className="ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>

@@ -14,6 +14,7 @@ use crate::ocr;
 use crate::paste;
 use crate::recolor;
 use crate::region_picker;
+use crate::screen_recording;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
@@ -62,6 +63,13 @@ const KEY_PLAIN_TEXT_ONLY: &str = "paste.plain_text_only";
 /// "Accessibility access required" toast. Kept stable so the JS side
 /// can switch on it without parsing localized text.
 const ERR_NO_ACCESSIBILITY: &str = "ax.permission_denied";
+
+/// Same shape as `ERR_NO_ACCESSIBILITY` but for the **Screen Recording**
+/// TCC policy — required by the OCR pipeline because `screencapture -i`
+/// is attributed to ClipSnap and macOS denies the capture without the
+/// permission. Without this signal the OCR shortcut would silently
+/// fail and the user would have no way to figure out why.
+const ERR_NO_SCREEN_RECORDING: &str = "screen.permission_denied";
 
 /// Bail-out helper: returns `Err(ERR_NO_ACCESSIBILITY)` when
 /// `accessibility_granted()` is false, so paste IPCs short-circuit
@@ -531,6 +539,41 @@ pub fn force_reset_and_request_grant() -> Result<bool, String> {
     expander::force_reset_and_request_grant().map_err(map_err)
 }
 
+// ── Screen Recording (macOS TCC ScreenCapture policy) ─────────────────────
+
+/// Whether ClipSnap currently has the Screen Recording grant. Cheap;
+/// safe to poll from the Settings panel after the user grants it.
+/// Always `true` on non-macOS (no equivalent permission gate).
+#[tauri::command]
+pub fn get_screen_recording_status() -> bool {
+    screen_recording::screen_recording_granted()
+}
+
+/// Trigger the macOS Screen Recording prompt. Returns the (still-likely-
+/// false) status immediately. The user usually has to relaunch ClipSnap
+/// after granting because macOS caches the TCC verdict per-process.
+#[tauri::command]
+pub fn request_screen_recording_grant() -> bool {
+    screen_recording::request_screen_recording_grant()
+}
+
+/// Open System Settings → Privacy & Security → Screen Recording.
+#[tauri::command]
+pub fn open_screen_recording_settings() -> Result<(), String> {
+    screen_recording::open_screen_recording_settings().map_err(map_err)
+}
+
+/// Reset the Screen Recording TCC entry for ClipSnap (no sudo needed
+/// for the user's own bundle id) and re-fire the prompt. Mirror of
+/// `force_reset_and_request_grant` but for the screencapture policy.
+#[tauri::command]
+pub fn force_reset_screen_recording_grant() -> bool {
+    let _ = std::process::Command::new("tccutil")
+        .args(["reset", "ScreenCapture", "io.celox.clipsnap"])
+        .status();
+    screen_recording::request_screen_recording_grant()
+}
+
 /// Quit the running app process. Intended for the Settings panel's
 /// "Quit ClipSnap" button after the user grants Accessibility — macOS
 /// caches `AXIsProcessTrusted()` per-process, so a freshly granted app
@@ -858,6 +901,16 @@ pub struct OcrResult {
 pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
     use clipboard_rs::{Clipboard, ClipboardContext};
+
+    // Pre-check Screen Recording. Without it, `screencapture -i`
+    // returns 0 + an empty file on recent macOS versions — the user
+    // sees the marquee never appear and has no error to act on.
+    // Returning the sentinel here lets the JS side surface a clear
+    // "grant Screen Recording" toast and a button into the right
+    // System Settings pane.
+    if !screen_recording::screen_recording_granted() {
+        return Err(ERR_NO_SCREEN_RECORDING.to_string());
+    }
 
     // Hide the popup so the screencapture overlay shows over the
     // *previously* focused window — same UX as Cmd+Shift+4.

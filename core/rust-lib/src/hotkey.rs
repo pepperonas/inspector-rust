@@ -101,7 +101,20 @@ pub fn register(app: &AppHandle) -> Result<()> {
                             tracing::info!("OCR captured {} chars", r.chars);
                         }
                         Ok(_) => tracing::debug!("OCR cancelled or empty"),
-                        Err(e) => tracing::warn!("OCR pipeline: {e}"),
+                        Err(e) => {
+                            tracing::warn!("OCR pipeline: {e}");
+                            // Without UI feedback the user has no idea
+                            // why pressing the shortcut did nothing.
+                            // For the permission-denied sentinel we
+                            // open the popup + emit an event the
+                            // frontend turns into a banner that points
+                            // at Settings → Permissions.
+                            if e == "screen.permission_denied" {
+                                let _ = show_popup(&app);
+                                use tauri::Emitter;
+                                let _ = app.emit("ocr-permission-needed", ());
+                            }
+                        }
                     }
                 });
             }

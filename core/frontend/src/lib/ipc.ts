@@ -360,7 +360,39 @@ export interface OcrResult {
  *  (macOS `screencapture -i`) → OCR via Vision → write text to system
  *  clipboard → also push as a History entry. macOS only for now;
  *  Windows returns an error string. Blocks while the user is dragging
- *  the marquee. */
+ *  the marquee.
+ *
+ *  Possible error sentinels (raw strings, switch on these):
+ *    - "screen.permission_denied" — Screen Recording not granted
+ *    - other — wrapped error message from the backend  */
 export function ocrRegion(): Promise<OcrResult> {
   return invoke("ocr_region");
+}
+
+// ── macOS Screen Recording permission ──────────────────────────────────────
+
+/** Whether ClipSnap currently has Screen Recording (TCC ScreenCapture)
+ *  granted. Required for OCR to work — `screencapture -i` is attributed
+ *  to ClipSnap, so without this the marquee never appears. Always
+ *  `true` on non-macOS. */
+export function getScreenRecordingStatus(): Promise<boolean> {
+  return invoke("get_screen_recording_status");
+}
+
+/** Trigger the macOS Screen Recording prompt. Returns the (almost
+ *  always false) status immediately after firing. */
+export function requestScreenRecordingGrant(): Promise<boolean> {
+  return invoke("request_screen_recording_grant");
+}
+
+/** Open System Settings → Privacy & Security → Screen Recording. */
+export function openScreenRecordingSettings(): Promise<void> {
+  return invoke("open_screen_recording_settings");
+}
+
+/** Reset the Screen Recording TCC entry for ClipSnap (no sudo) and
+ *  re-fire the prompt. Use when System Settings shows ClipSnap as
+ *  enabled but the running process still sees the policy as denied. */
+export function forceResetScreenRecordingGrant(): Promise<boolean> {
+  return invoke("force_reset_screen_recording_grant");
 }

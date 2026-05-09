@@ -21,14 +21,18 @@ import { IS_MAC } from "../lib/platform";
 import {
   diagnoseExpandAtCursor,
   forceResetAndRequestGrant,
+  forceResetScreenRecordingGrant,
   getAccessibilityStatus,
   getExpanderConfig,
   getPastePlainTextOnly,
+  getScreenRecordingStatus,
   importBackup,
   openAccessibilitySettings,
+  openScreenRecordingSettings,
   quitApp,
   relaunchApp,
   requestAccessibilityGrant,
+  requestScreenRecordingGrant,
   saveBackupToFile,
   setExpanderConfig,
   setPastePlainTextOnly,
@@ -58,6 +62,12 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   // warning icon) so the problem remains obvious without taking the
   // 8-line block of vertical real estate every settings visit.
   const [accessExpanded, setAccessExpanded] = useState(false);
+  // Independent of Accessibility: macOS gates `screencapture -i`
+  // (the OCR region picker) behind the Screen Recording TCC policy.
+  // Granting Accessibility doesn't unlock this — they're separate
+  // grants. We poll the same way and use the same collapsed-bar UX.
+  const [screenRec, setScreenRec] = useState<boolean | null>(null);
+  const [screenRecExpanded, setScreenRecExpanded] = useState(false);
   // Set to true when polling detects a false→true transition. Drives the
   // "Access detected — restart ClipSnap to activate?" prompt: macOS caches
   // AXIsProcessTrusted per-process, so the running ClipSnap can't actually
@@ -236,6 +246,35 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
     };
   }, [accessibility]);
 
+  // Initial load + same poll-while-not-granted pattern for Screen
+  // Recording. Independent state so a missing AX grant doesn't hide
+  // a missing Screen Recording grant or vice versa.
+  useEffect(() => {
+    let alive = true;
+    getScreenRecordingStatus()
+      .then((ok) => {
+        if (alive) setScreenRec(ok);
+      })
+      .catch(() => {
+        /* leave null — UI shows neutral state */
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  useEffect(() => {
+    if (screenRec === null || screenRec === true) return;
+    const id = window.setInterval(async () => {
+      try {
+        const ok = await getScreenRecordingStatus();
+        if (ok) setScreenRec(true);
+      } catch {
+        /* ignore — keep polling */
+      }
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, [screenRec]);
+
   const dirty =
     cfg !== null && (cfg.enabled !== enabled || cfg.hotkey !== hotkey);
 
@@ -396,6 +435,125 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       try {
                         const ok = await getAccessibilityStatus();
                         setAccessibility(ok);
+                      } catch (e) {
+                        setStatus({ kind: "err", message: String(e) });
+                      }
+                    }}
+                    className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  >
+                    Re-check
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Screen Recording banner — same collapse-by-default UX as the
+          Accessibility one above. Required by OCR (`screencapture -i`
+          is attributed to ClipSnap and macOS denies it without this
+          grant). Only renders when not granted; granted state is
+          silent. */}
+      {screenRec === false && (
+        <div className="sticky top-[-24px] z-20 mx-auto -mt-2 mb-4 w-full max-w-2xl">
+          <div className="rounded border border-amber-500/60 bg-[var(--color-bg)] text-[12px] text-[var(--color-text)] shadow-md ring-1 ring-amber-500/30">
+            <div className="flex items-center gap-2 px-3 py-2">
+              <button
+                type="button"
+                onClick={() => setScreenRecExpanded((v) => !v)}
+                aria-expanded={screenRecExpanded}
+                aria-label={screenRecExpanded ? "Hide details" : "Show details"}
+                className="flex flex-1 items-center gap-2 text-left"
+              >
+                <AlertTriangle size={14} className="shrink-0 text-amber-500" />
+                <span className="flex-1 font-medium">
+                  Screen Recording access required (macOS) — needed for OCR
+                </span>
+                {screenRecExpanded ? (
+                  <ChevronUp size={14} className="shrink-0 text-[var(--color-muted)]" />
+                ) : (
+                  <ChevronDown size={14} className="shrink-0 text-[var(--color-muted)]" />
+                )}
+              </button>
+              <button
+                onClick={async () => {
+                  try {
+                    await openScreenRecordingSettings();
+                  } catch (e) {
+                    setStatus({ kind: "err", message: String(e) });
+                  }
+                }}
+                className="rounded bg-[var(--color-accent)] px-2.5 py-1 text-[11px] text-[var(--color-accent-fg)] hover:opacity-90"
+              >
+                Open System Settings
+              </button>
+            </div>
+            {screenRecExpanded && (
+              <div className="border-t border-amber-500/30 px-3 py-2.5">
+                <div className="flex items-start gap-2">
+                  <div className="w-3.5 shrink-0" aria-hidden />
+                  <div className="flex-1">
+                    <div className="text-[var(--color-muted)]">
+                      ClipSnap's OCR shortcut (<code className="rounded bg-[var(--color-surface)] px-1">⌘⇧O</code>)
+                      spawns <code>screencapture</code>, which macOS denies
+                      without the Screen Recording TCC grant. Without this
+                      permission the marquee never appears and the shortcut
+                      silently fails.
+                    </div>
+                    <ol className="mt-2 list-decimal space-y-0.5 pl-4 text-[11px] text-[var(--color-muted)]">
+                      <li>Click <b>Open System Settings</b> above.</li>
+                      <li>In the Screen Recording list, enable the <b>ClipSnap</b> toggle.</li>
+                      <li>Quit + relaunch ClipSnap (macOS caches the verdict per process).</li>
+                    </ol>
+                  </div>
+                </div>
+                <div className="mt-3 flex flex-wrap gap-2 pl-6">
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (!window.confirm("Quit ClipSnap now? Re-launch via Spotlight / Dock to pick up the new Screen Recording grant.")) return;
+                        await quitApp();
+                      } catch (e) {
+                        setStatus({ kind: "err", message: String(e) });
+                      }
+                    }}
+                    className="rounded border border-amber-500/60 bg-amber-500/10 px-2.5 py-1 text-[11px] text-amber-600 hover:bg-amber-500/20 dark:text-amber-400"
+                  >
+                    Quit ClipSnap
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        if (!window.confirm("Reset the Screen Recording TCC entry for ClipSnap and re-fire the macOS prompt? Use when System Settings shows ClipSnap as enabled but OCR still fails.")) return;
+                        await forceResetScreenRecordingGrant();
+                      } catch (e) {
+                        setStatus({ kind: "err", message: String(e) });
+                      }
+                    }}
+                    className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                    title="Runs `tccutil reset ScreenCapture io.celox.clipsnap` and re-fires the system prompt."
+                  >
+                    Force re-grant (clear stale)
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        await requestScreenRecordingGrant();
+                      } catch (e) {
+                        setStatus({ kind: "err", message: String(e) });
+                      }
+                    }}
+                    className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                    title="Triggers macOS' built-in Screen Recording prompt without resetting first."
+                  >
+                    Try system prompt
+                  </button>
+                  <button
+                    onClick={async () => {
+                      try {
+                        const ok = await getScreenRecordingStatus();
+                        setScreenRec(ok);
                       } catch (e) {
                         setStatus({ kind: "err", message: String(e) });
                       }

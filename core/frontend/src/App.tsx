@@ -44,6 +44,11 @@ function App() {
   // `"other"` = anything else (rare; shown as a generic "Paste failed").
   // Auto-dismisses after 8 s.
   const [pasteError, setPasteError] = useState<null | "ax" | "other">(null);
+  // Same idea but for OCR — fired by the Rust hotkey handler when
+  // Cmd+Shift+O fails because Screen Recording isn't granted.
+  // The popup auto-shows + this flag flips → banner directs the
+  // user into Settings → Permissions to fix the underlying TCC state.
+  const [ocrPermissionMissing, setOcrPermissionMissing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -135,6 +140,29 @@ function App() {
     })();
     return () => unlisten?.();
   }, [refreshNotes]);
+
+  // Backend fires this when the OCR shortcut is pressed but the
+  // Screen Recording TCC grant is missing. Switch to Settings (which
+  // shows the Permissions overview) and surface a banner so the
+  // failure isn't silent.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("ocr-permission-needed", () => {
+        setOcrPermissionMissing(true);
+        setActiveTab("settings");
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+
+  // Auto-dismiss the OCR-permission banner after a longer window —
+  // 15 s gives the user time to read + click into System Settings.
+  useEffect(() => {
+    if (!ocrPermissionMissing) return;
+    const id = window.setTimeout(() => setOcrPermissionMissing(false), 15000);
+    return () => window.clearTimeout(id);
+  }, [ocrPermissionMissing]);
 
   const activate = async (i: number, shiftKey = false) => {
     const target = combined[i];
@@ -251,6 +279,24 @@ function App() {
             )}
             <button
               onClick={() => setPasteError(null)}
+              className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {ocrPermissionMissing && (
+          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+            <span className="flex-1">
+              <b>OCR failed — macOS Screen Recording access not granted.</b>{" "}
+              Without it, <code>screencapture</code> is denied and the
+              region marquee never appears. Grant it in <b>System Settings → Privacy &amp; Security → Screen Recording</b>{" "}
+              for ClipSnap, then relaunch.
+            </span>
+            <button
+              onClick={() => setOcrPermissionMissing(false)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               title="Dismiss"
             >

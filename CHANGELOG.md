@@ -4,6 +4,21 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] — 2026-05-10
+
+### Fixed — OCR no longer fails silently when Screen Recording is denied
+
+- **Root cause.** macOS treats Accessibility and Screen Recording as **independent** TCC grants. Before this release, OCR pre-checks only knew about Accessibility — when the user had granted Accessibility (so paste worked) but never Screen Recording, pressing `⌘⇧O` would call `screencapture -i`, macOS would deny the spawn, the process would exit cleanly with an empty file, and the user saw … nothing. No marquee, no error, no clue. — *#fix(macos)*
+- **New permission API** in [`core/rust-lib/src/screen_recording.rs`](./core/rust-lib/src/screen_recording.rs): `screen_recording_granted()` (`CGPreflightScreenCaptureAccess`), `request_screen_recording_grant()` (fires the macOS prompt), `open_screen_recording_settings()` (jumps straight to the right Privacy pane). Wired through four IPC commands plus a `tccutil reset ScreenCapture io.celox.clipsnap` recovery path for stale grants.
+- **`run_ocr_pipeline` pre-checks the grant** and returns the new `screen.permission_denied` sentinel when missing — same pattern as the existing `ax.permission_denied` for paste.
+- **Hotkey handler surfaces the failure**: when `⌘⇧O` returns the sentinel, ClipSnap now opens its popup and emits `ocr-permission-needed` so the frontend switches to the Settings tab and shows a clear amber banner pointing at the right System Settings pane. No more silent fail.
+- **Settings panel** gets a second collapsible permission banner (parallel to the Accessibility one): one-line warning with `Open System Settings` button + chevron toggle for the full walkthrough (Quit · Force re-grant · Try system prompt · Re-check). Polls every second while not granted, like Accessibility, so the badge flips green within ~1 s of toggling in System Settings.
+- **App-level toast banner** for the OCR-permission-needed event in `App.tsx`, mirroring the existing paste-failed banner. Auto-dismisses after 15 s (longer than the 8 s paste banner — the user needs more time to read + click into System Settings).
+
+### Why 0.11.0
+
+The change adds a whole new TCC permission grant the app depends on, plus four new IPC commands, a new Rust module, and a new event surface. That's beyond the bug-fix scope of a 0.10.x patch — minor bump per `docs/RELEASING.md`'s 0.x.0-vs-0.x.y rule.
+
 ## [0.10.7] — 2026-05-10
 
 ### Added — Shortcut discovery

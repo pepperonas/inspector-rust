@@ -16,6 +16,7 @@ mod paste;
 mod recolor;
 mod region_picker;
 mod screen_picker;
+mod screen_recording;
 mod seed;
 mod settings;
 mod snippets;
@@ -215,6 +216,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::cut_out_image_file,
             commands::save_image_entry_to_downloads,
             commands::ocr_region,
+            commands::get_screen_recording_status,
+            commands::request_screen_recording_grant,
+            commands::open_screen_recording_settings,
+            commands::force_reset_screen_recording_grant,
         ])
         .run(context)
         .expect("error while running ClipSnap");

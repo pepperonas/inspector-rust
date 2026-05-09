@@ -131,31 +131,36 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
     <div className="flex min-h-0 flex-1">
       {/* Left: snippet list */}
       <div className="flex w-2/5 flex-col border-r border-[var(--color-border)]">
-        <div className="flex border-b border-[var(--color-border)]">
+        {/* Sidebar toolbar — icon-only so the three actions fit the
+            ~40 % column width without wrapping. Tooltips carry the
+            label, matching the icon-button pattern used in the
+            History toolbar. */}
+        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-2 py-1.5">
           <button
             onClick={openNew}
-            className="flex flex-1 items-center gap-1.5 px-3 py-2 text-left text-[12px] text-[var(--color-accent)] hover:bg-[var(--color-surface)]"
+            title="New snippet"
+            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-accent)] hover:bg-[var(--color-surface)]"
+            aria-label="New snippet"
           >
-            <Plus size={13} />
-            New Snippet
+            <Plus size={14} />
           </button>
           <button
             onClick={() => void onPickFile()}
             disabled={importing}
-            title="Import snippets from JSON file"
-            className="flex items-center gap-1.5 border-l border-[var(--color-border)] px-3 py-2 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            title={importing ? "Importing…" : "Import snippets from JSON file"}
+            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            aria-label="Import snippets"
           >
-            <Upload size={13} />
-            {importing ? "Importing…" : "Import"}
+            <Upload size={14} />
           </button>
           <button
             onClick={() => void onRestoreDefaults()}
             disabled={importing}
-            title="Re-import the bundled default AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
-            className="flex items-center gap-1.5 border-l border-[var(--color-border)] px-3 py-2 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            title="Restore default snippets — re-imports the bundled AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
+            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+            aria-label="Restore default snippets"
           >
-            <RotateCcw size={13} />
-            Restore defaults
+            <RotateCcw size={14} />
           </button>
         </div>
 

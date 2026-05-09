@@ -43,4 +43,9 @@ describe("Footer", () => {
     render(<Footer index={0} total={1} />);
     expect(screen.queryByText(/^v\d/)).toBeNull();
   });
+
+  it("renders the author credit", () => {
+    render(<Footer index={0} total={1} />);
+    expect(screen.getByText(/Martin Pfeffer/)).toBeTruthy();
+  });
 });

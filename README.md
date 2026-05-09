@@ -5,9 +5,11 @@
 
   # ClipSnap
 
-  **Fast, lightweight clipboard history manager + text expander for Windows 11 & macOS**
+  **The keyboard-first clipboard toolkit for power users — Windows 11 & macOS**
 
-  [![Version](https://img.shields.io/badge/version-0.7.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  Searchable history, system-wide snippets, inline calculator, color picker, image recolor + background removal — all behind one hotkey, all local, AES-256 encrypted at rest.
+
+  [![Version](https://img.shields.io/badge/version-0.8.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
   [![macOS](https://img.shields.io/badge/macOS-10.15+-000000?style=flat-square&logo=apple&logoColor=white)](./macos)
@@ -22,7 +24,7 @@
   [![SQLite](https://img.shields.io/badge/SQLite-bundled-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://sqlite.org)
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-87%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-98%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![Issues](https://img.shields.io/github/issues/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/stargazers)
   [![Last commit](https://img.shields.io/github/last-commit/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/commits/main)
@@ -32,7 +34,7 @@
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/clipsnap/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/clipsnap/actions/workflows/ci.yml)
   [![Latest Release](https://img.shields.io/github/v/release/pepperonas/clipsnap?style=flat-square&label=download)](https://github.com/pepperonas/clipsnap/releases/latest)
 
-  Press `Ctrl+Shift+V` — search — paste. Inspired by Alfred's clipboard viewer on macOS.
+  Press `Ctrl+Shift+V` → search → paste. Inspired by Alfred's clipboard viewer on macOS, scoped to one tool you can keep on every machine.
 </div>
 
 ---
@@ -63,99 +65,69 @@
 
 All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`) and a single Rust lib (`core/rust-lib`) shared across platforms. Each OS has its own thin bundle shell that owns platform-specific details (installer config, icons, capabilities). To add a new platform, see [`CONTRIBUTING.md`](./CONTRIBUTING.md#adding-a-new-platform-shell-linux-etc).
 
+## Workflow
+
+ClipSnap is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
+
+Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to.
+
 ## Features
 
-### Clipboard History
-- **Global hotkey** `Ctrl+Shift+V` opens a frameless, always-on-top popup centered on the monitor with the cursor.
-- **Clipboard capture** — text, RTF, HTML, images (≤ 5 MB, stored as base64 PNG), and file lists via real OS clipboard change events (no polling).
-- **Fuzzy search** (`fuse.js`, threshold 0.4) as you type.
-- **Virtualized list** with a preview panel per content type (text, image, HTML render, RTF, file list).
-- **Auto-paste** — Enter pastes the selected entry into the previously focused app (`enigo` simulates `Ctrl+V` on Windows / `Cmd+V` on macOS).
-- **SQLite history** at `%APPDATA%\ClipSnap\history.db` (Windows) / `~/Library/Application Support/ClipSnap/history.db` (macOS), deduped on SHA-256, capped at 1 000 entries.
+### Clipboard core
+- **Global hotkey** `Ctrl+Shift+V` opens the popup centered on the monitor with the cursor.
+- **Captures** text, RTF, HTML, images (PNG, ≤ 5 MB), and file lists via OS-native clipboard events (no polling). Image-before-files priority on macOS so Finder image-copies land as bitmaps, not paths.
+- **Fuzzy search** (`fuse.js`, threshold 0.4) ranks matches as you type. Virtualized list, per-content-type preview pane.
+- **Auto-paste** — Enter pastes via `enigo`-simulated `Ctrl+V` / `Cmd+V` into the previously focused app. Shift+Enter overrides the plain-text setting and pastes with original formatting.
+- **SQLite store** at `%APPDATA%\ClipSnap\history.db` / `~/Library/Application Support/ClipSnap/history.db`. SHA-256 deduped, 1 000-entry cap.
+- **AES-256-GCM at rest** since v0.6.0 — text/HTML/RTF/image bodies, snippet bodies, note bodies. Key in OS keychain (Keychain / Credential Manager / Secret Service), 0600 keyfile fallback. Full reference: [`docs/encryption.md`](./docs/encryption.md).
 
-### Text Expander (snippets, v0.2)
-- **Snippets** — store reusable text templates, each with a short abbreviation (e.g. `mfg`), an optional title, and a body.
-- **Instant expansion** — type the abbreviation in the History search bar; matching snippets appear at the top of the list ranked above clipboard entries. Press Enter to paste the snippet body directly into the previously focused app.
-- **Snippets tab** — dedicated management UI accessible via the **Snippets** tab button in the top-right of the popup. Create, edit, and delete snippets with a two-column form (abbreviation · title · body).
-- **JSON import** — bulk-load snippets from a `.json` file via **Snippets → Import**, which opens the native file picker. Existing abbreviations are upserted (re-import is idempotent). Format reference in [`docs/snippets-import.md`](./docs/snippets-import.md); ready-to-import themed samples (signatures, dev boilerplates, markdown templates, …) under [`docs/examples/snippets/`](./docs/examples/snippets/).
-- **Tray shortcut** — the system tray menu includes a **Manage Snippets** item that opens the popup directly on the Snippets tab.
-
-### Inline Calculator (v0.2.5)
-Type a math expression in the search field and the result appears as the top list item — Alfred-style. Press Enter to paste the result.
-
-- **Operators:** `+ - * / % ^` (right-associative power), unary `+`/`-`, parentheses.
-- **Numbers:** integers, decimals (`0.5`, `.5`), scientific (`1e3`, `1.5e-2`), digit grouping (`1_000`).
-- **Constants:** `pi` / `π`, `tau`, `e`.
-- **Functions:** `sqrt`, `cbrt`, `abs`, `sign`, `floor`, `ceil`, `round`, `ln`, `log` (base 10), `log2`, `exp`, `sin`/`cos`/`tan` (radians), `asin`/`acos`/`atan`/`atan2`, `sinh`/`cosh`/`tanh`, `min`, `max`, `pow`, `mod`.
-- **Gating:** plain numbers (`42`) and plain text don't trigger calc mode — the input must contain at least one operator, function, or constant. Prefix with `=` to force evaluation of a single literal (`=pi`).
-- **Implementation:** safe recursive-descent parser in [`core/frontend/src/lib/calc.ts`](./core/frontend/src/lib/calc.ts) — no `eval`. 27 unit tests in [`calc.test.ts`](./core/frontend/src/lib/calc.test.ts).
-
-### Hex color preview + picker (v0.4.0, custom modal v0.5.0, click-to-select v0.5.1)
-Type `#3366FF` (or `3366ff`, `#abc`, `#abcdef12`, …) in the search field and a color row appears at the top with a swatch + hex + RGB. Press Enter to paste the canonical `#RRGGBB` uppercase. The History tab's toolbar also has a **Color picker** button that opens an in-app **HSV picker modal** with hue slider, big preview swatch, and hex / RGB / HSL output tabs — click **Copy** to write the chosen value to the clipboard.
-
-- 3/4-digit forms require the `#` prefix; 6/8-digit forms accept either form (so `abc` stays a search query but `abcdef` is a color).
-- Preview pane shows a 128 px swatch with the hex overlaid (foreground auto-picked black/white via WCAG luminance) plus copy buttons for hex / RGB / HSL strings.
-- **Two-click selection** (v0.5.1): opening the picker is *click 1*; the first click in the SV picker (or typing a hex) is *click 2 — the actual selection*. The big swatch and outputs stay in a placeholder state until then, so opening the modal never silently commits a default color.
-- **Pick from screen** (v0.5.2): the modal's *Pick from screen* button samples a color from anywhere on the desktop. macOS uses Apple's own `NSColorSampler` magnifier loupe; Windows uses a fullscreen overlay + `GetPixel`. Cross-platform sampler in [`core/rust-lib/src/screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
-- Pure frontend ([`core/frontend/src/lib/colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx)). 24 unit tests. Full reference: [`docs/colors.md`](./docs/colors.md).
-
-### Image recolor (v0.7.0)
-When the selected entry in the History tab is a **mostly-grayscale PNG** (logos, icons, silhouettes), a Recolor strip appears below the preview with 9 preset swatches (Rust, Red, Green, Blue, Purple, Amber, Cyan, Gray, Black) plus a custom hex input. Click a swatch — or type a hex and hit Enter — and a tinted copy is added to history as a new entry, leaving the original untouched.
-
-- **Tint algorithm** — each pixel's RGB is replaced with `lerp(target, white, perceptualLuminance)`, alpha preserved verbatim. Matches ImageMagick's `+level-colors target,white`. Pure Rust via the `image` crate; identical output on Windows and macOS.
-- **Photo guard** — eligibility uses a sample-based chromaticity probe (`max((max-min)/max)` over 4096 opaque pixels). Anything ≥ 12 % saturation hides the toolbar entirely so you can't tint a vacation photo by accident.
-- **Size cap** — 16 megapixels (4K × 4K) to keep the recolor latency on the UI thread bounded.
-- Module: [`core/rust-lib/src/recolor.rs`](./core/rust-lib/src/recolor.rs). 6 unit tests.
-
-### 25 bundled AI prompt snippets (v0.5.0)
-First-launch seeds your snippet table with **`ai*`-prefixed prompts** covering programming (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aibench`), web (`aithumb`, `aimobile`, `aia11y`, `aiseo`, `aicomponent`), IT security (`aithreat`, `aipentest`, `aiauth`, `aigdpr`), business workflows (`aibrief`, `airfp`, `aiokr`, `aichange`), data (`aidataq`, `aiml`, `aidashboard`), and API design (`aiapi`). Each prompt is a structured, opinionated brief — sections, bullets, output-format directives — written to be handed straight to an LLM without massaging.
-
-- **Idempotent first-run seed** (deleted prompts stay deleted on relaunch)
-- **Restore defaults** button in the Snippets-tab sidebar re-imports them all (upsert by abbreviation; your custom snippets are untouched)
-- Pure data — embedded via `include_str!`. Edit, delete, extend in the Snippets tab like any other snippet.
-- Full reference + the 25 abbreviations: [`docs/ai-prompts.md`](./docs/ai-prompts.md).
-
-### Plain-text paste (default on, v0.4.0)
-HTML / RTF clipboard entries are stripped to their plain-text preview at paste time, so copy-from-Word / browser / mail and paste-into-anything no longer leaks the source app's styling. Toggle in **Settings → Paste**. Hold <kbd>Shift</kbd> + <kbd>Enter</kbd> in the popup to override and paste with original formatting just for that one entry.
-
-### Notes (v0.2.6)
-Notes are **persistent, categorized clipboard items** — they live in their own SQLite table and are **not** affected by the 1 000-entry pruning of the clipboard history.
-
-- **Bookmark a clipboard entry** — hover any History row, click the bookmark icon, the entry is copied into the `notes` table under `Uncategorized`. The note is decoupled from the clip, so even if the original gets pruned, the note stays.
-- **Notes tab** — three-pane layout: **Categories sidebar** (with note counts; virtual `All` and `Uncategorized` groups), **note list**, **detail/edit pane**.
-- **Free-form categories** — typing a new category name into the edit form auto-creates it; the input has a `<datalist>` autocomplete from existing categories.
-- **Editable bodies** for `text`, `html`, `rtf`. `image` and `files` notes are read-only (you can still rename them and change category). Image notes paste back as images, HTML as HTML, etc. — content type is preserved.
-- **From-scratch text notes** via **+ New Note** (no clipboard source needed).
-- **Clear All** with confirmation; per-row delete via hover-trash.
-- **Tray shortcut** — **Manage Notes** opens the popup directly on the Notes tab.
-- Full reference: [`docs/notes.md`](./docs/notes.md).
-
-### Backup — full app export / import (v0.2.6, refined in v0.2.12)
-The **Settings** tab's *Backup & restore* section has **Export…** and **Import…** for a single-file JSON backup of the whole app, plus three checkboxes to pick which sections (history / snippets / notes) the export contains.
-
-- **Export** writes a pretty-printed JSON file containing `{ version, exported_at, history, snippets, notes }` to a path of your choice (native save dialog). Unticked sections are written as empty arrays — useful for sharing snippets without leaking your clipboard history.
-- **Import** merges that file back into the live database with sensible per-table semantics:
-  - Snippets — **upsert by `abbreviation`** (existing rows overwritten).
-  - History — **upsert by SHA-256 hash** (duplicates bump `last_used_at`; the 1 000-entry cap still applies).
-  - Notes — **appended verbatim** with original timestamps preserved.
-- **Versioned schema** — backups carry a `version` field; ClipSnap refuses to import a backup whose version is newer than the running build, instead of silently dropping fields.
-- Full reference: [`docs/backup.md`](./docs/backup.md).
-
-### System-wide text expander (v0.2.7, accessibility-first since v0.3.0)
-Type a snippet abbreviation in **any** text field, press your configured hotkey, and ClipSnap replaces it in place with the snippet body — like aText / TextExpander, but **trigger-based** (no keylogger).
-
-- **Default hotkey:** `Alt + Backquote` (= `Alt + ^` on a German keyboard, `Alt + \`` on US). Disabled by default — opt in from the **Settings** tab.
-- **Hotkey is configurable** via a click-to-record field in the Settings panel. Bad combinations are rejected without losing your previous registration.
-- **Two capture paths.** Since v0.3.0 the primary path uses the **OS accessibility layer** (`AXUIElement` on macOS, `IUIAutomation` on Windows) to read the focused field's value and selection range directly — no clipboard touch, no keystroke synthesis, no flickering selection. Falls back to the legacy `Cmd/Ctrl+Shift+← → Cmd/Ctrl+C → look up → Cmd/Ctrl+V` keystroke + clipboard roundtrip when the focused element doesn't expose accessibility info. The Settings panel's **Diagnose** button reports which path was used.
-- **Cross-platform:** macOS / Windows / Linux X11. Wayland depends on the compositor's global-shortcut portal.
-- **Caveats:** terminals (iTerm2, kitty, gnome-terminal) often expose AX/UIA for their content; legacy / hybrid GUI toolkits may not (Java/Swing without AccessBridge, native Carbon — those fall back to keystrokes). Image/files snippets are not expanded (text only).
+### Text expander (snippets, v0.2 — system-wide v0.2.7)
+- **In-popup expansion** — type an abbreviation in the search bar; matching snippets surface above clipboard entries; Enter pastes the body.
+- **System-wide expansion** — type the abbreviation in *any* text field, press the configured hotkey (default `Alt+Backquote`, opt-in via Settings), ClipSnap replaces it in place. Primary path reads the focused field via OS accessibility (`AXUIElement` / `IUIAutomation`) — no clipboard touch, no keystroke flicker. Falls back to clipboard+keystroke when the field doesn't expose AX/UIA. Diagnose button in Settings reports which path was used.
+- **Snippets tab** for create/edit/delete with a two-column form. **JSON import** via Snippets → Import (`docs/snippets-import.md`, themed samples in `docs/examples/snippets/`).
+- Caveat: terminals & legacy GUI toolkits sometimes don't expose AX/UIA cleanly → falls back to keystrokes; image/file snippets aren't expanded (text only).
 - Full reference: [`docs/text-expander.md`](./docs/text-expander.md).
 
-### Multi-monitor placement
-The popup opens on the monitor that contains the mouse cursor at hotkey time, horizontally centered and ~⅓ from the top. Placement is **clamped** to the active monitor's bounds, so the window never extends past a screen edge — important for mixed-DPI setups (e.g., MacBook Retina + external display). Implementation in [`core/rust-lib/src/hotkey.rs`](./core/rust-lib/src/hotkey.rs).
+### 25 bundled AI prompt snippets (v0.5.0)
+First-launch seeds your snippet table with `ai*`-prefixed prompts across programming, web, IT security, business, data, and API design (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aithumb`, `aithreat`, `aipentest`, `aibrief`, `aiml`, `aiapi`, …). Each prompt is a structured brief, ready to hand to an LLM. Idempotent (deleted prompts stay deleted), restorable from the Snippets sidebar. Full list: [`docs/ai-prompts.md`](./docs/ai-prompts.md).
 
-### System Tray
-Menu items: Open · Manage Snippets · Manage Notes · Pause Capture · Clear History · Start with Windows / Start at Login · Quit.
+### Inline calculator (v0.2.5)
+Type a math expression in the search field, the result appears as the top list item — Alfred-style. Press Enter to paste it.
+
+- Operators `+ - * / % ^`, unary `+/-`, parens. Numbers: int/decimal/scientific/`1_000`-grouped. Constants: `pi`/`π`, `tau`, `e`. Functions: `sqrt`, `cbrt`, `abs`, `sign`, `floor`/`ceil`/`round`, `ln`/`log`/`log2`, `exp`, trig + hyperbolic + inverse, `min`/`max`/`pow`/`mod`.
+- Gated to expressions with at least one operator/function/constant — plain numbers and text don't trigger. Force-evaluate a literal with `=` prefix (`=pi`).
+- Safe recursive-descent parser in [`calc.ts`](./core/frontend/src/lib/calc.ts), no `eval`. 27 tests.
+
+### Color tools (v0.4.0 → v0.5.2)
+- **Inline hex preview** — type `#3366FF` (also `3366ff`, `#abc`, `#abcdef12`) → swatch + hex + RGB row at top → Enter pastes uppercase `#RRGGBB`.
+- **HSV picker modal** — hue slider, big swatch, output tabs for hex / RGB / HSL, two-click selection (no silent default), copy via Tauri clipboard plugin (sidesteps WKWebView restrictions).
+- **Pick from screen** — sample any pixel on the desktop. macOS: Apple's `NSColorSampler` magnifier loupe. Windows: fullscreen overlay + `GetPixel`. Module: [`screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
+- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 24 tests. Reference: [`docs/colors.md`](./docs/colors.md).
+
+### Image tools — recolor + cutout (v0.7.0)
+On selected image entries, the preview pane exposes two actions:
+
+- **Recolor** — for mostly-grayscale PNGs (logos / icons / silhouettes), 9 preset swatches + custom hex tint the image. RGB lerps from target → white by per-pixel luminance, alpha preserved. Saturated photos are auto-hidden from the toolbar (chromaticity gate). Adds the tinted version as a new history entry; original stays.
+- **Cut out background** — chroma-keys the image using the four corner colours. Output saved to `~/Downloads/clipsnap-cutout-<ts>.png`. Shortcut `Cmd/Ctrl+B`. Works cleanly on uniform backgrounds (sky, studio); complex / cluttered backgrounds need ML which is out of scope.
+- Modules: [`recolor.rs`](./core/rust-lib/src/recolor.rs), [`cutout.rs`](./core/rust-lib/src/cutout.rs). 11 tests combined. 16 MP cap to keep latency bounded on the UI thread.
+
+### Notes (v0.2.6)
+Persistent, categorized clipboard items in a separate SQLite table — **not** subject to the 1 000-entry pruning.
+
+- **Bookmark from history** — hover any row → bookmark icon → entry lands in Notes/`Uncategorized`. Decoupled from the source clip; survives pruning.
+- **Notes tab** — three panes: categories sidebar (with counts; virtual `All` / `Uncategorized`), list, detail/edit. Free-form categories (`<datalist>` autocomplete). Editable bodies for text/HTML/RTF; image/files notes are read-only. Per-row delete + Clear All with confirm.
+- **+ New Note** for from-scratch entries. Tray shortcut: **Manage Notes** opens the popup directly here.
+- Reference: [`docs/notes.md`](./docs/notes.md).
+
+### Backup — single-file JSON export/import (v0.2.6+)
+Settings tab → *Backup & restore* → tick history / snippets / notes individually → Export to a JSON file. Import merges back: snippets upsert by abbreviation, history upserts by SHA-256, notes append. Versioned schema — newer backups are refused rather than silently truncated. Reference: [`docs/backup.md`](./docs/backup.md).
+
+### Plain-text paste (default on, v0.4.0)
+HTML / RTF clipboard entries are stripped to their text preview at paste time, so copy-from-Word / browser / mail no longer leaks styling into other apps. Toggle in Settings → Paste. Shift+Enter in the popup overrides for one paste.
+
+### System tray + multi-monitor
+- **Tray menu:** Open · Manage Snippets · Manage Notes · Pause Capture · Clear History · Start with Windows / Start at Login · Quit.
+- **Multi-monitor placement:** popup opens on the monitor with the cursor, horizontally centered, ~⅓ from the top, clamped to the active monitor's bounds (matters on mixed-DPI setups).
 
 ## Repository layout
 
@@ -242,7 +214,7 @@ bash scripts/install-macos.sh       # build + re-sign + install into /Applicatio
 bash scripts/install-macos.sh --reset  # …also tccutil-reset stale Accessibility grants (use after first run)
 ```
 
-> Why the `install-macos.sh` helper? Without an Apple Developer ID, every fresh `pnpm build:macos` gets a new random signing identifier, which makes macOS TCC treat each rebuild as a new app and prompt for Accessibility again. The script forces a stable ad-hoc identifier (`io.celox.clipsnap`) so the grant survives across rebuilds. Full background: [`macos/README.md` — Accessibility permission](./macos/README.md#why-the-dialog-re-appears-after-every-rebuild-and-how-to-stop-that).
+> Why the `install-macos.sh` helper? Without an Apple Developer ID, every fresh `pnpm build:macos` gets a new random signing identifier, which makes macOS TCC treat each rebuild as a new app and prompt for Accessibility again. The script forces a stable ad-hoc bundle identifier so the grant survives across rebuilds. Full background: [`macos/README.md` — Accessibility permission](./macos/README.md#why-the-dialog-re-appears-after-every-rebuild-and-how-to-stop-that).
 
 > Each platform must be built on its native host (Windows for MSI, macOS for DMG/`.app`). Cross-compilation is not supported.
 
@@ -275,8 +247,8 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 ### Tests
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 85 tests
-cargo test --workspace  # Rust unit tests — 87 tests (db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models)
+pnpm test               # frontend unit tests (vitest + happy-dom) — 86 tests
+cargo test --workspace  # Rust unit tests — 98 tests (db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models, recolor, cutout)
 ```
 
 The same commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR.
@@ -314,4 +286,4 @@ See [`CHANGELOG.md`](./CHANGELOG.md) — every release is documented with what w
 
 [MIT](./LICENSE) — © 2026 Martin Pfeffer
 
-Built on weekends and evenings — by day a happy software engineer ❤️ at [Bayootec](https://bayoo.net).
+A private open-source side project — built on weekends and evenings, made with ❤️.

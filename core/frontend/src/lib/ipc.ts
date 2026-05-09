@@ -322,3 +322,10 @@ export function recolorImageEntry(id: number, hex: string): Promise<number> {
 export function imageChromaticity(id: number): Promise<number> {
   return invoke("image_chromaticity", { id });
 }
+
+/** Background-remove an image entry via corner-sampled chroma-key.
+ *  Saves the transparent PNG to `~/Downloads/clipsnap-cutout-<ts>.png`
+ *  and returns the absolute path. Leaves the history entry untouched. */
+export function cutOutImageEntry(id: number): Promise<string> {
+  return invoke("cut_out_image_entry", { id });
+}

@@ -9,6 +9,7 @@ mod expander;
 mod hotkey;
 mod models;
 mod notes;
+mod cutout;
 mod paste;
 mod recolor;
 mod screen_picker;
@@ -207,6 +208,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::pick_screen_color,
             commands::recolor_image_entry,
             commands::image_chromaticity,
+            commands::cut_out_image_entry,
         ])
         .run(context)
         .expect("error while running ClipSnap");

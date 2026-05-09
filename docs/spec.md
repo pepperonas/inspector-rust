@@ -253,6 +253,6 @@ get_capture_state() -> bool
 - Rust: no `unwrap()` in production paths, use `anyhow::Result`. Structured logging via `tracing`.
 - TypeScript: strict mode on, no `any`, ESLint + Prettier configured.
 - Add a simple CI-free `scripts/check.sh` that runs `cargo clippy -- -D warnings` + `pnpm lint` + `pnpm tsc --noEmit`.
-- Footer in README: `© 2026 Martin Pfeffer | celox.io`
+- Footer in README: `© 2026 Martin Pfeffer · MIT License`
 
 Start now. Ask before deviating from this spec.

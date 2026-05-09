@@ -113,11 +113,14 @@ Two separate expansion modes exist:
 
 The Settings panel includes a **"Test now"** button that calls `diagnose_at_cursor` — runs the capture half (no paste) and returns what would have been matched, for debugging.
 
-### Image recolor (`recolor.rs`)
+### Image tools (`recolor.rs`, `cutout.rs`)
 
-When the selected entry in the popup is an image, the preview pane shows a recolor strip with preset swatches + a hex input. Backend pipeline: `image::load_from_memory_with_format(Png)` → for each RGBA pixel, replace RGB with `lerp(target, white, luminance)` (alpha untouched) → re-encode → `db::upsert_clip` as a new history row (original is preserved). Capped at 16 MP to keep latency bounded.
+Two image actions surface in the preview pane when an image entry is selected:
 
-Eligibility is gated client-side: `image_chromaticity` samples up to 4096 opaque pixels, returns `max((max-min)/max)`. The toolbar is rendered only when chromaticity < 0.12 — i.e. logos / silhouettes. Saturated photos hide the controls because tinting them produces unusable output.
+- **Recolor** (`recolor.rs`) — `image::load_from_memory_with_format(Png)` → for each RGBA pixel, replace RGB with `lerp(target, white, luminance)` (alpha untouched) → re-encode → `db::upsert_clip` as a new history row. Eligibility gate: `image_chromaticity` samples up to 4096 opaque pixels (`max((max-min)/max)`). Toolbar only shown when chromaticity < 0.12, i.e. logos / silhouettes.
+- **Cut-out background** (`cutout.rs`) — chroma-key. Sample 8×8 patches at all four corners, take the per-channel median as the background colour, walk every pixel: distance ≤ 30 RGB units → `alpha = 0`, ≥ 50 → keep original alpha, between → linear feather. Output written to `~/Downloads/clipsnap-cutout-<ts>.png`. Triggered by button in PreviewPanel or `Cmd/Ctrl+B` shortcut.
+
+Both modules share the 16 MP hard cap and the same `image` 0.25 dependency (PNG-only feature set).
 
 ### Clipboard capture priority
 

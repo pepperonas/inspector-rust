@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::backup::{self, BackupImportResult};
 use crate::clipboard_watcher::WatcherState;
+use crate::cutout;
 use crate::db::{self, DbHandle};
 use crate::expander;
 use crate::hotkey::{self, ExpanderShortcutState};
@@ -827,4 +828,45 @@ pub fn image_chromaticity(
         .decode(entry.content_data.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
     recolor::max_chromaticity_sample(&png_bytes, 4096).map_err(map_err)
+}
+
+/// Background-remove an image entry via corner-sampled chroma-key, save
+/// the resulting transparent PNG to `~/Downloads/clipsnap-cutout-<ts>.png`,
+/// and return the path string. The history entry is left untouched —
+/// this is a "save the cutout to a file" action, not a clipboard
+/// modification.
+#[tauri::command]
+pub fn cut_out_image_entry(
+    db: State<'_, DbHandle>,
+    id: i64,
+) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use chrono::Local;
+
+    let entry = db::get(&db, id)
+        .map_err(map_err)?
+        .ok_or_else(|| "entry not found".to_string())?;
+    if !matches!(entry.content_type, crate::models::ContentType::Image) {
+        return Err("entry is not an image".to_string());
+    }
+    let png_bytes = B64
+        .decode(entry.content_data.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+
+    let result = cutout::cut_out_background(&png_bytes).map_err(map_err)?;
+
+    // ~/Downloads is the agreed output location. Falls back to the
+    // home directory only if Downloads doesn't resolve (very unusual on
+    // a desktop OS, but better than failing the whole action).
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no Downloads or home directory available".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
+
+    let stamp = Local::now().format("%Y%m%d-%H%M%S");
+    let filename = format!("clipsnap-cutout-{}.png", stamp);
+    let out_path = dir.join(&filename);
+    std::fs::write(&out_path, &result.png).map_err(|e| format!("write {filename}: {e}"))?;
+
+    Ok(out_path.to_string_lossy().into_owned())
 }

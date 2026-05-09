@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "ClipSnap",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "identifier": "io.celox.clipsnap",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -46,8 +46,8 @@
       "minimumSystemVersion": "10.15",
       "entitlements": "entitlements.plist"
     },
-    "copyright": "© 2026 Martin Pfeffer | celox.io",
-    "shortDescription": "Lightweight clipboard history manager for macOS",
-    "longDescription": "ClipSnap is a fast, lightweight clipboard history manager for macOS. Press Ctrl+Shift+V to browse, search, and paste anything you've recently copied."
+    "copyright": "© 2026 Martin Pfeffer · MIT License",
+    "shortDescription": "Power-user clipboard productivity toolkit for macOS",
+    "longDescription": "ClipSnap is a clipboard productivity toolkit for power users — searchable history, text-expander snippets, inline calculator, color picker, image recolor, background removal, and more. Press Ctrl+Shift+V to browse, search, and paste anything you've recently copied."
   }
 }

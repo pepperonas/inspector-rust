@@ -4,6 +4,28 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] — 2026-05-09
+
+### Added — Image cutout / Freistellen
+
+- **Background-removal action** in the image preview pane. Selecting an image entry shows a "Cut out background" button (plus `Cmd/Ctrl+B` shortcut); clicking it chroma-keys the image and saves the transparent PNG to `~/Downloads/clipsnap-cutout-<timestamp>.png`. — *#feat(image)*
+  - **Algorithm.** Sample the four corners of the image (8×8 patches per corner, median per channel — robust to subject pixels bleeding into the corner regions), treat that as the background colour, and replace each pixel with `alpha = 0` if its colour is within 30 RGB units of the background, `alpha = original` if beyond 50 units, with linear feathering in the band between (smooth cutout edge).
+  - **Sweet spot.** Subjects on uniform backgrounds — sky, studio backdrops, solid logo fields. Cluttered / busy backgrounds hit the limit of chroma-keying; pro-grade results would need ML (rembg / U2Net), which is out of scope for a clipboard utility.
+  - **Bounds & safety.** Hard cap at 16 megapixels. Output goes to `~/Downloads` (or `$HOME` if that doesn't resolve); the source history entry is left untouched.
+  - **Module:** [`core/rust-lib/src/cutout.rs`](./core/rust-lib/src/cutout.rs) (~210 LOC). 5 unit tests cover background detection, subject preservation, oversize rejection, the all-background degenerate case, and transparent-corner handling.
+  - **IPC:** `cut_out_image_entry(id) → saved_path`. Frontend wrapper in [`ipc.ts`](./core/frontend/src/lib/ipc.ts), UI in `CutoutButton` inside [`PreviewPanel.tsx`](./core/frontend/src/components/PreviewPanel.tsx).
+
+### Added — About dialog + footer credit
+
+- **About dialog** behind a button in **Settings → About**. Shows version, developer, license, year, target-audience pitch, and a tabular tech-stack overview (Tauri 2 / Wry / Rust / SQLite + AES-256-GCM / React 19 / TypeScript 5 / Vite 7 / Tailwind v4 / `image` 0.25). Esc / backdrop / X all close. — *#feat(ui)*
+- **Author credit** ("made with ♥ by Martin Pfeffer") added to the popup footer next to the version chip and entry counter. — *#feat(ui)*
+
+### Changed — Documentation
+
+- **README rewrite.** Subtitle now reads "The keyboard-first clipboard toolkit for power users — Windows 11 & macOS"; new **Workflow** section frames the `Ctrl+Shift+V → type → Enter` loop; **Features** section reorganised by theme (Clipboard core / Text expander / AI prompts / Calculator / Color tools / Image tools / Notes / Backup / Plain-text paste / Tray + multi-monitor) with each block tightened to a scannable header + 3–6 bullets. Encryption (v0.6.0) promoted from "Limitations" into the Clipboard core feature list where it belongs.
+- **Tauri bundle metadata** (`copyright`, `shortDescription`, `longDescription`) updated to drop the `celox.io` chatter and reflect the broader feature set / power-user audience. Bundle id stays `io.celox.clipsnap` — that's a stable technical identifier the keychain & TCC depend on.
+- **Snippet example signatures** anonymised to use `Your Name` / `https://example.com` placeholders so they're useful as templates for any user.
+
 ## [0.7.0] — 2026-05-08
 
 ### Added — Image recolor

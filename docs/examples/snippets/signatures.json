@@ -2,12 +2,12 @@
   {
     "abbreviation": "sig",
     "title": "Standard signature (English)",
-    "body": "Best regards,\nMartin Pfeffer\nhttps://celox.io"
+    "body": "Best regards,\nYour Name\nhttps://example.com"
   },
   {
     "abbreviation": "sigDe",
     "title": "Standard-Signatur (Deutsch)",
-    "body": "Mit freundlichen Grüßen,\nMartin Pfeffer\nhttps://celox.io"
+    "body": "Mit freundlichen Grüßen,\nIhr Name\nhttps://example.com"
   },
   {
     "abbreviation": "sigShort",

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
   AlertTriangle,
@@ -6,12 +7,14 @@ import {
   CheckCircle2,
   ClipboardType,
   Download,
+  Info,
   Keyboard,
   PlayCircle,
   Upload,
   Wand2,
   Zap,
 } from "lucide-react";
+import { AboutModal } from "./AboutModal";
 import {
   diagnoseExpandAtCursor,
   forceResetAndRequestGrant,
@@ -69,6 +72,17 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   // ── Paste section state ─────────────────────────────────────────────────
   const [plainTextOnly, setPlainTextOnly] = useState<boolean | null>(null);
   const [plainTextSaving, setPlainTextSaving] = useState(false);
+
+  // ── About modal state ───────────────────────────────────────────────────
+  // Pulled lazily on first open of the About dialog rather than on
+  // SettingsPanel mount — keeps the panel render path independent of
+  // the Tauri context (matters for component tests).
+  const [aboutOpen, setAboutOpen] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | undefined>(undefined);
+  useEffect(() => {
+    if (!aboutOpen || appVersion) return;
+    getVersion().then(setAppVersion).catch(() => undefined);
+  }, [aboutOpen, appVersion]);
 
   useEffect(() => {
     let alive = true;
@@ -735,7 +749,26 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             )}
           </Section>
         </div>
+
+        {/* About section */}
+        <div className="mt-6">
+          <Section
+            icon={<Info size={16} className="text-[var(--color-accent)]" />}
+            title="About"
+            subtitle="Version, license, project info."
+          >
+            <button
+              onClick={() => setAboutOpen(true)}
+              className="flex items-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90"
+            >
+              <Info size={12} />
+              Show about dialog
+            </button>
+          </Section>
+        </div>
       </div>
+
+      <AboutModal open={aboutOpen} onClose={() => setAboutOpen(false)} version={appVersion} />
     </div>
   );
 }

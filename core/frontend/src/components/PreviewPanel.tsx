@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calculator, Copy, Palette, Wand2, Zap } from "lucide-react";
+import { Calculator, Check, Copy, Palette, Scissors, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
-import { imageChromaticity, recolorImageEntry } from "../lib/ipc";
+import { cutOutImageEntry, imageChromaticity, recolorImageEntry } from "../lib/ipc";
 
 interface Props {
   entry: ListEntry | null;
@@ -142,6 +142,7 @@ export function PreviewPanel({ entry }: Props) {
             className="max-h-full max-w-full object-contain"
           />
         </div>
+        <CutoutButton entryId={clip.id} />
         <RecolorToolbar entryId={clip.id} />
       </div>
     );
@@ -209,6 +210,98 @@ function CopyButton({ onClick }: { onClick: () => void }) {
     >
       <Copy size={11} />
     </button>
+  );
+}
+
+// ── Cut-out background button (image entries only) ──────────────────────────
+
+/** "Freistellen" / background-removal action. Chroma-keys the image
+ *  using the four corner colours, writes the transparent PNG to
+ *  `~/Downloads/clipsnap-cutout-<ts>.png`, and shows the saved filename
+ *  for a few seconds.
+ *
+ *  Always available on image entries — works best on uniform
+ *  backgrounds (sky / studio / solid logo backdrop). The last-saved
+ *  filename remains visible so the user knows where the file went;
+ *  cleared on entry change. */
+function CutoutButton({ entryId }: { entryId: number }) {
+  const [busy, setBusy] = useState(false);
+  const [savedTo, setSavedTo] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // Reset feedback when the selection changes — the previous filename
+  // belongs to a different entry.
+  useEffect(() => {
+    setSavedTo(null);
+    setError(null);
+  }, [entryId]);
+
+  const run = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const path = await cutOutImageEntry(entryId);
+      setSavedTo(path);
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Cmd/Ctrl+B is the documented shortcut. Registered at the window
+  // level so it fires regardless of focus, but scoped to the lifetime
+  // of this component — i.e. only while an image entry is selected.
+  // Non-image entries don't render the button, so the handler isn't
+  // active on them, which means the shortcut is implicitly gated.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "b") {
+        e.preventDefault();
+        void run();
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+    // `run` closes over `busy` / `entryId`; re-binding on each change
+    // is cheap and keeps the closure correct.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryId, busy]);
+
+  const filename = savedTo ? savedTo.split("/").pop() : null;
+
+  return (
+    <div className="mt-3 flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5">
+      <button
+        onClick={() => void run()}
+        disabled={busy}
+        title="Remove background and save to Downloads (Cmd/Ctrl+B)"
+        className={
+          "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
+          (busy
+            ? "cursor-wait bg-[var(--color-bg)] text-[var(--color-muted)]"
+            : "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90")
+        }
+      >
+        <Scissors size={12} />
+        {busy ? "Cutting…" : "Cut out background"}
+      </button>
+      <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 py-0.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]">
+        ⌘B
+      </kbd>
+      {savedTo && (
+        <span className="ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
+          <Check size={11} />
+          Saved <span className="font-[var(--font-mono)]">{filename}</span>
+        </span>
+      )}
+      {error && (
+        <span className="ml-auto text-[11px] text-red-400" title={error}>
+          failed
+        </span>
+      )}
+    </div>
   );
 }
 

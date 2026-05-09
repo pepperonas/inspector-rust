@@ -4,6 +4,14 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] — 2026-05-09
+
+### Added — Save image entry to Downloads
+
+- **New "Save to Downloads" button + `Cmd/Ctrl+S` shortcut** below the cutout button on every image entry. Writes the selected entry's PNG bytes unchanged to `~/Downloads/clipsnap-image-<ts>.png`. Companion to recolor — clicking a recolor swatch creates a new history entry with the tinted image; this lets the user grab that entry as a real file on disk without going through cutout (which would transform it). Same UX shape as the cutout button (busy state, saved-filename feedback, error toast). — *#feat(image)*
+  - **IPC:** `save_image_entry_to_downloads(id) → path`. UI in `SaveImageButton` inside [`PreviewPanel.tsx`](./core/frontend/src/components/PreviewPanel.tsx).
+  - Workflow: select image → recolor swatch → ↑ to the new tinted entry → `Cmd+S` → done.
+
 ## [0.10.0] — 2026-05-09
 
 ### Changed — Cutout switched from chroma-key to ML

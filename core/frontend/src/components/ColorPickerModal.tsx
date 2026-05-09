@@ -187,7 +187,7 @@ export function ColorPickerModal({ open, onClose }: Props) {
       }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
     >
-      <div className="w-[380px] max-w-[92vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
+      <div className="w-[380px] max-w-[92vw] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
         {/* Header */}
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold">Color picker</h2>

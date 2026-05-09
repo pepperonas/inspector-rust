@@ -42,7 +42,7 @@ export function AboutModal({ open, onClose, version }: Props) {
       }}
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
     >
-      <div className="w-[420px] max-w-[92vw] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-4 shadow-2xl">
+      <div className="w-[420px] max-w-[92vw] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-4 shadow-2xl">
         {/* Header */}
         <div className="mb-3 flex items-center justify-between">
           <h2 className="flex items-center gap-2 text-[14px] font-semibold">
@@ -59,7 +59,7 @@ export function AboutModal({ open, onClose, version }: Props) {
         </div>
 
         {/* Identity block */}
-        <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[12px]">
+        <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[12px]">
           <div className="flex items-baseline justify-between">
             <span className="text-[14px] font-semibold">ClipSnap</span>
             {version && (
@@ -85,7 +85,7 @@ export function AboutModal({ open, onClose, version }: Props) {
         </table>
 
         {/* Workflow pitch */}
-        <div className="mb-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] leading-relaxed">
+        <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] leading-relaxed">
           <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-accent)]">
             Workflow optimization
           </div>

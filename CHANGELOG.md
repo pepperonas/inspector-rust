@@ -4,6 +4,16 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.4] — 2026-05-09
+
+### Changed — UI consistency pass on modals
+
+- **About dialog and Color picker dialog now share `rounded-xl` corners** (12 px instead of 8 px) for a softer, more macOS-native look. Inner cards inside the About dialog (identity block, workflow pitch) bumped to match. Establishes the visual hierarchy: modals = `rounded-xl`, inline cards/strips = `rounded-lg`, inputs/buttons = `rounded` / `rounded-md`. — *#chore(ui)*
+
+### Added — Restore-defaults inline confirm
+
+- **Snippets sidebar's "Restore defaults" icon now uses a two-step inline confirm**, matching the pattern History's "Clear all" introduced in v0.6.1. First click on the `RotateCcw` icon → toolbar row swaps to `Restore defaults? Yes / Cancel` in red; second click on `Yes` actually re-imports the bundled AI-prompt templates. Previously a single misclick would silently overwrite all default-abbreviation snippets — destructive without confirmation. — *#feat(snippets)*
+
 ## [0.10.3] — 2026-05-09
 
 ### Added — History time chip is now interactive

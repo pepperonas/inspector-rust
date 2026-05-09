@@ -35,6 +35,12 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
     | null
   >(null);
   const [importing, setImporting] = useState(false);
+  // Two-step confirm for "Restore defaults" — same pattern as
+  // History's "Clear all". The first click on the icon arms the
+  // confirm strip (replaces the toolbar row); the second click on
+  // "Yes" actually re-imports the bundled defaults. "Cancel" or
+  // any state change clears the arm.
+  const [confirmingRestore, setConfirmingRestore] = useState(false);
 
   const openNew = () => {
     setForm(EMPTY_FORM);
@@ -134,34 +140,59 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
         {/* Sidebar toolbar — icon-only so the three actions fit the
             ~40 % column width without wrapping. Tooltips carry the
             label, matching the icon-button pattern used in the
-            History toolbar. */}
-        <div className="flex items-center justify-between border-b border-[var(--color-border)] px-2 py-1.5">
-          <button
-            onClick={openNew}
-            title="New snippet"
-            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-accent)] hover:bg-[var(--color-surface)]"
-            aria-label="New snippet"
-          >
-            <Plus size={14} />
-          </button>
-          <button
-            onClick={() => void onPickFile()}
-            disabled={importing}
-            title={importing ? "Importing…" : "Import snippets from JSON file"}
-            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
-            aria-label="Import snippets"
-          >
-            <Upload size={14} />
-          </button>
-          <button
-            onClick={() => void onRestoreDefaults()}
-            disabled={importing}
-            title="Restore default snippets — re-imports the bundled AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
-            className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
-            aria-label="Restore default snippets"
-          >
-            <RotateCcw size={14} />
-          </button>
+            History toolbar. When "Restore defaults" is armed the
+            whole row is replaced by an inline confirm strip — same
+            two-step UX as History's "Clear all". */}
+        <div className="flex h-10 items-center justify-between border-b border-[var(--color-border)] px-2">
+          {confirmingRestore ? (
+            <div className="flex w-full items-center gap-1 text-[11px]">
+              <span className="text-red-400">Restore defaults?</span>
+              <button
+                onClick={() => {
+                  setConfirmingRestore(false);
+                  void onRestoreDefaults();
+                }}
+                className="ml-auto rounded px-2 py-0.5 text-red-400 hover:bg-red-400/10"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setConfirmingRestore(false)}
+                className="rounded px-2 py-0.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={openNew}
+                title="New snippet"
+                className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-accent)] hover:bg-[var(--color-surface)]"
+                aria-label="New snippet"
+              >
+                <Plus size={14} />
+              </button>
+              <button
+                onClick={() => void onPickFile()}
+                disabled={importing}
+                title={importing ? "Importing…" : "Import snippets from JSON file"}
+                className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+                aria-label="Import snippets"
+              >
+                <Upload size={14} />
+              </button>
+              <button
+                onClick={() => setConfirmingRestore(true)}
+                disabled={importing}
+                title="Restore default snippets — re-imports the bundled AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
+                className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+                aria-label="Restore default snippets"
+              >
+                <RotateCcw size={14} />
+              </button>
+            </>
+          )}
         </div>
 
         {importStatus && (

@@ -26,7 +26,7 @@ use enigo::{
     Direction::{Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::thread;
 use std::time::Duration;
 
@@ -208,6 +208,64 @@ pub const LEGACY_DEFAULT_HOTKEY: &str = "Alt+Backquote";
 /// `expander-permission-needed` event so the user gets an actionable
 /// banner instead of a silent no-op.
 pub const ERR_NO_ACCESSIBILITY: &str = "ax.permission_denied";
+
+/// Settings key: the direct hotkey→snippet bindings, stored as a JSON
+/// array of [`DirectSlot`]. Empty / missing → no direct slots.
+pub const KEY_DIRECT_SLOTS: &str = "expander.direct_slots";
+
+/// One "press a hotkey → paste this snippet's body" binding. Unlike the
+/// abbreviation expander it reads nothing from the focused field — it just
+/// writes the body to the clipboard and synthesizes paste — so it works in
+/// **any** app, including terminals (Terminal.app, iTerm2, …) where the
+/// abbreviation paths can't see the input line.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DirectSlot {
+    /// Tauri global-shortcut accelerator string, same format as the
+    /// abbreviation hotkey (e.g. `"Alt+Digit2"`).
+    pub hotkey: String,
+    /// `snippets.id` of the snippet whose body gets pasted on press.
+    pub snippet_id: i64,
+}
+
+/// Read the configured direct slots. Malformed JSON → empty list (the UI
+/// will let the user re-add them) rather than a hard error.
+pub fn get_direct_slots(db: &DbHandle) -> Result<Vec<DirectSlot>> {
+    match crate::settings::get(db, KEY_DIRECT_SLOTS)? {
+        Some(json) if !json.trim().is_empty() => Ok(serde_json::from_str(&json).unwrap_or_default()),
+        _ => Ok(Vec::new()),
+    }
+}
+
+/// Persist the direct slots as JSON.
+pub fn set_direct_slots(db: &DbHandle, slots: &[DirectSlot]) -> Result<()> {
+    let json = serde_json::to_string(slots)?;
+    crate::settings::set(db, KEY_DIRECT_SLOTS, &json)
+}
+
+/// Paste the body of snippet `snippet_id` at the current cursor — the
+/// handler for a direct-slot global shortcut. No reading, no selection:
+/// write body → synthesize paste → restore the clipboard. A no-op (logged)
+/// if the snippet was deleted since the slot was bound. On macOS, returns
+/// the [`ERR_NO_ACCESSIBILITY`] sentinel when synthetic input isn't
+/// allowed (same gate as the abbreviation expander and the main paste).
+///
+/// Must run on the main thread on macOS — `enigo`'s `Cmd+V` synthesis
+/// touches TSM, which asserts main-thread (see `hotkey.rs` / `docs/text-expander.md`).
+pub fn paste_snippet_body(db: &DbHandle, snippet_id: i64) -> Result<()> {
+    let Some(snippet) = snippets::get_by_id(db, snippet_id)? else {
+        tracing::warn!("direct slot points at deleted snippet id {snippet_id}; ignoring");
+        return Ok(());
+    };
+    #[cfg(target_os = "macos")]
+    if !accessibility_granted() {
+        return Err(anyhow!(ERR_NO_ACCESSIBILITY));
+    }
+    // Mechanically identical to the SelectionActive paste — write the body,
+    // synthesize paste, restore the clipboard. The only difference is there
+    // is no prior selection, so the paste inserts at the cursor instead of
+    // replacing a range. Reuse the same helper.
+    paste_over_selection(&snippet.body)
+}
 
 /// One-time settings migration: if the stored hotkey is still the pre-0.12
 /// default `Alt+Backquote` (i.e. the user never changed it), rewrite it to

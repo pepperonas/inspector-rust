@@ -1,8 +1,11 @@
 # Text expander
 
-ClipSnap's **text expander** lets you trigger snippet expansion *outside* the popup — from any text field in any app. Type a snippet abbreviation, press your configured hotkey, ClipSnap replaces it in place with the snippet body. Trigger-based, not silent: no keylogger, you stay in control of when expansion happens.
+ClipSnap has **two ways** to expand a snippet outside the popup:
 
-Expander introduced in **v0.2.7**. Default hotkey changed from `Alt+Backquote` to `Alt+1` in **v0.12.0** (the old default was unreachable on German ISO MacBooks — see [Hotkey format](#hotkey-format)).
+1. **Abbreviation expander** (introduced v0.2.7) — type a snippet's abbreviation in any text field, press your configured hotkey, ClipSnap reads the word before the cursor and replaces it with the snippet body in place. Trigger-based, not silent: no keylogger, you stay in control. *Doesn't work in terminals* (they don't expose the input line — see [Caveats](#caveats--what-wont-work-cleanly)).
+2. **Direct hotkey → snippet slots** (introduced v0.13.0) — bind a hotkey straight to a snippet; pressing it pastes the body at the cursor with no abbreviation typed. Reads nothing, so it works in **every** app, including terminals. See [Direct hotkey → snippet](#direct-hotkey--snippet).
+
+Default abbreviation hotkey changed from `Alt+Backquote` to `Alt+1` in **v0.12.0** (the old default was unreachable on German ISO MacBooks — see [Hotkey format](#hotkey-format)).
 
 ## Quick start
 
@@ -57,6 +60,47 @@ Settings → Text expander → **Diagnose** now reports the path it took:
 - 🟡 *Clipboard fallback — focused app didn't expose accessibility info*
 
 If you see the amber fallback in an app you'd expect to support AX/UIA, file an issue with the app name and OS version.
+
+## Direct hotkey → snippet
+
+The abbreviation expander has to *read* the word before the cursor (via AX or via select+copy). Some places — terminal command lines, the odd custom widget — don't let it. **Direct slots** are a second mode that needs no reading at all: you bind a hotkey straight to a snippet, and pressing it just pastes that snippet's body at the cursor. Works in **any** app, including iTerm2 / Terminal.app.
+
+Introduced in **v0.13.0**.
+
+### Setup
+
+Settings → Text expander → **Direct hotkey → snippet**:
+
+1. **+ Add slot** → a row appears: `[hotkey recorder] → [snippet picker] [×]`.
+2. Click the recorder, press the combo you want (e.g. `Alt+2`). Pick the snippet from the dropdown.
+3. **Save & register**. The backend validates and registers the global shortcuts.
+4. Press the hotkey anywhere — the snippet body is pasted at the cursor.
+
+You can add as many slots as you like. To remove one, click the `×` and Save.
+
+### How it works
+
+On press, ClipSnap (on the main thread, because `enigo`'s `Cmd+V` touches TSM): save the current clipboard text → write the snippet body to the clipboard → synthesize `Cmd/Ctrl+V` → after ~180 ms restore the original clipboard. No reading, no selection, no AX dependency on the *capture* side. (It still needs the macOS Accessibility grant for the `Cmd+V` synthesis — same as the abbreviation expander and the popup's paste flow.)
+
+### Validation & edge cases
+
+- A slot's hotkey **may not collide** with the popup hotkey (`Ctrl+Shift+V`), the OCR hotkey (`Cmd/Ctrl+Shift+O`), the abbreviation expander hotkey, or another slot — `set_direct_slots` rejects the whole batch with a descriptive error and doesn't persist anything (so the previously-registered slots stay live).
+- If the bound snippet is **deleted**, the slot becomes dangling: pressing the hotkey does nothing (logged), and the Settings row shows `⚠ snippet deleted — pick another` so you can rebind or remove it.
+- Long bodies (the bundled AI prompts, say) are fine — it pastes, it doesn't type.
+- macOS without Accessibility → same UX as the abbreviation expander: the popup opens, switches to Settings, and an amber banner points you at the grant.
+
+### Storage
+
+A JSON array under the `expander.direct_slots` settings key: `[{"hotkey": "Alt+Digit2", "snippet_id": 5}, ...]`. (`snippet_id` is `snippets.id`.) Re-registered at startup. Not included in v1 backups (per-machine, like the abbreviation hotkey).
+
+### IPC
+
+| Command | Args | Returns |
+|---|---|---|
+| `get_direct_slots` | — | `[{ hotkey, snippet_id, abbreviation, title }]` — `abbreviation`/`title` are `null` if the snippet was deleted |
+| `set_direct_slots` | `slots: [{ hotkey, snippet_id }]` | the re-resolved list — errors (and persists nothing) on a collision or unknown `snippet_id` |
+
+Backend: `expander::{DirectSlot, get_direct_slots, set_direct_slots, paste_snippet_body}`, `hotkey::register_direct_slots`, `snippets::get_by_id`.
 
 ## Threading model — must run on the main thread (macOS)
 
@@ -113,7 +157,7 @@ ClipSnap is Windows-first; the Wayland gap is intentionally tolerated. If you hi
 
 The expander is a **trigger-based macro**, not a deeply integrated input-method. There are situations where it falls short:
 
-- **Terminal command lines — not supported.** Terminal.app, iTerm2, kitty, Alacritty, WezTerm, gnome-terminal: pressing the hotkey there does **nothing**. Terminals don't expose the input line through accessibility (Path 1/1b can't see it), and a shell prompt has no GUI-style "select previous word" — `Cmd/Ctrl+Shift+←` either does nothing on the input line or selects *screen* text, so Path 2's select+copy+paste grabs the wrong region or comes back empty. There's no clean fix short of per-shell readline integration, which is out of scope. **Workaround:** popup paste (`Ctrl+Shift+V` → search the abbreviation → Enter).
+- **Terminal command lines — the *abbreviation* expander doesn't work there.** Terminal.app, iTerm2, kitty, Alacritty, WezTerm, gnome-terminal: pressing the abbreviation hotkey does **nothing**. Terminals don't expose the input line through accessibility (Path 1/1b can't see it), and a shell prompt has no GUI-style "select previous word" — `Cmd/Ctrl+Shift+←` either does nothing on the input line or selects *screen* text, so Path 2's select+copy+paste grabs the wrong region or comes back empty. There's no clean fix for the *abbreviation* model short of per-shell readline integration, which is out of scope. **Use a [Direct hotkey → snippet](#direct-hotkey--snippet) slot** for terminals (it pastes without reading anything, so it works there), or popup paste (`Ctrl+Shift+V` → search → Enter).
 - **Electron / Chromium / Mac-Catalyst apps** (WhatsApp Desktop, Slack, Discord, VS Code, …) — *supported* since v0.12.0, but via Path 1b: the AX `AXSelectedText` set is a no-op there, so ClipSnap selects the abbreviation via AX and pastes the body over it (brief clipboard touch, saved & restored). If you ever see the abbreviation get *highlighted but not replaced*, that's the verify step working and the paste failing — usually a timing fluke; press the hotkey again.
 - **Password fields** in many browsers and apps refuse synthetic paste — the abbreviation gets selected (visible) but the body never lands. Workaround: not appropriate to use the expander in password fields anyway. Use the popup.
 - **Image / files snippets are not supported** by the expander. The orchestration is text-only on purpose: the previous-word selection is a single text run, and replacing it with an image / file-list payload doesn't make sense in most editors. Use the popup for those.

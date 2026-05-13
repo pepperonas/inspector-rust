@@ -58,10 +58,13 @@ pub const POPUP_LABEL: &str = "popup";
 
 /// Holds the currently-registered expander shortcut (if any), so we can
 /// unregister it cleanly when the user changes it from the settings panel.
-/// Tauri state.
+/// Also tracks the direct hotkey→snippet slots. Tauri state.
 #[derive(Default)]
 pub struct ExpanderShortcutState {
+    /// The abbreviation-based expander hotkey (the one in Settings → Hotkey).
     pub current: Arc<Mutex<Option<Shortcut>>>,
+    /// Direct hotkey→snippet slots currently registered: `(shortcut, snippet_id)`.
+    pub direct: Arc<Mutex<Vec<(Shortcut, i64)>>>,
 }
 
 /// Ctrl+Shift+V global hotkey for the popup.
@@ -206,6 +209,92 @@ pub fn register_expander(
 
     *state.current.lock() = Some(shortcut);
     tracing::info!("text expander armed: {hotkey}");
+    Ok(())
+}
+
+/// (Re-)register the direct hotkey→snippet slots. Unregisters whatever was
+/// registered before. Validates that no slot's hotkey collides with the
+/// popup hotkey (`Ctrl+Shift+V`), the OCR hotkey, the abbreviation
+/// expander hotkey, or another slot — returns a descriptive `Err` on a
+/// collision (and persists nothing; the caller does that only on success).
+///
+/// Each slot's handler dispatches to the main thread (enigo's `Cmd+V` on
+/// macOS needs it) and is gated on the Accessibility grant, mirroring the
+/// abbreviation expander: on a miss it shows the popup + emits
+/// `expander-permission-needed`.
+pub fn register_direct_slots(
+    app: &AppHandle,
+    state: &ExpanderShortcutState,
+    slots: &[crate::expander::DirectSlot],
+) -> Result<()> {
+    // 1) Unregister whatever was registered before.
+    {
+        let mut cur = state.direct.lock();
+        for (sc, _) in cur.drain(..) {
+            let _ = app.global_shortcut().unregister(sc);
+        }
+    }
+
+    // 2) Parse + validate against the reserved shortcuts and each other.
+    let popup = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+    #[cfg(target_os = "macos")]
+    let ocr = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyO);
+    #[cfg(not(target_os = "macos"))]
+    let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
+    let abbr_hotkey: Option<Shortcut> = *state.current.lock();
+
+    let mut parsed: Vec<(Shortcut, i64)> = Vec::with_capacity(slots.len());
+    for slot in slots {
+        let sc = parse_shortcut(&slot.hotkey)
+            .with_context(|| format!("invalid direct-slot hotkey {:?}", slot.hotkey))?;
+        if sc == popup || sc == ocr || abbr_hotkey == Some(sc) {
+            return Err(anyhow!(
+                "hotkey {} is reserved (popup / OCR / text-expander) — pick another",
+                slot.hotkey
+            ));
+        }
+        if parsed.iter().any(|(s, _)| *s == sc) {
+            return Err(anyhow!("hotkey {} is bound to more than one slot", slot.hotkey));
+        }
+        parsed.push((sc, slot.snippet_id));
+    }
+
+    // 3) Register each.
+    for &(sc, snippet_id) in &parsed {
+        let app_h = app.clone();
+        app.global_shortcut()
+            .on_shortcut(sc, move |_app, fired, event| {
+                if event.state != ShortcutState::Pressed || *fired != sc {
+                    return;
+                }
+                let app = app_h.clone();
+                // Paste needs the Accessibility grant on macOS — same gate +
+                // banner as the abbreviation expander.
+                if !crate::expander::accessibility_granted() {
+                    let _ = show_popup(&app);
+                    let _ = app.emit("expander-permission-needed", ());
+                    return;
+                }
+                let app_main = app.clone();
+                let app_err = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Some(db) = app_main.try_state::<DbHandle>() {
+                        match crate::expander::paste_snippet_body(&db, snippet_id) {
+                            Ok(()) => {}
+                            Err(e) if e.to_string() == crate::expander::ERR_NO_ACCESSIBILITY => {
+                                let _ = show_popup(&app_err);
+                                let _ = app_err.emit("expander-permission-needed", ());
+                            }
+                            Err(e) => tracing::warn!("direct-slot paste failed: {e:#}"),
+                        }
+                    }
+                });
+            })
+            .with_context(|| format!("failed to register direct-slot hotkey {sc:?}"))?;
+    }
+
+    *state.direct.lock() = parsed;
+    tracing::info!("registered {} direct hotkey slot(s)", slots.len());
     Ok(())
 }
 

@@ -133,6 +133,21 @@ pub fn run(context: tauri::Context<Wry>) {
                 ) {
                     tracing::warn!("expander hotkey register failed at startup: {e:#}");
                 }
+
+                // Direct hotkey→snippet slots (independent of the
+                // abbreviation expander; the only mode that works in
+                // terminals, since it pastes without reading anything).
+                match expander::get_direct_slots(&db_handle) {
+                    Ok(slots) if !slots.is_empty() => {
+                        if let Err(e) =
+                            hotkey::register_direct_slots(&app.handle(), &state, &slots)
+                        {
+                            tracing::warn!("direct-slot register failed at startup: {e:#}");
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("reading direct slots at startup: {e:#}"),
+                }
             }
 
             clipboard_watcher::spawn(app.handle().clone(), db_handle, paused, self_written);
@@ -200,6 +215,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_expander_config,
             commands::trigger_expand_at_cursor,
             commands::diagnose_expand_at_cursor,
+            commands::get_direct_slots,
+            commands::set_direct_slots,
             commands::get_accessibility_status,
             commands::request_accessibility_grant,
             commands::open_accessibility_settings,

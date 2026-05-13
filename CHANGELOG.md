@@ -4,6 +4,19 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] — 2026-05-13
+
+### Added — direct hotkey → snippet slots (a paste-only expansion mode that works *everywhere*, including terminals)
+
+- **New "Direct hotkey → snippet" section** in Settings → Text expander. Bind a hotkey straight to a snippet — e.g. `Alt+2` → the `aiplan` body — and pressing it pastes the body at the cursor, **no abbreviation typed**. Because it reads nothing from the focused field (it just writes the body to the clipboard and synthesizes `Cmd/Ctrl+V`, then restores the clipboard), it works in **any** app — including terminals (iTerm2, Terminal.app, kitty, Alacritty, …) where the abbreviation-based expander can't see the input line. — *#feat(expander)*
+- **Backend**: `expander::DirectSlot { hotkey, snippet_id }` persisted as a JSON array under the `expander.direct_slots` settings key; `expander::paste_snippet_body` (AX-gated on macOS, same as the abbreviation expander); `hotkey::register_direct_slots` validates against collisions with the popup hotkey (`Ctrl+Shift+V`), the OCR hotkey, the abbreviation expander hotkey, and other slots, then registers each as a global shortcut whose handler dispatches to the main thread. Two new IPC commands `get_direct_slots` / `set_direct_slots`; `ExpanderShortcutState` grew a `direct` field; slots are re-registered from settings at startup. `snippets::get_by_id` added.
+- **UI**: per-slot rows of `[hotkey recorder] → [snippet picker] [remove]`, an "Add slot" button, and a Save (which registers + persists; nothing is written if registration fails, so the previous slots stay live on error). A deleted bound snippet shows as `⚠ snippet deleted — pick another` so the slot can be rebound or removed. Missing-Accessibility warning mirrors the abbreviation expander's.
+- **Why this mode exists:** the abbreviation expander ("type `aiplan`, press the hotkey") fundamentally can't work in a terminal — terminals don't expose the readline input buffer through accessibility, and a shell prompt has no GUI "select the word I just typed". Direct slots sidestep that by not needing to read anything.
+
+### Why 0.13.0
+
+New feature (a second expansion mode + its UI + storage + a new event-free IPC pair) with no breaking changes. New-feature bump per `docs/RELEASING.md`'s 0.x.0-vs-0.x.y rule.
+
 ## [0.12.0] — 2026-05-12
 
 ### Fixed — text expander: hotkey now actually fires, failures are no longer silent

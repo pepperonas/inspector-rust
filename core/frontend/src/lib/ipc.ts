@@ -248,6 +248,35 @@ export function diagnoseExpandAtCursor(): Promise<DiagnoseResult> {
   return invoke("diagnose_expand_at_cursor");
 }
 
+// ── Direct hotkey → snippet slots ────────────────────────────────────────────
+
+/** A "press this hotkey → paste this snippet's body" binding. Unlike the
+ *  abbreviation expander it reads nothing — it just pastes — so it works in
+ *  any app, including terminals. `abbreviation`/`title` are `null` if the
+ *  bound snippet was deleted. */
+export interface DirectSlot {
+  /** Tauri shortcut string, e.g. "Alt+Digit2". */
+  hotkey: string;
+  snippet_id: number;
+  abbreviation: string | null;
+  title: string | null;
+}
+
+export function getDirectSlots(): Promise<DirectSlot[]> {
+  return invoke("get_direct_slots");
+}
+
+/** Replace the whole direct-slot list. The backend validates snippet ids,
+ *  re-registers the global shortcuts (rejecting collisions with the popup /
+ *  OCR / abbreviation hotkeys and duplicates), then persists — nothing is
+ *  written if registration fails, so the previous slots stay live on error.
+ *  Returns the re-resolved list. */
+export function setDirectSlots(
+  slots: { hotkey: string; snippet_id: number }[],
+): Promise<DirectSlot[]> {
+  return invoke("set_direct_slots", { slots });
+}
+
 /** Cheap probe — returns true if synthetic-input permission is granted
  *  (macOS Accessibility / other OSes always true). Used for polling
  *  while the user is in System Settings granting access. */

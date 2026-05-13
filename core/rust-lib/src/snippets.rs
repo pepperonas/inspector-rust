@@ -87,6 +87,19 @@ pub fn find_by_exact_abbreviation(db: &DbHandle, abbr: &str) -> Result<Option<Sn
     Ok(ci)
 }
 
+/// Fetch a single snippet by primary key. `None` if it was deleted.
+pub fn get_by_id(db: &DbHandle, id: i64) -> Result<Option<Snippet>> {
+    let conn = db.lock();
+    conn.query_row(
+        "SELECT id, abbreviation, title, body, created_at, updated_at \
+         FROM snippets WHERE id = ?1",
+        params![id],
+        row_to_snippet,
+    )
+    .optional()
+    .map_err(Into::into)
+}
+
 /// Match abbreviation prefix first, then body/title contains — up to 10 results.
 pub fn find_by_query(db: &DbHandle, query: &str) -> Result<Vec<Snippet>> {
     if query.is_empty() {

@@ -792,6 +792,69 @@ pub fn diagnose_expand_at_cursor(
         .map_err(|e| format!("main thread didn't reply: {e}"))?
 }
 
+// ── Direct hotkey → snippet slots ───────────────────────────────────────────
+
+/// A direct slot with the bound snippet's display info resolved. `None`
+/// abbreviation/title means the snippet has since been deleted (the slot
+/// is dangling — pressing the hotkey does nothing; the UI shows it so the
+/// user can rebind or remove it).
+#[derive(Debug, Serialize)]
+pub struct DirectSlotView {
+    pub hotkey: String,
+    pub snippet_id: i64,
+    pub abbreviation: Option<String>,
+    pub title: Option<String>,
+}
+
+fn resolve_slots(db: &DbHandle, slots: &[expander::DirectSlot]) -> Vec<DirectSlotView> {
+    slots
+        .iter()
+        .map(|s| {
+            let snip = snippets::get_by_id(db, s.snippet_id).ok().flatten();
+            DirectSlotView {
+                hotkey: s.hotkey.clone(),
+                snippet_id: s.snippet_id,
+                abbreviation: snip.as_ref().map(|x| x.abbreviation.clone()),
+                title: snip.as_ref().map(|x| x.title.clone()),
+            }
+        })
+        .collect()
+}
+
+#[tauri::command]
+pub fn get_direct_slots(db: State<'_, DbHandle>) -> Result<Vec<DirectSlotView>, String> {
+    let slots = expander::get_direct_slots(&db).map_err(map_err)?;
+    Ok(resolve_slots(&db, &slots))
+}
+
+/// Replace the direct-slot list: validate snippet ids, (re-)register the
+/// global shortcuts (this rejects collisions with the popup / OCR /
+/// abbreviation hotkeys and duplicates), then persist. Returns the
+/// re-resolved list. Nothing is persisted if registration fails.
+#[tauri::command]
+pub fn set_direct_slots(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, ExpanderShortcutState>,
+    slots: Vec<expander::DirectSlot>,
+) -> Result<Vec<DirectSlotView>, String> {
+    let parsed: Vec<expander::DirectSlot> = slots
+        .into_iter()
+        .map(|s| expander::DirectSlot {
+            hotkey: s.hotkey.trim().to_string(),
+            snippet_id: s.snippet_id,
+        })
+        .collect();
+    for s in &parsed {
+        if snippets::get_by_id(&db, s.snippet_id).map_err(map_err)?.is_none() {
+            return Err(format!("snippet id {} no longer exists", s.snippet_id));
+        }
+    }
+    hotkey::register_direct_slots(&app, &state, &parsed).map_err(map_err)?;
+    expander::set_direct_slots(&db, &parsed).map_err(map_err)?;
+    Ok(resolve_slots(&db, &parsed))
+}
+
 // ── Image recolor ───────────────────────────────────────────────────────────
 
 fn parse_hex_rgb(hex: &str) -> Result<(u8, u8, u8), String> {

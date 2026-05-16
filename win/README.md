@@ -23,27 +23,33 @@ pnpm build:win        # produces the .msi installer
 The `.msi` lands at:
 
 ```
-win/src-tauri/target/release/bundle/msi/ClipSnap_0.1.0_x64_en-US.msi
+win/src-tauri/target/release/bundle/msi/ClipSnap_<version>_x64_en-US.msi
 ```
 
 Double-click to install. ClipSnap launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Shift+V`.
 
 ## Usage
 
-| Action         | Keys                        |
-|----------------|-----------------------------|
-| Open popup     | `Ctrl` + `Shift` + `V`      |
-| Navigate list  | `↑` / `↓`                   |
-| Paste selected | `Enter` (or double-click)   |
-| Close popup    | `Esc` (or click outside)    |
+| Action                                | Keys                        |
+|---------------------------------------|-----------------------------|
+| Open popup                            | `Ctrl` + `Shift` + `V`      |
+| Screen-region OCR (planned)           | `Ctrl` + `Shift` + `O` *(macOS-only for now — stub on Windows)* |
+| Expand snippet abbreviation in place  | `Alt` + `1` (default, configurable) |
+| Direct-slot hotkeys (paste snippet)   | configurable in Settings — work in any app |
+| Navigate list                         | `↑` / `↓`                   |
+| Paste selected                        | `Enter` (or double-click)   |
+| Close popup                           | `Esc` (or click outside)    |
 
 ### System tray menu
 
 - **Open (Ctrl+Shift+V)** — show the popup
+- **Manage Snippets** — open the popup directly on the Snippets tab
+- **Manage Notes** — open the popup directly on the Notes tab
+- **OCR Region (Ctrl+Shift+O)** — drag a marquee → recognised text on the clipboard
 - **Pause Capture** — stop recording new clipboard items
+- **☑ Start with Windows** — toggle autostart at login; checkmark reflects current state (v0.14.0)
 - **Clear History…** — wipe all stored entries
-- **Start with Windows** — toggle autostart at login
-- **Quit** — exit ClipSnap
+- **Quit ClipSnap** — exit
 
 ## Data location
 

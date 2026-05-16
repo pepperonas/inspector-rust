@@ -61,6 +61,8 @@ Per-row failures are collected — they don't abort the whole import.
 | `snippets`     | array    | All snippets. `Snippet` rows.                                            |
 | `notes`        | array    | All notes. `Note` rows.                                                  |
 
+> **Not included** (per-machine settings stay local): the `settings` table — text-expander hotkey + enabled flag, the v0.13.0+ direct hotkey→snippet slots (`expander.direct_slots`), the `paste.plain_text_only` toggle, the `seed.default_snippets_v1` flag. After importing a backup on a new machine, re-configure your hotkeys in **Settings → Text expander** + **Settings → Startup** if you use them.
+
 ### Per-row shapes
 
 ```ts

@@ -1,5 +1,7 @@
 # ClipSnap — Windows 11 Clipboard Manager (Tauri 2 + React + Rust)
 
+> **⚠ Historical document.** This is the **original v0.1 product specification** — Windows-only, React 18, ~7 IPC commands, monolithic `src/` + `src-tauri/` layout. The shipping app has evolved well beyond it: cross-platform (Windows + macOS), React 19, workspace layout (`core/` + `win/` + `macos/`), 58+ IPC commands, AES-256-GCM at-rest encryption, text expander (abbreviation + direct slots), screen-region OCR, color tools, image recolor, ML cutout, notes, backup, autostart, and more. For the current architecture and feature set, see [`README.md`](../README.md), [`CHANGELOG.md`](../CHANGELOG.md), and the per-feature docs in this folder. This file is preserved as a historical reference for what was originally planned.
+
 Build a fast, lightweight clipboard history manager for Windows 11, inspired by Alfred's clipboard viewer on macOS. Name: **ClipSnap**.
 
 ## Tech Stack (strict)

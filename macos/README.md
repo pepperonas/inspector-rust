@@ -88,22 +88,27 @@ The honest, *permanent* fix to this re-grant churn is an Apple Developer ID (~$9
 
 ## Usage
 
-| Action         | Keys                       |
-|----------------|----------------------------|
-| Open popup     | `Ctrl` + `Shift` + `V`     |
-| Navigate list  | `↑` / `↓`                  |
-| Paste selected | `Enter` (or double-click)  |
-| Close popup    | `Esc` (or click outside)   |
+| Action                                | Keys                       |
+|---------------------------------------|----------------------------|
+| Open popup                            | `Ctrl` + `Shift` + `V`     |
+| Screen-region OCR (drag a marquee)    | `Cmd` + `Shift` + `O`      |
+| Expand snippet abbreviation in place  | `Alt` + `1` (default, configurable) |
+| Direct-slot hotkeys (paste snippet)   | configurable in Settings — work even in terminals |
+| Navigate list                         | `↑` / `↓`                  |
+| Paste selected                        | `Enter` (or double-click)  |
+| Close popup                           | `Esc` (or click outside)   |
 
 ClipSnap runs as a **menu-bar background app** — there is no Dock icon. The activation policy is set to `Accessory` on launch (see [`core/rust-lib/src/lib.rs`](../core/rust-lib/src/lib.rs)).
 
 ### Tray menu
 
 - **Open (Ctrl+Shift+V)** — show the popup
-- **Manage Snippets** — open popup directly on the Snippets tab
+- **Manage Snippets** — open the popup directly on the Snippets tab
+- **Manage Notes** — open the popup directly on the Notes tab
+- **OCR Region (⌘⇧O)** — drag a marquee → recognised text on the clipboard
 - **Pause Capture** — stop recording new clipboard items
+- **☑ Start at Login** — toggle macOS LaunchAgent registration (`~/Library/LaunchAgents/ClipSnap.plist`); checkmark reflects current state (v0.14.0)
 - **Clear History…** — wipe all stored entries
-- **Start at Login** — toggle macOS launch-agent registration
 - **Quit ClipSnap**
 
 ## Data location

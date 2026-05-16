@@ -48,6 +48,7 @@ When cutting `v0.x.y`, replace the previous version in **all** of these:
 | `macos/package.json` | `version` |
 | `win/src-tauri/tauri.conf.json` | `version` |
 | `macos/src-tauri/tauri.conf.json` | `version` |
+| `Cargo.lock` | three `clipsnap-{core,win,macos}` entries — `cargo` regenerates this on next build, but bumping it in the same commit avoids a phantom diff in the release commit |
 
 A grep-and-sanity check:
 
@@ -57,9 +58,23 @@ grep -rn '"version"\|^version' \
   core/frontend/package.json \
   win/package.json macos/package.json \
   win/src-tauri/tauri.conf.json macos/src-tauri/tauri.conf.json
+grep -n -A1 'name = "clipsnap' Cargo.lock
 ```
 
-All seven lines should show the new version.
+All seven manifest lines plus the three `Cargo.lock` workspace-crate entries should show the new version.
+
+### One-shot bump script
+
+For convenience, the version can be bumped in one shot with `perl`:
+
+```bash
+OLD=0.x.y ; NEW=0.x.z
+perl -i -pe "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" \
+  package.json macos/package.json core/frontend/package.json win/package.json \
+  macos/src-tauri/tauri.conf.json win/src-tauri/tauri.conf.json
+perl -i -pe "s/^version = \"$OLD\"\$/version = \"$NEW\"/" Cargo.toml
+perl -i -0pe "s/(name = \"clipsnap-(?:core|win|macos)\"\\nversion = \")$OLD(\")/\$1 . \"$NEW\" . \$2/ge" Cargo.lock
+```
 
 ## Pre-flight checks
 

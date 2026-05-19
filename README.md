@@ -170,11 +170,11 @@
 
 ## Platform support
 
-| Platform   | Status                  | Location                |
-|------------|-------------------------|-------------------------|
-| Windows 11 | ✅ implemented (v0.2.1) | [`win/`](./win)         |
-| macOS      | ✅ implemented (v0.2.1) | [`macos/`](./macos)     |
-| Linux      | 🟡 planned              | `linux/` (not yet)      |
+| Platform   | Status         | Location                |
+|------------|----------------|-------------------------|
+| Windows 11 | ✅ implemented | [`win/`](./win)         |
+| macOS      | ✅ implemented | [`macos/`](./macos)     |
+| Linux      | 🟡 planned     | `linux/` (not yet)      |
 
 All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`) and a single Rust lib (`core/rust-lib`) shared across platforms. Each OS has its own thin bundle shell that owns platform-specific details (installer config, icons, capabilities). To add a new platform, see [`CONTRIBUTING.md`](./CONTRIBUTING.md#adding-a-new-platform-shell-linux-etc).
 

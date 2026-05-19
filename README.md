@@ -204,7 +204,7 @@ Everything else (snippets management, notes, settings, image tools) lives in the
   <img src="docs/ir-ff-w1024-optimized.png?v=1" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
 </div>
 
-### Global hotkeys — fire from anywhere
+### 🔥🔥🔥 Global hotkeys — fire and forget, from anywhere 🔥🔥🔥
 
 | Shortcut | Action | Requires (macOS) |
 |----------|--------|------------------|

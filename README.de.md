@@ -204,7 +204,7 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
   <img src="docs/ir-ff-w1024-optimized.png?v=1" alt="Inspector Rust — Keyboard-first Clipboard-Toolkit" width="600" />
 </div>
 
-### Globale Hotkeys — feuern von überall
+### 🔥🔥🔥 Globale Hotkeys — fire and forget, von überall 🔥🔥🔥
 
 | Shortcut | Aktion | Benötigt (macOS) |
 |----------|--------|------------------|

@@ -1,3 +1,9 @@
+<div align="right">
+
+**🇬🇧 English** · [🇩🇪 Deutsch](./README.de.md)
+
+</div>
+
 <div align="center">
   <img src="docs/inspector-rust.png?v=1" alt="Built with Rust" width="600" />
 

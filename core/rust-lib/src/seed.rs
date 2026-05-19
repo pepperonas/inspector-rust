@@ -142,4 +142,83 @@ mod tests {
         );
         assert!(result.imported >= 25);
     }
+
+    #[test]
+    fn embedded_json_has_unique_abbreviations() {
+        // Snippets are upserted by abbreviation; duplicates in the seed file
+        // would cause earlier-position prompts to be overwritten by later ones
+        // *silently*. The user would never see the first occurrence.
+        let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
+        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap().to_string();
+            assert!(
+                seen.insert(abbr.clone()),
+                "duplicate abbreviation {abbr:?} in seed JSON — earlier prompt would be silently overwritten",
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_json_all_bodies_are_non_empty() {
+        // Empty-bodied prompts would expand to nothing, which is worse than
+        // just not shipping them. Catch the regression at compile-test time.
+        let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap();
+            let body = entry["body"].as_str().unwrap();
+            assert!(!body.is_empty(), "empty body for prompt {abbr:?}");
+            assert!(
+                body.trim().len() > 10,
+                "suspiciously short body for {abbr:?}: {body:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_json_all_titles_are_non_empty() {
+        let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap();
+            let title = entry["title"].as_str().unwrap();
+            assert!(!title.trim().is_empty(), "empty title for {abbr:?}");
+        }
+    }
+
+    #[test]
+    fn embedded_json_all_abbreviations_are_ai_prefixed() {
+        // The README + docs promise every default prompt has an `ai*` prefix
+        // so users can scope searches with a single character.
+        let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap();
+            assert!(
+                abbr.starts_with("ai"),
+                "abbreviation {abbr:?} is missing the `ai` prefix",
+            );
+            assert!(
+                abbr.len() > 2,
+                "abbreviation {abbr:?} is just the prefix — needs more characters",
+            );
+        }
+    }
+
+    #[test]
+    fn embedded_json_abbreviations_are_lowercase_no_whitespace() {
+        // The expander matches abbreviations character-by-character — uppercase
+        // or whitespace in the abbreviation would never trigger.
+        let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap();
+            assert_eq!(
+                abbr,
+                abbr.to_lowercase(),
+                "abbreviation {abbr:?} contains uppercase — won't match user input",
+            );
+            assert!(
+                !abbr.contains(char::is_whitespace),
+                "abbreviation {abbr:?} contains whitespace",
+            );
+        }
+    }
 }

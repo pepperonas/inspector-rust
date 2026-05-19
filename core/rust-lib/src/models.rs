@@ -97,4 +97,73 @@ mod tests {
         let _ct2 = ct;
         let _ct3 = ct; // Would fail to compile if not Copy
     }
+
+    #[test]
+    fn content_type_serde_uses_lowercase_strings() {
+        // Frontend TS types expect lowercase enum tags.
+        // `#[serde(rename_all = "lowercase")]` is load-bearing.
+        let json = serde_json::to_string(&ContentType::Image).unwrap();
+        assert_eq!(json, r#""image""#);
+        let back: ContentType = serde_json::from_str(r#""html""#).unwrap();
+        assert_eq!(back, ContentType::Html);
+    }
+
+    #[test]
+    fn content_type_serde_rejects_uppercase() {
+        let r: Result<ContentType, _> = serde_json::from_str(r#""IMAGE""#);
+        assert!(r.is_err(), "uppercase 'IMAGE' should not deserialise");
+    }
+
+    #[test]
+    fn max_image_bytes_is_five_megabytes() {
+        assert_eq!(MAX_IMAGE_BYTES, 5 * 1024 * 1024);
+    }
+
+    #[test]
+    fn max_entries_history_cap_is_one_thousand() {
+        assert_eq!(MAX_ENTRIES, 1000);
+    }
+
+    #[test]
+    fn clip_entry_serde_round_trip() {
+        let original = ClipEntry {
+            id: 42,
+            content_type: ContentType::Files,
+            content_text: "/tmp/a.txt\n/tmp/b.txt".into(),
+            content_data: r#"["/tmp/a.txt","/tmp/b.txt"]"#.into(),
+            hash: "abc123".into(),
+            byte_size: 23,
+            created_at: 1_700_000_000_000,
+            last_used_at: 1_700_000_000_500,
+        };
+        let json = serde_json::to_string(&original).expect("serialize");
+        let back: ClipEntry = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.id, original.id);
+        assert_eq!(back.content_type, original.content_type);
+        assert_eq!(back.content_text, original.content_text);
+        assert_eq!(back.content_data, original.content_data);
+        assert_eq!(back.hash, original.hash);
+        assert_eq!(back.byte_size, original.byte_size);
+        assert_eq!(back.created_at, original.created_at);
+        assert_eq!(back.last_used_at, original.last_used_at);
+    }
+
+    #[test]
+    fn new_clip_is_clone() {
+        let c = NewClip {
+            content_type: ContentType::Html,
+            content_text: "<p>hi</p>".into(),
+            content_data: "<p>hi</p>".into(),
+            byte_size: 9,
+        };
+        let c2 = c.clone();
+        assert_eq!(c.content_text, c2.content_text);
+    }
+
+    #[test]
+    fn content_type_equality_excludes_other_variants() {
+        assert_ne!(ContentType::Text, ContentType::Rtf);
+        assert_ne!(ContentType::Html, ContentType::Image);
+        assert_ne!(ContentType::Image, ContentType::Files);
+    }
 }

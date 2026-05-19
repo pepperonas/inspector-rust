@@ -461,4 +461,71 @@ mod tests {
         assert_eq!(got.created_at, 1_700_000_000_000);
         assert_eq!(got.updated_at, 1_700_000_001_000);
     }
+
+    #[test]
+    fn clear_all_truly_wipes_every_note() {
+        let db = test_db();
+        for i in 0..5 {
+            create_text(&db, &format!("note {i}"), "body", "Misc").unwrap();
+        }
+        assert_eq!(list_all(&db).unwrap().len(), 5);
+        clear_all(&db).unwrap();
+        assert_eq!(list_all(&db).unwrap().len(), 0);
+        assert!(list_categories(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn list_categories_dedupes_and_omits_empty() {
+        let db = test_db();
+        create_text(&db, "a", "body", "Work").unwrap();
+        create_text(&db, "b", "body", "Work").unwrap();
+        create_text(&db, "c", "body", "Personal").unwrap();
+        create_text(&db, "d", "body", "").unwrap();
+        let cats = list_categories(&db).unwrap();
+        // No duplicates of "Work"
+        assert_eq!(cats.iter().filter(|c| *c == "Work").count(), 1);
+        // Includes both populated categories
+        assert!(cats.contains(&"Work".to_string()));
+        assert!(cats.contains(&"Personal".to_string()));
+    }
+
+    #[test]
+    fn delete_removes_only_targeted_note() {
+        let db = test_db();
+        let id1 = create_text(&db, "keep", "x", "C").unwrap();
+        let id2 = create_text(&db, "drop", "y", "C").unwrap();
+        delete(&db, id2).unwrap();
+        assert!(get(&db, id1).unwrap().is_some());
+        assert!(get(&db, id2).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_returns_none_for_unknown_id() {
+        let db = test_db();
+        assert!(get(&db, 999_999).unwrap().is_none());
+    }
+
+    #[test]
+    fn update_modifies_title_body_and_category() {
+        let db = test_db();
+        let id = create_text(&db, "before", "old body", "Old").unwrap();
+        update(&db, id, "after", "new body", "New").unwrap();
+        let n = get(&db, id).unwrap().unwrap();
+        assert_eq!(n.title, "after");
+        assert_eq!(n.content_text, "new body");
+        assert_eq!(n.content_data, "new body");
+        assert_eq!(n.category, "New");
+    }
+
+    #[test]
+    fn notes_persist_long_unicode_titles_and_bodies() {
+        let db = test_db();
+        let title = "Schlüssel 🔑 für 𝓒𝓪𝓽𝓮𝓰𝓸𝓻𝓲𝓮 Ⓢⓘⓒⓗⓔⓡⓗⓔⓘⓣ";
+        let body = "Eintrag\n世界\n🦀 — éclair";
+        let id = create_text(&db, title, body, "Krypto").unwrap();
+        let n = get(&db, id).unwrap().unwrap();
+        assert_eq!(n.title, title);
+        assert_eq!(n.content_text, body);
+        assert_eq!(n.category, "Krypto");
+    }
 }

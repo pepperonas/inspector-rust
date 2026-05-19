@@ -330,4 +330,110 @@ mod tests {
         let enc = c1.encrypt(b"hello").unwrap();
         assert!(c2.decrypt(&enc).is_err());
     }
+
+    #[test]
+    fn cipher_handles_unicode_payloads() {
+        let key = [3u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        // Mixed scripts + emoji + supplementary plane chars
+        let plain = "Hallo 世界 🌍🦀 Привет اَلْعَرَبِيَّةُ 𝕳𝖊𝖑𝖑𝖔";
+        let enc = c.encrypt(plain.as_bytes()).unwrap();
+        let dec = c.decrypt(&enc).unwrap();
+        assert_eq!(dec, plain);
+    }
+
+    #[test]
+    fn cipher_handles_large_payload() {
+        let key = [11u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        // 1 MB of pseudo-random bytes simulating a base64'd image payload.
+        let mut payload = vec![0u8; 1024 * 1024];
+        for (i, b) in payload.iter_mut().enumerate() {
+            *b = (i % 251) as u8; // avoid all-zeroes
+        }
+        let plain = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, &payload);
+        let enc = c.encrypt(plain.as_bytes()).unwrap();
+        let dec = c.decrypt(&enc).unwrap();
+        assert_eq!(dec.len(), plain.len());
+        assert_eq!(dec, plain);
+    }
+
+    #[test]
+    fn cipher_handles_strings_with_embedded_nuls_and_newlines() {
+        let key = [13u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        let plain = "line 1\n\0nul-byte\nline 3\twith\ttabs";
+        let enc = c.encrypt(plain.as_bytes()).unwrap();
+        let dec = c.decrypt(&enc).unwrap();
+        assert_eq!(dec, plain);
+    }
+
+    #[test]
+    fn cipher_output_always_carries_the_prefix() {
+        let key = [17u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        for plain in ["", "a", "hello world", "🦀"] {
+            let enc = c.encrypt(plain.as_bytes()).unwrap();
+            assert!(
+                enc.starts_with(PREFIX),
+                "encrypted output for {plain:?} must start with {PREFIX:?}; got {enc:?}",
+            );
+        }
+    }
+
+    #[test]
+    fn cipher_decrypt_rejects_truncated_ciphertext() {
+        let key = [19u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        let enc = c.encrypt(b"some content").unwrap();
+        // Truncate to less than the nonce + tag would need.
+        let chopped = &enc[..PREFIX.len() + 4];
+        assert!(c.decrypt(chopped).is_err());
+    }
+
+    #[test]
+    fn cipher_decrypt_rejects_garbled_base64() {
+        let key = [21u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        let garbage = format!("{PREFIX}!!!not-valid-base64!!!");
+        assert!(c.decrypt(&garbage).is_err());
+    }
+
+    #[test]
+    fn cipher_handles_long_runs_of_a_single_byte() {
+        // Catches modes that would leak repetition (it's GCM so it doesn't,
+        // but make it explicit).
+        let key = [23u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        let plain = "A".repeat(8192);
+        let enc1 = c.encrypt(plain.as_bytes()).unwrap();
+        let enc2 = c.encrypt(plain.as_bytes()).unwrap();
+        assert_ne!(enc1, enc2);
+        let dec = c.decrypt(&enc1).unwrap();
+        assert_eq!(dec.len(), plain.len());
+        assert_eq!(dec, plain);
+    }
+
+    #[test]
+    fn cipher_key_length_constant_is_aes_256() {
+        // AES-256 ⇒ 32-byte key; making this explicit so a future hand-edit
+        // doesn't silently downgrade us to AES-128.
+        assert_eq!(KEY_LEN, 32);
+    }
+
+    #[test]
+    fn cipher_encrypted_output_is_strictly_longer_than_input() {
+        // Sanity: GCM adds a 16-byte tag + 12-byte nonce + base64 expansion +
+        // the prefix. For any non-trivial input the encrypted form is bigger.
+        let key = [25u8; KEY_LEN];
+        let c = Cipher::new(&key);
+        let plain = "hello";
+        let enc = c.encrypt(plain.as_bytes()).unwrap();
+        assert!(
+            enc.len() > plain.len() + PREFIX.len(),
+            "encrypted output ({} bytes) should be bigger than plain+prefix ({} bytes)",
+            enc.len(),
+            plain.len() + PREFIX.len(),
+        );
+    }
 }

@@ -254,7 +254,9 @@ fn strip_html(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_html, strip_rtf};
+    use super::{strip_html, strip_rtf, WatcherState};
+    use crate::db::hash_payload;
+    use crate::models::ContentType;
 
     #[test]
     fn strip_html_removes_simple_tags() {
@@ -304,5 +306,74 @@ mod tests {
     fn strip_rtf_collapses_whitespace() {
         let result = strip_rtf("a   b");
         assert_eq!(result, "a b");
+    }
+
+    #[test]
+    fn strip_rtf_handles_realistic_rtf_doc() {
+        // Excerpt that resembles what TextEdit / Word actually outputs.
+        let rtf = r#"{\rtf1\ansi\ansicpg1252\cocoartf2761
+\fonttbl\f0\fswiss\fcharset0 Helvetica;
+{\colortbl;\red255\green255\blue255;}
+\paperw11900\paperh16840\margl1440\margr1440\vieww11520\viewh8400\viewkind0
+\pard\tx566\tx1133\tx1700\tx2267\tx2834\tx3401\tx3968\tx4535\tx5102\tx5669\pardirnatural
+\f0\fs24 \cf0 Hello world this is a test.}"#;
+        let plain = strip_rtf(rtf);
+        assert!(plain.contains("Hello world this is a test"),
+            "stripped text should preserve readable content: {plain:?}");
+        // Control words must be gone.
+        assert!(!plain.contains("\\rtf"));
+        assert!(!plain.contains("\\fonttbl"));
+    }
+
+    #[test]
+    fn strip_rtf_handles_escaped_braces_and_backslashes() {
+        // RTF escapes literal { } \ with leading backslashes.
+        let rtf = r"{\rtf1 plain text with \{ literal \} braces and \\ slash}";
+        let plain = strip_rtf(rtf);
+        assert!(plain.contains("plain text"));
+    }
+
+    #[test]
+    fn strip_rtf_returns_empty_for_only_control_words() {
+        let rtf = r"{\rtf1\ansi\ansicpg1252}";
+        let plain = strip_rtf(rtf);
+        assert!(plain.trim().is_empty(),
+            "RTF doc with no actual text should reduce to whitespace: {plain:?}");
+    }
+
+    #[test]
+    fn mark_self_write_arms_the_next_event_to_be_skipped() {
+        // mark_self_write stores hash_payload(type, data). The next watcher
+        // event hashes its observation and skips if it matches.
+        let state = WatcherState::new();
+        state.mark_self_write(ContentType::Text, "hello");
+        let armed = state.self_written.lock().clone();
+        assert_eq!(armed.as_ref(), Some(&hash_payload(ContentType::Text, "hello")));
+    }
+
+    #[test]
+    fn mark_self_write_overwrites_prior_arming() {
+        // Each call replaces the prior fuse; only the *last* armed type+payload
+        // is active when the next watcher event lands.
+        let state = WatcherState::new();
+        state.mark_self_write(ContentType::Text, "hello");
+        state.mark_self_write(ContentType::Image, "base64data==");
+        let armed = state.self_written.lock().clone();
+        assert_eq!(armed.as_ref(), Some(&hash_payload(ContentType::Image, "base64data==")));
+        assert_ne!(armed.as_ref(), Some(&hash_payload(ContentType::Text, "hello")));
+    }
+
+    #[test]
+    fn mark_self_write_different_content_types_distinguish_via_hash() {
+        // Same payload string under different ContentType must produce
+        // distinct fuses — protects against an Image whose decoded base64
+        // ever colliding with a Text payload.
+        let state1 = WatcherState::new();
+        state1.mark_self_write(ContentType::Text, "shared");
+        let h1 = state1.self_written.lock().clone();
+        let state2 = WatcherState::new();
+        state2.mark_self_write(ContentType::Html, "shared");
+        let h2 = state2.self_written.lock().clone();
+        assert_ne!(h1, h2);
     }
 }

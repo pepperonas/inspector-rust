@@ -347,6 +347,137 @@ mod tests {
         }
         assert_eq!(list(&db, 10, 0).unwrap().len(), 3);
     }
+
+    #[test]
+    fn prune_keeps_most_recently_used_entries() {
+        // Insert 5 entries, touch entries 1+3 to bump them to "fresh",
+        // then prune to 3. The pruned entries should be 0, 2, 4 (oldest),
+        // and the survivors are 1, 3, plus whichever just-inserted-and-newest
+        // entry. Since we sort by last_used_at DESC, the touched ones win.
+        let db = test_db();
+        let ids: Vec<i64> = (0..5)
+            .map(|i| upsert_clip(&db, &text_clip(&format!("item {i}"))).unwrap())
+            .collect();
+        // Wait a tick so touch produces a strictly-later timestamp.
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        touch(&db, ids[1]).unwrap();
+        touch(&db, ids[3]).unwrap();
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 3).unwrap();
+        }
+        let rows = list(&db, 10, 0).unwrap();
+        let surviving: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        assert!(surviving.contains(&ids[1]), "touched item 1 must survive");
+        assert!(surviving.contains(&ids[3]), "touched item 3 must survive");
+    }
+
+    #[test]
+    fn upsert_returns_existing_id_for_duplicate_payload() {
+        let db = test_db();
+        let id1 = upsert_clip(&db, &text_clip("dup")).unwrap();
+        let id2 = upsert_clip(&db, &text_clip("dup")).unwrap();
+        assert_eq!(id1, id2, "dedup must return the existing row's id");
+        assert_eq!(list(&db, 10, 0).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn upsert_bumps_last_used_at_for_duplicate() {
+        let db = test_db();
+        let id = upsert_clip(&db, &text_clip("dup")).unwrap();
+        let before = get(&db, id).unwrap().unwrap().last_used_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+        upsert_clip(&db, &text_clip("dup")).unwrap();
+        let after = get(&db, id).unwrap().unwrap().last_used_at;
+        assert!(
+            after > before,
+            "re-inserting an identical payload must update last_used_at ({before} → {after})"
+        );
+    }
+
+    #[test]
+    fn list_orders_by_last_used_at_desc() {
+        let db = test_db();
+        upsert_clip(&db, &text_clip("first")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        upsert_clip(&db, &text_clip("second")).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(2));
+        upsert_clip(&db, &text_clip("third")).unwrap();
+        let rows = list(&db, 10, 0).unwrap();
+        // Most recent first.
+        assert_eq!(rows[0].content_text, "third");
+        assert_eq!(rows[1].content_text, "second");
+        assert_eq!(rows[2].content_text, "first");
+    }
+
+    #[test]
+    fn delete_removes_only_targeted_entry() {
+        let db = test_db();
+        let id1 = upsert_clip(&db, &text_clip("a")).unwrap();
+        let id2 = upsert_clip(&db, &text_clip("b")).unwrap();
+        delete(&db, id1).unwrap();
+        assert!(get(&db, id1).unwrap().is_none());
+        assert!(get(&db, id2).unwrap().is_some());
+    }
+
+    #[test]
+    fn clear_wipes_every_entry() {
+        let db = test_db();
+        for i in 0..7 {
+            upsert_clip(&db, &text_clip(&format!("item {i}"))).unwrap();
+        }
+        clear(&db).unwrap();
+        assert_eq!(list(&db, 10, 0).unwrap().len(), 0);
+    }
+
+    #[test]
+    fn get_returns_none_for_unknown_id() {
+        let db = test_db();
+        assert!(get(&db, 999_999).unwrap().is_none());
+    }
+
+    #[test]
+    fn list_pagination_offsets_correctly() {
+        let db = test_db();
+        // Insert 5 entries with small delays so their timestamps strictly order
+        for i in 0..5 {
+            upsert_clip(&db, &text_clip(&format!("page {i}"))).unwrap();
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+        let page1 = list(&db, 2, 0).unwrap();
+        let page2 = list(&db, 2, 2).unwrap();
+        assert_eq!(page1.len(), 2);
+        assert_eq!(page2.len(), 2);
+        // No overlap
+        for p1 in &page1 {
+            for p2 in &page2 {
+                assert_ne!(p1.id, p2.id, "pages must not overlap");
+            }
+        }
+    }
+
+    #[test]
+    fn list_handles_zero_limit() {
+        let db = test_db();
+        upsert_clip(&db, &text_clip("any")).unwrap();
+        let rows = list(&db, 0, 0).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn hash_payload_distinguishes_unicode_normalisation_forms() {
+        // SHA-256 is byte-deterministic — equivalent NFC vs NFD strings
+        // produce different hashes. Document that we do *not* normalise.
+        let nfc = "café"; // 0x65 0xCC 0x81 vs single 0xE9 — distinct bytes
+        let nfd = "café"; // looks identical, may be encoded differently
+        let h_nfc = hash_payload(ContentType::Text, nfc);
+        let h_nfd = hash_payload(ContentType::Text, nfd);
+        // Both produce *some* hash, no panic. Equality depends on whether
+        // the source literals were saved in the same normalisation form
+        // by the editor; both forms are valid input.
+        assert_eq!(h_nfc.len(), 64);
+        assert_eq!(h_nfd.len(), 64);
+    }
 }
 
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {

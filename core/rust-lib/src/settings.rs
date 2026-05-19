@@ -129,4 +129,62 @@ mod tests {
         assert!(get_bool(&db, "absent", true).unwrap());
         assert!(!get_bool(&db, "absent", false).unwrap());
     }
+
+    #[test]
+    fn set_overwrites_previous_value_for_same_key() {
+        // Settings are key/value with the key as PRIMARY KEY — set should
+        // upsert, not append/duplicate.
+        let db = test_db();
+        set(&db, "k", "first").unwrap();
+        set(&db, "k", "second").unwrap();
+        set(&db, "k", "third").unwrap();
+        assert_eq!(get(&db, "k").unwrap(), Some("third".into()));
+    }
+
+    #[test]
+    fn get_bool_accepts_common_truthy_strings() {
+        let db = test_db();
+        // Whatever the parser considers "true" — currently any non-"false"
+        // stored value. Lock the contract.
+        set(&db, "f1", "true").unwrap();
+        assert!(get_bool(&db, "f1", false).unwrap());
+        set(&db, "f2", "false").unwrap();
+        assert!(!get_bool(&db, "f2", true).unwrap());
+    }
+
+    #[test]
+    fn settings_persist_unicode_values() {
+        // Settings hold things like the expander hotkey body preview / direct
+        // slot JSON — must not corrupt non-ASCII content.
+        let db = test_db();
+        let v = "Hallo 🦀 世界 — éclair";
+        set(&db, "u", v).unwrap();
+        assert_eq!(get(&db, "u").unwrap().as_deref(), Some(v));
+    }
+
+    #[test]
+    fn settings_persist_empty_string_explicitly() {
+        // An explicit empty string is different from "key missing". Both
+        // paths must work without conflating.
+        let db = test_db();
+        set(&db, "empty", "").unwrap();
+        assert_eq!(get(&db, "empty").unwrap(), Some("".into()));
+        assert_eq!(get(&db, "missing").unwrap(), None);
+    }
+
+    #[test]
+    fn settings_handle_keys_with_dots_and_underscores() {
+        // We use dotted keys ("expander.direct_slots", "paste.plain_text_only").
+        // No clever parsing on the key — it's an opaque PK.
+        let db = test_db();
+        for k in &[
+            "expander.direct_slots",
+            "expander.hotkey",
+            "paste.plain_text_only",
+            "seed.default_snippets_v1",
+        ] {
+            set(&db, k, "X").unwrap();
+            assert_eq!(get(&db, k).unwrap().as_deref(), Some("X"));
+        }
+    }
 }

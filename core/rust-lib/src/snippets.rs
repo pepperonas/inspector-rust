@@ -394,4 +394,61 @@ mod tests {
         create(&db, "mfg", "", "x").unwrap();
         assert!(find_by_exact_abbreviation(&db, "nope").unwrap().is_none());
     }
+
+    #[test]
+    fn get_by_id_returns_none_for_unknown_id() {
+        let db = test_db();
+        assert!(get_by_id(&db, 999_999).unwrap().is_none());
+    }
+
+    #[test]
+    fn get_by_id_round_trips_a_created_snippet() {
+        let db = test_db();
+        let id = create(&db, "sig", "Signature", "Cheers,\nMartin").unwrap();
+        let s = get_by_id(&db, id).unwrap().expect("just-created snippet must be retrievable");
+        assert_eq!(s.abbreviation, "sig");
+        assert_eq!(s.title, "Signature");
+        assert_eq!(s.body, "Cheers,\nMartin");
+    }
+
+    #[test]
+    fn update_changes_all_three_fields() {
+        let db = test_db();
+        let id = create(&db, "a", "old title", "old body").unwrap();
+        update(&db, id, "b", "new title", "new body").unwrap();
+        let s = get_by_id(&db, id).unwrap().unwrap();
+        assert_eq!(s.abbreviation, "b");
+        assert_eq!(s.title, "new title");
+        assert_eq!(s.body, "new body");
+    }
+
+    #[test]
+    fn delete_removes_only_the_targeted_snippet() {
+        let db = test_db();
+        let id1 = create(&db, "one", "", "1").unwrap();
+        let id2 = create(&db, "two", "", "2").unwrap();
+        delete(&db, id1).unwrap();
+        assert!(get_by_id(&db, id1).unwrap().is_none());
+        assert!(get_by_id(&db, id2).unwrap().is_some());
+    }
+
+    #[test]
+    fn list_all_is_sorted_alphabetically_by_abbreviation() {
+        let db = test_db();
+        create(&db, "zeta", "", "z").unwrap();
+        create(&db, "alpha", "", "a").unwrap();
+        create(&db, "mu", "", "m").unwrap();
+        let all = list_all(&db).unwrap();
+        let abbrs: Vec<&str> = all.iter().map(|s| s.abbreviation.as_str()).collect();
+        assert_eq!(abbrs, vec!["alpha", "mu", "zeta"]);
+    }
+
+    #[test]
+    fn snippets_preserve_long_unicode_bodies() {
+        let db = test_db();
+        let body = "Hallo 🦀\n世界\n— éclair\n𝕳𝖊𝖑𝖑𝖔";
+        let id = create(&db, "uni", "Unicode", body).unwrap();
+        let s = get_by_id(&db, id).unwrap().unwrap();
+        assert_eq!(s.body, body);
+    }
 }

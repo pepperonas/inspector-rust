@@ -372,4 +372,79 @@ mod tests {
         assert_eq!(notes.len(), 1);
         assert_eq!(notes[0].title, "Lonely");
     }
+
+    #[test]
+    fn export_json_top_level_shape_is_versioned() {
+        // Frontend parses the JSON shape — the top-level fields are part of
+        // the contract documented in docs/backup.md.
+        let db = fresh_db();
+        seed(&db);
+        let json = export_json(&db, ExportOptions::all()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert!(v.get("version").is_some());
+        assert!(v.get("exported_at").is_some());
+        assert!(v["history"].is_array());
+        assert!(v["snippets"].is_array());
+        assert!(v["notes"].is_array());
+    }
+
+    #[test]
+    fn export_writes_current_version() {
+        let db = fresh_db();
+        let json = export_json(&db, ExportOptions::all()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["version"].as_u64().unwrap(), CURRENT_VERSION as u64);
+    }
+
+    #[test]
+    fn export_options_all_includes_every_section() {
+        let opts = ExportOptions::all();
+        assert!(opts.include_history);
+        assert!(opts.include_snippets);
+        assert!(opts.include_notes);
+    }
+
+    #[test]
+    fn export_options_default_includes_every_section() {
+        // The TS frontend treats missing booleans as "yes please". Default
+        // must match.
+        let opts = ExportOptions::default();
+        assert!(opts.include_history);
+        assert!(opts.include_snippets);
+        assert!(opts.include_notes);
+    }
+
+    #[test]
+    fn import_handles_empty_sections_as_no_op() {
+        let db = fresh_db();
+        let blob = r#"{
+            "version": 1,
+            "exported_at": 0,
+            "history": [],
+            "snippets": [],
+            "notes": []
+        }"#;
+        let r = import_json(&db, blob).unwrap();
+        assert_eq!(r.history_imported, 0);
+        assert_eq!(r.snippets_imported, 0);
+        assert_eq!(r.notes_imported, 0);
+        assert!(r.errors.is_empty());
+    }
+
+    #[test]
+    fn import_rejects_malformed_json_with_no_partial_writes() {
+        let db = fresh_db();
+        let before = (
+            db::list(&db, 100, 0).unwrap().len(),
+            snippets::list_all(&db).unwrap().len(),
+            notes::list_all(&db).unwrap().len(),
+        );
+        assert!(import_json(&db, "{not json at all}").is_err());
+        let after = (
+            db::list(&db, 100, 0).unwrap().len(),
+            snippets::list_all(&db).unwrap().len(),
+            notes::list_all(&db).unwrap().len(),
+        );
+        assert_eq!(before, after, "malformed input must not leak partial writes");
+    }
 }

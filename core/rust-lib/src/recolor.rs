@@ -156,4 +156,79 @@ mod tests {
         let c = max_chromaticity_sample(&buf, 16).unwrap();
         assert!(c > 0.9);
     }
+
+    #[test]
+    fn recolor_output_is_valid_png_decodable() {
+        // Catches encoding regressions where the output bytes might be
+        // claimed RGBA but actually corrupted.
+        let png = make_gray_png(8, 8, 100, 200);
+        let out = recolor_png(&png, 50, 100, 150).unwrap();
+        let decoded = image::load_from_memory(&out).expect("output must decode");
+        assert_eq!(decoded.width(), 8);
+        assert_eq!(decoded.height(), 8);
+    }
+
+    #[test]
+    fn recolor_mid_gray_is_a_lerp_between_target_and_white() {
+        // 50% gray (128) should produce a tint that's neither the raw target
+        // nor pure white — it's a luminance-driven mix.
+        let png = make_gray_png(4, 4, 128, 255);
+        let out = recolor_png(&png, 200, 0, 0).unwrap();
+        let img = image::load_from_memory(&out).unwrap().to_rgba8();
+        let px = img.get_pixel(2, 2);
+        assert!(px.0[0] > 200, "red should be lifted toward white (got {})", px.0[0]);
+        assert!(px.0[1] > 0, "green should be lifted from 0 toward white (got {})", px.0[1]);
+        assert!(px.0[1] < 200, "green shouldn't reach full white at mid-gray (got {})", px.0[1]);
+    }
+
+    #[test]
+    fn recolor_preserves_full_transparency() {
+        let png = make_gray_png(4, 4, 100, 0);
+        let out = recolor_png(&png, 1, 2, 3).unwrap();
+        let img = image::load_from_memory(&out).unwrap().to_rgba8();
+        assert_eq!(img.get_pixel(2, 2).0[3], 0, "alpha=0 pixels stay alpha=0");
+    }
+
+    #[test]
+    fn recolor_handles_one_pixel_image() {
+        // Degenerate but valid input — must not crash.
+        let png = make_gray_png(1, 1, 100, 255);
+        let out = recolor_png(&png, 50, 100, 150).unwrap();
+        let img = image::load_from_memory(&out).unwrap().to_rgba8();
+        assert_eq!(img.dimensions(), (1, 1));
+    }
+
+    #[test]
+    fn recolor_rejects_garbage_bytes() {
+        // Random bytes that aren't a PNG must fail to decode, not panic.
+        let garbage = vec![0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE, 0xBA, 0xBE];
+        assert!(recolor_png(&garbage, 1, 2, 3).is_err());
+    }
+
+    #[test]
+    fn chromaticity_intermediate_for_pastel_color() {
+        // Pastel: a desaturated blue (200, 200, 255). Should land BETWEEN
+        // pure-gray-low and pure-red-high — somewhere measurable but not
+        // saturated.
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_fn(8, 8, |_, _| Rgba([200, 200, 255, 255]));
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).unwrap();
+        let c = max_chromaticity_sample(&buf, 16).unwrap();
+        assert!(c > 0.05, "pastel blue should register chromaticity > 0.05, got {c}");
+        assert!(c < 0.5, "pastel blue should NOT be saturated, got {c}");
+    }
+
+    #[test]
+    fn chromaticity_skips_fully_transparent_pixels() {
+        // A 100% transparent image should compute a chromaticity of 0 (or
+        // close enough that the recolor toolbar would happily show up — but
+        // there's no content to recolour anyway). At minimum it must not
+        // panic / divide by zero.
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
+            ImageBuffer::from_fn(8, 8, |_, _| Rgba([255, 0, 128, 0]));
+        let mut buf = Vec::new();
+        img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).unwrap();
+        let _ = max_chromaticity_sample(&buf, 16).expect("must not panic on alpha=0 input");
+    }
 }

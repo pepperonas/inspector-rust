@@ -430,6 +430,105 @@ mod tests {
         // registers them — we should accept them too.
         parse_shortcut("F19").expect("bare F19 must parse");
     }
+
+    #[test]
+    fn parse_shortcut_tolerates_whitespace_around_tokens() {
+        // Users editing settings.json by hand naturally drift in spaces;
+        // accepting them makes the parser more forgiving. Key codes must
+        // still be valid W3C `Code` strings (KeyV, not bare V).
+        parse_shortcut(" Ctrl + Shift + KeyV ").expect("padded chord should parse");
+        parse_shortcut("Alt+ Digit1").expect("inner space after + should parse");
+    }
+
+    #[test]
+    fn parse_shortcut_rejects_empty_token_between_pluses() {
+        // `Ctrl++V` is a typo, not a chord with the literal plus key.
+        assert!(parse_shortcut("Ctrl++V").is_err());
+        assert!(parse_shortcut("++").is_err());
+        assert!(parse_shortcut("+").is_err());
+    }
+
+    #[test]
+    fn parse_shortcut_supports_all_advertised_modifiers() {
+        // Every modifier mentioned in the docs/README must round-trip.
+        // Listed alphabetically — if a future bump breaks one of these, the
+        // README claim is now a lie.
+        for combo in &[
+            "Alt+KeyA",
+            "Control+KeyA",
+            "Ctrl+KeyA",
+            "Meta+KeyA",
+            "Shift+KeyA",
+            "Super+KeyA",
+        ] {
+            parse_shortcut(combo).unwrap_or_else(|e| panic!("{combo} should parse: {e}"));
+        }
+    }
+
+    #[test]
+    fn parse_shortcut_modifier_alias_normalisation_is_stable() {
+        // ctrl == Control == cTrL — case must not matter for modifier names
+        // (the W3C `KeyboardEvent.code` for the *key* itself is still
+        // case-sensitive, but modifiers are looser).
+        let a = parse_shortcut("ctrl+KeyV").unwrap();
+        let b = parse_shortcut("Control+KeyV").unwrap();
+        let c = parse_shortcut("CTRL+KeyV").unwrap();
+        assert_eq!(a, b);
+        assert_eq!(b, c);
+    }
+
+    #[test]
+    fn parse_shortcut_distinguishes_KeyO_from_Digit0() {
+        // Critical: `O` (letter) vs `0` (digit). The OCR hotkey uses KeyO;
+        // a typo to Digit0 would still parse but register a different chord.
+        let with_letter = parse_shortcut("Ctrl+Shift+KeyO").unwrap();
+        let with_digit = parse_shortcut("Ctrl+Shift+Digit0").unwrap();
+        assert_ne!(with_letter, with_digit);
+    }
+
+    #[test]
+    fn parse_shortcut_handles_intl_backslash() {
+        // `IntlBackslash` is the layout-stable Code that German ISO MacBooks
+        // report for the physical `^` key — used to be the expander default
+        // pre-v0.12.0. Must keep parsing for backward compatibility with
+        // settings written by older builds. Other `Intl*` codes
+        // (Backquote/Ro/Yen) aren't in the keyboard_types::Code enum and so
+        // can't be hotkeys today; documented here as a known limitation.
+        parse_shortcut("IntlBackslash").expect("IntlBackslash must parse");
+        parse_shortcut("Alt+IntlBackslash").expect("Alt+IntlBackslash must parse");
+    }
+
+    #[test]
+    fn parse_shortcut_accepts_arrow_keys() {
+        for k in &["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"] {
+            parse_shortcut(k).unwrap_or_else(|e| panic!("{k} should parse: {e}"));
+        }
+        parse_shortcut("Ctrl+ArrowDown").expect("modifier + arrow should parse");
+    }
+
+    #[test]
+    fn parse_shortcut_accepts_named_control_keys() {
+        for k in &["Enter", "Escape", "Tab", "Space", "Backspace", "Delete"] {
+            parse_shortcut(k).unwrap_or_else(|e| panic!("{k} should parse: {e}"));
+        }
+    }
+
+    #[test]
+    fn parse_shortcut_accepts_all_digit_row_keys() {
+        for n in 0..=9 {
+            let s = format!("Alt+Digit{n}");
+            parse_shortcut(&s).unwrap_or_else(|e| panic!("{s} should parse: {e}"));
+        }
+    }
+
+    #[test]
+    fn parse_shortcut_lookalike_keys_are_distinct() {
+        // KeyL (the letter) vs Digit1 (the number row) vs IntlYen — must
+        // produce three different shortcuts, not collide via any normalisation.
+        let l = parse_shortcut("KeyL").unwrap();
+        let one = parse_shortcut("Digit1").unwrap();
+        assert_ne!(l, one);
+    }
 }
 
 pub fn toggle_popup(app: &AppHandle) -> Result<()> {

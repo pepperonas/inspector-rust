@@ -31,6 +31,13 @@
 
   Gebaut mit **Tauri 2** (WebView2 / WKWebView), **Rust** (Workspace: `core/rust-lib` ist die einzige geteilte Library, `win/src-tauri` + `macos/src-tauri` sind 2-Zeilen-Bundle-Shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, gepackt als **~5 MB MSI** (Windows) oder **~5 MB DMG** (macOS Apple Silicon). **192 Rust-Unit-Tests + 104 Frontend-Vitest-Tests** halten es ehrlich. **MIT-lizenziert**, hackbar, und kompromisslos gebaut für die Art Mensch, die schon Muskelgedächtnis für drei verschiedene Clipboard-Manager hat und von allen genervt ist.
 
+  <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
+  <p>
+    <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code — live Zählung via aschey.tech/tokei">
+      <img src="https://aschey.tech/tokei/github/pepperonas/inspector-rust?category=code&style=for-the-badge" height="60" alt="Lines of code (live)" />
+    </a>
+  </p>
+
   <!-- ── Status / release ─────────────────────────────────────── -->
   [![Version](https://img.shields.io/badge/version-0.17.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
@@ -93,7 +100,6 @@
   [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
   [![Top language](https://img.shields.io/github/languages/top/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
   [![Languages](https://img.shields.io/github/languages/count/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
-  [![Lines](https://img.shields.io/tokei/lines/github/pepperonas/inspector-rust?style=flat-square&label=lines%20of%20code)](https://github.com/pepperonas/inspector-rust)
   [![Made with love](https://img.shields.io/badge/made%20with-%E2%99%A5-red?style=flat-square)](#)
 
   <!-- ── Architecture & build ────────────────────────────────── -->

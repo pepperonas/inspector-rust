@@ -141,6 +141,10 @@ Triggered by `Ctrl+Shift+O` — literal Control on every OS (v0.14.1+), not Cmd 
 
 Triggered by `Ctrl+Shift+S` (literal Control on every OS) or the tray's **Screenshot Region** menu. Same `region_picker::capture` + Screen-Recording TCC gate as OCR but **no OCR step** — the captured PNG is written straight to the system clipboard via `ClipboardContext::set_image` and persisted to history as a `[screenshot · N B]` image entry. Works on regions that contain no recognisable text (charts, buttons, photos, UI mockups). `mark_self_write(Image, b64)` arms the watcher to skip the round-trip. IPC: `screenshot_region` returns `ScreenshotResult { cancelled, bytes }`. `register_direct_slots` rejects `Ctrl+Shift+S` alongside the popup/OCR/abbreviation hotkeys.
 
+### Eyedropper — global hotkey (`commands::run_eyedropper_pipeline`, v0.17.0)
+
+Triggered by `Ctrl+Shift+C` or the tray's **Pick Color** menu. Reuses `screen_picker::pick_color_async` (macOS — `NSColorSampler` loupe) / `pick_color_blocking` (Windows — GDI overlay), but **does not open the popup** the way `pick_screen_color` (the in-modal entry point) does. On result: the hex string is written to the system clipboard via `ClipboardContext::set_text`, marked self-write so the watcher skips it, and persisted as a Text history entry. Cleanup (`clear_eyedropper_no_popup`) defers `demote_to_accessory` + `suppress_hide` clear via a 500 ms thread so the macOS focus-loss event from the policy demote doesn't fire before we want it to. No Screen Recording TCC grant needed — NSColorSampler / GDI overlay don't go through `screencapture`. IPC: `eyedropper_to_clipboard`. `register_direct_slots` rejects `Ctrl+Shift+C` alongside the popup/OCR/screenshot/abbreviation hotkeys.
+
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 
 Two image actions surface in the preview pane:

@@ -16,6 +16,7 @@ export function Footer({ index, total, version }: Props) {
   // into the tray menu or Settings → Keyboard shortcuts.
   const ocrKey = IS_MAC ? "⌃⇧O" : "Ctrl+⇧+O";
   const screenshotKey = IS_MAC ? "⌃⇧S" : "Ctrl+⇧+S";
+  const colorKey = IS_MAC ? "⌃⇧C" : "Ctrl+⇧+C";
   return (
     <div className="flex h-8 items-center justify-between border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
       <div className="flex items-center gap-3">
@@ -24,6 +25,7 @@ export function Footer({ index, total, version }: Props) {
         <Hint k="Esc" label="Close" />
         <Hint k={ocrKey} label="OCR" />
         <Hint k={screenshotKey} label="Shot" />
+        <Hint k={colorKey} label="Color" />
       </div>
       <div className="flex items-center gap-3">
         <span title="Made with love by Martin Pfeffer">

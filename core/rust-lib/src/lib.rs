@@ -230,6 +230,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::save_image_entry_to_downloads,
             commands::ocr_region,
             commands::screenshot_region,
+            commands::eyedropper_to_clipboard,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,
@@ -257,6 +258,12 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         "Screenshot Region (Ctrl+Shift+S)"
     };
     let screenshot_item = MenuItemBuilder::with_id("screenshot", screenshot_label).build(app)?;
+    let color_label = if cfg!(target_os = "macos") {
+        "Pick Color (⌃⇧C)"
+    } else {
+        "Pick Color (Ctrl+Shift+C)"
+    };
+    let color_item = MenuItemBuilder::with_id("color", color_label).build(app)?;
     let pause_item = MenuItemBuilder::with_id("pause", "Pause Capture").build(app)?;
     let clear_item = MenuItemBuilder::with_id("clear", "Clear History…").build(app)?;
     let autostart_label = if cfg!(target_os = "windows") { "Start with Windows" } else { "Start at Login" };
@@ -283,6 +290,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             &sep_ocr,
             &ocr_item,
             &screenshot_item,
+            &color_item,
             &sep,
             &pause_item,
             &autostart_item,
@@ -340,6 +348,14 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                         Ok(_) => tracing::debug!("screenshot (tray): cancelled or empty"),
                         Err(e) => tracing::warn!("screenshot (tray) failed: {e}"),
                     }
+                });
+            }
+            "color" => {
+                // Eyedropper — pick a pixel anywhere on screen, hex
+                // lands on clipboard + History. No popup, no modal.
+                let app2 = app.clone();
+                std::thread::spawn(move || {
+                    commands::run_eyedropper_pipeline(&app2);
                 });
             }
             "pause" => {

@@ -35,6 +35,7 @@ Double-click to install. Inspector Rust launches into the system tray — there'
 | Open popup                            | `Ctrl` + `Shift` + `V`      |
 | Screen-region OCR (planned)           | `Ctrl` + `Shift` + `O` *(macOS-only for now — stub on Windows)* |
 | Screen-region screenshot (planned)    | `Ctrl` + `Shift` + `S` *(macOS-only for now — stub on Windows)* |
+| Color eyedropper (hex → clipboard)    | `Ctrl` + `Shift` + `C` *(GDI overlay, v0.17.0+)* |
 | Expand snippet abbreviation in place  | `Alt` + `1` (default, configurable) |
 | Direct-slot hotkeys (paste snippet)   | configurable in Settings — work in any app |
 | Navigate list                         | `↑` / `↓`                   |
@@ -48,6 +49,7 @@ Double-click to install. Inspector Rust launches into the system tray — there'
 - **Manage Notes** — open the popup directly on the Notes tab
 - **OCR Region (Ctrl+Shift+O)** — drag a marquee → recognised text on the clipboard
 - **Screenshot Region (Ctrl+Shift+S)** — drag a marquee → PNG on the clipboard + history (no OCR, works on text-free regions; v0.15.0+)
+- **Pick Color (Ctrl+Shift+C)** — click a pixel anywhere on screen → hex `#RRGGBB` on the clipboard + history (v0.17.0+)
 - **Pause Capture** — stop recording new clipboard items
 - **☑ Start with Windows** — toggle autostart at login; checkmark reflects current state (v0.14.0)
 - **Clear History…** — wipe all stored entries

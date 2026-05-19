@@ -438,6 +438,16 @@ export function screenshotRegion(): Promise<ScreenshotResult> {
   return invoke("screenshot_region");
 }
 
+/** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
+ *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
+ *  on the system clipboard and as a Text History entry. Backend dispatches
+ *  asynchronously — this promise resolves immediately once the picker
+ *  is queued. Parallel to `ocrRegion` / `screenshotRegion` — the
+ *  global-shortcut UX, not the modal UX. */
+export function eyedropperToClipboard(): Promise<void> {
+  return invoke("eyedropper_to_clipboard");
+}
+
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
 /** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)

@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.17.0] — 2026-05-20
+
+### Added — `Ctrl+Shift+C` global eyedropper
+
+- **New `Ctrl+Shift+C` global shortcut** fires the screen color picker directly from anywhere on the system. Cursor turns into the NSColorSampler loupe (macOS) / GDI overlay (Windows); one click on a pixel and the hex string (`#RRGGBB`) lands on the system clipboard **and** as a Text History entry. Parallel UX to the v0.15.0 `Ctrl+Shift+S` screenshot shortcut — fire-and-forget, no popup, no modal. The existing **Color Picker** button in the History tab still opens the HSV modal as before; this is the no-modal, just-give-me-the-hex path. — *#feat(color)*
+- **Tray menu entry** "Pick Color (⌃⇧C)" / "Pick Color (Ctrl+Shift+C)" next to *Screenshot Region*. Same threading model as OCR + screenshot: dispatched to a worker thread.
+- **Footer hint** gains `⌃⇧C Color` next to `⌃⇧O OCR` + `⌃⇧S Shot`.
+- **Settings → Keyboard shortcuts** cheat sheet gains a row for the eyedropper alongside the OCR + screenshot rows.
+- **Backend** (`commands.rs`): `run_eyedropper_pipeline(app)` reuses `screen_picker::pick_color_async` / `pick_color_blocking` but writes the hex to the clipboard via `ClipboardContext::set_text` + persists as a Text history entry instead of emitting `color-picked` for the modal. New `eyedropper_to_clipboard` IPC command (parallel to `screenshot_region`). New private helper `clear_eyedropper_no_popup` mirrors `clear_pick_suppress_hide` but doesn't re-show the popup window — appropriate for the global-hotkey flow.
+- **Hotkey registration** (`hotkey.rs`): fourth global shortcut. `register_direct_slots` collision check now rejects `Ctrl+Shift+C` alongside popup / OCR / screenshot / expander.
+- **No Screen Recording TCC grant needed** — NSColorSampler reads pixels via Quartz / GDI overlay reads via `GetPixel`, neither goes through `screencapture`.
+
+### Why 0.17.0
+
+New global shortcut + new IPC command + new tray entry + new event-emitting handler = feature-level addition per `docs/RELEASING.md`'s 0.x.0-vs-0.x.y rule. Backwards-compatible — no existing functionality changed.
+
 ## [0.16.2] — 2026-05-20
 
 ### Fixed — overlapping permission banners in Settings tab

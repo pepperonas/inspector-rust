@@ -1169,6 +1169,115 @@ pub fn screenshot_region(app: AppHandle) -> Result<ScreenshotResult, String> {
     run_screenshot_pipeline(&app)
 }
 
+/// Run the eyedropper pipeline: hide popup → fire screen color picker
+/// (macOS NSColorSampler loupe / Windows GDI overlay) → write the
+/// picked hex string (`#RRGGBB`) to the system clipboard and add it
+/// as a Text history entry. Used by the `Ctrl+Shift+C` global shortcut
+/// and the tray's *Pick Color* menu item.
+///
+/// Distinct from `pick_screen_color` (which is the popup-modal entry
+/// point and re-shows the popup with the picked color in the modal).
+/// This pipeline is fire-and-forget — no popup, no modal, just the
+/// hex on your clipboard, parallel to the OCR + screenshot global
+/// shortcut UX.
+pub fn run_eyedropper_pipeline(app: &AppHandle) {
+    use tauri::Manager;
+
+    // The popup is `alwaysOnTop`; hide it before showing the loupe so
+    // the loupe sits on top and the user can sample anywhere on screen.
+    if let Some(ui) = app.try_state::<UiState>() {
+        ui.suppress_hide.store(true, Ordering::Relaxed);
+    }
+    if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+        let _ = w.hide();
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        let app_inner = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let app_for_cb = app_inner.clone();
+            let app_for_err = app_inner.clone();
+            if let Err(e) = crate::screen_picker::pick_color_async(move |hex_opt| {
+                if let Some(hex) = hex_opt {
+                    write_eyedropper_result(&app_for_cb, &hex);
+                }
+                clear_eyedropper_no_popup(&app_for_cb);
+            }) {
+                tracing::warn!("eyedropper pipeline: pick_color_async err: {e}");
+                clear_eyedropper_no_popup(&app_for_err);
+            }
+        });
+    }
+    #[cfg(target_os = "windows")]
+    {
+        let app_for_thread = app.clone();
+        std::thread::spawn(move || {
+            if let Ok(hex) = crate::screen_picker::pick_color_blocking() {
+                write_eyedropper_result(&app_for_thread, &hex);
+            }
+            clear_eyedropper_no_popup(&app_for_thread);
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        clear_eyedropper_no_popup(app);
+    }
+}
+
+/// IPC entry point for the eyedropper. Tray + frontend button alternative
+/// to the `Ctrl+Shift+C` global shortcut. Returns immediately; the actual
+/// pick is async (macOS) or runs on a worker thread (Windows).
+#[tauri::command]
+pub fn eyedropper_to_clipboard(app: AppHandle) -> Result<(), String> {
+    run_eyedropper_pipeline(&app);
+    Ok(())
+}
+
+fn write_eyedropper_result(app: &AppHandle, hex: &str) {
+    use clipboard_rs::{Clipboard, ClipboardContext};
+    if let Some(watcher) = app.try_state::<WatcherState>() {
+        watcher.mark_self_write(crate::models::ContentType::Text, hex);
+    }
+    if let Ok(ctx) = ClipboardContext::new() {
+        let _ = ctx.set_text(hex.to_string());
+    }
+    if let Some(db) = app.try_state::<DbHandle>() {
+        let _ = db::upsert_clip(
+            &db,
+            &crate::models::NewClip {
+                content_type: crate::models::ContentType::Text,
+                content_text: hex.to_string(),
+                content_data: hex.to_string(),
+                byte_size: hex.len() as i64,
+            },
+        );
+    }
+    let _ = app.emit("clipboard-changed", ());
+}
+
+/// Cleanup variant for the global eyedropper flow — clears the
+/// suppress-hide flag + demotes the macOS activation policy back to
+/// Accessory, **without** re-showing the popup window. The user
+/// invoked the picker from a global hotkey / tray menu; the popup
+/// wasn't open before, and re-showing it would be a UX surprise.
+/// Mirrors the deferred sequencing of `clear_pick_suppress_hide`.
+fn clear_eyedropper_no_popup(app: &AppHandle) {
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        if let Some(ui) = app2.try_state::<UiState>() {
+            ui.suppress_hide.store(false, Ordering::Relaxed);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = app2.run_on_main_thread(|| {
+                crate::screen_picker::demote_to_accessory();
+            });
+        }
+    });
+}
+
 /// Background-remove an image entry via corner-sampled chroma-key, save
 /// the resulting transparent PNG to `~/Downloads/inspector-rust-cutout-<ts>.png`,
 /// and return the path string. The history entry is left untouched —

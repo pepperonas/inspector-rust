@@ -160,6 +160,27 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register screenshot hotkey")?;
 
+    // Color picker — Ctrl+Shift+C on every platform. Fires the
+    // NSColorSampler loupe (macOS) / GDI overlay (Windows) without
+    // opening the popup; the picked hex (`#RRGGBB`) lands on the
+    // clipboard + History. Parallel UX to OCR + screenshot: a global
+    // shortcut that does its thing and gets out of the way.
+    let color = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyC,
+    );
+    let app_for_color = app.clone();
+    app.global_shortcut()
+        .on_shortcut(color, move |_app, sc, event| {
+            if event.state == ShortcutState::Pressed && *sc == color {
+                let app = app_for_color.clone();
+                std::thread::spawn(move || {
+                    crate::commands::run_eyedropper_pipeline(&app);
+                });
+            }
+        })
+        .context("failed to register color-picker hotkey")?;
+
     Ok(())
 }
 
@@ -275,15 +296,16 @@ pub fn register_direct_slots(
     let popup = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
     let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
     let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
+    let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
     let abbr_hotkey: Option<Shortcut> = *state.current.lock();
 
     let mut parsed: Vec<(Shortcut, i64)> = Vec::with_capacity(slots.len());
     for slot in slots {
         let sc = parse_shortcut(&slot.hotkey)
             .with_context(|| format!("invalid direct-slot hotkey {:?}", slot.hotkey))?;
-        if sc == popup || sc == ocr || sc == screenshot || abbr_hotkey == Some(sc) {
+        if sc == popup || sc == ocr || sc == screenshot || sc == color || abbr_hotkey == Some(sc) {
             return Err(anyhow!(
-                "hotkey {} is reserved (popup / OCR / screenshot / text-expander) — pick another",
+                "hotkey {} is reserved (popup / OCR / screenshot / color picker / text-expander) — pick another",
                 slot.hotkey
             ));
         }

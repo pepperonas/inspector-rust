@@ -4,6 +4,20 @@ All notable changes to ClipSnap are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.1] — 2026-05-19
+
+### Changed — OCR hotkey is now literal `Ctrl+Shift+O` on every OS
+
+- **macOS OCR shortcut moved from `⌘⇧O` to `⌃⇧O`** (literal Control, not Cmd). `Cmd+Shift+O` collides with **Go to Symbol** in VS Code, IntelliJ, WebStorm, and a host of other IDEs — pressing it inside an editor opened the IDE picker instead of triggering OCR. The Windows binding (`Ctrl+Shift+O`) was already correct; this just brings macOS in line. Same key combo, same physical position, no platform branching. — *#fix(macos)*
+- **Hotkey registration** (`core/rust-lib/src/hotkey.rs`): both `register` and `register_direct_slots` now build the OCR `Shortcut` with `Modifiers::CONTROL | Modifiers::SHIFT` unconditionally — the `#[cfg(target_os = "macos")]` SUPER branch is gone. Direct-slot collision detection also tracks the new combo, so a slot can't shadow OCR.
+- **Frontend display** (`core/frontend/src/components/Footer.tsx` + `SettingsPanel.tsx`): footer hint, Screen Recording explanation, direct-slot help text, and the Keyboard-shortcuts cheat sheet now render `⌃⇧O` on macOS (instead of `⌘⇧O`).
+- **Docs** updated across `README.md`, `CLAUDE.md`, `macos/README.md`, and `docs/text-expander.md`. The Windows `Ctrl+Shift+O` references stayed correct.
+- **Existing user impact** — pure muscle-memory change; the previous binding (`⌘⇧O` on mac) simply stops working after upgrade. Users who'd granted Screen Recording to ClipSnap don't need to re-grant.
+
+### Why 0.14.1
+
+A targeted hotkey fix with no public-surface additions — pure patch.
+
 ## [0.14.0] — 2026-05-16
 
 ### Added — autostart UI: state-visible tray + Settings toggle

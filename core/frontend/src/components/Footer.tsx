@@ -14,7 +14,7 @@ export function Footer({ index, total, version }: Props) {
   // the system without needing the popup open. Surfaced in the footer
   // so users discover it without having to dig into the tray menu or
   // Settings → Keyboard shortcuts.
-  const ocrKey = IS_MAC ? "⌘⇧O" : "Ctrl+⇧+O";
+  const ocrKey = IS_MAC ? "⌃⇧O" : "Ctrl+⇧+O";
   return (
     <div className="flex h-8 items-center justify-between border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
       <div className="flex items-center gap-3">

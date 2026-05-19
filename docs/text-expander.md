@@ -84,7 +84,7 @@ On press, ClipSnap (on the main thread, because `enigo`'s `Cmd+V` touches TSM): 
 
 ### Validation & edge cases
 
-- A slot's hotkey **may not collide** with the popup hotkey (`Ctrl+Shift+V`), the OCR hotkey (`Cmd/Ctrl+Shift+O`), the abbreviation expander hotkey, or another slot — `set_direct_slots` rejects the whole batch with a descriptive error and doesn't persist anything (so the previously-registered slots stay live).
+- A slot's hotkey **may not collide** with the popup hotkey (`Ctrl+Shift+V`), the OCR hotkey (`Ctrl+Shift+O` — literal Control on every OS since v0.14.1), the abbreviation expander hotkey, or another slot — `set_direct_slots` rejects the whole batch with a descriptive error and doesn't persist anything (so the previously-registered slots stay live).
 - If the bound snippet is **deleted**, the slot becomes dangling: pressing the hotkey does nothing (logged), and the Settings row shows `⚠ snippet deleted — pick another` so you can rebind or remove it.
 - Long bodies (the bundled AI prompts, say) are fine — it pastes, it doesn't type.
 - macOS without Accessibility → same UX as the abbreviation expander: the popup opens, switches to Settings, and an amber banner points you at the grant.

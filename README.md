@@ -113,7 +113,7 @@ All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`)
 
 ClipSnap is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
 
-A second global shortcut, **`Cmd/Ctrl+Shift+O`**, fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; ClipSnap's window doesn't need to be open or focused.
+A second global shortcut, **`Ctrl+Shift+O`** (literal Control on every OS — same key on Windows and macOS), fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; ClipSnap's window doesn't need to be open or focused.
 
 Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
@@ -155,7 +155,7 @@ Type a math expression in the search field, the result appears as the top list i
 - Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 tests. Reference: [`docs/colors.md`](./docs/colors.md).
 
 ### Screen-region OCR (v0.9.0, macOS)
-Press `Cmd+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands in the History tab and the source PNG is kept as a separate image entry so you can re-OCR a different region without rescreenshotting.
+Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands in the History tab and the source PNG is kept as a separate image entry so you can re-OCR a different region without rescreenshotting. The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
 
 - **Region picker** — uses `screencapture -i` (the same binary as Cmd+Shift+4), so the marquee UX is the polished one users already know. Esc cancels cleanly.
 - **Engine** — Vision's `VNRecognizeTextRequest` with accuracy=Accurate + language correction; same engine that powers Apple Live Text. No model bundling, no network.
@@ -195,12 +195,12 @@ ClipSnap needs **two** independent macOS TCC grants — Accessibility (paste) an
 - Each banner has a `tccutil reset` recovery button for the "toggle says on but the running process still sees denied" stale-cdhash state.
 
 ### Discoverability (v0.10.7)
-- **Footer hint** — `⌘⇧O OCR` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the OCR shortcut every time they open the popup.
+- **Footer hint** — `⌃⇧O OCR` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the OCR shortcut every time they open the popup.
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 
 ### System tray + multi-monitor
-- **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (⌘⇧O / Ctrl+Shift+O)** · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
+- **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
 - **Autostart on login** (v0.14.0) — toggle in Settings → Startup, or from the tray menu. macOS writes `~/Library/LaunchAgents/ClipSnap.plist`; Windows uses the run-key registry entry. App launches hidden in the tray so it's ready when the popup hotkey hits.
 - **Multi-monitor placement:** popup opens on the monitor with the cursor, horizontally centered, ~⅓ from the top, clamped to the active monitor's bounds (matters on mixed-DPI setups).
 
@@ -233,7 +233,7 @@ clipsnap/
 │           ├── expander.rs           # trigger-based text expander (AX/UIA primary, clipboard fallback)
 │           ├── text_field/           # FieldAccess trait + macOS AX + Windows UIA implementations
 │           ├── paste.rs              # write_to_clipboard + enigo paste shortcut
-│           ├── hotkey.rs             # global Ctrl+Shift+V + Cmd+Shift+O + expander hotkey
+│           ├── hotkey.rs             # global Ctrl+Shift+V + Ctrl+Shift+O + expander hotkey
 │           ├── clipboard_watcher.rs  # event-driven capture, RTF stripping (image > files priority)
 │           ├── recolor.rs            # image tint (lerp target ↔ white by per-pixel luminance)
 │           ├── cutout.rs             # legacy chroma-key cutout (kept as fast-path option)
@@ -358,7 +358,7 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; ClipSnap falls back to pasting the newline-joined list of paths as text. |
 | **Expander in terminals: use a direct slot** | The *abbreviation* expander does nothing on a terminal command line (Terminal.app, iTerm2, kitty, …) — terminals don't expose the input line via accessibility and a shell prompt has no GUI "select previous word". Use a **Direct hotkey → snippet** slot there (v0.13.0 — pastes without reading anything, works everywhere) or the popup (`Ctrl+Shift+V` → search → Enter). Electron / Chromium / Mac-Catalyst apps (WhatsApp, Slack, VS Code, …) *are* supported by the abbreviation expander as of v0.12.0, via an AX-select-then-paste path. |
 | **macOS Accessibility** | Paste simulation (`enigo`) and the system-wide text expander require Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If missing, ClipSnap shows an amber banner with an `Open Settings` button on the next paste attempt — and, since v0.12.0, also when the expander hotkey is pressed — instead of silently failing or re-firing the system dialog (v0.5.1 / v0.12.0). |
-| **macOS Screen Recording** | OCR (`Cmd+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to ClipSnap and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
+| **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to ClipSnap and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
 | **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
 | **OCR is macOS-only for now** | Region capture and Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows path will use `Windows.Media.Ocr` in a follow-up release. |

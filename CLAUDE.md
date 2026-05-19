@@ -125,7 +125,7 @@ The Settings panel includes a **"Diagnose"** button that calls `diagnose_at_curs
 
 ### Screen-region OCR (`region_picker.rs`, `ocr.rs`)
 
-Triggered by `Cmd/Ctrl+Shift+O` (registered alongside the popup hotkey in `hotkey::register`) or the tray's **OCR Region** menu. Pipeline lives in `commands::run_ocr_pipeline(app)`, shared between the IPC `ocr_region` command, the global-shortcut callback, and the tray handler. Always dispatched to a worker thread (`std::thread::spawn`) because `screencapture -i` blocks until the user finishes the marquee.
+Triggered by `Ctrl+Shift+O` — literal Control on every OS (v0.14.1+), not Cmd on macOS; avoids the `⌘⇧O` collision with VS Code / IntelliJ "Go to Symbol". Registered alongside the popup hotkey in `hotkey::register` or via the tray's **OCR Region** menu. Pipeline lives in `commands::run_ocr_pipeline(app)`, shared between the IPC `ocr_region` command, the global-shortcut callback, and the tray handler. Always dispatched to a worker thread (`std::thread::spawn`) because `screencapture -i` blocks until the user finishes the marquee.
 
 - **Region capture** (macOS) shells out to `/usr/sbin/screencapture -i -x -t png <tmpfile>`. Read the file back, delete it. Empty / missing file = user pressed Esc → return `region_picker::Cancelled`. Windows path is stubbed.
 - **OCR** (macOS) uses Vision via raw `objc2` msg_send: `NSData::dataWithBytes:length:` → `VNImageRequestHandler.alloc().initWithData:options:` → `VNRecognizeTextRequest` (recognitionLevel=0/Accurate, usesLanguageCorrection=true) → `performRequests:error:` synchronously → enumerate `request.results` taking `topCandidates(1).string`. Vision is linked explicitly via `core/rust-lib/build.rs` (`cargo:rustc-link-lib=framework=Vision`).

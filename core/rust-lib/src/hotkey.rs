@@ -81,12 +81,11 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register Ctrl+Shift+V")?;
 
-    // OCR region — Cmd/Ctrl+Shift+O. Hard-coded for now (configurable
-    // shortcut UI can come later); SUPER on macOS = Cmd, CONTROL
-    // elsewhere via the same Shortcut struct on each OS at compile time.
-    #[cfg(target_os = "macos")]
-    let ocr_mods = Modifiers::SUPER | Modifiers::SHIFT;
-    #[cfg(not(target_os = "macos"))]
+    // OCR region — Ctrl+Shift+O on every platform. Literal Control on
+    // macOS too (not Cmd): Cmd+Shift+O collides with "Go to Symbol" in
+    // VS Code / IntelliJ and similar IDE bindings, while ⌃⇧O is
+    // essentially unused. Hard-coded for now; configurable shortcut UI
+    // can come later.
     let ocr_mods = Modifiers::CONTROL | Modifiers::SHIFT;
     let ocr = Shortcut::new(Some(ocr_mods), Code::KeyO);
     let app_for_ocr = app.clone();
@@ -237,9 +236,6 @@ pub fn register_direct_slots(
 
     // 2) Parse + validate against the reserved shortcuts and each other.
     let popup = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
-    #[cfg(target_os = "macos")]
-    let ocr = Shortcut::new(Some(Modifiers::SUPER | Modifiers::SHIFT), Code::KeyO);
-    #[cfg(not(target_os = "macos"))]
     let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
     let abbr_hotkey: Option<Shortcut> = *state.current.lock();
 

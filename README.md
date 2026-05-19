@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/inspector-rust.png?v=1" alt="Built with Rust" width="600" />
+  <img src="docs/inspector-rust.png?v=2" alt="Built with Rust" width="600" />
 
   # Inspector Rust
 

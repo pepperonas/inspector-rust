@@ -371,7 +371,9 @@ inspector-rust/
 │           ├── db.rs                 # entries-Table, Hash-Dedup, Prune
 │           ├── crypto.rs             # AES-256-GCM At-Rest-Encryption + OS-Keychain-Key
 │           ├── snippets.rs           # snippets-Table, JSON-Upsert, Exakt-Abbreviation-Lookup
-│           ├── seed.rs               # Default-AI-Prompt-Snippets, gebündelt beim First-Launch
+│           ├── seed.rs               # Default-AI-Prompt-Snippets — First-Launch-Seeder + `Restore defaults`-IPC
+│           ├── seed/
+│           │   └── ai_prompts.json   # 25 gebündelte AI-Prompts (~35 KB) — zur Compile-Zeit via include_str! eingelesen
 │           ├── notes.rs              # notes-Table, Kategorien, save_from_clip
 │           ├── backup.rs             # Full-App-Export/Import (versioniertes JSON)
 │           ├── settings.rs           # Key/Value-Store (Expander-Hotkey + Zukunfts-Prefs)
@@ -410,10 +412,13 @@ inspector-rust/
 │   ├── ai-prompts.md        # 25 gebündelte Default-AI-Prompt-Snippets
 │   ├── encryption.md        # AES-256-GCM At-Rest-Encryption — Threat-Model, Key-Storage, Migration
 │   ├── RELEASING.md         # Release-Procedure
+│   ├── inspector-rust.png   # Brand-Artwork — README-Hero-Image (1024×1024, Palette-encoded, ~589 KB)
+│   ├── ir-ff-w1024-optimized.png  # Brand-Artwork — Inline-Image unter der Shortcuts-Section (~534 KB)
 │   └── examples/
 │       └── snippets/        # 5 thematische JSON-Beispiele + eigene README
 ├── scripts/
-│   └── check.sh             # cargo clippy + tsc + eslint
+│   ├── check.sh             # cargo clippy + tsc + eslint
+│   └── install-macos.sh     # Idempotenter Build + Re-Sign + Install (erhält TCC-Grants über Rebuilds hinweg)
 ├── Cargo.toml               # Rust-Workspace (Members: core/rust-lib, win/src-tauri, macos/src-tauri)
 ├── pnpm-workspace.yaml      # pnpm-Workspace (core/frontend, win, macos)
 └── package.json             # Root-Scripts: dev:{win,macos}, build:{win,macos}, lint, typecheck, format, test, check

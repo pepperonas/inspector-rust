@@ -160,7 +160,8 @@ reset_tcc() {
   echo "▸ Resetting stale TCC grants for ${BUNDLE_ID}…"
   tccutil reset Accessibility "${BUNDLE_ID}" 2>/dev/null || true
   tccutil reset PostEvent     "${BUNDLE_ID}" 2>/dev/null || true
-  echo "  → next launch re-prompts for Accessibility."
+  tccutil reset ScreenCapture "${BUNDLE_ID}" 2>/dev/null || true
+  echo "  → next launch re-prompts for Accessibility + Screen Recording."
 }
 
 # ── 1) source hash — decide *before* building whether we even need to ──────

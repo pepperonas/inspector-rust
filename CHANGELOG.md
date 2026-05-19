@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.2] — 2026-05-20
+
+### Fixed — overlapping permission banners in Settings tab
+
+- **Both TCC permission banners (Accessibility + Screen Recording) had `position: sticky` with the same `top` value.** When one banner was expanded and the user scrolled, the other banner's *header* would stick on top of the first banner's *body* — the "Quit Inspector Rust / Force re-grant / Try system prompt" button block of the Accessibility banner would visually appear *below* the Screen Recording banner header, even though they belong to the Accessibility section. — *#fix(ui)*
+- **Fix:** drop sticky positioning when a banner is expanded (the user is reading it, no need to pin it); stagger the `top` values when both banners are simultaneously collapsed-and-sticky so they stack instead of overlap.
+
+### Why 0.16.2
+
+Pure CSS / layout fix in `SettingsPanel.tsx`. No API change. Patch level.
+
 ## [0.16.1] — 2026-05-19
 
 ### Fixed — backup-export default filename regression from the v0.16.0 rebrand

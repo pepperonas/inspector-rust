@@ -32,7 +32,7 @@
   Gebaut mit **Tauri 2** (WebView2 / WKWebView), **Rust** (Workspace: `core/rust-lib` ist die einzige geteilte Library, `win/src-tauri` + `macos/src-tauri` sind 2-Zeilen-Bundle-Shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, gepackt als **~5 MB MSI** (Windows) oder **~5 MB DMG** (macOS Apple Silicon). **110 Rust-Unit-Tests + 86 Frontend-Vitest-Tests** halten es ehrlich. **MIT-lizenziert**, hackbar, und kompromisslos gebaut für die Art Mensch, die schon Muskelgedächtnis für drei verschiedene Clipboard-Manager hat und von allen genervt ist.
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.16.1-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.16.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)

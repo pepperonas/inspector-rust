@@ -66,7 +66,7 @@ const ERR_NO_ACCESSIBILITY: &str = "ax.permission_denied";
 
 /// Same shape as `ERR_NO_ACCESSIBILITY` but for the **Screen Recording**
 /// TCC policy — required by the OCR pipeline because `screencapture -i`
-/// is attributed to ClipSnap and macOS denies the capture without the
+/// is attributed to Inspector Rust and macOS denies the capture without the
 /// permission. Without this signal the OCR shortcut would silently
 /// fail and the user would have no way to figure out why.
 const ERR_NO_SCREEN_RECORDING: &str = "screen.permission_denied";
@@ -507,7 +507,7 @@ pub fn get_expander_config(db: State<'_, DbHandle>) -> Result<ExpanderConfig, St
     })
 }
 
-/// Probe whether ClipSnap currently has Accessibility access. Cheap; safe
+/// Probe whether Inspector Rust currently has Accessibility access. Cheap; safe
 /// to call repeatedly (e.g. polling from the Settings panel after the
 /// user grants in System Settings).
 #[tauri::command]
@@ -516,7 +516,7 @@ pub fn get_accessibility_status() -> bool {
 }
 
 /// Trigger the macOS "would like to control this computer" dialog and
-/// add ClipSnap to the Accessibility list. Returns the (still-likely-false)
+/// add Inspector Rust to the Accessibility list. Returns the (still-likely-false)
 /// trusted status immediately after the prompt fires.
 #[tauri::command]
 pub fn request_accessibility_grant() -> bool {
@@ -530,7 +530,7 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     expander::open_accessibility_settings().map_err(map_err)
 }
 
-/// Wipe stale TCC entries for ClipSnap and fire the system Accessibility
+/// Wipe stale TCC entries for Inspector Rust and fire the system Accessibility
 /// prompt with the current cdhash. Used when the user has the toggle
 /// "on" in System Settings but the running process still sees itself as
 /// untrusted (the typical "stale grant from a previous build" state).
@@ -541,7 +541,7 @@ pub fn force_reset_and_request_grant() -> Result<bool, String> {
 
 // ── Screen Recording (macOS TCC ScreenCapture policy) ─────────────────────
 
-/// Whether ClipSnap currently has the Screen Recording grant. Cheap;
+/// Whether Inspector Rust currently has the Screen Recording grant. Cheap;
 /// safe to poll from the Settings panel after the user grants it.
 /// Always `true` on non-macOS (no equivalent permission gate).
 #[tauri::command]
@@ -550,7 +550,7 @@ pub fn get_screen_recording_status() -> bool {
 }
 
 /// Trigger the macOS Screen Recording prompt. Returns the (still-likely-
-/// false) status immediately. The user usually has to relaunch ClipSnap
+/// false) status immediately. The user usually has to relaunch Inspector Rust
 /// after granting because macOS caches the TCC verdict per-process.
 #[tauri::command]
 pub fn request_screen_recording_grant() -> bool {
@@ -563,19 +563,19 @@ pub fn open_screen_recording_settings() -> Result<(), String> {
     screen_recording::open_screen_recording_settings().map_err(map_err)
 }
 
-/// Reset the Screen Recording TCC entry for ClipSnap (no sudo needed
+/// Reset the Screen Recording TCC entry for Inspector Rust (no sudo needed
 /// for the user's own bundle id) and re-fire the prompt. Mirror of
 /// `force_reset_and_request_grant` but for the screencapture policy.
 #[tauri::command]
 pub fn force_reset_screen_recording_grant() -> bool {
     let _ = std::process::Command::new("tccutil")
-        .args(["reset", "ScreenCapture", "io.celox.clipsnap"])
+        .args(["reset", "ScreenCapture", "io.celox.inspector-rust"])
         .status();
     screen_recording::request_screen_recording_grant()
 }
 
 /// Quit the running app process. Intended for the Settings panel's
-/// "Quit ClipSnap" button after the user grants Accessibility — macOS
+/// "Quit Inspector Rust" button after the user grants Accessibility — macOS
 /// caches `AXIsProcessTrusted()` per-process, so a freshly granted app
 /// stays "untrusted" until restarted.
 #[tauri::command]
@@ -583,10 +583,10 @@ pub fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Relaunch ClipSnap by spawning a fresh instance of the installed `.app`
+/// Relaunch Inspector Rust by spawning a fresh instance of the installed `.app`
 /// and exiting the current process. Used by the Settings panel's auto-
 /// restart prompt after the user grants Accessibility — `open` returns
-/// immediately, the new ClipSnap process inherits the just-granted TCC
+/// immediately, the new Inspector Rust process inherits the just-granted TCC
 /// state, and the old process exits cleanly.
 ///
 /// macOS-only meaningful behaviour. On other platforms it just exits.
@@ -598,7 +598,7 @@ pub fn relaunch_app(app: AppHandle) {
         // not by us — and survives the `app.exit(0)` that follows.
         let _ = std::process::Command::new("open")
             .arg("-n") // -n: open a new instance even if one is already running
-            .arg("/Applications/ClipSnap.app")
+            .arg("/Applications/InspectorRust.app")
             .spawn();
         // Tiny delay so `open` has a chance to actually fork before we exit.
         std::thread::sleep(std::time::Duration::from_millis(150));
@@ -608,8 +608,8 @@ pub fn relaunch_app(app: AppHandle) {
 
 // ── Autostart (login item / LaunchAgent) ────────────────────────────────────
 
-/// Whether ClipSnap is set to launch automatically on login. On macOS this
-/// checks for `~/Library/LaunchAgents/ClipSnap.plist`; on Windows it
+/// Whether Inspector Rust is set to launch automatically on login. On macOS this
+/// checks for `~/Library/LaunchAgents/InspectorRust.plist`; on Windows it
 /// checks the run-key registry entry. Both go through the
 /// `tauri-plugin-autostart` `AutoLaunchManager`.
 #[tauri::command]
@@ -770,7 +770,7 @@ pub fn set_expander_config(
 
 /// Trigger an expand-at-cursor cycle programmatically (no hotkey press).
 /// Hides the popup first so the synthetic Cmd+Shift+← / Cmd+C / Cmd+V
-/// land in the previously focused app instead of ClipSnap itself.
+/// land in the previously focused app instead of Inspector Rust itself.
 ///
 /// Dispatches the enigo work to the **main thread** because enigo's macOS
 /// `Key::Unicode(...)` mapping uses TSM (Text Services Manager) which
@@ -1170,7 +1170,7 @@ pub fn screenshot_region(app: AppHandle) -> Result<ScreenshotResult, String> {
 }
 
 /// Background-remove an image entry via corner-sampled chroma-key, save
-/// the resulting transparent PNG to `~/Downloads/clipsnap-cutout-<ts>.png`,
+/// the resulting transparent PNG to `~/Downloads/inspector-rust-cutout-<ts>.png`,
 /// and return the path string. The history entry is left untouched —
 /// this is a "save the cutout to a file" action, not a clipboard
 /// modification.
@@ -1195,7 +1195,7 @@ pub fn cut_out_image_entry(
 }
 
 /// Save an image clipboard entry (PNG bytes already in the row) to
-/// `~/Downloads/clipsnap-image-<ts>.png`. Doesn't transform the image
+/// `~/Downloads/inspector-rust-image-<ts>.png`. Doesn't transform the image
 /// in any way — it's the "I want this on disk" companion to cutout /
 /// recolor. Particularly useful after a recolor since the new tinted
 /// entry only lives in the SQLite history otherwise.
@@ -1223,7 +1223,7 @@ pub fn save_image_entry_to_downloads(
     std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
 
     let stamp = Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("clipsnap-image-{stamp}.png");
+    let filename = format!("inspector-rust-image-{stamp}.png");
     let out_path = dir.join(&filename);
     std::fs::write(&out_path, &png_bytes).map_err(|e| format!("write {filename}: {e}"))?;
     Ok(out_path.to_string_lossy().into_owned())
@@ -1273,7 +1273,7 @@ fn write_cutout(image_bytes: &[u8], name_hint: Option<&str>) -> Result<String, S
     let stamp = Local::now().format("%Y%m%d-%H%M%S");
     let filename = match name_hint {
         Some(n) if !n.is_empty() => format!("{n}-cutout-{stamp}.png"),
-        _ => format!("clipsnap-cutout-{stamp}.png"),
+        _ => format!("inspector-rust-cutout-{stamp}.png"),
     };
     let out_path = dir.join(&filename);
     std::fs::write(&out_path, &png_bytes).map_err(|e| format!("write {filename}: {e}"))?;

@@ -1,12 +1,12 @@
-# Contributing to ClipSnap
+# Contributing to Inspector Rust
 
-Thanks for considering a contribution! ClipSnap is a small, opinionated app — we'd rather merge a tight fix than a sprawling refactor.
+Thanks for considering a contribution! Inspector Rust is a small, opinionated app — we'd rather merge a tight fix than a sprawling refactor.
 
 ## Quick start
 
 ```bash
-git clone https://github.com/pepperonas/clipsnap.git
-cd clipsnap
+git clone https://github.com/pepperonas/inspector-rust.git
+cd inspector-rust
 pnpm install               # workspace install (Cargo + pnpm)
 ```
 
@@ -23,7 +23,7 @@ For platform-specific build prerequisites see [`win/README.md`](./win/README.md)
 
 - **`core/frontend/`** — React 19 + TS + Tailwind v4. Shared across all platforms.
 - **`core/rust-lib/`** — Shared Rust app logic (clipboard watcher, hotkey, paste, db, snippets, tray). All cross-platform.
-- **`win/src-tauri/`** and **`macos/src-tauri/`** — Thin per-OS bundle shells. They own `tauri.conf.json`, icons, capabilities, and a 5-line `main.rs` that calls `clipsnap_core::run(generate_context!())`.
+- **`win/src-tauri/`** and **`macos/src-tauri/`** — Thin per-OS bundle shells. They own `tauri.conf.json`, icons, capabilities, and a 5-line `main.rs` that calls `inspector_rust_core::run(generate_context!())`.
 
 When adding a feature, **prefer adding it to `core/`**. Per-OS bundles are only for things that genuinely differ (entitlements, installer config, icons).
 
@@ -70,7 +70,7 @@ When adding a feature, **prefer adding it to `core/`**. Per-OS bundles are only 
 ## Adding a new platform shell (Linux, etc.)
 
 1. Create `linux/` (or whatever) at the repo root, mirroring the structure of [`win/`](./win) and [`macos/`](./macos).
-2. Add `linux/src-tauri/Cargo.toml` (bin crate that depends on `clipsnap-core` via path).
+2. Add `linux/src-tauri/Cargo.toml` (bin crate that depends on `inspector-rust-core` via path).
 3. Add `linux/src-tauri/src/main.rs` (5-line entrypoint).
 4. Add `linux/src-tauri/tauri.conf.json` with `frontendDist: "../../core/frontend/dist"`.
 5. Add `linux/package.json` with the Tauri CLI as devDep + `dev`/`build` proxy scripts.
@@ -85,9 +85,9 @@ See [`docs/RELEASING.md`](./docs/RELEASING.md) for the full release procedure.
 
 ## Reporting bugs
 
-Open an issue at <https://github.com/pepperonas/clipsnap/issues>. Please include:
+Open an issue at <https://github.com/pepperonas/inspector-rust/issues>. Please include:
 
-- ClipSnap version (tray menu → "About" — TODO, for now check `~/Library/Application Support/ClipSnap/` mod times or the running binary path).
+- Inspector Rust version (tray menu → "About" — TODO, for now check `~/Library/Application Support/InspectorRust/` mod times or the running binary path).
 - OS + version (e.g. macOS 14.5, Windows 11 23H2).
 - Steps to reproduce.
 - Whether the popup hotkey opens the popup at all (rules out half the codebase).

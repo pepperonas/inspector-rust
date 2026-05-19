@@ -17,7 +17,7 @@ This does **not** protect against:
 
 - An attacker with **active code execution as your user** while you're logged in. They can read the keychain entry and the keyfile fallback. Encryption is one layer; sandboxing / process isolation is a different one.
 - Cloud providers given your full backup *plus* keychain (e.g., iCloud Backup with Keychain Sync). If you trust the cloud you trust both, and they decrypt together.
-- Memory dumps while ClipSnap is running (the cipher key and decrypted strings are in process memory).
+- Memory dumps while Inspector Rust is running (the cipher key and decrypted strings are in process memory).
 
 ## What's encrypted
 
@@ -64,12 +64,12 @@ A single 256-bit AES key per install. On first launch the app:
    - Windows: Credential Manager (`wincred.h`)
    - Linux: Secret Service (GNOME Keyring / KWallet)
 
-   Service `io.celox.clipsnap`, account `history-db-key-v1`. The crate that abstracts all three is [`keyring`](https://crates.io/crates/keyring) v3.
+   Service `io.celox.inspector-rust`, account `history-db-key-v1`. The crate that abstracts all three is [`keyring`](https://crates.io/crates/keyring) v3.
 
 2. Falls back to a **0600 keyfile** at `<data-dir>/.dbkey`:
-   - macOS: `~/Library/Application Support/ClipSnap/.dbkey`
-   - Windows: `%APPDATA%\ClipSnap\.dbkey`
-   - Linux: `~/.local/share/ClipSnap/.dbkey`
+   - macOS: `~/Library/Application Support/InspectorRust/.dbkey`
+   - Windows: `%APPDATA%\Inspector Rust\.dbkey`
+   - Linux: `~/.local/share/InspectorRust/.dbkey`
 
 3. If neither exists yet, generates a fresh random key with `rand::thread_rng().fill_bytes(...)`, stores it in *both* the keychain and the keyfile.
 
@@ -103,7 +103,7 @@ Three loss scenarios, ranked by survivability:
 
 1. **Lost the keychain entry only** (e.g. `tccutil` reset, keychain corruption). The keyfile fallback at `<data-dir>/.dbkey` still has the key. The app reads from there on next launch and re-stores it in the keychain.
 2. **Lost the keyfile only** (e.g., manual delete, partial restore from backup). Keychain still has it; the app re-writes the keyfile.
-3. **Lost both** (full disk wipe, reset, etc.). The encrypted rows are unrecoverable. ClipSnap will boot, generate a fresh key, and treat the existing rows as undecryptable garbage. They show up as empty / corrupted text.
+3. **Lost both** (full disk wipe, reset, etc.). The encrypted rows are unrecoverable. Inspector Rust will boot, generate a fresh key, and treat the existing rows as undecryptable garbage. They show up as empty / corrupted text.
    - Mitigation: take a Backup → Export *before* any reset. The export writes plaintext that survives key loss.
 
 ## Implementation

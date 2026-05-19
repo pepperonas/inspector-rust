@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 #
-# install-macos.sh — build, re-sign, and install ClipSnap into /Applications.
+# install-macos.sh — build, re-sign, and install Inspector Rust into /Applications.
 #
 # WHY THIS SCRIPT EXISTS:
-#   ClipSnap is unsigned (no Apple Developer ID). On macOS Tahoe (26+) the
+#   Inspector Rust is unsigned (no Apple Developer ID). On macOS Tahoe (26+) the
 #   TCC database binds Accessibility grants to the tuple (bundle id, cdhash).
 #   Any change to the cdhash invalidates the prior grant. Plain `tauri build`
 #   leaves the binary linker-signed with a *random* identifier (e.g.
-#   `clipsnap-c64f925d…`); calling `codesign --force` adds a fresh CMS
+#   `inspector-rust-c64f925d…`); calling `codesign --force` adds a fresh CMS
 #   timestamp on every invocation, which produces a new cdhash even when
 #   the underlying binary hasn't changed.
 #
@@ -17,11 +17,11 @@
 #   1. Hashes the *source tree* (.rs / .ts / .tsx / .json / Cargo.lock /
 #      pnpm-lock.yaml / entitlements / capabilities) into a single SHA-256.
 #   2. Compares to a stamp file written into the previously-installed
-#      bundle (Contents/Resources/.clipsnap-source-hash). Match → skip the
+#      bundle (Contents/Resources/.inspector-rust-source-hash). Match → skip the
 #      `tauri build` *and* the re-sign entirely; just re-launch the existing
 #      install. cdhash stays stable, the TCC grant survives.
 #   3. Mismatch → run `tauri build`, copy into /Applications, re-sign with
-#      the stable bundle identifier `io.celox.clipsnap` + entitlements +
+#      the stable bundle identifier `io.celox.inspector-rust` + entitlements +
 #      Hardened Runtime, write the new source-hash stamp, and launch.
 #
 #   We hash the *source* (not the built binary) because Rust release builds
@@ -41,8 +41,8 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-BUNDLE_ID="io.celox.clipsnap"
-APP_NAME="ClipSnap.app"
+BUNDLE_ID="io.celox.inspector-rust"
+APP_NAME="InspectorRust.app"
 BUILD_OUT="${REPO_ROOT}/target/release/bundle/macos/${APP_NAME}"
 INSTALL_PATH="/Applications/${APP_NAME}"
 ENTITLEMENTS="${REPO_ROOT}/macos/src-tauri/entitlements.plist"
@@ -68,7 +68,7 @@ bin_sha256() {
   # with `return 0` to keep the caller's `var=$(helper)` from blowing up
   # the whole script when the helper just had nothing to print.
   local app="$1"
-  local exe="${app}/Contents/MacOS/clipsnap"
+  local exe="${app}/Contents/MacOS/inspector-rust"
   if [[ -f "${exe}" ]]; then
     shasum -a 256 "${exe}" | cut -d' ' -f1
   fi
@@ -104,7 +104,7 @@ source_sha256() {
 
 stored_source_hash() {
   local app="$1"
-  local f="${app}/Contents/Resources/.clipsnap-source-hash"
+  local f="${app}/Contents/Resources/.inspector-rust-source-hash"
   [[ -f "${f}" ]] && cat "${f}"
   return 0
 }
@@ -112,7 +112,7 @@ stored_source_hash() {
 write_source_hash() {
   local app="$1"
   local hash="$2"
-  echo -n "${hash}" > "${app}/Contents/Resources/.clipsnap-source-hash"
+  echo -n "${hash}" > "${app}/Contents/Resources/.inspector-rust-source-hash"
 }
 
 cdhash() {
@@ -135,9 +135,9 @@ current_identifier() {
 
 kill_running() {
   local pids
-  pids=$(pgrep -f "${INSTALL_PATH}/Contents/MacOS/clipsnap" || true)
+  pids=$(pgrep -f "${INSTALL_PATH}/Contents/MacOS/inspector-rust" || true)
   if [[ -n "${pids}" ]]; then
-    echo "  stopping ClipSnap PIDs: ${pids}"
+    echo "  stopping Inspector Rust PIDs: ${pids}"
     kill ${pids} 2>/dev/null || true
     sleep 1
   fi
@@ -206,9 +206,9 @@ echo "  ⚠ cdhash WILL change — TCC Accessibility grant must be re-given"
 echo "    (the app's Settings panel auto-detects this and walks you"
 echo "     through the steps; takes ~30 seconds)"
 
-echo "▸ Building ClipSnap.app (release, --bundles app)…"
+echo "▸ Building InspectorRust.app (release, --bundles app)…"
 cd "${REPO_ROOT}"
-pnpm --filter clipsnap-macos tauri build --bundles app
+pnpm --filter inspector-rust-macos tauri build --bundles app
 
 if [[ ! -d "${BUILD_OUT}" ]]; then
   echo "✘ build output missing: ${BUILD_OUT}" >&2
@@ -255,6 +255,6 @@ echo
 echo "✓ Installed $(defaults read "${INSTALL_PATH}/Contents/Info.plist" CFBundleShortVersionString) at ${INSTALL_PATH}"
 echo
 echo "If Accessibility access is missing after launch:"
-echo "  • Open ClipSnap → Settings tab. The green Restart prompt appears once"
-echo "    you toggle ClipSnap on in System Settings → Accessibility."
+echo "  • Open Inspector Rust → Settings tab. The green Restart prompt appears once"
+echo "    you toggle Inspector Rust on in System Settings → Accessibility."
 echo "  • Or: bash scripts/install-macos.sh --reset (wipes stale TCC entries)."

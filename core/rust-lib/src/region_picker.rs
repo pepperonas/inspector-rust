@@ -42,7 +42,7 @@ fn capture_impl() -> Result<Vec<u8>> {
     use std::process::Command;
 
     let tmp = std::env::temp_dir().join(format!(
-        "clipsnap-ocr-{}.png",
+        "inspector-rust-ocr-{}.png",
         Utc::now().timestamp_millis()
     ));
 

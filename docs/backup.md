@@ -1,6 +1,6 @@
 # Full-app backup
 
-ClipSnap's **Backup** feature exports the complete database (`history` + `snippets` + `notes`) to a single JSON file and merges that file back on import. This is the way to:
+Inspector Rust's **Backup** feature exports the complete database (`history` + `snippets` + `notes`) to a single JSON file and merges that file back on import. This is the way to:
 
 - move your collection to a new machine,
 - snapshot your state before risky edits or before importing someone else's snippets,
@@ -13,9 +13,9 @@ Backup was introduced in **v0.2.6**. Moved to the **Settings** tab and gained pe
 1. Open the popup (`Ctrl+Shift+V`).
 2. Click the **Settings** tab → **Backup & restore** section.
 3. Tick which sections to include — *Clipboard history*, *Snippets*, *Notes*. All three are checked by default; uncheck any you don't want in the file.
-4. Click **Export…**. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `clipsnap-backup-<ISO timestamp>.json`. Pick a location and confirm.
+4. Click **Export…**. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `inspector-rust-backup-<ISO timestamp>.json`. Pick a location and confirm.
 
-The status line shows the bytes written, e.g. `Exported 124.5 KB to clipsnap-backup-2026-04-25T09-30-15.json`.
+The status line shows the bytes written, e.g. `Exported 124.5 KB to inspector-rust-backup-2026-04-25T09-30-15.json`.
 
 > **Tip — share snippets without leaking history.** Untick *Clipboard history* and *Notes* for a snippets-only file you can hand to a colleague. They run **Import…** and only your snippets get merged into their database (history dedupes against an empty array, notes append zero rows).
 
@@ -107,7 +107,7 @@ Import is a **merge**, not a replace. Each table has its own dedup strategy:
 
 ### Snippets — upsert by `abbreviation`
 
-Same path used by the JSON snippet importer ([`docs/snippets-import.md`](./snippets-import.md)). If a snippet with the same `abbreviation` already exists, ClipSnap overwrites its `title`/`body` and bumps `updated_at`. The original `created_at` is preserved.
+Same path used by the JSON snippet importer ([`docs/snippets-import.md`](./snippets-import.md)). If a snippet with the same `abbreviation` already exists, Inspector Rust overwrites its `title`/`body` and bumps `updated_at`. The original `created_at` is preserved.
 
 → Re-importing the same backup is **idempotent** for snippets.
 
@@ -134,7 +134,7 @@ The exporter writes `"version": 1`. The importer:
 | `<= 1`         | Imported.                                                    |
 | `> 1` (newer)  | **Rejected** with `backup version N is newer than this app supports (1)`. |
 
-This protects against a newer ClipSnap writing fields the running build doesn't understand and silently discarding them. If you hit this, upgrade ClipSnap or hand-edit the JSON to drop unknown fields and downgrade `version`.
+This protects against a newer Inspector Rust writing fields the running build doesn't understand and silently discarding them. If you hit this, upgrade Inspector Rust or hand-edit the JSON to drop unknown fields and downgrade `version`.
 
 ## Editing a backup before import
 
@@ -142,13 +142,13 @@ The JSON is human-readable and stable. Common surgeries with `jq`:
 
 ```bash
 # Drop the entire history section before sharing with a colleague
-jq '.history = []' clipsnap-backup.json > clipsnap-backup-no-history.json
+jq '.history = []' inspector-rust-backup.json > inspector-rust-backup-no-history.json
 
 # Keep only notes in category "Work"
-jq '.notes |= map(select(.category == "Work"))' clipsnap-backup.json > work-only.json
+jq '.notes |= map(select(.category == "Work"))' inspector-rust-backup.json > work-only.json
 
 # Strip image notes (they tend to be heavy)
-jq '.notes |= map(select(.content_type != "image"))' clipsnap-backup.json > textual.json
+jq '.notes |= map(select(.content_type != "image"))' inspector-rust-backup.json > textual.json
 
 # Merge two backup files (snippets/notes/history concatenated; ids will be re-assigned on import)
 jq -s '
@@ -202,7 +202,7 @@ If you fork the shells, make sure both are present.
 
 ## Testing
 
-The `backup` module has 5 unit tests (`cargo test -p clipsnap-core backup`):
+The `backup` module has 5 unit tests (`cargo test -p inspector-rust-core backup`):
 
 | Test                                        | Asserts                                                              |
 |---------------------------------------------|----------------------------------------------------------------------|
@@ -218,4 +218,4 @@ The `backup` module has 5 unit tests (`cargo test -p clipsnap-core backup`):
 
 - [`docs/notes.md`](./notes.md) — Notes feature, which is included in every backup.
 - [`docs/snippets-import.md`](./snippets-import.md) — snippet-only JSON import (older, narrower scope; uses the same upsert-by-`abbreviation` semantics).
-- [`docs/RELEASING.md`](./RELEASING.md) — release procedure for ClipSnap itself.
+- [`docs/RELEASING.md`](./RELEASING.md) — release procedure for Inspector Rust itself.

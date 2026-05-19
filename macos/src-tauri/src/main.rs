@@ -1,3 +1,3 @@
 fn main() {
-    clipsnap_core::run(tauri::generate_context!());
+    inspector_rust_core::run(tauri::generate_context!());
 }

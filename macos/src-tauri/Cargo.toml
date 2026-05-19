@@ -1,6 +1,6 @@
 [package]
-name = "clipsnap-macos"
-description = "ClipSnap — macOS bundle shell"
+name = "inspector-rust-macos"
+description = "Inspector Rust — macOS bundle shell"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "clipsnap"
+name = "inspector-rust"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -16,7 +16,7 @@ tauri-build = { workspace = true }
 
 [dependencies]
 # Shared app logic.
-clipsnap-core = { path = "../../core/rust-lib" }
+inspector-rust-core = { path = "../../core/rust-lib" }
 
 # Tauri + plugins listed here so tauri-build can discover permission manifests.
 # `macos-private-api` is required by `macOSPrivateApi: true` in tauri.conf.json

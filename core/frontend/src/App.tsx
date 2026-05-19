@@ -320,7 +320,7 @@ function App() {
               <b>OCR failed — macOS Screen Recording access not granted.</b>{" "}
               Without it, <code>screencapture</code> is denied and the
               region marquee never appears. Grant it in <b>System Settings → Privacy &amp; Security → Screen Recording</b>{" "}
-              for ClipSnap, then relaunch.
+              for Inspector Rust, then relaunch.
             </span>
             <button
               onClick={() => setOcrPermissionMissing(false)}
@@ -336,7 +336,7 @@ function App() {
           <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Text expansion failed — macOS Accessibility access not granted.</b>{" "}
-              ClipSnap can&apos;t read the focused field or type the snippet
+              Inspector Rust can&apos;t read the focused field or type the snippet
               without it. Use <b>Force re-grant</b> in the amber banner below,
               then click <b>Restart now</b>.
             </span>

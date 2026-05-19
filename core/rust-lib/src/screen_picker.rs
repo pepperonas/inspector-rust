@@ -39,7 +39,7 @@ mod macos_impl {
     {
         unsafe {
             // NSColorSampler doesn't render its loupe when the calling
-            // app isn't a "regular" foreground app. ClipSnap normally
+            // app isn't a "regular" foreground app. Inspector Rust normally
             // runs as Accessory (Dock-hidden tray app), so we have to
             // briefly promote it to Regular for the duration of the
             // pick. We restore Accessory in the selection handler.
@@ -151,7 +151,7 @@ mod windows_impl {
     }
 
     unsafe fn run_picker() -> Result<String, String> {
-        let class_name = wide_str("ClipSnapEyeDropper\0");
+        let class_name = wide_str("InspectorRustEyeDropper\0");
         register_class_once(class_name.as_ptr());
 
         let x = GetSystemMetrics(SM_XVIRTUALSCREEN);
@@ -162,7 +162,7 @@ mod windows_impl {
         let hwnd = CreateWindowExW(
             WS_EX_LAYERED | WS_EX_TOPMOST,
             PCWSTR(class_name.as_ptr()),
-            PCWSTR(wide_str("ClipSnap Eyedropper\0").as_ptr()),
+            PCWSTR(wide_str("Inspector Rust Eyedropper\0").as_ptr()),
             WS_POPUP,
             x,
             y,

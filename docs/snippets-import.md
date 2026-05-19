@@ -1,6 +1,6 @@
 # Snippet import (JSON)
 
-ClipSnap can bulk-import snippets from a JSON file. This is the fastest way to seed the app with your existing templates, share snippet libraries between machines, or back up your collection.
+Inspector Rust can bulk-import snippets from a JSON file. This is the fastest way to seed the app with your existing templates, share snippet libraries between machines, or back up your collection.
 
 ## How to import
 
@@ -61,7 +61,7 @@ The wrapped form is preferred when you want to extend the schema later (e.g., ad
 
 ## Semantics
 
-- **Upsert by `abbreviation`.** If a snippet with the same abbreviation already exists, ClipSnap overwrites its title and body and bumps `updated_at`. The original `created_at` is preserved.
+- **Upsert by `abbreviation`.** If a snippet with the same abbreviation already exists, Inspector Rust overwrites its title and body and bumps `updated_at`. The original `created_at` is preserved.
 - **Per-row error tolerance.** A row with a missing field doesn't abort the whole import — it's counted as "skipped" with the index and abbreviation in the error list.
 - **Order-sensitive duplicates within a file.** If your file has two rows with the same abbreviation, the *last* one wins (each row is upserted in document order).
 - **Whitespace trimming.** Leading/trailing whitespace is stripped from `abbreviation` and `title`. The `body` is preserved exactly — leading spaces and trailing newlines you put in your file end up in the paste.
@@ -81,7 +81,7 @@ Several themed examples live under [`docs/examples/snippets/`](./examples/snippe
 
 **Try it:**
 
-1. Open ClipSnap (`Ctrl+Shift+V`)
+1. Open Inspector Rust (`Ctrl+Shift+V`)
 2. **Snippets** tab → **Import**
 3. Select e.g. [`docs/examples/snippets/getting-started.json`](./examples/snippets/getting-started.json) — three new entries (`addr`, `email`, `mfg`) appear in the list.
 
@@ -90,10 +90,10 @@ To merge several example files into one import, see [`docs/examples/snippets/REA
 ## Tips & anti-patterns
 
 - **Use abbreviations that don't collide with normal text you type.** `mfg` is unique enough; `the` would match every search.
-- **Prefer short prefix-friendly abbreviations.** ClipSnap matches abbreviation prefixes first, so `sigDe` wins over `sig` only after you type the `D`.
+- **Prefer short prefix-friendly abbreviations.** Inspector Rust matches abbreviation prefixes first, so `sigDe` wins over `sig` only after you type the `D`.
 - **Avoid trailing whitespace on a line you don't intend.** The body is pasted verbatim — including stray trailing spaces.
 - **Keep one file per theme** rather than one mega-file — easier to share, edit, and re-import selectively.
-- **Don't hard-code dynamic data** (timestamps, current commit SHA, etc.). ClipSnap doesn't templatize; what's in the body is what gets pasted. Use placeholders like `<DATE>` and edit after pasting.
+- **Don't hard-code dynamic data** (timestamps, current commit SHA, etc.). Inspector Rust doesn't templatize; what's in the body is what gets pasted. Use placeholders like `<DATE>` and edit after pasting.
 
 ## Export
 
@@ -101,7 +101,7 @@ To merge several example files into one import, see [`docs/examples/snippets/REA
 
 Since v0.2.12 the Settings tab's *Backup & restore* section can write a JSON file containing only your snippets. Untick *Clipboard history* and *Notes*, click **Export…**, pick a path. The resulting file matches the full-backup schema (`{ version, exported_at, history: [], snippets: [...], notes: [] }`); the snippet importer below also accepts the bare-array and `{ snippets: [...] }` shapes for hand-curated files.
 
-To round-trip into another ClipSnap install: paste the file via **Settings → Backup & restore → Import…**. Snippets are upserted by `abbreviation`; the empty `history` and `notes` arrays are no-ops on the destination side.
+To round-trip into another Inspector Rust install: paste the file via **Settings → Backup & restore → Import…**. Snippets are upserted by `abbreviation`; the empty `history` and `notes` arrays are no-ops on the destination side.
 
 Full backup-format reference: [`docs/backup.md`](./backup.md).
 
@@ -111,12 +111,12 @@ If you want a snippets-only file without the wrapping `{ version, …, history, 
 
 ```bash
 # macOS
-sqlite3 "$HOME/Library/Application Support/ClipSnap/history.db" \
+sqlite3 "$HOME/Library/Application Support/InspectorRust/history.db" \
   "SELECT json_group_array(json_object('abbreviation', abbreviation, 'title', title, 'body', body)) FROM snippets;" \
   | jq . > my-snippets.json
 
 # Windows (PowerShell)
-sqlite3 "$env:APPDATA\ClipSnap\history.db" `
+sqlite3 "$env:APPDATA\InspectorRust\history.db" `
   "SELECT json_group_array(json_object('abbreviation', abbreviation, 'title', title, 'body', body)) FROM snippets;" `
   | ConvertFrom-Json | ConvertTo-Json -Depth 5 > my-snippets.json
 ```

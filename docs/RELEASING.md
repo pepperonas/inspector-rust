@@ -1,6 +1,6 @@
-# Releasing ClipSnap
+# Releasing Inspector Rust
 
-ClipSnap releases are published automatically by [GitHub Actions](../.github/workflows/release.yml) when a `v*` tag is pushed. This document describes the full release flow end to end.
+Inspector Rust releases are published automatically by [GitHub Actions](../.github/workflows/release.yml) when a `v*` tag is pushed. This document describes the full release flow end to end.
 
 ## TL;DR
 
@@ -28,7 +28,7 @@ The workflow builds Windows + macOS bundles and attaches them to the GitHub Rele
 
 ## Versioning policy
 
-ClipSnap follows [Semantic Versioning](https://semver.org). Until 1.0.0:
+Inspector Rust follows [Semantic Versioning](https://semver.org). Until 1.0.0:
 
 - **`0.x.0`** — new features, possibly with breaking changes.
 - **`0.x.y` (y > 0)** — bug fixes, compatible additions only.
@@ -48,7 +48,7 @@ When cutting `v0.x.y`, replace the previous version in **all** of these:
 | `macos/package.json` | `version` |
 | `win/src-tauri/tauri.conf.json` | `version` |
 | `macos/src-tauri/tauri.conf.json` | `version` |
-| `Cargo.lock` | three `clipsnap-{core,win,macos}` entries — `cargo` regenerates this on next build, but bumping it in the same commit avoids a phantom diff in the release commit |
+| `Cargo.lock` | three `inspector-rust-{core,win,macos}` entries — `cargo` regenerates this on next build, but bumping it in the same commit avoids a phantom diff in the release commit |
 
 A grep-and-sanity check:
 
@@ -58,7 +58,7 @@ grep -rn '"version"\|^version' \
   core/frontend/package.json \
   win/package.json macos/package.json \
   win/src-tauri/tauri.conf.json macos/src-tauri/tauri.conf.json
-grep -n -A1 'name = "clipsnap' Cargo.lock
+grep -n -A1 'name = "inspector-rust' Cargo.lock
 ```
 
 All seven manifest lines plus the three `Cargo.lock` workspace-crate entries should show the new version.
@@ -73,7 +73,7 @@ perl -i -pe "s/\"version\": \"$OLD\"/\"version\": \"$NEW\"/" \
   package.json macos/package.json core/frontend/package.json win/package.json \
   macos/src-tauri/tauri.conf.json win/src-tauri/tauri.conf.json
 perl -i -pe "s/^version = \"$OLD\"\$/version = \"$NEW\"/" Cargo.toml
-perl -i -0pe "s/(name = \"clipsnap-(?:core|win|macos)\"\\nversion = \")$OLD(\")/\$1 . \"$NEW\" . \$2/ge" Cargo.lock
+perl -i -0pe "s/(name = \"inspector-rust-(?:core|win|macos)\"\\nversion = \")$OLD(\")/\$1 . \"$NEW\" . \$2/ge" Cargo.lock
 ```
 
 ## Pre-flight checks
@@ -97,7 +97,7 @@ The push triggers [`release.yml`](../.github/workflows/release.yml). Two paralle
 
 | Job | Runs on | Builds | Uploads |
 |-----|---------|--------|---------|
-| `build-windows` | `windows-latest` | `pnpm build:win` | `target/release/clipsnap.exe`, `target/release/bundle/msi/*.msi` |
+| `build-windows` | `windows-latest` | `pnpm build:win` | `target/release/inspector-rust.exe`, `target/release/bundle/msi/*.msi` |
 | `build-macos`   | `macos-latest`   | `pnpm build:macos` | `target/release/bundle/dmg/*.dmg` |
 
 Both write to the same release using `softprops/action-gh-release@v2`. The Windows job creates the release and generates release notes from commit history; the macOS job attaches its DMG to that same release.
@@ -112,9 +112,9 @@ gh release view v0.x.y          # confirm assets are attached
 
 Expected assets after a successful run:
 
-- `clipsnap.exe` (Windows standalone executable, ~14 MB)
-- `ClipSnap_<version>_x64_en-US.msi` (Windows installer, ~5 MB)
-- `ClipSnap_<version>_aarch64.dmg` (macOS Apple Silicon DMG, ~5 MB)
+- `inspector-rust.exe` (Windows standalone executable, ~14 MB)
+- `inspector-rust_<version>_x64_en-US.msi` (Windows installer, ~5 MB)
+- `inspector-rust_<version>_aarch64.dmg` (macOS Apple Silicon DMG, ~5 MB)
 
 ## If a build fails
 
@@ -133,14 +133,14 @@ If GitHub Actions is unavailable, you can build and upload manually:
 pnpm install
 pnpm build:win
 gh release upload v0.x.y \
-  target/release/clipsnap.exe \
-  target/release/bundle/msi/ClipSnap_*.msi
+  target/release/inspector-rust.exe \
+  target/release/bundle/msi/inspector-rust_*.msi
 
 # macOS (must be a macOS host)
 pnpm install
 pnpm build:macos
 gh release upload v0.x.y \
-  target/release/bundle/dmg/ClipSnap_*.dmg
+  target/release/bundle/dmg/inspector-rust_*.dmg
 ```
 
 Or seed the release without binaries:
@@ -155,7 +155,7 @@ gh release create v0.x.y --generate-notes
 
 1. Verify the release page lists the expected assets (above).
 2. Update [`README.md`](../README.md) badges if you embed a version (the version badge currently links to releases generically — no manual edit needed).
-3. Optional: post to whatever channel announces ClipSnap (Slack, etc.).
+3. Optional: post to whatever channel announces Inspector Rust (Slack, etc.).
 4. Open issues for any follow-up work that surfaced during the release prep.
 
 ## Hotfix flow

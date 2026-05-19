@@ -1,6 +1,6 @@
 [package]
-name = "clipsnap-core"
-description = "Shared, OS-independent app logic for ClipSnap"
+name = "inspector-rust-core"
+description = "Shared, OS-independent app logic for Inspector Rust"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [lib]
-name = "clipsnap_core"
+name = "inspector_rust_core"
 crate-type = ["rlib"]
 
 [dependencies]

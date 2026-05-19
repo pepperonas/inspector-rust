@@ -35,7 +35,7 @@ pub fn screen_recording_granted() -> bool {
 
 /// Trigger the macOS Screen Recording prompt. Returns the *current*
 /// status (almost always `false` immediately — the user still has to
-/// flip the toggle in System Settings, then ClipSnap usually has to
+/// flip the toggle in System Settings, then Inspector Rust usually has to
 /// be re-launched for the cached TCC verdict to refresh).
 #[cfg(target_os = "macos")]
 pub fn request_screen_recording_grant() -> bool {

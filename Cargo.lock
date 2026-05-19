@@ -594,68 +594,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "clipsnap-core"
-version = "0.15.0"
-dependencies = [
- "aes-gcm",
- "anyhow",
- "base64 0.22.1",
- "block2 0.6.2",
- "chrono",
- "clipboard-rs",
- "dirs 5.0.1",
- "enigo",
- "image",
- "keyring",
- "ndarray",
- "objc2 0.6.4",
- "ort",
- "parking_lot",
- "rand 0.8.6",
- "rusqlite",
- "serde",
- "serde_json",
- "sha2",
- "tauri",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
- "tracing",
- "tracing-subscriber",
- "windows 0.61.3",
-]
-
-[[package]]
-name = "clipsnap-macos"
-version = "0.15.0"
-dependencies = [
- "clipsnap-core",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
-]
-
-[[package]]
-name = "clipsnap-win"
-version = "0.15.0"
-dependencies = [
- "clipsnap-core",
- "tauri",
- "tauri-build",
- "tauri-plugin-autostart",
- "tauri-plugin-clipboard-manager",
- "tauri-plugin-dialog",
- "tauri-plugin-global-shortcut",
- "tauri-plugin-opener",
-]
-
-[[package]]
 name = "color_quant"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2245,6 +2183,68 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "879f10e63c20629ecabbb64a8010319738c66a5cd0c29b02d63d272b03751d01"
 dependencies = [
  "generic-array",
+]
+
+[[package]]
+name = "inspector-rust-core"
+version = "0.16.0"
+dependencies = [
+ "aes-gcm",
+ "anyhow",
+ "base64 0.22.1",
+ "block2 0.6.2",
+ "chrono",
+ "clipboard-rs",
+ "dirs 5.0.1",
+ "enigo",
+ "image",
+ "keyring",
+ "ndarray",
+ "objc2 0.6.4",
+ "ort",
+ "parking_lot",
+ "rand 0.8.6",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tauri",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+ "tracing",
+ "tracing-subscriber",
+ "windows 0.61.3",
+]
+
+[[package]]
+name = "inspector-rust-macos"
+version = "0.16.0"
+dependencies = [
+ "inspector-rust-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+]
+
+[[package]]
+name = "inspector-rust-win"
+version = "0.16.0"
+dependencies = [
+ "inspector-rust-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
 ]
 
 [[package]]

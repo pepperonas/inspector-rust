@@ -13,12 +13,12 @@ pnpm dev:win          # Windows
 pnpm dev:macos        # macOS
 
 # Production builds
-pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/clipsnap.exe
+pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/inspector-rust.exe
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
 
 # Tests
 pnpm test                                     # frontend vitest (all, single run)
-pnpm --filter clipsnap-frontend test:watch    # frontend vitest watch mode
+pnpm --filter inspector-rust-frontend test:watch    # frontend vitest watch mode
 cargo test --workspace                        # all Rust unit tests
 
 # Static analysis (clippy + tsc + eslint in one shot)
@@ -40,13 +40,13 @@ sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev 
 ### Workspace layout
 
 ```
-core/rust-lib/   — clipsnap-core rlib: ALL business logic (DB, clipboard, hotkey, paste, snippets, notes, settings, backup, expander)
+core/rust-lib/   — inspector-rust-core rlib: ALL business logic (DB, clipboard, hotkey, paste, snippets, notes, settings, backup, expander)
 core/frontend/   — React 19 + TS + Tailwind v4 + Vite 7 (shared by all platforms)
 win/src-tauri/   — Windows bundle shell: 2-line main.rs + Tauri config + capabilities
 macos/src-tauri/ — macOS bundle shell: 2-line main.rs + Tauri config + capabilities
 ```
 
-Both platform shells contain only `clipsnap_core::run(tauri::generate_context!())`. All logic is in `core/rust-lib`. The Tauri CLI is invoked per platform via `pnpm --filter clipsnap-{win,macos} tauri {dev,build}`.
+Both platform shells contain only `inspector_rust_core::run(tauri::generate_context!())`. All logic is in `core/rust-lib`. The Tauri CLI is invoked per platform via `pnpm --filter inspector-rust-{win,macos} tauri {dev,build}`.
 
 ### Adding a new IPC command (end-to-end)
 
@@ -58,8 +58,8 @@ Both platform shells contain only `clipsnap_core::run(tauri::generate_context!()
 ### Database — four tables in one SQLite file
 
 `DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. File location:
-- Windows: `%APPDATA%\ClipSnap\history.db`
-- macOS: `~/Library/Application Support/ClipSnap/history.db`
+- Windows: `%APPDATA%\InspectorRust\history.db`
+- macOS: `~/Library/Application Support/InspectorRust/history.db`
 
 | Table | Purpose | Notes |
 |---|---|---|

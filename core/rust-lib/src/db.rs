@@ -11,11 +11,11 @@ use crate::models::{ClipEntry, ContentType, NewClip, MAX_ENTRIES};
 
 pub type DbHandle = Arc<Mutex<Connection>>;
 
-/// Resolve `%APPDATA%\ClipSnap\history.db` on Windows, or the platform
+/// Resolve `%APPDATA%\InspectorRust\history.db` on Windows, or the platform
 /// equivalent on other OSes (useful for `cargo run` on macOS/Linux).
 pub fn default_db_path() -> Result<PathBuf> {
     let mut dir = dirs::data_dir().context("no platform data dir available")?;
-    dir.push("ClipSnap");
+    dir.push("InspectorRust");
     std::fs::create_dir_all(&dir)
         .with_context(|| format!("failed to create data dir {}", dir.display()))?;
     dir.push("history.db");

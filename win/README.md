@@ -1,6 +1,6 @@
-# ClipSnap — Windows bundle
+# Inspector Rust — Windows bundle
 
-This directory contains the Windows-specific Tauri shell for ClipSnap. The shared app logic lives in [`../core`](../core); this shell only owns the installer config, icons, capabilities, and the thin `main.rs` that boots the shared lib with a Windows `tauri::Context`.
+This directory contains the Windows-specific Tauri shell for Inspector Rust. The shared app logic lives in [`../core`](../core); this shell only owns the installer config, icons, capabilities, and the thin `main.rs` that boots the shared lib with a Windows `tauri::Context`.
 
 ## Prerequisites (Windows)
 
@@ -16,17 +16,17 @@ From the repository root:
 
 ```bash
 pnpm install          # installs the entire workspace (frontend + tauri CLI)
-pnpm dev:win          # delegates to `pnpm --filter clipsnap-win tauri dev`
+pnpm dev:win          # delegates to `pnpm --filter inspector-rust-win tauri dev`
 pnpm build:win        # produces the .msi installer
 ```
 
 The `.msi` lands at:
 
 ```
-win/src-tauri/target/release/bundle/msi/ClipSnap_<version>_x64_en-US.msi
+win/src-tauri/target/release/bundle/msi/inspector-rust_<version>_x64_en-US.msi
 ```
 
-Double-click to install. ClipSnap launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Shift+V`.
+Double-click to install. Inspector Rust launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Shift+V`.
 
 ## Usage
 
@@ -51,12 +51,12 @@ Double-click to install. ClipSnap launches into the system tray — there's no S
 - **Pause Capture** — stop recording new clipboard items
 - **☑ Start with Windows** — toggle autostart at login; checkmark reflects current state (v0.14.0)
 - **Clear History…** — wipe all stored entries
-- **Quit ClipSnap** — exit
+- **Quit Inspector Rust** — exit
 
 ## Data location
 
 ```
-%APPDATA%\ClipSnap\history.db
+%APPDATA%\InspectorRust\history.db
 ```
 
 Up to 1000 entries; oldest pruned on each insert. Duplicates are deduplicated on SHA-256 hash of the payload — copying the same thing twice just bumps its `last_used_at`.
@@ -84,12 +84,12 @@ win/
     ├── capabilities/         # default + desktop capability permissions
     ├── icons/                # Windows icon set (.ico, .png)
     └── src/
-        └── main.rs           # thin entrypoint: clipsnap_core::run(generate_context!())
+        └── main.rs           # thin entrypoint: inspector_rust_core::run(generate_context!())
 ```
 
 ## Troubleshooting
 
 - **`cargo: command not found`** — install Rust via rustup, then restart the shell.
 - **`wix: toolset not found`** during `build:win` — install [WiX v3](https://wixtoolset.org/) and ensure it's on your `PATH`.
-- **Global hotkey doesn't fire** — another app may already hold `Ctrl+Shift+V`. Close Windows' built-in clipboard history (Win+V) or any third-party clipboard manager, then restart ClipSnap.
+- **Global hotkey doesn't fire** — another app may already hold `Ctrl+Shift+V`. Close Windows' built-in clipboard history (Win+V) or any third-party clipboard manager, then restart Inspector Rust.
 - **Paste inserts nothing** — some apps (elevated processes, some Electron apps) reject simulated keystrokes. Copy manually from the preview pane as a workaround.

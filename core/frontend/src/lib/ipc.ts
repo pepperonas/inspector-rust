@@ -207,7 +207,7 @@ export interface ExpanderConfig {
   enabled: boolean;
   /** Tauri shortcut string, e.g. "Alt+Backquote", "Ctrl+Shift+E". */
   hotkey: string;
-  /** True if the OS has granted ClipSnap permission to synthesize keyboard
+  /** True if the OS has granted Inspector Rust permission to synthesize keyboard
    *  events. macOS: Accessibility. Other OSes: always true. */
   accessibility_granted: boolean;
 }
@@ -285,7 +285,7 @@ export function getAccessibilityStatus(): Promise<boolean> {
 }
 
 /** Triggers the macOS "would like to control this computer" dialog and
- *  adds ClipSnap to the Accessibility list. Returns the still-likely-
+ *  adds Inspector Rust to the Accessibility list. Returns the still-likely-
  *  false trusted state immediately after the prompt fires. No-op on
  *  Windows / Linux. */
 export function requestAccessibilityGrant(): Promise<boolean> {
@@ -298,10 +298,10 @@ export function openAccessibilitySettings(): Promise<void> {
   return invoke("open_accessibility_settings");
 }
 
-/** Wipe stale TCC Accessibility/PostEvent entries for ClipSnap (via
+/** Wipe stale TCC Accessibility/PostEvent entries for Inspector Rust (via
  *  `tccutil reset`) then fire the system "would like to control" prompt
  *  with the *current* cdhash. Use this when the System Settings toggle
- *  says "on" but ClipSnap still asks for permission on every action —
+ *  says "on" but Inspector Rust still asks for permission on every action —
  *  that means the toggle is for an older binary's cdhash. */
 export function forceResetAndRequestGrant(): Promise<boolean> {
   return invoke("force_reset_and_request_grant");
@@ -313,7 +313,7 @@ export function quitApp(): Promise<void> {
   return invoke("quit_app");
 }
 
-/** Spawn a fresh ClipSnap process and exit the current one. Used by the
+/** Spawn a fresh Inspector Rust process and exit the current one. Used by the
  *  Settings panel's auto-restart prompt: the new process picks up the
  *  freshly granted Accessibility state which the running process can't
  *  see (macOS caches the trust check per-process). */
@@ -323,8 +323,8 @@ export function relaunchApp(): Promise<void> {
 
 // ── Autostart (login item / LaunchAgent) ─────────────────────────────────────
 
-/** Whether ClipSnap is set to launch automatically on login.
- *  macOS: checks `~/Library/LaunchAgents/ClipSnap.plist`.
+/** Whether Inspector Rust is set to launch automatically on login.
+ *  macOS: checks `~/Library/LaunchAgents/InspectorRust.plist`.
  *  Windows: checks the run-key registry entry. */
 export function getAutostartEnabled(): Promise<boolean> {
   return invoke("get_autostart_enabled");
@@ -371,7 +371,7 @@ export function imageChromaticity(id: number): Promise<number> {
 }
 
 /** Background-remove an image entry via corner-sampled chroma-key.
- *  Saves the transparent PNG to `~/Downloads/clipsnap-cutout-<ts>.png`
+ *  Saves the transparent PNG to `~/Downloads/inspector-rust-cutout-<ts>.png`
  *  and returns the absolute path. Leaves the history entry untouched. */
 export function cutOutImageEntry(id: number): Promise<string> {
   return invoke("cut_out_image_entry", { id });
@@ -385,7 +385,7 @@ export function cutOutImageFile(path: string): Promise<string> {
   return invoke("cut_out_image_file", { path });
 }
 
-/** Save a clipboard image entry to `~/Downloads/clipsnap-image-<ts>.png`
+/** Save a clipboard image entry to `~/Downloads/inspector-rust-image-<ts>.png`
  *  unchanged. Companion to recolor — recolor produces a new history
  *  entry with the tinted image; this lets the user grab that entry as
  *  a real file on disk. Returns the saved absolute path. */
@@ -440,9 +440,9 @@ export function screenshotRegion(): Promise<ScreenshotResult> {
 
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
-/** Whether ClipSnap currently has Screen Recording (TCC ScreenCapture)
+/** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)
  *  granted. Required for OCR to work — `screencapture -i` is attributed
- *  to ClipSnap, so without this the marquee never appears. Always
+ *  to Inspector Rust, so without this the marquee never appears. Always
  *  `true` on non-macOS. */
 export function getScreenRecordingStatus(): Promise<boolean> {
   return invoke("get_screen_recording_status");
@@ -459,8 +459,8 @@ export function openScreenRecordingSettings(): Promise<void> {
   return invoke("open_screen_recording_settings");
 }
 
-/** Reset the Screen Recording TCC entry for ClipSnap (no sudo) and
- *  re-fire the prompt. Use when System Settings shows ClipSnap as
+/** Reset the Screen Recording TCC entry for Inspector Rust (no sudo) and
+ *  re-fire the prompt. Use when System Settings shows Inspector Rust as
  *  enabled but the running process still sees the policy as denied. */
 export function forceResetScreenRecordingGrant(): Promise<boolean> {
   return invoke("force_reset_screen_recording_grant");

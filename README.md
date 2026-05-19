@@ -1,9 +1,9 @@
 <div align="center">
   <img src="docs/inspector-rust.png?v=1" alt="Built with Rust" width="600" />
 
-  # ClipSnap
+  # Inspector Rust
 
-  **The keyboard-first clipboard hyper-toolkit for people who think `Cmd+V` should be a verb, a noun, and a way of life — Windows 11 & macOS, native, no Electron, no cloud, no nonsense.**
+  **The keyboard-first clipboard hyper-toolkit for people who think `Cmd+V` should be a verb, a noun, and a way of life — Windows 11 & macOS, native, no Electron, no cloud, no bullshit.**
 
   This is the clipboard manager that ate its own scope statement.
 
@@ -15,23 +15,23 @@
 
   **`Ctrl+Shift+O`** fires the **screen-region OCR**: drag a marquee (`screencapture -i` — the same overlay as `Cmd+Shift+4`), and Apple's **Vision** framework runs `VNRecognizeTextRequest` over the selection at `recognitionLevel = Accurate` with language correction. The recognised text lands on your clipboard, in your history (at the top — *fixed in v0.14.2*), and the source PNG is preserved one slot below so you can re-OCR a different region without rescreenshotting. Latin, CJK, Arabic, Cyrillic — whatever your macOS Vision install supports. **`Ctrl+Shift+S`** (new in **v0.15.0**) does the same marquee but **skips the OCR step** — pure region screenshot, PNG straight to clipboard + history, so charts, buttons, photos, and silent UI mockups land where you need them too. Same TCC gate, same threading model, zero text-required.
 
-  The **text expander** has *three* expansion modes living side by side. The **search-based** one (always on, zero permissions): type `mfg` in the popup → matching snippets bubble to the top → Enter pastes. The **abbreviation hotkey** (default `Alt+1`, opt-in via Settings, configurable to anything): type the abbreviation in *any* text field, press the hotkey, ClipSnap replaces it in place via macOS Accessibility API or Windows UIA (with an AX-select-then-paste fallback for Electron / Chromium / Mac-Catalyst apps that don't expose writable text — WhatsApp, Slack, Discord, VS Code — and a clipboard+keystroke last resort for everything else; the *Diagnose* button in Settings reports which path was used). And the **direct hotkey → snippet slots** (added v0.13.0): bind a hotkey straight to a snippet — `Alt+2` → the *aiplan* body — and pressing it pastes the body with **no abbreviation typed**. Reads nothing, so it works **in any app including terminals** (iTerm2, Terminal.app, kitty, Alacritty), where the abbreviation expander can't see the input line.
+  The **text expander** has *three* expansion modes living side by side. The **search-based** one (always on, zero permissions): type `mfg` in the popup → matching snippets bubble to the top → Enter pastes. The **abbreviation hotkey** (default `Alt+1`, opt-in via Settings, configurable to anything): type the abbreviation in *any* text field, press the hotkey, Inspector Rust replaces it in place via macOS Accessibility API or Windows UIA (with an AX-select-then-paste fallback for Electron / Chromium / Mac-Catalyst apps that don't expose writable text — WhatsApp, Slack, Discord, VS Code — and a clipboard+keystroke last resort for everything else; the *Diagnose* button in Settings reports which path was used). And the **direct hotkey → snippet slots** (added v0.13.0): bind a hotkey straight to a snippet — `Alt+2` → the *aiplan* body — and pressing it pastes the body with **no abbreviation typed**. Reads nothing, so it works **in any app including terminals** (iTerm2, Terminal.app, kitty, Alacritty), where the abbreviation expander can't see the input line.
 
   Ships with **25 bundled AI prompt snippets** prefixed `ai*` across programming, web, IT security, business, data, and API design (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aithumb`, `aithreat`, `aipentest`, `aibrief`, `aiml`, `aiapi`, `aiux`, `aimarketing`, …), each a structured-instruction half you append to your own prompt or code. Idempotent seeding (deleted prompts stay deleted), one-click *Restore defaults*, and live-editable from the **Snippets tab**. The **Notes tab** turns any clipboard entry into a permanent, categorised bookmark with no history cap. The **Backup tab** exports the full database (history + snippets + notes) into a versioned JSON file you can re-import on another machine; per-section tickboxes let you share snippets-only with a colleague without leaking your history. **Backup is plaintext JSON by design** so it's portable across machines — re-encryption happens at the destination's keychain on import.
 
-  All of it runs as a **menu-bar / tray-resident background process** (no dock icon on macOS via `Accessory` activation policy, no taskbar icon on Windows via `skipTaskbar`). **`Autostart on login`** (added v0.14.0) is a tray-visible check menu item + Settings toggle — macOS writes `~/Library/LaunchAgents/ClipSnap.plist`, Windows uses the run-key registry entry. The popup is **per-monitor aware** (it opens on the monitor your cursor is on, not always the primary), **focus-loss-cancellable** (click outside or Esc to dismiss, with a `suppress_hide` flag during native file dialogs so they don't bounce the popup), and **fuzzy-search-as-you-type** via `fuse.js` with a virtualised list (`@tanstack/react-virtual`) that stays snappy at 1 000 entries.
+  All of it runs as a **menu-bar / tray-resident background process** (no dock icon on macOS via `Accessory` activation policy, no taskbar icon on Windows via `skipTaskbar`). **`Autostart on login`** (added v0.14.0) is a tray-visible check menu item + Settings toggle — macOS writes `~/Library/LaunchAgents/InspectorRust.plist`, Windows uses the run-key registry entry. The popup is **per-monitor aware** (it opens on the monitor your cursor is on, not always the primary), **focus-loss-cancellable** (click outside or Esc to dismiss, with a `suppress_hide` flag during native file dialogs so they don't bounce the popup), and **fuzzy-search-as-you-type** via `fuse.js` with a virtualised list (`@tanstack/react-virtual`) that stays snappy at 1 000 entries.
 
-  **Zero telemetry. Zero network calls. Zero account.** Your data lives at `~/Library/Application Support/ClipSnap/history.db` (macOS) or `%APPDATA%\ClipSnap\history.db` (Windows) and nowhere else. The 4.5 MB ONNX model is *bundled* — even cutouts run offline. The Vision OCR is *local* — Apple's on-device ML, no API key, no rate limit. The encryption keys never leave your machine, the snippets sync nowhere, the history is yours.
+  **Zero telemetry. Zero network calls. Zero account.** Your data lives at `~/Library/Application Support/InspectorRust/history.db` (macOS) or `%APPDATA%\InspectorRust\history.db` (Windows) and nowhere else. The 4.5 MB ONNX model is *bundled* — even cutouts run offline. The Vision OCR is *local* — Apple's on-device ML, no API key, no rate limit. The encryption keys never leave your machine, the snippets sync nowhere, the history is yours.
 
   Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **110 Rust unit tests + 86 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.15.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.15.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
-  [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/clipsnap/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/clipsnap/actions/workflows/ci.yml)
-  [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/clipsnap/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/clipsnap/actions/workflows/release.yml)
-  [![Latest Release](https://img.shields.io/github/v/release/pepperonas/clipsnap?style=flat-square&label=download)](https://github.com/pepperonas/clipsnap/releases/latest)
-  [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/clipsnap/commits/main)
+  [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
+  [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=download)](https://github.com/pepperonas/inspector-rust/releases/latest)
+  [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
 
   <!-- ── Platforms ────────────────────────────────────────────── -->
@@ -74,20 +74,20 @@
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
 
   <!-- ── Community ───────────────────────────────────────────── -->
-  [![Issues](https://img.shields.io/github/issues/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/issues)
-  [![Closed issues](https://img.shields.io/github/issues-closed/pepperonas/clipsnap?style=flat-square&color=success)](https://github.com/pepperonas/clipsnap/issues?q=is%3Aissue+is%3Aclosed)
-  [![PRs](https://img.shields.io/github/issues-pr/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/pulls)
-  [![Stars](https://img.shields.io/github/stars/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/stargazers)
-  [![Forks](https://img.shields.io/github/forks/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/network/members)
-  [![Watchers](https://img.shields.io/github/watchers/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/watchers)
-  [![Contributors](https://img.shields.io/github/contributors/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/graphs/contributors)
-  [![Last commit](https://img.shields.io/github/last-commit/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/commits/main)
-  [![Commit activity](https://img.shields.io/github/commit-activity/m/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap/commits/main)
-  [![Repo size](https://img.shields.io/github/repo-size/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap)
-  [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap)
-  [![Top language](https://img.shields.io/github/languages/top/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap)
-  [![Languages](https://img.shields.io/github/languages/count/pepperonas/clipsnap?style=flat-square)](https://github.com/pepperonas/clipsnap)
-  [![Lines](https://img.shields.io/tokei/lines/github/pepperonas/clipsnap?style=flat-square&label=lines%20of%20code)](https://github.com/pepperonas/clipsnap)
+  [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
+  [![Closed issues](https://img.shields.io/github/issues-closed/pepperonas/inspector-rust?style=flat-square&color=success)](https://github.com/pepperonas/inspector-rust/issues?q=is%3Aissue+is%3Aclosed)
+  [![PRs](https://img.shields.io/github/issues-pr/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/pulls)
+  [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
+  [![Forks](https://img.shields.io/github/forks/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/network/members)
+  [![Watchers](https://img.shields.io/github/watchers/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/watchers)
+  [![Contributors](https://img.shields.io/github/contributors/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/graphs/contributors)
+  [![Last commit](https://img.shields.io/github/last-commit/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
+  [![Commit activity](https://img.shields.io/github/commit-activity/m/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
+  [![Repo size](https://img.shields.io/github/repo-size/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
+  [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
+  [![Top language](https://img.shields.io/github/languages/top/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
+  [![Languages](https://img.shields.io/github/languages/count/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust)
+  [![Lines](https://img.shields.io/tokei/lines/github/pepperonas/inspector-rust?style=flat-square&label=lines%20of%20code)](https://github.com/pepperonas/inspector-rust)
   [![Made with love](https://img.shields.io/badge/made%20with-%E2%99%A5-red?style=flat-square)](#)
 
   <!-- ── Architecture & build ────────────────────────────────── -->
@@ -150,19 +150,19 @@
 
 ## Download
 
-**Latest release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/clipsnap?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/clipsnap/releases/latest) — see the [CHANGELOG](./CHANGELOG.md) for what's new.
+**Latest release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/inspector-rust/releases/latest) — see the [CHANGELOG](./CHANGELOG.md) for what's new.
 
 | Platform | File | Notes |
 |----------|------|-------|
-| **Windows 11 / 10** | [`ClipSnap_<ver>_x64_en-US.msi`](https://github.com/pepperonas/clipsnap/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
-| **Windows 11 / 10** | [`clipsnap.exe`](https://github.com/pepperonas/clipsnap/releases/latest) | Standalone exe — no install needed |
-| **macOS 10.15+ (Apple Silicon)** | [`ClipSnap_<ver>_aarch64.dmg`](https://github.com/pepperonas/clipsnap/releases/latest) | DMG for arm64 Macs |
+| **Windows 11 / 10** | [`inspector-rust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
+| **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
+| **macOS 10.15+ (Apple Silicon)** | [`inspector-rust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
 | **macOS Intel** | — | Build from source: [`macos/README.md`](./macos/README.md) |
 | **Linux** | — | Planned for a later release |
 
 > **macOS Gatekeeper note.** Local-build releases are **not Apple-signed**. On first launch macOS will refuse to open the app — right-click → **Open** → confirm, or **System Settings → Privacy & Security → "Open Anyway"**. Then grant **two** TCC permissions:
 > - **Accessibility** — required for paste (`enigo` synthesizes Cmd+V) and the system-wide text expander (Cmd+Shift+← / Cmd+C / Cmd+V cycle).
-> - **Screen Recording** — required for the OCR shortcut (`screencapture -i` is attributed to ClipSnap and macOS denies it without this grant). The Settings tab surfaces both with collapsible amber banners and one-click jumps to the right Privacy pane.
+> - **Screen Recording** — required for the OCR shortcut (`screencapture -i` is attributed to Inspector Rust and macOS denies it without this grant). The Settings tab surfaces both with collapsible amber banners and one-click jumps to the right Privacy pane.
 >
 > Full setup in [`macos/README.md`](./macos/README.md).
 
@@ -180,9 +180,9 @@ All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`)
 
 ## Workflow
 
-ClipSnap is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
+Inspector Rust is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
 
-A second global shortcut, **`Ctrl+Shift+O`** (literal Control on every OS — same key on Windows and macOS), fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; ClipSnap's window doesn't need to be open or focused.
+A second global shortcut, **`Ctrl+Shift+O`** (literal Control on every OS — same key on Windows and macOS), fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; Inspector Rust's window doesn't need to be open or focused.
 
 Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
@@ -193,16 +193,16 @@ Everything else (snippets management, notes, settings, image tools) lives in the
 - **Captures** text, RTF, HTML, images (PNG, ≤ 5 MB), and file lists via OS-native clipboard events (no polling). Image-before-files priority on macOS so Finder image-copies land as bitmaps, not paths.
 - **Fuzzy search** (`fuse.js`, threshold 0.4) ranks matches as you type. Virtualized list, per-content-type preview pane.
 - **Auto-paste** — Enter pastes via `enigo`-simulated `Ctrl+V` / `Cmd+V` into the previously focused app. Shift+Enter overrides the plain-text setting and pastes with original formatting.
-- **SQLite store** at `%APPDATA%\ClipSnap\history.db` / `~/Library/Application Support/ClipSnap/history.db`. SHA-256 deduped, 1 000-entry cap.
+- **SQLite store** at `%APPDATA%\InspectorRust\history.db` / `~/Library/Application Support/InspectorRust/history.db`. SHA-256 deduped, 1 000-entry cap.
 - **AES-256-GCM at rest** since v0.6.0 — text/HTML/RTF/image bodies, snippet bodies, note bodies. Key in OS keychain (Keychain / Credential Manager / Secret Service), 0600 keyfile fallback. Full reference: [`docs/encryption.md`](./docs/encryption.md).
 - **Time chip** (v0.10.3) — the relative-time hint on each row (`just now`, `1h ago`) becomes a tiny clickable button: hover shows both `Captured` and `Last used` absolute timestamps in a tooltip; click toggles the chip itself between relative and absolute display.
 
 ### Text expander (snippets, v0.2 — system-wide v0.2.7, hotkey overhaul v0.12.0, direct slots v0.13.0)
 - **In-popup expansion** — type an abbreviation in the search bar; matching snippets surface above clipboard entries; Enter pastes the body.
-- **Abbreviation expander** — type the abbreviation in *any* text field, press the configured hotkey (default `Alt+1`, opt-in via Settings; one-click presets `Alt+1` / `Alt+2` / `Alt+3`, or record any combination), ClipSnap replaces it in place. Three paths: AX/UIA in-place replace (native apps — no clipboard touch, no flicker, verified by re-reading the value); AX-select-then-paste-over-selection for Electron / Chromium / Mac-Catalyst apps that expose `AXValue` read-only (WhatsApp, Slack, Discord, VS Code — v0.12.0); and a clipboard+keystroke fallback for everything else. Diagnose button in Settings reports which path was used.
+- **Abbreviation expander** — type the abbreviation in *any* text field, press the configured hotkey (default `Alt+1`, opt-in via Settings; one-click presets `Alt+1` / `Alt+2` / `Alt+3`, or record any combination), Inspector Rust replaces it in place. Three paths: AX/UIA in-place replace (native apps — no clipboard touch, no flicker, verified by re-reading the value); AX-select-then-paste-over-selection for Electron / Chromium / Mac-Catalyst apps that expose `AXValue` read-only (WhatsApp, Slack, Discord, VS Code — v0.12.0); and a clipboard+keystroke fallback for everything else. Diagnose button in Settings reports which path was used.
   - *Why `Alt+1` and not `Alt+Backquote`?* The old default was unreachable on German ISO MacBooks (the physical `^` key reports as `IntlBackslash`). Digit-row keys are layout-stable everywhere. An un-customised old install is migrated to `Alt+1` once on upgrade (won't clobber a value you deliberately re-pick).
 - **Direct hotkey → snippet slots (v0.13.0)** — bind a hotkey straight to a snippet (Settings → *Direct hotkey → snippet*); pressing it pastes the body at the cursor with **no abbreviation typed**. Reads nothing from the focused field — just writes the body to the clipboard, synthesizes paste, restores the clipboard — so it works in **any** app, **including terminals** (iTerm2, Terminal.app, …) where the abbreviation expander can't see the input line. Collisions with the popup / OCR / abbreviation hotkeys are rejected.
-- **Loud on permission failure (macOS, v0.12.0)** — if Accessibility isn't granted, pressing the hotkey no longer silently no-ops: ClipSnap opens its popup, switches to Settings, and shows an amber banner with `Force re-grant` → `Restart now`. (Same pattern as the OCR / paste banners. Direct slots use the same gate + banner.)
+- **Loud on permission failure (macOS, v0.12.0)** — if Accessibility isn't granted, pressing the hotkey no longer silently no-ops: Inspector Rust opens its popup, switches to Settings, and shows an amber banner with `Force re-grant` → `Restart now`. (Same pattern as the OCR / paste banners. Direct slots use the same gate + banner.)
 - **Snippets tab** for create/edit/delete with a two-column form. **JSON import** via Snippets → Import (`docs/snippets-import.md`, themed samples in `docs/examples/snippets/`).
 - Caveat: the **abbreviation** expander can't work on a terminal command line (no AX-exposed input line, no GUI "select previous word" on a shell prompt — use a *Direct hotkey → snippet* slot, or the popup, in terminals). Image/file snippets aren't expanded (text only).
 - Full reference: [`docs/text-expander.md`](./docs/text-expander.md).
@@ -224,7 +224,7 @@ Type a math expression in the search field, the result appears as the top list i
 - Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 tests. Reference: [`docs/colors.md`](./docs/colors.md).
 
 ### Screen-region OCR (v0.9.0, macOS)
-Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands at the top of History; the source PNG is kept as a separate image entry just below, so you can re-OCR a different region without rescreenshotting and pressing Enter on the auto-selected top entry pastes the **text**, not the screenshot (ordering fixed in v0.14.2). The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
+Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → Inspector Rust runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands at the top of History; the source PNG is kept as a separate image entry just below, so you can re-OCR a different region without rescreenshotting and pressing Enter on the auto-selected top entry pastes the **text**, not the screenshot (ordering fixed in v0.14.2). The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
 
 - **Region picker** — uses `screencapture -i` (the same binary as Cmd+Shift+4), so the marquee UX is the polished one users already know. Esc cancels cleanly.
 - **Engine** — Vision's `VNRecognizeTextRequest` with accuracy=Accurate + language correction; same engine that powers Apple Live Text. No model bundling, no network.
@@ -237,7 +237,7 @@ On selected image entries, the preview pane exposes three actions:
 
 - **Recolor** (v0.7.0) — for mostly-grayscale PNGs (logos / icons / silhouettes), 9 preset swatches + custom hex tint the image. RGB lerps from target → white by per-pixel luminance, alpha preserved. Saturated photos are auto-hidden from the toolbar (chromaticity gate). Adds the tinted version as a new history entry; original stays.
 - **Cut out background** (v0.10.0) — runs the **U²-Net (U2Netp) ONNX model** (~4.5 MB embedded) over the image to detect the foreground subject; output is a transparent PNG saved to `~/Downloads/<name>-cutout-<ts>.png`. Shortcut `Cmd/Ctrl+B`. Works on real photos (airplane in sky, person against cluttered background, …) — same architecture as Python's `rembg`, just without Python. Inference runs via `ort` (ONNX Runtime, statically linked into the binary).
-- **Save to Downloads** (v0.10.1) — drop the selected image entry to disk as `~/Downloads/clipsnap-image-<ts>.png` unchanged. Shortcut `Cmd/Ctrl+S`. Companion to recolor: select the freshly-tinted history entry, hit `Cmd+S`, your file is in Downloads.
+- **Save to Downloads** (v0.10.1) — drop the selected image entry to disk as `~/Downloads/inspector-rust-image-<ts>.png` unchanged. Shortcut `Cmd/Ctrl+S`. Companion to recolor: select the freshly-tinted history entry, hit `Cmd+S`, your file is in Downloads.
 - **Inputs:** PNG, JPEG, WebP, GIF, BMP — for clipboard image entries *and* single-file Files entries (so a JPG copied from Finder works too). Output is always RGBA PNG.
 - Modules: [`recolor.rs`](./core/rust-lib/src/recolor.rs), [`cutout_ml.rs`](./core/rust-lib/src/cutout_ml.rs). Legacy chroma-key cutout in [`cutout.rs`](./core/rust-lib/src/cutout.rs) is kept as a fast-path option but unused by default. 16 MP cap on inputs. Bundled model: [`core/rust-lib/models/u2netp.onnx`](./core/rust-lib/models/u2netp.onnx) (Apache-2.0).
 
@@ -256,7 +256,7 @@ Settings tab → *Backup & restore* → tick history / snippets / notes individu
 HTML / RTF clipboard entries are stripped to their text preview at paste time, so copy-from-Word / browser / mail no longer leaks styling into other apps. Toggle in Settings → Paste. Shift+Enter in the popup overrides for one paste.
 
 ### Permissions UX (v0.11.0)
-ClipSnap needs **two** independent macOS TCC grants — Accessibility (paste) and Screen Recording (OCR). The Settings tab surfaces each as a collapsible amber banner that:
+Inspector Rust needs **two** independent macOS TCC grants — Accessibility (paste) and Screen Recording (OCR). The Settings tab surfaces each as a collapsible amber banner that:
 
 - Stays loud (border + warning icon + primary `Open System Settings` button) when missing, but collapses to a single row by default so the page isn't cluttered.
 - Pre-checks before invoking the relevant native call. OCR returns a `screen.permission_denied` sentinel rather than failing silently when Screen Recording is denied; a Tauri event opens the popup + flips an in-app toast banner pointing at the right pane.
@@ -270,13 +270,13 @@ ClipSnap needs **two** independent macOS TCC grants — Accessibility (paste) an
 
 ### System tray + multi-monitor
 - **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
-- **Autostart on login** (v0.14.0) — toggle in Settings → Startup, or from the tray menu. macOS writes `~/Library/LaunchAgents/ClipSnap.plist`; Windows uses the run-key registry entry. App launches hidden in the tray so it's ready when the popup hotkey hits.
+- **Autostart on login** (v0.14.0) — toggle in Settings → Startup, or from the tray menu. macOS writes `~/Library/LaunchAgents/InspectorRust.plist`; Windows uses the run-key registry entry. App launches hidden in the tray so it's ready when the popup hotkey hits.
 - **Multi-monitor placement:** popup opens on the monitor with the cursor, horizontally centered, ~⅓ from the top, clamped to the active monitor's bounds (matters on mixed-DPI setups).
 
 ## Repository layout
 
 ```
-clipsnap/
+inspector-rust/
 ├── core/
 │   ├── frontend/            # React 19 + TS + Tailwind v4 (cross-platform)
 │   │   └── src/
@@ -363,11 +363,11 @@ pnpm install          # install the whole workspace (CI uses --frozen-lockfile)
 
 # Windows
 pnpm dev:win          # tauri dev — live-reload
-pnpm build:win        # → target/release/bundle/msi/ClipSnap_x.x.x_x64_en-US.msi
+pnpm build:win        # → target/release/bundle/msi/inspector-rust_x.x.x_x64_en-US.msi
 
 # macOS
 pnpm dev:macos                      # tauri dev — live-reload
-pnpm build:macos                    # → target/release/bundle/{macos/ClipSnap.app, dmg/ClipSnap_x.x.x_<arch>.dmg}
+pnpm build:macos                    # → target/release/bundle/{macos/InspectorRust.app, dmg/inspector-rust_x.x.x_<arch>.dmg}
 bash scripts/install-macos.sh       # build + re-sign + install into /Applications + launch
 bash scripts/install-macos.sh --reset  # …also tccutil-reset stale Accessibility grants (use after first run)
 ```
@@ -378,7 +378,7 @@ bash scripts/install-macos.sh --reset  # …also tccutil-reset stale Accessibili
 
 ### Snippet import
 
-In ClipSnap: open the popup (`Ctrl+Shift+V`) → **Snippets** tab → **Import** → pick a `.json` file. The native file picker opens (NSOpenPanel on macOS, OpenFileDialog on Windows); existing abbreviations are upserted in place so re-importing the same file is idempotent.
+In Inspector Rust: open the popup (`Ctrl+Shift+V`) → **Snippets** tab → **Import** → pick a `.json` file. The native file picker opens (NSOpenPanel on macOS, OpenFileDialog on Windows); existing abbreviations are upserted in place so re-importing the same file is idempotent.
 
 **Ready-to-import samples** in [`docs/examples/snippets/`](./docs/examples/snippets/):
 
@@ -397,7 +397,7 @@ See [`docs/snippets-import.md`](./docs/snippets-import.md) for the full schema, 
 Notes have their own tab; the categories sidebar has **+ New Note** and **Clear All**. Backup lives in the **Settings** tab now.
 
 - **Save a clipboard entry as a note:** hover any History row → click the bookmark icon → the entry lands in the `Uncategorized` bucket of the Notes tab. Move it to a category by editing the note.
-- **Export full backup:** Settings tab → **Backup & restore** → tick what to export (Clipboard history / Snippets / Notes — all default on) → **Export…** → choose a path. ClipSnap writes a single JSON file (default name `clipsnap-backup-<timestamp>.json`); unticked sections are written as empty arrays so you can share snippets without leaking your clipboard.
+- **Export full backup:** Settings tab → **Backup & restore** → tick what to export (Clipboard history / Snippets / Notes — all default on) → **Export…** → choose a path. Inspector Rust writes a single JSON file (default name `inspector-rust-backup-<timestamp>.json`); unticked sections are written as empty arrays so you can share snippets without leaking your clipboard.
 - **Import a backup:** Settings tab → **Backup & restore** → **Import…** → pick the JSON file. Snippets and history merge by their natural keys (abbreviation / SHA-256 hash); notes are appended. Notes / Snippets / History tabs auto-refresh.
 
 Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema and merge semantics: [`docs/backup.md`](./docs/backup.md).
@@ -422,12 +422,12 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | Limitation | Detail |
 |------------|--------|
 | **At-rest encryption scope** | Sensitive content (clipboard text/HTML/RTF/images, snippet bodies, note bodies) is AES-256-GCM encrypted at rest with a per-install random 256-bit key (v0.6.0+). Key lives in the OS keychain; falls back to a 0600 keyfile in the data dir if the keychain is unavailable. **Not encrypted:** timestamps, content-type tags, dedup hashes, snippet abbreviations, note titles/categories — none of those reveal clipboard content. Full reference: [`docs/encryption.md`](./docs/encryption.md). |
-| **No sensitive-app detection** | ClipSnap captures everything without filtering. |
+| **No sensitive-app detection** | Inspector Rust captures everything without filtering. |
 | **No cloud sync** | No automatic sync or multi-device support — but the [Backup](./docs/backup.md) export/import gives you a portable JSON file you can move between machines manually. |
-| **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; ClipSnap falls back to pasting the newline-joined list of paths as text. |
+| **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; Inspector Rust falls back to pasting the newline-joined list of paths as text. |
 | **Expander in terminals: use a direct slot** | The *abbreviation* expander does nothing on a terminal command line (Terminal.app, iTerm2, kitty, …) — terminals don't expose the input line via accessibility and a shell prompt has no GUI "select previous word". Use a **Direct hotkey → snippet** slot there (v0.13.0 — pastes without reading anything, works everywhere) or the popup (`Ctrl+Shift+V` → search → Enter). Electron / Chromium / Mac-Catalyst apps (WhatsApp, Slack, VS Code, …) *are* supported by the abbreviation expander as of v0.12.0, via an AX-select-then-paste path. |
-| **macOS Accessibility** | Paste simulation (`enigo`) and the system-wide text expander require Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If missing, ClipSnap shows an amber banner with an `Open Settings` button on the next paste attempt — and, since v0.12.0, also when the expander hotkey is pressed — instead of silently failing or re-firing the system dialog (v0.5.1 / v0.12.0). |
-| **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to ClipSnap and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
+| **macOS Accessibility** | Paste simulation (`enigo`) and the system-wide text expander require Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If missing, Inspector Rust shows an amber banner with an `Open Settings` button on the next paste attempt — and, since v0.12.0, also when the expander hotkey is pressed — instead of silently failing or re-firing the system dialog (v0.5.1 / v0.12.0). |
+| **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to Inspector Rust and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
 | **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
 | **OCR is macOS-only for now** | Region capture and Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows path will use `Windows.Media.Ocr` in a follow-up release. |
@@ -438,7 +438,7 @@ Contributions welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev
 
 ## Releasing
 
-Push a `v*` tag to trigger the [release workflow](https://github.com/pepperonas/clipsnap/actions/workflows/release.yml), which builds the Windows and macOS bundles and attaches them to a GitHub Release. Full procedure (version bumps, pre-flight checks, troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
+Push a `v*` tag to trigger the [release workflow](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml), which builds the Windows and macOS bundles and attaches them to a GitHub Release. Full procedure (version bumps, pre-flight checks, troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
 
 ## Changelog
 

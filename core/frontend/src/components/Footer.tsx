@@ -30,7 +30,7 @@ export function Footer({ index, total, version }: Props) {
           made with <span className="text-red-400">♥</span> by Martin Pfeffer
         </span>
         {version && (
-          <span title="ClipSnap version" className="font-[var(--font-mono)]">
+          <span title="Inspector Rust version" className="font-[var(--font-mono)]">
             v{version}
           </span>
         )}

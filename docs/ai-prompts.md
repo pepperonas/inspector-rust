@@ -1,6 +1,6 @@
 # Bundled AI prompt snippets
 
-ClipSnap ships with **25 curated AI-prompt snippets** that get seeded into your snippet table on first launch. Type the abbreviation in the search field (or use the text expander), press Enter, and the structured instruction lands in your destination app.
+Inspector Rust ships with **25 curated AI-prompt snippets** that get seeded into your snippet table on first launch. Type the abbreviation in the search field (or use the text expander), press Enter, and the structured instruction lands in your destination app.
 
 Introduced in **v0.5.0**. Reworked in **v0.12.0** to drop the `[REQUIREMENT]` / `[CODE]` / `[CHANGE]` … fill-in placeholders — see [How they're meant to be used](#how-theyre-meant-to-be-used).
 

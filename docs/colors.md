@@ -4,7 +4,7 @@ Three small but useful tools that landed in **v0.4.0** (preview, picker), evolve
 
 ## Inline hex preview
 
-Type a hex color in the search input and ClipSnap surfaces a color row at the top of the list — same pattern as the inline calculator.
+Type a hex color in the search input and Inspector Rust surfaces a color row at the top of the list — same pattern as the inline calculator.
 
 | You type            | Result                                              |
 |---------------------|-----------------------------------------------------|
@@ -17,7 +17,7 @@ Type a hex color in the search input and ClipSnap surfaces a color row at the to
 | `f00d` *(no hash)*  | **Rejected**                                        |
 | `#xyzabc`           | Rejected (non-hex chars)                            |
 
-**Activation.** Press <kbd>Enter</kbd> on a color row → ClipSnap pastes the **canonical** `#RRGGBB` (or `#RRGGBBAA` if alpha < 1), uppercase, into the previously focused app.
+**Activation.** Press <kbd>Enter</kbd> on a color row → Inspector Rust pastes the **canonical** `#RRGGBB` (or `#RRGGBBAA` if alpha < 1), uppercase, into the previously focused app.
 
 **Preview pane** for a selected color row:
 
@@ -69,7 +69,7 @@ HSV (hue, saturation, value) is the source of truth — it maps cleanly to a 2D 
 
 ## System-wide screen eyedropper (v0.5.2)
 
-The modal's header has a **Pick from screen** button (pipette icon) that lets you sample a color from **anywhere on the desktop**, not just inside ClipSnap's own UI.
+The modal's header has a **Pick from screen** button (pipette icon) that lets you sample a color from **anywhere on the desktop**, not just inside Inspector Rust's own UI.
 
 ### Behaviour
 

@@ -126,7 +126,7 @@ impl FieldAccess for UiaFieldAccess {
 
     /// Windows replace: Backspace × char_count(word) + type the body via
     /// `SendInput`. The caller hides the popup beforehand so the keystrokes
-    /// land in the previously focused app, not in ClipSnap.
+    /// land in the previously focused app, not in Inspector Rust.
     ///
     /// Returns `Unsupported` only when the focused element exposes no UIA
     /// TextPattern at all (caller does the keystroke-select fallback);

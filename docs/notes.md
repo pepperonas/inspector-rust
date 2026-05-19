@@ -1,6 +1,6 @@
 # Notes
 
-ClipSnap **notes** are persistent, categorized clipboard items. They live in their own SQLite table and are *not* affected by the 1 000-entry pruning of the clipboard history — so they're the right place for things you want to keep around indefinitely (server addresses, license keys, frequently-used screenshots, that one perfect curl command, …).
+Inspector Rust **notes** are persistent, categorized clipboard items. They live in their own SQLite table and are *not* affected by the 1 000-entry pruning of the clipboard history — so they're the right place for things you want to keep around indefinitely (server addresses, license keys, frequently-used screenshots, that one perfect curl command, …).
 
 Notes were introduced in **v0.2.6**.
 
@@ -51,7 +51,7 @@ To **rename** a category in bulk: there is no UI shortcut yet — open each note
 
 ## Edit semantics per content type
 
-When you save a clip as a note, ClipSnap copies its `content_type` verbatim. The detail pane behaves differently depending on that type:
+When you save a clip as a note, Inspector Rust copies its `content_type` verbatim. The detail pane behaves differently depending on that type:
 
 | Content type | Body editor                            | Paste behaviour                                |
 |--------------|----------------------------------------|------------------------------------------------|
@@ -110,8 +110,8 @@ CREATE INDEX idx_notes_updated  ON notes(updated_at DESC);
 `byte_size` is for display only (`formatBytes` in the detail header).
 
 Database file location:
-- **Windows:** `%APPDATA%\ClipSnap\history.db`
-- **macOS:** `~/Library/Application Support/ClipSnap/history.db`
+- **Windows:** `%APPDATA%\InspectorRust\history.db`
+- **macOS:** `~/Library/Application Support/InspectorRust/history.db`
 
 ## IPC surface (for integrators)
 
@@ -155,7 +155,7 @@ The Rust backend emits one note-related event:
 
 ## Testing
 
-The notes module has 10 unit tests (`cargo test -p clipsnap-core notes`):
+The notes module has 10 unit tests (`cargo test -p inspector-rust-core notes`):
 
 | Test                                              | Asserts                                                            |
 |---------------------------------------------------|--------------------------------------------------------------------|

@@ -40,7 +40,7 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            target/release/clipsnap.exe
+            target/release/inspector-rust.exe
             target/release/bundle/msi/*.msi
 
   build-macos:

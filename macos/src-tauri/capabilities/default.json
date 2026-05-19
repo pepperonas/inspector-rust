@@ -1,6 +1,6 @@
 {
   "identifier": "default",
-  "description": "Capability for the ClipSnap popup window",
+  "description": "Capability for the Inspector Rust popup window",
   "windows": ["popup"],
   "permissions": [
     "core:default",

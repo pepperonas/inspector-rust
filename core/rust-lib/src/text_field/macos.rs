@@ -6,7 +6,7 @@
 //!
 //! Permission requirement: the same `AXIsProcessTrusted()` permission
 //! we already require for keystroke synthesis. Granting "Accessibility"
-//! to ClipSnap in System Settings unlocks both paths.
+//! to Inspector Rust in System Settings unlocks both paths.
 
 use anyhow::{anyhow, Result};
 use std::ffi::{c_void, CString};

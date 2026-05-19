@@ -1,8 +1,41 @@
 # Changelog
 
-All notable changes to ClipSnap are documented here.
+All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [0.16.0] — 2026-05-19
+
+### Changed — full rebrand: ClipSnap → Inspector Rust
+
+This is a hard rebrand. Every user-visible "ClipSnap" string is now "Inspector Rust"; every technical identifier (Cargo package names, npm package names, bundle ID, app bundle, install paths) flipped to `inspector-rust` / `InspectorRust`. GitHub repo renamed from `pepperonas/clipsnap` to `pepperonas/inspector-rust`. **This is a breaking change at the install level** — see migration notes below.
+
+- **Display name** (window title, tray tooltip, About modal, README, all docs): `ClipSnap` → `Inspector Rust` (two words, capitalised).
+- **Bundle identifier**: `io.celox.clipsnap` → `io.celox.inspector-rust`. Triggers fresh macOS TCC grants on first launch (Accessibility, Screen Recording, PostEvent — all bound to bundle id + cdhash).
+- **macOS app bundle**: `/Applications/ClipSnap.app` → `/Applications/InspectorRust.app`. **The old .app stays on disk** — uninstall it manually if you want a clean Spotlight / Launchpad. The new bundle name is CamelCase (no space) so terminal paths stay quote-free; the window title and tray label still render the spaced "Inspector Rust".
+- **macOS LaunchAgent**: `~/Library/LaunchAgents/ClipSnap.plist` → `~/Library/LaunchAgents/InspectorRust.plist`. Old plist left in place — delete it manually or toggle autostart off in Inspector Rust before quitting the old build.
+- **Data directory**: `~/Library/Application Support/ClipSnap/` → `.../InspectorRust/` (macOS); `%APPDATA%\ClipSnap\` → `%APPDATA%\InspectorRust\` (Windows). **Fresh start by design** — no auto-migration. To carry over snippets / notes / history, open the *old* ClipSnap one last time, Settings → Backup → Export, then import the JSON into Inspector Rust.
+- **Keychain entry**: service `io.celox.clipsnap` → `io.celox.inspector-rust`. The old AES-256-GCM master key stays in Keychain (the migration plan above re-encrypts with the new key on import, so no plaintext leak).
+- **Cargo packages**: `clipsnap-core` → `inspector-rust-core`, `clipsnap-win` → `inspector-rust-win`, `clipsnap-macos` → `inspector-rust-macos`. Lib code identifier `clipsnap_core` → `inspector_rust_core` (Rust auto-converts the hyphen).
+- **Binary name**: `clipsnap` → `inspector-rust` (`win/src-tauri/Cargo.toml`'s `[[bin]] name`).
+- **npm packages**: `clipsnap` → `inspector-rust`, `clipsnap-frontend` → `inspector-rust-frontend`, `clipsnap-{win,macos}` → `inspector-rust-{win,macos}`. The `pnpm dev:macos` / `pnpm build:win` aliases at the workspace root still work — they were already platform-named, not brand-named.
+- **Release-artifact filenames**: `ClipSnap_<ver>_x64_en-US.msi` → `inspector-rust_<ver>_x64_en-US.msi`; `ClipSnap_<ver>_aarch64.dmg` → `inspector-rust_<ver>_aarch64.dmg`; the `clipsnap.exe` Windows standalone → `inspector-rust.exe`.
+- **Output file prefixes**: `~/Downloads/clipsnap-image-<ts>.png` / `clipsnap-cutout-<ts>.png` → `inspector-rust-image-<ts>.png` / `inspector-rust-cutout-<ts>.png` (cutout-ML feature).
+- **GitHub remote**: `https://github.com/pepperonas/clipsnap` → `https://github.com/pepperonas/inspector-rust`. GitHub auto-redirects the old URL for clones / git fetches, but please update your remotes (`git remote set-url origin https://github.com/pepperonas/inspector-rust.git`).
+- **Win32 window class** (eyedropper overlay): `ClipSnapEyeDropper` → `InspectorRustEyeDropper`.
+
+### Why 0.16.0
+
+The rebrand changes the bundle identifier, the app bundle name, the data directory, and the binary name — anyone with the v0.15.x build installed will end up with both apps on disk after the upgrade. That's the upper bound of "breaking change" for a desktop app — `0.x.0` per `docs/RELEASING.md`'s SemVer policy.
+
+### Migration notes
+
+| You had                                           | After upgrade                                       | What to do                                              |
+|---------------------------------------------------|-----------------------------------------------------|----------------------------------------------------------|
+| `/Applications/ClipSnap.app`                      | `/Applications/InspectorRust.app` (new) + old one  | Manually drag the old `ClipSnap.app` to Trash            |
+| TCC grants for `io.celox.clipsnap`                | Stale entries in System Settings → Privacy & Security | Manually remove them (or `tccutil reset ...`)             |
+| Autostart entry (`~/Library/LaunchAgents/ClipSnap.plist`) | Old plist still firing on next reboot              | Delete it manually, or toggle autostart off in *old* ClipSnap, *then* delete the old app |
+| Encrypted history at `~/Library/Application Support/ClipSnap/history.db` | Untouched on disk; unreachable from Inspector Rust | Open old ClipSnap → Backup → Export → import into Inspector Rust |
 
 ## [0.15.0] — 2026-05-19
 
@@ -42,7 +75,7 @@ Pure ordering fix in `commands::run_ocr_pipeline`. No API surface change, no ver
 - **Hotkey registration** (`core/rust-lib/src/hotkey.rs`): both `register` and `register_direct_slots` now build the OCR `Shortcut` with `Modifiers::CONTROL | Modifiers::SHIFT` unconditionally — the `#[cfg(target_os = "macos")]` SUPER branch is gone. Direct-slot collision detection also tracks the new combo, so a slot can't shadow OCR.
 - **Frontend display** (`core/frontend/src/components/Footer.tsx` + `SettingsPanel.tsx`): footer hint, Screen Recording explanation, direct-slot help text, and the Keyboard-shortcuts cheat sheet now render `⌃⇧O` on macOS (instead of `⌘⇧O`).
 - **Docs** updated across `README.md`, `CLAUDE.md`, `macos/README.md`, and `docs/text-expander.md`. The Windows `Ctrl+Shift+O` references stayed correct.
-- **Existing user impact** — pure muscle-memory change; the previous binding (`⌘⇧O` on mac) simply stops working after upgrade. Users who'd granted Screen Recording to ClipSnap don't need to re-grant.
+- **Existing user impact** — pure muscle-memory change; the previous binding (`⌘⇧O` on mac) simply stops working after upgrade. Users who'd granted Screen Recording to Inspector Rust don't need to re-grant.
 
 ### Why 0.14.1
 
@@ -52,7 +85,7 @@ A targeted hotkey fix with no public-surface additions — pure patch.
 
 ### Added — autostart UI: state-visible tray + Settings toggle
 
-- **Tray menu's "Start at Login" / "Start with Windows" item is now a checkable menu item** that visibly reflects the current state (`☑` / ` `) and probes `~/Library/LaunchAgents/ClipSnap.plist` (macOS) / the run-key (Windows) on every tray build, so the checkmark stays right even if the autostart was enabled/disabled outside the app. Toggling updates the check in place and emits the new `autostart-changed` event so other UI surfaces stay in sync. — *#feat(tray)*
+- **Tray menu's "Start at Login" / "Start with Windows" item is now a checkable menu item** that visibly reflects the current state (`☑` / ` `) and probes `~/Library/LaunchAgents/InspectorRust.plist` (macOS) / the run-key (Windows) on every tray build, so the checkmark stays right even if the autostart was enabled/disabled outside the app. Toggling updates the check in place and emits the new `autostart-changed` event so other UI surfaces stay in sync. — *#feat(tray)*
 - **New "Startup" section in Settings** with a clearly-labelled "Start at login" (macOS) / "Start with Windows" toggle that explains where the entry lives — much more discoverable than the tray menu for users who don't routinely browse it. Listens for `autostart-changed` so toggling from the tray reflects immediately. — *#feat(ui)*
 - **Two new IPC commands** `get_autostart_enabled` / `set_autostart_enabled` wrapping `tauri-plugin-autostart`'s `AutoLaunchManager`. Both read back the *now-effective* state from the OS rather than echoing the requested value, so the UI reconciles against actual filesystem / registry state if a toggle partially fails.
 - The `tauri-plugin-autostart` default of `MacosLauncher::LaunchAgent` was already correct — no plugin-config change. Removed two dead-code lines (`let _ = autostart;` in setup; `let _ = MacosLauncher::LaunchAgent;` at the end of `build_tray`).
@@ -101,9 +134,9 @@ Changes the default hotkey (a user-visible behaviour change with a settings migr
 ### Fixed — OCR no longer fails silently when Screen Recording is denied
 
 - **Root cause.** macOS treats Accessibility and Screen Recording as **independent** TCC grants. Before this release, OCR pre-checks only knew about Accessibility — when the user had granted Accessibility (so paste worked) but never Screen Recording, pressing `⌘⇧O` would call `screencapture -i`, macOS would deny the spawn, the process would exit cleanly with an empty file, and the user saw … nothing. No marquee, no error, no clue. — *#fix(macos)*
-- **New permission API** in [`core/rust-lib/src/screen_recording.rs`](./core/rust-lib/src/screen_recording.rs): `screen_recording_granted()` (`CGPreflightScreenCaptureAccess`), `request_screen_recording_grant()` (fires the macOS prompt), `open_screen_recording_settings()` (jumps straight to the right Privacy pane). Wired through four IPC commands plus a `tccutil reset ScreenCapture io.celox.clipsnap` recovery path for stale grants.
+- **New permission API** in [`core/rust-lib/src/screen_recording.rs`](./core/rust-lib/src/screen_recording.rs): `screen_recording_granted()` (`CGPreflightScreenCaptureAccess`), `request_screen_recording_grant()` (fires the macOS prompt), `open_screen_recording_settings()` (jumps straight to the right Privacy pane). Wired through four IPC commands plus a `tccutil reset ScreenCapture io.celox.inspector-rust` recovery path for stale grants.
 - **`run_ocr_pipeline` pre-checks the grant** and returns the new `screen.permission_denied` sentinel when missing — same pattern as the existing `ax.permission_denied` for paste.
-- **Hotkey handler surfaces the failure**: when `⌘⇧O` returns the sentinel, ClipSnap now opens its popup and emits `ocr-permission-needed` so the frontend switches to the Settings tab and shows a clear amber banner pointing at the right System Settings pane. No more silent fail.
+- **Hotkey handler surfaces the failure**: when `⌘⇧O` returns the sentinel, Inspector Rust now opens its popup and emits `ocr-permission-needed` so the frontend switches to the Settings tab and shows a clear amber banner pointing at the right System Settings pane. No more silent fail.
 - **Settings panel** gets a second collapsible permission banner (parallel to the Accessibility one): one-line warning with `Open System Settings` button + chevron toggle for the full walkthrough (Quit · Force re-grant · Try system prompt · Re-check). Polls every second while not granted, like Accessibility, so the badge flips green within ~1 s of toggling in System Settings.
 - **App-level toast banner** for the OCR-permission-needed event in `App.tsx`, mirroring the existing paste-failed banner. Auto-dismisses after 15 s (longer than the 8 s paste banner — the user needs more time to read + click into System Settings).
 
@@ -123,7 +156,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 
 ### Changed — Accessibility banner is now collapsible
 
-- **The Settings tab's Accessibility-required banner collapses to a single warning row by default.** When the macOS Accessibility permission is missing, the user sees a sticky amber-bordered bar with `⚠ Accessibility access required (macOS)` + the primary `Open System Settings` button + a chevron toggle. The full step-by-step walkthrough, the cdhash explanation, and the secondary buttons (Quit ClipSnap / Force re-grant / Try system prompt / Re-check) only appear when the chevron is expanded. — *#chore(ui)*
+- **The Settings tab's Accessibility-required banner collapses to a single warning row by default.** When the macOS Accessibility permission is missing, the user sees a sticky amber-bordered bar with `⚠ Accessibility access required (macOS)` + the primary `Open System Settings` button + a chevron toggle. The full step-by-step walkthrough, the cdhash explanation, and the secondary buttons (Quit Inspector Rust / Force re-grant / Try system prompt / Re-check) only appear when the chevron is expanded. — *#chore(ui)*
 - **Granted state is fully hidden** — when Accessibility is OK, no banner renders at all (previously the whole block was always present, which made the settings page feel cluttered for users who'd already granted). The `Restart now` prompt for the just-granted edge case still surfaces inside the Text-expander section as before.
 - The collapsed bar stays prominent (amber border + warning icon + primary action button visible at all times), so the problem state is impossible to miss while occupying just one row of vertical real estate. — *#fix(ui)*
 
@@ -171,7 +204,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 
 ### Added — Save image entry to Downloads
 
-- **New "Save to Downloads" button + `Cmd/Ctrl+S` shortcut** below the cutout button on every image entry. Writes the selected entry's PNG bytes unchanged to `~/Downloads/clipsnap-image-<ts>.png`. Companion to recolor — clicking a recolor swatch creates a new history entry with the tinted image; this lets the user grab that entry as a real file on disk without going through cutout (which would transform it). Same UX shape as the cutout button (busy state, saved-filename feedback, error toast). — *#feat(image)*
+- **New "Save to Downloads" button + `Cmd/Ctrl+S` shortcut** below the cutout button on every image entry. Writes the selected entry's PNG bytes unchanged to `~/Downloads/inspector-rust-image-<ts>.png`. Companion to recolor — clicking a recolor swatch creates a new history entry with the tinted image; this lets the user grab that entry as a real file on disk without going through cutout (which would transform it). Same UX shape as the cutout button (busy state, saved-filename feedback, error toast). — *#feat(image)*
   - **IPC:** `save_image_entry_to_downloads(id) → path`. UI in `SaveImageButton` inside [`PreviewPanel.tsx`](./core/frontend/src/components/PreviewPanel.tsx).
   - Workflow: select image → recolor swatch → ↑ to the new tinted entry → `Cmd+S` → done.
 
@@ -191,7 +224,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 
 ### Added — Screen-region OCR (macOS)
 
-- **`Cmd+Shift+O` triggers an interactive screen-region picker.** Drag a marquee over any text on screen, ClipSnap runs Apple Vision OCR on the selection, writes the recognized text to the system clipboard, and pushes it into history. The source PNG is kept as a separate image entry so the user can re-OCR a different region without rescreenshotting. Tray menu also exposes an **OCR Region (⌘⇧O)** entry for discoverability. — *#feat(ocr)*
+- **`Cmd+Shift+O` triggers an interactive screen-region picker.** Drag a marquee over any text on screen, Inspector Rust runs Apple Vision OCR on the selection, writes the recognized text to the system clipboard, and pushes it into history. The source PNG is kept as a separate image entry so the user can re-OCR a different region without rescreenshotting. Tray menu also exposes an **OCR Region (⌘⇧O)** entry for discoverability. — *#feat(ocr)*
   - **Region picker** ([`region_picker.rs`](./core/rust-lib/src/region_picker.rs)) shells out to `/usr/sbin/screencapture -i -x -t png`, the same binary backing Cmd+Shift+4 — battle-tested marquee UX (Esc cancels, Space drags the rect, etc.) without reinventing an `objc2` overlay window. Captured PNG read from a temp file then deleted.
   - **OCR engine** ([`ocr.rs`](./core/rust-lib/src/ocr.rs)) uses Vision's `VNRecognizeTextRequest` (accuracy=Accurate, `usesLanguageCorrection=true`) via raw `objc2` `msg_send`. Joins one `\n` between observations (Vision returns one observation per visual line). Empty results are surfaced as `OcrResult { chars: 0 }` rather than an error so the UI can differentiate "engine ran but found nothing" from "engine failed".
   - **Build** — new `core/rust-lib/build.rs` emits `cargo:rustc-link-lib=framework=Vision` on macOS so the framework is linked. No new crate dependencies.
@@ -203,7 +236,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 
 ### Added — Image cutout / Freistellen
 
-- **Background-removal action** in the image preview pane. Selecting an image entry shows a "Cut out background" button (plus `Cmd/Ctrl+B` shortcut); clicking it chroma-keys the image and saves the transparent PNG to `~/Downloads/clipsnap-cutout-<timestamp>.png`. — *#feat(image)*
+- **Background-removal action** in the image preview pane. Selecting an image entry shows a "Cut out background" button (plus `Cmd/Ctrl+B` shortcut); clicking it chroma-keys the image and saves the transparent PNG to `~/Downloads/inspector-rust-cutout-<timestamp>.png`. — *#feat(image)*
   - **Algorithm.** Sample the four corners of the image (8×8 patches per corner, median per channel — robust to subject pixels bleeding into the corner regions), treat that as the background colour, and replace each pixel with `alpha = 0` if its colour is within 30 RGB units of the background, `alpha = original` if beyond 50 units, with linear feathering in the band between (smooth cutout edge).
   - **Sweet spot.** Subjects on uniform backgrounds — sky, studio backdrops, solid logo fields. Cluttered / busy backgrounds hit the limit of chroma-keying; pro-grade results would need ML (rembg / U2Net), which is out of scope for a clipboard utility.
   - **Bounds & safety.** Hard cap at 16 megapixels. Output goes to `~/Downloads` (or `$HOME` if that doesn't resolve); the source history entry is left untouched.
@@ -218,7 +251,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 ### Changed — Documentation
 
 - **README rewrite.** Subtitle now reads "The keyboard-first clipboard toolkit for power users — Windows 11 & macOS"; new **Workflow** section frames the `Ctrl+Shift+V → type → Enter` loop; **Features** section reorganised by theme (Clipboard core / Text expander / AI prompts / Calculator / Color tools / Image tools / Notes / Backup / Plain-text paste / Tray + multi-monitor) with each block tightened to a scannable header + 3–6 bullets. Encryption (v0.6.0) promoted from "Limitations" into the Clipboard core feature list where it belongs.
-- **Tauri bundle metadata** (`copyright`, `shortDescription`, `longDescription`) updated to drop the `celox.io` chatter and reflect the broader feature set / power-user audience. Bundle id stays `io.celox.clipsnap` — that's a stable technical identifier the keychain & TCC depend on.
+- **Tauri bundle metadata** (`copyright`, `shortDescription`, `longDescription`) updated to drop the `celox.io` chatter and reflect the broader feature set / power-user audience. Bundle id stays `io.celox.inspector-rust` — that's a stable technical identifier the keychain & TCC depend on.
 - **Snippet example signatures** anonymised to use `Your Name` / `https://example.com` placeholders so they're useful as templates for any user.
 
 ## [0.7.0] — 2026-05-08
@@ -235,7 +268,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 
 ### Fixed — Clipboard capture priority
 
-- **Image-before-files in the watcher.** macOS puts both the bitmap *and* the file path on the pasteboard when you copy an image file (PNG / JPG / HEIC) from Finder or use "Share → Copy Image" in many apps. The previous priority order (`files → image → …`) meant ClipSnap stored only the path — users would see `/Users/.../foo.png` in history instead of the actual picture. Order is now `image → files → html → rtf → text`; pure file copies (PDFs, ZIPs, …) still capture as Files exactly as before. — *#fix(watcher)*
+- **Image-before-files in the watcher.** macOS puts both the bitmap *and* the file path on the pasteboard when you copy an image file (PNG / JPG / HEIC) from Finder or use "Share → Copy Image" in many apps. The previous priority order (`files → image → …`) meant Inspector Rust stored only the path — users would see `/Users/.../foo.png` in history instead of the actual picture. Order is now `image → files → html → rtf → text`; pure file copies (PDFs, ZIPs, …) still capture as Files exactly as before. — *#fix(watcher)*
 
 ## [0.6.1] — 2026-05-07
 
@@ -252,7 +285,7 @@ The change adds a whole new TCC permission grant the app depends on, plus four n
 - **The SQLite database now encrypts every sensitive content field with AES-256-GCM.** Closes the long-standing "Unencrypted storage" limitation row in the README — passwords, tokens, snippet bodies, and note bodies are no longer readable to anyone who can `cat` the DB file. — *#feat(security)*
   - **Encrypted columns:** `entries.content_text`, `entries.content_data`, `snippets.body`, `notes.content_text`, `notes.content_data`. **Not encrypted:** timestamps, content-type tags, dedup `hash`, snippet abbreviations, note titles/categories — those are metadata that doesn't reveal clipboard content.
   - **Storage format.** Each encrypted value is stored as TEXT prefixed with `v1:` followed by base64 of `12-byte random nonce ‖ ciphertext+tag`. Legacy plaintext rows (no `v1:` prefix) are detected on read and returned as-is, then re-encrypted in place by the migration step at next startup. The migration is idempotent — already-encrypted rows are skipped.
-  - **Key storage.** Per-install random 256-bit key kept in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service) under service `io.celox.clipsnap`, account `history-db-key-v1`. Falls back to a 0600 keyfile (`<data-dir>/.dbkey`) if the keychain is unavailable so the app stays usable instead of crashing. The fallback is strictly weaker — file-system access gets you the key — but matches the previous threat model floor.
+  - **Key storage.** Per-install random 256-bit key kept in the **OS keychain** (macOS Keychain / Windows Credential Manager / Linux Secret Service) under service `io.celox.inspector-rust`, account `history-db-key-v1`. Falls back to a 0600 keyfile (`<data-dir>/.dbkey`) if the keychain is unavailable so the app stays usable instead of crashing. The fallback is strictly weaker — file-system access gets you the key — but matches the previous threat model floor.
   - **Roundtrip-safe across paths.** `save_from_clip` (Notes ← Clipboard) passes the already-encrypted ciphertext straight into the notes row instead of decrypt-then-reencrypt — same key, same scheme, ~free. `append_imported` from a JSON backup re-encrypts on the way in (backups stay plaintext for portability).
   - **Module:** [`core/rust-lib/src/crypto.rs`](./core/rust-lib/src/crypto.rs) (~280 LOC). 6 unit tests cover roundtrip, legacy plaintext passthrough, empty strings, fresh-nonce-per-encrypt, tampered-ciphertext rejection, wrong-key rejection.
   - **Deps added:** `aes-gcm` 0.10, `rand` 0.8, `keyring` 3 (cross-platform OS-keychain crate).
@@ -265,12 +298,12 @@ This is a feature with security implications and a one-time data migration on fi
 
 ### Added — System-wide screen color picker (eyedropper)
 
-- **The Color picker modal now has a "Pick from screen" button** that lets you sample a color from anywhere on the desktop, not just inside ClipSnap's own UI. The picked hex is automatically inserted into the modal — ready to copy as HEX / RGB / HSL. — *#feat(colors)*
+- **The Color picker modal now has a "Pick from screen" button** that lets you sample a color from anywhere on the desktop, not just inside Inspector Rust's own UI. The picked hex is automatically inserted into the modal — ready to copy as HEX / RGB / HSL. — *#feat(colors)*
   - **macOS:** uses Apple's own `NSColorSampler` (AppKit, 10.15+) — the same magnifier-loupe used by Pages, Keynote, and Sketch. Clicking outside the loupe cancels.
   - **Windows:** spawns a fullscreen layered overlay; click anywhere on screen to sample (`GetPixel` on the desktop DC). Press Esc to cancel.
   - **Async architecture.** The `pick_screen_color` IPC returns immediately; the result arrives later via the `color-picked` Tauri event with `string | null` payload. Keeps the UI responsive while the user is targeting their click.
   - New module `core/rust-lib/src/screen_picker.rs` (≈180 lines, fully `#[cfg(target_os = …)]`-gated). Adds `objc2` 0.6 + `block2` 0.6 as macOS-only deps for the Objective-C runtime calls; Windows reuses the existing `windows` 0.61 crate with extra features (`Win32_UI_WindowsAndMessaging`, `Win32_Graphics_Gdi`, `Win32_UI_Input_KeyboardAndMouse`).
-  - **Tahoe quirk worth knowing.** macOS Tahoe's `NSColorSampler` only renders its loupe when the calling app is a *Regular* (Dock-visible) NSApplication. ClipSnap normally runs as `Accessory` (Dock-hidden tray app), so the picker briefly promotes the activation policy to Regular while the loupe is up, then demotes back 500 ms after the popup is restored. The popup itself stays visible during the pick — hiding it kills the loupe rendering ("no key window → no loupe").
+  - **Tahoe quirk worth knowing.** macOS Tahoe's `NSColorSampler` only renders its loupe when the calling app is a *Regular* (Dock-visible) NSApplication. Inspector Rust normally runs as `Accessory` (Dock-hidden tray app), so the picker briefly promotes the activation policy to Regular while the loupe is up, then demotes back 500 ms after the popup is restored. The popup itself stays visible during the pick — hiding it kills the loupe rendering ("no key window → no loupe").
 
 ### Docs
 
@@ -282,7 +315,7 @@ This is a feature with security implications and a one-time data migration on fi
 
 ### Fixed — Accessibility prompt fired on every paste
 
-- **The actual root cause of "permission keeps re-prompting" is finally identified and fixed.** `enigo`'s `Settings::default()` ships with `open_prompt_to_get_permissions = true` on macOS — meaning every `Enigo::new()` call internally invokes `AXIsProcessTrustedWithOptions` *with the prompt option enabled*. So **every paste action on an untrusted process fired the standard "ClipSnap would like to control this computer" dialog as a side effect** — even though we just wanted to silently fall back. — *#fix(macos)*
+- **The actual root cause of "permission keeps re-prompting" is finally identified and fixed.** `enigo`'s `Settings::default()` ships with `open_prompt_to_get_permissions = true` on macOS — meaning every `Enigo::new()` call internally invokes `AXIsProcessTrustedWithOptions` *with the prompt option enabled*. So **every paste action on an untrusted process fired the standard "Inspector Rust would like to control this computer" dialog as a side effect** — even though we just wanted to silently fall back. — *#fix(macos)*
   - **Fix:** new `enigo_settings()` helper in `paste.rs`, `expander.rs`, and `text_field/windows.rs` constructs `Settings { open_prompt_to_get_permissions: false, ..Settings::default() }`. Every `Enigo::new()` now uses it. enigo silently returns `NoPermission` when the process is untrusted; the dialog never fires as a paste-time side effect.
   - **Plus AX guard at the top of every paste IPC.** `paste_entry`, `paste_entry_formatted`, `paste_text`, `paste_snippet`, `paste_note`, `paste_note_formatted` all start with `require_accessibility()?` — short-circuits before even touching enigo and returns the structured `ax.permission_denied` error string to the frontend.
   - **Frontend toast.** `App.tsx` catches paste errors and renders an amber sticky banner: *"Paste failed — macOS Accessibility access not granted. Open the Settings tab and click Force re-grant…"* with an **Open Settings** button. Auto-dismisses after 8 s. The user finally has clear feedback instead of a silent failure or a recurring system dialog.
@@ -322,9 +355,9 @@ The 25-prompt seed is a real new feature surface, AND first-run behavior changes
 
 ### Fixed
 
-- **No more duplicate history entries from plain-text paste.** v0.4.0's plain-text-paste downgrade for HTML / RTF clips was leaking back into the watcher: ClipSnap wrote the plain-text version of an HTML clip to the OS clipboard → the clipboard watcher saw the change → recorded a *new* Text-type entry `just now`, sitting next to the original HTML clip from earlier. Hash-based dedup didn't catch it because `hash(Html, "<p>foo</p>") ≠ hash(Text, "foo")`. — *#fix(watcher)*
+- **No more duplicate history entries from plain-text paste.** v0.4.0's plain-text-paste downgrade for HTML / RTF clips was leaking back into the watcher: Inspector Rust wrote the plain-text version of an HTML clip to the OS clipboard → the clipboard watcher saw the change → recorded a *new* Text-type entry `just now`, sitting next to the original HTML clip from earlier. Hash-based dedup didn't catch it because `hash(Html, "<p>foo</p>") ≠ hash(Text, "foo")`. — *#fix(watcher)*
   - **Fix:** `WatcherState` gets a one-shot `self_written: Mutex<Option<String>>` fuse holding the SHA-256 of the most recent payload we wrote ourselves. The watcher checks this hash before storing and consumes-and-skips any matching event. Every paste IPC (`paste_entry`, `paste_entry_formatted`, `paste_text`, `paste_snippet`, `paste_note`, `paste_note_formatted`) calls `watcher.mark_self_write(content_type, payload)` immediately before triggering the OS clipboard write. Net effect: pasting from history never creates a duplicate entry, regardless of the plain-text setting.
-- **Macros prompt no longer fires as an unwanted side effect.** When `expand_at_cursor` (hotkey trigger) or `diagnose_at_cursor` (Test button) call `AXUIElementCopyAttributeValue` on the system-wide element while ClipSnap is **untrusted** (typical post-rebuild stale-cdhash state), macOS triggers the standard "would like to control this computer" prompt as a side effect — even when we just want to silently fall back to the clipboard path. — *#fix(macos)*
+- **Macros prompt no longer fires as an unwanted side effect.** When `expand_at_cursor` (hotkey trigger) or `diagnose_at_cursor` (Test button) call `AXUIElementCopyAttributeValue` on the system-wide element while Inspector Rust is **untrusted** (typical post-rebuild stale-cdhash state), macOS triggers the standard "would like to control this computer" prompt as a side effect — even when we just want to silently fall back to the clipboard path. — *#fix(macos)*
   - **Fix:** both functions now check `accessibility_granted()` *before* calling any AX function. When `false`, they go straight to the clipboard fallback (or return an empty diagnose result), and the macOS prompt isn't triggered as a no-op cost. The Settings panel's amber banner + **Force re-grant** button remain the right place to surface the underlying permission issue.
 
 ## [0.4.1] — 2026-05-05
@@ -371,8 +404,8 @@ Plain-text-paste-by-default is a **behaviour change**: clipboard entries that *u
 
 ### Fixed
 
-- **macOS Accessibility prompt loop after rebuilds.** Common state after a real source-change install: the toggle in System Settings → Accessibility shows ClipSnap as **enabled**, but ClipSnap still asks for permission on every hotkey press. Cause: the toggle's underlying TCC entry is bound to the *previous* binary's cdhash; the new build has a different cdhash and is treated as a new app. The toggle UI just reports the bundle id, which masked the discrepancy.
-  - **Fix:** new **Force re-grant (clear stale)** button in the amber Accessibility banner. Shells out to `tccutil reset Accessibility io.celox.clipsnap` + `tccutil reset PostEvent io.celox.clipsnap` (no sudo needed for the user's own bundle), then fires `AXIsProcessTrustedWithOptions(prompt: true)` so macOS re-adds ClipSnap to the Accessibility list with the *current* cdhash. Toggling on again creates a TCC entry that matches what the running process actually is. — *#fix(macos)*
+- **macOS Accessibility prompt loop after rebuilds.** Common state after a real source-change install: the toggle in System Settings → Accessibility shows Inspector Rust as **enabled**, but Inspector Rust still asks for permission on every hotkey press. Cause: the toggle's underlying TCC entry is bound to the *previous* binary's cdhash; the new build has a different cdhash and is treated as a new app. The toggle UI just reports the bundle id, which masked the discrepancy.
+  - **Fix:** new **Force re-grant (clear stale)** button in the amber Accessibility banner. Shells out to `tccutil reset Accessibility io.celox.inspector-rust` + `tccutil reset PostEvent io.celox.inspector-rust` (no sudo needed for the user's own bundle), then fires `AXIsProcessTrustedWithOptions(prompt: true)` so macOS re-adds Inspector Rust to the Accessibility list with the *current* cdhash. Toggling on again creates a TCC entry that matches what the running process actually is. — *#fix(macos)*
   - The legacy "Try system prompt" button stays as a secondary option (for the rare cases where the entry is sane and just needs a re-prompt).
 - New IPC command `force_reset_and_request_grant` (macOS-only meaningful behaviour; no-op elsewhere). Backend in [`core/rust-lib/src/expander.rs`](./core/rust-lib/src/expander.rs); wrapper in [`core/frontend/src/lib/ipc.ts`](./core/frontend/src/lib/ipc.ts).
 
@@ -383,7 +416,7 @@ Plain-text-paste-by-default is a **behaviour change**: clipboard entries that *u
 - **The text expander now reads the focused field directly via the OS accessibility layer** instead of synthesising `Cmd/Ctrl+Shift+←` + `Cmd/Ctrl+C` as the *primary* path. macOS uses **`AXUIElement`** (ApplicationServices), Windows uses **`IUIAutomation`** (UIAutomationCore). Same Accessibility permission already required for paste; no new permission added. Native FFI — no objc2/winRT macros needed. — *#feat(expander)*
   - **Why it matters:** the keystroke approach works in 90 % of apps but breaks in terminals (iTerm2, kitty, gnome-terminal — they reinterpret `Cmd/Ctrl+Shift+←` as pane-switch / mark-selection), web apps with custom keyboard handlers (Google Docs, online IDEs), and password fields. The accessibility approach succeeds wherever the focused element exposes its value to assistive tech — which is essentially every text field a screen reader can read.
   - **No more clipboard touch on the happy path.** When AX/UIA succeeds the user's clipboard is left completely untouched and there's no visible selection flicker.
-  - **Clipboard fallback retained.** When the focused element doesn't expose the necessary attributes (rare native Carbon, Java/Swing without AccessBridge), ClipSnap falls back to the previous keystroke + clipboard roundtrip seamlessly.
+  - **Clipboard fallback retained.** When the focused element doesn't expose the necessary attributes (rare native Carbon, Java/Swing without AccessBridge), Inspector Rust falls back to the previous keystroke + clipboard roundtrip seamlessly.
 - **`text_field` module** — new abstraction in [`core/rust-lib/src/text_field/`](./core/rust-lib/src/text_field/):
   - `mod.rs` — `FieldAccess` trait + `CapturePath { Ax, Uia, Clipboard }` enum + UTF-16 ↔ char-index helpers + the platform-agnostic `word_start_before_cursor` algorithm. 7 unit tests covering ASCII, German umlauts, emoji (supplementary plane), cursor past end, whitespace-only.
   - `macos.rs` — raw FFI to `AXUIElementCreateSystemWide` / `AXUIElementCopyAttributeValue` / `AXUIElementSetAttributeValue` for the three attributes that matter: `AXFocusedUIElement`, `AXValue`, `AXSelectedTextRange`. UTF-16 helpers because AX reports cursor positions in UTF-16 code units. 3 unit tests.
@@ -422,7 +455,7 @@ This is a real architecture change for the expander — the keystroke path is no
 
 ### Fixed
 
-- **Crash on hotkey / Test now: `EXC_BREAKPOINT` from `_dispatch_assert_queue_fail`.** The text-expander dispatched `enigo` work onto a worker thread (`std::thread::spawn` in `register_expander`, plus the IPC handler thread for `trigger_expand_at_cursor` / `diagnose_expand_at_cursor`). On macOS, enigo's `Key::Unicode(...)` mapping calls `TSMGetInputSourceProperty` (Text Services Manager) which **asserts main-thread**. Calling it from any other thread fires a libdispatch assertion and aborts the process with SIGTRAP. Confirmed by three crash reports today: `clipsnap-2026-04-26-070927.ips`, `…-070931.ips`, etc — all ended at `enigo::macos_impl::keycode_to_string` from a worker thread.
+- **Crash on hotkey / Test now: `EXC_BREAKPOINT` from `_dispatch_assert_queue_fail`.** The text-expander dispatched `enigo` work onto a worker thread (`std::thread::spawn` in `register_expander`, plus the IPC handler thread for `trigger_expand_at_cursor` / `diagnose_expand_at_cursor`). On macOS, enigo's `Key::Unicode(...)` mapping calls `TSMGetInputSourceProperty` (Text Services Manager) which **asserts main-thread**. Calling it from any other thread fires a libdispatch assertion and aborts the process with SIGTRAP. Confirmed by three crash reports today: `inspector-rust-2026-04-26-070927.ips`, `…-070931.ips`, etc — all ended at `enigo::macos_impl::keycode_to_string` from a worker thread.
   - **Fix:** all three call sites now dispatch the expand cycle to the main thread via `AppHandle::run_on_main_thread`. The hotkey path is fire-and-forget; `diagnose_expand_at_cursor` ferries the result back through an `mpsc::channel`. The popup is hidden during the cycle, so the ~290 ms main-thread block is invisible to the user.
 
 ## [0.2.10] — 2026-04-26
@@ -430,13 +463,13 @@ This is a real architecture change for the expander — the keystroke path is no
 ### Fixed
 
 - **macOS Accessibility re-grant loop is finally broken.** Real root cause this time, not symptoms: macOS Tahoe (26.x) binds the TCC Accessibility grant to the tuple `(bundle id, cdhash)`. `scripts/install-macos.sh` previously ran `codesign --force` on every install — even when the user re-installed an *unchanged* binary — which embedded a fresh CMS timestamp into the signature blob and produced a new cdhash. macOS then dropped the prior grant, prompting again. — *#fix(macos)*
-  - **Idempotent install.** The script now SHA-256 compares the freshly built binary at `target/release/bundle/macos/ClipSnap.app/Contents/MacOS/clipsnap` against the currently installed binary at `/Applications/ClipSnap.app/Contents/MacOS/clipsnap`. If they're identical (and the bundle identifier already matches), the script **skips both `cp` and `codesign`** entirely — your install is preserved verbatim, the cdhash stays stable, and your TCC grant survives. Net effect: rebuilds without source changes never ask you to re-grant.
+  - **Idempotent install.** The script now SHA-256 compares the freshly built binary at `target/release/bundle/macos/InspectorRust.app/Contents/MacOS/inspector-rust` against the currently installed binary at `/Applications/InspectorRust.app/Contents/MacOS/inspector-rust`. If they're identical (and the bundle identifier already matches), the script **skips both `cp` and `codesign`** entirely — your install is preserved verbatim, the cdhash stays stable, and your TCC grant survives. Net effect: rebuilds without source changes never ask you to re-grant.
   - **Cleaner re-sign output.** When source *did* change, the script now prints both old and new SHA-256 prefixes plus the resulting cdhash, with an explicit "TCC grant must be re-given" warning so you know what to expect.
 - **Wrong entitlement removed.** `com.apple.security.automation.apple-events` was misleadingly attached "for enigo to simulate paste" but actually covers AppleScript automation (NSAppleEvent / OSAScript), not `CGEventPost`-style synthetic input. Worse, on macOS Tahoe with Hardened Runtime its presence can trigger an unrelated TCC "Automation" prompt and confuse the permission flow. Removed from `macos/src-tauri/entitlements.plist`. The remaining three entitlements (`allow-jit`, `allow-unsigned-executable-memory`, `disable-library-validation`) correctly cover WebKit / Tauri plugin loading.
 
 ### Added
 
-- **Auto-restart prompt after grant detected.** The Settings panel's polling loop now distinguishes the false→true transition of `accessibility_granted`. When it fires, an inline emerald-bordered prompt appears: **"Access detected — one more step"** with a **Restart now** button. Click → ClipSnap spawns a fresh `/Applications/ClipSnap.app` process via `open -n` and exits cleanly. The new instance picks up the just-granted TCC state correctly (the running process couldn't, because macOS caches `AXIsProcessTrusted()` per-process). Total post-grant flow: ~30 seconds, one click. — *#feat(settings)*
+- **Auto-restart prompt after grant detected.** The Settings panel's polling loop now distinguishes the false→true transition of `accessibility_granted`. When it fires, an inline emerald-bordered prompt appears: **"Access detected — one more step"** with a **Restart now** button. Click → Inspector Rust spawns a fresh `/Applications/InspectorRust.app` process via `open -n` and exits cleanly. The new instance picks up the just-granted TCC state correctly (the running process couldn't, because macOS caches `AXIsProcessTrusted()` per-process). Total post-grant flow: ~30 seconds, one click. — *#feat(settings)*
   - New `relaunch_app` IPC command in `core/rust-lib/src/commands.rs`.
   - `relaunchApp()` wrapper in `core/frontend/src/lib/ipc.ts`.
 - **"Why does this keep happening?" disclosure** in the amber banner of the Settings panel, explaining the cdhash binding in plain language so users understand the constraint instead of feeling gaslit by the OS.
@@ -471,13 +504,13 @@ bash scripts/install-macos.sh
 
 ### Added
 
-- **Accessibility status badge in the Settings panel** — green when ClipSnap has macOS Accessibility access, amber when it doesn't, with an inline explainer of what to do. Polled once per second while not granted, so the badge flips to green within ~1 s of the user toggling ClipSnap on in System Settings — no panel reload needed. — *#feat(settings)*
+- **Accessibility status badge in the Settings panel** — green when Inspector Rust has macOS Accessibility access, amber when it doesn't, with an inline explainer of what to do. Polled once per second while not granted, so the badge flips to green within ~1 s of the user toggling Inspector Rust on in System Settings — no panel reload needed. — *#feat(settings)*
 - **`Test now` button** in the Settings panel — runs the full expand-at-cursor cycle without using the hotkey after a 2-second grace period (long enough to switch back to the source app and place the cursor after an abbreviation). Lets you tell whether the *hotkey* is the problem or the *expansion logic* is. Wired through the existing `trigger_expand_at_cursor` IPC.
 - **`get_accessibility_status` Tauri command** + `ExpanderConfig.accessibility_granted` field — backed by macOS `AXIsProcessTrusted()` via FFI to `ApplicationServices.framework`. Returns `true` unconditionally on Windows / Linux, where synthetic input is either ungated or gated by a different mechanism.
 
 ### Fixed
 
-- **`scripts/install-macos.sh`** — new helper that builds + re-signs ClipSnap with a stable ad-hoc identifier (`io.celox.clipsnap`) before copying into `/Applications`. Without an Apple Developer ID, every fresh `pnpm build:macos` produced a *random* identifier (e.g. `clipsnap-c64f925d…`); macOS TCC then treated the rebuild as a brand-new app and discarded the previous Accessibility grant. The script's stable identifier lets the grant survive across rebuilds (where macOS allows bundle-id matching), and `--reset` runs `tccutil reset` to wipe stale carcass entries when needed.
+- **`scripts/install-macos.sh`** — new helper that builds + re-signs Inspector Rust with a stable ad-hoc identifier (`io.celox.inspector-rust`) before copying into `/Applications`. Without an Apple Developer ID, every fresh `pnpm build:macos` produced a *random* identifier (e.g. `inspector-rust-c64f925d…`); macOS TCC then treated the rebuild as a brand-new app and discarded the previous Accessibility grant. The script's stable identifier lets the grant survive across rebuilds (where macOS allows bundle-id matching), and `--reset` runs `tccutil reset` to wipe stale carcass entries when needed.
 - **macOS README** — new "Why the dialog re-appears after every rebuild" section explaining TCC binding to code-signature, plus how to use `install-macos.sh`.
 
 ## [0.2.8] — 2026-04-26
@@ -503,8 +536,8 @@ bash scripts/install-macos.sh
 
 ### Added
 
-- **System-wide text expander.** Type a snippet abbreviation in any text field — code editor, browser, mail client, Slack — then press the configured hotkey, and ClipSnap replaces the abbreviation in place with the snippet body. Default hotkey is `Alt+Backquote` (the `^` key on a German keyboard, ` on US). Disabled by default — opt in from the new **Settings** tab. — *#feat(expander)*
-  - **How it works:** the popup stays out of the way. ClipSnap synthesizes `Cmd/Ctrl+Shift+←` (select previous word) → `Cmd/Ctrl+C` (copy), looks the captured word up in the snippets table via the new `find_by_exact_abbreviation` (case-sensitive first, case-insensitive fallback), writes the body to the clipboard, and synthesizes `Cmd/Ctrl+V`. The user's clipboard is saved before the cycle and restored after.
+- **System-wide text expander.** Type a snippet abbreviation in any text field — code editor, browser, mail client, Slack — then press the configured hotkey, and Inspector Rust replaces the abbreviation in place with the snippet body. Default hotkey is `Alt+Backquote` (the `^` key on a German keyboard, ` on US). Disabled by default — opt in from the new **Settings** tab. — *#feat(expander)*
+  - **How it works:** the popup stays out of the way. Inspector Rust synthesizes `Cmd/Ctrl+Shift+←` (select previous word) → `Cmd/Ctrl+C` (copy), looks the captured word up in the snippets table via the new `find_by_exact_abbreviation` (case-sensitive first, case-insensitive fallback), writes the body to the clipboard, and synthesizes `Cmd/Ctrl+V`. The user's clipboard is saved before the cycle and restored after.
   - **Trigger semantics, not silent watch.** No global keylogger — you decide when to expand.
   - **Configurable hotkey.** New **Settings** tab → click the hotkey field → press your combination (Backspace clears, Esc cancels). The string is stored in the new `settings` SQLite table and re-registered with the OS via `tauri-plugin-global-shortcut`. Bad combinations are rejected before the previous registration is touched, so you can't accidentally lose your hotkey to a typo.
   - **Cross-platform.** macOS / Windows / Linux X11 work the same. Linux Wayland depends on the compositor's global-shortcut portal (GNOME/KDE OK; sway-flavoured stacks may not).
@@ -574,7 +607,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 
 ### Added
 
-- **Inline calculator in the search field** — Alfred-style. As you type, ClipSnap evaluates the input as a math expression and shows the result as the top list item; press Enter to paste the result into the previously active app. Bare numbers (`42`) and plain text (`hello`) are ignored; only inputs with at least one operator, function call, or named constant trigger calc mode. A leading `=` forces evaluation (so `=42` or `=pi` displays a result for a single literal). — *#feat(calc)*
+- **Inline calculator in the search field** — Alfred-style. As you type, Inspector Rust evaluates the input as a math expression and shows the result as the top list item; press Enter to paste the result into the previously active app. Bare numbers (`42`) and plain text (`hello`) are ignored; only inputs with at least one operator, function call, or named constant trigger calc mode. A leading `=` forces evaluation (so `=42` or `=pi` displays a result for a single literal). — *#feat(calc)*
   - Supported operators: `+ - * / % ^` (power is right-associative), unary `+`/`-`, parens.
   - Supported numbers: integers, decimals (`0.5`, `.5`), scientific (`1e3`, `1.5e-2`), digit grouping (`1_000`).
   - Constants: `pi` / `π`, `tau`, `e`.
@@ -591,7 +624,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 
 ### Fixed
 
-- **Paste did not land in the previously active app on macOS.** Hiding only the popup window left ClipSnap (an `Accessory`-policy app) in a state where the OS could not reliably hand key focus back to the prior frontmost app, so `enigo`'s synthesized `Cmd+V` either dropped on the floor or arrived back at ClipSnap. — *#fix(paste)*
+- **Paste did not land in the previously active app on macOS.** Hiding only the popup window left Inspector Rust (an `Accessory`-policy app) in a state where the OS could not reliably hand key focus back to the prior frontmost app, so `enigo`'s synthesized `Cmd+V` either dropped on the floor or arrived back at Inspector Rust. — *#fix(paste)*
 
 ### Changed
 
@@ -665,7 +698,7 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 
 ### Added
 
-- **macOS bundle shell** under [`macos/`](./macos) — DMG + `.app` targets, `entitlements.plist`, capabilities, thin `main.rs` reusing `clipsnap-core`.
+- **macOS bundle shell** under [`macos/`](./macos) — DMG + `.app` targets, `entitlements.plist`, capabilities, thin `main.rs` reusing `inspector-rust-core`.
 - **Text expander** ("snippets") — abbreviations (e.g. `mfg`) with optional title and body. Matching snippets appear at the top of the History list when you type their abbreviation; Enter pastes the body. Dedicated **Snippets** tab for create/edit/delete, **Manage Snippets** entry in the tray menu.
 - **GitHub Actions CI** — Rust + frontend tests on every push/PR ([`ci.yml`](./.github/workflows/ci.yml)).
 - **GitHub Actions release** — builds Windows MSI/EXE and publishes a GitHub Release on `v*` tags ([`release.yml`](./.github/workflows/release.yml)).
@@ -687,28 +720,28 @@ These are documented in [`docs/text-expander.md`](./docs/text-expander.md), surf
 - Captures **text**, **RTF**, **HTML**, **images** (≤ 5 MB, base64 PNG), and **file lists** via real OS clipboard change events (no polling).
 - Fuzzy search (`fuse.js`, threshold 0.4) over preview text.
 - Auto-paste with `enigo` (simulates `Ctrl+V` after the popup hides).
-- SQLite history at `%APPDATA%\ClipSnap\history.db`, deduped on SHA-256, capped at 1 000 entries.
+- SQLite history at `%APPDATA%\InspectorRust\history.db`, deduped on SHA-256, capped at 1 000 entries.
 - System tray menu: Open · Pause Capture · Clear History · Start with Windows · Quit.
 - pnpm + Cargo workspaces with shared [`core/`](./core) and [`win/`](./win) bundle shell.
 
-[0.5.1]: https://github.com/pepperonas/clipsnap/releases/tag/v0.5.1
-[0.5.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.5.0
-[0.4.2]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.2
-[0.4.1]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.1
-[0.4.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.4.0
-[0.3.1]: https://github.com/pepperonas/clipsnap/releases/tag/v0.3.1
-[0.3.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.3.0
-[0.2.12]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.12
-[0.2.11]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.11
-[0.2.10]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.10
-[0.2.9]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.9
-[0.2.8]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.8
-[0.2.7]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.7
-[0.2.6]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.6
-[0.2.5]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.5
-[0.2.4]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.4
-[0.2.3]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.3
-[0.2.2]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.2
-[0.2.1]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.1
-[0.2.0]: https://github.com/pepperonas/clipsnap/releases/tag/v0.2.0
-[0.1.0]: https://github.com/pepperonas/clipsnap/commits/main
+[0.5.1]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.5.1
+[0.5.0]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.5.0
+[0.4.2]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.4.2
+[0.4.1]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.4.1
+[0.4.0]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.4.0
+[0.3.1]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.3.1
+[0.3.0]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.3.0
+[0.2.12]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.12
+[0.2.11]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.11
+[0.2.10]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.10
+[0.2.9]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.9
+[0.2.8]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.8
+[0.2.7]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.7
+[0.2.6]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.6
+[0.2.5]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.5
+[0.2.4]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.4
+[0.2.3]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.3
+[0.2.2]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.2
+[0.2.1]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.1
+[0.2.0]: https://github.com/pepperonas/inspector-rust/releases/tag/v0.2.0
+[0.1.0]: https://github.com/pepperonas/inspector-rust/commits/main

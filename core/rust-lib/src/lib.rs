@@ -1,4 +1,4 @@
-//! `clipsnap-core` — shared, OS-independent app logic for ClipSnap.
+//! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod backup;
 mod clipboard_watcher;
@@ -154,7 +154,7 @@ pub fn run(context: tauri::Context<Wry>) {
 
             build_tray(&app.handle())?;
 
-            // Hide from macOS Dock — ClipSnap is a tray-only background app.
+            // Hide from macOS Dock — Inspector Rust is a tray-only background app.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -236,7 +236,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::force_reset_screen_recording_grant,
         ])
         .run(context)
-        .expect("error while running ClipSnap");
+        .expect("error while running Inspector Rust");
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -273,7 +273,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let sep = PredefinedMenuItem::separator(app)?;
     let sep_ocr = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
-    let quit_item = MenuItemBuilder::with_id("quit", "Quit ClipSnap").build(app)?;
+    let quit_item = MenuItemBuilder::with_id("quit", "Quit Inspector Rust").build(app)?;
 
     let menu = MenuBuilder::new(app)
         .items(&[
@@ -293,7 +293,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .build()?;
 
     let _tray = TrayIconBuilder::with_id("main")
-        .tooltip("ClipSnap")
+        .tooltip("Inspector Rust")
         .icon(app.default_window_icon().cloned().unwrap())
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
@@ -358,7 +358,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 let app2 = app.clone();
                 app.dialog()
                     .message("Delete all clipboard history? This cannot be undone.")
-                    .title("ClipSnap")
+                    .title("Inspector Rust")
                     .kind(MessageDialogKind::Warning)
                     .buttons(MessageDialogButtons::OkCancelCustom(
                         "Delete".to_string(),

@@ -3,11 +3,11 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri"]
 
 [workspace.package]
-version = "0.15.0"
+version = "0.16.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
-repository = "https://github.com/pepperonas/clipsnap"
+repository = "https://github.com/pepperonas/inspector-rust"
 
 [workspace.dependencies]
 # Tauri core

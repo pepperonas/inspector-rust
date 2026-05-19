@@ -1,8 +1,8 @@
 # Text expander
 
-ClipSnap has **two ways** to expand a snippet outside the popup:
+Inspector Rust has **two ways** to expand a snippet outside the popup:
 
-1. **Abbreviation expander** (introduced v0.2.7) — type a snippet's abbreviation in any text field, press your configured hotkey, ClipSnap reads the word before the cursor and replaces it with the snippet body in place. Trigger-based, not silent: no keylogger, you stay in control. *Doesn't work in terminals* (they don't expose the input line — see [Caveats](#caveats--what-wont-work-cleanly)).
+1. **Abbreviation expander** (introduced v0.2.7) — type a snippet's abbreviation in any text field, press your configured hotkey, Inspector Rust reads the word before the cursor and replaces it with the snippet body in place. Trigger-based, not silent: no keylogger, you stay in control. *Doesn't work in terminals* (they don't expose the input line — see [Caveats](#caveats--what-wont-work-cleanly)).
 2. **Direct hotkey → snippet slots** (introduced v0.13.0) — bind a hotkey straight to a snippet; pressing it pastes the body at the cursor with no abbreviation typed. Reads nothing, so it works in **every** app, including terminals. See [Direct hotkey → snippet](#direct-hotkey--snippet).
 
 Default abbreviation hotkey changed from `Alt+Backquote` to `Alt+1` in **v0.12.0** (the old default was unreachable on German ISO MacBooks — see [Hotkey format](#hotkey-format)).
@@ -15,7 +15,7 @@ Default abbreviation hotkey changed from `Alt+Backquote` to `Alt+1` in **v0.12.0
 4. Click **Save & re-register**.
 5. Type an abbreviation (e.g. `mfg`) in any other app's text field, then press the hotkey.
 
-> **macOS:** if Accessibility access isn't granted, pressing the hotkey now opens the ClipSnap popup, switches to Settings, and shows an amber banner — instead of silently doing nothing (v0.12.0). Grant it (Force re-grant → Restart now) and try again.
+> **macOS:** if Accessibility access isn't granted, pressing the hotkey now opens the Inspector Rust popup, switches to Settings, and shows an amber banner — instead of silently doing nothing (v0.12.0). Grant it (Force re-grant → Restart now) and try again.
 
 The abbreviation is replaced with the snippet body in place.
 
@@ -25,22 +25,22 @@ The expander has **three paths**, tried in order; each later one is a fallback f
 
 ### Path 1 (default): Accessibility API — no clipboard touch
 
-When you press the hotkey from a focused text field, ClipSnap asks the OS's accessibility layer directly:
+When you press the hotkey from a focused text field, Inspector Rust asks the OS's accessibility layer directly:
 
 - **macOS:** `AXUIElementCreateSystemWide` → `kAXFocusedUIElement` → `kAXValue` (the field's text) + `kAXSelectedTextRange` (cursor position). Compute the word before the cursor in pure code. Replace via `AXUIElementSetAttributeValue(kAXSelectedTextRange + kAXSelectedText)`, then **re-read `kAXValue` to verify** the replace actually landed (see Path 1b — many apps lie about this).
 - **Windows:** `IUIAutomation::GetFocusedElement` → `IUIAutomationTextPattern::GetSelection` → `MoveEndpointByUnit(TextUnit_Word, -1)` to expand the start backwards by one word → `GetText` for the abbreviation. Replace via Backspace × char_count(word) + `enigo.text(body)` (UIA's `Replace` is patchily implemented; SendInput-based Backspace+type is more reliable on Windows).
-- ClipSnap looks the captured word up in the `snippets` table via [`snippets::find_by_exact_abbreviation`](../core/rust-lib/src/snippets.rs) — exact case match preferred, case-insensitive fallback.
+- Inspector Rust looks the captured word up in the `snippets` table via [`snippets::find_by_exact_abbreviation`](../core/rust-lib/src/snippets.rs) — exact case match preferred, case-insensitive fallback.
 - **No clipboard read or write at all.** The user's clipboard is left untouched, no selection flickers in the source app.
 
 This path requires the same macOS Accessibility permission already needed for paste; on Windows no extra permission is required.
 
 ### Path 1b (macOS): AX selected, but couldn't replace — paste over the selection
 
-Electron / Chromium / Mac-Catalyst text views (WhatsApp Desktop, Slack, Discord, VS Code, …) expose `AXValue` **read-only**: setting `AXSelectedTextRange` *does* select the abbreviation, but setting `AXSelectedText` returns `kAXErrorSuccess` and silently does nothing. The verify step in Path 1 catches this (the field's text didn't change) and ClipSnap then pastes the snippet body over the now-selected abbreviation — exactly one clipboard write + `Cmd+V` + restore, **without** re-selecting (a `Cmd+Shift+←` here would swallow the previous word too). So expansion works in those apps; it just touches the clipboard briefly (saved & restored) instead of being a pure AX operation. Internally this is the `ReplaceOutcome::SelectionActive` branch in [`text_field`](../core/rust-lib/src/text_field/mod.rs) / `expander::paste_over_selection`.
+Electron / Chromium / Mac-Catalyst text views (WhatsApp Desktop, Slack, Discord, VS Code, …) expose `AXValue` **read-only**: setting `AXSelectedTextRange` *does* select the abbreviation, but setting `AXSelectedText` returns `kAXErrorSuccess` and silently does nothing. The verify step in Path 1 catches this (the field's text didn't change) and Inspector Rust then pastes the snippet body over the now-selected abbreviation — exactly one clipboard write + `Cmd+V` + restore, **without** re-selecting (a `Cmd+Shift+←` here would swallow the previous word too). So expansion works in those apps; it just touches the clipboard briefly (saved & restored) instead of being a pure AX operation. Internally this is the `ReplaceOutcome::SelectionActive` branch in [`text_field`](../core/rust-lib/src/text_field/mod.rs) / `expander::paste_over_selection`.
 
 ### Path 2 (fallback): keystroke + clipboard roundtrip
 
-When the focused element doesn't expose AX / UIA attributes at all (rare native Carbon controls, Java/Swing without AccessBridge, niche custom widgets) ClipSnap falls back to the original v0.2.x flow:
+When the focused element doesn't expose AX / UIA attributes at all (rare native Carbon controls, Java/Swing without AccessBridge, niche custom widgets) Inspector Rust falls back to the original v0.2.x flow:
 
 1. Save the current clipboard text.
 2. Synthesize *select previous word*: **`Option+Shift+←`** on macOS, **`Ctrl+Shift+←`** elsewhere.
@@ -80,7 +80,7 @@ You can add as many slots as you like. To remove one, click the `×` and Save.
 
 ### How it works
 
-On press, ClipSnap (on the main thread, because `enigo`'s `Cmd+V` touches TSM): save the current clipboard text → write the snippet body to the clipboard → synthesize `Cmd/Ctrl+V` → after ~180 ms restore the original clipboard. No reading, no selection, no AX dependency on the *capture* side. (It still needs the macOS Accessibility grant for the `Cmd+V` synthesis — same as the abbreviation expander and the popup's paste flow.)
+On press, Inspector Rust (on the main thread, because `enigo`'s `Cmd+V` touches TSM): save the current clipboard text → write the snippet body to the clipboard → synthesize `Cmd/Ctrl+V` → after ~180 ms restore the original clipboard. No reading, no selection, no AX dependency on the *capture* side. (It still needs the macOS Accessibility grant for the `Cmd+V` synthesis — same as the abbreviation expander and the popup's paste flow.)
 
 ### Validation & edge cases
 
@@ -110,7 +110,7 @@ The entire expand cycle dispatches to the **main thread** via `AppHandle::run_on
 - The IPC command [`commands.rs::trigger_expand_at_cursor`](../core/rust-lib/src/commands.rs)
 - The IPC command [`commands.rs::diagnose_expand_at_cursor`](../core/rust-lib/src/commands.rs) — uses an `mpsc::channel` to ferry the result back from the main-thread closure to the IPC handler thread.
 
-**Why this matters (a real bug we hit in v0.2.10).** `enigo`'s macOS `Key::Unicode(...)` mapping calls `TSMGetInputSourceProperty` (Text Services Manager) to look up the layout-dependent keycode for `'c'` and `'v'`. TSM hard-asserts that it's invoked from the main thread; calling it from a worker thread fires `_dispatch_assert_queue_fail` and aborts the process with `EXC_BREAKPOINT` / `SIGTRAP`. Three crash reports under `~/Library/Logs/DiagnosticReports/clipsnap-2026-04-26-070*.ips` confirmed this stack:
+**Why this matters (a real bug we hit in v0.2.10).** `enigo`'s macOS `Key::Unicode(...)` mapping calls `TSMGetInputSourceProperty` (Text Services Manager) to look up the layout-dependent keycode for `'c'` and `'v'`. TSM hard-asserts that it's invoked from the main thread; calling it from a worker thread fires `_dispatch_assert_queue_fail` and aborts the process with `EXC_BREAKPOINT` / `SIGTRAP`. Three crash reports under `~/Library/Logs/DiagnosticReports/inspector-rust-2026-04-26-070*.ips` confirmed this stack:
 
 ```
 _dispatch_assert_queue_fail
@@ -151,14 +151,14 @@ The default is **`Alt+Digit1`** (shown as `Alt+1`) — the `1`-row digit key, *n
 | **Linux X11**    | ✅      | `Ctrl+Shift+←` then `Ctrl+C`  | `Ctrl+V` via `enigo`. No extra permission. | ✅ |
 | **Linux Wayland**| 🟡     | same                          | same  | ⚠️ Compositor-dependent. GNOME ≥ 41 and KDE Plasma expose the global-shortcut portal — works there. Sway/`wlroots`-based niche WMs may block global shortcuts entirely. |
 
-ClipSnap is Windows-first; the Wayland gap is intentionally tolerated. If you hit it, run the X11 session of your distro.
+Inspector Rust is Windows-first; the Wayland gap is intentionally tolerated. If you hit it, run the X11 session of your distro.
 
 ## Caveats — what won't work cleanly
 
 The expander is a **trigger-based macro**, not a deeply integrated input-method. There are situations where it falls short:
 
 - **Terminal command lines — the *abbreviation* expander doesn't work there.** Terminal.app, iTerm2, kitty, Alacritty, WezTerm, gnome-terminal: pressing the abbreviation hotkey does **nothing**. Terminals don't expose the input line through accessibility (Path 1/1b can't see it), and a shell prompt has no GUI-style "select previous word" — `Cmd/Ctrl+Shift+←` either does nothing on the input line or selects *screen* text, so Path 2's select+copy+paste grabs the wrong region or comes back empty. There's no clean fix for the *abbreviation* model short of per-shell readline integration, which is out of scope. **Use a [Direct hotkey → snippet](#direct-hotkey--snippet) slot** for terminals (it pastes without reading anything, so it works there), or popup paste (`Ctrl+Shift+V` → search → Enter).
-- **Electron / Chromium / Mac-Catalyst apps** (WhatsApp Desktop, Slack, Discord, VS Code, …) — *supported* since v0.12.0, but via Path 1b: the AX `AXSelectedText` set is a no-op there, so ClipSnap selects the abbreviation via AX and pastes the body over it (brief clipboard touch, saved & restored). If you ever see the abbreviation get *highlighted but not replaced*, that's the verify step working and the paste failing — usually a timing fluke; press the hotkey again.
+- **Electron / Chromium / Mac-Catalyst apps** (WhatsApp Desktop, Slack, Discord, VS Code, …) — *supported* since v0.12.0, but via Path 1b: the AX `AXSelectedText` set is a no-op there, so Inspector Rust selects the abbreviation via AX and pastes the body over it (brief clipboard touch, saved & restored). If you ever see the abbreviation get *highlighted but not replaced*, that's the verify step working and the paste failing — usually a timing fluke; press the hotkey again.
 - **Password fields** in many browsers and apps refuse synthetic paste — the abbreviation gets selected (visible) but the body never lands. Workaround: not appropriate to use the expander in password fields anyway. Use the popup.
 - **Image / files snippets are not supported** by the expander. The orchestration is text-only on purpose: the previous-word selection is a single text run, and replacing it with an image / file-list payload doesn't make sense in most editors. Use the popup for those.
 - **Web apps with custom keyboard handlers** (Google Docs, some IDE web frontends) intercept `Ctrl+Shift+←` for their own shortcuts. Same workaround — popup paste.
@@ -187,15 +187,15 @@ The settings module ([`core/rust-lib/src/settings.rs`](../core/rust-lib/src/sett
 
 ## macOS Accessibility — granting and surviving rebuilds
 
-The expander uses the AX API to read/replace the focused field, and `enigo`'s `CGEventPost` (synthesizing `Cmd+Shift+←`/`Cmd+C`/`Cmd+V`) for the fallback path. Both are gated behind the **Accessibility** TCC permission. ClipSnap surfaces the state up-front and walks you through granting it:
+The expander uses the AX API to read/replace the focused field, and `enigo`'s `CGEventPost` (synthesizing `Cmd+Shift+←`/`Cmd+C`/`Cmd+V`) for the fallback path. Both are gated behind the **Accessibility** TCC permission. Inspector Rust surfaces the state up-front and walks you through granting it:
 
 - **Loud failure on hotkey press (v0.12.0).** If the permission is missing, pressing the expander hotkey no longer runs a doomed cycle that silently no-ops — `expand_at_cursor` returns the `ax.permission_denied` sentinel and the hotkey handler instead pops the popup, switches to the Settings tab, and emits `expander-permission-needed` (the frontend turns it into an amber banner). Same pattern as the OCR `screen.permission_denied` path.
 - **Status badge.** The Settings panel shows `Accessibility access granted` (emerald) or `Accessibility access required` (amber) at the top of the expander section. Probed via FFI to `AXIsProcessTrusted()` from `ApplicationServices.framework`.
 - **Auto-detect.** When the banner is amber, the panel polls `get_accessibility_status` once a second. As soon as you flip the toggle on in System Settings, the banner switches state without a panel reload.
-- **Auto-restart.** macOS caches `AXIsProcessTrusted` per-process — so the *running* ClipSnap can't actually use a freshly granted permission until it's relaunched. On the false→true edge the panel surfaces a one-click **Restart now** button which calls the `relaunch_app` IPC: it spawns `open -n /Applications/ClipSnap.app` and exits, leaving the new process to inherit the granted state. Total post-grant flow: ~30 seconds.
-- **Diagnose** (new in v0.2.9). The panel's "Diagnose" button captures the word before your cursor in the previously focused app, looks it up in the snippets table, and reports back `Captured`, `Snippet match`, and `Would paste` — *without* pasting. This isolates the lookup half from the paste half, so you can tell exactly which step is failing when expansion isn't working. Implementation hides the popup first so the synthetic Cmd+Shift+← reaches the source app instead of ClipSnap itself.
+- **Auto-restart.** macOS caches `AXIsProcessTrusted` per-process — so the *running* Inspector Rust can't actually use a freshly granted permission until it's relaunched. On the false→true edge the panel surfaces a one-click **Restart now** button which calls the `relaunch_app` IPC: it spawns `open -n /Applications/InspectorRust.app` and exits, leaving the new process to inherit the granted state. Total post-grant flow: ~30 seconds.
+- **Diagnose** (new in v0.2.9). The panel's "Diagnose" button captures the word before your cursor in the previously focused app, looks it up in the snippets table, and reports back `Captured`, `Snippet match`, and `Would paste` — *without* pasting. This isolates the lookup half from the paste half, so you can tell exactly which step is failing when expansion isn't working. Implementation hides the popup first so the synthetic Cmd+Shift+← reaches the source app instead of Inspector Rust itself.
 
-The grant is bound to the app's `(bundle id, cdhash)` tuple. Without an Apple Developer ID, ClipSnap is ad-hoc-signed, and *any* code change produces a new cdhash — invalidating the prior grant. The bundled `scripts/install-macos.sh` mitigates this by hashing the source tree and skipping `tauri build` + `codesign --force` entirely when nothing has changed (see [`macos/README.md`](../macos/README.md#why-the-dialog-re-appears-after-every-rebuild--and-how-its-mitigated)). The honest, *permanent* fix is an Apple Developer ID.
+The grant is bound to the app's `(bundle id, cdhash)` tuple. Without an Apple Developer ID, Inspector Rust is ad-hoc-signed, and *any* code change produces a new cdhash — invalidating the prior grant. The bundled `scripts/install-macos.sh` mitigates this by hashing the source tree and skipping `tauri build` + `codesign --force` entirely when nothing has changed (see [`macos/README.md`](../macos/README.md#why-the-dialog-re-appears-after-every-rebuild--and-how-its-mitigated)). The honest, *permanent* fix is an Apple Developer ID.
 
 ## IPC surface
 
@@ -208,7 +208,7 @@ The grant is bound to the app's `(bundle id, cdhash)` tuple. Without an Apple De
 | `open_accessibility_settings` | —                             | `void` — `open x-apple.systempreferences:…` |
 | `trigger_expand_at_cursor`    | —                             | `void` — programmatic full expand (hides popup, sleeps, runs cycle) |
 | `diagnose_expand_at_cursor`   | —                             | `{ captured, matched_abbreviation, paste_preview, path }` — capture half only, no paste. Errors with an explanatory message on macOS when Accessibility isn't granted. |
-| `relaunch_app`                | —                             | `void` — `open -n /Applications/ClipSnap.app` then `app.exit(0)` |
+| `relaunch_app`                | —                             | `void` — `open -n /Applications/InspectorRust.app` then `app.exit(0)` |
 | `quit_app`                    | —                             | `void` — `app.exit(0)` (no relaunch) |
 
 ```ts

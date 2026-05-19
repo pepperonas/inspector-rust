@@ -45,7 +45,7 @@ fn enigo_settings() -> Settings {
     }
 }
 
-// Whether the OS has granted ClipSnap permission to synthesize keyboard
+// Whether the OS has granted Inspector Rust permission to synthesize keyboard
 // events (macOS Accessibility / "Privacy & Security" → Accessibility).
 // `enigo` silently no-ops without it on macOS — the hotkey fires, the
 // `expand_at_cursor` cycle runs, but `Cmd+Shift+←` / `Cmd+C` / `Cmd+V`
@@ -104,7 +104,7 @@ pub fn accessibility_granted() -> bool {
 }
 
 /// Trigger the macOS "would like to control this computer" dialog and
-/// add ClipSnap to **System Settings → Privacy & Security → Accessibility**
+/// add Inspector Rust to **System Settings → Privacy & Security → Accessibility**
 /// so the user can flip the toggle there. Returns the *current* trusted
 /// status (which is almost always `false` immediately after the prompt
 /// appears — the user still has to grant it).
@@ -154,9 +154,9 @@ pub fn open_accessibility_settings() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Wipe stale TCC grants for ClipSnap (Accessibility + PostEvent), then
+/// Wipe stale TCC grants for Inspector Rust (Accessibility + PostEvent), then
 /// fire the standard "would like to control" prompt with the *current*
-/// cdhash. Solves the common "toggle says on but ClipSnap still sees
+/// cdhash. Solves the common "toggle says on but Inspector Rust still sees
 /// untrusted" state that occurs after every real source-change rebuild
 /// — the previous toggle was for an older cdhash, the new binary needs
 /// a fresh grant. Runs `tccutil reset` for our own bundle id, which
@@ -166,13 +166,13 @@ pub fn force_reset_and_request_grant() -> anyhow::Result<bool> {
     // 1) Wipe whatever stale entries exist. tccutil exits 0 even if
     //    there's nothing to reset, so we don't need to check.
     let _ = std::process::Command::new("tccutil")
-        .args(["reset", "Accessibility", "io.celox.clipsnap"])
+        .args(["reset", "Accessibility", "io.celox.inspector-rust"])
         .status();
     let _ = std::process::Command::new("tccutil")
-        .args(["reset", "PostEvent", "io.celox.clipsnap"])
+        .args(["reset", "PostEvent", "io.celox.inspector-rust"])
         .status();
 
-    // 2) Fire the prompt. This re-adds ClipSnap to System Settings →
+    // 2) Fire the prompt. This re-adds Inspector Rust to System Settings →
     //    Accessibility with the current cdhash, ready to be toggled on.
     Ok(request_accessibility_grant())
 }
@@ -318,7 +318,7 @@ pub struct DiagnoseResult {
 /// Run the capture half of expansion (read the word before the cursor,
 /// look it up) **without** pasting. The caller is responsible for hiding
 /// the popup *before* this runs so the AX/UIA call targets the source
-/// app, not ClipSnap itself.
+/// app, not Inspector Rust itself.
 ///
 /// Capture-path policy:
 /// 1. **Try AX (macOS) / UIA (Windows) first.** No keystroke synthesis,
@@ -344,9 +344,9 @@ pub fn diagnose_at_cursor(db: &DbHandle) -> Result<DiagnoseResult> {
     #[cfg(target_os = "macos")]
     if !access_ok {
         return Err(anyhow!(
-            "Accessibility permission isn't granted — ClipSnap can't read the \
+            "Accessibility permission isn't granted — Inspector Rust can't read the \
              focused field or synthesize keystrokes without it. Grant it in the \
-             section above, then relaunch ClipSnap."
+             section above, then relaunch Inspector Rust."
         ));
     }
 

@@ -1,12 +1,12 @@
 {
-  "name": "clipsnap-macos",
+  "name": "inspector-rust-macos",
   "private": true,
-  "version": "0.15.0",
-  "description": "ClipSnap — macOS bundle shell (Tauri CLI entry + frontend proxy scripts)",
+  "version": "0.16.0",
+  "description": "Inspector Rust — macOS bundle shell (Tauri CLI entry + frontend proxy scripts)",
   "scripts": {
     "tauri": "tauri",
-    "dev": "pnpm --filter clipsnap-frontend dev",
-    "build": "pnpm --filter clipsnap-frontend build"
+    "dev": "pnpm --filter inspector-rust-frontend dev",
+    "build": "pnpm --filter inspector-rust-frontend build"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2"

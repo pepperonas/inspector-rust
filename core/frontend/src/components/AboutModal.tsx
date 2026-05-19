@@ -44,7 +44,7 @@ export function AboutModal({ open, onClose, version }: Props) {
     >
       {/* Three-row flex grid (header / scrollable body / footer) so
           a popup window shorter than the modal's natural height
-          (~700 px on small displays / the 500-px-tall ClipSnap
+          (~700 px on small displays / the 500-px-tall Inspector Rust
           popup) renders sticky chrome with the body scrolling
           inside. `max-h-[calc(100vh-2rem)]` keeps the rounded
           corners visible by leaving 1 rem breathing room top + bottom. */}
@@ -53,7 +53,7 @@ export function AboutModal({ open, onClose, version }: Props) {
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4 py-3">
           <h2 className="flex items-center gap-2 text-[14px] font-semibold">
             <Info size={14} className="text-[var(--color-accent)]" />
-            About ClipSnap
+            About Inspector Rust
           </h2>
           <button
             onClick={onClose}
@@ -71,7 +71,7 @@ export function AboutModal({ open, onClose, version }: Props) {
           {/* Identity block */}
           <div className="mb-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[12px]">
             <div className="flex items-baseline justify-between">
-              <span className="text-[14px] font-semibold">ClipSnap</span>
+              <span className="text-[14px] font-semibold">Inspector Rust</span>
               {version && (
                 <span className="font-[var(--font-mono)] text-[12px] text-[var(--color-muted)]">
                   v{version}
@@ -125,13 +125,13 @@ export function AboutModal({ open, onClose, version }: Props) {
         {/* Footer — sticky at the bottom, like the header. */}
         <div className="flex shrink-0 items-center justify-between border-t border-[var(--color-border)] px-4 py-2.5 text-[11px] text-[var(--color-muted)]">
           <a
-            href="https://github.com/pepperonas/clipsnap"
+            href="https://github.com/pepperonas/inspector-rust"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-1 hover:text-[var(--color-accent)]"
           >
             <ExternalLink size={11} />
-            github.com/pepperonas/clipsnap
+            github.com/pepperonas/inspector-rust
           </a>
           <span className="flex items-center gap-1">
             made with <Heart size={10} className="text-red-400" /> by Martin Pfeffer

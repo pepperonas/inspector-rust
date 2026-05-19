@@ -5,7 +5,7 @@
 //! The previous "limitation" the user wanted to close: anyone with read
 //! access to the user's profile (other apps running as the same user, a
 //! stolen drive image, an accidental backup, …) could open
-//! `~/Library/Application Support/ClipSnap/history.db` and read every
+//! `~/Library/Application Support/InspectorRust/history.db` and read every
 //! password, token, and snippet body in plaintext.
 //!
 //! With this module wired in, those fields are encrypted with AES-256-GCM.
@@ -53,7 +53,7 @@ const PREFIX: &str = "v1:";
 const NONCE_LEN: usize = 12;
 const KEY_LEN: usize = 32;
 
-const KEYRING_SERVICE: &str = "io.celox.clipsnap";
+const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
 const KEYRING_USER: &str = "history-db-key-v1";
 const KEYFILE_NAME: &str = ".dbkey";
 
@@ -113,7 +113,7 @@ static CIPHER: OnceLock<Cipher> = OnceLock::new();
 /// no-op (subsequent inits with a different key would silently produce
 /// undecryptable data, so we ignore them).
 ///
-/// Tries OS keychain first (`io.celox.clipsnap` / `history-db-key-v1`).
+/// Tries OS keychain first (`io.celox.inspector-rust` / `history-db-key-v1`).
 /// Falls back to a 0600 keyfile under `data_dir`.
 pub fn init(data_dir: &Path) -> Result<()> {
     if CIPHER.get().is_some() {

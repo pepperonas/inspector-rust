@@ -335,7 +335,7 @@ function CutoutButton({ source }: { source: CutoutSource }) {
 // ── Save-image-to-Downloads button (image entries only) ─────────────────────
 
 /** "Save to Downloads" — writes the selected image entry's PNG bytes
- *  unchanged to `~/Downloads/clipsnap-image-<ts>.png`. The companion
+ *  unchanged to `~/Downloads/inspector-rust-image-<ts>.png`. The companion
  *  to the recolor flow: clicking a recolor swatch creates a new
  *  history entry, and this button takes that new entry off the
  *  in-app DB and onto disk. Same UX shape as `CutoutButton`. */

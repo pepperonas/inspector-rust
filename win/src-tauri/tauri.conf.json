@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "ClipSnap",
-  "version": "0.15.0",
-  "identifier": "io.celox.clipsnap",
+  "productName": "InspectorRust",
+  "version": "0.16.0",
+  "identifier": "io.celox.inspector-rust",
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "popup",
-        "title": "ClipSnap",
+        "title": "Inspector Rust",
         "width": 600,
         "height": 500,
         "center": true,
@@ -48,6 +48,6 @@
     },
     "copyright": "© 2026 Martin Pfeffer · MIT License",
     "shortDescription": "Power-user clipboard productivity toolkit for Windows 11",
-    "longDescription": "ClipSnap is a clipboard productivity toolkit for power users — searchable history, text-expander snippets, inline calculator, color picker, image recolor, background removal, and more. Press Ctrl+Shift+V to browse, search, and paste anything you've recently copied."
+    "longDescription": "Inspector Rust is a clipboard productivity toolkit for power users — searchable history, text-expander snippets, inline calculator, color picker, image recolor, background removal, and more. Press Ctrl+Shift+V to browse, search, and paste anything you've recently copied."
   }
 }

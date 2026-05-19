@@ -1,6 +1,6 @@
 [package]
-name = "clipsnap-win"
-description = "ClipSnap — Windows 11 bundle shell"
+name = "inspector-rust-win"
+description = "Inspector Rust — Windows 11 bundle shell"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [[bin]]
-name = "clipsnap"
+name = "inspector-rust"
 path = "src/main.rs"
 
 [build-dependencies]
@@ -16,9 +16,9 @@ tauri-build = { workspace = true }
 
 [dependencies]
 # Shared app logic.
-clipsnap-core = { path = "../../core/rust-lib" }
+inspector-rust-core = { path = "../../core/rust-lib" }
 
-# Tauri + plugins are listed here (in addition to clipsnap-core) so that
+# Tauri + plugins are listed here (in addition to inspector-rust-core) so that
 # `tauri-build` can discover the plugins' permission manifests — the permission
 # scanner walks this crate's direct deps, not transitive ones. Cargo dedupes
 # the actual compilation units.

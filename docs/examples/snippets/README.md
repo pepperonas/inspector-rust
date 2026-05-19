@@ -1,6 +1,6 @@
 # Snippet examples
 
-Ready-to-import JSON files. Each one is a stand-alone, valid input for the **Snippets → Import** picker in ClipSnap. Pick one as a starting point, edit, and import.
+Ready-to-import JSON files. Each one is a stand-alone, valid input for the **Snippets → Import** picker in Inspector Rust. Pick one as a starting point, edit, and import.
 
 | File | Snippets | Theme |
 |------|----------|-------|
@@ -12,7 +12,7 @@ Ready-to-import JSON files. Each one is a stand-alone, valid input for the **Sni
 
 ## How to use
 
-1. Open ClipSnap (`Ctrl+Shift+V`).
+1. Open Inspector Rust (`Ctrl+Shift+V`).
 2. **Snippets** tab → **Import**.
 3. Select one of the files above.
 4. The status row shows e.g. `Imported 8` and the new entries appear in the list.
@@ -29,10 +29,10 @@ jq -s 'add' \
   docs/examples/snippets/getting-started.json \
   docs/examples/snippets/signatures.json \
   docs/examples/snippets/dev.json \
-  > /tmp/clipsnap-bundle.json
+  > /tmp/inspector-rust-bundle.json
 ```
 
-Then import `/tmp/clipsnap-bundle.json` once.
+Then import `/tmp/inspector-rust-bundle.json` once.
 
 ## See also
 

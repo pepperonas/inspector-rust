@@ -337,7 +337,7 @@ Inspector Rust braucht **zwei** unabhängige macOS-TCC-Grants — Accessibility 
 - Jedes Banner hat einen `tccutil reset`-Recovery-Button für den "Toggle ist an, aber der laufende Prozess sieht immer noch denied"-Stale-cdhash-State.
 
 ### Discoverability (v0.10.7)
-- **Footer-Hints** — `⌃⇧O OCR` + `⌃⇧S Shot` neben dem `⏎ Paste · ↑↓ Navigate · Esc Close`-Strip gerendert, sodass User die globalen Shortcuts jedes Mal sehen, wenn sie das Popup öffnen.
+- **Footer-Hints** — `⌃⇧O OCR` + `⌃⇧S Shot` + `⌃⇧C Color` neben dem `⏎ Paste · ↑↓ Navigate · Esc Close`-Strip gerendert, sodass User alle globalen Shortcuts jedes Mal sehen, wenn sie das Popup öffnen.
 - **Settings → Keyboard shortcuts** — Drei-Gruppen-Cheat-Sheet (Global / Popup-Nav / Image-Actions), das jeden Shortcut der App abdeckt. Modifier-Glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) passen sich ans laufende OS an via dem `IS_MAC`-Helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About-Dialog** — Settings → About öffnet ein Modal mit Version, License, Jahr, Zielgruppe und einer tabellarischen Tech-Stack-Übersicht.
 

@@ -337,7 +337,7 @@ Inspector Rust needs **two** independent macOS TCC grants — Accessibility (pas
 - Each banner has a `tccutil reset` recovery button for the "toggle says on but the running process still sees denied" stale-cdhash state.
 
 ### Discoverability (v0.10.7)
-- **Footer hints** — `⌃⇧O OCR` + `⌃⇧S Shot` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the global shortcuts every time they open the popup.
+- **Footer hints** — `⌃⇧O OCR` + `⌃⇧S Shot` + `⌃⇧C Color` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see all global shortcuts every time they open the popup.
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 

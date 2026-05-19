@@ -80,7 +80,8 @@ export function AboutModal({ open, onClose, version }: Props) {
             </div>
             <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-muted)]">
               Clipboard productivity toolkit for power users — searchable
-              history, snippets, calculator, color picker, image tools.
+              history, snippets, calculator, color picker + eyedropper,
+              image tools, screen-region OCR + screenshot.
             </div>
           </div>
 
@@ -116,7 +117,8 @@ export function AboutModal({ open, onClose, version }: Props) {
                 <Tech label="Backend" value="Rust (stable) · rusqlite · clipboard-rs · enigo" />
                 <Tech label="Storage" value="SQLite · AES-256-GCM · OS keychain" />
                 <Tech label="Frontend" value="React 19 · TypeScript 5 · Vite 7 · Tailwind v4" />
-                <Tech label="Image" value="image 0.25 (PNG only)" />
+                <Tech label="Image" value="image 0.25 · ort (ONNX) · Apple Vision" />
+                <Tech label="Formats" value="PNG · JPEG · WebP · GIF · BMP" />
               </tbody>
             </table>
           </div>

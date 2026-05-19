@@ -104,6 +104,37 @@ The popup auto-hide handler is suppressed while the eyedropper is up (via `UiSta
 - [`core/rust-lib/src/commands.rs::pick_screen_color`](../core/rust-lib/src/commands.rs) — IPC orchestrator.
 - [`core/frontend/src/components/ColorPickerModal.tsx`](../core/frontend/src/components/ColorPickerModal.tsx) — modal + event listener + eyedropper button.
 
+## Global eyedropper hotkey — `Ctrl+Shift+C` (v0.17.0)
+
+The modal eyedropper above is the *interactive* path: open the popup → open the modal → click *Pick from screen* → click a pixel → see the hex in all three format tabs.
+
+In v0.17.0 a fire-and-forget shortcut was added for the common "I just need this pixel's hex on my clipboard, now" workflow: **`Ctrl+Shift+C`** (literal Control on every OS). No popup, no modal — cursor turns into the same loupe overlay, you click, the hex (`#RRGGBB`) lands on the system clipboard *and* as a Text history entry. Parallel UX to the v0.15.0 `Ctrl+Shift+S` screenshot shortcut.
+
+The tray menu's **Pick Color (⌃⇧C / Ctrl+Shift+C)** entry triggers the same pipeline.
+
+### Pipeline
+
+`commands::run_eyedropper_pipeline(app)`:
+
+1. Hide popup (if open) + arm `UiState.suppress_hide`.
+2. Dispatch the platform picker (`screen_picker::pick_color_async` on macOS, `pick_color_blocking` on Windows on a worker thread) — same call site that the modal flow uses.
+3. On result: `mark_self_write(Text, hex)` on the watcher → `ClipboardContext::set_text(hex)` → `db::upsert_clip` Text history entry → emit `clipboard-changed`.
+4. **`clear_eyedropper_no_popup`** (separate cleanup variant) defers the macOS activation-policy demote + suppress-hide clear via a 500 ms thread, but **does not re-show the popup** the way `clear_pick_suppress_hide` does. Appropriate for the global-hotkey flow — the popup wasn't open before the user pressed the shortcut, and surprising them with one would be wrong.
+
+### Why no `color-picked` event
+
+The modal flow emits `color-picked` so the open modal can `useEffect`-listen for it and update its HSV/RGB/HSL state. The global flow has no UI surface to update — the only side-effects are the clipboard write + the history insert. Skipping the event keeps the global path independent of whatever the modal's state is (open, closed, mid-pick, …).
+
+### TCC
+
+`NSColorSampler` (macOS) reads pixels via Quartz; the Windows GDI overlay reads via `GetPixel`. **Neither path goes through `screencapture`**, so the Screen Recording TCC grant that OCR + screenshot need is *not* needed for the eyedropper. The first time the user invokes it macOS may briefly request input monitoring (rare and granular), but most users see no prompt at all.
+
+### IPC
+
+| Command | Returns | Notes |
+|---------|---------|-------|
+| `eyedropper_to_clipboard` | `void` | Fire-and-forget. The actual pick is async. |
+
 ## See also
 
 - [`core/frontend/src/lib/calc.ts`](../core/frontend/src/lib/calc.ts) — the sibling inline calculator. Same Alfred-inspired pattern.

@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="docs/inspector-rust.png?v=1" alt="Built with Rust" width="200" />
+  <img src="docs/inspector-rust.png?v=1" alt="Built with Rust" width="600" />
 
   # ClipSnap
 

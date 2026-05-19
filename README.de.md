@@ -197,6 +197,65 @@ Literal Control auf jedem OS — dieselbe Taste auf Windows und macOS. Beide ben
 
 Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben Popup hinter Tabs oben rechts — es gibt kein separates Fenster zum Alt-Tabben. **Settings → Keyboard shortcuts** trägt das komplette Cheat-Sheet.
 
+## Features & Shortcuts auf einen Blick
+
+### Globale Hotkeys — feuern von überall
+
+| Shortcut | Aktion | Benötigt (macOS) |
+|----------|--------|------------------|
+| `Ctrl+Shift+V` | Popup auf dem aktiven Monitor öffnen | — |
+| `Ctrl+Shift+O` | Bildschirm-Region-**OCR** → Text auf Clipboard + History | Bildschirmaufnahme |
+| `Ctrl+Shift+S` *(v0.15.0+)* | Bildschirm-Region-**Screenshot** → PNG auf Clipboard + History (kein OCR) | Bildschirmaufnahme |
+| `Alt+1` *(Default, konfigurierbar, opt-in)* | Snippet-Abbreviation in-place expandieren | Bedienungshilfen |
+| *(user-konfigurierbar)* | **Direct hotkey → snippet** — bestimmten Snippet-Body pasten | Bedienungshilfen |
+
+Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander-Hotkey ist opt-in (aus, bis du ihn in Settings → Text expander konfigurierst).
+
+### Popup-Shortcuts — wenn das Popup offen ist
+
+| Shortcut | Aktion |
+|----------|--------|
+| `↑` `↓` | In der Liste navigieren |
+| `Enter` | Ausgewählten Eintrag pasten (respektiert das Plain-Text-Setting) |
+| `Shift+Enter` | Mit Originalformatierung pasten (überschreibt das Plain-Text-Setting einmalig) |
+| `Esc` | Popup schließen |
+| `⌘B` / `Ctrl+B` | **Hintergrund freistellen** beim ausgewählten Image-Eintrag (ML — U²-Net) |
+| `⌘S` / `Ctrl+S` | **Bild in Downloads speichern** (PNG unverändert) |
+
+### Komplette Feature-Matrix
+
+| Feature | Wo triggern | Doku |
+|---------|-------------|------|
+| Clipboard-History (Text/RTF/HTML/PNG/Files, 1 000 Einträge, dedupliziert) | `Ctrl+Shift+V` → suchen | core |
+| Fuzzy-Suche (`fuse.js`, Threshold 0.4) | Im Suchfeld tippen | core |
+| **Inline-Taschenrechner** | Ausdruck im Suchfeld tippen (`2+2`, `sqrt(9)`, `sin(pi/2)`, `0xff << 4`, …) | core |
+| **Farb-Konverter** | `#RRGGBB` / `rgb(…)` / `hsl(…)` im Suchfeld tippen → Swatch + alle Formate | [colors.md](./docs/colors.md) |
+| **HSV-Color-Picker-Modal** | History-Tab → *Color Picker*-Button → Hue-Slider + Swatch + Hex/RGB/HSL-Tabs | [colors.md](./docs/colors.md) |
+| **Screen-Eyedropper** (Pipettieren überall) | *Color Picker*-Modal → *Pick from screen* (macOS `NSColorSampler`-Lupe / Windows GDI-Overlay) | [colors.md](./docs/colors.md) |
+| Snippet-Search-as-you-type | Snippet-Abbreviation im Popup-Suchfeld tippen | [text-expander.md](./docs/text-expander.md) |
+| Abbreviation-Expander (system-weit) | Abbreviation in irgendein Textfeld tippen → `Alt+1` (Default) | [text-expander.md](./docs/text-expander.md) |
+| Direct hotkey → snippet *(v0.13.0+)* | User-bound globaler Hotkey | [text-expander.md](./docs/text-expander.md) |
+| 25 gebündelte AI-Prompt-Snippets (`ai*`) | Snippets-Tab; Search / Abbreviation / Direct-Slot | [ai-prompts.md](./docs/ai-prompts.md) |
+| Snippets CRUD + JSON-Import | Snippets-Tab → Formular / Import-Button | [snippets-import.md](./docs/snippets-import.md) |
+| Notes — kategorisierte persistente Bookmarks | Notes-Tab (Tray: *Manage Notes*) | [notes.md](./docs/notes.md) |
+| Clip als Note speichern | Hover über History-Zeile → Bookmark-Icon | [notes.md](./docs/notes.md) |
+| **Bildschirm-Region-OCR** *(macOS, v0.9.0+)* | `Ctrl+Shift+O` oder Tray *OCR Region* | core |
+| **Bildschirm-Region-Screenshot** *(macOS, v0.15.0+)* | `Ctrl+Shift+S` oder Tray *Screenshot Region* | core |
+| **Bild-Recolor** (Logo-Tinten, Chromaticity-gated) | Preview-Pane bei Image-Eintrag → Swatch / Hex | core |
+| **ML-Hintergrund-Cutout** (U²-Net-ONNX, ~4,5 MB embedded) | Preview-Pane → *Cut out background* oder `⌘B` | core |
+| Bild in Downloads speichern | Preview-Pane oder `⌘S` (PNG unverändert) | core |
+| Backup — Single-File-JSON-Export/Import (History + Snippets + Notes, per-Sektion ankreuzbar) | Settings → Backup & restore | [backup.md](./docs/backup.md) |
+| Plain-Text-only Paste *(Default an, v0.4.0+)* | Settings → Paste (Shift+Enter überschreibt einmal) | core |
+| Autostart bei Login *(v0.14.0+)* | Settings → Startup *oder* Tray-Checkmark | core |
+| Clipboard-Capture pausieren | Tray → *Pause Capture* | core |
+| History löschen (mit Bestätigung) | Tray → *Clear History…* | core |
+| **AES-256-GCM at-rest** (alle Bodies) *(v0.6.0+)* | Automatisch; Key im OS-Keychain | [encryption.md](./docs/encryption.md) |
+| Per-Monitor-Popup-Placement | Automatisch (öffnet auf Monitor mit Cursor) | core |
+| Multi-Tab-UI | Popup oben-rechts Tabs: History · Snippets · Notes · Settings | core |
+| Permissions-UX (TCC-Banner + 1-s-Polling + `tccutil reset`-Recovery) | Settings → Permissions-Sektion *(macOS)* | core |
+| Keyboard-Shortcuts-Cheat-Sheet | Settings → *Keyboard shortcuts* (OS-adaptive Glyphen) | core |
+| About-Dialog | Settings → About | core |
+
 ## Features
 
 ### Clipboard-Core

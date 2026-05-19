@@ -10,7 +10,7 @@
   Searchable history, system-wide snippets, inline calculator, color picker, image recolor + background removal, screen-region OCR — all behind one hotkey, all local, AES-256 encrypted at rest.
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.14.0-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
+  [![Version](https://img.shields.io/badge/version-0.14.2-blue?style=flat-square)](https://github.com/pepperonas/clipsnap/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/clipsnap/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/clipsnap/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/clipsnap/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/clipsnap/actions/workflows/release.yml)
@@ -155,7 +155,7 @@ Type a math expression in the search field, the result appears as the top list i
 - Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 tests. Reference: [`docs/colors.md`](./docs/colors.md).
 
 ### Screen-region OCR (v0.9.0, macOS)
-Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands in the History tab and the source PNG is kept as a separate image entry so you can re-OCR a different region without rescreenshotting. The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
+Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → ClipSnap runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands at the top of History; the source PNG is kept as a separate image entry just below, so you can re-OCR a different region without rescreenshotting and pressing Enter on the auto-selected top entry pastes the **text**, not the screenshot (ordering fixed in v0.14.2). The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
 
 - **Region picker** — uses `screencapture -i` (the same binary as Cmd+Shift+4), so the marquee UX is the polished one users already know. Esc cancels cleanly.
 - **Engine** — Vision's `VNRecognizeTextRequest` with accuracy=Accurate + language correction; same engine that powers Apple Live Text. No model bundling, no network.

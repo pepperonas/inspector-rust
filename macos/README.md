@@ -65,7 +65,7 @@ Without Accessibility access the popup still opens and you can read entries, but
 
 #### Why the dialog re-appears after every rebuild — and how it's mitigated
 
-macOS TCC binds the Accessibility grant to the app's **(bundle id, cdhash)** tuple. On macOS Sequoia (15) and Tahoe (26) this binding is *strict* — when the cdhash changes, the grant is dropped. Without an Apple Developer ID, ClipSnap is ad-hoc-signed; re-signing is needed for a stable bundle id, but each `codesign` invocation embeds a fresh CMS timestamp **and** Rust release builds aren't byte-reproducible, so naïvely re-signing on every install gives a new cdhash every time → grant invalidated.
+macOS TCC binds **every** grant (Accessibility, Screen Recording, PostEvent) to the app's **(bundle id, cdhash)** tuple. On macOS Sequoia (15) and Tahoe (26) this binding is *strict* — when the cdhash changes, every grant for that bundle id is dropped (the System Settings toggle may keep reading "on", but the running process is denied). Without an Apple Developer ID, ClipSnap is ad-hoc-signed; re-signing is needed for a stable bundle id, but each `codesign` invocation embeds a fresh CMS timestamp **and** Rust release builds aren't byte-reproducible, so naïvely re-signing on every install gives a new cdhash every time → all grants invalidated.
 
 The `scripts/install-macos.sh` helper handles this in two ways:
 
@@ -77,8 +77,11 @@ The `scripts/install-macos.sh` helper handles this in two ways:
 # actually changed.
 bash scripts/install-macos.sh
 
-# Wipe stale TCC entries first — useful after multiple zombie ClipSnap
-# entries pile up in System Settings from old builds.
+# Wipe stale TCC entries first (Accessibility + PostEvent + ScreenCapture)
+# — useful after multiple zombie ClipSnap entries pile up in System
+# Settings from old builds, or when the toggle reads "on" but a feature
+# (OCR / paste / expander) still acts denied because the OS-saved grant
+# is bound to the previous cdhash.
 bash scripts/install-macos.sh --reset
 ```
 

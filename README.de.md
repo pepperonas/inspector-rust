@@ -200,6 +200,10 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
 
 ## Features & Shortcuts auf einen Blick
 
+<div align="center">
+  <img src="docs/ir-ff-w1024-optimized.png?v=1" alt="Inspector Rust — Keyboard-first Clipboard-Toolkit" width="600" />
+</div>
+
 ### Globale Hotkeys — feuern von überall
 
 | Shortcut | Aktion | Benötigt (macOS) |
@@ -258,10 +262,6 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | Permissions-UX (TCC-Banner + 1-s-Polling + `tccutil reset`-Recovery) | Settings → Permissions-Sektion *(macOS)* | core |
 | Keyboard-Shortcuts-Cheat-Sheet | Settings → *Keyboard shortcuts* (OS-adaptive Glyphen) | core |
 | About-Dialog | Settings → About | core |
-
-<div align="center">
-  <img src="docs/ir-ff-w1024-optimized.png?v=1" alt="Inspector Rust — Keyboard-first Clipboard-Toolkit" width="600" />
-</div>
 
 ## Features
 

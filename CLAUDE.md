@@ -96,14 +96,20 @@ Assembly order in `App.tsx`: calc result first → snippet matches → fuzzy cli
 
 ### Tauri events
 
-| Rust `app.emit(...)` | Purpose |
-|---|---|
-| `"clipboard-changed"` | Triggers history re-fetch in `useClipboardHistory` |
-| `"window-shown"` | Resets to history tab + focuses search on hotkey press |
-| `"open-snippets-tab"` | Tray "Manage Snippets" → switches tab |
-| `"open-notes-tab"` | Tray "Manage Notes" → switches tab |
-| `"ocr-permission-needed"` | OCR hotkey pressed but Screen Recording not granted → frontend banner + Settings tab |
-| `"expander-permission-needed"` | Expander hotkey pressed but Accessibility not granted → frontend banner + Settings tab |
+Ten events total; the table maps each to where it's emitted and what the frontend does with it.
+
+| Rust `app.emit(...)` | Emitted from | Frontend reaction |
+|---|---|---|
+| `"clipboard-changed"` | `clipboard_watcher` + every `db::upsert_clip`-adjacent IPC | `useClipboardHistory` re-fetches the list |
+| `"capture-state-changed"` | Tray "Pause Capture" toggle | Header label flips between paused / active |
+| `"window-shown"` | `hotkey::show_popup` | Resets to History tab + focuses search bar |
+| `"popup-hidden"` | `hotkey::hide_popup` | Clears any transient toast / inline editor that shouldn't survive between sessions |
+| `"open-snippets-tab"` | Tray "Manage Snippets" | Frontend switches to Snippets tab |
+| `"open-notes-tab"` | Tray "Manage Notes" | Frontend switches to Notes tab |
+| `"ocr-permission-needed"` | OCR / Screenshot hotkey fails Screen Recording pre-check | Popup opens, Settings tab + amber banner with `Open System Settings` + `Force reset` |
+| `"expander-permission-needed"` | Expander hotkey fails Accessibility pre-check | Popup opens, Settings tab + amber banner (same shape as OCR banner) |
+| `"autostart-changed"` (v0.14.0) | Tray "Start at Login" toggle | Settings → Startup checkbox reconciles to the now-effective OS state |
+| `"color-picked"` | `pick_screen_color` worker completes (NSColorSampler / GDI overlay) | `ColorPickerModal` stores the hex; payload is `string \| null` (`null` = cancelled) |
 
 ### Text expander (`expander.rs`)
 

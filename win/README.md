@@ -23,7 +23,7 @@ pnpm build:win        # produces the .msi installer
 The `.msi` lands at:
 
 ```
-win/src-tauri/target/release/bundle/msi/inspector-rust_<version>_x64_en-US.msi
+win/src-tauri/target/release/bundle/msi/InspectorRust_<version>_x64_en-US.msi
 ```
 
 Double-click to install. Inspector Rust launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Shift+V`.

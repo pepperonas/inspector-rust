@@ -19,7 +19,7 @@ This is a hard rebrand. Every user-visible "ClipSnap" string is now "Inspector R
 - **Cargo packages**: `clipsnap-core` → `inspector-rust-core`, `clipsnap-win` → `inspector-rust-win`, `clipsnap-macos` → `inspector-rust-macos`. Lib code identifier `clipsnap_core` → `inspector_rust_core` (Rust auto-converts the hyphen).
 - **Binary name**: `clipsnap` → `inspector-rust` (`win/src-tauri/Cargo.toml`'s `[[bin]] name`).
 - **npm packages**: `clipsnap` → `inspector-rust`, `clipsnap-frontend` → `inspector-rust-frontend`, `clipsnap-{win,macos}` → `inspector-rust-{win,macos}`. The `pnpm dev:macos` / `pnpm build:win` aliases at the workspace root still work — they were already platform-named, not brand-named.
-- **Release-artifact filenames**: `ClipSnap_<ver>_x64_en-US.msi` → `inspector-rust_<ver>_x64_en-US.msi`; `ClipSnap_<ver>_aarch64.dmg` → `inspector-rust_<ver>_aarch64.dmg`; the `clipsnap.exe` Windows standalone → `inspector-rust.exe`.
+- **Release-artifact filenames**: `ClipSnap_<ver>_x64_en-US.msi` → `InspectorRust_<ver>_x64_en-US.msi`; `ClipSnap_<ver>_aarch64.dmg` → `InspectorRust_<ver>_aarch64.dmg`; the `clipsnap.exe` Windows standalone → `inspector-rust.exe`.
 - **Output file prefixes**: `~/Downloads/clipsnap-image-<ts>.png` / `clipsnap-cutout-<ts>.png` → `inspector-rust-image-<ts>.png` / `inspector-rust-cutout-<ts>.png` (cutout-ML feature).
 - **GitHub remote**: `https://github.com/pepperonas/clipsnap` → `https://github.com/pepperonas/inspector-rust`. GitHub auto-redirects the old URL for clones / git fetches, but please update your remotes (`git remote set-url origin https://github.com/pepperonas/inspector-rust.git`).
 - **Win32 window class** (eyedropper overlay): `ClipSnapEyeDropper` → `InspectorRustEyeDropper`.

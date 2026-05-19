@@ -26,7 +26,7 @@
   Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **110 Rust unit tests + 86 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.15.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.16.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -102,7 +102,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-58-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-59-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-10-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-22-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -154,9 +154,9 @@
 
 | Platform | File | Notes |
 |----------|------|-------|
-| **Windows 11 / 10** | [`inspector-rust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
+| **Windows 11 / 10** | [`InspectorRust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
-| **macOS 10.15+ (Apple Silicon)** | [`inspector-rust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
+| **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
 | **macOS Intel** | — | Build from source: [`macos/README.md`](./macos/README.md) |
 | **Linux** | — | Planned for a later release |
 
@@ -182,7 +182,12 @@ All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`)
 
 Inspector Rust is built for one workflow: **`Ctrl+Shift+V` → type → Enter**. The hotkey opens a frameless popup over the active monitor; whatever you type is fuzzy-searched across clipboard history, snippets, calc results, and color values; Enter pastes the top match into the previously focused app. No mouse, no menu trees, no per-app integrations.
 
-A second global shortcut, **`Ctrl+Shift+O`** (literal Control on every OS — same key on Windows and macOS), fires the screen-region OCR — drag a marquee, the recognised text lands in your clipboard. Both shortcuts work from anywhere; Inspector Rust's window doesn't need to be open or focused.
+Two more global shortcuts fire from anywhere — Inspector Rust's window doesn't need to be open or focused:
+
+- **`Ctrl+Shift+O`** — screen-region **OCR**. Drag a marquee, Apple Vision recognises the text in the region, the text lands on your clipboard + at the top of History.
+- **`Ctrl+Shift+S`** *(v0.15.0+)* — screen-region **screenshot**. Same marquee, but no OCR step: the captured PNG goes straight to the clipboard and into History. Use this when the region has no text (chart, button, photo, UI mockup) or you want the image itself.
+
+Literal Control on every OS — same key on Windows and macOS. Both require the macOS **Screen Recording** TCC grant.
 
 Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
@@ -256,7 +261,7 @@ Settings tab → *Backup & restore* → tick history / snippets / notes individu
 HTML / RTF clipboard entries are stripped to their text preview at paste time, so copy-from-Word / browser / mail no longer leaks styling into other apps. Toggle in Settings → Paste. Shift+Enter in the popup overrides for one paste.
 
 ### Permissions UX (v0.11.0)
-Inspector Rust needs **two** independent macOS TCC grants — Accessibility (paste) and Screen Recording (OCR). The Settings tab surfaces each as a collapsible amber banner that:
+Inspector Rust needs **two** independent macOS TCC grants — Accessibility (paste + text expander) and Screen Recording (OCR + screenshot region). The Settings tab surfaces each as a collapsible amber banner that:
 
 - Stays loud (border + warning icon + primary `Open System Settings` button) when missing, but collapses to a single row by default so the page isn't cluttered.
 - Pre-checks before invoking the relevant native call. OCR returns a `screen.permission_denied` sentinel rather than failing silently when Screen Recording is denied; a Tauri event opens the popup + flips an in-app toast banner pointing at the right pane.
@@ -264,12 +269,12 @@ Inspector Rust needs **two** independent macOS TCC grants — Accessibility (pas
 - Each banner has a `tccutil reset` recovery button for the "toggle says on but the running process still sees denied" stale-cdhash state.
 
 ### Discoverability (v0.10.7)
-- **Footer hint** — `⌃⇧O OCR` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the OCR shortcut every time they open the popup.
+- **Footer hints** — `⌃⇧O OCR` + `⌃⇧S Shot` rendered next to the `⏎ Paste · ↑↓ Navigate · Esc Close` strip so users see the global shortcuts every time they open the popup.
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 
 ### System tray + multi-monitor
-- **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
+- **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · **Screenshot Region (Ctrl+Shift+S)** *(v0.15.0+)* · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
 - **Autostart on login** (v0.14.0) — toggle in Settings → Startup, or from the tray menu. macOS writes `~/Library/LaunchAgents/InspectorRust.plist`; Windows uses the run-key registry entry. App launches hidden in the tray so it's ready when the popup hotkey hits.
 - **Multi-monitor placement:** popup opens on the monitor with the cursor, horizontally centered, ~⅓ from the top, clamped to the active monitor's bounds (matters on mixed-DPI setups).
 
@@ -302,15 +307,15 @@ inspector-rust/
 │           ├── expander.rs           # trigger-based text expander (AX/UIA primary, clipboard fallback)
 │           ├── text_field/           # FieldAccess trait + macOS AX + Windows UIA implementations
 │           ├── paste.rs              # write_to_clipboard + enigo paste shortcut
-│           ├── hotkey.rs             # global Ctrl+Shift+V + Ctrl+Shift+O + expander hotkey
+│           ├── hotkey.rs             # global Ctrl+Shift+V + Ctrl+Shift+O + Ctrl+Shift+S + expander hotkey + direct slots
 │           ├── clipboard_watcher.rs  # event-driven capture, RTF stripping (image > files priority)
 │           ├── recolor.rs            # image tint (lerp target ↔ white by per-pixel luminance)
 │           ├── cutout.rs             # legacy chroma-key cutout (kept as fast-path option)
 │           ├── cutout_ml.rs          # U²-Net-based subject cutout via `ort` (ONNX Runtime)
 │           ├── screen_picker.rs      # color eyedropper (NSColorSampler / GDI overlay)
-│           ├── region_picker.rs      # screencapture -i wrapper for OCR region selection
+│           ├── region_picker.rs      # screencapture -i wrapper — shared by OCR + screenshot pipelines
 │           ├── ocr.rs                # Apple Vision (VNRecognizeTextRequest) wrapper
-│           └── screen_recording.rs   # macOS Screen Recording TCC permission API
+│           └── screen_recording.rs   # macOS Screen Recording TCC permission API — gates OCR + screenshot
 ├── win/                     # Windows-specific bundle shell
 │   ├── README.md            # Windows install & build details
 │   ├── package.json         # Tauri CLI entry
@@ -363,11 +368,11 @@ pnpm install          # install the whole workspace (CI uses --frozen-lockfile)
 
 # Windows
 pnpm dev:win          # tauri dev — live-reload
-pnpm build:win        # → target/release/bundle/msi/inspector-rust_x.x.x_x64_en-US.msi
+pnpm build:win        # → target/release/bundle/msi/InspectorRust_x.x.x_x64_en-US.msi
 
 # macOS
 pnpm dev:macos                      # tauri dev — live-reload
-pnpm build:macos                    # → target/release/bundle/{macos/InspectorRust.app, dmg/inspector-rust_x.x.x_<arch>.dmg}
+pnpm build:macos                    # → target/release/bundle/{macos/InspectorRust.app, dmg/InspectorRust_x.x.x_<arch>.dmg}
 bash scripts/install-macos.sh       # build + re-sign + install into /Applications + launch
 bash scripts/install-macos.sh --reset  # …also tccutil-reset stale Accessibility grants (use after first run)
 ```
@@ -427,10 +432,10 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **File paste fallback** | Setting file-list clipboard payloads from Rust is not universally supported; Inspector Rust falls back to pasting the newline-joined list of paths as text. |
 | **Expander in terminals: use a direct slot** | The *abbreviation* expander does nothing on a terminal command line (Terminal.app, iTerm2, kitty, …) — terminals don't expose the input line via accessibility and a shell prompt has no GUI "select previous word". Use a **Direct hotkey → snippet** slot there (v0.13.0 — pastes without reading anything, works everywhere) or the popup (`Ctrl+Shift+V` → search → Enter). Electron / Chromium / Mac-Catalyst apps (WhatsApp, Slack, VS Code, …) *are* supported by the abbreviation expander as of v0.12.0, via an AX-select-then-paste path. |
 | **macOS Accessibility** | Paste simulation (`enigo`) and the system-wide text expander require Accessibility access. Grant it once in System Settings → Privacy & Security → Accessibility. If missing, Inspector Rust shows an amber banner with an `Open Settings` button on the next paste attempt — and, since v0.12.0, also when the expander hotkey is pressed — instead of silently failing or re-firing the system dialog (v0.5.1 / v0.12.0). |
-| **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) requires Screen Recording access — `screencapture -i` is attributed to Inspector Rust and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
+| **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) **and** screenshot region (`Ctrl+Shift+S`, v0.15.0+) both require Screen Recording access — `screencapture -i` is attributed to Inspector Rust and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
 | **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
-| **OCR is macOS-only for now** | Region capture and Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows path will use `Windows.Media.Ocr` in a follow-up release. |
+| **OCR + Screenshot are macOS-only for now** | Region capture (shared by OCR and the v0.15.0 screenshot pipeline) plus Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` / `screenshotRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows region capture will use `Graphics.Capture` and Vision-equivalent OCR via `Windows.Media.Ocr` in a follow-up release. |
 
 ## Contributing
 

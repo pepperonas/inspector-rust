@@ -113,8 +113,8 @@ gh release view v0.x.y          # confirm assets are attached
 Expected assets after a successful run:
 
 - `inspector-rust.exe` (Windows standalone executable, ~14 MB)
-- `inspector-rust_<version>_x64_en-US.msi` (Windows installer, ~5 MB)
-- `inspector-rust_<version>_aarch64.dmg` (macOS Apple Silicon DMG, ~5 MB)
+- `InspectorRust_<version>_x64_en-US.msi` (Windows installer, ~5 MB)
+- `InspectorRust_<version>_aarch64.dmg` (macOS Apple Silicon DMG, ~5 MB)
 
 ## If a build fails
 
@@ -134,13 +134,13 @@ pnpm install
 pnpm build:win
 gh release upload v0.x.y \
   target/release/inspector-rust.exe \
-  target/release/bundle/msi/inspector-rust_*.msi
+  target/release/bundle/msi/InspectorRust_*.msi
 
 # macOS (must be a macOS host)
 pnpm install
 pnpm build:macos
 gh release upload v0.x.y \
-  target/release/bundle/dmg/inspector-rust_*.dmg
+  target/release/bundle/dmg/InspectorRust_*.dmg
 ```
 
 Or seed the release without binaries:

@@ -25,7 +25,7 @@ Outputs:
 
 ```
 target/release/bundle/macos/InspectorRust.app
-target/release/bundle/dmg/inspector-rust_x.x.x_<arch>.dmg
+target/release/bundle/dmg/InspectorRust_x.x.x_<arch>.dmg
 ```
 
 If only the `.app` is needed (no DMG), build directly:

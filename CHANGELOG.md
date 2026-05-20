@@ -4,6 +4,31 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] — 2026-05-20
+
+### Fixed — Color Picker on multi-screen setups (loupe appeared on main display instead of cursor display)
+
+The `NSColorSampler` loupe always appeared on the **main display**, regardless of which monitor the user's cursor was actually on. Symptom: trigger `Ctrl+Shift+C` (or the in-modal Color Picker → "Pick from screen" button) with your cursor on a secondary monitor, and the magnifier appeared on the primary one — invisible to you until you moved the cursor over.
+
+Root cause: macOS positions `NSColorSampler` on the calling app's **primary screen**. The "primary screen" is decided by where the app's most-recently-active window was. Inspector Rust's popup was hidden *before* the sampler was launched, and the popup's last known position (= whichever screen the user opened it on) was sometimes a different display than the cursor's. The `setActivationPolicy: Regular` + `activateIgnoringOtherApps:` pair that's needed to make `NSColorSampler` render its loupe then anchored the app to that stale screen.
+
+**Fix:** before hiding the popup for either the eyedropper-pipeline (`Ctrl+Shift+C`) or the modal-flow Pick-from-screen button, park the popup at the centre of the cursor's monitor via the new `hotkey::park_on_cursor_monitor` helper (reuses the existing `pick_cursor_monitor` lookup that the popup-show path already uses). The hidden popup's "last seen" screen is then the right one, the activation snaps to the cursor's display, and the loupe renders where the user expects it.
+
+- One-liner in two call-sites (`commands::run_eyedropper_pipeline` + `commands::pick_screen_color`); no behaviour change for single-screen users.
+- No new dependencies. Cost: a single `set_position` call before each pick (~µs).
+
+### Changed — fresh launcher icon set
+
+App icons regenerated via `tauri icon` from `docs/inspector-rust.png` (the detective-themed hero artwork — same image used at the top of the README). Affects every bundled icon size: macOS `.icns`, Windows `.ico`, all `Square*Logo.png` Microsoft Store tile sizes, plus the platform PNG ladder (32×32 → 1024×1024).
+
+- macOS Dock + Spotlight + Cmd-Tab → new icon.
+- Windows Start menu + taskbar → new icon.
+- New install ⇒ new icon. Existing macOS installs may need a Dock relaunch (`killall Dock`) to refresh the cached icon.
+
+### Why 0.19.1
+
+Two patch-level changes: a one-line multi-screen UX fix + an asset refresh (no code semantics changed by the icon swap). 0.x.y bump per `docs/RELEASING.md`.
+
 ## [0.19.0] — 2026-05-20
 
 ### Added — system-level power commands (kill / reboot / shutdown / lock)

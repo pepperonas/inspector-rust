@@ -609,6 +609,27 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     Ok(())
 }
 
+/// Park the (typically hidden) popup window onto the monitor that
+/// currently contains the OS cursor. Used by features whose system
+/// overlay (NSColorSampler eyedropper, screencapture region selector)
+/// renders on the **active app's primary screen** — without this, the
+/// loupe / marquee can appear on a different display than the one the
+/// user's cursor is actually on, breaking the multi-screen workflow.
+///
+/// Cheap: a single `set_position` call. Idempotent — if the popup is
+/// already on the cursor's monitor, nothing meaningfully changes.
+pub fn park_on_cursor_monitor(window: &WebviewWindow) {
+    if let Some(m) = pick_cursor_monitor(window) {
+        let mpos = m.position();
+        let msize = m.size();
+        // Park at the monitor's centre — symmetric, doesn't bias to a
+        // corner if the next `show()` doesn't run.
+        let parked_x = mpos.x + (msize.width as i32 / 2);
+        let parked_y = mpos.y + (msize.height as i32 / 2);
+        let _ = window.set_position(PhysicalPosition::new(parked_x, parked_y));
+    }
+}
+
 /// Find the monitor that contains the OS cursor; fall back to primary.
 fn pick_cursor_monitor(window: &WebviewWindow) -> Option<Monitor> {
     let pos = window.cursor_position().ok()?;

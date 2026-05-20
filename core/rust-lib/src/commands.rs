@@ -661,6 +661,11 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
         ui.suppress_hide.store(true, Ordering::Relaxed);
     }
     if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+        // Same multi-screen fix as run_eyedropper_pipeline — park the
+        // popup on the cursor's monitor before hiding so the
+        // NSColorSampler loupe appears on the right display in
+        // multi-monitor setups.
+        crate::hotkey::park_on_cursor_monitor(&w);
         let _ = w.hide();
     }
 
@@ -1189,6 +1194,13 @@ pub fn run_eyedropper_pipeline(app: &AppHandle) {
         ui.suppress_hide.store(true, Ordering::Relaxed);
     }
     if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+        // Multi-screen fix: park the popup on the cursor's monitor BEFORE
+        // hiding it. When NSColorSampler shows its loupe, macOS positions
+        // it on the calling app's *primary* screen — and that primary
+        // screen is decided by where the app's last-active window was.
+        // Without this park step, the loupe always appears on the main
+        // display, even if the user moved the cursor to a secondary one.
+        crate::hotkey::park_on_cursor_monitor(&w);
         let _ = w.hide();
     }
 

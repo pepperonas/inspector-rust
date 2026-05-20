@@ -486,6 +486,48 @@ export function removeVowelsToClipboard(text: string): Promise<string> {
   return invoke("remove_vowels_to_clipboard", { text });
 }
 
+// ── System commands (kill / reboot / shutdown / lock) ────────────────
+
+/** One row from the kill-picker process list. */
+export interface ProcessInfo {
+  pid: number;
+  name: string;
+  memory_mb: number;
+  exe: string;
+}
+
+/** Snapshot of currently-running processes, sorted by memory desc.
+ *  Excludes the Inspector Rust process itself. Backend:
+ *  `commands::list_processes`. */
+export function listProcesses(): Promise<ProcessInfo[]> {
+  return invoke("list_processes");
+}
+
+/** Send SIGTERM (graceful) or SIGKILL (force) to a process. Errors
+ *  if the PID is unknown or we don't have permission. Backend:
+ *  `commands::kill_process`. */
+export function killProcess(pid: number, force: boolean): Promise<void> {
+  return invoke("kill_process", { pid, force });
+}
+
+/** Restart the system gracefully (osascript → loginwindow). macOS-only;
+ *  Windows returns "not implemented". Backend: `commands::system_reboot`. */
+export function systemReboot(): Promise<void> {
+  return invoke("system_reboot");
+}
+
+/** Power down the system gracefully. macOS-only; same semantics as
+ *  reboot but a different Apple Event. Backend: `commands::system_shutdown`. */
+export function systemShutdown(): Promise<void> {
+  return invoke("system_shutdown");
+}
+
+/** Lock the screen (`pmset displaysleepnow`). macOS-only; no privilege
+ *  required. Backend: `commands::system_lock`. */
+export function systemLock(): Promise<void> {
+  return invoke("system_lock");
+}
+
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
 /** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)

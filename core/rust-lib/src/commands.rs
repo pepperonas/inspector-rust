@@ -1298,6 +1298,45 @@ pub fn remove_vowels_to_clipboard(app: AppHandle, text: String) -> Result<String
     Ok(stripped)
 }
 
+// ── System commands (kill / reboot / shutdown / lock) ─────────────────
+
+/// List running processes for the `kill` live picker. Sorted by memory
+/// usage descending so the picker surfaces heavy apps first.
+#[tauri::command]
+pub fn list_processes() -> Result<Vec<crate::system_commands::ProcessInfo>, String> {
+    crate::system_commands::list_running_processes().map_err(map_err)
+}
+
+/// `kill <pid>` — send SIGTERM (graceful) by default, or SIGKILL (force
+/// quit) when `force = true`. Requires no special permission for
+/// processes owned by the current user.
+#[tauri::command]
+pub fn kill_process(pid: u32, force: bool) -> Result<(), String> {
+    crate::system_commands::kill_process_by_pid(pid, force).map_err(map_err)
+}
+
+/// `reboot` — restart the system gracefully via `osascript` → loginwindow.
+/// macOS will show its usual "These apps have unsaved changes…" prompt;
+/// no sudo required.
+#[tauri::command]
+pub fn system_reboot() -> Result<(), String> {
+    crate::system_commands::system_reboot().map_err(map_err)
+}
+
+/// `shutdown` — power down the system gracefully (same graceful path as
+/// reboot, just a different Apple Event).
+#[tauri::command]
+pub fn system_shutdown() -> Result<(), String> {
+    crate::system_commands::system_shutdown().map_err(map_err)
+}
+
+/// `lock` — lock the screen via `pmset displaysleepnow`. Requires no
+/// privilege.
+#[tauri::command]
+pub fn system_lock() -> Result<(), String> {
+    crate::system_commands::system_lock().map_err(map_err)
+}
+
 /// Strip vowels (English aeiou + uppercase + German umlauts) from `s`.
 /// Pure function — public so the unit tests can exercise it without
 /// going through the IPC + clipboard plumbing.

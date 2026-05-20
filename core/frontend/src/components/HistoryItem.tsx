@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, FileCode2, FileText, Files, Image, Palette, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, FileCode2, FileText, Files, Image, Palette, Skull, Terminal, Trash2, Type, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
@@ -23,6 +23,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "color") return <Palette size={size} className={cls} />;
   if (entry.kind === "command") return <Terminal size={size} className={cls} />;
   if (entry.kind === "command-suggestion") return <ChevronsRight size={size} className={cls} />;
+  if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -52,11 +53,12 @@ export const HistoryItem = memo(function HistoryItem({
   const isColor = entry.kind === "color";
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
+  const isKillTarget = entry.kind === "kill-target";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -114,6 +116,18 @@ export const HistoryItem = memo(function HistoryItem({
       }
     >
       hint
+    </span>
+  ) : isKillTarget && entry.kind === "kill-target" ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide tabular-nums " +
+        (selected
+          ? "bg-white/20 text-white/90"
+          : "bg-red-500/15 text-red-500")
+      }
+      title={entry.data.force ? "SIGKILL — force quit" : "SIGTERM — graceful"}
+    >
+      {entry.data.force ? "kill -9" : "kill"}
     </span>
   ) : (
     (() => {
@@ -238,6 +252,28 @@ export const HistoryItem = memo(function HistoryItem({
             >
               {entry.data.description}
             </span>
+          </span>
+        ) : isKillTarget && entry.kind === "kill-target" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-[var(--font-mono)]">
+              <span className="font-semibold">{entry.data.name}</span>
+              <span className={selected ? "text-white/60" : "text-[var(--color-muted)]"}>
+                {"  pid "}
+                <span className="tabular-nums">{entry.data.pid}</span>
+                {"  ·  "}
+                <span className="tabular-nums">{entry.data.memory_mb.toFixed(1)}</span> MB
+              </span>
+            </span>
+            {entry.data.exe && (
+              <span
+                className={
+                  "truncate text-[11px] " +
+                  (selected ? "text-white/70" : "text-[var(--color-muted)]")
+                }
+              >
+                {entry.data.exe}
+              </span>
+            )}
           </span>
         ) : (
           label

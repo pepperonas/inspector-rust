@@ -21,6 +21,7 @@ mod screen_recording;
 mod seed;
 mod settings;
 mod snippets;
+mod system_commands;
 mod text_field;
 mod ui_state;
 
@@ -235,6 +236,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::resize_clipboard_image,
             commands::optimize_clipboard_image,
             commands::remove_vowels_to_clipboard,
+            commands::list_processes,
+            commands::kill_process,
+            commands::system_reboot,
+            commands::system_shutdown,
+            commands::system_lock,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

@@ -145,7 +145,9 @@ export function HistoryList({
                         ? `cmd-${entry.data.commandKind}-${entry.data.rawInput}`
                         : entry.kind === "command-suggestion"
                           ? `sug-${entry.data.keyword}`
-                          : `c-${entry.data.id}`;
+                          : entry.kind === "kill-target"
+                            ? `kill-${entry.data.pid}`
+                            : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

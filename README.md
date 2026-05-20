@@ -29,7 +29,7 @@
 
   **Zero telemetry. Zero network calls. Zero account.** Your data lives at `~/Library/Application Support/InspectorRust/history.db` (macOS) or `%APPDATA%\InspectorRust\history.db` (Windows) and nowhere else. The 4.5 MB ONNX model is *bundled* — even cutouts run offline. The Vision OCR is *local* — Apple's on-device ML, no API key, no rate limit. The encryption keys never leave your machine, the snippets sync nowhere, the history is yours.
 
-  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **205 Rust unit tests + 142 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
+  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **210 Rust unit tests + 155 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>
@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.18.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.19.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -80,8 +80,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-205%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-142%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-210%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-155%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -114,9 +114,9 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-63-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-68-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-10-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-23-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
@@ -274,7 +274,11 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Power command — `rz <W>x<H>`** *(v0.18.0+)* | Search bar | Resize clipboard image via Lanczos3 (e.g. `rz 1200x800`) |
 | **Power command — `optim`** *(v0.18.0+)* | Search bar | Optimise clipboard PNG → `~/Downloads/inspector-rust-optim-<ts>.png` (lossless oxipng) |
 | **Power command — `rmvvls <text>`** *(v0.18.0+)* | Search bar | Strip vowels (aeiou + AEIOU + ä/ö/ü) → clipboard |
-| Power-command autocomplete | Type a partial keyword (`tre`, `rm`, …) → suggestion appears as a `hint` row | core |
+| **System command — `kill [-9] [pattern]`** *(v0.19.0+)* | Search bar — live process picker | Filter running processes, Enter → confirm → SIGTERM (or SIGKILL with `-9`) |
+| **System command — `reboot`** *(v0.19.0+)* | Search bar | Restart the system (macOS — confirms first, no sudo) |
+| **System command — `shutdown`** *(v0.19.0+)* | Search bar | Power off the system (macOS — confirms first, no sudo) |
+| **System command — `lock`** *(v0.19.0+)* | Search bar | Lock the screen (macOS — instant, no confirm) |
+| Power-command autocomplete | Type a partial keyword (`tre`, `rm`, `reb`, …) → suggestion appears as a `hint` row | core |
 
 ## Features
 

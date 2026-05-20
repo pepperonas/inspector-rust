@@ -145,6 +145,37 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  if (entry.kind === "kill-target") {
+    const sig = entry.data.force ? "SIGKILL (force quit)" : "SIGTERM (graceful)";
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Kill process
+        </div>
+        <div className="rounded-xl border border-red-500/40 bg-red-500/5 p-4">
+          <div className="text-[14px] font-semibold leading-snug">{entry.data.name}</div>
+          <div className="mt-2 grid grid-cols-[80px_1fr] gap-x-3 gap-y-1 text-[12px]">
+            <span className="text-[var(--color-muted)]">PID</span>
+            <span className="font-[var(--font-mono)] tabular-nums">{entry.data.pid}</span>
+            <span className="text-[var(--color-muted)]">Memory</span>
+            <span className="font-[var(--font-mono)] tabular-nums">{entry.data.memory_mb.toFixed(2)} MB</span>
+            <span className="text-[var(--color-muted)]">Signal</span>
+            <span className="font-[var(--font-mono)]">{sig}</span>
+            {entry.data.exe && (
+              <>
+                <span className="text-[var(--color-muted)]">Path</span>
+                <span className="break-all font-[var(--font-mono)] text-[11px]">{entry.data.exe}</span>
+              </>
+            )}
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter to confirm and kill
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "command-suggestion") {
     return (
       <div className="flex h-full flex-col gap-3 p-4">

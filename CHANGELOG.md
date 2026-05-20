@@ -4,6 +4,57 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] — 2026-05-20
+
+### Added — system-level power commands (kill / reboot / shutdown / lock)
+
+Four new commands extend the v0.18.0 search-bar palette into a
+proper power-user system control surface. Destructive commands
+guard against accidents with native `window.confirm` dialogs;
+locking the screen runs unconfirmed because it's cheap to undo.
+
+**`kill [-9] [pattern]` — live process picker** *(macOS / Linux)*
+
+Type `kill` alone → full process list (sorted by memory desc).
+Type `kill slack` → filtered to processes whose name or exe path
+contains "slack" (case-insensitive). Press Enter on a row → confirm
+dialog showing PID + name + signal → SIGTERM is sent.
+
+Add `-9` for SIGKILL: `kill -9 slack` filters the same way but
+arms the row for force-quit instead of graceful shutdown. After a
+successful kill the picker stays open and removes the killed PID
+from the snapshot, so you can chain kills without re-typing.
+
+- Backend: new `sysinfo`-crate-based `system_commands::list_running_processes` + `kill_process_by_pid(pid, force)`. List excludes the Inspector Rust process itself. ~10 ms for a full refresh on a typical desktop with 200+ processes.
+- Frontend: new `ListEntry` kind `kill-target`; App.tsx detects kill-mode and overrides the whole list (history is hidden in kill mode — no point conflating clipboard rows with destructive process rows). New picker preview card in `PreviewPanel` with PID / memory / signal / executable path.
+
+**`reboot` / `shutdown`** *(macOS only)*
+
+Both shell out to `osascript` driving `loginwindow` via the legacy
+Apple Events `aevtrrst` / `aevtrsdn`. No sudo required; macOS
+handles its own "These apps have unsaved changes" dialog after
+ours. Inspector Rust shows a native `window.confirm` first so a
+typo-then-Enter doesn't reboot your machine.
+
+**`lock`** *(macOS only)*
+
+Shells out to `pmset displaysleepnow`. Instant, no confirmation —
+the lock screen requires your password to dismiss, so the cost of
+an accidental lock is just one password entry. No privilege needed.
+
+### Why 0.19.0
+
+Four new IPC commands + one new `ListEntry` kind + one new Rust
+module + one new Cargo dep (`sysinfo`, ~150 KB). Backwards-compatible —
+non-system queries route as before. New feature-level surface → 0.x.0.
+
+### Windows
+
+System commands are macOS-only in this release. Windows attempts return
+`"not implemented on this platform"` and the frontend surfaces it as a
+toast. Follow-up planned: `ExitWindowsEx` for reboot/shutdown,
+`LockWorkStation` for lock, `OpenProcess` + `TerminateProcess` for kill.
+
 ## [0.18.0] — 2026-05-20
 
 ### Added — power-command palette in the search bar (six commands + autocomplete)

@@ -27,7 +27,11 @@ export type CommandKind =
   | "translate-auto"
   | "resize"
   | "optim"
-  | "rmvvls";
+  | "rmvvls"
+  | "kill"
+  | "reboot"
+  | "shutdown"
+  | "lock";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -86,6 +90,37 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "rmvvls <text>",
     description: "Remove vowels from text → clipboard (e.g. rmvvls hello → hll)",
     requiresArg: true,
+  },
+  // ── System commands ────────────────────────────────────────────────
+  {
+    kind: "kill",
+    keyword: "kill",
+    syntax: "kill [-9] [pattern]",
+    description: "Kill a process — live picker (e.g. kill slack, kill -9 …)",
+    // requiresArg = false → empty `kill` is valid; the UI opens the
+    // process picker showing all processes for selection.
+    requiresArg: false,
+  },
+  {
+    kind: "reboot",
+    keyword: "reboot",
+    syntax: "reboot",
+    description: "Restart the system (macOS — confirms before executing)",
+    requiresArg: false,
+  },
+  {
+    kind: "shutdown",
+    keyword: "shutdown",
+    syntax: "shutdown",
+    description: "Power off the system (macOS — confirms before executing)",
+    requiresArg: false,
+  },
+  {
+    kind: "lock",
+    keyword: "lock",
+    syntax: "lock",
+    description: "Lock the screen (macOS — no confirmation, instant)",
+    requiresArg: false,
   },
 ];
 
@@ -191,4 +226,21 @@ export function parseResizeArg(arg: string): { width: number; height: number } |
   const height = parseInt(match[2], 10);
   if (width <= 0 || height <= 0) return null;
   return { width, height };
+}
+
+/**
+ * Parse the kill command's argument into `{ force, pattern }`.
+ * - `kill <pattern>`     → force=false, pattern=<pattern>
+ * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>
+ * - `kill -9`            → force=true,  pattern=""   (show all, picker)
+ * - `kill`               → force=false, pattern=""   (show all, picker)
+ *
+ * Pattern matching is case-insensitive substring on the process name.
+ */
+export function parseKillArg(arg: string): { force: boolean; pattern: string } {
+  const trimmed = arg.trim();
+  if (trimmed === "-9" || trimmed.startsWith("-9 ")) {
+    return { force: true, pattern: trimmed.slice(2).trim() };
+  }
+  return { force: false, pattern: trimmed };
 }

@@ -74,7 +74,10 @@ export interface CommandEntryView {
     | "translate-auto"
     | "resize"
     | "optim"
-    | "rmvvls";
+    | "rmvvls"
+    | "reboot"
+    | "shutdown"
+    | "lock";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */
@@ -97,10 +100,23 @@ export interface CommandSuggestionView {
   completion: string;
 }
 
+/** One process in the `kill` live picker — surfaces as its own
+ *  ListEntry kind so the row gets its own icon + activation. */
+export interface KillTargetView {
+  pid: number;
+  name: string;
+  memory_mb: number;
+  exe: string;
+  /** Carry the `-9` flag through to activate so the user doesn't have
+   *  to re-type it after selecting a process. */
+  force: boolean;
+}
+
 export type ListEntry =
   | { kind: "clip"; data: ClipEntry }
   | { kind: "snippet"; data: Snippet }
   | { kind: "calc"; data: CalcEntry }
   | { kind: "color"; data: ColorEntryView }
   | { kind: "command"; data: CommandEntryView }
-  | { kind: "command-suggestion"; data: CommandSuggestionView };
+  | { kind: "command-suggestion"; data: CommandSuggestionView }
+  | { kind: "kill-target"; data: KillTargetView };

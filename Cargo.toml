@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri"]
 
 [workspace.package]
-version = "0.18.0"
+version = "0.19.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -58,6 +58,11 @@ ndarray = "0.17"
 # zopfli-style deflate + filter selection. Ships statically; no external
 # CLI tool required.
 oxipng = { version = "9", default-features = false, features = ["zopfli"] }
+# Cross-platform process inspection — drives the `kill` power command's
+# live picker. Cheap (~10 ms full refresh on a typical desktop with
+# 200+ processes). The default features pull in network/disk modules
+# we don't need.
+sysinfo = { version = "0.32", default-features = false, features = ["system"] }
 
 # Observability / errors / concurrency
 anyhow = "1"

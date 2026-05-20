@@ -3,13 +3,14 @@ import {
   COMMANDS,
   commandSuggestions,
   parseCommand,
+  parseKillArg,
   parseResizeArg,
   translateUrl,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 6 commands", () => {
-    expect(COMMANDS.length).toBe(6);
+  it("has 10 commands", () => {
+    expect(COMMANDS.length).toBe(10);
   });
 
   it("every keyword is unique", () => {
@@ -225,5 +226,79 @@ describe("parseResizeArg", () => {
 
   it("rejects empty input", () => {
     expect(parseResizeArg("")).toBeNull();
+  });
+});
+
+describe("parseCommand — system commands", () => {
+  it("parses kill alone (empty arg, picker mode)", () => {
+    const r = parseCommand("kill");
+    expect(r?.spec.kind).toBe("kill");
+    expect(r?.arg).toBe("");
+  });
+
+  it("parses kill with name pattern", () => {
+    const r = parseCommand("kill slack");
+    expect(r?.spec.kind).toBe("kill");
+    expect(r?.arg).toBe("slack");
+  });
+
+  it("parses kill -9 <pattern>", () => {
+    const r = parseCommand("kill -9 chrome");
+    expect(r?.spec.kind).toBe("kill");
+    expect(r?.arg).toBe("-9 chrome");
+  });
+
+  it("parses reboot/shutdown/lock without args", () => {
+    expect(parseCommand("reboot")?.spec.kind).toBe("reboot");
+    expect(parseCommand("shutdown")?.spec.kind).toBe("shutdown");
+    expect(parseCommand("lock")?.spec.kind).toBe("lock");
+  });
+});
+
+describe("parseKillArg", () => {
+  it("returns force=false and empty pattern for empty input", () => {
+    expect(parseKillArg("")).toEqual({ force: false, pattern: "" });
+  });
+
+  it("returns force=false with the given pattern", () => {
+    expect(parseKillArg("slack")).toEqual({ force: false, pattern: "slack" });
+    expect(parseKillArg("  chrome  ")).toEqual({ force: false, pattern: "chrome" });
+  });
+
+  it("detects -9 flag with following pattern", () => {
+    expect(parseKillArg("-9 slack")).toEqual({ force: true, pattern: "slack" });
+    expect(parseKillArg("-9  chrome  ")).toEqual({ force: true, pattern: "chrome" });
+  });
+
+  it("detects -9 alone (no pattern)", () => {
+    expect(parseKillArg("-9")).toEqual({ force: true, pattern: "" });
+  });
+
+  it("does NOT treat -9-prefixed words as force", () => {
+    // `-9foo` is a literal name beginning with `-`, not `-9 foo`.
+    expect(parseKillArg("-9foo")).toEqual({ force: false, pattern: "-9foo" });
+  });
+});
+
+describe("commandSuggestions — system commands", () => {
+  it("suggests kill / lock for prefix 'l'", () => {
+    const ks = commandSuggestions("l").map((c) => c.keyword);
+    expect(ks).toContain("lock");
+  });
+
+  it("suggests reboot for 'reb'", () => {
+    const ks = commandSuggestions("reb").map((c) => c.keyword);
+    expect(ks).toEqual(["reboot"]);
+  });
+
+  it("does not suggest 'lock' when exact-matched (no-arg runnable)", () => {
+    expect(commandSuggestions("lock")).toEqual([]);
+  });
+
+  it("does not suggest 'kill' alone — kill is requiresArg=false and runs via picker", () => {
+    // kill is requiresArg: false (the picker handles empty arg), so the
+    // suggestion list shouldn't include it when the user has already
+    // typed the full keyword.
+    expect(commandSuggestions("kill")).toEqual([]);
   });
 });

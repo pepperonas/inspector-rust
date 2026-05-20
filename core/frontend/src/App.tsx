@@ -18,6 +18,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   parseCommand,
+  parseKillArg,
   parseResizeArg,
   translateUrl,
   type ParsedCommand,
@@ -27,6 +28,8 @@ import {
   deleteEntry,
   findSnippets,
   hidePopup,
+  killProcess,
+  listProcesses,
   optimizeClipboardImage,
   pasteEntry,
   pasteEntryFormatted,
@@ -35,6 +38,10 @@ import {
   removeVowelsToClipboard,
   resizeClipboardImage,
   saveClipAsNote,
+  systemLock,
+  systemReboot,
+  systemShutdown,
+  type ProcessInfo,
 } from "./lib/ipc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ListEntry, Snippet } from "./lib/types";
@@ -105,8 +112,70 @@ function App() {
     [query],
   );
 
+  // ── Kill-mode: live process picker ──────────────────────────────────
+  // When the parsed command is `kill`, we override the whole combined
+  // list with the process picker — the user is clearly in destructive
+  // mode and showing clipboard history would just be noise. The picker
+  // fetches the live process snapshot on every refresh; cached for the
+  // current query.
+  const isKillMode = parsedCommand?.spec.kind === "kill";
+  const killArgs = useMemo(
+    () => (isKillMode ? parseKillArg(parsedCommand!.arg) : null),
+    [isKillMode, parsedCommand],
+  );
+  const [processSnapshot, setProcessSnapshot] = useState<ProcessInfo[]>([]);
+  useEffect(() => {
+    if (!isKillMode) {
+      setProcessSnapshot([]);
+      return;
+    }
+    let cancelled = false;
+    listProcesses()
+      .then((procs) => {
+        if (!cancelled) setProcessSnapshot(procs);
+      })
+      .catch((e) => {
+        console.error("list_processes failed", e);
+        if (!cancelled) setProcessSnapshot([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch only when entering/leaving kill mode or when the pattern
+    // changes meaningfully — the snapshot is small (~200 processes) and
+    // cheap to refresh, but no point hammering it on every keypress.
+  }, [isKillMode]);
+
+  const killTargetEntries: ListEntry[] = useMemo(() => {
+    if (!isKillMode || !killArgs) return [];
+    const pattern = killArgs.pattern.toLowerCase();
+    const filtered = pattern
+      ? processSnapshot.filter(
+          (p) =>
+            p.name.toLowerCase().includes(pattern) ||
+            p.exe.toLowerCase().includes(pattern),
+        )
+      : processSnapshot;
+    // Cap at 50 visible — anything more is noise; the user should
+    // refine the pattern.
+    return filtered.slice(0, 50).map(
+      (p): ListEntry => ({
+        kind: "kill-target",
+        data: {
+          pid: p.pid,
+          name: p.name,
+          memory_mb: p.memory_mb,
+          exe: p.exe,
+          force: killArgs.force,
+        },
+      }),
+    );
+  }, [isKillMode, killArgs, processSnapshot]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
+    // kill is rendered via killTargetEntries, not as a single command row.
+    if (parsedCommand.spec.kind === "kill") return null;
     const { spec, arg } = parsedCommand;
     let label: string;
     let hint: string;
@@ -136,13 +205,26 @@ function App() {
         hint = "Lossless oxipng (zopfli + filter selection)";
         break;
       case "rmvvls": {
-        // Preview the stripped result (frontend approximation — backend
-        // recomputes for the real write so this is just a UI hint).
         const preview = arg.replace(/[aeiouAEIOUäöüÄÖÜ]/g, "");
         label = `Remove vowels: "${arg}" → "${preview}"`;
         hint = "Stripped string lands on your clipboard";
         break;
       }
+      case "reboot":
+        label = "Restart the system";
+        hint = "macOS — confirms before executing (osascript → loginwindow)";
+        break;
+      case "shutdown":
+        label = "Power off the system";
+        hint = "macOS — confirms before executing (osascript → loginwindow)";
+        break;
+      case "lock":
+        label = "Lock the screen";
+        hint = "macOS — instant, no confirmation (pmset displaysleepnow)";
+        break;
+      default:
+        // kill is handled above; this guards against future additions.
+        return null;
     }
     return {
       kind: "command",
@@ -170,16 +252,21 @@ function App() {
     [commandSuggestionList],
   );
 
-  // Combine: command/suggestion first, then calc / color, then snippets,
-  // then history clips.
-  const combined: ListEntry[] = [
-    ...(commandEntry ? [commandEntry] : []),
-    ...suggestionEntries,
-    ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
-    ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
-    ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
-    ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
-  ];
+  // Combine: in kill mode, the process picker takes over the entire
+  // list (no point mixing clipboard history with process rows — they
+  // can't be activated the same way and would just confuse selection).
+  // Otherwise: command/suggestion first, then calc / color, then
+  // snippets, then history clips.
+  const combined: ListEntry[] = isKillMode
+    ? killTargetEntries
+    : [
+        ...(commandEntry ? [commandEntry] : []),
+        ...suggestionEntries,
+        ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
+        ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
+        ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
+        ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
+      ];
 
   // Find matching snippets whenever query changes.
   useEffect(() => {
@@ -313,7 +400,6 @@ function App() {
         } else if (commandKind === "resize") {
           const dims = parseResizeArg(arg);
           if (!dims) {
-            // Bad input — surface as a generic error, don't crash.
             setPasteError("other");
             return;
           }
@@ -325,7 +411,38 @@ function App() {
         } else if (commandKind === "rmvvls") {
           await removeVowelsToClipboard(arg);
           await hidePopup();
+        } else if (commandKind === "reboot") {
+          // Destructive: native confirmation before firing osascript.
+          if (!window.confirm("Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+            return;
+          }
+          await systemReboot();
+          await hidePopup();
+        } else if (commandKind === "shutdown") {
+          if (!window.confirm("Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+            return;
+          }
+          await systemShutdown();
+          await hidePopup();
+        } else if (commandKind === "lock") {
+          // No confirmation: locking is cheap to undo (just type password).
+          await systemLock();
+          await hidePopup();
         }
+        return;
+      } else if (target.kind === "kill-target") {
+        // Destructive: confirm before killing. The dialog shows the
+        // exact PID + name so the user can't mistake which process
+        // they're terminating.
+        const { pid, name, force } = target.data;
+        const sig = force ? "SIGKILL (force quit)" : "SIGTERM (graceful)";
+        if (!window.confirm(`Kill process?\n\n${name}\nPID ${pid}\nSignal: ${sig}`)) {
+          return;
+        }
+        await killProcess(pid, force);
+        // Stay open — the user might want to kill another one. Just
+        // refresh the snapshot by triggering a re-fetch.
+        setProcessSnapshot((cur) => cur.filter((p) => p.pid !== pid));
         return;
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting

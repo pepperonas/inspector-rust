@@ -141,7 +141,11 @@ export function HistoryList({
                     ? `calc-${entry.data.expression}`
                     : entry.kind === "color"
                       ? `color-${entry.data.hex}`
-                      : `c-${entry.data.id}`;
+                      : entry.kind === "command"
+                        ? `cmd-${entry.data.commandKind}-${entry.data.rawInput}`
+                        : entry.kind === "command-suggestion"
+                          ? `sug-${entry.data.keyword}`
+                          : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

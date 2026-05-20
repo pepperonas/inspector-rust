@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri"]
 
 [workspace.package]
-version = "0.17.0"
+version = "0.18.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -54,6 +54,10 @@ image = { version = "0.25", default-features = false, features = [
 # pre-installed. ndarray is used to build the input tensor.
 ort = { version = "2.0.0-rc.12", features = ["ndarray"] }
 ndarray = "0.17"
+# Pure-Rust PNG optimiser — used by the `optim` power command. Lossless,
+# zopfli-style deflate + filter selection. Ships statically; no external
+# CLI tool required.
+oxipng = { version = "9", default-features = false, features = ["zopfli"] }
 
 # Observability / errors / concurrency
 anyhow = "1"

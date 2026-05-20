@@ -29,7 +29,7 @@
 
   **Null Telemetrie. Null Network-Calls. Null Account.** Deine Daten liegen unter `~/Library/Application Support/InspectorRust/history.db` (macOS) oder `%APPDATA%\InspectorRust\history.db` (Windows) und nirgendwo sonst. Das 4,5 MB ONNX-Modell ist *gebündelt* — selbst Cutouts laufen offline. Die Vision-OCR ist *lokal* — Apples On-Device-ML, kein API-Key, kein Rate-Limit. Die Encryption-Keys verlassen nie deine Maschine, die Snippets synchronisieren nirgendwohin, die History gehört dir.
 
-  Gebaut mit **Tauri 2** (WebView2 / WKWebView), **Rust** (Workspace: `core/rust-lib` ist die einzige geteilte Library, `win/src-tauri` + `macos/src-tauri` sind 2-Zeilen-Bundle-Shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, gepackt als **~5 MB MSI** (Windows) oder **~5 MB DMG** (macOS Apple Silicon). **192 Rust-Unit-Tests + 104 Frontend-Vitest-Tests** halten es ehrlich. **MIT-lizenziert**, hackbar, und kompromisslos gebaut für die Art Mensch, die schon Muskelgedächtnis für drei verschiedene Clipboard-Manager hat und von allen genervt ist.
+  Gebaut mit **Tauri 2** (WebView2 / WKWebView), **Rust** (Workspace: `core/rust-lib` ist die einzige geteilte Library, `win/src-tauri` + `macos/src-tauri` sind 2-Zeilen-Bundle-Shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, gepackt als **~5 MB MSI** (Windows) oder **~5 MB DMG** (macOS Apple Silicon). **205 Rust-Unit-Tests + 142 Frontend-Vitest-Tests** halten es ehrlich. **MIT-lizenziert**, hackbar, und kompromisslos gebaut für die Art Mensch, die schon Muskelgedächtnis für drei verschiedene Clipboard-Manager hat und von allen genervt ist.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.17.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.18.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -80,8 +80,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-192%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-104%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-205%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-142%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -114,9 +114,9 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-60-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-63-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-10-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-22-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-23-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
@@ -268,6 +268,13 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | Permissions-UX (TCC-Banner + 1-s-Polling + `tccutil reset`-Recovery) | Settings → Permissions-Sektion *(macOS)* | core |
 | Keyboard-Shortcuts-Cheat-Sheet | Settings → *Keyboard shortcuts* (OS-adaptive Glyphen) | core |
 | About-Dialog | Settings → About | core |
+| **Power-Command — `tren <text>`** *(v0.18.0+)* | Suchfeld | Englisch → Deutsch übersetzen (öffnet Google Translate im Browser) |
+| **Power-Command — `trde <text>`** *(v0.18.0+)* | Suchfeld | Deutsch → Englisch übersetzen (Google Translate) |
+| **Power-Command — `tr <text>`** *(v0.18.0+)* | Suchfeld | Text → Deutsch übersetzen (auto-detect Quellsprache) |
+| **Power-Command — `rz <W>x<H>`** *(v0.18.0+)* | Suchfeld | Clipboard-Bild via Lanczos3 skalieren (z.B. `rz 1200x800`) |
+| **Power-Command — `optim`** *(v0.18.0+)* | Suchfeld | Clipboard-PNG optimieren → `~/Downloads/inspector-rust-optim-<ts>.png` (lossless oxipng) |
+| **Power-Command — `rmvvls <text>`** *(v0.18.0+)* | Suchfeld | Vokale entfernen (aeiou + AEIOU + ä/ö/ü) → Clipboard |
+| Power-Command-Autocomplete | Teil-Keyword tippen (`tre`, `rm`, …) → Vorschlag als `hint`-Zeile | core |
 
 ## Features
 
@@ -536,4 +543,6 @@ Siehe [`CHANGELOG.md`](./CHANGELOG.md) — jeder Release ist dokumentiert mit de
 
 [MIT](./LICENSE) — © 2026 Martin Pfeffer
 
-Ein privates Open-Source-Side-Project — gebaut an Wochenenden und Abenden, gemacht mit ❤️.
+A private open-source side project — built on weekends and evenings, made with ❤️.
+
+Brewed and shipped from Berlin 🍻

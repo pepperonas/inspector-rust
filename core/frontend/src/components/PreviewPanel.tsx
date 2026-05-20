@@ -125,6 +125,47 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  // ── Command preview (power-command palette) ───────────────────────────────
+  if (entry.kind === "command") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Power command
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="text-[14px] font-semibold leading-snug">{entry.data.label}</div>
+          <div className="mt-2 text-[12px] text-[var(--color-muted)] leading-snug">
+            {entry.data.hint}
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter to run
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "command-suggestion") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Command suggestion
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="font-[var(--font-mono)] text-[14px] font-semibold leading-snug">
+            {entry.data.syntax}
+          </div>
+          <div className="mt-2 text-[12px] text-[var(--color-muted)] leading-snug">
+            {entry.data.description}
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter completes into the search bar
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Clip preview ───────────────────────────────────────────────────────────
   const clip = entry.data;
 

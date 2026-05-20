@@ -4,6 +4,48 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] — 2026-05-20
+
+### Added — power-command palette in the search bar (six commands + autocomplete)
+
+The search bar gains a shell-style command palette. Type a known
+keyword + argument and Enter runs it; type a partial keyword and the
+matching commands surface as autocomplete `hint` rows underneath.
+Tab-completion not strictly needed — the suggestion row is itself
+selectable, and activating it populates the search bar with the full
+keyword prefix so you can just type the argument.
+
+**Translation (open Google Translate in browser):**
+
+- **`tren <text>`** — English → German.
+- **`trde <text>`** — German → English.
+- **`tr <text>`** — auto-detect → German.
+
+Frontend constructs the canonical `https://translate.google.com/?sl=…&tl=…&text=…&op=translate` URL and opens it via `tauri-plugin-opener`'s external-URL handler. No translation runs locally; no network call from the app itself.
+
+**Image ops (clipboard image in / out):**
+
+- **`rz <W>x<H>`** — resize the clipboard image to the given dimensions via Lanczos3 sampling (best-quality downscaling), write the result back to the clipboard, push a fresh History entry. 16 MP target cap, `image` crate (already a workspace dep — no new system requirement).
+- **`optim`** — read clipboard PNG, run through `oxipng` (lossless, zopfli + filter selection), save to `~/Downloads/inspector-rust-optim-<ts>.png`. Does *not* touch the clipboard. Returns before/after byte counts so the UI can confirm.
+
+**Text:**
+
+- **`rmvvls <text>`** — strip vowels (`aeiou` + uppercase + German umlauts `ä/ö/ü/Ä/Ö/Ü`) from text → clipboard + History entry. `rmvvls hello` → `hll`.
+
+**Architecture:**
+
+- New `image_ops.rs` Rust module (resize + optim pipelines, shared by IPC).
+- Three new IPC commands: `resize_clipboard_image(W, H)`, `optimize_clipboard_image()`, `remove_vowels_to_clipboard(text)`.
+- New workspace dep: `oxipng = "9"` (pure Rust, zero-config, statically linked, ~200 KB binary cost).
+- New frontend `lib/commands.ts` with parser + autocomplete logic + `translateUrl` URL-builder.
+- `ListEntry` discriminated union extended with `command` (runnable) and `command-suggestion` (autocomplete) kinds. Both render via existing `HistoryItem` + `PreviewPanel` paths.
+
+**Tests** — 13 new Rust unit tests (`strip_vowels` + `image_ops` parse/serde) + 38 new frontend tests (`commands.test.ts` for parser/suggestions/URL builder/parseResizeArg).
+
+### Why 0.18.0
+
+Six new user-visible commands + new IPC surface + new frontend lib + new optional Cargo dep = clearly a feature release per `docs/RELEASING.md`'s 0.x.0 rule. Backwards-compatible — existing search behaviour unchanged when the input doesn't match a command keyword.
+
 ## [0.17.0] — 2026-05-20
 
 ### Added — `Ctrl+Shift+C` global eyedropper

@@ -16,16 +16,27 @@ import { useSnippets } from "./hooks/useSnippets";
 import { tryEvaluate } from "./lib/calc";
 import { tryParseColor } from "./lib/colors";
 import {
+  commandSuggestions,
+  parseCommand,
+  parseResizeArg,
+  translateUrl,
+  type ParsedCommand,
+} from "./lib/commands";
+import {
   clearHistory,
   deleteEntry,
   findSnippets,
   hidePopup,
+  optimizeClipboardImage,
   pasteEntry,
   pasteEntryFormatted,
   pasteSnippet,
   pasteText,
+  removeVowelsToClipboard,
+  resizeClipboardImage,
   saveClipAsNote,
 } from "./lib/ipc";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ListEntry, Snippet } from "./lib/types";
 
 type Tab = "history" | "snippets" | "notes" | "settings";
@@ -83,8 +94,87 @@ function App() {
   // can't also be a valid hex literal because of operator characters).
   const colorResult = useMemo(() => tryParseColor(query), [query]);
 
-  // Combine: calc / color first, then snippet matches, then history clips.
+  // Power-command palette: parse the query into either a complete
+  // command (runnable on Enter) or autocomplete suggestions.
+  const parsedCommand: ParsedCommand | null = useMemo(
+    () => parseCommand(query),
+    [query],
+  );
+  const commandSuggestionList = useMemo(
+    () => commandSuggestions(query),
+    [query],
+  );
+
+  const commandEntry: ListEntry | null = useMemo(() => {
+    if (!parsedCommand) return null;
+    const { spec, arg } = parsedCommand;
+    let label: string;
+    let hint: string;
+    switch (spec.kind) {
+      case "translate-en":
+        label = `Translate to German: "${arg}"`;
+        hint = "Opens Google Translate (en → de) in your browser";
+        break;
+      case "translate-de":
+        label = `Translate to English: "${arg}"`;
+        hint = "Opens Google Translate (de → en) in your browser";
+        break;
+      case "translate-auto":
+        label = `Translate to German: "${arg}"`;
+        hint = "Opens Google Translate (auto-detect → de) in your browser";
+        break;
+      case "resize": {
+        const dims = parseResizeArg(arg);
+        label = dims
+          ? `Resize clipboard image → ${dims.width}×${dims.height}`
+          : `rz: invalid dimensions ("${arg}" — expected W×H, e.g. 1200x800)`;
+        hint = dims ? "Lanczos3 sampling · also pushed to History" : "Use format like 1200x800";
+        break;
+      }
+      case "optim":
+        label = "Optimise clipboard PNG → ~/Downloads";
+        hint = "Lossless oxipng (zopfli + filter selection)";
+        break;
+      case "rmvvls": {
+        // Preview the stripped result (frontend approximation — backend
+        // recomputes for the real write so this is just a UI hint).
+        const preview = arg.replace(/[aeiouAEIOUäöüÄÖÜ]/g, "");
+        label = `Remove vowels: "${arg}" → "${preview}"`;
+        hint = "Stripped string lands on your clipboard";
+        break;
+      }
+    }
+    return {
+      kind: "command",
+      data: {
+        commandKind: spec.kind,
+        rawInput: query,
+        arg,
+        label,
+        hint,
+      },
+    };
+  }, [parsedCommand, query]);
+
+  const suggestionEntries: ListEntry[] = useMemo(
+    () =>
+      commandSuggestionList.map((spec) => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: spec.keyword,
+          syntax: spec.syntax,
+          description: spec.description,
+          completion: spec.requiresArg ? `${spec.keyword} ` : spec.keyword,
+        },
+      })),
+    [commandSuggestionList],
+  );
+
+  // Combine: command/suggestion first, then calc / color, then snippets,
+  // then history clips.
   const combined: ListEntry[] = [
+    ...(commandEntry ? [commandEntry] : []),
+    ...suggestionEntries,
     ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
     ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
     ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
@@ -201,6 +291,42 @@ function App() {
         await pasteText(target.data.display);
       } else if (target.kind === "color") {
         await pasteText(target.data.pasteValue);
+      } else if (target.kind === "command-suggestion") {
+        // Autocomplete: don't run anything; just populate the search
+        // bar with the command prefix so the user can fill in the
+        // argument. Keep the popup open + refocus the input.
+        setQuery(target.data.completion);
+        requestAnimationFrame(() => {
+          searchRef.current?.focus();
+          const len = target.data.completion.length;
+          searchRef.current?.setSelectionRange(len, len);
+        });
+        return;
+      } else if (target.kind === "command") {
+        // Runnable power command. Dispatch by kind.
+        const { commandKind, arg } = target.data;
+        if (commandKind === "translate-en" || commandKind === "translate-de"
+            || commandKind === "translate-auto") {
+          const url = translateUrl(commandKind, arg);
+          await openUrl(url);
+          await hidePopup();
+        } else if (commandKind === "resize") {
+          const dims = parseResizeArg(arg);
+          if (!dims) {
+            // Bad input — surface as a generic error, don't crash.
+            setPasteError("other");
+            return;
+          }
+          await resizeClipboardImage(dims.width, dims.height);
+          await hidePopup();
+        } else if (commandKind === "optim") {
+          await optimizeClipboardImage();
+          await hidePopup();
+        } else if (commandKind === "rmvvls") {
+          await removeVowelsToClipboard(arg);
+          await hidePopup();
+        }
+        return;
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting
         // and forces the original content type (HTML/RTF formatted paste).
@@ -211,7 +337,7 @@ function App() {
         }
       }
     } catch (e) {
-      console.error("paste failed", e);
+      console.error("activate failed", e);
       // The backend returns the sentinel "ax.permission_denied" when
       // Accessibility isn't granted, so we can show a tailored prompt
       // pointing the user at the Settings tab.

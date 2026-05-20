@@ -448,6 +448,44 @@ export function eyedropperToClipboard(): Promise<void> {
   return invoke("eyedropper_to_clipboard");
 }
 
+// ── Power commands (rz / optim / rmvvls) ──────────────────────────────
+
+/** Result of `rz <W>x<H>`. */
+export interface ResizeResult {
+  width: number;
+  height: number;
+  bytes: number;
+}
+
+/** Resize the clipboard image to `width × height` using Lanczos3
+ *  sampling. The resized PNG replaces the clipboard contents and is
+ *  also pushed to History. Backend: `commands::resize_clipboard_image`. */
+export function resizeClipboardImage(width: number, height: number): Promise<ResizeResult> {
+  return invoke("resize_clipboard_image", { width, height });
+}
+
+/** Result of `optim`. `path` is the saved file, `before_bytes` /
+ *  `after_bytes` let the UI show a "saved 12.3 KB → 8.1 KB" toast. */
+export interface OptimResult {
+  path: string;
+  before_bytes: number;
+  after_bytes: number;
+}
+
+/** Read the clipboard PNG, run through oxipng (lossless), save to
+ *  `~/Downloads/inspector-rust-optim-<ts>.png`. Backend:
+ *  `commands::optimize_clipboard_image`. */
+export function optimizeClipboardImage(): Promise<OptimResult> {
+  return invoke("optimize_clipboard_image");
+}
+
+/** Strip vowels (aeiou + AEIOU + ä/ö/ü/Ä/Ö/Ü) from `text` and write
+ *  the result to the clipboard + History. Returns the stripped string
+ *  for the UI to display. Backend: `commands::remove_vowels_to_clipboard`. */
+export function removeVowelsToClipboard(text: string): Promise<string> {
+  return invoke("remove_vowels_to_clipboard", { text });
+}
+
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
 /** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)

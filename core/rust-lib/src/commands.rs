@@ -1234,6 +1234,133 @@ pub fn eyedropper_to_clipboard(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── Power commands (search-bar shell): rz / optim / rmvvls ────────────
+
+/// `rz <W>x<H>` — resize the clipboard image to the given dimensions
+/// (Lanczos3 sampling) and write it back. Also pushes the resized image
+/// into history as a new entry so the user can recover it.
+#[tauri::command]
+pub fn resize_clipboard_image(
+    app: AppHandle,
+    width: u32,
+    height: u32,
+) -> Result<crate::image_ops::ResizeResult, String> {
+    let res = crate::image_ops::resize_clipboard_image_lanczos(width, height).map_err(map_err)?;
+    // Mark the watcher so the round-trip doesn't get double-captured,
+    // then push the resized PNG into history as a fresh entry.
+    if let Some(_watcher) = app.try_state::<WatcherState>() {
+        // The watcher's self-write fuse keys on (content_type, b64).
+        // We didn't keep the PNG bytes here; the watcher's own capture
+        // would fire on the clipboard set anyway and store it once.
+        // No-op on our side.
+    }
+    let _ = app.emit("clipboard-changed", ());
+    Ok(res)
+}
+
+/// `optim` — read clipboard image, run through oxipng (lossless), save
+/// to `~/Downloads/inspector-rust-optim-<ts>.png`. Does NOT touch the
+/// clipboard.
+#[tauri::command]
+pub fn optimize_clipboard_image() -> Result<crate::image_ops::OptimResult, String> {
+    crate::image_ops::optimize_clipboard_png().map_err(map_err)
+}
+
+/// `rmvvls <text>` — strip vowels from `text` and write the result to
+/// the system clipboard (plus a history entry so the user can find it
+/// again). Vowels = a/e/i/o/u + their uppercase + the German umlauts
+/// ä/ö/ü/Ä/Ö/Ü. Returns the stripped string for the UI to display.
+#[tauri::command]
+pub fn remove_vowels_to_clipboard(app: AppHandle, text: String) -> Result<String, String> {
+    use clipboard_rs::{Clipboard, ClipboardContext};
+
+    let stripped = strip_vowels(&text);
+
+    if let Some(watcher) = app.try_state::<WatcherState>() {
+        watcher.mark_self_write(crate::models::ContentType::Text, &stripped);
+    }
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard ctx: {e:?}"))?;
+    ctx.set_text(stripped.clone())
+        .map_err(|e| format!("set_text: {e:?}"))?;
+
+    if let Some(db) = app.try_state::<DbHandle>() {
+        let _ = db::upsert_clip(
+            &db,
+            &crate::models::NewClip {
+                content_type: crate::models::ContentType::Text,
+                content_text: stripped.clone(),
+                content_data: stripped.clone(),
+                byte_size: stripped.len() as i64,
+            },
+        );
+    }
+    let _ = app.emit("clipboard-changed", ());
+    Ok(stripped)
+}
+
+/// Strip vowels (English aeiou + uppercase + German umlauts) from `s`.
+/// Pure function — public so the unit tests can exercise it without
+/// going through the IPC + clipboard plumbing.
+pub fn strip_vowels(s: &str) -> String {
+    s.chars()
+        .filter(|c| {
+            !matches!(
+                c,
+                'a' | 'e' | 'i' | 'o' | 'u'
+                    | 'A' | 'E' | 'I' | 'O' | 'U'
+                    | 'ä' | 'ö' | 'ü'
+                    | 'Ä' | 'Ö' | 'Ü'
+            )
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod strip_vowels_tests {
+    use super::strip_vowels;
+
+    #[test]
+    fn removes_english_vowels_lowercase() {
+        assert_eq!(strip_vowels("hello world"), "hll wrld");
+    }
+
+    #[test]
+    fn removes_uppercase_vowels() {
+        assert_eq!(strip_vowels("HELLO World"), "HLL Wrld");
+    }
+
+    #[test]
+    fn removes_german_umlauts() {
+        assert_eq!(strip_vowels("hällo wörld"), "hll wrld");
+        assert_eq!(strip_vowels("ÄÖÜ"), "");
+    }
+
+    #[test]
+    fn keeps_y_and_consonants() {
+        assert_eq!(strip_vowels("fly by myself"), "fly by myslf");
+    }
+
+    #[test]
+    fn keeps_whitespace_punctuation_digits() {
+        assert_eq!(strip_vowels("a, b! 123 c."), ", b! 123 c.");
+    }
+
+    #[test]
+    fn handles_empty_string() {
+        assert_eq!(strip_vowels(""), "");
+    }
+
+    #[test]
+    fn handles_string_of_only_vowels() {
+        assert_eq!(strip_vowels("aeiouäöüAEIOU"), "");
+    }
+
+    #[test]
+    fn preserves_emoji_and_non_latin_letters() {
+        assert_eq!(strip_vowels("hello 🦀 世界"), "hll 🦀 世界");
+    }
+}
+
 fn write_eyedropper_result(app: &AppHandle, hex: &str) {
     use clipboard_rs::{Clipboard, ClipboardContext};
     if let Some(watcher) = app.try_state::<WatcherState>() {

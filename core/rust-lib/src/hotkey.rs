@@ -478,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_shortcut_distinguishes_KeyO_from_Digit0() {
+    fn parse_shortcut_distinguishes_key_o_from_digit_0() {
         // Critical: `O` (letter) vs `0` (digit). The OCR hotkey uses KeyO;
         // a typo to Digit0 would still parse but register a different chord.
         let with_letter = parse_shortcut("Ctrl+Shift+KeyO").unwrap();

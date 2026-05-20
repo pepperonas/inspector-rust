@@ -65,8 +65,42 @@ export interface BackupImportResult {
   errors: string[];
 }
 
+/** A runnable power-command parsed out of the search bar. */
+export interface CommandEntryView {
+  /** Stable kind for activate-dispatch. */
+  commandKind:
+    | "translate-en"
+    | "translate-de"
+    | "translate-auto"
+    | "resize"
+    | "optim"
+    | "rmvvls";
+  /** What the user typed (e.g. "tren hello world"). */
+  rawInput: string;
+  /** The argument portion ("" for `optim`). */
+  arg: string;
+  /** Label shown in the list (e.g. "Translate 'hello' → DE"). */
+  label: string;
+  /** Sub-label, e.g. "Google Translate · opens in browser". */
+  hint: string;
+}
+
+/** A *partial* command match — surfaces as autocomplete in the list. */
+export interface CommandSuggestionView {
+  /** Same shape as CommandSpec.keyword + syntax for the row label. */
+  keyword: string;
+  syntax: string;
+  description: string;
+  /** Hint string the user should type to complete the command (without
+   *  the leading argument). Activating the suggestion populates the
+   *  search bar with this prefix + a trailing space. */
+  completion: string;
+}
+
 export type ListEntry =
   | { kind: "clip"; data: ClipEntry }
   | { kind: "snippet"; data: Snippet }
   | { kind: "calc"; data: CalcEntry }
-  | { kind: "color"; data: ColorEntryView };
+  | { kind: "color"; data: ColorEntryView }
+  | { kind: "command"; data: CommandEntryView }
+  | { kind: "command-suggestion"; data: CommandSuggestionView };

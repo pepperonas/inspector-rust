@@ -7,6 +7,7 @@ mod crypto;
 mod db;
 mod expander;
 mod hotkey;
+mod image_ops;
 mod models;
 mod notes;
 mod cutout;
@@ -231,6 +232,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::ocr_region,
             commands::screenshot_region,
             commands::eyedropper_to_clipboard,
+            commands::resize_clipboard_image,
+            commands::optimize_clipboard_image,
+            commands::remove_vowels_to_clipboard,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

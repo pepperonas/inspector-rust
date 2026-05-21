@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.2] — 2026-05-21
+
+### Added — Windows OCR + screenshot region parity, screenshot save-to-file mode
+
+Merged via [#3](https://github.com/pepperonas/inspector-rust/pull/3). Brings the screen-region features — previously macOS-only — to Windows, and adds a save-to-file capture mode on both platforms.
+
+- **Windows screen-region OCR** — `Ctrl+Shift+O` now works on Windows. Region selection uses a GDI fullscreen overlay; text recognition uses **WinRT `Windows.Media.Ocr`** + `Windows.Graphics.Imaging`. Picks up whatever OCR language packs are installed via *Settings → Time & Language → Language* — no bundled model, no extra install. COM is initialised per-thread on the capture worker; the WinRT futures are `.get()`-blocked to keep the pipeline synchronous like the macOS Vision path.
+- **Windows screen-region screenshot** — `Ctrl+Shift+S` likewise works on Windows now (same GDI overlay, no OCR step).
+- **Screenshot → save to file** — instead of writing the captured PNG to the clipboard, you can save it straight to disk via a native save dialog. On Windows the `S` key toggles the mode mid-overlay (the selection border turns green to confirm). On macOS — where `screencapture -i` is Apple's own process and can't have its keystrokes intercepted — a **double-tap of `Ctrl+Shift+S`** (second press within 400 ms of the first) flips the in-flight capture into save-to-file mode.
+- **Docs** — README + README.de updated: Windows OCR/screenshot documented, the "macOS-only" limitation rows removed, a new note added about Windows OCR language packs. Region-picker module gained ~325 lines for the Windows path.
+
+### Fixed — version manifests left at 0.19.1 by the merge
+
+PR #3 bumped the README version badge to 0.19.2 but not the seven version manifests / `Cargo.lock` / the CHANGELOG. This release commit reconciles them — `Cargo.toml`, the four `package.json`s, both `tauri.conf.json`s, the three `Cargo.lock` workspace entries, and this CHANGELOG are now all 0.19.2.
+
 ## [0.19.1] — 2026-05-20
 
 ### Fixed — Color Picker on multi-screen setups (loupe appeared on main display instead of cursor display)

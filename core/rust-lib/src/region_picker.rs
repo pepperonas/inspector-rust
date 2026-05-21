@@ -80,13 +80,324 @@ fn capture_impl() -> Result<Vec<u8>> {
 
 #[cfg(target_os = "windows")]
 fn capture_impl() -> Result<Vec<u8>> {
-    // Windows region capture is intentionally postponed — implementing
-    // it cleanly needs either the `ms-screenclip:` URI handler (which
-    // shells out to the OS Snipping Tool and copies to clipboard, then
-    // we read it back), or a custom GDI fullscreen overlay similar to
-    // the one in `screen_picker::windows_impl`. Both are non-trivial
-    // and OCR shipped first on macOS where Vision is the right backend.
-    anyhow::bail!("region capture is not yet implemented on Windows")
+    unsafe { win_impl::capture() }
+}
+
+/// Windows GDI fullscreen overlay region picker.
+///
+/// Flow:
+///   1. Capture the entire virtual screen into a memory DC (freeze-frame).
+///   2. Show a fullscreen WS_POPUP window that paints the freeze-frame.
+///   3. User drags a rectangle; DrawFocusRect shows the selection.
+///   4. On mouse-up: extract the selected region as a PNG and return it.
+///   5. On Esc: return `Cancelled`.
+#[cfg(target_os = "windows")]
+mod win_impl {
+    use std::cell::RefCell;
+    use std::sync::OnceLock;
+
+    use anyhow::Result;
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+    use windows::Win32::Graphics::Gdi::{
+        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen,
+        DeleteDC, DeleteObject, EndPaint, GetDC, GetDIBits, GetStockObject,
+        InvalidateRect, ReleaseDC, SelectObject, SetROP2,
+        BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ, HDC, NULL_BRUSH,
+        PAINTSTRUCT, PS_SOLID, R2_NOT, RGBQUAD, SRCCOPY,
+    };
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+        GetMessageW, GetSystemMetrics, LoadCursorW, PostQuitMessage,
+        RegisterClassExW, SetForegroundWindow, ShowWindow, TranslateMessage,
+        IDC_CROSS, MSG, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SW_SHOW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+        WM_MOUSEMOVE, WM_PAINT, WNDCLASSEXW, WS_EX_TOPMOST, WS_POPUP,
+    };
+    use windows::core::PCWSTR;
+
+    const VK_ESCAPE: usize = 0x1B;
+
+    struct State {
+        mem_dc: HDC,
+        vw: i32,
+        vh: i32,
+        start: Option<(i32, i32)>,
+        cur: Option<(i32, i32)>,
+        result: Option<(i32, i32, i32, i32)>, // x, y, w, h in bitmap coords
+        cancelled: bool,
+        /// S pressed while overlay is open → switch to save-to-file mode.
+        save_mode: bool,
+    }
+
+    thread_local! {
+        static S: RefCell<Option<State>> = const { RefCell::new(None) };
+    }
+
+    pub unsafe fn capture() -> Result<Vec<u8>> {
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+
+        // Grab the full virtual screen into an off-screen DC before any
+        // overlay appears, so the freeze-frame shows real screen content.
+        let desk_dc = GetDC(None);
+        let mem_dc = CreateCompatibleDC(Some(desk_dc));
+        let bmp = CreateCompatibleBitmap(desk_dc, vw, vh);
+        let old = SelectObject(mem_dc, HGDIOBJ(bmp.0));
+        let _ = BitBlt(mem_dc, 0, 0, vw, vh, Some(desk_dc), vx, vy, SRCCOPY);
+        ReleaseDC(None, desk_dc);
+
+        S.with(|s| {
+            *s.borrow_mut() = Some(State {
+                mem_dc,
+                vw,
+                vh,
+                start: None,
+                cur: None,
+                result: None,
+                cancelled: false,
+                save_mode: false,
+            });
+        });
+
+        let class: Vec<u16> = "InspectorRustRegionPicker\0".encode_utf16().collect();
+        register_once(&class);
+
+        let title: Vec<u16> = "Select Region\0".encode_utf16().collect();
+        let hwnd = CreateWindowExW(
+            WS_EX_TOPMOST,
+            PCWSTR(class.as_ptr()),
+            PCWSTR(title.as_ptr()),
+            WS_POPUP,
+            vx,
+            vy,
+            vw,
+            vh,
+            None,
+            None,
+            None,
+            None,
+        )
+        .map_err(|e| anyhow::anyhow!("CreateWindowExW: {e}"))?;
+
+        let _ = ShowWindow(hwnd, SW_SHOW);
+        let _ = SetForegroundWindow(hwnd);
+
+        let mut msg = MSG::default();
+        while GetMessageW(&mut msg, None, 0, 0).as_bool() {
+            let _ = TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+        let _ = DestroyWindow(hwnd);
+
+        let (result, cancelled) = S.with(|s| {
+            let b = s.borrow();
+            let st = b.as_ref().unwrap();
+            (st.result, st.cancelled)
+        });
+
+        // Extract PNG while mem_dc (and its bitmap) are still live.
+        let png = if cancelled {
+            Err(crate::region_picker::Cancelled.into())
+        } else {
+            match result {
+                Some((x, y, w, h)) if w > 0 && h > 0 => extract_png(mem_dc, x, y, w, h),
+                _ => Err(crate::region_picker::Cancelled.into()),
+            }
+        };
+
+        SelectObject(mem_dc, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        DeleteDC(mem_dc);
+        S.with(|s| *s.borrow_mut() = None);
+
+        png
+    }
+
+    /// Copy a sub-region out of `src` DC and encode it as PNG bytes.
+    unsafe fn extract_png(src: HDC, x: i32, y: i32, w: i32, h: i32) -> Result<Vec<u8>> {
+        let desk_dc = GetDC(None);
+        let tmp_dc = CreateCompatibleDC(Some(desk_dc));
+        let bmp = CreateCompatibleBitmap(desk_dc, w, h);
+        ReleaseDC(None, desk_dc);
+        let old = SelectObject(tmp_dc, HGDIOBJ(bmp.0));
+        let _ = BitBlt(tmp_dc, 0, 0, w, h, Some(src), x, y, SRCCOPY);
+
+        // DWORD-aligned row stride for 24-bit DIB.
+        let stride = (w as usize * 3 + 3) & !3usize;
+        let mut raw = vec![0u8; stride * h as usize];
+
+        let mut bmi = BITMAPINFO {
+            bmiHeader: BITMAPINFOHEADER {
+                biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+                biWidth: w,
+                biHeight: -h, // negative = top-down scan order
+                biPlanes: 1,
+                biBitCount: 24,
+                ..Default::default()
+            },
+            bmiColors: [RGBQUAD::default()],
+        };
+        GetDIBits(
+            tmp_dc,
+            bmp,
+            0,
+            h as u32,
+            Some(raw.as_mut_ptr().cast()),
+            &mut bmi,
+            DIB_RGB_COLORS,
+        );
+
+        SelectObject(tmp_dc, old);
+        let _ = DeleteObject(HGDIOBJ(bmp.0));
+        DeleteDC(tmp_dc);
+
+        // GDI 24-bit DIB layout is BGR; image crate expects RGB.
+        let mut img = image::RgbImage::new(w as u32, h as u32);
+        for row in 0..h as usize {
+            for col in 0..w as usize {
+                let off = row * stride + col * 3;
+                img.put_pixel(
+                    col as u32,
+                    row as u32,
+                    image::Rgb([raw[off + 2], raw[off + 1], raw[off]]),
+                );
+            }
+        }
+
+        let mut out = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+            .map_err(|e| anyhow::anyhow!("PNG encode: {e}"))?;
+        Ok(out)
+    }
+
+    fn register_once(class_name: &[u16]) {
+        static DONE: OnceLock<()> = OnceLock::new();
+        DONE.get_or_init(|| unsafe {
+            let cursor = LoadCursorW(None, IDC_CROSS).unwrap_or_default();
+            let wc = WNDCLASSEXW {
+                cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                lpfnWndProc: Some(wnd_proc),
+                lpszClassName: PCWSTR(class_name.as_ptr()),
+                hInstance: windows::Win32::System::LibraryLoader::GetModuleHandleW(
+                    PCWSTR::null(),
+                )
+                .unwrap_or_default()
+                .into(),
+                hCursor: cursor,
+                ..Default::default()
+            };
+            RegisterClassExW(&wc);
+        });
+    }
+
+    /// Extract mouse client-coordinates from a WM_MOUSEMOVE / WM_LBUTTON* LPARAM.
+    /// Uses signed 16-bit halves so negative coords (multi-monitor) are handled.
+    #[inline]
+    fn mouse_xy(lp: LPARAM) -> (i32, i32) {
+        let x = (lp.0 as u32 & 0xFFFF) as i16 as i32;
+        let y = ((lp.0 as u32 >> 16) & 0xFFFF) as i16 as i32;
+        (x, y)
+    }
+
+    extern "system" fn wnd_proc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+        unsafe {
+            match msg {
+                WM_PAINT => {
+                    let mut ps = PAINTSTRUCT::default();
+                    let hdc = BeginPaint(hwnd, &mut ps);
+                    S.with(|s| {
+                        if let Some(ref st) = *s.borrow() {
+                            // Paint the freeze-frame screenshot.
+                            let _ = BitBlt(hdc, 0, 0, st.vw, st.vh, Some(st.mem_dc), 0, 0, SRCCOPY);
+                            // Draw selection rectangle while dragging.
+                            // Green = save-to-file mode, white = clipboard mode.
+                            if let (Some((x1, y1)), Some((x2, y2))) = (st.start, st.cur) {
+                                let color = if st.save_mode { 0x00FF00u32 } else { 0xFFFFFFu32 };
+                                let pen = CreatePen(PS_SOLID, 2, windows::Win32::Foundation::COLORREF(color));
+                                let null_brush = GetStockObject(NULL_BRUSH);
+                                let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
+                                let old_brush = SelectObject(hdc, HGDIOBJ(null_brush.0));
+                                SetROP2(hdc, R2_NOT);
+                                windows::Win32::Graphics::Gdi::Rectangle(
+                                    hdc,
+                                    x1.min(x2), y1.min(y2),
+                                    x1.max(x2), y1.max(y2),
+                                );
+                                SelectObject(hdc, old_pen);
+                                SelectObject(hdc, old_brush);
+                                let _ = DeleteObject(HGDIOBJ(pen.0));
+                            }
+                        }
+                    });
+                    EndPaint(hwnd, &ps);
+                    LRESULT(0)
+                }
+                WM_LBUTTONDOWN => {
+                    let (x, y) = mouse_xy(lp);
+                    S.with(|s| {
+                        if let Some(ref mut st) = *s.borrow_mut() {
+                            st.start = Some((x, y));
+                            st.cur = Some((x, y));
+                        }
+                    });
+                    LRESULT(0)
+                }
+                WM_MOUSEMOVE => {
+                    let (x, y) = mouse_xy(lp);
+                    S.with(|s| {
+                        if let Some(ref mut st) = *s.borrow_mut() {
+                            if st.start.is_some() {
+                                st.cur = Some((x, y));
+                            }
+                        }
+                    });
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                    LRESULT(0)
+                }
+                WM_LBUTTONUP => {
+                    let (x, y) = mouse_xy(lp);
+                    S.with(|s| {
+                        if let Some(ref mut st) = *s.borrow_mut() {
+                            if let Some((x1, y1)) = st.start {
+                                let lx = x1.min(x).max(0);
+                                let ly = y1.min(y).max(0);
+                                let rw = (x1 - x).abs().min(st.vw - lx);
+                                let rh = (y1 - y).abs().min(st.vh - ly);
+                                st.result = Some((lx, ly, rw, rh));
+                            }
+                        }
+                    });
+                    PostQuitMessage(0);
+                    LRESULT(0)
+                }
+                WM_KEYDOWN if wp.0 == VK_ESCAPE => {
+                    S.with(|s| {
+                        if let Some(ref mut st) = *s.borrow_mut() {
+                            st.cancelled = true;
+                        }
+                    });
+                    PostQuitMessage(0);
+                    LRESULT(0)
+                }
+                // 'S' during selection: toggle save-to-file mode.
+                // Green border = will open save dialog after drawing the region.
+                WM_KEYDOWN if wp.0 == 0x53 => {
+                    S.with(|s| {
+                        if let Some(ref mut st) = *s.borrow_mut() {
+                            st.save_mode = true;
+                            crate::hotkey::SCREENSHOT_SAVE_FILE
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
+                        }
+                    });
+                    let _ = InvalidateRect(Some(hwnd), None, false);
+                    LRESULT(0)
+                }
+                _ => DefWindowProcW(hwnd, msg, wp, lp),
+            }
+        }
+    }
 }
 
 // Catch-all for Linux / other Unixes so the workspace builds in CI.

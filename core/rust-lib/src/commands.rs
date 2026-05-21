@@ -1112,6 +1112,7 @@ pub struct ScreenshotResult {
 pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
     use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
+    use std::sync::atomic::Ordering;
 
     if !screen_recording::screen_recording_granted() {
         return Err(ERR_NO_SCREEN_RECORDING.to_string());
@@ -1129,28 +1130,52 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
         }
     };
 
+    // Read the double-tap flag AFTER the region picker returns — the user
+    // may have pressed Ctrl+Shift+S a second time while the overlay was open.
+    let save_to_file = hotkey::SCREENSHOT_SAVE_FILE.load(Ordering::SeqCst);
+
     let b64 = B64.encode(&png_bytes);
     let summary = format!("[screenshot · {} B]", png_bytes.len());
     let byte_size = png_bytes.len() as i64;
 
-    // Mark the upcoming clipboard write as self-originated so the
-    // watcher doesn't recapture it as a fresh user copy.
-    if let Some(watcher) = app.try_state::<WatcherState>() {
-        watcher.mark_self_write(crate::models::ContentType::Image, &b64);
+    if save_to_file {
+        // Double-tap: show a native save dialog instead of writing to clipboard.
+        use tauri_plugin_dialog::DialogExt;
+        let default_name = format!(
+            "screenshot-{}.png",
+            chrono::Local::now().format("%Y%m%d-%H%M%S")
+        );
+        let mut builder = app
+            .dialog()
+            .file()
+            .add_filter("PNG Image", &["png"])
+            .set_file_name(&default_name);
+        if let Some(pics) = dirs::picture_dir().or_else(dirs::download_dir) {
+            builder = builder.set_directory(pics);
+        }
+        if let Some(file_path) = builder.blocking_save_file() {
+            let path = match file_path {
+                tauri_plugin_dialog::FilePath::Path(p) => p,
+                _ => return Err("unsupported file path type".to_string()),
+            };
+            std::fs::write(&path, &png_bytes)
+                .map_err(|e| format!("write screenshot: {e}"))?;
+            let _ = app.emit("screenshot-saved", path.to_string_lossy().to_string());
+        }
+    } else {
+        // Single tap: write to system clipboard as usual.
+        if let Some(watcher) = app.try_state::<WatcherState>() {
+            watcher.mark_self_write(crate::models::ContentType::Image, &b64);
+        }
+        let ctx = ClipboardContext::new()
+            .map_err(|e| format!("clipboard ctx init: {e:?}"))?;
+        let img = RustImageData::from_bytes(&png_bytes)
+            .map_err(|e| format!("decode png: {e:?}"))?;
+        ctx.set_image(img)
+            .map_err(|e| format!("set_image: {e:?}"))?;
     }
 
-    // Write the PNG to the system clipboard so the user can Cmd+V it
-    // straight into the next app without going through the popup.
-    let ctx = ClipboardContext::new()
-        .map_err(|e| format!("clipboard ctx init: {e:?}"))?;
-    let img = RustImageData::from_bytes(&png_bytes)
-        .map_err(|e| format!("decode png: {e:?}"))?;
-    ctx.set_image(img)
-        .map_err(|e| format!("set_image: {e:?}"))?;
-
-    // Persist to history — even after the user Cmd+V's into a chat
-    // and the clipboard gets overwritten by their next copy, the
-    // screenshot is still recoverable from the History tab.
+    // Always persist to history — recoverable from the History tab regardless.
     if let Some(db) = app.try_state::<DbHandle>() {
         let _ = db::upsert_clip(
             &db,

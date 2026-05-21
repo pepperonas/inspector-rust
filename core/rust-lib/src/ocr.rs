@@ -142,11 +142,48 @@ unsafe fn nsstring_to_rust(s: *mut objc2::runtime::AnyObject) -> Option<String> 
 }
 
 #[cfg(target_os = "windows")]
-fn recognize_impl(_png_bytes: &[u8]) -> Result<String> {
-    // Plan: load PNG → SoftwareBitmap → OcrEngine::TryCreateFromUserProfileLanguages()
-    // → recognize_async, blocking-wait via futures::executor::block_on.
-    // Implementation pending in a follow-up release.
-    anyhow::bail!("OCR is not yet implemented on Windows")
+fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+    use windows::Graphics::Imaging::BitmapDecoder;
+    use windows::Media::Ocr::OcrEngine;
+    use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
+    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+
+    // WinRT requires a COM apartment; worker threads aren't initialised by
+    // default. S_FALSE = already done, RPC_E_CHANGED_MODE = STA — both fine.
+    let _ = unsafe { CoInitializeEx(None, COINIT_MULTITHREADED) };
+
+    // ── 1. Write PNG bytes into an in-memory stream ──────────────────
+    let stream = InMemoryRandomAccessStream::new()?;
+    let output = stream.GetOutputStreamAt(0)?;
+    let writer = DataWriter::CreateDataWriter(&output)?;
+    writer.WriteBytes(png_bytes)?;
+    writer.StoreAsync()?.get()?;
+    let _ = writer.DetachStream(); // leave stream in a usable state
+    stream.Seek(0)?;
+
+    // ── 2. Decode PNG → SoftwareBitmap ───────────────────────────────
+    let decoder = BitmapDecoder::CreateAsync(&stream)?.get()?;
+    let bitmap = decoder.GetSoftwareBitmapAsync()?.get()?;
+
+    // ── 3. Create OCR engine from the user's installed language packs ─
+    let engine = OcrEngine::TryCreateFromUserProfileLanguages().map_err(|_| {
+        anyhow::anyhow!(
+            "Windows OCR: no language pack available — \
+             install a language in Settings → Time & Language → Language"
+        )
+    })?;
+
+    // ── 4. Recognise text (blocking) ─────────────────────────────────
+    let ocr_result = engine.RecognizeAsync(&bitmap)?.get()?;
+
+    // ── 5. Collect lines ─────────────────────────────────────────────
+    let lines = ocr_result.Lines()?;
+    let count = lines.Size()?;
+    let mut parts: Vec<String> = Vec::with_capacity(count as usize);
+    for i in 0..count {
+        parts.push(lines.GetAt(i)?.Text()?.to_string());
+    }
+    Ok(parts.join("\n"))
 }
 
 // Catch-all for Linux / other Unixes so the workspace builds in CI even

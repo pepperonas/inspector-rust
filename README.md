@@ -19,7 +19,7 @@
 
   The **search bar doubles as an inline calculator** (`2+2`, `sqrt(144)`, `sin(pi/2)`, hex literals, bit shifts — anything `mathjs` can parse), **a colour converter** (paste `#0078d4` or `rgb(0,120,212)` and get every other format with one click), **a snippet matcher** (type `aiplan` → the *aiplan* AI-prompt body floats to the top of the list, Enter pastes it), and **a Color Picker** button that fires `NSColorSampler` on macOS or a GDI screen-overlay on Windows for system-wide eyedropping. **Image entries** get a preview pane with **Recolor** (9-swatch logo tint via per-pixel luminance lerp), **Cut out background** (a 4.5 MB U²-Net ONNX model statically linked into the binary via the `ort` crate — real photo segmentation, not chroma key, comparable to Python's `rembg` but without Python), and **Save to Downloads** (`⌘S` writes the PNG to disk, perfect for the freshly recoloured logo you just produced).
 
-  **`Ctrl+Shift+O`** fires the **screen-region OCR**: drag a marquee (`screencapture -i` — the same overlay as `Cmd+Shift+4`), and Apple's **Vision** framework runs `VNRecognizeTextRequest` over the selection at `recognitionLevel = Accurate` with language correction. The recognised text lands on your clipboard, in your history (at the top — *fixed in v0.14.2*), and the source PNG is preserved one slot below so you can re-OCR a different region without rescreenshotting. Latin, CJK, Arabic, Cyrillic — whatever your macOS Vision install supports. **`Ctrl+Shift+S`** (new in **v0.15.0**) does the same marquee but **skips the OCR step** — pure region screenshot, PNG straight to clipboard + history, so charts, buttons, photos, and silent UI mockups land where you need them too. Same TCC gate, same threading model, zero text-required.
+  **`Ctrl+Shift+O`** fires the **screen-region OCR**: drag a marquee (`screencapture -i` on macOS, GDI fullscreen overlay on Windows), and the OS-native text engine runs over the selection — Apple's **Vision** framework (`VNRecognizeTextRequest`, accuracy=Accurate) on macOS, **Windows.Media.Ocr** (WinRT, uses your installed language packs) on Windows *(fully native on both platforms since v0.19.2)*. The recognised text lands on your clipboard, in your history (at the top — *fixed in v0.14.2*), and the source PNG is preserved one slot below. Latin, CJK, Arabic, Cyrillic — whatever your platform's OCR engine supports. **`Ctrl+Shift+S`** (new in **v0.15.0**) does the same marquee but **skips the OCR step** — pure region screenshot, PNG straight to clipboard + history. **Save to file instead:** while the overlay is open press **`S`** (border turns green) and a native save dialog appears after drawing the region *(v0.19.2+)*.
 
   The **text expander** has *three* expansion modes living side by side. The **search-based** one (always on, zero permissions): type `mfg` in the popup → matching snippets bubble to the top → Enter pastes. The **abbreviation hotkey** (default `Alt+1`, opt-in via Settings, configurable to anything): type the abbreviation in *any* text field, press the hotkey, Inspector Rust replaces it in place via macOS Accessibility API or Windows UIA (with an AX-select-then-paste fallback for Electron / Chromium / Mac-Catalyst apps that don't expose writable text — WhatsApp, Slack, Discord, VS Code — and a clipboard+keystroke last resort for everything else; the *Diagnose* button in Settings reports which path was used). And the **direct hotkey → snippet slots** (added v0.13.0): bind a hotkey straight to a snippet — `Alt+2` → the *aiplan* body — and pressing it pastes the body with **no abbreviation typed**. Reads nothing, so it works **in any app including terminals** (iTerm2, Terminal.app, kitty, Alacritty), where the abbreviation expander can't see the input line.
 
@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.19.1-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.19.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -197,10 +197,10 @@ Inspector Rust is built for one workflow: **`Ctrl+Shift+V` → type → Enter**.
 Three more global shortcuts fire from anywhere — Inspector Rust's window doesn't need to be open or focused:
 
 - **`Ctrl+Shift+O`** — screen-region **OCR**. Drag a marquee, Apple Vision recognises the text in the region, the text lands on your clipboard + at the top of History.
-- **`Ctrl+Shift+S`** *(v0.15.0+)* — screen-region **screenshot**. Same marquee, but no OCR step: the captured PNG goes straight to the clipboard and into History. Use this when the region has no text (chart, button, photo, UI mockup) or you want the image itself.
+- **`Ctrl+Shift+S`** *(v0.15.0+)* — screen-region **screenshot**. Same marquee, no OCR step: the captured PNG goes straight to the clipboard and into History. Use this for charts, buttons, photos, or any region without recognisable text. **Save to file:** while the overlay is open, press **`S`** — the selection border turns green and after drawing the region a native save dialog appears instead of writing to the clipboard *(v0.19.2+)*.
 - **`Ctrl+Shift+C`** *(v0.17.0+)* — **eyedropper**. Cursor turns into the NSColorSampler loupe (macOS) / GDI overlay (Windows); click a pixel, the hex code (`#RRGGBB`) lands on your clipboard + History. No popup, no modal — fire-and-forget.
 
-Literal Control on every OS — same key on Windows and macOS. OCR + screenshot require the macOS **Screen Recording** TCC grant; the eyedropper doesn't.
+Literal Control on every OS — same key on Windows and macOS. OCR + screenshot require the macOS **Screen Recording** TCC grant on macOS; on Windows no extra permissions are needed.
 
 Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
@@ -216,7 +216,7 @@ Everything else (snippets management, notes, settings, image tools) lives in the
 |----------|--------|------------------|
 | `Ctrl+Shift+V` | Open popup over the active monitor | — |
 | `Ctrl+Shift+O` | Screen-region **OCR** → text on clipboard + History | Screen Recording |
-| `Ctrl+Shift+S` *(v0.15.0+)* | Screen-region **screenshot** → PNG on clipboard + History (no OCR) | Screen Recording |
+| `Ctrl+Shift+S` *(v0.15.0+)* | Screen-region **screenshot** → PNG on clipboard + History (no OCR); press **`S`** during overlay to save to file instead (green border) *(v0.19.2+)* | Screen Recording *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → hex (`#RRGGBB`) on clipboard + History | — |
 | `Alt+1` *(default, configurable, opt-in)* | Expand snippet abbreviation in place | Accessibility |
 | *(user-configurable)* | **Direct hotkey → snippet** — paste a specific snippet body | Accessibility |
@@ -252,8 +252,9 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | Snippets CRUD + JSON import | Snippets tab → form / Import button | [snippets-import.md](./docs/snippets-import.md) |
 | Notes — categorized persistent bookmarks | Notes tab (tray: *Manage Notes*) | [notes.md](./docs/notes.md) |
 | Save clip as note | Hover any History row → bookmark icon | [notes.md](./docs/notes.md) |
-| **Screen-region OCR** *(macOS, v0.9.0+)* | `Ctrl+Shift+O` or tray *OCR Region* | core |
-| **Screen-region screenshot** *(macOS, v0.15.0+)* | `Ctrl+Shift+S` or tray *Screenshot Region* | core |
+| **Screen-region OCR** *(v0.9.0+; Windows since v0.19.2)* | `Ctrl+Shift+O` or tray *OCR Region* | core |
+| **Screen-region screenshot** *(v0.15.0+; Windows since v0.19.2)* | `Ctrl+Shift+S` or tray *Screenshot Region* | core |
+| **Screenshot → save to file** *(v0.19.2+)* | `Ctrl+Shift+S` → press **`S`** during overlay (border turns green) → native save dialog | core |
 | **Image recolor** (logo tint, chromaticity-gated) | Preview pane on image entry → swatch / hex | core |
 | **ML background cutout** (U²-Net ONNX, ~4.5 MB embedded) | Preview pane → *Cut out background* or `⌘B` | core |
 | Save image to Downloads | Preview pane or `⌘S` (unchanged PNG) | core |
@@ -323,7 +324,7 @@ Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee
 - **Region picker** — uses `screencapture -i` (the same binary as Cmd+Shift+4), so the marquee UX is the polished one users already know. Esc cancels cleanly.
 - **Engine** — Vision's `VNRecognizeTextRequest` with accuracy=Accurate + language correction; same engine that powers Apple Live Text. No model bundling, no network.
 - **Languages** — whatever your macOS Vision install supports (Latin + CJK + Arabic + Cyrillic on macOS 13+).
-- **Windows** — implementation pending (will use `Windows.Media.Ocr`).
+- **Windows** *(v0.19.2+)* — implemented via WinRT `Windows.Media.Ocr` + `Windows.Graphics.Imaging`. Uses the language packs already on your Windows install (Settings → Time & Language → Language); no extras needed. COM is initialised per-thread on the worker; blocking `.get()` calls keep the pipeline synchronous.
 - Modules: [`region_picker.rs`](./core/rust-lib/src/region_picker.rs), [`ocr.rs`](./core/rust-lib/src/ocr.rs).
 
 ### Image tools — recolor + ML cutout + save (v0.7.0 → v0.10.x)
@@ -529,7 +530,7 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) **and** screenshot region (`Ctrl+Shift+S`, v0.15.0+) both require Screen Recording access — `screencapture -i` is attributed to Inspector Rust and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
 | **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
-| **OCR + Screenshot are macOS-only for now** | Region capture (shared by OCR and the v0.15.0 screenshot pipeline) plus Vision OCR ship only on macOS. Windows / Linux invocations of `ocrRegion()` / `screenshotRegion()` return a structured `"not implemented on this platform"` error; the workspace builds cross-platform via stubs. Windows region capture will use `Graphics.Capture` and Vision-equivalent OCR via `Windows.Media.Ocr` in a follow-up release. |
+| **Windows OCR language packs** | Windows OCR (`Windows.Media.Ocr`) uses the language packs installed in Settings → Time & Language → Language. If none is installed for the on-screen text, the engine will fail with a descriptive error. Add the relevant pack in Windows Settings and retry. Linux is still a stub. |
 
 ## Contributing
 

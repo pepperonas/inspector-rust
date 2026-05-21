@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.1] — 2026-05-21
+
+### Fixed — permission banners overlapping the Settings content (for real this time)
+
+The two macOS TCC permission banners (Accessibility + Screen Recording) were `position: sticky`. The v0.16.2 attempt to fix their overlap gave them *staggered* `top` values so they'd stack instead of collide — but that just moved the bug: with both banners pinned at different heights, any section rendered between/below them (the new v0.20.0 **Appearance / Theme** section was the visible victim) got sandwiched and clipped between the two pinned bars.
+
+Root cause: two **independently**-sticky elements in the same scroll container fundamentally don't coexist — there's no `top` arithmetic that makes scrolling content flow cleanly past *both*.
+
+**Fix:** drop `sticky` from both banners entirely. They're now plain in-flow elements at the top of the Settings panel — the amber border + warning triangle keep them impossible to miss, and they scroll away like any other content when the user scrolls down. No pinning, no sandwich, no overlap.
+
+### Fixed — stale `--color-text` in the permission banners
+
+Two banner containers still used `text-[var(--color-text)]` — the CSS variable renamed to `--color-fg` in v0.20.0. The banner body text was resolving to an undefined variable. Corrected to `--color-fg`.
+
+### Why 0.20.1
+
+Two CSS/layout fixes in `SettingsPanel.tsx`, no API change. Patch level.
+
 ## [0.20.0] — 2026-05-21
 
 ### Added — Appearance theme control (Light / Dark / System)

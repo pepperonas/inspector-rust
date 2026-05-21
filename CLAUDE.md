@@ -72,16 +72,22 @@ Rust unit tests use `Connection::open_in_memory()` — no temp files needed.
 
 ### Frontend data flow and `ListEntry` union
 
-The history tab renders a unified `ListEntry` discriminated union:
+The history tab renders a unified `ListEntry` discriminated union (`lib/types.ts`):
 
 ```ts
 type ListEntry =
-  | { kind: "clip";    data: ClipEntry }
-  | { kind: "snippet"; data: Snippet }
-  | { kind: "calc";    data: { display: string; ... } }
+  | { kind: "clip";               data: ClipEntry }
+  | { kind: "snippet";            data: Snippet }
+  | { kind: "calc";               data: CalcEntry }
+  | { kind: "color";              data: ColorEntryView }
+  | { kind: "command";            data: CommandEntryView }        // runnable power command
+  | { kind: "command-suggestion"; data: CommandSuggestionView }   // autocomplete hint
+  | { kind: "kill-target";        data: KillTargetView }          // process in the kill picker
 ```
 
-Assembly order in `App.tsx`: calc result first → snippet matches → fuzzy clips. Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`core/frontend/src/lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant (plain numbers/text are ignored).
+Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips. Two whole-list overrides: in **kill-mode** (`kill` command parsed) the list is replaced entirely by `kill-target` rows; in **game-mode** (`getshaky`) the whole popup is replaced by `<PongGame>`.
+
+Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
 ### Tabs
 
@@ -175,6 +181,15 @@ All surface colours are CSS custom properties (`--color-bg`, `--color-surface`, 
 - `data-theme="system"` (or absent) → the `@media (prefers-color-scheme)` query follows the OS.
 
 Persisted in the `settings` table under `appearance.theme`; IPC `get_theme_preference` / `set_theme_preference` (the `normalise_theme` whitelist collapses anything unknown to `"system"`). Applied on App.tsx mount; Settings → Appearance has the three-way picker.
+
+### `getshaky` — hidden Pong easter egg (`components/PongGame.tsx`, `lib/pong.ts`, v0.21.0+)
+
+Typing the exact word **`getshaky`** into the search bar (detected by `commands::isGetShakyTrigger` — case-insensitive, whitespace-tolerant) flips `App.tsx`'s `gameMode` state, which full-screen-takes-over the app-shell with `<PongGame>`. **Deliberately NOT in the `COMMANDS` catalogue** — it must never surface in autocomplete; you have to know the word.
+
+- `lib/pong.ts` — pure, unit-tested game maths: `clamp`, `botMaxSpeed` (ramp-up: 4.5 cap → +0.75 per bot point), `nextBallSpeed` (per-rally speed-up, capped), `paddleBounce` (edge-hit deflection, magnitude-preserving), `serveBall`.
+- `components/PongGame.tsx` — the stateful `<canvas>` + `requestAnimationFrame` loop. Three phases: `intro` (~1.3 s shake transformation — `getshakyShake` / `getshakyTitle` CSS keyframes in `styles.css`), `playing`, `over`. Mutable game state lives in a `useRef` so the 60 fps loop never re-renders React; only score + phase changes do. Player paddle: mouse **and** arrow/W-S, both live. Board colours read live from the theme CSS vars.
+- `useKeyboardNav` gained an `enabled` flag — set to `!gameMode` in App.tsx so the popup's nav handler doesn't double-fire Esc / arrows while PongGame owns the keyboard. **Esc is the only abort** (Space rematches on the game-over screen — not an abort).
+- Entirely client-side: no backend, no IPC, no new Rust module.
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 

@@ -9,6 +9,10 @@ interface Args {
    *  pick `paste_entry_formatted` over `paste_entry`. */
   onEnter: (shiftKey: boolean) => void;
   onEscape: () => void;
+  /** When false, the listener no-ops — used to fully hand keyboard
+   *  control to a takeover surface (e.g. the `getshaky` Pong game)
+   *  without unmounting the hook (hooks can't be called conditionally). */
+  enabled?: boolean;
 }
 
 export function useKeyboardNav({
@@ -17,9 +21,11 @@ export function useKeyboardNav({
   setSelected,
   onEnter,
   onEscape,
+  enabled = true,
 }: Args) {
   const handler = useCallback(
     (e: KeyboardEvent) => {
+      if (!enabled) return;
       if (e.key === "ArrowDown") {
         e.preventDefault();
         if (length === 0) return;
@@ -36,7 +42,7 @@ export function useKeyboardNav({
         onEscape();
       }
     },
-    [length, selected, setSelected, onEnter, onEscape],
+    [length, selected, setSelected, onEnter, onEscape, enabled],
   );
 
   useEffect(() => {

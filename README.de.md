@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.20.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.21.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -81,7 +81,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-213%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-162%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-190%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)

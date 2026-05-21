@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] — 2026-05-22
+
+### Added — `getshaky` 🏓 (hidden Pong easter egg)
+
+Type **`getshaky`** into the search bar and the popup overlay shakes itself apart and reassembles as a game of Pong.
+
+- **Hidden** — `getshaky` is *not* in the command catalogue, so it never appears in the autocomplete suggestions. It triggers only on an exact, fully-typed match (case-insensitive, whitespace-tolerant). You have to know the word.
+- **The transformation** — a ~1.3 s flourish: the overlay jitters with an intensifying-then-settling shake (the "shaky" the command is named for), a big "GET SHAKY" title zooms in with an overshoot, then the play field + HUD fade in and the ball serves.
+- **The game** — Pong against a bot, first to 5. Player paddle is driven by **mouse *and* arrow keys / W-S, both live at once**. The bot uses **ramp-up difficulty**: it starts fair and beatable (tracking-speed cap 4.5) and gains a little with every point it scores (cap → 7.5 at 4 points), so a deficit genuinely tightens. The ball speeds up slightly on every rally hit. Themed to the current Light/Dark palette — player paddle is the accent colour, board matches the app.
+- **Esc is the only abort**, as specified. (After a match ends, Space offers a rematch — not an abort, so it doesn't break that rule.)
+- Entirely client-side — a `<canvas>` + `requestAnimationFrame` loop. No backend, no IPC. Pure game maths (`clamp`, `botMaxSpeed` ramp-up, `paddleBounce` deflection, `serveBall`) lives in the new testable `lib/pong.ts`; the stateful loop + intro/over phases live in `components/PongGame.tsx`. `useKeyboardNav` gained an `enabled` flag so the popup's normal nav handler cleanly hands all keyboard control to the game.
+
+### Why 0.21.0
+
+A whole new (if playful) interactive surface — new module, new component, a search-bar trigger. No existing behaviour changed. Feature-level → 0.x.0.
+
 ## [0.20.2] — 2026-05-22
 
 ### Fixed — footer credit overflowing onto a second line

@@ -229,6 +229,18 @@ export function parseResizeArg(arg: string): { width: number; height: number } |
 }
 
 /**
+ * Hidden easter egg: `getshaky` turns the popup into a game of Pong.
+ *
+ * Deliberately NOT a member of `COMMANDS` — it must never surface in
+ * the autocomplete suggestions. It only triggers on an exact, fully
+ * typed match. Whitespace-tolerant + case-insensitive so "GetShaky "
+ * still works, but you have to know the word.
+ */
+export function isGetShakyTrigger(query: string): boolean {
+  return query.trim().toLowerCase() === "getshaky";
+}
+
+/**
  * Parse the kill command's argument into `{ force, pattern }`.
  * - `kill <pattern>`     → force=false, pattern=<pattern>
  * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>

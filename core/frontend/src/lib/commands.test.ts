@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   COMMANDS,
   commandSuggestions,
+  isGetShakyTrigger,
   parseCommand,
   parseKillArg,
   parseResizeArg,
@@ -277,6 +278,37 @@ describe("parseKillArg", () => {
   it("does NOT treat -9-prefixed words as force", () => {
     // `-9foo` is a literal name beginning with `-`, not `-9 foo`.
     expect(parseKillArg("-9foo")).toEqual({ force: false, pattern: "-9foo" });
+  });
+});
+
+describe("isGetShakyTrigger — hidden Pong easter egg", () => {
+  it("matches the exact magic word", () => {
+    expect(isGetShakyTrigger("getshaky")).toBe(true);
+  });
+  it("is case-insensitive", () => {
+    expect(isGetShakyTrigger("GetShaky")).toBe(true);
+    expect(isGetShakyTrigger("GETSHAKY")).toBe(true);
+  });
+  it("tolerates surrounding whitespace", () => {
+    expect(isGetShakyTrigger("  getshaky  ")).toBe(true);
+  });
+  it("does not match partial / extended input", () => {
+    expect(isGetShakyTrigger("getshak")).toBe(false);
+    expect(isGetShakyTrigger("getshakyy")).toBe(false);
+    expect(isGetShakyTrigger("get shaky")).toBe(false);
+    expect(isGetShakyTrigger("getshaky now")).toBe(false);
+    expect(isGetShakyTrigger("")).toBe(false);
+  });
+  it("is NOT in the public COMMANDS catalogue (hidden from autocomplete)", () => {
+    expect(COMMANDS.some((c) => c.keyword === "getshaky")).toBe(false);
+  });
+  it("never surfaces as an autocomplete suggestion", () => {
+    // Typing toward the magic word must not reveal it.
+    for (const prefix of ["g", "ge", "get", "getsh", "getshak"]) {
+      expect(commandSuggestions(prefix).some((c) => c.keyword === "getshaky")).toBe(
+        false,
+      );
+    }
   });
 });
 

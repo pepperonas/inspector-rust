@@ -143,6 +143,46 @@ pub fn set_paste_plain_text_only(
     .map_err(map_err)
 }
 
+// ── Appearance / theme ────────────────────────────────────────────────
+
+const KEY_THEME: &str = "appearance.theme";
+
+/// Normalise an arbitrary stored / incoming theme string to one of the
+/// three valid values. Anything unrecognised collapses to `"system"`
+/// so a hand-edited settings DB can never wedge the UI.
+fn normalise_theme(s: &str) -> &'static str {
+    match s {
+        "light" => "light",
+        "dark" => "dark",
+        _ => "system",
+    }
+}
+
+/// Read the persisted theme preference. One of `"light"`, `"dark"`,
+/// `"system"`. Defaults to `"system"` (follow the OS) on a fresh
+/// install — the long-standing pre-v0.20.0 behaviour.
+#[tauri::command]
+pub fn get_theme_preference(db: State<'_, DbHandle>) -> Result<String, String> {
+    let raw = settings::get_or(&db, KEY_THEME, "system").map_err(map_err)?;
+    Ok(normalise_theme(&raw).to_string())
+}
+
+/// Persist the theme preference. Rejects anything that isn't one of
+/// the three valid values rather than silently storing garbage.
+#[tauri::command]
+pub fn set_theme_preference(
+    db: State<'_, DbHandle>,
+    theme: String,
+) -> Result<(), String> {
+    let normalised = normalise_theme(&theme);
+    if normalised != theme {
+        return Err(format!(
+            "invalid theme {theme:?} — expected one of light / dark / system",
+        ));
+    }
+    settings::set(&db, KEY_THEME, normalised).map_err(map_err)
+}
+
 /// Force-format paste — bypasses the `paste.plain_text_only` setting and
 /// always uses the entry's original content type. Wired to Shift+Enter
 /// in the popup as a one-shot override for users who normally paste as
@@ -1389,6 +1429,42 @@ pub fn strip_vowels(s: &str) -> String {
             )
         })
         .collect()
+}
+
+#[cfg(test)]
+mod theme_tests {
+    use super::normalise_theme;
+
+    #[test]
+    fn passes_through_the_three_valid_themes() {
+        assert_eq!(normalise_theme("light"), "light");
+        assert_eq!(normalise_theme("dark"), "dark");
+        assert_eq!(normalise_theme("system"), "system");
+    }
+
+    #[test]
+    fn collapses_unknown_to_system() {
+        // A hand-edited settings DB or a value from a future build must
+        // never wedge the UI — anything unrecognised becomes "system".
+        assert_eq!(normalise_theme("midnight"), "system");
+        assert_eq!(normalise_theme(""), "system");
+        assert_eq!(normalise_theme("DARK"), "system"); // case-sensitive
+        assert_eq!(normalise_theme("Light"), "system");
+        assert_eq!(normalise_theme("  dark  "), "system"); // no trimming
+    }
+
+    #[test]
+    fn return_value_is_a_static_str_safe_to_store() {
+        // Guard: normalise_theme must always return one of the literal
+        // whitelist values, never echo the input back.
+        for input in ["light", "dark", "system", "garbage", ""] {
+            let out = normalise_theme(input);
+            assert!(
+                matches!(out, "light" | "dark" | "system"),
+                "normalise_theme({input:?}) returned {out:?} — not in whitelist",
+            );
+        }
+    }
 }
 
 #[cfg(test)]

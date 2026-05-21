@@ -32,6 +32,20 @@ export function setPastePlainTextOnly(value: boolean): Promise<void> {
   return invoke("set_paste_plain_text_only", { value });
 }
 
+/** Read the persisted theme preference — `"light"`, `"dark"`, or
+ *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
+ *  `commands::get_theme_preference`. */
+export function getThemePreference(): Promise<string> {
+  return invoke("get_theme_preference");
+}
+
+/** Persist the theme preference. The backend rejects anything that
+ *  isn't one of the three valid values. Backend:
+ *  `commands::set_theme_preference`. */
+export function setThemePreference(theme: string): Promise<void> {
+  return invoke("set_theme_preference", { theme });
+}
+
 export function deleteEntry(id: number): Promise<void> {
   return invoke("delete_entry", { id });
 }

@@ -29,7 +29,7 @@
 
   **Zero telemetry. Zero network calls. Zero account.** Your data lives at `~/Library/Application Support/InspectorRust/history.db` (macOS) or `%APPDATA%\InspectorRust\history.db` (Windows) and nowhere else. The 4.5 MB ONNX model is *bundled* — even cutouts run offline. The Vision OCR is *local* — Apple's on-device ML, no API key, no rate limit. The encryption keys never leave your machine, the snippets sync nowhere, the history is yours.
 
-  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **210 Rust unit tests + 155 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
+  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **213 Rust unit tests + 162 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>
@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.19.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.20.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -80,8 +80,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-210%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-155%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-213%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-162%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -114,7 +114,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-68-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-70-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-10-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -269,6 +269,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | Permissions UX (TCC banners + 1 s polling + `tccutil reset` recovery) | Settings → permissions section *(macOS)* | core |
 | Keyboard shortcuts cheat sheet | Settings → *Keyboard shortcuts* (OS-adaptive glyphs) | core |
 | About dialog | Settings → About | core |
+| **Theme — Light / Dark / System** *(v0.20.0+)* | Settings → Appearance | Three-way toggle; Light/Dark override the OS, System follows it |
 | **Power command — `tren <text>`** *(v0.18.0+)* | Search bar | Translate text English → German (opens Google Translate in browser) |
 | **Power command — `trde <text>`** *(v0.18.0+)* | Search bar | Translate text German → English (Google Translate) |
 | **Power command — `tr <text>`** *(v0.18.0+)* | Search bar | Translate text → German (auto-detect source) |

@@ -41,8 +41,10 @@ import {
   systemLock,
   systemReboot,
   systemShutdown,
+  getThemePreference,
   type ProcessInfo,
 } from "./lib/ipc";
+import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ListEntry, Snippet } from "./lib/types";
 
@@ -80,6 +82,17 @@ function App() {
   // the footer just hides the version chip.
   useEffect(() => {
     getVersion().then(setVersion).catch(() => undefined);
+  }, []);
+
+  // Apply the persisted theme preference as early as possible. The
+  // popup window is created hidden and only shown on the hotkey, so
+  // this IPC round-trip finishes long before the user sees anything —
+  // no flash-of-wrong-theme. If the IPC fails (dev preview), the CSS
+  // baseline (no data-theme attr → follow OS) is a sane fallback.
+  useEffect(() => {
+    getThemePreference()
+      .then((t) => applyTheme(normaliseTheme(t)))
+      .catch(() => undefined);
   }, []);
 
   // Auto-dismiss the paste-failure banner.

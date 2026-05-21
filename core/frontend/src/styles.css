@@ -1,11 +1,35 @@
 @import "tailwindcss";
 
+/*
+ * Theming model
+ * =============
+ * Every surface colour is a CSS custom property. Components reference
+ * them via arbitrary Tailwind values (`bg-[var(--color-bg)]`, …), so
+ * overriding the variable at runtime re-themes the whole app with no
+ * React re-render.
+ *
+ * The `@theme` block below is the **dark** palette — it's both the
+ * Tailwind-token default and the "system mode + OS is dark" case.
+ *
+ * Theme resolution (controlled by the `data-theme` attribute on
+ * <html>, set by `lib/theme.ts`):
+ *
+ *   data-theme="dark"    → forced dark   (explicit override block)
+ *   data-theme="light"   → forced light  (explicit override block)
+ *   data-theme="system"  → follow the OS (media query below)
+ *   (attribute absent)   → follow the OS (pre-JS baseline)
+ */
+
 @theme {
-  --color-bg: #0f0f10;
-  --color-surface: #1a1a1c;
-  --color-border: #2a2a2e;
-  --color-muted: #a1a1aa;
-  --color-text: #f5f5f5;
+  /* ── Dark palette (default) ───────────────────────────────────────
+     Refined v0.20.0: deeper near-black background with a faint cool
+     undertone, surface lifted enough to read as a distinct layer,
+     borders subtle but visible. Brand indigo accent unchanged. */
+  --color-bg: #0c0d11;
+  --color-surface: #17191f;
+  --color-border: #2b2e38;
+  --color-muted: #9a9fac;
+  --color-fg: #f2f3f5;
   --color-accent: #6366f1;
   --color-accent-fg: #ffffff;
 
@@ -14,13 +38,49 @@
   --font-mono: "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
 }
 
+/* ── Light palette ──────────────────────────────────────────────────
+   Defined once as a custom-property group; applied either by an
+   explicit `data-theme="light"` override or by the system-mode media
+   query further down. The two copies must stay in sync — there's no
+   variable-group nesting in plain CSS. */
+:root[data-theme="light"] {
+  --color-bg: #fafafa;
+  --color-surface: #ffffff;
+  --color-border: #e3e3e7;
+  --color-muted: #6b7280;
+  --color-fg: #18181b;
+  --color-accent: #6366f1;
+  --color-accent-fg: #ffffff;
+}
+
+/* Explicit dark override — same values as the @theme default, but a
+   higher-specificity selector so `data-theme="dark"` always wins over
+   the system-mode media query (which could otherwise paint light when
+   the OS is light). */
+:root[data-theme="dark"] {
+  --color-bg: #0c0d11;
+  --color-surface: #17191f;
+  --color-border: #2b2e38;
+  --color-muted: #9a9fac;
+  --color-fg: #f2f3f5;
+  --color-accent: #6366f1;
+  --color-accent-fg: #ffffff;
+}
+
+/* System mode: follow the OS. Applies only when the user picked
+   "System" (data-theme="system") or before JS has set the attribute
+   at all (data-theme absent). An explicit light/dark choice carries a
+   matching [data-theme="…"] selector above and is unaffected. */
 @media (prefers-color-scheme: light) {
-  @theme {
+  :root[data-theme="system"],
+  :root:not([data-theme]) {
     --color-bg: #fafafa;
     --color-surface: #ffffff;
-    --color-border: #e5e5e5;
-    --color-muted: #71717a;
-    --color-text: #18181b;
+    --color-border: #e3e3e7;
+    --color-muted: #6b7280;
+    --color-fg: #18181b;
+    --color-accent: #6366f1;
+    --color-accent-fg: #ffffff;
   }
 }
 
@@ -31,7 +91,7 @@ body,
   margin: 0;
   padding: 0;
   background: transparent;
-  color: var(--color-text);
+  color: var(--color-fg);
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   user-select: none;

@@ -4,6 +4,30 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] — 2026-05-21
+
+### Added — Appearance theme control (Light / Dark / System)
+
+Inspector Rust always *had* a dark theme — the `@theme` block in `styles.css` was the dark palette, and a `prefers-color-scheme: light` media query flipped to a light palette when the OS was in light mode. But that was invisible and un-overridable: the app simply followed macOS, with no way to force one or the other.
+
+v0.20.0 makes the theme a first-class, user-controllable setting.
+
+- **New "Appearance" section in Settings** — a three-way segmented control: **System** (follow the OS, the previous behaviour), **Light**, **Dark**. Light and Dark are hard overrides — they ignore the OS setting until you switch back to System. The choice persists in the `settings` table under `appearance.theme` and is re-applied on every launch.
+- **Theme resolution** is now driven by a `data-theme` attribute on `<html>` (written by the new `lib/theme.ts`). `styles.css` carries explicit `:root[data-theme="light"]` / `:root[data-theme="dark"]` override blocks plus a system-scoped media query — so an explicit choice always wins, and "System" still tracks the OS live.
+- **The dark palette was refined** — deeper near-black background (`#0c0d11`) with a faint cool undertone, the surface layer lifted enough to read as distinct, borders subtle but visible. Restrained, no neon. The light palette got a matching touch-up.
+
+### Fixed — undefined `--color-fg` CSS variable
+
+Components across the app referenced `var(--color-fg)` in hover states (`HistoryItem`, `AboutModal`, `SettingsPanel`, …), but `styles.css` only ever defined `--color-text`. `--color-fg` resolved to nothing, so those hover states silently fell back to inherited colour. Renamed the canonical variable to `--color-fg` (the name the component layer already standardised on) and defined it in every theme block — the hover states now work.
+
+### Backend
+
+- New IPC commands `get_theme_preference` / `set_theme_preference` (settings key `appearance.theme`), with a `normalise_theme` whitelist that collapses any unrecognised value to `"system"` so a hand-edited DB can't wedge the UI.
+
+### Why 0.20.0
+
+New Settings surface + two new IPC commands + a user-facing behaviour change (the app can now be themed independently of the OS). Compatible — a fresh install still defaults to `"system"`, i.e. the old behaviour. Feature-level → 0.x.0.
+
 ## [0.19.2] — 2026-05-21
 
 ### Added — Windows OCR + screenshot region parity, screenshot save-to-file mode

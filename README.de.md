@@ -115,7 +115,7 @@
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-70-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Tauri events](https://img.shields.io/badge/events-10-blueviolet?style=flat-square)](#)
+  [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
@@ -405,9 +405,11 @@ inspector-rust/
 │           ├── recolor.rs            # Image-Tint (Lerp Target ↔ Weiß nach Per-Pixel-Luminanz)
 │           ├── cutout.rs             # Legacy Chroma-Key-Cutout (als Fast-Path-Option behalten)
 │           ├── cutout_ml.rs          # U²-Net-basierter Subject-Cutout via `ort` (ONNX Runtime)
+│           ├── image_ops.rs          # `rz` Resize (Lanczos3) + `optim` PNG-Optimierung (oxipng)
+│           ├── system_commands.rs    # `kill` / `reboot` / `shutdown` / `lock` (sysinfo + osascript)
 │           ├── screen_picker.rs      # Farb-Eyedropper (NSColorSampler / GDI-Overlay)
-│           ├── region_picker.rs      # screencapture-i-Wrapper — geteilt von OCR- + Screenshot-Pipelines
-│           ├── ocr.rs                # Apple Vision (VNRecognizeTextRequest)-Wrapper
+│           ├── region_picker.rs      # screencapture-i (macOS) / GDI-Overlay (Windows) — OCR + Screenshot
+│           ├── ocr.rs                # Apple Vision (macOS) / Windows.Media.Ocr (Windows)-Wrapper
 │           └── screen_recording.rs   # macOS-Bildschirmaufnahme-TCC-Permission-API — gated OCR + Screenshot
 ├── win/                     # Windows-spezifische Bundle-Shell
 │   ├── README.md            # Windows-Install- & Build-Details

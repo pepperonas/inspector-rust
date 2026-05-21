@@ -96,7 +96,7 @@ Assembly order in `App.tsx`: calc result first → snippet matches → fuzzy cli
 
 ### Tauri events
 
-Ten events total; the table maps each to where it's emitted and what the frontend does with it.
+Eleven events total; the table maps each to where it's emitted and what the frontend does with it.
 
 | Rust `app.emit(...)` | Emitted from | Frontend reaction |
 |---|---|---|
@@ -110,6 +110,7 @@ Ten events total; the table maps each to where it's emitted and what the fronten
 | `"expander-permission-needed"` | Expander hotkey fails Accessibility pre-check | Popup opens, Settings tab + amber banner (same shape as OCR banner) |
 | `"autostart-changed"` (v0.14.0) | Tray "Start at Login" toggle | Settings → Startup checkbox reconciles to the now-effective OS state |
 | `"color-picked"` | `pick_screen_color` worker completes (NSColorSampler / GDI overlay) | `ColorPickerModal` stores the hex; payload is `string \| null` (`null` = cancelled) |
+| `"screenshot-saved"` (v0.19.2) | Screenshot pipeline finishes in save-to-file mode | Frontend toast confirming the file path the PNG was written to |
 
 ### Text expander (`expander.rs`)
 
@@ -133,8 +134,8 @@ The Settings panel includes a **"Diagnose"** button that calls `diagnose_at_curs
 
 Triggered by `Ctrl+Shift+O` — literal Control on every OS (v0.14.1+), not Cmd on macOS; avoids the `⌘⇧O` collision with VS Code / IntelliJ "Go to Symbol". Registered alongside the popup hotkey in `hotkey::register` or via the tray's **OCR Region** menu. Pipeline lives in `commands::run_ocr_pipeline(app)`, shared between the IPC `ocr_region` command, the global-shortcut callback, and the tray handler. Always dispatched to a worker thread (`std::thread::spawn`) because `screencapture -i` blocks until the user finishes the marquee.
 
-- **Region capture** (macOS) shells out to `/usr/sbin/screencapture -i -x -t png <tmpfile>`. Read the file back, delete it. Empty / missing file = user pressed Esc → return `region_picker::Cancelled`. Windows path is stubbed.
-- **OCR** (macOS) uses Vision via raw `objc2` msg_send: `NSData::dataWithBytes:length:` → `VNImageRequestHandler.alloc().initWithData:options:` → `VNRecognizeTextRequest` (recognitionLevel=0/Accurate, usesLanguageCorrection=true) → `performRequests:error:` synchronously → enumerate `request.results` taking `topCandidates(1).string`. Vision is linked explicitly via `core/rust-lib/build.rs` (`cargo:rustc-link-lib=framework=Vision`).
+- **Region capture** (macOS) shells out to `/usr/sbin/screencapture -i -x -t png <tmpfile>`. Read the file back, delete it. Empty / missing file = user pressed Esc → return `region_picker::Cancelled`. **Windows** (v0.19.2+) uses a GDI fullscreen layered overlay in `region_picker.rs` — the user drags a marquee, the picker blits the selected rect into a PNG. No external tool.
+- **OCR** (macOS) uses Vision via raw `objc2` msg_send: `NSData::dataWithBytes:length:` → `VNImageRequestHandler.alloc().initWithData:options:` → `VNRecognizeTextRequest` (recognitionLevel=0/Accurate, usesLanguageCorrection=true) → `performRequests:error:` synchronously → enumerate `request.results` taking `topCandidates(1).string`. Vision is linked explicitly via `core/rust-lib/build.rs` (`cargo:rustc-link-lib=framework=Vision`). **Windows** (v0.19.2+) uses WinRT `Windows.Media.Ocr` + `Windows.Graphics.Imaging` — picks up whatever language packs are installed in *Settings → Time & Language*; COM is initialised per-thread on the worker and the WinRT futures are `.get()`-blocked to keep the pipeline synchronous.
 - **Output**: text written to system clipboard (with `WatcherState::mark_self_write` so the watcher doesn't recapture it), plus two history entries — **source PNG first, recognised text second** (v0.14.2+), so the text wins the later `last_used_at` and is the most-recent entry at the top of the list (Enter then pastes text, not the screenshot). Returns `OcrResult { text, cancelled, chars }` so the frontend can show "recognised N chars" toasts.
 
 ### Screen-region screenshot (`commands::run_screenshot_pipeline`, v0.15.0)
@@ -144,6 +145,36 @@ Triggered by `Ctrl+Shift+S` (literal Control on every OS) or the tray's **Screen
 ### Eyedropper — global hotkey (`commands::run_eyedropper_pipeline`, v0.17.0)
 
 Triggered by `Ctrl+Shift+C` or the tray's **Pick Color** menu. Reuses `screen_picker::pick_color_async` (macOS — `NSColorSampler` loupe) / `pick_color_blocking` (Windows — GDI overlay), but **does not open the popup** the way `pick_screen_color` (the in-modal entry point) does. On result: the hex string is written to the system clipboard via `ClipboardContext::set_text`, marked self-write so the watcher skips it, and persisted as a Text history entry. Cleanup (`clear_eyedropper_no_popup`) defers `demote_to_accessory` + `suppress_hide` clear via a 500 ms thread so the macOS focus-loss event from the policy demote doesn't fire before we want it to. No Screen Recording TCC grant needed — NSColorSampler / GDI overlay don't go through `screencapture`. IPC: `eyedropper_to_clipboard`. `register_direct_slots` rejects `Ctrl+Shift+C` alongside the popup/OCR/screenshot/abbreviation hotkeys.
+
+**Multi-screen note (v0.19.1+)**: before hiding the popup, both eyedropper entry points call `hotkey::park_on_cursor_monitor` — `NSColorSampler` renders its loupe on the calling app's *primary* screen, which macOS derives from the last-active window. Parking the hidden popup on the cursor's monitor anchors the activation there so the loupe appears under the cursor, not on the main display.
+
+### Power commands — search-bar palette (`commands.rs`, `lib/commands.ts`, v0.18.0+)
+
+The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. Complete commands surface as a `command` `ListEntry`; partial keywords surface as `command-suggestion` autocomplete rows. Six text/image/translation commands:
+
+- **`tren`/`trde`/`tr <text>`** — build a Google Translate URL and open it via `tauri-plugin-opener`. Pure frontend, no IPC.
+- **`rz <W>x<H>`** — `image_ops::resize_clipboard_image_lanczos`: read clipboard image → Lanczos3 resize → write back. 16 MP cap. IPC `resize_clipboard_image`.
+- **`optim`** — `image_ops::optimize_clipboard_png`: clipboard PNG → `oxipng` (lossless) → `~/Downloads/inspector-rust-optim-<ts>.png`. IPC `optimize_clipboard_image`.
+- **`rmvvls <text>`** — `commands::strip_vowels` (aeiou + AEIOU + ä/ö/ü) → clipboard + history. IPC `remove_vowels_to_clipboard`.
+
+`image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
+
+### System commands (`system_commands.rs`, v0.19.0+)
+
+Four system-level commands, also in the search-bar palette:
+
+- **`kill [-9] [pattern]`** — `system_commands::list_running_processes` (via the `sysinfo` crate, sorted by memory desc, excludes our own PID) drives a live picker rendered as `kill-target` `ListEntry` rows; App.tsx overrides the whole list in kill-mode. `kill_process_by_pid(pid, force)` sends SIGTERM (or SIGKILL with `-9`). Native `window.confirm` before the kill.
+- **`reboot` / `shutdown`** — `osascript` → `loginwindow` Apple Events (`aevtrrst` / `aevtrsdn`). No sudo. Native `window.confirm` first.
+- **`lock`** — `pmset displaysleepnow`. No confirm (cheap to undo). IPC: `list_processes`, `kill_process`, `system_reboot`, `system_shutdown`, `system_lock`. macOS-only — Windows stubs return "not implemented".
+
+### Appearance / theming (`styles.css`, `lib/theme.ts`, v0.20.0+)
+
+All surface colours are CSS custom properties (`--color-bg`, `--color-surface`, `--color-border`, `--color-muted`, `--color-fg`, `--color-accent`, `--color-accent-fg`). The `@theme` block in `styles.css` is the **dark** palette (also the Tailwind-token default). Theme resolution keys off a `data-theme` attribute on `<html>`, written by `lib/theme.ts::applyTheme`:
+
+- `data-theme="dark"` / `"light"` → explicit `:root[data-theme="…"]` override blocks.
+- `data-theme="system"` (or absent) → the `@media (prefers-color-scheme)` query follows the OS.
+
+Persisted in the `settings` table under `appearance.theme`; IPC `get_theme_preference` / `set_theme_preference` (the `normalise_theme` whitelist collapses anything unknown to `"system"`). Applied on App.tsx mount; Settings → Appearance has the three-way picker.
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 

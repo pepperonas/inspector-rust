@@ -18,8 +18,11 @@ export function Footer({ index, total, version }: Props) {
   const screenshotKey = IS_MAC ? "⌃⇧S" : "Ctrl+⇧+S";
   const colorKey = IS_MAC ? "⌃⇧C" : "Ctrl+⇧+C";
   return (
-    <div className="flex h-8 items-center justify-between border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
-      <div className="flex items-center gap-3">
+    <div className="flex h-8 items-center justify-between gap-3 overflow-hidden border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
+      {/* `shrink-0` + `whitespace-nowrap` so a cramped footer clips at
+          the edge instead of wrapping items onto a second line and
+          overflowing the fixed `h-8` height. */}
+      <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         <Hint k="⏎" label="Paste" />
         <Hint k="↑↓" label="Navigate" />
         <Hint k="Esc" label="Close" />
@@ -27,9 +30,11 @@ export function Footer({ index, total, version }: Props) {
         <Hint k={screenshotKey} label="Shot" />
         <Hint k={colorKey} label="Color" />
       </div>
-      <div className="flex items-center gap-3">
-        <span title="Made with love by Martin Pfeffer">
-          made with <span className="text-red-400">♥</span> by Martin Pfeffer
+      <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
+        {/* Shortened from "made with ♥ by Martin Pfeffer" — the full
+            credit lives in the title tooltip + the About dialog. */}
+        <span title="Made with ♥ by Martin Pfeffer">
+          <span className="text-red-400">♥</span> Martin Pfeffer
         </span>
         {version && (
           <span title="Inspector Rust version" className="font-[var(--font-mono)]">

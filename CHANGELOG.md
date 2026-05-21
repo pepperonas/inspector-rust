@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.2] — 2026-05-22
+
+### Fixed — footer credit overflowing onto a second line
+
+The footer is a fixed-height (`h-8`) single row: six keyboard hints on the left (`⏎ Paste`, `↑↓ Navigate`, `Esc Close`, `⌃⇧O OCR`, `⌃⇧S Shot`, `⌃⇧C Color`) and the credit + version + counter on the right. Six hints (OCR / Shot / Color were added incrementally over v0.9–v0.17) plus the verbose "made with ♥ by Martin Pfeffer" credit no longer fit the 600 px popup — the flex row wrapped, and the wrapped lines spilled out the bottom of the `h-8` strip.
+
+Two-part fix:
+
+- **Shortened the credit** — "made with ♥ by Martin Pfeffer" → "♥ Martin Pfeffer". The full wording is preserved in the hover `title` tooltip and the About dialog.
+- **Widened the popup** 600 → 700 px. The list/preview split (40/60) and the cursor-monitor centring logic both scale automatically — no other change needed.
+- Defensive: footer item groups are now `shrink-0` + `whitespace-nowrap`, so any future overflow clips cleanly at the edge instead of wrapping and breaking the row height.
+
+### Why 0.20.2
+
+Pure layout fix — a shorter string + a 100 px window-width bump + two CSS classes. Patch level.
+
 ## [0.20.1] — 2026-05-21
 
 ### Fixed — permission banners overlapping the Settings content (for real this time)

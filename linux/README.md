@@ -62,7 +62,21 @@ sudo apt-get install -y grim slurp
 ## Desktop environment notes
 
 - **X11**: Global shortcuts and `scrot -s` region capture usually work out of the box.
-- **Wayland**: Install `grim` and `slurp` for region capture. Global shortcuts depend on the compositor; if `Ctrl+Shift+V` does not fire, try an X11 session or check compositor shortcut policies.
+- **Wayland (GNOME / Cinnamon)**: Tauri global shortcuts often **do not fire** ([upstream issue](https://github.com/tauri-apps/plugins-workspace/issues/3267)). Inspector Rust **registers system shortcuts automatically** on first launch (via `gsettings`) — same keys as documented:
+
+| Action | Shortcut | What happens |
+|--------|----------|----------------|
+| Open popup | `Ctrl+Shift+V` | `inspector-rust --toggle-popup` |
+| OCR region | `Ctrl+Shift+O` | `inspector-rust --ocr` |
+| Screenshot region | `Ctrl+Shift+S` | `inspector-rust --screenshot` |
+| Pick color | `Ctrl+Shift+C` | `inspector-rust --pick-color` |
+
+Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Inspector Rust — …”). Re-run after reinstall: delete setting `linux.desktop_shortcuts_profile` in the DB or remove those four bindings and restart the app.
+
+- **X11**: No extra setup — built-in global shortcuts usually work.
+- **KDE Plasma**: Not automated yet; bind shortcuts manually to the commands above.
+
+- **Wayland region capture**: Install `grim` and `slurp` (used when OCR/Screenshot runs from tray or CLI).
 - **Clipboard on Wayland**: If the log shows `ext-data-control` / `wlr-data-control` is missing, the app falls back to the X11 clipboard bridge. For full Wayland clipboard sync, use a compositor that supports those protocols, or run under an X11/XWayland session.
 - **Autostart**: Uses the Tauri autostart plugin (typically `~/.config/autostart/`).
 
@@ -74,6 +88,8 @@ sudo apt-get install -y grim slurp
 | `cargo` / edition errors | `rustup default stable` (need Rust ≥ 1.77) |
 | Region capture fails | Install `scrot` (X11) or `grim`+`slurp` (Wayland) |
 | OCR shortcut errors | `sudo apt install tesseract-ocr tesseract-ocr-eng` (optional German: `tesseract-ocr-deu`) |
+| `Ctrl+Shift+V` does nothing (Wayland) | Restart app once (auto gsettings), or run `bash scripts/install-desktop-shortcuts.sh` after build |
+| Conflict with copy/paste (`Ctrl+Shift+C/V`) | GNOME Terminal defaults to those keys — run `bash scripts/ubuntu-terminal-copy-paste-ctrl-cv.sh` to use `Ctrl+C` / `Ctrl+V` in the terminal |
 | Tray icon missing | `libayatana-appindicator3-dev` + log out/in |
 
 ## Related docs

@@ -74,3 +74,14 @@ echo "  pnpm build:linux              # .deb under target/release/bundle/deb/"
 echo ""
 echo "Data directory: ~/.local/share/InspectorRust/history.db"
 echo "See linux/README.md for Wayland shortcuts and optional tools."
+
+if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
+  echo ""
+  bash "$ROOT/scripts/install-desktop-shortcuts.sh" || true
+  echo "    After build/install, Inspector Rust also registers shortcuts on first launch (GNOME/Cinnamon)."
+fi
+
+if command -v gsettings >/dev/null 2>&1 && gsettings list-schemas 2>/dev/null | grep -q org.gnome.Terminal.ProfilesList; then
+  echo ""
+  bash "$ROOT/scripts/ubuntu-terminal-copy-paste-ctrl-cv.sh" || true
+fi

@@ -279,7 +279,7 @@ fn pick_tesseract_langs(langs: Vec<String>) -> Result<String, &'static str> {
     langs.into_iter().find(|l| l != "osd").ok_or("no packs")
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(test, target_os = "linux"))]
 mod linux_tesseract_tests {
     use super::pick_tesseract_langs;
 

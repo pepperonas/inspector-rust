@@ -40,6 +40,7 @@ sysinfo = { workspace = true }
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }
 tauri-plugin-global-shortcut = { workspace = true }
+tauri-plugin-single-instance = { workspace = true }
 enigo = { workspace = true }
 
 # Windows UI Automation bindings — only pulled in on Windows targets so

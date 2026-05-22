@@ -260,10 +260,22 @@ pub fn paste_snippet_body(db: &DbHandle, snippet_id: i64) -> Result<()> {
     if !accessibility_granted() {
         return Err(anyhow!(ERR_NO_ACCESSIBILITY));
     }
-    // Mechanically identical to the SelectionActive paste — write the body,
-    // synthesize paste, restore the clipboard. The only difference is there
-    // is no prior selection, so the paste inserts at the cursor instead of
-    // replacing a range. Reuse the same helper.
+    // If the user typed the snippet's abbreviation before pressing the
+    // direct hotkey (the dominant flow — type `aiplan`, press hotkey,
+    // expect the body to replace it), delete the typed abbreviation
+    // first by synthesizing N Backspaces. We deliberately do not *read*
+    // the field — that would break the "works everywhere including
+    // terminals" promise. So this is blind: if the user pressed the
+    // hotkey without typing the abbreviation, N chars before the cursor
+    // get deleted. Character count, not byte length, so multibyte
+    // abbreviations (umlauts, emoji) work correctly.
+    let abbrev_chars = snippet.abbreviation.chars().count();
+    if abbrev_chars > 0 {
+        send_backspaces(abbrev_chars)?;
+        // Same beat we use before paste — let the destination app
+        // process the deletes before the clipboard write hits.
+        thread::sleep(Duration::from_millis(40));
+    }
     paste_over_selection(&snippet.body)
 }
 
@@ -630,6 +642,24 @@ fn send_copy() -> Result<()> {
 
 fn send_paste() -> Result<()> {
     send_modified_letter('v')
+}
+
+/// Synthesize `count` Backspace key presses. Used by `paste_snippet_body`
+/// to clear the typed abbreviation before pasting the body — see that
+/// function for the design trade-off (blind delete vs. AX read).
+fn send_backspaces(count: usize) -> Result<()> {
+    if count == 0 {
+        return Ok(());
+    }
+    let mut e = Enigo::new(&enigo_settings())
+        .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
+    for _ in 0..count {
+        e.key(Key::Backspace, Press)
+            .map_err(|err| anyhow!("backspace press: {err:?}"))?;
+        e.key(Key::Backspace, Release)
+            .map_err(|err| anyhow!("backspace release: {err:?}"))?;
+    }
+    Ok(())
 }
 
 fn send_modified_letter(letter: char) -> Result<()> {

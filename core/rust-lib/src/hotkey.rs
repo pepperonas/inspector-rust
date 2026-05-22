@@ -1,23 +1,14 @@
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
-/// Timestamp (ms since epoch) of the most-recent Ctrl+Shift+S press that
-/// started a new capture. Only updated when a capture is *not* already
-/// in progress, so subsequent presses are measured against the first one.
-static SCREENSHOT_LAST_MS: AtomicI64 = AtomicI64::new(0);
-
-/// Set to `true` when the user double-taps Ctrl+Shift+S (second press
-/// within 400 ms of the first) while a capture is already running.
-/// Read by `run_screenshot_pipeline` after the region picker returns.
-pub static SCREENSHOT_SAVE_FILE: AtomicBool = AtomicBool::new(false);
-
 /// Guards against spawning a second capture while one is already active.
+/// A second Ctrl+Shift+S press while the region picker is open is just
+/// ignored — there's nothing useful a "second" capture could do.
 static SCREENSHOT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 
 use crate::db::DbHandle;
@@ -154,25 +145,15 @@ pub fn register(app: &AppHandle) -> Result<()> {
             if event.state != ShortcutState::Pressed || *sc != screenshot {
                 return;
             }
-            let now_ms = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as i64;
-
+            // Already capturing → ignore the press. (Previously a second
+            // press here flipped a "save to file" flag, which was the
+            // only way to actually save the screenshot — confusing.
+            // Now a single press always saves AND copies, so the
+            // second-press concept is gone.)
             if SCREENSHOT_IN_PROGRESS.load(Ordering::SeqCst) {
-                // A capture is already running. If this press arrives within
-                // 400 ms of the press that started it, treat it as a
-                // double-tap → switch to save-to-file mode.
-                if now_ms - SCREENSHOT_LAST_MS.load(Ordering::SeqCst) < 1500 {
-                    SCREENSHOT_SAVE_FILE.store(true, Ordering::SeqCst);
-                }
-                return; // never open a second picker
+                return;
             }
-
-            // Start a fresh capture.
-            SCREENSHOT_SAVE_FILE.store(false, Ordering::SeqCst);
             SCREENSHOT_IN_PROGRESS.store(true, Ordering::SeqCst);
-            SCREENSHOT_LAST_MS.store(now_ms, Ordering::SeqCst);
 
             let app = app_for_screenshot.clone();
             std::thread::spawn(move || {

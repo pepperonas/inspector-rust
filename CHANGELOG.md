@@ -4,6 +4,38 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.2] — 2026-05-23
+
+### Fixed — Direct-hotkey snippets now delete the typed abbreviation
+
+If you typed an abbreviation (e.g. `aiplan`) and pressed the direct hotkey for that snippet, the body was *appended* — you got `aiplan<body>` instead of `<body>`. `expander::paste_snippet_body` now synthesizes `len(abbreviation)` Backspaces before pasting the body, so typed-then-trigger replaces the abbreviation cleanly (character count, not byte length, so multibyte abbreviations like umlauts work).
+
+Trade-off, documented honestly: this is **blind** — the slot still doesn't read the field (otherwise it'd lose the "works in terminals" guarantee). Pressing the hotkey **without** first typing the abbreviation deletes N characters before the cursor. The normal flow is type-then-trigger, so this matches user expectation in the common case.
+
+### Fixed — `Ctrl+Shift+S` now saves the screenshot on a single press
+
+Before, the shortcut needed an awkward *double-tap within 1.5 s* to actually save a PNG to disk — a single press only wrote the image to the clipboard, and the only way to discover the "save" behaviour was to read the source. Now **one press** of `Ctrl+Shift+S`:
+
+- writes the PNG to the system clipboard (as before),
+- **auto-saves** to `~/Downloads/inspector-rust-screenshot-<timestamp>.png`,
+- emits the existing `screenshot-saved` event so the frontend toast confirms the file path,
+- and persists the history entry.
+
+The double-tap mechanism is removed entirely (along with the `SCREENSHOT_SAVE_FILE` / `SCREENSHOT_LAST_MS` atomics and the Windows in-marquee `S`-key save-mode toggle); the only remaining state is `SCREENSHOT_IN_PROGRESS`, which still debounces a second press while the picker is open.
+
+A file-write failure is non-fatal — clipboard and history still succeed, so the user never loses a capture.
+
+### Added — Frontend tests for the IPC contract + fuzzy-search hook
+
+- **`lib/ipc.test.ts`** (25 tests) — pins the IPC wrapper contract: every wrapper in `ipc.ts` calls `invoke("<rust_command_name>", {…})`, and the two halves are wired only by an exact string + the snake_case argument keys Tauri's auto-conversion expects. A typo on either side silently breaks the call. These tests mock `@tauri-apps/api/core` and assert command name, argument shape, default values, return-value pass-through, and error propagation across the seven IPC namespaces (history, snippets, notes, settings, expander, permissions, lifecycle).
+- **`hooks/useFuzzySearch.test.ts`** (8 tests) — empty / whitespace queries return the entry list unchanged, substring + fuzzy matches surface the right rows, the no-match case returns `[]`, the `useMemo` cache holds across re-renders with identical inputs, recomputes when the query changes, and an empty entry list doesn't crash.
+
+Total frontend test count: **309** (was 276); Rust workspace: **227** (was 216 in v0.25.1).
+
+### Why 0.25.2
+
+Pure test additions, no behaviour changes. Patch-level → `0.x.y`.
+
 ## [0.25.1] — 2026-05-23
 
 ### Fixed — "Set up permissions" now resolves the stale-TCC-entry case

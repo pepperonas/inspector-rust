@@ -123,8 +123,6 @@ mod win_impl {
         cur: Option<(i32, i32)>,
         result: Option<(i32, i32, i32, i32)>, // x, y, w, h in bitmap coords
         cancelled: bool,
-        /// S pressed while overlay is open → switch to save-to-file mode.
-        save_mode: bool,
     }
 
     thread_local! {
@@ -155,7 +153,6 @@ mod win_impl {
                 cur: None,
                 result: None,
                 cancelled: false,
-                save_mode: false,
             });
         });
 
@@ -308,17 +305,11 @@ mod win_impl {
                             // Paint the freeze-frame screenshot.
                             let _ = BitBlt(hdc, 0, 0, st.vw, st.vh, Some(st.mem_dc), 0, 0, SRCCOPY);
                             // Draw selection rectangle while dragging.
-                            // Green = save-to-file mode, white = clipboard mode.
                             if let (Some((x1, y1)), Some((x2, y2))) = (st.start, st.cur) {
-                                let color = if st.save_mode {
-                                    0x00FF00u32
-                                } else {
-                                    0xFFFFFFu32
-                                };
                                 let pen = CreatePen(
                                     PS_SOLID,
                                     2,
-                                    windows::Win32::Foundation::COLORREF(color),
+                                    windows::Win32::Foundation::COLORREF(0xFFFFFFu32),
                                 );
                                 let null_brush = GetStockObject(NULL_BRUSH);
                                 let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
@@ -385,19 +376,6 @@ mod win_impl {
                         }
                     });
                     PostQuitMessage(0);
-                    LRESULT(0)
-                }
-                // 'S' during selection: toggle save-to-file mode.
-                // Green border = will open save dialog after drawing the region.
-                WM_KEYDOWN if wp.0 == 0x53 => {
-                    S.with(|s| {
-                        if let Some(ref mut st) = *s.borrow_mut() {
-                            st.save_mode = true;
-                            crate::hotkey::SCREENSHOT_SAVE_FILE
-                                .store(true, std::sync::atomic::Ordering::SeqCst);
-                        }
-                    });
-                    let _ = InvalidateRect(Some(hwnd), None, false);
                     LRESULT(0)
                 }
                 _ => DefWindowProcW(hwnd, msg, wp, lp),

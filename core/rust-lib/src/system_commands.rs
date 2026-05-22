@@ -19,9 +19,9 @@
 //! Windows path (`ExitWindowsEx`, `LockWorkStation`, `TerminateProcess`)
 //! is a follow-up — same strategy as OCR/Screenshot.
 
-use anyhow::{anyhow, Result};
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use anyhow::Context;
+use anyhow::{anyhow, Result};
 use serde::Serialize;
 
 /// View struct the frontend renders in the kill picker.
@@ -79,12 +79,18 @@ pub fn list_running_processes() -> Result<Vec<ProcessInfo>> {
             .collect();
 
         // Sort by memory descending so heavy apps surface first.
-        out.sort_by(|a, b| b.memory_mb.partial_cmp(&a.memory_mb).unwrap_or(std::cmp::Ordering::Equal));
+        out.sort_by(|a, b| {
+            b.memory_mb
+                .partial_cmp(&a.memory_mb)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         Ok(out)
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
-        Err(anyhow!("list_running_processes not implemented on this platform"))
+        Err(anyhow!(
+            "list_running_processes not implemented on this platform"
+        ))
     }
 }
 
@@ -126,12 +132,16 @@ pub fn kill_process_by_pid(pid: u32, force: bool) -> Result<()> {
     #[cfg(target_os = "windows")]
     {
         let _ = (pid, force);
-        Err(anyhow!("kill_process_by_pid not yet implemented on Windows"))
+        Err(anyhow!(
+            "kill_process_by_pid not yet implemented on Windows"
+        ))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
         let _ = (pid, force);
-        Err(anyhow!("kill_process_by_pid not implemented on this platform"))
+        Err(anyhow!(
+            "kill_process_by_pid not implemented on this platform"
+        ))
     }
 }
 
@@ -235,7 +245,10 @@ mod tests {
         // other live process on the system (init, launchd, etc.), so
         // the list must be non-empty AND must not include our own PID.
         let processes = list_running_processes().expect("list should succeed");
-        assert!(!processes.is_empty(), "expected at least one running process");
+        assert!(
+            !processes.is_empty(),
+            "expected at least one running process"
+        );
         let our_pid = std::process::id();
         assert!(
             processes.iter().all(|p| p.pid != our_pid),

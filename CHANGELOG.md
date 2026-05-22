@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] — 2026-05-23
+
+### Added — Linux (Ubuntu / Debian) support
+
+Inspector Rust now runs natively on Linux, merged from the community Linux port (PR #4). A new `linux/` bundle shell joins `win/` and `macos/` — the same thin 2-line `main.rs` calling `inspector_rust_core::run(...)`; all logic stays shared in `core/`.
+
+- **Build** — `pnpm dev:linux` / `pnpm build:linux` → a `.deb` + AppImage. `scripts/install-linux.sh` provisions the apt deps, Node and Rust toolchain. Full prerequisites + a per-feature support matrix in [`linux/README.md`](./linux/README.md).
+- **Region capture** (OCR + screenshot) — Wayland uses `grim` + `slurp`; X11 uses `scrot -s`. A missing tool produces a descriptive error naming the `apt` package.
+- **OCR** — the `tesseract` CLI (`apt install tesseract-ocr` + language packs, e.g. `tesseract-ocr-eng` / `-deu`). Offline, no extra Rust dependencies.
+- **GNOME / Wayland shortcuts** — Tauri's global shortcuts often don't receive key events under Wayland. The new `cli_dispatch` module exposes CLI flags (`--toggle-popup`, `--ocr`, `--screenshot`, `--pick-color`) routed to the running instance via `tauri-plugin-single-instance`; the Linux-only `desktop_shortcuts` module auto-registers GNOME/Cinnamon `gsettings` custom keybindings on first start.
+- **Non-fatal shortcut registration** — a global-shortcut registration failure now logs a warning instead of aborting startup; the tray menu and CLI flags remain usable.
+- System commands (kill / reboot / shutdown / lock) and the encryption keyring gained Linux backends. Data path on Linux: `~/.local/share/InspectorRust/history.db`.
+- **Not yet on Linux** — the in-app eyedropper and the in-place AX text expander; the clipboard-paste expander fallback is used instead.
+- A `.github/workflows/release.yml` job and the `inspector-rust.code-workspace` file round out the port.
+
+### Why 0.25.0
+
+A whole new supported operating system — backwards-compatible, no breaking changes. Feature-level → `0.x.0`.
+
 ## [0.24.2] — 2026-05-23
 
 ### Changed — consolidated macOS permissions card with one-click guided setup

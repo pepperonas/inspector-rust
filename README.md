@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.24.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.25.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -536,7 +536,8 @@ pnpm check            # cargo clippy (workspace) + tsc --noEmit + eslint
 | **macOS Screen Recording** | OCR (`Ctrl+Shift+O`) **and** screenshot region (`Ctrl+Shift+S`, v0.15.0+) both require Screen Recording access — `screencapture -i` is attributed to Inspector Rust and macOS denies it without the grant. Pre-checked via `CGPreflightScreenCaptureAccess`; missing permission opens the popup + shows an amber banner pointing to the right Privacy pane (v0.11.0). |
 | **macOS unsigned build** | Release builds are not notarized. macOS may warn "unidentified developer" — right-click the app and choose **Open** to bypass Gatekeeper on first launch. |
 | **macOS rebuild ⇒ re-grant** | `cdhash` changes on every source-affecting rebuild, which invalidates the previous TCC grants. `scripts/install-macos.sh` skips re-signing when the source hash is unchanged so casual rebuilds survive; real source changes still require re-granting. |
-| **Windows OCR language packs** | Windows OCR (`Windows.Media.Ocr`) uses the language packs installed in Settings → Time & Language → Language. If none is installed for the on-screen text, the engine will fail with a descriptive error. Add the relevant pack in Windows Settings and retry. Linux is still a stub. |
+| **Windows OCR language packs** | Windows OCR (`Windows.Media.Ocr`) uses the language packs installed in Settings → Time & Language → Language. If none is installed for the on-screen text, the engine will fail with a descriptive error. Add the relevant pack in Windows Settings and retry. |
+| **Linux: Wayland shortcuts & tooling** | Tauri global shortcuts often don't receive key events under GNOME/Wayland — Inspector Rust auto-registers GNOME/Cinnamon `gsettings` custom keybindings on first start (CLI flags `--toggle-popup` / `--ocr` / `--screenshot` / `--pick-color`). Region capture needs `grim`+`slurp` (Wayland) or `scrot` (X11); OCR needs `tesseract` + language packs. The eyedropper and the in-place AX expander are not yet available on Linux (clipboard-paste fallback). Details: [`linux/README.md`](./linux/README.md). |
 
 ## Contributing
 
@@ -544,11 +545,16 @@ Contributions welcome — see [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the dev
 
 ## Releasing
 
-Push a `v*` tag to trigger the [release workflow](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml), which builds the Windows and macOS bundles and attaches them to a GitHub Release. Full procedure (version bumps, pre-flight checks, troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
+Push a `v*` tag to trigger the [release workflow](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml), which builds the Windows, macOS, and Linux bundles and attaches them to a GitHub Release. Full procedure (version bumps, pre-flight checks, troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
 
 ## Changelog
 
 See [`CHANGELOG.md`](./CHANGELOG.md) — every release is documented with what was added, fixed, and any known issues at the time.
+
+## Developers
+
+- **Martin Pfeffer** — author & maintainer
+- Kudos 2 Daniel
 
 ## License
 

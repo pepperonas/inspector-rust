@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.24.2-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.25.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -52,7 +52,7 @@
   [![macOS](https://img.shields.io/badge/macOS-10.15+-000000?style=flat-square&logo=apple&logoColor=white)](./macos)
   [![Apple Silicon](https://img.shields.io/badge/arm64-Apple%20Silicon-555555?style=flat-square&logo=apple&logoColor=white)](./macos)
   [![x86_64](https://img.shields.io/badge/x86__64-supported-555555?style=flat-square)](#)
-  [![Linux](https://img.shields.io/badge/Linux-planned-orange?style=flat-square&logo=linux&logoColor=white)](#)
+  [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian-brightgreen?style=flat-square&logo=linux&logoColor=white)](./linux/README.md)
 
   <!-- ── Stack ────────────────────────────────────────────────── -->
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -170,7 +170,7 @@
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone-Exe — keine Installation nötig |
 | **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG für arm64-Macs |
 | **macOS Intel** | — | Aus Source bauen: [`macos/README.md`](./macos/README.md) |
-| **Linux** | — | Geplant für einen späteren Release |
+| **Linux (Ubuntu/Debian)** | Aus Source bauen — siehe [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
 
 > **macOS-Gatekeeper-Hinweis.** Local-Build-Releases sind **nicht Apple-signiert**. Beim ersten Start weigert sich macOS, die App zu öffnen — Rechtsklick → **Öffnen** → bestätigen, oder **Systemeinstellungen → Datenschutz & Sicherheit → "Trotzdem öffnen"**. Dann **zwei** TCC-Permissions erteilen:
 > - **Bedienungshilfen** — nötig für Paste (`enigo` synthetisiert Cmd+V) und den system-weiten Text-Expander (Cmd+Shift+← / Cmd+C / Cmd+V-Zyklus).
@@ -186,7 +186,7 @@
 |------------|---------------------|-----------------------|
 | Windows 11 | ✅ implementiert     | [`win/`](./win)         |
 | macOS      | ✅ implementiert     | [`macos/`](./macos)     |
-| Linux      | 🟡 geplant          | `linux/` (noch nicht) |
+| Linux      | ✅ implementiert     | [`linux/`](./linux)     |
 
 Die gesamte App-Logik lebt in [`core/`](./core) — ein einzelnes Frontend (`core/frontend`) und eine einzelne Rust-Library (`core/rust-lib`), die plattformübergreifend geteilt werden. Jedes OS hat seine eigene dünne Bundle-Shell mit plattformspezifischen Details (Installer-Config, Icons, Capabilities). Um eine neue Plattform hinzuzufügen, siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md#adding-a-new-platform-shell-linux-etc).
 
@@ -536,7 +536,8 @@ pnpm check            # cargo clippy (Workspace) + tsc --noEmit + eslint
 | **macOS Bildschirmaufnahme** | OCR (`Ctrl+Shift+O`) **und** Screenshot-Region (`Ctrl+Shift+S`, v0.15.0+) brauchen beide Bildschirmaufnahme-Zugriff — `screencapture -i` wird Inspector Rust zugeordnet und macOS verweigert es ohne das Grant. Pre-checked via `CGPreflightScreenCaptureAccess`; fehlende Permission öffnet das Popup + zeigt ein amber Banner, das auf den richtigen Privacy-Pane zeigt (v0.11.0). |
 | **macOS unsigned Build** | Release-Builds sind nicht notarized. macOS warnt eventuell "unidentified developer" — Rechtsklick auf die App und **Open** wählen, um Gatekeeper beim ersten Launch zu umgehen. |
 | **macOS Rebuild ⇒ Re-Grant** | `cdhash` ändert sich bei jedem source-affecting Rebuild, was vorherige TCC-Grants invalidiert. `scripts/install-macos.sh` skipt das Re-Signing, wenn der Source-Hash unverändert ist, sodass casual Rebuilds überleben; echte Source-Änderungen brauchen weiterhin Re-Granting. |
-| **Windows-OCR-Sprachpakete** | Die Windows-OCR-Engine (`Windows.Media.Ocr`) nutzt die in Einstellungen → Zeit & Sprache → Sprache installierten Sprachpakete. Ist für den auf dem Bildschirm dargestellten Text kein Paket installiert, schlägt die Engine mit einer beschreibenden Fehlermeldung fehl. Das fehlende Paket in den Windows-Einstellungen hinzufügen und erneut versuchen. Linux ist noch ein Stub. |
+| **Windows-OCR-Sprachpakete** | Die Windows-OCR-Engine (`Windows.Media.Ocr`) nutzt die in Einstellungen → Zeit & Sprache → Sprache installierten Sprachpakete. Ist für den auf dem Bildschirm dargestellten Text kein Paket installiert, schlägt die Engine mit einer beschreibenden Fehlermeldung fehl. Das fehlende Paket in den Windows-Einstellungen hinzufügen und erneut versuchen. |
+| **Linux: Wayland-Shortcuts & Tools** | Globale Tauri-Shortcuts erhalten unter GNOME/Wayland oft keine Tastenevents — Inspector Rust registriert beim ersten Start automatisch GNOME/Cinnamon-`gsettings`-Custom-Keybindings (CLI-Flags `--toggle-popup` / `--ocr` / `--screenshot` / `--pick-color`). Region-Capture braucht `grim`+`slurp` (Wayland) bzw. `scrot` (X11), OCR braucht `tesseract` + Sprachpakete. Eyedropper und der In-Place-AX-Expander sind unter Linux noch nicht verfügbar (Clipboard-Paste-Fallback). Details: [`linux/README.md`](./linux/README.md). |
 
 ## Beiträge
 
@@ -544,11 +545,16 @@ Beiträge sind willkommen — siehe [`CONTRIBUTING.md`](./CONTRIBUTING.md) für 
 
 ## Releasing
 
-Push ein `v*`-Tag, um den [Release-Workflow](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml) zu triggern, der die Windows- und macOS-Bundles baut und an einen GitHub-Release attached. Volle Procedure (Version-Bumps, Pre-Flight-Checks, Troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
+Push ein `v*`-Tag, um den [Release-Workflow](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml) zu triggern, der die Windows-, macOS- und Linux-Bundles baut und an einen GitHub-Release attached. Volle Procedure (Version-Bumps, Pre-Flight-Checks, Troubleshooting) in [`docs/RELEASING.md`](./docs/RELEASING.md).
 
 ## Changelog
 
 Siehe [`CHANGELOG.md`](./CHANGELOG.md) — jeder Release ist dokumentiert mit dem, was hinzugefügt, gefixt wurde, und etwaige bekannte Issues zu der Zeit.
+
+## Entwickler
+
+- **Martin Pfeffer** — Autor & Maintainer
+- Kudos 2 Daniel
 
 ## License
 

@@ -11,10 +11,12 @@ pnpm install
 # Dev servers (hot-reload Rust + frontend)
 pnpm dev:win          # Windows
 pnpm dev:macos        # macOS
+pnpm dev:linux        # Linux (Ubuntu/Debian)
 
 # Production builds
 pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/inspector-rust.exe
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
+pnpm build:linux      # → target/release/bundle/deb/*.deb + AppImage
 
 # Tests
 pnpm test                                     # frontend vitest (all, single run)
@@ -44,9 +46,10 @@ core/rust-lib/   — inspector-rust-core rlib: ALL business logic (DB, clipboard
 core/frontend/   — React 19 + TS + Tailwind v4 + Vite 7 (shared by all platforms)
 win/src-tauri/   — Windows bundle shell: 2-line main.rs + Tauri config + capabilities
 macos/src-tauri/ — macOS bundle shell: 2-line main.rs + Tauri config + capabilities
+linux/src-tauri/ — Linux bundle shell: 2-line main.rs + Tauri config + capabilities (Ubuntu/Debian)
 ```
 
-Both platform shells contain only `inspector_rust_core::run(tauri::generate_context!())`. All logic is in `core/rust-lib`. The Tauri CLI is invoked per platform via `pnpm --filter inspector-rust-{win,macos} tauri {dev,build}`.
+All three platform shells contain only `inspector_rust_core::run(tauri::generate_context!())`. All logic is in `core/rust-lib`. The Tauri CLI is invoked per platform via `pnpm --filter inspector-rust-{win,macos,linux} tauri {dev,build}`.
 
 ### Adding a new IPC command (end-to-end)
 
@@ -60,6 +63,7 @@ Both platform shells contain only `inspector_rust_core::run(tauri::generate_cont
 `DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. File location:
 - Windows: `%APPDATA%\InspectorRust\history.db`
 - macOS: `~/Library/Application Support/InspectorRust/history.db`
+- Linux: `~/.local/share/InspectorRust/history.db`
 
 | Table | Purpose | Notes |
 |---|---|---|
@@ -140,8 +144,8 @@ The Settings panel includes a **"Diagnose"** button that calls `diagnose_at_curs
 
 Triggered by `Ctrl+Shift+O` — literal Control on every OS (v0.14.1+), not Cmd on macOS; avoids the `⌘⇧O` collision with VS Code / IntelliJ "Go to Symbol". Registered alongside the popup hotkey in `hotkey::register` or via the tray's **OCR Region** menu. Pipeline lives in `commands::run_ocr_pipeline(app)`, shared between the IPC `ocr_region` command, the global-shortcut callback, and the tray handler. Always dispatched to a worker thread (`std::thread::spawn`) because `screencapture -i` blocks until the user finishes the marquee.
 
-- **Region capture** (macOS) shells out to `/usr/sbin/screencapture -i -x -t png <tmpfile>`. Read the file back, delete it. Empty / missing file = user pressed Esc → return `region_picker::Cancelled`. **Windows** (v0.19.2+) uses a GDI fullscreen layered overlay in `region_picker.rs` — the user drags a marquee, the picker blits the selected rect into a PNG. No external tool.
-- **OCR** (macOS) uses Vision via raw `objc2` msg_send: `NSData::dataWithBytes:length:` → `VNImageRequestHandler.alloc().initWithData:options:` → `VNRecognizeTextRequest` (recognitionLevel=0/Accurate, usesLanguageCorrection=true) → `performRequests:error:` synchronously → enumerate `request.results` taking `topCandidates(1).string`. Vision is linked explicitly via `core/rust-lib/build.rs` (`cargo:rustc-link-lib=framework=Vision`). **Windows** (v0.19.2+) uses WinRT `Windows.Media.Ocr` + `Windows.Graphics.Imaging` — picks up whatever language packs are installed in *Settings → Time & Language*; COM is initialised per-thread on the worker and the WinRT futures are `.get()`-blocked to keep the pipeline synchronous.
+- **Region capture** (macOS) shells out to `/usr/sbin/screencapture -i -x -t png <tmpfile>`. Read the file back, delete it. Empty / missing file = user pressed Esc → return `region_picker::Cancelled`. **Windows** (v0.19.2+) uses a GDI fullscreen layered overlay in `region_picker.rs` — the user drags a marquee, the picker blits the selected rect into a PNG. No external tool. **Linux** (v0.25.0+) shells out to `grim` + `slurp` on Wayland, or `scrot -s` on X11 — a missing tool yields a descriptive error pointing at the `apt` package.
+- **OCR** (macOS) uses Vision via raw `objc2` msg_send: `NSData::dataWithBytes:length:` → `VNImageRequestHandler.alloc().initWithData:options:` → `VNRecognizeTextRequest` (recognitionLevel=0/Accurate, usesLanguageCorrection=true) → `performRequests:error:` synchronously → enumerate `request.results` taking `topCandidates(1).string`. Vision is linked explicitly via `core/rust-lib/build.rs` (`cargo:rustc-link-lib=framework=Vision`). **Windows** (v0.19.2+) uses WinRT `Windows.Media.Ocr` + `Windows.Graphics.Imaging` — picks up whatever language packs are installed in *Settings → Time & Language*; COM is initialised per-thread on the worker and the WinRT futures are `.get()`-blocked to keep the pipeline synchronous. **Linux** (v0.25.0+) shells out to the `tesseract` CLI — write the PNG to a temp file, `tesseract <tmp> stdout -l <langs>`, read stdout; offline, no extra Rust deps (`apt install tesseract-ocr tesseract-ocr-eng`, `-deu` optional).
 - **Output**: text written to system clipboard (with `WatcherState::mark_self_write` so the watcher doesn't recapture it), plus two history entries — **source PNG first, recognised text second** (v0.14.2+), so the text wins the later `last_used_at` and is the most-recent entry at the top of the list (Enter then pastes text, not the screenshot). Returns `OcrResult { text, cancelled, chars }` so the frontend can show "recognised N chars" toasts.
 
 ### Screen-region screenshot (`commands::run_screenshot_pipeline`, v0.15.0)
@@ -229,6 +233,18 @@ Both modules share the 16 MP hard cap and the multi-format `image` 0.25 dependen
 - **Accessibility check** (`expander.rs`): `AXIsProcessTrusted()` via direct CoreFoundation FFI on macOS; always `true` on other platforms.
 - **Dock visibility** (`lib.rs`): `set_activation_policy(Accessory)` on macOS.
 - **Autostart tray label** (`lib.rs`): `cfg!(target_os = "windows")` → "Start with Windows", else "Start at Login". As of v0.14.0 it's a `CheckMenuItem` reflecting the current state (probed from `app.autolaunch().is_enabled()` on tray build); toggling updates the check + emits `autostart-changed`. IPC: `get_autostart_enabled` / `set_autostart_enabled`. Settings → Startup mirrors the toggle.
+- **OCR engine** (`ocr.rs`): macOS Vision (`objc2` FFI); Windows WinRT `Windows.Media.Ocr`; Linux the `tesseract` CLI (`apt install tesseract-ocr` + language packs).
+- **Region capture** (`region_picker.rs`): macOS `screencapture -i`; Windows a GDI overlay; Linux `grim`+`slurp` on Wayland, else `scrot -s` on X11.
+- **Global-shortcut registration** (`lib.rs`): non-fatal since v0.25.0 — a failure (common on GNOME/Wayland) logs a warning instead of aborting startup; the tray menu and CLI flags still work.
+
+### Linux notes (v0.25.0+)
+
+The Linux port mirrors `win/` and `macos/` — `linux/src-tauri/` is a thin 2-line shell, all logic stays in `core/`. Two Linux-specific concerns drove new code:
+
+- **`cli_dispatch.rs`** — Tauri global shortcuts often don't receive key events under GNOME + Wayland. The module parses CLI flags (`--toggle-popup` / `--open`, `--ocr`, `--screenshot`, `--pick-color`, `--help`) and dispatches them — the same actions as the tray menu (the tray handlers were refactored to call `cli_dispatch::dispatch`). `tauri-plugin-single-instance` routes a second `inspector-rust --ocr` invocation to the already-running instance, so the flags can be bound as desktop "custom shortcuts".
+- **`desktop_shortcuts.rs`** (Linux-only `#[cfg]` module) — on first start under GNOME/Cinnamon Wayland it auto-registers `gsettings` custom keybindings (`Ctrl+Shift+V/O/S/C` → `inspector-rust --…`). Desktop env is detected via `XDG_SESSION_TYPE` / `XDG_CURRENT_DESKTOP`. The install is recorded under settings key `linux.desktop_shortcuts_profile`; clear it to re-apply. KDE is detected but not yet automated.
+- `scripts/install-linux.sh` provisions apt deps + Node + Rust; `scripts/install-desktop-shortcuts.sh` and `scripts/ubuntu-terminal-copy-paste-ctrl-cv.sh` are standalone helpers. Build prerequisites + the per-feature support matrix live in `linux/README.md`.
+- Not on Linux yet: the in-app eyedropper and the in-place AX/UIA text expander (the clipboard-paste expander fallback is used instead).
 
 ### macOS notes
 

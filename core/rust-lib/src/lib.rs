@@ -1,17 +1,20 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod backup;
+mod cli_dispatch;
 mod clipboard_watcher;
 mod commands;
 mod crypto;
+mod cutout;
+mod cutout_ml;
 mod db;
+#[cfg(target_os = "linux")]
+mod desktop_shortcuts;
 mod expander;
 mod hotkey;
 mod image_ops;
 mod models;
 mod notes;
-mod cutout;
-mod cutout_ml;
 mod ocr;
 mod paste;
 mod recolor;
@@ -32,7 +35,7 @@ use std::sync::atomic::Ordering;
 use tauri::{
     menu::{CheckMenuItemBuilder, MenuBuilder, MenuItemBuilder, PredefinedMenuItem},
     tray::TrayIconBuilder,
-    Emitter, Manager, Wry, WindowEvent,
+    Emitter, Manager, WindowEvent, Wry,
 };
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
@@ -40,6 +43,10 @@ use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
 use crate::clipboard_watcher::WatcherState;
 
 pub fn run(context: tauri::Context<Wry>) {
+    if cli_dispatch::exit_if_help_requested() {
+        return;
+    }
+
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -48,6 +55,12 @@ pub fn run(context: tauri::Context<Wry>) {
         .init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            if let Some(action) = cli_dispatch::parse_args(argv) {
+                tracing::info!("CLI action (second instance): {action:?}");
+                cli_dispatch::dispatch(app, action);
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -115,7 +128,11 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(ui_state);
             app.manage(expander_state);
 
-            hotkey::register(&app.handle())?;
+            if let Err(e) = hotkey::register(&app.handle()) {
+                tracing::warn!(
+                    "global shortcut registration failed: {e:#} — use tray menu or CLI flags (linux/README.md)"
+                );
+            }
 
             // Restore the expander hotkey from settings if it was enabled
             // last time the app ran. Default is disabled — opt-in. One-time
@@ -152,9 +169,27 @@ pub fn run(context: tauri::Context<Wry>) {
                 }
             }
 
-            clipboard_watcher::spawn(app.handle().clone(), db_handle, paused, self_written);
+            clipboard_watcher::spawn(
+                app.handle().clone(),
+                db_handle.clone(),
+                paused,
+                self_written,
+            );
 
             build_tray(&app.handle())?;
+
+            #[cfg(target_os = "linux")]
+            {
+                cli_dispatch::log_wayland_shortcut_hint();
+                if let Err(e) = desktop_shortcuts::try_auto_install(&db_handle) {
+                    tracing::warn!("desktop shortcut auto-setup: {e:#}");
+                }
+            }
+
+            if let Some(action) = cli_dispatch::parse_args(std::env::args()) {
+                tracing::info!("CLI action (startup): {action:?}");
+                cli_dispatch::dispatch(&app.handle(), action);
+            }
 
             // Hide from macOS Dock — Inspector Rust is a tray-only background app.
             #[cfg(target_os = "macos")]
@@ -281,7 +316,11 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let color_item = MenuItemBuilder::with_id("color", color_label).build(app)?;
     let pause_item = MenuItemBuilder::with_id("pause", "Pause Capture").build(app)?;
     let clear_item = MenuItemBuilder::with_id("clear", "Clear History…").build(app)?;
-    let autostart_label = if cfg!(target_os = "windows") { "Start with Windows" } else { "Start at Login" };
+    let autostart_label = if cfg!(target_os = "windows") {
+        "Start with Windows"
+    } else {
+        "Start at Login"
+    };
     // Probe the current state on tray build so the checkmark reflects
     // reality at launch — including the case where the plist / registry
     // entry was created outside the app.
@@ -320,11 +359,7 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .icon(app.default_window_icon().cloned().unwrap())
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
-            "open" => {
-                if let Err(e) = hotkey::toggle_popup(app) {
-                    tracing::warn!("open from tray: {e:#}");
-                }
-            }
+            "open" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::TogglePopup),
             "snippets" => {
                 if let Err(e) = hotkey::show_popup(app) {
                     tracing::warn!("show popup for snippets: {e:#}");
@@ -337,42 +372,9 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 }
                 let _ = app.emit("open-notes-tab", ());
             }
-            "ocr" => {
-                // Same dispatch model as the global shortcut path:
-                // hand off to a worker thread so the menu callback
-                // returns immediately and the screencapture overlay
-                // doesn't fight the menu close animation.
-                let app2 = app.clone();
-                std::thread::spawn(move || {
-                    match commands::run_ocr_pipeline(&app2) {
-                        Ok(r) if !r.cancelled && r.chars > 0 => {
-                            tracing::info!("OCR (tray): {} chars", r.chars);
-                        }
-                        Ok(_) => tracing::debug!("OCR (tray): cancelled or empty"),
-                        Err(e) => tracing::warn!("OCR (tray) failed: {e}"),
-                    }
-                });
-            }
-            "screenshot" => {
-                let app2 = app.clone();
-                std::thread::spawn(move || {
-                    match commands::run_screenshot_pipeline(&app2) {
-                        Ok(r) if !r.cancelled && r.bytes > 0 => {
-                            tracing::info!("screenshot (tray): {} bytes", r.bytes);
-                        }
-                        Ok(_) => tracing::debug!("screenshot (tray): cancelled or empty"),
-                        Err(e) => tracing::warn!("screenshot (tray) failed: {e}"),
-                    }
-                });
-            }
-            "color" => {
-                // Eyedropper — pick a pixel anywhere on screen, hex
-                // lands on clipboard + History. No popup, no modal.
-                let app2 = app.clone();
-                std::thread::spawn(move || {
-                    commands::run_eyedropper_pipeline(&app2);
-                });
-            }
+            "ocr" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::Ocr),
+            "screenshot" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::Screenshot),
+            "color" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::PickColor),
             "pause" => {
                 if let Some(state) = app.try_state::<WatcherState>() {
                     let now = state.paused.load(Ordering::Relaxed);
@@ -410,7 +412,11 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             "autostart" => {
                 let am = app.autolaunch();
                 let was_enabled = am.is_enabled().unwrap_or(false);
-                let res = if was_enabled { am.disable() } else { am.enable() };
+                let res = if was_enabled {
+                    am.disable()
+                } else {
+                    am.enable()
+                };
                 match res {
                     Ok(()) => {
                         // Read back what the OS now reports (rather than

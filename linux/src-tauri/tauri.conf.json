@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "InspectorRust",
+  "version": "0.21.0",
+  "identifier": "io.celox.inspector-rust",
+  "build": {
+    "beforeDevCommand": "pnpm dev",
+    "devUrl": "http://localhost:1420",
+    "beforeBuildCommand": "pnpm build",
+    "frontendDist": "../../core/frontend/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "popup",
+        "title": "Inspector Rust",
+        "width": 700,
+        "height": 500,
+        "center": true,
+        "resizable": false,
+        "decorations": false,
+        "transparent": true,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "visible": false,
+        "focus": true,
+        "shadow": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["deb"],
+    "icon": [
+      "../../win/src-tauri/icons/32x32.png",
+      "../../win/src-tauri/icons/128x128.png",
+      "../../win/src-tauri/icons/128x128@2x.png",
+      "../../win/src-tauri/icons/icon.png"
+    ],
+    "copyright": "© 2026 Martin Pfeffer · MIT License",
+    "shortDescription": "Power-user clipboard productivity toolkit for Linux",
+    "longDescription": "Inspector Rust is a clipboard productivity toolkit for power users — searchable history, text-expander snippets, inline calculator, color picker, image recolor, background removal, and more. Press Ctrl+Shift+V to browse, search, and paste anything you've recently copied."
+  }
+}

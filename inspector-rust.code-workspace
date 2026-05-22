@@ -1,0 +1,18 @@
+{
+  "folders": [
+    {
+      "name": "inspector-rust",
+      "path": "."
+    }
+  ],
+  "settings": {
+    "rust-analyzer.checkOnSave.command": "clippy",
+    "editor.formatOnSave": true,
+    "[rust]": {
+      "editor.defaultFormatter": "rust-lang.rust-analyzer"
+    },
+    "files.watcherExclude": {
+      "**/target/**": true
+    }
+  }
+}

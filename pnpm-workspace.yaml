@@ -2,4 +2,4 @@ packages:
   - "core/frontend"
   - "win"
   - "macos"
-  # later: "linux"
+  - "linux"

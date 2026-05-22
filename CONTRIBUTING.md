@@ -15,9 +15,10 @@ Run the app in dev mode:
 ```bash
 pnpm dev:macos             # macOS host
 pnpm dev:win               # Windows host
+pnpm dev:linux             # Linux host (Ubuntu/Debian)
 ```
 
-For platform-specific build prerequisites see [`win/README.md`](./win/README.md) and [`macos/README.md`](./macos/README.md).
+For platform-specific build prerequisites see [`win/README.md`](./win/README.md), [`macos/README.md`](./macos/README.md), and [`linux/README.md`](./linux/README.md).
 
 ## Project layout (TL;DR)
 

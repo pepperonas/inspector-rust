@@ -45,8 +45,9 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
         }
 
         // ── 2. Build the VNImageRequestHandler ───────────────────────
-        let handler_cls = AnyClass::get(c"VNImageRequestHandler")
-            .ok_or_else(|| anyhow::anyhow!("VNImageRequestHandler not available — Vision framework not linked?"))?;
+        let handler_cls = AnyClass::get(c"VNImageRequestHandler").ok_or_else(|| {
+            anyhow::anyhow!("VNImageRequestHandler not available — Vision framework not linked?")
+        })?;
         let handler: *mut AnyObject = msg_send![handler_cls, alloc];
         let handler: *mut AnyObject = msg_send![
             handler,
@@ -186,11 +187,122 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
     Ok(parts.join("\n"))
 }
 
-// Catch-all for Linux / other Unixes so the workspace builds in CI even
-// though those targets don't ship the OCR feature yet. Any non-macOS,
-// non-Windows OS lands here and gets a clean error rather than a link
-// failure.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Linux: Tesseract CLI (`apt install tesseract-ocr`). Offline, no extra Rust deps.
+#[cfg(target_os = "linux")]
+fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+    use anyhow::Context;
+    use chrono::Utc;
+    use std::process::Command;
+
+    let langs = tesseract_lang_arg()?;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "inspector-rust-ocr-{}.png",
+        Utc::now().timestamp_millis()
+    ));
+    std::fs::write(&tmp, png_bytes).context("write OCR temp png")?;
+
+    let output = Command::new("tesseract")
+        .arg(&tmp)
+        .arg("stdout")
+        .args(["-l", langs])
+        .output()
+        .with_context(|| format!("spawn tesseract -l {langs} ({TESSERACT_INSTALL_HINT})"))?;
+
+    let _ = std::fs::remove_file(&tmp);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("tesseract failed: {stderr} ({TESSERACT_INSTALL_HINT})");
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(target_os = "linux")]
+const TESSERACT_INSTALL_HINT: &str =
+    "install: sudo apt install tesseract-ocr tesseract-ocr-eng; optional German: tesseract-ocr-deu";
+
+/// Cached `-l` value: `eng`, `eng+deu`, or the best single pack found.
+#[cfg(target_os = "linux")]
+fn tesseract_lang_arg() -> Result<&'static str> {
+    use std::sync::OnceLock;
+
+    static LANGS: OnceLock<Result<String, String>> = OnceLock::new();
+    LANGS
+        .get_or_init(discover_tesseract_langs)
+        .as_ref()
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .map(|s| s.as_str())
+}
+
+#[cfg(target_os = "linux")]
+fn discover_tesseract_langs() -> Result<String, String> {
+    use std::process::Command;
+
+    let output = Command::new("tesseract")
+        .arg("--list-langs")
+        .output()
+        .map_err(|_| format!("tesseract not found ({TESSERACT_INSTALL_HINT})"))?;
+
+    let langs: Vec<String> = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| {
+            let lang = line.trim();
+            if lang.is_empty() || lang.starts_with("List of available") {
+                None
+            } else {
+                Some(lang.to_string())
+            }
+        })
+        .collect();
+
+    pick_tesseract_langs(langs)
+        .map_err(|_| format!("no OCR language packs found ({TESSERACT_INSTALL_HINT})"))
+}
+
+/// Prefer English; add German when installed; never require `deu` for English OCR.
+#[cfg(target_os = "linux")]
+fn pick_tesseract_langs(langs: Vec<String>) -> Result<String, &'static str> {
+    if langs.is_empty() {
+        return Err("no packs");
+    }
+    let has = |code: &str| langs.iter().any(|l| l == code);
+    if has("eng") && has("deu") {
+        return Ok("eng+deu".into());
+    }
+    if has("eng") {
+        return Ok("eng".into());
+    }
+    if has("deu") {
+        return Ok("deu".into());
+    }
+    langs.into_iter().find(|l| l != "osd").ok_or("no packs")
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_tesseract_tests {
+    use super::pick_tesseract_langs;
+
+    #[test]
+    fn prefers_eng_without_deu() {
+        let langs = vec!["eng".to_string(), "osd".to_string()];
+        assert_eq!(pick_tesseract_langs(langs).unwrap(), "eng");
+    }
+
+    #[test]
+    fn uses_both_when_present() {
+        let langs = vec!["deu".to_string(), "eng".to_string(), "osd".to_string()];
+        assert_eq!(pick_tesseract_langs(langs).unwrap(), "eng+deu");
+    }
+
+    #[test]
+    fn falls_back_to_deu_only() {
+        let langs = vec!["deu".to_string(), "osd".to_string()];
+        assert_eq!(pick_tesseract_langs(langs).unwrap(), "deu");
+    }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn recognize_impl(_png_bytes: &[u8]) -> Result<String> {
     anyhow::bail!("OCR is not implemented on this platform")
 }

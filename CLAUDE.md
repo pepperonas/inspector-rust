@@ -203,6 +203,15 @@ The second hidden game, same shape as `getshaky`. `commands::rockTheBoxMode` det
 - `components/SnakeGame.tsx` — the stateful `<canvas>` loop. Three phases: `intro` (~1.9 s box-assembling flourish — `rockTheBoxRock` / `rockTheBoxTitle` CSS keyframes; `INTRO_MS` must match the keyframe durations), `playing`, `over`. The game advances on a **fixed-timestep wall-clock accumulator** (frame-rate independent). Steered by arrow keys **and** WASD; a buffered `pendingDir` is reversal-checked so the snake can't whip into its own neck. Board colours read live from the theme CSS vars.
 - Entirely client-side: no backend, no IPC, no new Rust module.
 
+### `opener` — hidden German pickup-line easter egg (`lib/openers.ts`, v0.26.0+)
+
+The third hidden trigger, same shape as `getshaky` / `rockthebox`. Typing **`opener`** in the popup search bar surfaces a random German pickup-line at the top of the list; Enter pastes it via the existing `pasteText` IPC. Detected by `commands::isOpenerTrigger` (`/^opener\b/i` against the trimmed query) — anchored to a word boundary so `opener foo` triggers (and re-rolls on every keystroke) while `openers` / `bopener` do not. Also **not** in `COMMANDS`.
+
+- `lib/openers-data.ts` — auto-generated from the maintainer's `nicetobenice_db` PostgreSQL DB on the VPS via `ssh root@69.62.121.168 "sudo -u postgres psql -d nicetobenice_db ..."`. The export query LEFT-JOIN-LATERALs per-user rating + favourite state onto every approved opener, then `ROW_NUMBER() OVER (ORDER BY user-priority DESC, my_rating DESC, avg_rating DESC, id ASC) <= 100` — guarantees 100 entries even if the user has fewer than 100 marked (the remaining slots are filled with the highest global `avg_rating` rows). Output piped through `json_agg(text ORDER BY ord)` and embedded as a `ReadonlyArray<string>`. Re-run the same SQL to refresh.
+- `lib/openers.ts` — pure picker. `hashString` (FNV-1a-variant) returns an unsigned 32-bit integer; `pickOpener(seed)` returns `TOP_OPENERS[hash % length]`. Deterministic per seed, so the React render loop doesn't flicker between picks while the query is unchanged.
+- App.tsx wires an `openerEntry: ListEntry | null` (kind `"opener"`, `data.text`) into the top of `combined` when the trigger matches; the seed is the full query, so each keystroke re-rolls. The activate-handler pastes via `pasteText`. `HistoryItem` renders it with a `Sparkles` icon + italic body + an "opener" chip; `PreviewPanel` shows the full text with a "type any key to re-roll" hint.
+- Entirely client-side at runtime — no live DB call, no IPC, no Rust module.
+
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 
 Two image actions surface in the preview pane:

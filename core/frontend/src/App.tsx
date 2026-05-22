@@ -18,6 +18,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isGetShakyTrigger,
+  isOpenerTrigger,
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
@@ -25,6 +26,7 @@ import {
   translateUrl,
   type ParsedCommand,
 } from "./lib/commands";
+import { pickOpener } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import {
@@ -281,6 +283,21 @@ function App() {
     };
   }, [parsedCommand, query]);
 
+  // Hidden `opener` easter egg — typing the word surfaces a random
+  // German pickup-line from the embedded top-100 list (curated from the
+  // nice-to-be-nice VPS DB). The picker is deterministic per query
+  // string, so the suggestion is stable while the query is unchanged
+  // and re-rolls on every keystroke (the seed changes with each
+  // character). Always shown at the top when triggered — the user
+  // probably came here for it, not for clipboard rows containing the
+  // word "opener".
+  const openerEntry: ListEntry | null = useMemo(() => {
+    if (!isOpenerTrigger(query)) return null;
+    const text = pickOpener(query);
+    if (!text) return null;
+    return { kind: "opener", data: { text } };
+  }, [query]);
+
   const suggestionEntries: ListEntry[] = useMemo(
     () =>
       commandSuggestionList.map((spec) => ({
@@ -303,6 +320,7 @@ function App() {
   const combined: ListEntry[] = isKillMode
     ? killTargetEntries
     : [
+        ...(openerEntry ? [openerEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
@@ -421,6 +439,9 @@ function App() {
         await pasteText(target.data.display);
       } else if (target.kind === "color") {
         await pasteText(target.data.pasteValue);
+      } else if (target.kind === "opener") {
+        // Easter-egg paste — drop the German opener into the focused app.
+        await pasteText(target.data.text);
       } else if (target.kind === "command-suggestion") {
         // Autocomplete: don't run anything; just populate the search
         // bar with the command prefix so the user can fill in the

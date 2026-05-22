@@ -3,6 +3,7 @@ import {
   COMMANDS,
   commandSuggestions,
   isGetShakyTrigger,
+  isOpenerTrigger,
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
@@ -367,5 +368,42 @@ describe("commandSuggestions — system commands", () => {
     // suggestion list shouldn't include it when the user has already
     // typed the full keyword.
     expect(commandSuggestions("kill")).toEqual([]);
+  });
+});
+
+describe("isOpenerTrigger — hidden German pickup-line easter egg", () => {
+  it("matches the exact magic word", () => {
+    expect(isOpenerTrigger("opener")).toBe(true);
+  });
+  it("is case-insensitive", () => {
+    expect(isOpenerTrigger("Opener")).toBe(true);
+    expect(isOpenerTrigger("OPENER")).toBe(true);
+  });
+  it("tolerates surrounding whitespace", () => {
+    expect(isOpenerTrigger("  opener  ")).toBe(true);
+  });
+  it("matches `opener <anything>` so each extra keystroke re-rolls", () => {
+    expect(isOpenerTrigger("opener ")).toBe(true);
+    expect(isOpenerTrigger("opener x")).toBe(true);
+    expect(isOpenerTrigger("opener xxxx")).toBe(true);
+  });
+  it("requires a word boundary — does NOT match plural / glued variants", () => {
+    expect(isOpenerTrigger("openers")).toBe(false);
+    expect(isOpenerTrigger("opener_test")).toBe(false);
+    expect(isOpenerTrigger("openerz")).toBe(false);
+  });
+  it("does not match partial / unrelated input", () => {
+    expect(isOpenerTrigger("open")).toBe(false);
+    expect(isOpenerTrigger("openi")).toBe(false);
+    expect(isOpenerTrigger("the opener")).toBe(false);
+    expect(isOpenerTrigger("")).toBe(false);
+  });
+  it("is NOT in the public COMMANDS catalogue (hidden from autocomplete)", () => {
+    expect(COMMANDS.some((c) => c.keyword === "opener")).toBe(false);
+  });
+  it("never surfaces as an autocomplete suggestion", () => {
+    for (const prefix of ["o", "op", "ope", "open", "opene"]) {
+      expect(commandSuggestions(prefix).some((c) => c.keyword.startsWith("open"))).toBe(false);
+    }
   });
 });

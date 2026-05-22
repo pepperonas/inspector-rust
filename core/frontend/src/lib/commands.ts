@@ -248,6 +248,22 @@ export function isGetShakyTrigger(query: string): boolean {
   return query.trim().toLowerCase() === "getshaky";
 }
 
+/**
+ * Hidden easter egg: typing `opener` (optionally followed by anything,
+ * separated by a word boundary) surfaces a random German pickup-line
+ * "opener" from the embedded top-100 list.
+ *
+ * Word-boundary anchoring on purpose: matches `opener`, `Opener`,
+ * `opener foo`, `opener xxxxxx` (so additional keystrokes re-roll via
+ * the seed-hash picker), but NOT `openers` (plural) or `bopener`.
+ *
+ * Like `isGetShakyTrigger` / `rockTheBoxMode`, deliberately NOT a member
+ * of `COMMANDS` — never surfaces in autocomplete.
+ */
+export function isOpenerTrigger(query: string): boolean {
+  return /^opener\b/i.test(query.trim());
+}
+
 /** Which Snake variant a `rockthebox`-family trigger word selects. */
 export type SnakeMode = "classic" | "wrap";
 

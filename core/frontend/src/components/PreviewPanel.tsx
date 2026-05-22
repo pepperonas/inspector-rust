@@ -200,6 +200,22 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  if (entry.kind === "opener") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Random opener · type any key to re-roll
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="text-[14px] italic leading-snug">{entry.data.text}</div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter pastes into the focused app
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Clip preview ───────────────────────────────────────────────────────────
   const clip = entry.data;
 

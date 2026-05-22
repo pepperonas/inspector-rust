@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, FileCode2, FileText, Files, Image, Palette, Skull, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
@@ -24,6 +24,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "command") return <Terminal size={size} className={cls} />;
   if (entry.kind === "command-suggestion") return <ChevronsRight size={size} className={cls} />;
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
+  if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -54,11 +55,12 @@ export const HistoryItem = memo(function HistoryItem({
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
   const isKillTarget = entry.kind === "kill-target";
+  const isOpener = entry.kind === "opener";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -128,6 +130,18 @@ export const HistoryItem = memo(function HistoryItem({
       title={entry.data.force ? "SIGKILL — force quit" : "SIGTERM — graceful"}
     >
       {entry.data.force ? "kill -9" : "kill"}
+    </span>
+  ) : isOpener ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Random pickup-line — type any key to re-roll"
+    >
+      opener
     </span>
   ) : (
     (() => {
@@ -275,6 +289,10 @@ export const HistoryItem = memo(function HistoryItem({
               </span>
             )}
           </span>
+        ) : isOpener && entry.kind === "opener" ? (
+          // Whole opener text — they're short (<200 chars) so a single
+          // truncated line reads well without an extra hint row.
+          <span className="truncate italic">{entry.data.text}</span>
         ) : (
           label
         )}

@@ -147,7 +147,9 @@ export function HistoryList({
                           ? `sug-${entry.data.keyword}`
                           : entry.kind === "kill-target"
                             ? `kill-${entry.data.pid}`
-                            : `c-${entry.data.id}`;
+                            : entry.kind === "opener"
+                              ? `opener-${entry.data.text.slice(0, 24)}`
+                              : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

@@ -113,6 +113,12 @@ export interface KillTargetView {
   force: boolean;
 }
 
+/** Random German pickup-line surfaced by the hidden `opener` trigger. */
+export interface OpenerEntryView {
+  /** The German opener text — pre-rolled by `pickOpener(query)`. */
+  text: string;
+}
+
 export type ListEntry =
   | { kind: "clip"; data: ClipEntry }
   | { kind: "snippet"; data: Snippet }
@@ -120,4 +126,5 @@ export type ListEntry =
   | { kind: "color"; data: ColorEntryView }
   | { kind: "command"; data: CommandEntryView }
   | { kind: "command-suggestion"; data: CommandSuggestionView }
-  | { kind: "kill-target"; data: KillTargetView };
+  | { kind: "kill-target"; data: KillTargetView }
+  | { kind: "opener"; data: OpenerEntryView };

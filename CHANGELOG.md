@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] — 2026-05-23
+
+### Added — `opener` hidden German pickup-line easter egg
+
+A third hidden trigger, alongside `getshaky` (Pong) and `rockthebox`/`rockthabox` (Snake). Typing **`opener`** in the popup search bar surfaces a random German pickup-line at the top of the list. Press Enter to paste it into the focused app.
+
+- **Curated source** — 100 openers exported from the maintainer's `nicetobenice_db` PostgreSQL DB on the VPS (`69.62.121.168`), ranked by their personal ratings + favourites (DESC), tie-broken on the global `avg_rating`. Embedded as `core/frontend/src/lib/openers-data.ts` (no live DB call at runtime).
+- **Re-roll on every keystroke** — the picker is a pure FNV-1a-style hash of the full query string. Identical query → identical pick (React render loop is stable, no flicker), and each extra keystroke (`opener `, `opener a`, `opener xy`, …) re-seeds → new pick.
+- **Trigger** — `^opener\b` (case-insensitive, whitespace-tolerant): matches `opener`, `Opener`, `opener foo`, but NOT `openers` / `bopener`. Deliberately **not** in the `COMMANDS` catalogue → never appears in autocomplete; you have to know the word.
+- **Integration** — new `kind: "opener"` in the `ListEntry` union; `HistoryItem` renders it with a `Sparkles` icon + an italic line; `PreviewPanel` shows the full text with a "type any key to re-roll" hint. Enter triggers `pasteText(opener)`.
+- **Coverage** — 18 new tests (10 openers + 8 trigger), 327 frontend tests total.
+
+### Why 0.26.0
+
+A whole new interactive surface — backwards-compatible, no breaking changes. Feature-level → `0.x.0`.
+
 ## [0.25.2] — 2026-05-23
 
 ### Fixed — Direct-hotkey snippets now delete the typed abbreviation

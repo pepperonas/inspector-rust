@@ -35,7 +35,7 @@ sudo dpkg -i target/release/bundle/deb/InspectorRust_*_amd64.deb
 | Paste into focused app (`Ctrl+V` via enigo) | Yes |
 | ML background cutout (ONNX) | Yes (offline) |
 | Region screenshot (`Ctrl+Shift+S`) | Yes with **scrot** (X11) or **grim+slurp** (Wayland) |
-| Screen OCR (`Ctrl+Shift+O`) | Requires **tesseract** (`apt install tesseract-ocr`) |
+| Screen OCR (`Ctrl+Shift+O`) | Requires **tesseract** + `tesseract-ocr-eng` (German optional: `tesseract-ocr-deu`) |
 | In-app eyedropper | Not yet (macOS/Windows only) |
 | Text expander in-place (AX/UIA) | Keystroke/clipboard fallback only |
 
@@ -73,7 +73,7 @@ sudo apt-get install -y grim slurp
 | `webkit2gtk` not found | Run `scripts/install-linux.sh` or install `libwebkit2gtk-4.1-dev` |
 | `cargo` / edition errors | `rustup default stable` (need Rust ≥ 1.77) |
 | Region capture fails | Install `scrot` (X11) or `grim`+`slurp` (Wayland) |
-| OCR shortcut errors | `sudo apt install tesseract-ocr` |
+| OCR shortcut errors | `sudo apt install tesseract-ocr tesseract-ocr-eng` (optional German: `tesseract-ocr-deu`) |
 | Tray icon missing | `libayatana-appindicator3-dev` + log out/in |
 
 ## Related docs

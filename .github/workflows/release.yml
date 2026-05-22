@@ -51,6 +51,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install Linux system dependencies
+        # libfuse2 is needed by Tauri's AppImage bundling step.
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -62,6 +63,7 @@ jobs:
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
             libssl-dev \
+            libfuse2 \
             pkg-config
 
       - uses: pnpm/action-setup@v4
@@ -89,10 +91,24 @@ jobs:
           files: |
             target/release/inspector-rust
             target/release/bundle/deb/*.deb
+            target/release/bundle/appimage/*.AppImage
 
   build-macos:
-    name: Build & Release (macOS)
-    runs-on: macos-latest
+    # Matrix: ship a DMG for Apple Silicon AND Intel Macs. Each runner
+    # builds natively for its own arch — no cross-compile snags with
+    # native deps (the ort/ONNX prebuilt binaries are arch-specific).
+    name: Build & Release (macOS ${{ matrix.arch }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: aarch64
+            runner: macos-14   # Apple Silicon (M-series)
+            target: aarch64-apple-darwin
+          - arch: x86_64
+            runner: macos-13   # Intel
+            target: x86_64-apple-darwin
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v4
@@ -107,17 +123,23 @@ jobs:
           cache: pnpm
 
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
 
       - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
 
       - name: Install dependencies
         run: pnpm install
 
       - name: Build
-        run: pnpm build:macos
+        # Pass --target to tauri so the output lands under
+        # target/<triple>/release/bundle/ and the DMG filename gets an
+        # arch suffix (e.g. InspectorRust_<ver>_aarch64.dmg).
+        run: pnpm --filter inspector-rust-macos tauri build --target ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            target/release/bundle/dmg/*.dmg
+          files: target/${{ matrix.target }}/release/bundle/dmg/*.dmg

@@ -108,3 +108,94 @@ pub fn log_wayland_shortcut_hint() {
          automatically on first start (see Settings → Keyboard → Custom Shortcuts)."
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `parse_args` always skips the first arg (the program name); the
+    /// rest is what the tests care about. The helper builds an argv with
+    /// a dummy `inspector-rust` head so the call sites read naturally.
+    fn parse(rest: &[&str]) -> Option<CliAction> {
+        let mut argv = vec!["inspector-rust"];
+        argv.extend_from_slice(rest);
+        parse_args(argv)
+    }
+
+    #[test]
+    fn empty_or_program_only_returns_none() {
+        assert_eq!(parse_args::<_, &str>(std::iter::empty()), None);
+        assert_eq!(parse(&[]), None);
+    }
+
+    #[test]
+    fn toggle_popup_has_three_aliases() {
+        assert_eq!(parse(&["--toggle-popup"]), Some(CliAction::TogglePopup));
+        assert_eq!(parse(&["--open"]), Some(CliAction::TogglePopup));
+        assert_eq!(parse(&["-o"]), Some(CliAction::TogglePopup));
+    }
+
+    #[test]
+    fn ocr_flag() {
+        assert_eq!(parse(&["--ocr"]), Some(CliAction::Ocr));
+    }
+
+    #[test]
+    fn screenshot_has_two_aliases() {
+        assert_eq!(parse(&["--screenshot"]), Some(CliAction::Screenshot));
+        assert_eq!(parse(&["--shot"]), Some(CliAction::Screenshot));
+    }
+
+    #[test]
+    fn pick_color_has_two_aliases() {
+        assert_eq!(parse(&["--pick-color"]), Some(CliAction::PickColor));
+        assert_eq!(parse(&["--color"]), Some(CliAction::PickColor));
+    }
+
+    #[test]
+    fn help_flags_return_none() {
+        // Help is handled separately by `exit_if_help_requested`; the
+        // parser returns None so no action fires when `--help` is given.
+        assert_eq!(parse(&["--help"]), None);
+        assert_eq!(parse(&["-h"]), None);
+    }
+
+    #[test]
+    fn unknown_flag_is_ignored() {
+        // Logs a warning, doesn't dispatch — and doesn't crash the app.
+        assert_eq!(parse(&["--definitely-not-a-flag"]), None);
+        assert_eq!(parse(&["-x"]), None);
+    }
+
+    #[test]
+    fn first_recognized_action_wins() {
+        // Two actions on one command line — the leftmost wins.
+        // Documented behaviour so callers can chain flags predictably.
+        assert_eq!(parse(&["--ocr", "--screenshot"]), Some(CliAction::Ocr));
+        assert_eq!(
+            parse(&["--screenshot", "--ocr"]),
+            Some(CliAction::Screenshot),
+        );
+    }
+
+    #[test]
+    fn unknown_flags_before_a_known_one_are_skipped() {
+        assert_eq!(parse(&["--bogus", "--ocr"]), Some(CliAction::Ocr));
+    }
+
+    #[test]
+    fn non_flag_positionals_are_silently_ignored() {
+        // Stray positional words (e.g. a path the user accidentally
+        // dragged onto the binary) don't match a flag and don't crash.
+        assert_eq!(parse(&["some-positional-token"]), None);
+        assert_eq!(parse(&["foo", "--ocr"]), Some(CliAction::Ocr));
+    }
+
+    #[test]
+    fn does_not_match_short_substring_of_a_known_flag() {
+        // Guard against accidental prefix matching: `--ocrx` is NOT
+        // `--ocr`; `--toggle-popup-foo` is NOT `--toggle-popup`.
+        assert_eq!(parse(&["--ocrx"]), None);
+        assert_eq!(parse(&["--toggle-popup-foo"]), None);
+    }
+}

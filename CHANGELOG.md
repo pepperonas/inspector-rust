@@ -4,6 +4,30 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] — 2026-05-23
+
+### Fixed — "Set up permissions" now resolves the stale-TCC-entry case
+
+The most common stuck state — *"the System-Settings switch is on, but Inspector Rust still asks for permission"* — wasn't handled by the v0.24.2 "Set up permissions" button, which only opened the System Settings pane. That case is a stale TCC entry: the stored code-requirement is from a previous binary (e.g. the pre-v0.23.2 ad-hoc signature) and doesn't match the current cert-signed binary, so `AXIsProcessTrusted` returns false even though the switch looks on.
+
+The button now **always resets the TCC entry first** via `tccutil reset` (no admin password required) and re-fires the macOS permission prompt. Click *Allow → Open System Settings*, flip the switch once, and this time it sticks against the *current* signature. The same flow handles fresh installs (the reset is a no-op there). The card explainer is updated to say so.
+
+### Added — Release artifacts for every supported OS/arch
+
+`.github/workflows/release.yml` now ships a full set of bundles:
+
+- **Windows x86_64** — `.exe` + `.msi` (unchanged).
+- **Linux x86_64** — `.deb` **and `.AppImage`** (the bundle target list in `linux/src-tauri/tauri.conf.json` gains `appimage`; the workflow installs `libfuse2` and uploads the AppImage).
+- **macOS Apple Silicon AND Intel** — matrix job (`macos-14` aarch64, `macos-13` x86_64). Each runner builds natively for its own arch (no cross-compile snags with the arch-specific `ort`/ONNX prebuilt binaries) and uploads the corresponding `InspectorRust_<ver>_<arch>.dmg`.
+
+### Added — Unit tests for the new Linux CLI dispatcher
+
+`core/rust-lib/src/cli_dispatch.rs::parse_args` (which routes `inspector-rust --toggle-popup` / `--ocr` / `--screenshot` / `--pick-color` to the running instance under GNOME/Wayland) gains 11 unit tests covering every alias, the help flag, unknown flags, multi-flag tie-breaking, and prefix-overlap guards.
+
+### Why 0.25.1
+
+A fix for a long-tail permission UX bug + release-workflow expansion + new test coverage. No breaking changes. Patch-level → `0.x.y`.
+
 ## [0.25.0] — 2026-05-23
 
 ### Added — Linux (Ubuntu / Debian) support

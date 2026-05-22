@@ -1,38 +1,48 @@
 #!/usr/bin/env bash
 #
-# install-macos.sh — build, re-sign, and install Inspector Rust into /Applications.
+# install-macos.sh — build, sign, and install Inspector Rust into /Applications.
 #
 # WHY THIS SCRIPT EXISTS:
-#   Inspector Rust is unsigned (no Apple Developer ID). On macOS Tahoe (26+) the
-#   TCC database binds Accessibility grants to the tuple (bundle id, cdhash).
-#   Any change to the cdhash invalidates the prior grant. Plain `tauri build`
-#   leaves the binary linker-signed with a *random* identifier (e.g.
-#   `inspector-rust-c64f925d…`); calling `codesign --force` adds a fresh CMS
-#   timestamp on every invocation, which produces a new cdhash even when
-#   the underlying binary hasn't changed.
+#   Inspector Rust has no Apple Developer ID. macOS TCC (Accessibility,
+#   Screen Recording) keys a permission grant to the app's *code
+#   signature*. A plain `tauri build` leaves the binary ad-hoc-signed,
+#   and macOS keys an ad-hoc grant to the cdhash — the binary hash —
+#   which changes on every rebuild. So "rebuild → install → grant →
+#   rebuild" used to silently invalidate the grant on every iteration.
 #
-#   So the sequence "rebuild → install → grant → rebuild → install" used to
-#   silently invalidate the grant on every iteration. This script:
+#   THE FIX — a stable self-signed certificate:
+#   This script creates (once) a self-signed code-signing certificate in
+#   a dedicated, script-managed keychain
+#   (~/Library/Keychains/inspector-rust-signing.keychain-db) and signs
+#   every build with it. With a real certificate — even self-signed —
+#   TCC keys the grant to the app's *Designated Requirement*:
 #
-#   1. Hashes the *source tree* (.rs / .ts / .tsx / .json / Cargo.lock /
-#      pnpm-lock.yaml / entitlements / capabilities) into a single SHA-256.
-#   2. Compares to a stamp file written into the previously-installed
-#      bundle (Contents/Resources/.inspector-rust-source-hash). Match → skip the
-#      `tauri build` *and* the re-sign entirely; just re-launch the existing
-#      install. cdhash stays stable, the TCC grant survives.
-#   3. Mismatch → run `tauri build`, copy into /Applications, re-sign with
-#      the stable bundle identifier `io.celox.inspector-rust` + entitlements +
-#      Hardened Runtime, write the new source-hash stamp, and launch.
+#       identifier "io.celox.inspector-rust" and
+#       certificate leaf = H"<stable cert hash>"
 #
-#   We hash the *source* (not the built binary) because Rust release builds
-#   aren't byte-reproducible — even with `codegen-units=1` + `lto=true`,
-#   two consecutive `cargo build --release` runs of the same source produce
-#   slightly different bytes (paths, link-time decisions). Comparing source
-#   inputs is the reliable signal.
+#   That requirement does NOT reference the cdhash, so it stays constant
+#   across rebuilds. Net effect: you grant Accessibility + Screen
+#   Recording ONCE and the grant survives every future build.
 #
-#   Net effect: rebuilding without source changes never asks the user to
-#   re-grant Accessibility. Real source changes still produce a new cdhash
-#   and re-grant is needed (the in-app banner handles that gracefully).
+#   The certificate is created fully non-interactively — no admin
+#   password, no GUI "Always Allow" prompt. Its keychain has a hard-coded
+#   local password: that keychain holds nothing but a self-signed
+#   code-signing key, worthless off this machine and granting access to
+#   nothing, so the password is not a secret.
+#
+#   ONE-TIME re-grant: the first install after switching from ad-hoc to
+#   the self-signed cert needs a single re-grant — the stale ad-hoc TCC
+#   entry won't match the new signature. After that it sticks. The in-app
+#   Settings panel auto-detects the grant and offers a one-click relaunch.
+#
+#   If certificate creation fails for any reason, the script falls back
+#   to ad-hoc signing (the previous behaviour) so it never hard-fails.
+#
+#   The build itself is still skipped when the source tree is unchanged
+#   (SHA-256 over .rs / .ts / .tsx / .json / locks / entitlements) — now
+#   purely a build-time optimisation, since the signature is stable
+#   regardless. We hash the *source*, not the binary, because Rust
+#   release builds aren't byte-reproducible.
 #
 # USAGE:
 #   bash scripts/install-macos.sh         # build + install (idempotent) + launch
@@ -46,6 +56,15 @@ APP_NAME="InspectorRust.app"
 BUILD_OUT="${REPO_ROOT}/target/release/bundle/macos/${APP_NAME}"
 INSTALL_PATH="/Applications/${APP_NAME}"
 ENTITLEMENTS="${REPO_ROOT}/macos/src-tauri/entitlements.plist"
+
+# Stable self-signed signing — see the header block for the full why.
+SIGN_KEYCHAIN="${HOME}/Library/Keychains/inspector-rust-signing.keychain-db"
+SIGN_CERT_CN="Inspector Rust Local Code Signing"
+# Hard-coded on purpose: this keychain holds only a self-signed
+# code-signing key that is worthless off this machine. A fixed password
+# is what makes signing fully non-interactive (no admin password, no
+# GUI prompt). It is not a secret.
+SIGN_KEYCHAIN_PW="inspector-rust-local"
 
 DO_RESET=0
 for arg in "$@"; do
@@ -143,16 +162,99 @@ kill_running() {
   fi
 }
 
+# Ensure the stable self-signed signing certificate exists, creating it
+# once on first run. Echoes the signing identity to use on stdout:
+#   • the certificate common-name  → sign with the stable cert
+#   • "-"                          → ad-hoc fallback (cert unavailable)
+# All progress text goes to stderr so the caller can capture the
+# identity cleanly. Always returns 0 — failure just means ad-hoc.
+ensure_signing_cert() {
+  # Fast path — cert already in our keychain, just reuse it.
+  if [[ -f "${SIGN_KEYCHAIN}" ]] \
+     && security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null \
+     && security find-certificate -c "${SIGN_CERT_CN}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1; then
+    echo "${SIGN_CERT_CN}"
+    return 0
+  fi
+
+  echo "▸ Creating a stable self-signed signing certificate (one-time)…" >&2
+
+  local tmp
+  tmp="$(mktemp -d)" || { echo "-"; return 0; }
+
+  cat > "${tmp}/cert.cnf" <<'CNF'
+[ req ]
+distinguished_name = dn
+x509_extensions    = v3
+prompt             = no
+[ dn ]
+CN = Inspector Rust Local Code Signing
+[ v3 ]
+basicConstraints   = critical, CA:false
+keyUsage           = critical, digitalSignature
+extendedKeyUsage   = critical, codeSigning
+CNF
+
+  if ! openssl req -x509 -newkey rsa:2048 -nodes \
+        -keyout "${tmp}/key.pem" -out "${tmp}/cert.pem" \
+        -days 3650 -config "${tmp}/cert.cnf" >/dev/null 2>&1; then
+    echo "  ⚠ openssl cert generation failed — falling back to ad-hoc signing" >&2
+    rm -rf "${tmp}"; echo "-"; return 0
+  fi
+  if ! openssl pkcs12 -export -name "${SIGN_CERT_CN}" \
+        -inkey "${tmp}/key.pem" -in "${tmp}/cert.pem" \
+        -out "${tmp}/cert.p12" -passout "pass:${SIGN_KEYCHAIN_PW}" >/dev/null 2>&1; then
+    echo "  ⚠ openssl p12 export failed — falling back to ad-hoc signing" >&2
+    rm -rf "${tmp}"; echo "-"; return 0
+  fi
+
+  # Dedicated keychain — created if absent, no auto-lock timeout.
+  if [[ ! -f "${SIGN_KEYCHAIN}" ]]; then
+    if ! security create-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null; then
+      echo "  ⚠ keychain create failed — falling back to ad-hoc signing" >&2
+      rm -rf "${tmp}"; echo "-"; return 0
+    fi
+  fi
+  security set-keychain-settings "${SIGN_KEYCHAIN}" 2>/dev/null || true
+  security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null || true
+
+  # `-A` → any tool may use the key (no per-app ACL prompt).
+  if ! security import "${tmp}/cert.p12" -k "${SIGN_KEYCHAIN}" \
+        -P "${SIGN_KEYCHAIN_PW}" -A >/dev/null 2>&1; then
+    echo "  ⚠ keychain import failed — falling back to ad-hoc signing" >&2
+    rm -rf "${tmp}"; echo "-"; return 0
+  fi
+  # Belt-and-suspenders for modern macOS: clear the key's partition list
+  # so codesign never shows a password dialog. Our keychain, our known
+  # password → fully non-interactive.
+  security set-key-partition-list -S apple-tool:,apple: \
+    -s -k "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1 || true
+
+  rm -rf "${tmp}"
+
+  if security find-certificate -c "${SIGN_CERT_CN}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1; then
+    echo "  ✓ certificate ready — TCC grants will now survive rebuilds" >&2
+    echo "${SIGN_CERT_CN}"
+  else
+    echo "  ⚠ certificate not found after import — falling back to ad-hoc" >&2
+    echo "-"
+  fi
+  return 0
+}
+
 resign_app() {
   local app="$1"
+  local sign_id="$2"
+  local -a args
+  args=(--force --deep --sign "${sign_id}" --identifier "${BUNDLE_ID}")
   if [[ -f "${ENTITLEMENTS}" ]]; then
-    codesign --force --deep --sign - \
-      --identifier "${BUNDLE_ID}" \
-      --entitlements "${ENTITLEMENTS}" \
-      --options runtime \
-      "${app}"
+    args+=(--entitlements "${ENTITLEMENTS}" --options runtime)
+  fi
+  if [[ "${sign_id}" != "-" ]]; then
+    security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null || true
+    codesign --keychain "${SIGN_KEYCHAIN}" "${args[@]}" "${app}"
   else
-    codesign --force --deep --sign - --identifier "${BUNDLE_ID}" "${app}"
+    codesign "${args[@]}" "${app}"
   fi
 }
 
@@ -184,7 +286,7 @@ if [[ "${UNCHANGED}" -eq 1 ]]; then
   echo "▸ Source unchanged (sha256: ${NEW_SRC_HASH:0:12}…) — skipping build"
   echo "  Identifier: ${INSTALLED_ID}"
   echo "  cdhash:     $(cdhash "${INSTALL_PATH}")"
-  echo "  → existing TCC grant for this cdhash will survive"
+  echo "  → existing TCC grant survives (skipped build keeps the signature)"
 
   kill_running
   if [[ "${DO_RESET}" -eq 1 ]]; then
@@ -228,11 +330,17 @@ cp -R "${BUILD_OUT}" "${INSTALL_PATH}"
 # code signature for some macOS versions.
 xattr -dr com.apple.quarantine "${INSTALL_PATH}" 2>/dev/null || true
 
-echo "▸ Re-signing with stable identifier ${BUNDLE_ID}…"
+echo "▸ Signing with stable identifier ${BUNDLE_ID}…"
+SIGN_ID="$(ensure_signing_cert)"
+if [[ "${SIGN_ID}" == "-" ]]; then
+  echo "  ⚠ signing ad-hoc (fallback) — TCC grant will need re-giving on rebuild"
+else
+  echo "  signing with stable self-signed cert: ${SIGN_ID}"
+fi
 if [[ -f "${ENTITLEMENTS}" ]]; then
   echo "  using entitlements: ${ENTITLEMENTS}"
 fi
-resign_app "${INSTALL_PATH}"
+resign_app "${INSTALL_PATH}" "${SIGN_ID}"
 
 # Stamp the source hash *after* signing so future runs detect "no source
 # change" and skip rebuild entirely.
@@ -247,6 +355,11 @@ codesign -dv "${INSTALL_PATH}" 2>&1 | sed 's/^/  /'
 echo "  Identifier:        $(current_identifier "${INSTALL_PATH}")"
 echo "  cdhash this build: $(cdhash "${INSTALL_PATH}")"
 echo "  source hash:       ${NEW_SRC_HASH:0:12}…"
+if [[ "${SIGN_ID}" != "-" ]]; then
+  DR="$(codesign -d -r- "${INSTALL_PATH}" 2>&1 | sed -n 's/^designated => //p')"
+  echo "  designated req:    ${DR}"
+  echo "  → this requirement is cdhash-free — the TCC grant survives rebuilds"
+fi
 
 echo "▸ Launching…"
 open "${INSTALL_PATH}"
@@ -254,7 +367,17 @@ open "${INSTALL_PATH}"
 echo
 echo "✓ Installed $(defaults read "${INSTALL_PATH}/Contents/Info.plist" CFBundleShortVersionString) at ${INSTALL_PATH}"
 echo
-echo "If Accessibility access is missing after launch:"
-echo "  • Open Inspector Rust → Settings tab. The green Restart prompt appears once"
-echo "    you toggle Inspector Rust on in System Settings → Accessibility."
-echo "  • Or: bash scripts/install-macos.sh --reset (wipes stale TCC entries)."
+if [[ "${SIGN_ID}" != "-" ]]; then
+  echo "Signed with the stable self-signed cert — you grant permissions ONCE:"
+  echo "  • If this is the first build since the switch to stable signing, you"
+  echo "    need a single re-grant (the old ad-hoc TCC entry no longer matches)."
+  echo "  • Open Inspector Rust → Settings tab. The green Restart prompt appears"
+  echo "    once you toggle Inspector Rust on in System Settings → Accessibility."
+  echo "  • After that, every future rebuild keeps the grant — no re-granting."
+  echo "  • Stuck? bash scripts/install-macos.sh --reset (wipes stale TCC entries)."
+else
+  echo "If Accessibility access is missing after launch:"
+  echo "  • Open Inspector Rust → Settings tab. The green Restart prompt appears once"
+  echo "    you toggle Inspector Rust on in System Settings → Accessibility."
+  echo "  • Or: bash scripts/install-macos.sh --reset (wipes stale TCC entries)."
+fi

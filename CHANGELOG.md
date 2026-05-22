@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.2] — 2026-05-22
+
+### Fixed — macOS permissions no longer need re-granting on every rebuild
+
+`scripts/install-macos.sh` now signs every build with a **stable self-signed code-signing certificate** instead of leaving it ad-hoc-signed.
+
+- **Root cause** — macOS TCC keys an Accessibility / Screen Recording grant to the app's code signature. An ad-hoc signature is keyed to the `cdhash` (binary hash), which changes on every rebuild → the grant was lost on every new version.
+- **Fix** — the script creates (once, fully non-interactively) a self-signed certificate in a dedicated keychain `~/Library/Keychains/inspector-rust-signing.keychain-db` and signs with it. With a real certificate, TCC keys the grant to the app's *Designated Requirement* (`identifier "io.celox.inspector-rust" and certificate leaf = H"…"`) — which is **cdhash-free** and stable across rebuilds. Grant Accessibility + Screen Recording **once**; it now survives every future build.
+- **One-time re-grant** — the first install after this change needs a single re-grant (the stale ad-hoc TCC entry won't match the new signature). The in-app Settings panel auto-detects the grant and offers the one-click relaunch as before.
+- No admin password and no GUI prompt: the signing keychain has a hard-coded local password (it holds only a worthless self-signed key). If certificate creation fails for any reason, the script falls back to ad-hoc signing — it never hard-fails.
+- The Settings panel's "Why does this keep happening on rebuild?" explainer is updated to reflect the new stable-signing behaviour.
+
+### Why 0.23.2
+
+Build-tooling fix for a long-standing macOS annoyance plus a docs-copy update — no runtime code change, no new IPC, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.23.1] — 2026-05-22
 
 ### Fixed — `getshaky` Pong: frame-rate, serve delay, Shift boost, collision

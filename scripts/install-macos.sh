@@ -162,27 +162,43 @@ kill_running() {
   fi
 }
 
+# Add our signing keychain to the user's keychain search list (idempotent).
+# codesign only resolves a `--sign <name>` identity from keychains on the
+# search list — its `--keychain` flag is unreliable for this — so the
+# dedicated keychain has to be on the list for signing to find the cert.
+# Non-destructive: every existing keychain is preserved, ours is appended.
+add_keychain_to_search_list() {
+  local kc="$1"
+  if security list-keychains -d user | grep -qF "${kc}"; then
+    return 0
+  fi
+  local -a list=()
+  local line
+  while IFS= read -r line; do
+    line="${line#"${line%%[![:space:]]*}"}"   # strip leading whitespace
+    line="${line%\"}"; line="${line#\"}"        # strip surrounding quotes
+    [[ -n "${line}" ]] && list+=("${line}")
+  done < <(security list-keychains -d user)
+  security list-keychains -d user -s "${list[@]}" "${kc}" 2>/dev/null || true
+}
+
 # Ensure the stable self-signed signing certificate exists, creating it
-# once on first run. Echoes the signing identity to use on stdout:
+# once on first run, and that it's usable by codesign. Echoes the
+# signing identity to use on stdout:
 #   • the certificate common-name  → sign with the stable cert
 #   • "-"                          → ad-hoc fallback (cert unavailable)
 # All progress text goes to stderr so the caller can capture the
 # identity cleanly. Always returns 0 — failure just means ad-hoc.
 ensure_signing_cert() {
-  # Fast path — cert already in our keychain, just reuse it.
-  if [[ -f "${SIGN_KEYCHAIN}" ]] \
-     && security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null \
-     && security find-certificate -c "${SIGN_CERT_CN}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1; then
-    echo "${SIGN_CERT_CN}"
-    return 0
-  fi
+  # ── Create the cert + keychain once, if not already present ───────────
+  if [[ ! -f "${SIGN_KEYCHAIN}" ]] \
+     || ! security find-certificate -c "${SIGN_CERT_CN}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1; then
+    echo "▸ Creating a stable self-signed signing certificate (one-time)…" >&2
 
-  echo "▸ Creating a stable self-signed signing certificate (one-time)…" >&2
+    local tmp
+    tmp="$(mktemp -d)" || { echo "-"; return 0; }
 
-  local tmp
-  tmp="$(mktemp -d)" || { echo "-"; return 0; }
-
-  cat > "${tmp}/cert.cnf" <<'CNF'
+    cat > "${tmp}/cert.cnf" <<'CNF'
 [ req ]
 distinguished_name = dn
 x509_extensions    = v3
@@ -195,48 +211,68 @@ keyUsage           = critical, digitalSignature
 extendedKeyUsage   = critical, codeSigning
 CNF
 
-  if ! openssl req -x509 -newkey rsa:2048 -nodes \
-        -keyout "${tmp}/key.pem" -out "${tmp}/cert.pem" \
-        -days 3650 -config "${tmp}/cert.cnf" >/dev/null 2>&1; then
-    echo "  ⚠ openssl cert generation failed — falling back to ad-hoc signing" >&2
-    rm -rf "${tmp}"; echo "-"; return 0
-  fi
-  if ! openssl pkcs12 -export -name "${SIGN_CERT_CN}" \
-        -inkey "${tmp}/key.pem" -in "${tmp}/cert.pem" \
-        -out "${tmp}/cert.p12" -passout "pass:${SIGN_KEYCHAIN_PW}" >/dev/null 2>&1; then
-    echo "  ⚠ openssl p12 export failed — falling back to ad-hoc signing" >&2
-    rm -rf "${tmp}"; echo "-"; return 0
-  fi
-
-  # Dedicated keychain — created if absent, no auto-lock timeout.
-  if [[ ! -f "${SIGN_KEYCHAIN}" ]]; then
-    if ! security create-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null; then
-      echo "  ⚠ keychain create failed — falling back to ad-hoc signing" >&2
+    if ! openssl req -x509 -newkey rsa:2048 -nodes \
+          -keyout "${tmp}/key.pem" -out "${tmp}/cert.pem" \
+          -days 3650 -config "${tmp}/cert.cnf" >/dev/null 2>&1; then
+      echo "  ⚠ openssl cert generation failed — falling back to ad-hoc signing" >&2
       rm -rf "${tmp}"; echo "-"; return 0
     fi
+    # Legacy PKCS#12 algorithms (SHA1/3DES) — macOS' `security import`
+    # cannot read the AES-256/SHA-256 default that OpenSSL 3 produces
+    # ("MAC verification failed"). These flags work on OpenSSL 3 and
+    # LibreSSL alike.
+    if ! openssl pkcs12 -export -name "${SIGN_CERT_CN}" \
+          -inkey "${tmp}/key.pem" -in "${tmp}/cert.pem" \
+          -out "${tmp}/cert.p12" -passout "pass:${SIGN_KEYCHAIN_PW}" \
+          -keypbe PBE-SHA1-3DES -certpbe PBE-SHA1-3DES -macalg SHA1 >/dev/null 2>&1; then
+      echo "  ⚠ openssl p12 export failed — falling back to ad-hoc signing" >&2
+      rm -rf "${tmp}"; echo "-"; return 0
+    fi
+
+    # Dedicated keychain — created if absent, no auto-lock timeout.
+    if [[ ! -f "${SIGN_KEYCHAIN}" ]]; then
+      if ! security create-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null; then
+        echo "  ⚠ keychain create failed — falling back to ad-hoc signing" >&2
+        rm -rf "${tmp}"; echo "-"; return 0
+      fi
+    fi
+    security set-keychain-settings "${SIGN_KEYCHAIN}" 2>/dev/null || true
+    security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null || true
+
+    # `-A` → any tool may use the key (no per-app ACL prompt).
+    if ! security import "${tmp}/cert.p12" -k "${SIGN_KEYCHAIN}" \
+          -P "${SIGN_KEYCHAIN_PW}" -A >/dev/null 2>&1; then
+      echo "  ⚠ keychain import failed — falling back to ad-hoc signing" >&2
+      rm -rf "${tmp}"; echo "-"; return 0
+    fi
+    # Clear the key's partition list so codesign never shows a password
+    # dialog — our keychain, our known password → fully non-interactive.
+    security set-key-partition-list -S apple-tool:,apple: \
+      -s -k "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1 || true
+
+    # Trust the cert for the code-signing policy — without this the
+    # identity is "not trusted" and codesign refuses it. User-domain
+    # trust needs no admin password (no `-d`, no sudo).
+    if ! security add-trusted-cert -r trustRoot -p codeSign \
+          "${tmp}/cert.pem" >/dev/null 2>&1; then
+      echo "  ⚠ could not trust the certificate — falling back to ad-hoc" >&2
+      rm -rf "${tmp}"; echo "-"; return 0
+    fi
+
+    rm -rf "${tmp}"
+    echo "  ✓ certificate created + trusted" >&2
   fi
-  security set-keychain-settings "${SIGN_KEYCHAIN}" 2>/dev/null || true
+
+  # ── Idempotent every-run setup: unlock + search-list membership ───────
   security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null || true
+  add_keychain_to_search_list "${SIGN_KEYCHAIN}"
 
-  # `-A` → any tool may use the key (no per-app ACL prompt).
-  if ! security import "${tmp}/cert.p12" -k "${SIGN_KEYCHAIN}" \
-        -P "${SIGN_KEYCHAIN_PW}" -A >/dev/null 2>&1; then
-    echo "  ⚠ keychain import failed — falling back to ad-hoc signing" >&2
-    rm -rf "${tmp}"; echo "-"; return 0
-  fi
-  # Belt-and-suspenders for modern macOS: clear the key's partition list
-  # so codesign never shows a password dialog. Our keychain, our known
-  # password → fully non-interactive.
-  security set-key-partition-list -S apple-tool:,apple: \
-    -s -k "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1 || true
-
-  rm -rf "${tmp}"
-
-  if security find-certificate -c "${SIGN_CERT_CN}" "${SIGN_KEYCHAIN}" >/dev/null 2>&1; then
-    echo "  ✓ certificate ready — TCC grants will now survive rebuilds" >&2
+  # Final gate — codesign only signs with a *valid* (trusted) identity.
+  if security find-identity -v -p codesigning "${SIGN_KEYCHAIN}" 2>/dev/null \
+       | grep -qF "${SIGN_CERT_CN}"; then
     echo "${SIGN_CERT_CN}"
   else
-    echo "  ⚠ certificate not found after import — falling back to ad-hoc" >&2
+    echo "  ⚠ signing identity not valid — falling back to ad-hoc" >&2
     echo "-"
   fi
   return 0
@@ -250,12 +286,12 @@ resign_app() {
   if [[ -f "${ENTITLEMENTS}" ]]; then
     args+=(--entitlements "${ENTITLEMENTS}" --options runtime)
   fi
+  # The signing keychain is unlocked + on the search list by
+  # ensure_signing_cert, so codesign resolves the identity by name.
   if [[ "${sign_id}" != "-" ]]; then
     security unlock-keychain -p "${SIGN_KEYCHAIN_PW}" "${SIGN_KEYCHAIN}" 2>/dev/null || true
-    codesign --keychain "${SIGN_KEYCHAIN}" "${args[@]}" "${app}"
-  else
-    codesign "${args[@]}" "${app}"
   fi
+  codesign "${args[@]}" "${app}"
 }
 
 reset_tcc() {
@@ -330,6 +366,13 @@ cp -R "${BUILD_OUT}" "${INSTALL_PATH}"
 # code signature for some macOS versions.
 xattr -dr com.apple.quarantine "${INSTALL_PATH}" 2>/dev/null || true
 
+# Stamp the source hash *before* signing so the file is covered by the
+# code signature's resource seal. Writing it afterwards adds an unsealed
+# file to Contents/Resources/ — `codesign --verify` then fails with "a
+# sealed resource is missing or invalid", which can invalidate the
+# signature macOS evaluates for the TCC grant.
+write_source_hash "${INSTALL_PATH}" "${NEW_SRC_HASH}"
+
 echo "▸ Signing with stable identifier ${BUNDLE_ID}…"
 SIGN_ID="$(ensure_signing_cert)"
 if [[ "${SIGN_ID}" == "-" ]]; then
@@ -342,15 +385,16 @@ if [[ -f "${ENTITLEMENTS}" ]]; then
 fi
 resign_app "${INSTALL_PATH}" "${SIGN_ID}"
 
-# Stamp the source hash *after* signing so future runs detect "no source
-# change" and skip rebuild entirely.
-write_source_hash "${INSTALL_PATH}" "${NEW_SRC_HASH}"
-
 if [[ "${DO_RESET}" -eq 1 ]]; then
   reset_tcc
 fi
 
 echo "▸ Verifying signature…"
+if codesign --verify --strict "${INSTALL_PATH}" 2>&1 | sed 's/^/  /'; then
+  echo "  ✓ signature verifies (seal intact)"
+else
+  echo "  ⚠ codesign --verify failed — the TCC grant may not stick"
+fi
 codesign -dv "${INSTALL_PATH}" 2>&1 | sed 's/^/  /'
 echo "  Identifier:        $(current_identifier "${INSTALL_PATH}")"
 echo "  cdhash this build: $(cdhash "${INSTALL_PATH}")"

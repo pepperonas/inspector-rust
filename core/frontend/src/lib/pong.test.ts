@@ -2,11 +2,18 @@ import { describe, it, expect } from "vitest";
 import {
   BALL_BASE_SPEED,
   BALL_MAX_SPEED,
+  BALL_R,
+  PADDLE_H,
+  REFERENCE_FRAME_MS,
+  SERVE_DELAY_MS,
+  SHIFT_SPEED_MULTIPLIER,
   WIN_SCORE,
   botMaxSpeed,
   clamp,
+  frameScale,
   nextBallSpeed,
   paddleBounce,
+  paddleHit,
   serveBall,
 } from "./pong";
 
@@ -100,6 +107,87 @@ describe("paddleBounce", () => {
     const edge = paddleBounce(1, 1, 8);
     expect(overshoot.vx).toBeCloseTo(edge.vx);
     expect(overshoot.vy).toBeCloseTo(edge.vy);
+  });
+});
+
+describe("frameScale — frame-rate independence", () => {
+  it("is ~1 at the 60 Hz reference frame duration", () => {
+    expect(frameScale(REFERENCE_FRAME_MS)).toBeCloseTo(1);
+  });
+  it("is ~0.5 at double the refresh rate (120 Hz)", () => {
+    expect(frameScale(REFERENCE_FRAME_MS / 2)).toBeCloseTo(0.5);
+  });
+  it("is ~0.42 at 144 Hz", () => {
+    expect(frameScale(1000 / 144)).toBeCloseTo(0.4167, 2);
+  });
+  it("is ~2 at half the refresh rate (30 Hz)", () => {
+    expect(frameScale(REFERENCE_FRAME_MS * 2)).toBeCloseTo(2);
+  });
+  it("clamps a long stall so the ball can't teleport", () => {
+    expect(frameScale(10_000)).toBe(2.5);
+  });
+  it("is 0 for a zero-length delta", () => {
+    expect(frameScale(0)).toBe(0);
+  });
+});
+
+describe("constants for the new Pong behaviours", () => {
+  it("the Shift boost doubles paddle speed", () => {
+    expect(SHIFT_SPEED_MULTIPLIER).toBe(2);
+  });
+  it("the post-point serve delay is one second", () => {
+    expect(SERVE_DELAY_MS).toBe(1000);
+  });
+});
+
+describe("paddleHit — swept collision", () => {
+  // Player paddle: face at x=36, centred vertically at y=226.
+  const planeX = 36;
+  const cy = 226;
+
+  it("detects a leftward ball crossing the player's face", () => {
+    expect(paddleHit(50, 30, planeX, "left", cy, BALL_R, cy, PADDLE_H)).toBe(
+      true,
+    );
+  });
+  it("detects a rightward ball crossing the bot's face", () => {
+    expect(paddleHit(30, 50, planeX, "right", cy, BALL_R, cy, PADDLE_H)).toBe(
+      true,
+    );
+  });
+  it("returns false when the ball never reaches the face", () => {
+    expect(paddleHit(80, 60, planeX, "left", cy, BALL_R, cy, PADDLE_H)).toBe(
+      false,
+    );
+  });
+  it("returns false when the ball moves away from the face", () => {
+    expect(paddleHit(30, 50, planeX, "left", cy, BALL_R, cy, PADDLE_H)).toBe(
+      false,
+    );
+  });
+  it("catches a fast ball that tunnels clean past in one step", () => {
+    // Leading edge jumps from well right of the face to well left.
+    expect(paddleHit(120, -40, planeX, "left", cy, BALL_R, cy, PADDLE_H)).toBe(
+      true,
+    );
+  });
+  it("misses when the ball crosses above the paddle's Y-span", () => {
+    const above = cy - PADDLE_H / 2 - BALL_R - 5;
+    expect(
+      paddleHit(50, 30, planeX, "left", above, BALL_R, cy, PADDLE_H),
+    ).toBe(false);
+  });
+  it("misses when the ball crosses below the paddle's Y-span", () => {
+    const below = cy + PADDLE_H / 2 + BALL_R + 5;
+    expect(
+      paddleHit(50, 30, planeX, "left", below, BALL_R, cy, PADDLE_H),
+    ).toBe(false);
+  });
+  it("counts a corner graze (ball radius reaches the paddle edge)", () => {
+    const graze = cy - PADDLE_H / 2 - BALL_R + 1;
+    expect(
+      paddleHit(50, 30, planeX, "left", graze, BALL_R, cy, PADDLE_H),
+    ).toBe(true);
   });
 });
 

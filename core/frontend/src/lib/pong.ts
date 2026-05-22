@@ -18,8 +18,74 @@ export const BALL_R = 8;
 export const PADDLE_INSET = 24;
 
 /** Player paddle travel speed when driven by the arrow / W-S keys
- *  (logical px per frame). Mouse control sets the position directly. */
+ *  (logical px per 60 fps-frame). Mouse control sets the position
+ *  directly. Multiplied by the frame-scale + the Shift boost. */
 export const PLAYER_KEY_SPEED = 7;
+
+/** Holding Shift while driving the paddle with keys multiplies its
+ *  speed by this factor. */
+export const SHIFT_SPEED_MULTIPLIER = 2;
+
+/** Delay between losing a ball and the next serve (ms). Gives the
+ *  player a beat to reposition. */
+export const SERVE_DELAY_MS = 1000;
+
+/** The reference frame duration the game's speed constants are tuned
+ *  against — 60 fps. All per-frame movement is multiplied by
+ *  [`frameScale`] so the game runs at the same wall-clock speed on a
+ *  60 Hz, 120 Hz or 144 Hz display. */
+export const REFERENCE_FRAME_MS = 1000 / 60;
+
+/**
+ * Frame-rate-independence factor: how much to scale this frame's
+ * movement so the game advances at a fixed wall-clock speed
+ * regardless of the display's refresh rate.
+ *
+ * `dtMs` is the time since the previous frame. On a 60 Hz display
+ * `dtMs ≈ 16.7` → ~1.0; on 144 Hz `dtMs ≈ 6.9` → ~0.42 (smaller
+ * steps, more often). Clamped to 2.5 so a long stall (backgrounded
+ * tab, GC pause) can't teleport the ball across the field.
+ */
+export function frameScale(dtMs: number): number {
+  return clamp(dtMs / REFERENCE_FRAME_MS, 0, 2.5);
+}
+
+/**
+ * Swept paddle-collision test — tunnel-proof for fast balls.
+ *
+ * Returns true if the ball's leading edge **crossed** the paddle's
+ * vertical face this frame *and* the ball overlapped the paddle's
+ * Y-span at that moment. A per-frame point test misses a ball that
+ * jumps clean past a thin paddle in one step; the crossing test
+ * catches it however fast the ball moves.
+ *
+ * - `prevEdge` / `curEdge` — the ball's leading edge last frame / this
+ *   frame (`ballX − BALL_R` for a leftward ball, `ballX + BALL_R` for
+ *   a rightward one).
+ * - `planeX` — the x of the paddle face the ball approaches.
+ * - `approaching` — `"left"` (ball moving left → player paddle) or
+ *   `"right"` (→ bot paddle).
+ */
+export function paddleHit(
+  prevEdge: number,
+  curEdge: number,
+  planeX: number,
+  approaching: "left" | "right",
+  ballY: number,
+  ballR: number,
+  paddleCenterY: number,
+  paddleH: number,
+): boolean {
+  const crossed =
+    approaching === "left"
+      ? prevEdge >= planeX && curEdge <= planeX
+      : prevEdge <= planeX && curEdge >= planeX;
+  if (!crossed) return false;
+  const top = paddleCenterY - paddleH / 2;
+  const bottom = paddleCenterY + paddleH / 2;
+  // Ball radius included so a corner-graze still counts.
+  return ballY + ballR >= top && ballY - ballR <= bottom;
+}
 
 /** Ball speed: starts here, gains a little on every paddle hit so a
  *  long rally gets progressively tenser, capped so it stays playable. */

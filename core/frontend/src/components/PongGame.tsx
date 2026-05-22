@@ -6,11 +6,15 @@ import {
   PADDLE_INSET,
   PADDLE_W,
   PLAYER_KEY_SPEED,
+  SERVE_DELAY_MS,
+  SHIFT_SPEED_MULTIPLIER,
   WIN_SCORE,
   botMaxSpeed,
   clamp,
+  frameScale,
   nextBallSpeed,
   paddleBounce,
+  paddleHit,
   serveBall,
 } from "../lib/pong";
 
@@ -68,8 +72,12 @@ export function PongGame({ onExit }: Props) {
     ballSpeed: BALL_BASE_SPEED,
     playerY: 226,
     botY: 226,
-    keys: { up: false, down: false },
+    keys: { up: false, down: false, shift: false },
     running: false,
+    // 0 → ball is live; > 0 → wall-clock ts at which the next serve fires.
+    serveAt: 0,
+    // Timestamp of the previous frame, for the frame-scale delta.
+    lastTs: 0,
   });
 
   // Reset every entity + score and (re)start a match. Declared before
@@ -87,6 +95,8 @@ export function PongGame({ onExit }: Props) {
     s.ballSpeed = BALL_BASE_SPEED;
     s.playerY = s.fieldH / 2;
     s.botY = s.fieldH / 2;
+    s.serveAt = 0;
+    s.lastTs = 0;
     s.running = true;
     setPhase("playing");
   };
@@ -125,11 +135,13 @@ export function PongGame({ onExit }: Props) {
       const s = stateRef.current;
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") s.keys.up = true;
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") s.keys.down = true;
+      s.keys.shift = e.shiftKey;
     };
     const onKeyUp = (e: KeyboardEvent) => {
       const s = stateRef.current;
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") s.keys.up = false;
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") s.keys.down = false;
+      s.keys.shift = e.shiftKey;
     };
     window.addEventListener("keydown", onKeyDown, true);
     window.addEventListener("keyup", onKeyUp, true);
@@ -173,30 +185,83 @@ export function PongGame({ onExit }: Props) {
     const colors = readThemeColors();
     let raf = 0;
 
-    const serveAfterPoint = (towardPlayer: boolean) => {
+    // Park the ball at centre and schedule the next serve `SERVE_DELAY_MS`
+    // out. The serve velocity is computed now but held until `serveAt`.
+    const parkAndScheduleServe = (towardPlayer: boolean, ts: number) => {
       const serve = serveBall(s.fieldW, s.fieldH, towardPlayer);
       s.ballX = serve.x;
       s.ballY = serve.y;
       s.ballVx = serve.vx;
       s.ballVy = serve.vy;
       s.ballSpeed = BALL_BASE_SPEED;
+      s.serveAt = ts + SERVE_DELAY_MS;
     };
 
-    const step = () => {
+    const render = () => {
+      ctx.fillStyle = colors.bg;
+      ctx.fillRect(0, 0, s.fieldW, s.fieldH);
+
+      // Centre dashed line.
+      ctx.strokeStyle = colors.border;
+      ctx.lineWidth = 2;
+      ctx.setLineDash([8, 10]);
+      ctx.beginPath();
+      ctx.moveTo(s.fieldW / 2, 0);
+      ctx.lineTo(s.fieldW / 2, s.fieldH);
+      ctx.stroke();
+      ctx.setLineDash([]);
+
+      // Player paddle (accent).
+      ctx.fillStyle = colors.accent;
+      ctx.fillRect(PADDLE_INSET, s.playerY - PADDLE_H / 2, PADDLE_W, PADDLE_H);
+      // Bot paddle (muted).
+      ctx.fillStyle = colors.muted;
+      ctx.fillRect(
+        s.fieldW - PADDLE_INSET - PADDLE_W,
+        s.botY - PADDLE_H / 2,
+        PADDLE_W,
+        PADDLE_H,
+      );
+
+      // Ball (foreground).
+      ctx.fillStyle = colors.fg;
+      ctx.beginPath();
+      ctx.arc(s.ballX, s.ballY, BALL_R, 0, Math.PI * 2);
+      ctx.fill();
+    };
+
+    const step = (ts: number) => {
+      // ── Frame-scale: normalise movement to a 60 fps wall-clock step ─
+      const dt = s.lastTs === 0 ? 1 : frameScale(ts - s.lastTs);
+      s.lastTs = ts;
+
       // ── Player paddle (keys; mouse already wrote playerY live) ──────
-      if (s.keys.up) s.playerY -= PLAYER_KEY_SPEED;
-      if (s.keys.down) s.playerY += PLAYER_KEY_SPEED;
+      const keySpeed =
+        PLAYER_KEY_SPEED * (s.keys.shift ? SHIFT_SPEED_MULTIPLIER : 1) * dt;
+      if (s.keys.up) s.playerY -= keySpeed;
+      if (s.keys.down) s.playerY += keySpeed;
       s.playerY = clamp(s.playerY, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
 
       // ── Bot paddle — tracks the ball, capped (ramp-up difficulty) ───
       const botCap = botMaxSpeed(scoreRef.current.bot);
-      const botTarget = s.ballY;
-      const botDelta = clamp(botTarget - s.botY, -botCap, botCap);
+      const botDelta = clamp(s.ballY - s.botY, -botCap, botCap) * dt;
       s.botY = clamp(s.botY + botDelta, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
 
-      // ── Ball ────────────────────────────────────────────────────────
-      s.ballX += s.ballVx;
-      s.ballY += s.ballVy;
+      // ── Serve delay — ball is parked until `serveAt` elapses ────────
+      if (s.serveAt > 0) {
+        if (ts >= s.serveAt) {
+          s.serveAt = 0;
+        } else {
+          if (s.running) raf = requestAnimationFrame(step);
+          render();
+          return;
+        }
+      }
+
+      // ── Ball — swept so a fast ball can't tunnel a thin paddle ──────
+      const prevX = s.ballX;
+      s.ballX += s.ballVx * dt;
+      s.ballY += s.ballVy * dt;
 
       // Top / bottom walls.
       if (s.ballY - BALL_R < 0) {
@@ -207,14 +272,12 @@ export function PongGame({ onExit }: Props) {
         s.ballVy = -Math.abs(s.ballVy);
       }
 
-      // Player paddle (left).
+      // Player paddle (left) — crossing test on the leading edge.
       const playerX = PADDLE_INSET + PADDLE_W;
       if (
         s.ballVx < 0 &&
-        s.ballX - BALL_R <= playerX &&
-        s.ballX - BALL_R >= PADDLE_INSET - 6 &&
-        s.ballY >= s.playerY - PADDLE_H / 2 &&
-        s.ballY <= s.playerY + PADDLE_H / 2
+        paddleHit(prevX - BALL_R, s.ballX - BALL_R, playerX, "left",
+          s.ballY, BALL_R, s.playerY, PADDLE_H)
       ) {
         s.ballSpeed = nextBallSpeed(s.ballSpeed);
         const offset = (s.ballY - s.playerY) / (PADDLE_H / 2);
@@ -224,14 +287,12 @@ export function PongGame({ onExit }: Props) {
         s.ballX = playerX + BALL_R;
       }
 
-      // Bot paddle (right).
+      // Bot paddle (right) — crossing test on the leading edge.
       const botX = s.fieldW - PADDLE_INSET - PADDLE_W;
       if (
         s.ballVx > 0 &&
-        s.ballX + BALL_R >= botX &&
-        s.ballX + BALL_R <= botX + PADDLE_W + 6 &&
-        s.ballY >= s.botY - PADDLE_H / 2 &&
-        s.ballY <= s.botY + PADDLE_H / 2
+        paddleHit(prevX + BALL_R, s.ballX + BALL_R, botX, "right",
+          s.ballY, BALL_R, s.botY, PADDLE_H)
       ) {
         s.ballSpeed = nextBallSpeed(s.ballSpeed);
         const offset = (s.ballY - s.botY) / (PADDLE_H / 2);
@@ -251,7 +312,7 @@ export function PongGame({ onExit }: Props) {
           setPhase("over");
           return;
         }
-        serveAfterPoint(false);
+        parkAndScheduleServe(false, ts);
       } else if (s.ballX - BALL_R > s.fieldW) {
         scoreRef.current.player += 1;
         setPlayerScore(scoreRef.current.player);
@@ -260,46 +321,10 @@ export function PongGame({ onExit }: Props) {
           setPhase("over");
           return;
         }
-        serveAfterPoint(true);
+        parkAndScheduleServe(true, ts);
       }
 
-      // ── Render ──────────────────────────────────────────────────────
-      ctx.fillStyle = colors.bg;
-      ctx.fillRect(0, 0, s.fieldW, s.fieldH);
-
-      // Centre dashed line.
-      ctx.strokeStyle = colors.border;
-      ctx.lineWidth = 2;
-      ctx.setLineDash([8, 10]);
-      ctx.beginPath();
-      ctx.moveTo(s.fieldW / 2, 0);
-      ctx.lineTo(s.fieldW / 2, s.fieldH);
-      ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Player paddle (accent).
-      ctx.fillStyle = colors.accent;
-      ctx.fillRect(
-        PADDLE_INSET,
-        s.playerY - PADDLE_H / 2,
-        PADDLE_W,
-        PADDLE_H,
-      );
-      // Bot paddle (muted).
-      ctx.fillStyle = colors.muted;
-      ctx.fillRect(
-        s.fieldW - PADDLE_INSET - PADDLE_W,
-        s.botY - PADDLE_H / 2,
-        PADDLE_W,
-        PADDLE_H,
-      );
-
-      // Ball (foreground).
-      ctx.fillStyle = colors.fg;
-      ctx.beginPath();
-      ctx.arc(s.ballX, s.ballY, BALL_R, 0, Math.PI * 2);
-      ctx.fill();
-
+      render();
       if (s.running) raf = requestAnimationFrame(step);
     };
 

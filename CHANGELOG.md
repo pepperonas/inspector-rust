@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.1] — 2026-05-22
+
+### Fixed — `getshaky` Pong: frame-rate, serve delay, Shift boost, collision
+
+Four fixes to the hidden Pong easter egg, all client-side (`lib/pong.ts` + `components/PongGame.tsx`):
+
+- **Frame-rate independence** — the game ran "deutlich schneller" on a 144 Hz Windows display than on a 60 Hz MacBook because every frame advanced by a fixed step. The loop now scales all movement by `frameScale(dt)` — the wall-clock time since the previous frame, normalised to a 60 fps baseline — so the ball, both paddles and the Shift boost run at the same real-world speed on 60/120/144 Hz screens. A long stall (backgrounded tab) is clamped to 2.5× so the ball can't teleport.
+- **1 s serve delay** — after a point the ball is parked at centre and the next serve fires `SERVE_DELAY_MS` (1000 ms) later, giving the player a beat to reposition.
+- **Shift speeds up the paddle** — holding Shift while driving the paddle with the keys multiplies its travel speed by `SHIFT_SPEED_MULTIPLIER` (2×).
+- **Swept paddle collision** — the per-frame point test is replaced by `paddleHit()`, a crossing test on the ball's leading edge: it registers a hit whenever the edge crossed the paddle face this frame, so a fast ball can no longer tunnel clean through a thin paddle.
+
+New pure helpers `frameScale` / `paddleHit` + constants `REFERENCE_FRAME_MS` / `SHIFT_SPEED_MULTIPLIER` / `SERVE_DELAY_MS`, all vitest-covered (38 `pong.test.ts` tests).
+
+### Why 0.23.1
+
+Bug fixes to an existing feature, no new IPC, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.23.0] — 2026-05-22
 
 ### Added — string-manipulation transforms on text entries

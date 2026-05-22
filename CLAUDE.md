@@ -18,6 +18,16 @@ pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/ins
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
 pnpm build:linux      # → target/release/bundle/deb/*.deb + AppImage
 
+### Hidden game easter eggs (search bar)
+
+Exact match in the popup search field (case-insensitive, no autocomplete):
+
+| Trigger | Game |
+|---------|------|
+| `getshaky` | Pong (`PongGame.tsx`, `lib/pong.ts`) |
+| `rockthebox` | Snake — walls kill (`SnakeGame.tsx`, `lib/snake.ts`) |
+| `rockthabox` | Snake — wrap-around edges |
+
 # Tests
 pnpm test                                     # frontend vitest (all, single run)
 pnpm --filter inspector-rust-frontend test:watch    # frontend vitest watch mode

@@ -242,6 +242,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::system_shutdown,
             commands::system_lock,
             commands::adjust_volume,
+            commands::toggle_mute,
+            commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,
             commands::get_screen_recording_status,

@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from "react";
-import { Calculator, Check, Copy, Download, Palette, Scissors, Wand2, Zap } from "lucide-react";
+import { Calculator, Check, Copy, Download, Palette, Scissors, Type, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
+import { IS_MAC } from "../lib/platform";
+import { TRANSFORMS, applyTransform, type TransformKind } from "../lib/text-transform";
 import {
+  commitTransformedText,
   cutOutImageEntry,
   cutOutImageFile,
   imageChromaticity,
@@ -283,9 +286,10 @@ export function PreviewPanel({ entry }: Props) {
   return (
     <div className="flex h-full flex-col p-4">
       {meta}
-      <pre className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
+      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
         {clip.content_data}
       </pre>
+      <TransformBar text={clip.content_text} />
     </div>
   );
 }
@@ -607,6 +611,68 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
           failed
         </span>
       )}
+    </div>
+  );
+}
+
+/** String-manipulation toolbar shown under a selected *text* entry.
+ *  Each chip applies a transform from `lib/text-transform.ts`; the
+ *  result is committed to the clipboard + a new History entry via
+ *  `commit_transformed_text`. The first nine transforms also bind to
+ *  `Cmd/Ctrl+1…9` while a text entry is selected. */
+function TransformBar({ text }: { text: string }) {
+  const run = async (kind: TransformKind) => {
+    try {
+      await commitTransformedText(applyTransform(kind, text));
+    } catch (e) {
+      console.error("transform commit failed", e);
+    }
+  };
+
+  // Cmd/Ctrl+1…9 → the digit-bound transforms. Digits alone can't be
+  // used (they'd type into the search bar); Cmd/Ctrl+digit is the same
+  // CmdOrCtrl pattern as ⌘B / ⌘S.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (!/^[1-9]$/.test(e.key)) return;
+      const spec = TRANSFORMS.find((t) => t.digit === Number(e.key));
+      if (!spec) return;
+      e.preventDefault();
+      void run(spec.kind);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // `text` is the only thing `run` closes over that changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [text]);
+
+  const mod = IS_MAC ? "⌘" : "Ctrl+";
+
+  return (
+    <div className="mt-2 shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
+      <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+        <Type size={12} className="text-[var(--color-accent)]" />
+        Transform → new entry + clipboard
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {TRANSFORMS.map((t) => (
+          <button
+            key={t.kind}
+            onClick={() => void run(t.kind)}
+            title={t.digit ? `${mod}${t.digit}` : undefined}
+            className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          >
+            {t.digit && (
+              <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
+                {mod}
+                {t.digit}
+              </kbd>
+            )}
+            {t.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

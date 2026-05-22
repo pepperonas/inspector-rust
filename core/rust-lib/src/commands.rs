@@ -1422,6 +1422,44 @@ pub fn adjust_volume(delta: i32) -> Result<u8, String> {
     crate::system_commands::adjust_system_volume(delta).map_err(map_err)
 }
 
+/// `mute` — toggle the system output mute. Returns the new state
+/// (`true` = now muted). macOS-only.
+#[tauri::command]
+pub fn toggle_mute() -> Result<bool, String> {
+    crate::system_commands::toggle_system_mute().map_err(map_err)
+}
+
+/// Commit an already-transformed string to the clipboard + History.
+/// The string-manipulation transforms (`Cmd/Ctrl+1…9` on a selected
+/// text entry) are computed frontend-side in `lib/text-transform.ts`;
+/// this is the shared write path — mark self-write so the watcher
+/// skips it, set the clipboard, push a Text history entry.
+#[tauri::command]
+pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), String> {
+    use clipboard_rs::{Clipboard, ClipboardContext};
+
+    if let Some(watcher) = app.try_state::<WatcherState>() {
+        watcher.mark_self_write(crate::models::ContentType::Text, &text);
+    }
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard ctx: {e:?}"))?;
+    ctx.set_text(text.clone())
+        .map_err(|e| format!("set_text: {e:?}"))?;
+
+    if let Some(db) = app.try_state::<DbHandle>() {
+        let _ = db::upsert_clip(
+            &db,
+            &crate::models::NewClip {
+                content_type: crate::models::ContentType::Text,
+                content_text: text.clone(),
+                content_data: text.clone(),
+                byte_size: text.len() as i64,
+            },
+        );
+    }
+    let _ = app.emit("clipboard-changed", ());
+    Ok(())
+}
+
 /// Strip vowels (English aeiou + uppercase + German umlauts) from `s`.
 /// Pure function — public so the unit tests can exercise it without
 /// going through the IPC + clipboard plumbing.

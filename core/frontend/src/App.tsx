@@ -42,6 +42,7 @@ import {
   saveClipAsNote,
   systemLock,
   adjustVolume,
+  toggleMute,
   systemReboot,
   systemShutdown,
   getThemePreference,
@@ -250,6 +251,10 @@ function App() {
         label = "Lock the screen";
         hint = "macOS — instant, no confirmation (pmset displaysleepnow)";
         break;
+      case "mute":
+        label = "Toggle system mute";
+        hint = "macOS — mutes if unmuted, unmutes if muted";
+        break;
       default:
         // kill is handled above; this guards against future additions.
         return null;
@@ -455,6 +460,10 @@ function App() {
         } else if (commandKind === "lock") {
           // No confirmation: locking is cheap to undo (just type password).
           await systemLock();
+          await hidePopup();
+        } else if (commandKind === "mute") {
+          // Toggle — no confirmation, trivially reversible.
+          await toggleMute();
           await hidePopup();
         }
         return;

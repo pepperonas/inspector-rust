@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] — 2026-05-22
+
+### Added — string-manipulation transforms on text entries
+
+Select a **text** entry in the History list and the preview pane now shows a **Transform** toolbar — 11 string operations, each producing a new History entry + clipboard write (the original entry is untouched).
+
+- **Transforms**: remove vowels, UPPERCASE, lowercase, Title Case, camelCase, snake_case, kebab-case, Base64 encode, URL encode (these nine are also keyboard-bound), plus Base64 decode and URL decode (click-only).
+- **Keyboard**: `Cmd+1…9` on macOS / `Ctrl+1…9` on Windows trigger the first nine — the same `CmdOrCtrl` pattern as the existing `⌘B` / `⌘S` image actions. Plain digit keys can't be used (they'd type into the search bar); Shift+digit / Alt+digit type characters and Alt+1–3 collides with the text-expander hotkey, so `Cmd/Ctrl+digit` is the only conflict-free cross-platform choice.
+- **Output**: each transform commits via the new `commit_transformed_text` IPC — clipboard self-write + a new Text History entry. Non-destructive; chain by selecting the new entry and transforming again.
+- camel/snake/kebab share a tokeniser that breaks camelCase boundaries *and* splits on whitespace / `_` / `-`, so any of the three round-trips into any other. Base64 is Unicode-safe (`TextEncoder`/`TextDecoder`, not raw `btoa`). Decode transforms are total — invalid input is a no-op, never an error.
+- Transform logic lives in the new pure, vitest-tested `core/frontend/src/lib/text-transform.ts` (24 tests); the `TransformBar` UI + `Cmd/Ctrl+1–9` handler are in `PreviewPanel.tsx`. Text entries only — image / files / html / rtf entries show no toolbar.
+
+### Added — `mute` system command
+
+The search-bar command palette gains **`mute`** — toggles the macOS system output mute (reads the current state via `osascript`, flips it). Like `lock` / `reboot` it surfaces in autocomplete. macOS-only; Windows returns "not implemented". IPC: `toggle_mute`.
+
+### Why 0.23.0
+
+A new interactive surface (the transform toolbar + `Cmd/Ctrl+digit` shortcuts), two new IPC commands, a new command-palette entry. Backwards-compatible. Feature-level → `0.x.0`.
+
 ## [0.22.0] — 2026-05-22
 
 ### Added — `Shift+↑` / `Shift+↓` adjust system volume

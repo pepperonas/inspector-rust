@@ -550,6 +550,21 @@ export function adjustVolume(delta: number): Promise<number> {
   return invoke("adjust_volume", { delta });
 }
 
+/** Toggle system output mute. Returns the new state (`true` = now
+ *  muted). The `mute` search-bar command. macOS-only. Backend:
+ *  `commands::toggle_mute`. */
+export function toggleMute(): Promise<boolean> {
+  return invoke("toggle_mute");
+}
+
+/** Commit an already-transformed string to the clipboard + a new Text
+ *  history entry. Used by the string-manipulation transforms
+ *  (`Cmd/Ctrl+1…9` on a selected text entry — see `lib/text-transform.ts`).
+ *  Backend: `commands::commit_transformed_text`. */
+export function commitTransformedText(text: string): Promise<void> {
+  return invoke("commit_transformed_text", { text });
+}
+
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
 /** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)

@@ -77,7 +77,8 @@ export interface CommandEntryView {
     | "rmvvls"
     | "reboot"
     | "shutdown"
-    | "lock";
+    | "lock"
+    | "mute";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

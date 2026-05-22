@@ -39,7 +39,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.22.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.23.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -81,7 +81,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-216%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-200%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-224%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -114,7 +114,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-71-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-73-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -281,6 +281,8 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **System command — `reboot`** *(v0.19.0+)* | Search bar | Restart the system (macOS — confirms first, no sudo) |
 | **System command — `shutdown`** *(v0.19.0+)* | Search bar | Power off the system (macOS — confirms first, no sudo) |
 | **System command — `lock`** *(v0.19.0+)* | Search bar | Lock the screen (macOS — instant, no confirm) |
+| **System command — `mute`** *(v0.23.0+)* | Search bar | Toggle system mute / unmute (macOS) |
+| **String transforms** *(v0.23.0+)* | Select a text entry → preview-pane Transform toolbar, or `Cmd/Ctrl+1…9` | 11 ops — remove vowels, UPPER/lower/Title/camel/snake/kebab case, Base64 + URL encode/decode → new History entry + clipboard |
 | Power-command autocomplete | Type a partial keyword (`tre`, `rm`, `reb`, …) → suggestion appears as a `hint` row | core |
 
 ## Features

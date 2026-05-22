@@ -237,6 +237,40 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     }
 }
 
+/// Toggle the system output mute state. Reads the current state via
+/// `osascript`, flips it, returns the new state (`true` = now muted).
+/// No privilege required.
+pub fn toggle_system_mute() -> Result<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg("output muted of (get volume settings)")
+            .output()
+            .context("osascript mute read failed")?;
+        let currently_muted = String::from_utf8_lossy(&out.stdout).trim() == "true";
+        let next = !currently_muted;
+        let script = if next {
+            "set volume with output muted"
+        } else {
+            "set volume without output muted"
+        };
+        std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .status()
+            .context("osascript mute set failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("osascript mute set returned non-zero exit"))?;
+        Ok(next)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err(anyhow!("toggle_system_mute not implemented on this platform"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

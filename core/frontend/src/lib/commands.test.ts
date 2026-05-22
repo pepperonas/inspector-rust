@@ -10,8 +10,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 10 commands", () => {
-    expect(COMMANDS.length).toBe(10);
+  it("has 11 commands", () => {
+    expect(COMMANDS.length).toBe(11);
   });
 
   it("every keyword is unique", () => {

@@ -175,3 +175,40 @@ code {
   80%  { opacity: 1; transform: scale(1.04); }
   100% { opacity: 0; transform: scale(0.6); }
 }
+
+/* ── `rockthebox` easter egg — the box-assembling flourish ───────────── */
+
+/* Whole-overlay rocking during the ~1.9 s intro — a damped side-to-side
+   sway (you "rock" the box), gentler and more musical than getshaky's
+   jitter. Applied to the SnakeGame root while phase === "intro".
+   Duration must match snake.ts INTRO_MS. */
+.rockthebox-rock {
+  animation: rockTheBoxRock 1900ms ease-in-out;
+}
+@keyframes rockTheBoxRock {
+  0%   { transform: rotate(0deg); }
+  10%  { transform: rotate(-2.4deg); }
+  22%  { transform: rotate(2.2deg); }
+  34%  { transform: rotate(-2deg); }
+  46%  { transform: rotate(1.6deg); }
+  58%  { transform: rotate(-1.2deg); }
+  70%  { transform: rotate(0.8deg); }
+  82%  { transform: rotate(-0.4deg); }
+  100% { transform: rotate(0deg); }
+}
+
+/* "ROCK THE BOX" title — drops in from above with the letters spaced
+   wide, snaps them tight with an overshoot bounce, holds, then zooms
+   out as the play field takes over. Duration matches snake.ts INTRO_MS. */
+.rockthebox-title {
+  animation: rockTheBoxTitle 1900ms ease-out forwards;
+}
+@keyframes rockTheBoxTitle {
+  0%   { opacity: 0; transform: translateY(-26px) scale(0.6); letter-spacing: 0.55em; }
+  22%  { opacity: 1; transform: translateY(0) scale(1.14); letter-spacing: 0.02em; }
+  34%  { transform: translateY(0) scale(0.97); }
+  46%  { transform: translateY(0) scale(1.05); }
+  60%  { opacity: 1; transform: translateY(0) scale(1); letter-spacing: 0.02em; }
+  84%  { opacity: 1; transform: scale(1.03); }
+  100% { opacity: 0; transform: scale(1.4); letter-spacing: 0.3em; }
+}

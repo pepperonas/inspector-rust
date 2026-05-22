@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.0] — 2026-05-23
+
+### Added — `rockthebox` hidden Snake easter egg
+
+A second hidden game, alongside `getshaky` (Pong). Typing **`rockthebox`** (or the variant **`rockthabox`**) into the popup search bar full-screen-takes-over the app shell with a game of Snake.
+
+- **Gameplay** — steer with the arrow keys or **WASD**, eat the glowing food to grow, a wall or your own tail ends the run. The tick speed ramps up as your score climbs (capped so it stays playable). Score + a session-best are shown in the HUD; `Space` rematches, `Esc` quits.
+- **Intro animation** — a ~1.9 s "box-assembling" flourish: the whole overlay rocks gently side-to-side while a glowing outline draws itself clockwise around the box, the grid dots sweep in on a diagonal wave, the snake's segments pop into place one by one (head first, with a back-ease bounce), and the food drops in with an expanding ring. The "ROCK THE BOX" title drops in with the letters spaced wide and snaps them tight.
+- **Frame-rate independent** — the game advances on a fixed-timestep wall-clock accumulator, so it runs at the same real speed on 60/120/144 Hz displays (same lesson as the v0.23.1 Pong fix).
+- Pure, unit-tested game maths in the new `core/frontend/src/lib/snake.ts` (`step`, `spawnFood`, `tickInterval`, collision rules — 24 tests); the stateful `<canvas>` loop is `components/SnakeGame.tsx`. Like `getshaky`, the trigger is **deliberately not** in the `COMMANDS` catalogue — it never surfaces in autocomplete; you have to know the word.
+- Entirely client-side: no backend, no IPC, no new Rust module.
+
+### Why 0.24.0
+
+A whole new interactive surface (a second game mode), backwards-compatible. Feature-level → `0.x.0`.
+
 ## [0.23.2] — 2026-05-22
 
 ### Fixed — macOS permissions no longer need re-granting on every rebuild

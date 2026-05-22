@@ -249,6 +249,19 @@ export function isGetShakyTrigger(query: string): boolean {
 }
 
 /**
+ * Hidden easter egg: `rockthebox` turns the popup into a game of Snake.
+ * The variant spelling `rockthabox` is accepted too.
+ *
+ * Like `isGetShakyTrigger`, deliberately NOT a member of `COMMANDS` —
+ * it must never surface in autocomplete. Exact, whitespace-tolerant,
+ * case-insensitive match.
+ */
+export function isRockTheBoxTrigger(query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q === "rockthebox" || q === "rockthabox";
+}
+
+/**
  * Parse the kill command's argument into `{ force, pattern }`.
  * - `kill <pattern>`     → force=false, pattern=<pattern>
  * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>

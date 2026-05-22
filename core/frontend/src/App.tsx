@@ -18,6 +18,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isGetShakyTrigger,
+  isRockTheBoxTrigger,
   parseCommand,
   parseKillArg,
   parseResizeArg,
@@ -25,6 +26,7 @@ import {
   type ParsedCommand,
 } from "./lib/commands";
 import { PongGame } from "./components/PongGame";
+import { SnakeGame } from "./components/SnakeGame";
 import {
   clearHistory,
   deleteEntry,
@@ -61,10 +63,10 @@ function App() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("history");
-  // `getshaky` easter egg — when true, the whole popup is replaced by
-  // the Pong game. Triggered by typing the magic word into the search
-  // bar; exited only with Esc (handled inside PongGame).
-  const [gameMode, setGameMode] = useState(false);
+  // Hidden game easter eggs — when non-null, the whole popup is replaced
+  // by the matching game. `"pong"` ← typing `getshaky`, `"snake"` ←
+  // typing `rockthebox`. Exited only with Esc (handled inside the game).
+  const [gameMode, setGameMode] = useState<"pong" | "snake" | null>(null);
   const [matchingSnippets, setMatchingSnippets] = useState<Snippet[]>([]);
   const [version, setVersion] = useState<string | undefined>(undefined);
   // Sticky banner shown when a paste fails. `"ax"` = macOS Accessibility
@@ -112,12 +114,13 @@ function App() {
 
   const filteredClips = useFuzzySearch(entries, query);
 
-  // `getshaky` easter egg: the instant the query is exactly the magic
-  // word, transform the popup into Pong. No Enter needed — finishing
-  // the word IS the trigger (the word is unmistakable, no false
+  // Game easter eggs: the instant the query is exactly a magic word,
+  // transform the popup into that game. No Enter needed — finishing
+  // the word IS the trigger (the words are unmistakable, no false
   // positives). Hidden from autocomplete entirely (see commands.ts).
   useEffect(() => {
-    if (isGetShakyTrigger(query)) setGameMode(true);
+    if (isGetShakyTrigger(query)) setGameMode("pong");
+    else if (isRockTheBoxTrigger(query)) setGameMode("snake");
   }, [query]);
 
   // Inline calculator: when the query parses as a math expression with at
@@ -551,29 +554,31 @@ function App() {
         console.error("adjust_volume failed", e),
       );
     },
-    // In getshaky game mode PongGame owns the keyboard — disable the
-    // popup nav handler so Esc / arrows don't double-fire.
+    // In game mode the game owns the keyboard — disable the popup nav
+    // handler so Esc / arrows don't double-fire.
     enabled: !gameMode,
   });
 
   const current = combined[selected] ?? null;
 
-  // `getshaky` game mode — the Pong easter egg fully takes over the
-  // app-shell. PongGame owns all input (mouse + keys); Esc inside it
-  // calls onExit, which drops us back to the normal popup with a
-  // cleared search field.
+  // Game mode — a hidden easter egg fully takes over the app-shell. The
+  // game owns all input (mouse + keys); Esc inside it calls onExit,
+  // which drops us back to the normal popup with a cleared search field.
   if (gameMode) {
+    const exitGame = () => {
+      setGameMode(null);
+      setQuery("");
+      setSelected(0);
+      requestAnimationFrame(() => searchRef.current?.focus());
+    };
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell fade-in flex h-full w-full flex-col">
-          <PongGame
-            onExit={() => {
-              setGameMode(false);
-              setQuery("");
-              setSelected(0);
-              requestAnimationFrame(() => searchRef.current?.focus());
-            }}
-          />
+          {gameMode === "pong" ? (
+            <PongGame onExit={exitGame} />
+          ) : (
+            <SnakeGame onExit={exitGame} />
+          )}
         </div>
       </div>
     );

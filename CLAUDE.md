@@ -85,7 +85,7 @@ type ListEntry =
   | { kind: "kill-target";        data: KillTargetView }          // process in the kill picker
 ```
 
-Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips. Two whole-list overrides: in **kill-mode** (`kill` command parsed) the list is replaced entirely by `kill-target` rows; in **game-mode** (`getshaky`) the whole popup is replaced by `<PongGame>`.
+Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips. Two whole-list overrides: in **kill-mode** (`kill` command parsed) the list is replaced entirely by `kill-target` rows; in **game-mode** the whole popup is replaced by a game — `<PongGame>` (`getshaky`) or `<SnakeGame>` (`rockthebox`).
 
 Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
@@ -184,11 +184,19 @@ Persisted in the `settings` table under `appearance.theme`; IPC `get_theme_prefe
 
 ### `getshaky` — hidden Pong easter egg (`components/PongGame.tsx`, `lib/pong.ts`, v0.21.0+)
 
-Typing the exact word **`getshaky`** into the search bar (detected by `commands::isGetShakyTrigger` — case-insensitive, whitespace-tolerant) flips `App.tsx`'s `gameMode` state, which full-screen-takes-over the app-shell with `<PongGame>`. **Deliberately NOT in the `COMMANDS` catalogue** — it must never surface in autocomplete; you have to know the word.
+Typing the exact word **`getshaky`** into the search bar (detected by `commands::isGetShakyTrigger` — case-insensitive, whitespace-tolerant) sets `App.tsx`'s `gameMode` state (`"pong" | "snake" | null`) to `"pong"`, which full-screen-takes-over the app-shell with `<PongGame>`. **Deliberately NOT in the `COMMANDS` catalogue** — it must never surface in autocomplete; you have to know the word.
 
-- `lib/pong.ts` — pure, unit-tested game maths: `clamp`, `botMaxSpeed` (ramp-up: 4.5 cap → +0.75 per bot point), `nextBallSpeed` (per-rally speed-up, capped), `paddleBounce` (edge-hit deflection, magnitude-preserving), `serveBall`.
+- `lib/pong.ts` — pure, unit-tested game maths: `clamp`, `botMaxSpeed` (ramp-up: 4.5 cap → +0.75 per bot point), `nextBallSpeed` (per-rally speed-up, capped), `paddleBounce` (edge-hit deflection, magnitude-preserving), `serveBall`, `frameScale` (frame-rate independence), `paddleHit` (swept collision).
 - `components/PongGame.tsx` — the stateful `<canvas>` + `requestAnimationFrame` loop. Three phases: `intro` (~1.3 s shake transformation — `getshakyShake` / `getshakyTitle` CSS keyframes in `styles.css`), `playing`, `over`. Mutable game state lives in a `useRef` so the 60 fps loop never re-renders React; only score + phase changes do. Player paddle: mouse **and** arrow/W-S, both live. Board colours read live from the theme CSS vars.
-- `useKeyboardNav` gained an `enabled` flag — set to `!gameMode` in App.tsx so the popup's nav handler doesn't double-fire Esc / arrows while PongGame owns the keyboard. **Esc is the only abort** (Space rematches on the game-over screen — not an abort).
+- `useKeyboardNav` gained an `enabled` flag — set to `!gameMode` in App.tsx so the popup's nav handler doesn't double-fire Esc / arrows while a game owns the keyboard. **Esc is the only abort** (Space rematches on the game-over screen — not an abort).
+- Entirely client-side: no backend, no IPC, no new Rust module.
+
+### `rockthebox` — hidden Snake easter egg (`components/SnakeGame.tsx`, `lib/snake.ts`, v0.24.0+)
+
+The second hidden game, same shape as `getshaky`. Typing **`rockthebox`** (or the variant **`rockthabox`**) — detected by `commands::isRockTheBoxTrigger` — sets `gameMode` to `"snake"`, replacing the app-shell with `<SnakeGame>`. Also **not** in `COMMANDS`.
+
+- `lib/snake.ts` — pure, unit-tested grid logic: `step` (move / eat-grow / wall + self collision, with the tail-follow nuance), `spawnFood` (uniform free-cell pick), `tickInterval` (score-driven speed ramp, capped), `initialSnake`, `dirDelta`, `isOpposite`. Grid is `GRID_COLS × GRID_ROWS`.
+- `components/SnakeGame.tsx` — the stateful `<canvas>` loop. Three phases: `intro` (~1.9 s box-assembling flourish — `rockTheBoxRock` / `rockTheBoxTitle` CSS keyframes; `INTRO_MS` must match the keyframe durations), `playing`, `over`. The game advances on a **fixed-timestep wall-clock accumulator** (frame-rate independent). Steered by arrow keys **and** WASD; a buffered `pendingDir` is reversal-checked so the snake can't whip into its own neck. Board colours read live from the theme CSS vars.
 - Entirely client-side: no backend, no IPC, no new Rust module.
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)

@@ -3,6 +3,7 @@ import {
   COMMANDS,
   commandSuggestions,
   isGetShakyTrigger,
+  isRockTheBoxTrigger,
   parseCommand,
   parseKillArg,
   parseResizeArg,
@@ -308,6 +309,37 @@ describe("isGetShakyTrigger — hidden Pong easter egg", () => {
       expect(commandSuggestions(prefix).some((c) => c.keyword === "getshaky")).toBe(
         false,
       );
+    }
+  });
+});
+
+describe("isRockTheBoxTrigger — hidden Snake easter egg", () => {
+  it("matches both spellings of the magic word", () => {
+    expect(isRockTheBoxTrigger("rockthebox")).toBe(true);
+    expect(isRockTheBoxTrigger("rockthabox")).toBe(true);
+  });
+  it("is case-insensitive", () => {
+    expect(isRockTheBoxTrigger("RockTheBox")).toBe(true);
+    expect(isRockTheBoxTrigger("ROCKTHABOX")).toBe(true);
+  });
+  it("tolerates surrounding whitespace", () => {
+    expect(isRockTheBoxTrigger("  rockthebox  ")).toBe(true);
+  });
+  it("does not match partial / extended input", () => {
+    expect(isRockTheBoxTrigger("rockthebo")).toBe(false);
+    expect(isRockTheBoxTrigger("rocktheboxx")).toBe(false);
+    expect(isRockTheBoxTrigger("rock the box")).toBe(false);
+    expect(isRockTheBoxTrigger("rockthebox now")).toBe(false);
+    expect(isRockTheBoxTrigger("")).toBe(false);
+  });
+  it("is NOT in the public COMMANDS catalogue (hidden from autocomplete)", () => {
+    expect(COMMANDS.some((c) => c.keyword === "rockthebox")).toBe(false);
+  });
+  it("never surfaces as an autocomplete suggestion", () => {
+    for (const prefix of ["r", "ro", "rock", "rockthe", "rocktha"]) {
+      expect(
+        commandSuggestions(prefix).some((c) => c.keyword.startsWith("rockth")),
+      ).toBe(false);
     }
   });
 });

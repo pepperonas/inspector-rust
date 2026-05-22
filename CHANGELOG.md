@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.22.0] — 2026-05-22
+
+### Added — `Shift+↑` / `Shift+↓` adjust system volume
+
+While the popup is open, **`Shift+ArrowUp`** raises and **`Shift+ArrowDown`** lowers the macOS output volume by 6 percentage points per press (≈ the 1/16 step macOS's own hardware volume keys use). Plain `↑`/`↓` still navigate the list — only the Shift modifier reroutes to volume.
+
+- Backend: `system_commands::adjust_system_volume(delta)` reads the current level via `osascript`, applies the delta clamped to 0–100, sets it, and returns the new level. New IPC command `adjust_volume`. macOS-only — Windows returns "not implemented". The pure `clamp_volume` helper is unit-tested.
+- Frontend: `useKeyboardNav` gained an `onShiftArrow` callback — `Shift+Arrow` invokes it (and skips list navigation) instead of moving the selection. App.tsx wires it to `adjustVolume(±6)`. Fire-and-forget; macOS plays its own volume feedback.
+- No on-screen HUD — macOS's volume-change feedback sound is the confirmation, same as its hardware keys.
+
+### Why 0.22.0
+
+A new user-facing keybinding + a new IPC command. Compatible addition — plain arrow navigation is unchanged — but a new capability, so `0.x.0` per `docs/RELEASING.md`.
+
 ## [0.21.0] — 2026-05-22
 
 ### Added — `getshaky` 🏓 (hidden Pong easter egg)

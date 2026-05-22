@@ -194,9 +194,77 @@ pub fn system_lock() -> Result<()> {
     }
 }
 
+/// Clamp a raw volume value into the valid 0–100 percent range.
+/// Pure helper, extracted so the clamping logic is unit-testable
+/// without touching (and changing!) the real system volume.
+pub fn clamp_volume(level: i32) -> u8 {
+    level.clamp(0, 100) as u8
+}
+
+/// Adjust the system output volume by `delta` percentage points
+/// (positive = louder, negative = quieter). Reads the current level,
+/// applies the delta clamped to 0–100, sets it, and returns the new
+/// level so the caller can surface feedback. Bound to Shift+↑ / Shift+↓
+/// in the popup.
+pub fn adjust_system_volume(delta: i32) -> Result<u8> {
+    #[cfg(target_os = "macos")]
+    {
+        // Read the current output volume (an integer 0–100).
+        let out = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg("output volume of (get volume settings)")
+            .output()
+            .context("osascript volume read failed")?;
+        let current: i32 = String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse()
+            .context("parse current output volume")?;
+        let next = clamp_volume(current + delta);
+        std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(format!("set volume output volume {next}"))
+            .status()
+            .context("osascript volume set failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("osascript volume set returned non-zero exit"))?;
+        Ok(next)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = delta;
+        Err(anyhow!("adjust_system_volume not implemented on this platform"))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn clamp_volume_passes_through_in_range() {
+        assert_eq!(clamp_volume(0), 0);
+        assert_eq!(clamp_volume(50), 50);
+        assert_eq!(clamp_volume(100), 100);
+    }
+
+    #[test]
+    fn clamp_volume_clamps_out_of_range() {
+        assert_eq!(clamp_volume(-20), 0);
+        assert_eq!(clamp_volume(-1), 0);
+        assert_eq!(clamp_volume(101), 100);
+        assert_eq!(clamp_volume(9999), 100);
+    }
+
+    #[test]
+    fn clamp_volume_models_a_step_at_the_edges() {
+        // Pressing Shift+↑ at max stays at max; Shift+↓ at zero stays at zero.
+        assert_eq!(clamp_volume(100 + 6), 100);
+        assert_eq!(clamp_volume(0 - 6), 0);
+        // A normal mid-range step lands where expected.
+        assert_eq!(clamp_volume(48 + 6), 54);
+        assert_eq!(clamp_volume(48 - 6), 42);
+    }
 
     #[test]
     fn process_info_serialises_to_expected_shape() {

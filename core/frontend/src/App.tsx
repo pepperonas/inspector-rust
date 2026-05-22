@@ -41,6 +41,7 @@ import {
   resizeClipboardImage,
   saveClipAsNote,
   systemLock,
+  adjustVolume,
   systemReboot,
   systemShutdown,
   getThemePreference,
@@ -532,6 +533,14 @@ function App() {
     onEnter: (shiftKey) => void activate(selected, shiftKey),
     onEscape: () => {
       void hidePopup();
+    },
+    // Shift+↑ / Shift+↓ adjust the system output volume by ±6 points
+    // (≈ macOS's own 1/16 hardware-key step) instead of moving the list
+    // selection. Fire-and-forget — macOS plays its volume feedback.
+    onShiftArrow: (direction) => {
+      void adjustVolume(direction === "up" ? 6 : -6).catch((e) =>
+        console.error("adjust_volume failed", e),
+      );
     },
     // In getshaky game mode PongGame owns the keyboard — disable the
     // popup nav handler so Esc / arrows don't double-fire.

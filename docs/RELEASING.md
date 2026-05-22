@@ -80,7 +80,7 @@ perl -i -0pe "s/(name = \"inspector-rust-(?:core|win|macos)\"\\nversion = \")$OL
 
 ```bash
 bash scripts/check.sh        # cargo clippy + tsc + eslint
-cargo test --workspace       # 213 Rust unit tests
+cargo test --workspace       # 216 Rust unit tests
 pnpm test                    # 162 frontend tests (vitest)
 ```
 

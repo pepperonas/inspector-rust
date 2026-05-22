@@ -34,7 +34,7 @@ When adding a feature, **prefer adding it to `core/`**. Per-OS bundles are only 
 3. **Run the local check bundle before pushing**:
    ```bash
    bash scripts/check.sh   # cargo clippy + tsc + eslint
-   cargo test --workspace  # 213 Rust tests
+   cargo test --workspace  # 216 Rust tests
    pnpm test               # 162 frontend tests
    ```
 4. **Open a PR against `main`**. CI will re-run all of the above.

@@ -1414,6 +1414,14 @@ pub fn system_lock() -> Result<(), String> {
     crate::system_commands::system_lock().map_err(map_err)
 }
 
+/// Adjust the system output volume by `delta` percentage points
+/// (positive = louder, negative = quieter). Returns the new level
+/// (0–100). Bound to Shift+↑ / Shift+↓ while the popup is open.
+#[tauri::command]
+pub fn adjust_volume(delta: i32) -> Result<u8, String> {
+    crate::system_commands::adjust_system_volume(delta).map_err(map_err)
+}
+
 /// Strip vowels (English aeiou + uppercase + German umlauts) from `s`.
 /// Pure function — public so the unit tests can exercise it without
 /// going through the IPC + clipboard plumbing.

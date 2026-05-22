@@ -542,6 +542,14 @@ export function systemLock(): Promise<void> {
   return invoke("system_lock");
 }
 
+/** Adjust system output volume by `delta` percentage points (+ louder,
+ *  − quieter). Returns the new level (0–100). Bound to Shift+↑ / Shift+↓
+ *  in the popup. macOS-only; Windows errors. Backend:
+ *  `commands::adjust_volume`. */
+export function adjustVolume(delta: number): Promise<number> {
+  return invoke("adjust_volume", { delta });
+}
+
 // ── macOS Screen Recording permission ──────────────────────────────────────
 
 /** Whether Inspector Rust currently has Screen Recording (TCC ScreenCapture)

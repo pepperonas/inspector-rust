@@ -45,8 +45,9 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
         }
 
         // ── 2. Build the VNImageRequestHandler ───────────────────────
-        let handler_cls = AnyClass::get(c"VNImageRequestHandler")
-            .ok_or_else(|| anyhow::anyhow!("VNImageRequestHandler not available — Vision framework not linked?"))?;
+        let handler_cls = AnyClass::get(c"VNImageRequestHandler").ok_or_else(|| {
+            anyhow::anyhow!("VNImageRequestHandler not available — Vision framework not linked?")
+        })?;
         let handler: *mut AnyObject = msg_send![handler_cls, alloc];
         let handler: *mut AnyObject = msg_send![
             handler,
@@ -186,11 +187,36 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
     Ok(parts.join("\n"))
 }
 
-// Catch-all for Linux / other Unixes so the workspace builds in CI even
-// though those targets don't ship the OCR feature yet. Any non-macOS,
-// non-Windows OS lands here and gets a clean error rather than a link
-// failure.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Linux: Tesseract CLI (`apt install tesseract-ocr`). Offline, no extra Rust deps.
+#[cfg(target_os = "linux")]
+fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
+    use anyhow::Context;
+    use chrono::Utc;
+    use std::process::Command;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "inspector-rust-ocr-{}.png",
+        Utc::now().timestamp_millis()
+    ));
+    std::fs::write(&tmp, png_bytes).context("write OCR temp png")?;
+
+    let output = Command::new("tesseract")
+        .arg(&tmp)
+        .arg("stdout")
+        .args(["-l", "eng+deu"])
+        .output()
+        .context("spawn tesseract (install: sudo apt install tesseract-ocr tesseract-ocr-eng)")?;
+
+    let _ = std::fs::remove_file(&tmp);
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("tesseract failed: {stderr}");
+    }
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn recognize_impl(_png_bytes: &[u8]) -> Result<String> {
     anyhow::bail!("OCR is not implemented on this platform")
 }

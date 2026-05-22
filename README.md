@@ -52,7 +52,7 @@
   [![macOS](https://img.shields.io/badge/macOS-10.15+-000000?style=flat-square&logo=apple&logoColor=white)](./macos)
   [![Apple Silicon](https://img.shields.io/badge/arm64-Apple%20Silicon-555555?style=flat-square&logo=apple&logoColor=white)](./macos)
   [![x86_64](https://img.shields.io/badge/x86__64-supported-555555?style=flat-square)](#)
-  [![Linux](https://img.shields.io/badge/Linux-planned-orange?style=flat-square&logo=linux&logoColor=white)](#)
+  [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian-brightgreen?style=flat-square&logo=linux&logoColor=white)](./linux/README.md)
 
   <!-- ── Stack ────────────────────────────────────────────────── -->
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -170,7 +170,7 @@
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
 | **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
 | **macOS Intel** | — | Build from source: [`macos/README.md`](./macos/README.md) |
-| **Linux** | — | Planned for a later release |
+| **Linux (Ubuntu/Debian)** | Build from source — see [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
 
 > **macOS Gatekeeper note.** Local-build releases are **not Apple-signed**. On first launch macOS will refuse to open the app — right-click → **Open** → confirm, or **System Settings → Privacy & Security → "Open Anyway"**. Then grant **two** TCC permissions:
 > - **Accessibility** — required for paste (`enigo` synthesizes Cmd+V) and the system-wide text expander (Cmd+Shift+← / Cmd+C / Cmd+V cycle).
@@ -186,7 +186,7 @@
 |------------|----------------|-------------------------|
 | Windows 11 | ✅ implemented | [`win/`](./win)         |
 | macOS      | ✅ implemented | [`macos/`](./macos)     |
-| Linux      | 🟡 planned     | `linux/` (not yet)      |
+| Linux      | ✅ implemented | [`linux/`](./linux)     |
 
 All app logic lives in [`core/`](./core) — a single frontend (`core/frontend`) and a single Rust lib (`core/rust-lib`) shared across platforms. Each OS has its own thin bundle shell that owns platform-specific details (installer config, icons, capabilities). To add a new platform, see [`CONTRIBUTING.md`](./CONTRIBUTING.md#adding-a-new-platform-shell-linux-etc).
 

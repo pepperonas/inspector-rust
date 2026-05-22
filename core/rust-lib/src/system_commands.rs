@@ -19,7 +19,9 @@
 //! Windows path (`ExitWindowsEx`, `LockWorkStation`, `TerminateProcess`)
 //! is a follow-up — same strategy as OCR/Screenshot.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{anyhow, Result};
+#[cfg(any(target_os = "macos", target_os = "windows"))]
+use anyhow::Context;
 use serde::Serialize;
 
 /// View struct the frontend renders in the kill picker.

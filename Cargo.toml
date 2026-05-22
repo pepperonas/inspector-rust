@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri"]
+members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
 version = "0.21.0"

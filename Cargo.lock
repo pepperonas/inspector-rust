@@ -2240,6 +2240,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "inspector-rust-linux"
+version = "0.21.0"
+dependencies = [
+ "inspector-rust-core",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-autostart",
+ "tauri-plugin-clipboard-manager",
+ "tauri-plugin-dialog",
+ "tauri-plugin-global-shortcut",
+ "tauri-plugin-opener",
+]
+
+[[package]]
 name = "inspector-rust-macos"
 version = "0.21.0"
 dependencies = [

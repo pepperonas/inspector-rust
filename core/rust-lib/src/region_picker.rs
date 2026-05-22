@@ -97,23 +97,21 @@ mod win_impl {
     use std::sync::OnceLock;
 
     use anyhow::Result;
+    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
     use windows::Win32::Graphics::Gdi::{
-        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen,
-        DeleteDC, DeleteObject, EndPaint, GetDC, GetDIBits, GetStockObject,
-        InvalidateRect, ReleaseDC, SelectObject, SetROP2,
-        BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HGDIOBJ, HDC, NULL_BRUSH,
-        PAINTSTRUCT, PS_SOLID, R2_NOT, RGBQUAD, SRCCOPY,
+        BeginPaint, BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreatePen, DeleteDC,
+        DeleteObject, EndPaint, GetDC, GetDIBits, GetStockObject, InvalidateRect, ReleaseDC,
+        SelectObject, SetROP2, BITMAPINFO, BITMAPINFOHEADER, DIB_RGB_COLORS, HDC, HGDIOBJ,
+        NULL_BRUSH, PAINTSTRUCT, PS_SOLID, R2_NOT, RGBQUAD, SRCCOPY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
-        GetMessageW, GetSystemMetrics, LoadCursorW, PostQuitMessage,
-        RegisterClassExW, SetForegroundWindow, ShowWindow, TranslateMessage,
-        IDC_CROSS, MSG, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN, SW_SHOW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+        CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetMessageW,
+        GetSystemMetrics, LoadCursorW, PostQuitMessage, RegisterClassExW, SetForegroundWindow,
+        ShowWindow, TranslateMessage, IDC_CROSS, MSG, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SW_SHOW, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
         WM_MOUSEMOVE, WM_PAINT, WNDCLASSEXW, WS_EX_TOPMOST, WS_POPUP,
     };
-    use windows::core::PCWSTR;
 
     const VK_ESCAPE: usize = 0x1B;
 
@@ -280,11 +278,9 @@ mod win_impl {
                 cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
                 lpfnWndProc: Some(wnd_proc),
                 lpszClassName: PCWSTR(class_name.as_ptr()),
-                hInstance: windows::Win32::System::LibraryLoader::GetModuleHandleW(
-                    PCWSTR::null(),
-                )
-                .unwrap_or_default()
-                .into(),
+                hInstance: windows::Win32::System::LibraryLoader::GetModuleHandleW(PCWSTR::null())
+                    .unwrap_or_default()
+                    .into(),
                 hCursor: cursor,
                 ..Default::default()
             };
@@ -314,16 +310,26 @@ mod win_impl {
                             // Draw selection rectangle while dragging.
                             // Green = save-to-file mode, white = clipboard mode.
                             if let (Some((x1, y1)), Some((x2, y2))) = (st.start, st.cur) {
-                                let color = if st.save_mode { 0x00FF00u32 } else { 0xFFFFFFu32 };
-                                let pen = CreatePen(PS_SOLID, 2, windows::Win32::Foundation::COLORREF(color));
+                                let color = if st.save_mode {
+                                    0x00FF00u32
+                                } else {
+                                    0xFFFFFFu32
+                                };
+                                let pen = CreatePen(
+                                    PS_SOLID,
+                                    2,
+                                    windows::Win32::Foundation::COLORREF(color),
+                                );
                                 let null_brush = GetStockObject(NULL_BRUSH);
                                 let old_pen = SelectObject(hdc, HGDIOBJ(pen.0));
                                 let old_brush = SelectObject(hdc, HGDIOBJ(null_brush.0));
                                 SetROP2(hdc, R2_NOT);
                                 windows::Win32::Graphics::Gdi::Rectangle(
                                     hdc,
-                                    x1.min(x2), y1.min(y2),
-                                    x1.max(x2), y1.max(y2),
+                                    x1.min(x2),
+                                    y1.min(y2),
+                                    x1.max(x2),
+                                    y1.max(y2),
                                 );
                                 SelectObject(hdc, old_pen);
                                 SelectObject(hdc, old_brush);
@@ -400,11 +406,80 @@ mod win_impl {
     }
 }
 
-// Catch-all for Linux / other Unixes so the workspace builds in CI.
-// Region capture would need an X11 / Wayland-specific overlay; not
-// shipped yet but explicitly handled so cargo doesn't error out at
-// link time on Linux runners.
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+/// Linux: Wayland (`grim` + `slurp`) when available, else X11 (`scrot -s`).
+#[cfg(target_os = "linux")]
+fn capture_impl() -> Result<Vec<u8>> {
+    use anyhow::Context;
+    use chrono::Utc;
+    use std::process::Command;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "inspector-rust-region-{}.png",
+        Utc::now().timestamp_millis()
+    ));
+
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some()
+        && which_exists("grim")
+        && which_exists("slurp");
+
+    let status = if wayland {
+        let region = Command::new("slurp")
+            .output()
+            .context("spawn slurp (Wayland region picker)")?;
+        if !region.status.success() {
+            let _ = std::fs::remove_file(&tmp);
+            return Err(Cancelled.into());
+        }
+        let geom = String::from_utf8_lossy(&region.stdout).trim().to_string();
+        if geom.is_empty() {
+            return Err(Cancelled.into());
+        }
+        Command::new("grim")
+            .args(["-g", &geom])
+            .arg(&tmp)
+            .status()
+            .context("spawn grim")?
+    } else if which_exists("scrot") {
+        Command::new("scrot")
+            .args(["-s", "-o"])
+            .arg(&tmp)
+            .status()
+            .context("spawn scrot")?
+    } else {
+        anyhow::bail!(
+            "region capture needs scrot (X11) or grim+slurp (Wayland). \
+             Install: sudo apt install scrot   # X11\n\
+             or: sudo apt install grim slurp   # Wayland"
+        );
+    };
+
+    if !status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(Cancelled.into());
+    }
+    if !tmp.exists() {
+        return Err(Cancelled.into());
+    }
+    let bytes = std::fs::read(&tmp).context("read captured png")?;
+    let _ = std::fs::remove_file(&tmp);
+    if bytes.is_empty() {
+        return Err(Cancelled.into());
+    }
+    Ok(bytes)
+}
+
+#[cfg(target_os = "linux")]
+fn which_exists(cmd: &str) -> bool {
+    use std::process::Command;
+    Command::new("which")
+        .arg(cmd)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+// Other Unix targets (not Linux / macOS / Windows).
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn capture_impl() -> Result<Vec<u8>> {
     anyhow::bail!("region capture is not implemented on this platform")
 }

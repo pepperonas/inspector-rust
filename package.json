@@ -2,7 +2,7 @@
   "name": "inspector-rust",
   "private": true,
   "version": "0.21.0",
-  "description": "Fast, lightweight clipboard history manager + text expander for Windows 11 and macOS. Built on Tauri 2.",
+  "description": "Fast, lightweight clipboard history manager + text expander for Windows 11, macOS, and Linux. Built on Tauri 2.",
   "license": "MIT",
   "author": "Martin Pfeffer <martinpaush@gmail.com>",
   "repository": {
@@ -17,6 +17,8 @@
     "build:win": "pnpm --filter inspector-rust-win tauri build",
     "dev:macos": "pnpm --filter inspector-rust-macos tauri dev",
     "build:macos": "pnpm --filter inspector-rust-macos tauri build",
+    "dev:linux": "pnpm --filter inspector-rust-linux tauri dev",
+    "build:linux": "pnpm --filter inspector-rust-linux tauri build",
     "lint": "pnpm --filter inspector-rust-frontend lint",
     "typecheck": "pnpm --filter inspector-rust-frontend typecheck",
     "format": "pnpm --filter inspector-rust-frontend format",

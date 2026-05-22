@@ -1,0 +1,24 @@
+[package]
+name = "inspector-rust-linux"
+description = "Inspector Rust — Linux bundle shell"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "inspector-rust"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { workspace = true }
+
+[dependencies]
+inspector-rust-core = { path = "../../core/rust-lib" }
+tauri = { workspace = true }
+tauri-plugin-opener = { workspace = true }
+tauri-plugin-clipboard-manager = { workspace = true }
+tauri-plugin-global-shortcut = { workspace = true }
+tauri-plugin-autostart = { workspace = true }
+tauri-plugin-dialog = { workspace = true }

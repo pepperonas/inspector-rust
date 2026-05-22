@@ -193,9 +193,9 @@ Typing the exact word **`getshaky`** into the search bar (detected by `commands:
 
 ### `rockthebox` — hidden Snake easter egg (`components/SnakeGame.tsx`, `lib/snake.ts`, v0.24.0+)
 
-The second hidden game, same shape as `getshaky`. Typing **`rockthebox`** (or the variant **`rockthabox`**) — detected by `commands::isRockTheBoxTrigger` — sets `gameMode` to `"snake"`, replacing the app-shell with `<SnakeGame>`. Also **not** in `COMMANDS`.
+The second hidden game, same shape as `getshaky`. `commands::rockTheBoxMode` detects the trigger word and returns the variant: **`rockthebox`** → `"classic"` (walls kill), **`rockthabox`** → `"wrap"` (the snake reappears on the opposite edge). `App.tsx` maps these to `gameMode` `"snake-classic"` / `"snake-wrap"`, replacing the app-shell with `<SnakeGame wrap={…}>`. Also **not** in `COMMANDS`.
 
-- `lib/snake.ts` — pure, unit-tested grid logic: `step` (move / eat-grow / wall + self collision, with the tail-follow nuance), `spawnFood` (uniform free-cell pick), `tickInterval` (score-driven speed ramp, capped), `initialSnake`, `dirDelta`, `isOpposite`. Grid is `GRID_COLS × GRID_ROWS`.
+- `lib/snake.ts` — pure, unit-tested grid logic: `step` (move / eat-grow / self collision with the tail-follow nuance; an optional `wrap` arg toggles wall-death vs. modulo-wrap), `spawnFood` (uniform free-cell pick), `tickInterval` (score-driven speed ramp, capped), `initialSnake`, `dirDelta`, `isOpposite`. Grid is `GRID_COLS × GRID_ROWS`.
 - `components/SnakeGame.tsx` — the stateful `<canvas>` loop. Three phases: `intro` (~1.9 s box-assembling flourish — `rockTheBoxRock` / `rockTheBoxTitle` CSS keyframes; `INTRO_MS` must match the keyframe durations), `playing`, `over`. The game advances on a **fixed-timestep wall-clock accumulator** (frame-rate independent). Steered by arrow keys **and** WASD; a buffered `pendingDir` is reversal-checked so the snake can't whip into its own neck. Board colours read live from the theme CSS vars.
 - Entirely client-side: no backend, no IPC, no new Rust module.
 

@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] — 2026-05-23
+
+### Added — `rockthabox` wrap-around Snake variant
+
+The `rockthebox` easter egg now has two modes, picked by the trigger spelling:
+
+- **`rockthebox`** — *walls* mode (classic): hitting a wall ends the game.
+- **`rockthabox`** — *wrap* mode: the snake reappears on the opposite edge instead of dying. Only a self-collision ends a wrap-mode game.
+
+`lib/snake.ts::step` gained an optional `wrap` parameter (modulo the head back into the field instead of returning `dead`). `commands.ts` replaces `isRockTheBoxTrigger` with `rockTheBoxMode`, returning `"classic" | "wrap" | null`. The Snake HUD shows a `walls` / `wrap` mode chip. Pure-logic coverage extended (`snake.test.ts`).
+
+### Why 0.24.1
+
+A gameplay variant of the v0.24.0 easter egg — no new surface, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.24.0] — 2026-05-23
 
 ### Added — `rockthebox` hidden Snake easter egg

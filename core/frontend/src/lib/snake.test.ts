@@ -163,6 +163,51 @@ describe("step — death", () => {
   });
 });
 
+describe("step — wrap mode (the `rockthabox` variant)", () => {
+  it("reappears on the opposite edge instead of dying — all four walls", () => {
+    const left = step([{ x: 0, y: 5 }], "left", { x: 9, y: 9 }, 20, 20, true);
+    expect(left.dead).toBe(false);
+    expect(left.snake[0]).toEqual({ x: 19, y: 5 });
+
+    const right = step([{ x: 19, y: 5 }], "right", { x: 9, y: 9 }, 20, 20, true);
+    expect(right.dead).toBe(false);
+    expect(right.snake[0]).toEqual({ x: 0, y: 5 });
+
+    const up = step([{ x: 5, y: 0 }], "up", { x: 9, y: 9 }, 20, 20, true);
+    expect(up.dead).toBe(false);
+    expect(up.snake[0]).toEqual({ x: 5, y: 19 });
+
+    const down = step([{ x: 5, y: 19 }], "down", { x: 9, y: 9 }, 20, 20, true);
+    expect(down.dead).toBe(false);
+    expect(down.snake[0]).toEqual({ x: 5, y: 0 });
+  });
+  it("still dies if it wraps straight into its own body", () => {
+    // Head {0,5} wraps left to {19,5}, which a body cell occupies.
+    const snake: Point[] = [
+      { x: 0, y: 5 },
+      { x: 1, y: 5 },
+      { x: 19, y: 5 },
+      { x: 18, y: 5 },
+    ];
+    expect(step(snake, "left", { x: 9, y: 9 }, 20, 20, true).dead).toBe(true);
+  });
+  it("eats food sitting on the opposite edge after a wrap", () => {
+    const res = step([{ x: 0, y: 5 }], "left", { x: 19, y: 5 }, 20, 20, true);
+    expect(res.ate).toBe(true);
+    expect(res.snake[0]).toEqual({ x: 19, y: 5 });
+  });
+  it("an in-bounds move is unaffected by the wrap flag", () => {
+    const a = step([{ x: 5, y: 5 }], "right", { x: 9, y: 9 }, 20, 20, false);
+    const b = step([{ x: 5, y: 5 }], "right", { x: 9, y: 9 }, 20, 20, true);
+    expect(a.snake).toEqual(b.snake);
+  });
+  it("classic mode (wrap off) still dies at the wall", () => {
+    expect(step([{ x: 0, y: 5 }], "left", { x: 9, y: 9 }, 20, 20, false).dead).toBe(
+      true,
+    );
+  });
+});
+
 describe("spawnFood", () => {
   it("never places food on the snake", () => {
     const snake = initialSnake();

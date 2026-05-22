@@ -18,7 +18,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isGetShakyTrigger,
-  isRockTheBoxTrigger,
+  rockTheBoxMode,
   parseCommand,
   parseKillArg,
   parseResizeArg,
@@ -64,9 +64,12 @@ function App() {
   const [selected, setSelected] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("history");
   // Hidden game easter eggs — when non-null, the whole popup is replaced
-  // by the matching game. `"pong"` ← typing `getshaky`, `"snake"` ←
-  // typing `rockthebox`. Exited only with Esc (handled inside the game).
-  const [gameMode, setGameMode] = useState<"pong" | "snake" | null>(null);
+  // by the matching game. `"pong"` ← typing `getshaky`; the two snake
+  // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
+  // Exited only with Esc (handled inside the game).
+  const [gameMode, setGameMode] = useState<
+    "pong" | "snake-classic" | "snake-wrap" | null
+  >(null);
   const [matchingSnippets, setMatchingSnippets] = useState<Snippet[]>([]);
   const [version, setVersion] = useState<string | undefined>(undefined);
   // Sticky banner shown when a paste fails. `"ax"` = macOS Accessibility
@@ -119,8 +122,12 @@ function App() {
   // the word IS the trigger (the words are unmistakable, no false
   // positives). Hidden from autocomplete entirely (see commands.ts).
   useEffect(() => {
-    if (isGetShakyTrigger(query)) setGameMode("pong");
-    else if (isRockTheBoxTrigger(query)) setGameMode("snake");
+    if (isGetShakyTrigger(query)) {
+      setGameMode("pong");
+      return;
+    }
+    const snake = rockTheBoxMode(query);
+    if (snake) setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
   }, [query]);
 
   // Inline calculator: when the query parses as a math expression with at
@@ -577,7 +584,7 @@ function App() {
           {gameMode === "pong" ? (
             <PongGame onExit={exitGame} />
           ) : (
-            <SnakeGame onExit={exitGame} />
+            <SnakeGame onExit={exitGame} wrap={gameMode === "snake-wrap"} />
           )}
         </div>
       </div>

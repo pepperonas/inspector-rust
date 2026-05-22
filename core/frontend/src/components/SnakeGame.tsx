@@ -28,6 +28,9 @@ import {
 interface Props {
   /** Called when the user presses Esc — App.tsx returns to the popup. */
   onExit: () => void;
+  /** When true (the `rockthabox` variant), the snake wraps to the
+   *  opposite edge instead of dying at a wall. */
+  wrap: boolean;
 }
 
 type Phase = "intro" | "playing" | "over";
@@ -353,7 +356,7 @@ interface SnakeState {
   running: boolean;
 }
 
-export function SnakeGame({ onExit }: Props) {
+export function SnakeGame({ onExit, wrap }: Props) {
   const [phase, setPhase] = useState<Phase>("intro");
   // Score (food eaten) + session best — React state for the HUD; the
   // game loop reads the score via a ref so it always sees the freshest
@@ -482,7 +485,7 @@ export function SnakeGame({ onExit }: Props) {
     const doTick = () => {
       // Commit the buffered direction (already reversal-checked on input).
       if (!isOpposite(s.dir, s.pendingDir)) s.dir = s.pendingDir;
-      const res = step(s.snake, s.dir, s.food, GRID_COLS, GRID_ROWS);
+      const res = step(s.snake, s.dir, s.food, GRID_COLS, GRID_ROWS, wrap);
       if (res.dead) {
         s.running = false;
         setBest((b) => Math.max(b, scoreRef.current));
@@ -522,7 +525,7 @@ export function SnakeGame({ onExit }: Props) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [phase]);
+  }, [phase, wrap]);
 
   return (
     <div
@@ -533,8 +536,20 @@ export function SnakeGame({ onExit }: Props) {
     >
       {/* HUD */}
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4">
-        <span className="font-[var(--font-mono)] text-[12px] font-semibold uppercase tracking-[0.2em] text-[var(--color-accent)]">
-          Rock the Box
+        <span className="flex items-center gap-2">
+          <span className="font-[var(--font-mono)] text-[12px] font-semibold uppercase tracking-[0.2em] text-[var(--color-accent)]">
+            Rock the Box
+          </span>
+          <span
+            className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 font-[var(--font-mono)] text-[10px] uppercase tracking-wide text-[var(--color-muted)]"
+            title={
+              wrap
+                ? "Wrap mode — the snake reappears on the opposite edge"
+                : "Walls mode — hitting a wall ends the game"
+            }
+          >
+            {wrap ? "wrap" : "walls"}
+          </span>
         </span>
         <span className="font-[var(--font-mono)] text-[18px] font-bold tabular-nums">
           <span className="text-[var(--color-accent)]">{score}</span>

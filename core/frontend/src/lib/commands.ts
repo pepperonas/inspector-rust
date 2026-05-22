@@ -248,17 +248,25 @@ export function isGetShakyTrigger(query: string): boolean {
   return query.trim().toLowerCase() === "getshaky";
 }
 
+/** Which Snake variant a `rockthebox`-family trigger word selects. */
+export type SnakeMode = "classic" | "wrap";
+
 /**
- * Hidden easter egg: `rockthebox` turns the popup into a game of Snake.
- * The variant spelling `rockthabox` is accepted too.
+ * Hidden easter egg: the `rockthebox` family turns the popup into a
+ * game of Snake. The trigger word picks the variant:
+ *   `rockthebox` → "classic" — hitting a wall ends the game.
+ *   `rockthabox` → "wrap"    — the snake reappears on the opposite side.
+ * Returns the mode, or `null` if `query` isn't a trigger word.
  *
  * Like `isGetShakyTrigger`, deliberately NOT a member of `COMMANDS` —
  * it must never surface in autocomplete. Exact, whitespace-tolerant,
  * case-insensitive match.
  */
-export function isRockTheBoxTrigger(query: string): boolean {
+export function rockTheBoxMode(query: string): SnakeMode | null {
   const q = query.trim().toLowerCase();
-  return q === "rockthebox" || q === "rockthabox";
+  if (q === "rockthebox") return "classic";
+  if (q === "rockthabox") return "wrap";
+  return null;
 }
 
 /**

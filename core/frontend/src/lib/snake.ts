@@ -97,8 +97,9 @@ export interface StepResult {
 /**
  * Advance the snake one cell in `dir`.
  *
- * - Walking off any edge of the `cols × rows` field is death — classic
- *   Snake, no wrap-around.
+ * - Walking off an edge of the `cols × rows` field: when `wrap` is
+ *   false (classic Snake) it's death; when `wrap` is true the head
+ *   reappears on the opposite edge.
  * - Running into the body is death, with one nuance: when the snake is
  *   *not* eating, its tail cell vacates this step, so moving the head
  *   into the current tail cell is allowed.
@@ -110,14 +111,18 @@ export function step(
   food: Point,
   cols: number = GRID_COLS,
   rows: number = GRID_ROWS,
+  wrap: boolean = false,
 ): StepResult {
   const head = snake[0];
   const d = dirDelta(dir);
-  const nx = head.x + d.x;
-  const ny = head.y + d.y;
+  let nx = head.x + d.x;
+  let ny = head.y + d.y;
 
   if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) {
-    return { snake, ate: false, dead: true };
+    if (!wrap) return { snake, ate: false, dead: true };
+    // The head only ever moves one cell, so a single modulo wraps it.
+    nx = (nx + cols) % cols;
+    ny = (ny + rows) % rows;
   }
 
   const ate = nx === food.x && ny === food.y;

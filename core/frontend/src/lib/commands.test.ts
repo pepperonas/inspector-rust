@@ -3,7 +3,7 @@ import {
   COMMANDS,
   commandSuggestions,
   isGetShakyTrigger,
-  isRockTheBoxTrigger,
+  rockTheBoxMode,
   parseCommand,
   parseKillArg,
   parseResizeArg,
@@ -313,24 +313,27 @@ describe("isGetShakyTrigger — hidden Pong easter egg", () => {
   });
 });
 
-describe("isRockTheBoxTrigger — hidden Snake easter egg", () => {
-  it("matches both spellings of the magic word", () => {
-    expect(isRockTheBoxTrigger("rockthebox")).toBe(true);
-    expect(isRockTheBoxTrigger("rockthabox")).toBe(true);
+describe("rockTheBoxMode — hidden Snake easter egg", () => {
+  it("maps `rockthebox` to classic (walls kill) mode", () => {
+    expect(rockTheBoxMode("rockthebox")).toBe("classic");
+  });
+  it("maps `rockthabox` to wrap-around mode", () => {
+    expect(rockTheBoxMode("rockthabox")).toBe("wrap");
   });
   it("is case-insensitive", () => {
-    expect(isRockTheBoxTrigger("RockTheBox")).toBe(true);
-    expect(isRockTheBoxTrigger("ROCKTHABOX")).toBe(true);
+    expect(rockTheBoxMode("RockTheBox")).toBe("classic");
+    expect(rockTheBoxMode("ROCKTHABOX")).toBe("wrap");
   });
   it("tolerates surrounding whitespace", () => {
-    expect(isRockTheBoxTrigger("  rockthebox  ")).toBe(true);
+    expect(rockTheBoxMode("  rockthebox  ")).toBe("classic");
+    expect(rockTheBoxMode("  rockthabox  ")).toBe("wrap");
   });
-  it("does not match partial / extended input", () => {
-    expect(isRockTheBoxTrigger("rockthebo")).toBe(false);
-    expect(isRockTheBoxTrigger("rocktheboxx")).toBe(false);
-    expect(isRockTheBoxTrigger("rock the box")).toBe(false);
-    expect(isRockTheBoxTrigger("rockthebox now")).toBe(false);
-    expect(isRockTheBoxTrigger("")).toBe(false);
+  it("returns null for partial / extended / unrelated input", () => {
+    expect(rockTheBoxMode("rockthebo")).toBeNull();
+    expect(rockTheBoxMode("rocktheboxx")).toBeNull();
+    expect(rockTheBoxMode("rock the box")).toBeNull();
+    expect(rockTheBoxMode("rockthebox now")).toBeNull();
+    expect(rockTheBoxMode("")).toBeNull();
   });
   it("is NOT in the public COMMANDS catalogue (hidden from autocomplete)", () => {
     expect(COMMANDS.some((c) => c.keyword === "rockthebox")).toBe(false);

@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.2] — 2026-05-23
+
+### Changed — consolidated macOS permissions card with one-click guided setup
+
+The two separate amber permission banners (Accessibility, Screen Recording) are replaced by a single **macOS permissions** card with a **Set up permissions** button.
+
+- **One-click chained setup** — clicking *Set up permissions* opens the first still-missing System Settings pane; the moment that grant flips on (the panel polls live), the card automatically opens the *next* missing pane. So one click walks you through both grants.
+- Each permission has a live status row — an amber ring while missing, a green check + "Enabled" once granted — plus its own *Open* button.
+- Troubleshooting (reset stale grants, re-check, quit) is tucked into one collapsible section instead of being duplicated across two banners.
+
+**Note on automation:** there is no "grant everything with one password" — macOS deliberately does not let any app grant Accessibility or Screen Recording; the toggle must come from the user in System Settings, password or not. The button removes every other piece of friction (finding the panes, the right order, the stale-grant dance) but the final switch is, by Apple's design, yours to flip. Combined with the v0.23.2 stable-signing fix, you only ever do this once.
+
+### Why 0.24.2
+
+A UX rework of existing permission handling — no new IPC, no new capability, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.24.1] — 2026-05-23
 
 ### Added — `rockthabox` wrap-around Snake variant

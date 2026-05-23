@@ -27,6 +27,7 @@ mod seed;
 mod settings;
 mod snippets;
 mod system_commands;
+mod finder_selection;
 mod text_field;
 mod ui_state;
 mod wakelock;
@@ -295,6 +296,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::toggle_mute,
             commands::wakelock_set,
             commands::wakelock_get,
+            commands::get_finder_selection,
+            commands::resize_file,
             commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,

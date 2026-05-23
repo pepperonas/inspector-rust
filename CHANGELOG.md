@@ -4,6 +4,37 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.0] — 2026-05-23
+
+### Added — `Ctrl+Shift+F` reads the Finder selection (macOS)
+
+Press **`Ctrl+Shift+F`** anywhere on macOS → the popup opens with whichever files you have selected in Finder listed at the top, ready to act on. Currently shipping action:
+
+- **Resize images** — with one or more images selected, type `rz 1200x800` and hit Enter. Each selected image is Lanczos3-downscaled and written next to its source as `<stem>-1200x800.<ext>` (PNG → PNG, JPEG → JPEG, etc. — format is preserved). The originals are untouched.
+- **Open in default app** — hit Enter on a file row to launch it.
+
+Mixed selections (some images, some non-images) work fine: `rz` only touches the image rows. Non-image rows are still listed and openable.
+
+### Behind the scenes
+
+- New module `core/rust-lib/src/finder_selection.rs` shells out to `osascript -e 'tell application "Finder" to get selection'` and parses the POSIX paths back. ~30 ms cold round-trip. The `-1743` errAEEventNotPermitted (TCC Automation denied) error is translated to a `finder.automation_denied` sentinel, mirroring the existing `ax.permission_denied` / `screen.permission_denied` pattern, so the frontend can show a tailored "open System Settings → Privacy → Automation → Inspector Rust → Finder" banner instead of a generic error.
+- New `image_ops::resize_file_to_neighbor(src, w, h)` — opens the source file, Lanczos3-resizes, writes the result with the same format alongside the original.
+- New IPCs: `get_finder_selection() -> Vec<FinderItem>`, `resize_file(path, w, h) -> String` (returns the output path), plus the `run_finder_selection_pipeline` worker for the hotkey path.
+- New global shortcut `Ctrl+Shift+F` registered alongside the existing OCR / screenshot / eyedropper hotkeys.
+- New `ListEntry` kind `"finder-file"`; rendered with the existing file icon + a "finder" chip in the row; PreviewPanel shows the path + size + a "type `rz 1200x800` to resize all selected images" hint for images.
+
+### Permissions
+
+To talk to Finder via AppleEvents, a Hardened-Runtime app needs three things in alignment:
+
+1. **Entitlement** `com.apple.security.automation.apple-events` (added back to `entitlements.plist`; the historical comment that warned against it applied only to apps that didn't actually use AppleEvents — we do now).
+2. **Info.plist key** `NSAppleEventsUsageDescription` (injected post-build by `scripts/install-macos.sh` via `plutil -replace`, since the Tauri 2 bundler has no first-class field for arbitrary Info.plist keys).
+3. **User grant** in *System Settings → Privacy & Security → Automation → Inspector Rust → Finder*. macOS prompts on the first Ctrl+Shift+F press; the in-app banner reminds you where to find the toggle if you missed the prompt.
+
+### Why 0.30.0
+
+New feature surface (new hotkey, new IPC, new entitlement, new Info.plist key), additive. Existing flows are unchanged. Bumping the minor digit.
+
 ## [0.29.0] — 2026-05-23
 
 ### Added — `wakelock=1` keep-awake mouse-jiggle

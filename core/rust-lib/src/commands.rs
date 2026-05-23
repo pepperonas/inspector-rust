@@ -1416,6 +1416,88 @@ pub fn eyedropper_to_clipboard(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+// ── Finder selection (macOS) ──────────────────────────────────────────
+
+/// One Finder-selected item — path + display name + size + image-ness.
+/// `is_image` is a cheap extension test (`png`/`jpg`/`jpeg`/`webp`/`gif`/`bmp`/`heic`/`tiff`);
+/// good enough to decide whether to surface the resize action.
+#[derive(serde::Serialize, Clone)]
+pub struct FinderItem {
+    pub path: String,
+    pub name: String,
+    pub size_bytes: Option<u64>,
+    pub is_image: bool,
+}
+
+fn finder_item_from_path(p: &std::path::Path) -> FinderItem {
+    let name = p
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("")
+        .to_string();
+    let size_bytes = std::fs::metadata(p).map(|m| m.len()).ok();
+    let is_image = p
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|e| matches!(
+            e.to_ascii_lowercase().as_str(),
+            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "heic" | "heif" | "tiff" | "tif"
+        ))
+        .unwrap_or(false);
+    FinderItem {
+        path: p.display().to_string(),
+        name,
+        size_bytes,
+        is_image,
+    }
+}
+
+/// Read the current Finder selection. Returns an empty list when
+/// nothing is selected. Errors with the `finder.automation_denied`
+/// sentinel when the user hasn't granted Automation→Finder in System
+/// Settings (frontend turns that into a tailored banner).
+#[tauri::command]
+pub fn get_finder_selection() -> Result<Vec<FinderItem>, String> {
+    let paths = crate::finder_selection::read()?;
+    Ok(paths.iter().map(|p| finder_item_from_path(p)).collect())
+}
+
+/// Resize a single image file with Lanczos3, writing the output next
+/// to the source as `<stem>-<W>x<H>.<ext>`. Returns the output path
+/// so the frontend can show "Saved foo-1200x800.png" toast.
+#[tauri::command]
+pub fn resize_file(path: String, width: u32, height: u32) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&path);
+    let r = crate::image_ops::resize_file_to_neighbor(&src, width, height).map_err(map_err)?;
+    Ok(r.path.display().to_string())
+}
+
+/// Runs the hotkey-driven Finder-selection pipeline: read the
+/// selection, open the popup, emit the `finder-selection-loaded`
+/// event with the items. Mirrors the pattern of the OCR / eyedropper
+/// pipelines so the hotkey handler stays tiny.
+pub fn run_finder_selection_pipeline(app: &AppHandle) {
+    let items_result = crate::finder_selection::read();
+    // Show the popup regardless of result — even an Automation-denied
+    // error needs a visible surface to display the permission banner.
+    let _ = crate::hotkey::show_popup(app);
+    match items_result {
+        Ok(paths) => {
+            let items: Vec<FinderItem> =
+                paths.iter().map(|p| finder_item_from_path(p)).collect();
+            let _ = app.emit("finder-selection-loaded", items);
+        }
+        Err(e) => {
+            if e == crate::finder_selection::ERR_AUTOMATION_DENIED {
+                let _ = app.emit("finder-automation-needed", ());
+            } else {
+                tracing::warn!("finder selection: {e}");
+                let _ = app.emit("finder-selection-loaded", Vec::<FinderItem>::new());
+            }
+        }
+    }
+}
+
 // ── Power commands (search-bar shell): rz / optim / rmvvls ────────────
 
 /// `rz <W>x<H>` — resize the clipboard image to the given dimensions

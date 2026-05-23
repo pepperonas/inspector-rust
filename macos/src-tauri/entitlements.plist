@@ -12,14 +12,29 @@
   <key>com.apple.security.cs.disable-library-validation</key>
   <true/>
   <!--
-    Note: NO `com.apple.security.automation.apple-events` here.
-    That entitlement covers AppleScript-style automation (NSAppleEvent /
-    OSAScript), NOT the synthetic keyboard input we actually do via
-    `enigo`'s `CGEventPost`. Synthetic input is gated by the runtime TCC
-    "Accessibility" permission (granted in System Settings), which has
-    nothing to do with code-signing entitlements. Including the apple-events
-    key with Hardened Runtime can additionally trigger an unrelated TCC
-    "Automation" prompt on macOS Tahoe and confuses the permission flow.
+    Apple Events automation (osascript → Finder, …).
+
+    Added in v0.30.0 for the Finder-selection feature: Ctrl+Shift+F
+    shells out to `osascript -e 'tell application "Finder" to get
+    selection'` so the popup can list the files you have selected and
+    run actions (resize, …) on them.
+
+    With Hardened Runtime this entitlement is REQUIRED — without it
+    AppleEvents are denied at the kernel level before the user even
+    sees a TCC prompt. The companion piece is `NSAppleEventsUsageDescription`
+    in Info.plist (injected by `scripts/install-macos.sh` post-build),
+    which provides the human-readable copy macOS shows in the "App
+    wants to control Finder" prompt.
+
+    Historical note: a previous version of this comment warned against
+    this entitlement on the grounds that it triggered an extraneous
+    Automation prompt on macOS Tahoe when the app didn't actually need
+    AppleEvents (just synthetic input via `CGEventPost`, which is
+    gated by Accessibility — not by this entitlement). That concern
+    no longer applies; we DO use AppleEvents now, and the prompt the
+    user sees is the correct one for the feature.
   -->
+  <key>com.apple.security.automation.apple-events</key>
+  <true/>
 </dict>
 </plist>

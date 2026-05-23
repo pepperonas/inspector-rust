@@ -122,6 +122,15 @@ export interface OpenerEntryView {
   text: string;
 }
 
+/** One file from the current Finder selection (Ctrl+Shift+F path). */
+export interface FinderFileView {
+  path: string;
+  name: string;
+  size_bytes: number | null;
+  /** Cheap extension test — drives whether the Resize action shows. */
+  is_image: boolean;
+}
+
 export type ListEntry =
   | { kind: "clip"; data: ClipEntry }
   | { kind: "snippet"; data: Snippet }
@@ -130,4 +139,5 @@ export type ListEntry =
   | { kind: "command"; data: CommandEntryView }
   | { kind: "command-suggestion"; data: CommandSuggestionView }
   | { kind: "kill-target"; data: KillTargetView }
-  | { kind: "opener"; data: OpenerEntryView };
+  | { kind: "opener"; data: OpenerEntryView }
+  | { kind: "finder-file"; data: FinderFileView };

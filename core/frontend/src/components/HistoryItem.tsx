@@ -25,6 +25,11 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "command-suggestion") return <ChevronsRight size={size} className={cls} />;
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
+  if (entry.kind === "finder-file") {
+    return entry.data.is_image
+      ? <Image size={size} className={cls} />
+      : <Files size={size} className={cls} />;
+  }
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -56,11 +61,12 @@ export const HistoryItem = memo(function HistoryItem({
   const isSuggestion = entry.kind === "command-suggestion";
   const isKillTarget = entry.kind === "kill-target";
   const isOpener = entry.kind === "opener";
+  const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -143,8 +149,24 @@ export const HistoryItem = memo(function HistoryItem({
     >
       opener
     </span>
+  ) : isFinderFile ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Selected in Finder"
+    >
+      finder
+    </span>
   ) : (
     (() => {
+      // Past this point `entry.data` is the ClipEntry shape (the other
+      // kinds are all branched out above) — the type narrowing got
+      // dropped on the implicit closure, so an explicit guard satisfies tsc.
+      if (entry.kind !== "clip") return null;
       const captured = formatAbsolute(entry.data.created_at);
       const lastUsed = formatAbsolute(entry.data.last_used_at);
       const sameInstant = entry.data.created_at === entry.data.last_used_at;
@@ -293,6 +315,27 @@ export const HistoryItem = memo(function HistoryItem({
           // Whole opener text — they're short (<200 chars) so a single
           // truncated line reads well without an extra hint row.
           <span className="truncate italic">{entry.data.text}</span>
+        ) : isFinderFile && entry.kind === "finder-file" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.name}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              {entry.data.path}
+              {entry.data.size_bytes != null && (
+                <>
+                  {" · "}
+                  <span className="tabular-nums">
+                    {(entry.data.size_bytes / 1024).toFixed(1)}
+                  </span>
+                  {" KB"}
+                </>
+              )}
+            </span>
+          </span>
         ) : (
           label
         )}

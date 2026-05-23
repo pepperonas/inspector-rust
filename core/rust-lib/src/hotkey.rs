@@ -197,6 +197,30 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register color-picker hotkey")?;
 
+    // Finder selection — Ctrl+Shift+F. Reads the current Finder
+    // selection via osascript and opens the popup with those files
+    // in a "finder-mode" list, where the user can run actions on
+    // them (resize, …). Macos-only; on other OSes the handler is
+    // registered but emits an empty list (or an error which the UI
+    // can surface). The osascript call is fast (~30 ms) but we still
+    // dispatch off the hotkey thread to avoid blocking the global
+    // hotkey dispatcher.
+    let finder = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyF,
+    );
+    let app_for_finder = app.clone();
+    app.global_shortcut()
+        .on_shortcut(finder, move |_app, sc, event| {
+            if event.state == ShortcutState::Pressed && *sc == finder {
+                let app = app_for_finder.clone();
+                std::thread::spawn(move || {
+                    crate::commands::run_finder_selection_pipeline(&app);
+                });
+            }
+        })
+        .context("failed to register Finder-selection hotkey")?;
+
     Ok(())
 }
 

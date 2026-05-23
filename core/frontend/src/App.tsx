@@ -51,12 +51,13 @@ import {
   systemReboot,
   systemShutdown,
   wakelockSet,
+  resizeFile,
   getThemePreference,
   type ProcessInfo,
 } from "./lib/ipc";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import type { ListEntry, Snippet } from "./lib/types";
+import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
 
 type Tab = "history" | "snippets" | "notes" | "settings";
 
@@ -92,6 +93,15 @@ function App() {
   // hotkey looks dead. We pop the popup + switch to Settings + show this
   // banner so the fix is one click away.
   const [expanderPermissionMissing, setExpanderPermissionMissing] = useState(false);
+  // Finder selection (macOS only) — populated by the Ctrl+Shift+F
+  // hotkey via the `finder-selection-loaded` event. When non-null,
+  // the popup is in "finder-mode": Finder files take over the list
+  // and `rz <W>x<H>` runs against them instead of the clipboard.
+  // `null` (not `[]`) is the inactive marker — `[]` means
+  // "selection loaded, but Finder had nothing selected" → we still
+  // want to show the empty-state hint.
+  const [finderFiles, setFinderFiles] = useState<FinderFileView[] | null>(null);
+  const [finderAutomationDenied, setFinderAutomationDenied] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -339,6 +349,17 @@ function App() {
     [commandSuggestionList],
   );
 
+  // In finder-mode (Ctrl+Shift+F just fired), the file list takes the
+  // top of the result list. A complete `rz <W>x<H>` command still
+  // shows as the runnable command row above the files so the user
+  // sees what's about to fire.
+  const finderFileEntries: ListEntry[] = useMemo(() => {
+    if (!finderFiles) return [];
+    return finderFiles.map(
+      (f): ListEntry => ({ kind: "finder-file", data: f }),
+    );
+  }, [finderFiles]);
+
   // Combine: in kill mode, the process picker takes over the entire
   // list (no point mixing clipboard history with process rows — they
   // can't be activated the same way and would just confuse selection).
@@ -350,6 +371,7 @@ function App() {
         ...(openerEntry ? [openerEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
+        ...finderFileEntries,
         ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
         ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
         ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
@@ -477,6 +499,49 @@ function App() {
     return () => window.clearTimeout(id);
   }, [expanderPermissionMissing]);
 
+  // Finder selection hotkey (Ctrl+Shift+F) — backend reads the
+  // selection, opens the popup, then fires this event with the items.
+  // We switch into "finder-mode": the list is replaced by the files,
+  // and `rz <W>x<H>` runs against them via the resize_file IPC.
+  // Hidden trigger words (`getshaky`, `rockthebox`, …) and the OCR /
+  // expander permission banners share the same overlay-event pattern.
+  useEffect(() => {
+    let unlistenLoaded: UnlistenFn | undefined;
+    let unlistenDenied: UnlistenFn | undefined;
+    (async () => {
+      unlistenLoaded = await listen<FinderFileView[]>("finder-selection-loaded", (e) => {
+        setFinderFiles(e.payload ?? []);
+        setFinderAutomationDenied(false);
+        setActiveTab("history");
+        setQuery("");
+        setSelected(0);
+        requestAnimationFrame(() => searchRef.current?.focus());
+      });
+      unlistenDenied = await listen("finder-automation-needed", () => {
+        setFinderAutomationDenied(true);
+        setFinderFiles([]);
+        setActiveTab("history");
+      });
+    })();
+    return () => {
+      unlistenLoaded?.();
+      unlistenDenied?.();
+    };
+  }, []);
+
+  // Clear finder-mode on popup-hidden so the next normal Ctrl+Shift+V
+  // open doesn't still show stale finder rows.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("popup-hidden", () => {
+        setFinderFiles(null);
+        setFinderAutomationDenied(false);
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+
   const activate = async (i: number, shiftKey = false) => {
     const target = combined[i];
     if (!target) return;
@@ -515,7 +580,22 @@ function App() {
             setPasteError("other");
             return;
           }
-          await resizeClipboardImage(dims.width, dims.height);
+          // In finder-mode, resize each selected image file (writes
+          // <name>-WxH.<ext> next to source). Otherwise fall back to
+          // the existing clipboard-image pipeline.
+          const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
+          if (finderFiles && finderImages.length > 0) {
+            await Promise.all(
+              finderImages.map((f) =>
+                resizeFile(f.path, dims.width, dims.height).catch((e) => {
+                  console.error("resize_file failed", f.path, e);
+                  return "";
+                }),
+              ),
+            );
+          } else {
+            await resizeClipboardImage(dims.width, dims.height);
+          }
           await hidePopup();
         } else if (commandKind === "optim") {
           await optimizeClipboardImage();
@@ -574,6 +654,11 @@ function App() {
         // refresh the snapshot by triggering a re-fetch.
         setProcessSnapshot((cur) => cur.filter((p) => p.pid !== pid));
         return;
+      } else if (target.kind === "finder-file") {
+        // Open the file in the system default app. The popup hides
+        // so focus snaps to whichever app takes it (Preview, etc.).
+        await openUrl(`file://${target.data.path}`);
+        await hidePopup();
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting
         // and forces the original content type (HTML/RTF formatted paste).
@@ -749,6 +834,23 @@ function App() {
             </span>
             <button
               onClick={() => setExpanderPermissionMissing(false)}
+              className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {finderAutomationDenied && (
+          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+            <span className="flex-1">
+              <b>Finder selection unavailable — macOS Automation access not granted.</b>{" "}
+              Open <b>System Settings → Privacy &amp; Security → Automation → Inspector Rust</b>{" "}
+              and toggle <b>Finder</b> on. Then press <b>Ctrl+Shift+F</b> again.
+            </span>
+            <button
+              onClick={() => setFinderAutomationDenied(false)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               title="Dismiss"
             >

@@ -116,6 +116,33 @@ export function wakelockGet(): Promise<boolean> {
   return invoke("wakelock_get");
 }
 
+// ── Finder selection (macOS) ──────────────────────────────────────────
+
+/** One item in the current Finder selection. `is_image` is a cheap
+ *  extension test — good enough to decide whether to surface the
+ *  Resize action. `size_bytes` is `null` when stat fails. */
+export interface FinderItem {
+  path: string;
+  name: string;
+  size_bytes: number | null;
+  is_image: boolean;
+}
+
+/** Read the current Finder selection. Returns an empty list if
+ *  nothing is selected. On macOS without Automation→Finder TCC
+ *  permission this rejects with `"finder.automation_denied"`, which
+ *  the frontend surfaces as a tailored "open System Settings" banner. */
+export function getFinderSelection(): Promise<FinderItem[]> {
+  return invoke("get_finder_selection");
+}
+
+/** Resize an image file with Lanczos3, writing the output next to
+ *  the source as `<stem>-<W>x<H>.<ext>`. Returns the absolute path
+ *  of the written file. */
+export function resizeFile(path: string, width: number, height: number): Promise<string> {
+  return invoke("resize_file", { path, width, height });
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

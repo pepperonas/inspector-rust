@@ -76,6 +76,92 @@ pub fn resize_clipboard_image_lanczos(width: u32, height: u32) -> Result<ResizeR
     })
 }
 
+/// Result of [`resize_file_to_neighbor`] — output path + dimensions.
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ResizeFileResult {
+    pub path: PathBuf,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: usize,
+}
+
+/// Read `src`, Lanczos3-resize to `(width, height)`, and write the
+/// result next to the source as `<stem>-<W>x<H>.<ext>`. Preserves the
+/// source format (PNG stays PNG, JPEG stays JPEG, …). Source is NOT
+/// touched. Returns the output path + dimensions + size in bytes.
+///
+/// Errors:
+/// - target dimensions are 0 or > MAX_PIXELS
+/// - source can't be opened / decoded
+/// - source has no `.<ext>` (we refuse to invent one)
+pub fn resize_file_to_neighbor(
+    src: &std::path::Path,
+    width: u32,
+    height: u32,
+) -> Result<ResizeFileResult> {
+    if width == 0 || height == 0 {
+        return Err(anyhow!("width and height must be > 0 (got {width}x{height})"));
+    }
+    let target_pixels = u64::from(width) * u64::from(height);
+    if target_pixels > MAX_PIXELS {
+        return Err(anyhow!(
+            "target {width}x{height} = {target_pixels} px exceeds {MAX_PIXELS} px cap",
+        ));
+    }
+
+    let img = ImageReader::open(src)
+        .with_context(|| format!("open source image {}", src.display()))?
+        .with_guessed_format()
+        .with_context(|| format!("guess image format for {}", src.display()))?
+        .decode()
+        .with_context(|| format!("decode source image {}", src.display()))?;
+
+    let resized = img.resize_exact(width, height, image::imageops::FilterType::Lanczos3);
+
+    // Output path: same dir, stem suffixed with `-WxH`, same extension.
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("source has no readable file stem: {}", src.display()))?;
+    let ext = src
+        .extension()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("source has no extension; refusing to invent one: {}", src.display()))?;
+    let dir = src
+        .parent()
+        .ok_or_else(|| anyhow!("source has no parent dir: {}", src.display()))?;
+    let out_path = dir.join(format!("{stem}-{width}x{height}.{ext}"));
+
+    // Format from the extension. `image::ImageFormat::from_extension`
+    // lowercases internally and recognises every format our cargo
+    // features pull in (PNG/JPEG/WebP/GIF/BMP).
+    let format = ImageFormat::from_extension(ext)
+        .ok_or_else(|| anyhow!("unsupported image extension: {ext}"))?;
+
+    let file = std::fs::File::create(&out_path)
+        .with_context(|| format!("create output file {}", out_path.display()))?;
+    let mut writer = std::io::BufWriter::new(file);
+    resized
+        .write_to(&mut writer, format)
+        .with_context(|| format!("encode resized image to {}", out_path.display()))?;
+    use std::io::Write;
+    writer
+        .flush()
+        .with_context(|| format!("flush output file {}", out_path.display()))?;
+    drop(writer);
+
+    let bytes = std::fs::metadata(&out_path)
+        .map(|m| m.len() as usize)
+        .unwrap_or(0);
+
+    Ok(ResizeFileResult {
+        path: out_path,
+        width,
+        height,
+        bytes,
+    })
+}
+
 /// Result of [`optimize_clipboard_png`] — the saved file path + before /
 /// after byte counts, so the frontend can show "Saved 12.3 KB → 8.1 KB
 /// (-34 %) to Downloads".

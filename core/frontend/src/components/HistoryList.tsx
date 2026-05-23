@@ -149,7 +149,9 @@ export function HistoryList({
                             ? `kill-${entry.data.pid}`
                             : entry.kind === "opener"
                               ? `opener-${entry.data.text.slice(0, 24)}`
-                              : `c-${entry.data.id}`;
+                              : entry.kind === "finder-file"
+                                ? `finder-${entry.data.path}`
+                                : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

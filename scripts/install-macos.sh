@@ -366,6 +366,23 @@ cp -R "${BUILD_OUT}" "${INSTALL_PATH}"
 # code signature for some macOS versions.
 xattr -dr com.apple.quarantine "${INSTALL_PATH}" 2>/dev/null || true
 
+# Inject NSAppleEventsUsageDescription into the bundled Info.plist.
+# Tauri 2's bundler has no first-class field for arbitrary Info.plist
+# keys, so we add this one with plutil before (re-)signing. The text
+# is what macOS shows the user in the Automation TCC prompt the first
+# time Ctrl+Shift+F asks Finder for its selection (v0.30.0+).
+INFO_PLIST="${INSTALL_PATH}/Contents/Info.plist"
+if [[ -f "${INFO_PLIST}" ]]; then
+  AE_DESC='Inspector Rust uses Apple Events to read your Finder selection so the popup can run actions (resize, OCR, …) on the files you have selected.'
+  # `-replace` works whether or not the key already exists.
+  if plutil -replace NSAppleEventsUsageDescription -string "${AE_DESC}" \
+       "${INFO_PLIST}" 2>/dev/null; then
+    echo "▸ Injected NSAppleEventsUsageDescription into Info.plist"
+  else
+    echo "  ⚠ plutil replace of NSAppleEventsUsageDescription failed — Automation prompt may show generic copy"
+  fi
+fi
+
 # Stamp the source hash *before* signing so the file is covered by the
 # code signature's resource seal. Writing it afterwards adds an unsealed
 # file to Contents/Resources/ — `codesign --verify` then fails with "a

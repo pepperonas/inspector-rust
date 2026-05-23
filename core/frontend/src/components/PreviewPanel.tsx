@@ -217,6 +217,41 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  if (entry.kind === "finder-file") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Finder selection
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="truncate text-[14px] font-semibold leading-snug">
+            {entry.data.name}
+          </div>
+          <div className="mt-2 break-all font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            {entry.data.path}
+          </div>
+          {entry.data.size_bytes != null && (
+            <div className="mt-1 text-[11px] text-[var(--color-muted)]">
+              {formatBytes(entry.data.size_bytes)}
+            </div>
+          )}
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter opens the file
+            {entry.data.is_image && (
+              <>
+                {" "}&nbsp;·&nbsp; type{" "}
+                <span className="font-semibold text-[var(--color-fg)]">
+                  rz 1200x800
+                </span>{" "}
+                to resize all selected images
+              </>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   // ── Clip preview ───────────────────────────────────────────────────────────
   const clip = entry.data;
 

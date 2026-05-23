@@ -717,6 +717,77 @@ pub fn force_reset_screen_recording_grant() -> bool {
     screen_recording::request_screen_recording_grant()
 }
 
+// ── Automation→Finder (macOS TCC AppleEvents policy) ──────────────────
+
+/// Whether Inspector Rust can read the Finder selection (TCC Automation
+/// → Finder grant). Probes by sending a trivial `tell application "Finder"
+/// to return name` and checking for the errno -1743 "not permitted"
+/// reply. *Important:* the first probe ever made after install triggers
+/// the macOS Automation prompt — there's no separate "not determined"
+/// state in the TCC AppleEvents policy. We accept that: the prompt copy
+/// (NSAppleEventsUsageDescription in Info.plist) explains the request,
+/// and once the user grants it the check is silent every time after.
+///
+/// Always `true` on non-macOS (no equivalent permission).
+#[tauri::command]
+pub fn get_finder_automation_status() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        // Match `finder_selection::read` — re-use it so the probe goes
+        // through the exact same code path the feature does. An empty
+        // selection counts as success. The `finder.automation_denied`
+        // sentinel is what we treat as "not granted".
+        match crate::finder_selection::read() {
+            Ok(_) => true,
+            Err(e) => e != crate::finder_selection::ERR_AUTOMATION_DENIED,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
+/// Open System Settings → Privacy & Security → Automation, where the
+/// user grants per-app Apple-Events automation. macOS deep-link URL
+/// scheme has stayed compatible from Catalina through Sonoma.
+#[tauri::command]
+pub fn open_finder_automation_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_Automation")
+            .status()
+            .map_err(map_err)?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("only macOS has the Automation permission".into())
+    }
+}
+
+/// Reset the Automation→Finder TCC entry and re-fire the prompt. The
+/// `AppleEvents` service in TCC keys both ends of the pair; a single
+/// reset by bundle id wipes our entry on every target app (currently
+/// only Finder).
+#[tauri::command]
+pub fn force_reset_finder_automation_grant() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("tccutil")
+            .args(["reset", "AppleEvents", "io.celox.inspector-rust"])
+            .status();
+        // Re-probe to fire the prompt; result is ignored — the caller
+        // polls `get_finder_automation_status` on a 1 s tick anyway.
+        get_finder_automation_status()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        true
+    }
+}
+
 /// Quit the running app process. Intended for the Settings panel's
 /// "Quit Inspector Rust" button after the user grants Accessibility — macOS
 /// caches `AXIsProcessTrusted()` per-process, so a freshly granted app

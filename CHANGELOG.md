@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.30.1] — 2026-05-23
+
+### Changed — Automation→Finder folded into the Set-up-permissions flow
+
+The v0.30.0 Ctrl+Shift+F feature introduced a third macOS TCC grant (Automation → Finder) — but only surfaced it as an in-popup amber banner when the user hit the hotkey and it failed. That left a gap: the consolidated permissions card in Settings only tracked Accessibility + Screen Recording, so a user setting up Inspector Rust for the first time wouldn't know the third grant existed until they happened to try Finder selection.
+
+Now the card tracks **all three** grants:
+
+- **New `PermRow`** — "Automation → Finder" with the same live-status indicator, deep-link "Open Settings" button, and 1 s poll-while-not-granted pattern as the other two rows.
+- **"Set up permissions" chains all three** — clicking the button walks Accessibility → Screen Recording → Automation→Finder in order, auto-firing each next still-missing grant once the previous flips to granted.
+- **Initial probe on Settings mount** — `getFinderAutomationStatus()` calls a no-op `tell application "Finder" to get selection` through `osascript`. macOS has no separate "not determined" state for AppleEvents TCC, so the first probe ever doubles as the prompt — that's the only way to fire it. The `NSAppleEventsUsageDescription` injected into Info.plist (v0.30.0) gives the prompt its explanation copy.
+- **"Reset stale grants" + "Re-check now"** also extended — both now cover the AppleEvents bucket via `tccutil reset AppleEvents io.celox.inspector-rust`.
+
+New IPCs: `get_finder_automation_status`, `open_finder_automation_settings`, `force_reset_finder_automation_grant`. Same shape as the existing `get_screen_recording_status` / `open_screen_recording_settings` / `force_reset_screen_recording_grant` trio.
+
+### Why 0.30.1
+
+UX polish on the v0.30.0 feature — no new feature surface, just folding the third permission into the existing setup flow so it's discoverable + recoverable from one place. Patch-level → `0.x.y`.
+
 ## [0.30.0] — 2026-05-23
 
 ### Added — `Ctrl+Shift+F` reads the Finder selection (macOS)

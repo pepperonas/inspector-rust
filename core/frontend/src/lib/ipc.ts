@@ -703,3 +703,27 @@ export function openScreenRecordingSettings(): Promise<void> {
 export function forceResetScreenRecordingGrant(): Promise<boolean> {
   return invoke("force_reset_screen_recording_grant");
 }
+
+// ── Automation → Finder (macOS) ────────────────────────────────────────
+
+/** Whether Inspector Rust can read the Finder selection (Automation →
+ *  Finder TCC grant). Probes by running a no-op `tell application "Finder"`
+ *  script; macOS fires the Automation prompt on the first uninitialised
+ *  call ever, then this is silent on every subsequent check. Always
+ *  `true` on non-macOS. */
+export function getFinderAutomationStatus(): Promise<boolean> {
+  return invoke("get_finder_automation_status");
+}
+
+/** Open System Settings → Privacy & Security → Automation, the pane
+ *  with the per-app sub-toggles. */
+export function openFinderAutomationSettings(): Promise<void> {
+  return invoke("open_finder_automation_settings");
+}
+
+/** `tccutil reset AppleEvents` for Inspector Rust + re-probe (which
+ *  re-fires the Automation prompt). Use when System Settings shows the
+ *  toggle on but Inspector Rust still can't see the Finder selection. */
+export function forceResetFinderAutomationGrant(): Promise<boolean> {
+  return invoke("force_reset_finder_automation_grant");
+}

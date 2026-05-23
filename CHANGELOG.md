@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.8] — 2026-05-23
+
+### Changed — Dock-aware preview position + no auto-hide + X-close button
+
+Two refinements on the screenshot preview:
+
+1. **Dock-aware bottom margin** — the v0.28.7 fixed 110 px bottom margin cleared the Dock but wasted space on monitors *without* a Dock (preview sat absurdly high). Now the bottom margin is computed dynamically from `NSScreen.visibleFrame`: the Dock height for whichever screen the cursor is on (0 if no Dock there) plus a 24 px gap. Preview sits just above the Dock on the Dock screen, and 24 px from the edge on every other screen. Works regardless of Dock size (default / Magnification: Large).
+
+2. **No more auto-hide; X to close** — the 6 s auto-hide timer (which silently triggered Discard) is gone. The preview now stays put until you explicitly act on it. A new top-right **X** button closes the window (cleans up the temp file like Discard; the screenshot is already on the clipboard from the immediate-write step in v0.28.2, so closing is non-destructive).
+
+Implementation: `cursor_screen_bottom_inset_pts()` in the new `ns_screen` sub-module uses `objc2` to call `[NSScreen screens]` + `[screen visibleFrame]` for whichever screen contains the global cursor (queried via `NSEvent.mouseLocation` in Cocoa coords).
+
+### Why 0.28.8
+
+Two UX refinements on the preview — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.7] — 2026-05-23
 
 ### Fixed — Screenshot preview clears the Dock + follows cursor live

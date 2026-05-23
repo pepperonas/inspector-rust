@@ -35,12 +35,14 @@ pub const PREVIEW_LABEL: &str = "screenshot-preview";
 /// landscape thumbnails read well.
 const WIN_W: f64 = 340.0;
 const WIN_H: f64 = 220.0;
-/// Margin from the screen edge. Bottom margin needs to clear the
-/// macOS Dock — default Dock is ~78 px high, "Magnification: Large"
-/// goes ~128 px. 110 px gives breathing room for both. Side margin
-/// can stay tight.
+/// Side margin from the screen edge. The bottom margin is computed
+/// dynamically from the cursor screen's NSScreen.visibleFrame so the
+/// preview sits just above the Dock when present, and close to the
+/// edge on screens without a Dock — see `ns_screen` module.
 const EDGE_MARGIN_X: i32 = 24;
-const EDGE_MARGIN_Y_BOTTOM: i32 = 110;
+/// Constant gap above the Dock (or above the bottom edge on a no-Dock
+/// screen). Added to the Dock-inset query result.
+const EDGE_GAP_BELOW_PREVIEW: i32 = 24;
 
 // ── macOS global cursor position (raw FFI) ─────────────────────────────
 //
@@ -87,6 +89,108 @@ mod cg_cursor {
     }
 }
 
+// ── NSScreen.visibleFrame — Dock-aware screen geometry ─────────────────
+//
+// macOS shows the Dock on exactly one screen at a time (the one with the
+// last-active app, or the main screen). To position the preview just
+// above the Dock on the Dock-bearing screen *and* close to the bottom
+// edge on the others, we query each NSScreen's `visibleFrame` (excludes
+// Dock + menu bar) and compare to its `frame`. The difference at the
+// bottom edge = the Dock's height on that screen, or 0 elsewhere.
+
+#[cfg(target_os = "macos")]
+mod ns_screen {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+
+    // objc2's msg_send! marshals C-struct return values via the `Encode`
+    // trait — we declare the layout matches Apple's CGPoint / CGSize /
+    // CGRect so the call site can `let r: NSRect = msg_send![…]`
+    // cleanly.
+    unsafe impl Encode for NSPoint {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSSize {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSRect {
+        const ENCODING: Encoding =
+            Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
+    }
+
+    /// Returns the Dock height (in POINTS) at the bottom of whichever
+    /// NSScreen currently contains the cursor — 0 when the Dock is on
+    /// another screen, on a side, or auto-hidden. The caller adds this
+    /// to a base margin to position the preview just above the Dock.
+    pub fn cursor_screen_bottom_inset_pts() -> f64 {
+        unsafe {
+            let ns_event = match AnyClass::get(c"NSEvent") {
+                Some(c) => c,
+                None => return 0.0,
+            };
+            let ns_screen = match AnyClass::get(c"NSScreen") {
+                Some(c) => c,
+                None => return 0.0,
+            };
+
+            // [NSEvent mouseLocation] — global cursor in Cocoa coords
+            // (bottom-left origin, points).
+            let cursor: NSPoint = msg_send![ns_event, mouseLocation];
+
+            // [NSScreen screens] — NSArray<NSScreen *>
+            let screens: *mut AnyObject = msg_send![ns_screen, screens];
+            if screens.is_null() {
+                return 0.0;
+            }
+            let count: usize = msg_send![screens, count];
+
+            for i in 0..count {
+                let screen: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+                if screen.is_null() {
+                    continue;
+                }
+                let frame: NSRect = msg_send![screen, frame];
+
+                // Does this screen contain the cursor? (Cocoa coords.)
+                let contains_x = cursor.x >= frame.origin.x
+                    && cursor.x < frame.origin.x + frame.size.width;
+                let contains_y = cursor.y >= frame.origin.y
+                    && cursor.y < frame.origin.y + frame.size.height;
+                if contains_x && contains_y {
+                    let visible: NSRect = msg_send![screen, visibleFrame];
+                    // bottom inset = how far the visible area sits
+                    // above the screen's bottom edge → Dock height.
+                    let dock = visible.origin.y - frame.origin.y;
+                    return dock.max(0.0);
+                }
+            }
+            0.0
+        }
+    }
+}
+
 /// Compute the preview's target position + size for whichever monitor
 /// the OS cursor currently lives on. Bottom-left of that monitor plus
 /// a Dock-clearing margin. Returns `None` if no monitor is reachable.
@@ -103,7 +207,17 @@ fn cursor_monitor_target(win: &WebviewWindow) -> Option<(PhysicalPosition<i32>, 
     let win_w_px = (WIN_W * scale) as i32;
     let win_h_px = (WIN_H * scale) as i32;
     let margin_x_px = ((EDGE_MARGIN_X as f64) * scale) as i32;
-    let margin_y_px = ((EDGE_MARGIN_Y_BOTTOM as f64) * scale) as i32;
+
+    // Bottom margin = Dock height on this screen (0 if no Dock) + a
+    // constant gap. Dock-aware via NSScreen.visibleFrame so a screen
+    // without a Dock doesn't waste 110 px of space.
+    #[cfg(target_os = "macos")]
+    let dock_inset_pts = ns_screen::cursor_screen_bottom_inset_pts();
+    #[cfg(not(target_os = "macos"))]
+    let dock_inset_pts: f64 = 0.0;
+
+    let margin_y_pts = dock_inset_pts + EDGE_GAP_BELOW_PREVIEW as f64;
+    let margin_y_px = (margin_y_pts * scale) as i32;
     let x = mp.x + margin_x_px;
     let y = mp.y + ms.height as i32 - win_h_px - margin_y_px;
     Some((

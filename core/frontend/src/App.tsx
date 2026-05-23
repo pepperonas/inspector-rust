@@ -26,7 +26,7 @@ import {
   translateUrl,
   type ParsedCommand,
 } from "./lib/commands";
-import { pickOpener } from "./lib/openers";
+import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import {
@@ -285,18 +285,30 @@ function App() {
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
-  // nice-to-be-nice VPS DB). The picker is deterministic per query
-  // string, so the suggestion is stable while the query is unchanged
-  // and re-rolls on every keystroke (the seed changes with each
-  // character). Always shown at the top when triggered — the user
-  // probably came here for it, not for clipboard rows containing the
-  // word "opener".
-  const openerEntry: ListEntry | null = useMemo(() => {
-    if (!isOpenerTrigger(query)) return null;
-    const text = pickOpener(query);
-    if (!text) return null;
-    return { kind: "opener", data: { text } };
+  // nice-to-be-nice VPS DB). The current pick lives in `openerIndex`;
+  // `null` means the trigger is inactive. On *first* activation we seed
+  // deterministically from the query (re-typing "opener" lands on the
+  // same line, predictable). The user then walks the list with ← / →
+  // (see the keydown effect below) — subsequent query changes while
+  // the trigger still matches do NOT re-seed, so cycling state is
+  // preserved as the user adds extra characters.
+  const [openerIndex, setOpenerIndex] = useState<number | null>(null);
+  const openerActiveRef = useRef(false);
+  useEffect(() => {
+    const isActive = isOpenerTrigger(query);
+    if (isActive && !openerActiveRef.current) {
+      const seeded = pickOpenerIndex(query);
+      setOpenerIndex(seeded >= 0 ? seeded : 0);
+    } else if (!isActive && openerActiveRef.current) {
+      setOpenerIndex(null);
+    }
+    openerActiveRef.current = isActive;
   }, [query]);
+
+  const openerEntry: ListEntry | null = useMemo(() => {
+    if (openerIndex === null) return null;
+    return { kind: "opener", data: { text: TOP_OPENERS[openerIndex] } };
+  }, [openerIndex]);
 
   const suggestionEntries: ListEntry[] = useMemo(
     () =>
@@ -328,6 +340,27 @@ function App() {
         ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
         ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
       ];
+
+  // ← / → cycle through openers while the opener row is selected. Only
+  // wired when that's actually true so the search-bar input's normal
+  // cursor-movement on Left/Right still works for every other row.
+  // Boolean dep (not `combined`) keeps the listener stable across the
+  // 60×/sec re-renders that happen while the user types.
+  const selectedIsOpener = combined[selected]?.kind === "opener";
+  useEffect(() => {
+    if (!selectedIsOpener) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const delta = e.key === "ArrowRight" ? 1 : -1;
+      const n = TOP_OPENERS.length;
+      setOpenerIndex((cur) => (cur === null ? 0 : ((cur + delta) % n + n) % n));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedIsOpener]);
 
   // Find matching snippets whenever query changes.
   useEffect(() => {

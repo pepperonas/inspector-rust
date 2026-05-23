@@ -204,12 +204,13 @@ export function PreviewPanel({ entry }: Props) {
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-          Random opener · type any key to re-roll
+          Random opener · ← → switches
         </div>
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="text-[14px] italic leading-snug">{entry.data.text}</div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter pastes into the focused app
+            ⏎ Enter pastes into the focused app &nbsp;·&nbsp; ← → cycles to the
+            previous / next opener
           </div>
         </div>
       </div>

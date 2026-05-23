@@ -139,7 +139,7 @@ export const HistoryItem = memo(function HistoryItem({
           ? "bg-white/20 text-white/80"
           : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
       }
-      title="Random pickup-line — type any key to re-roll"
+      title="Random pickup-line — ← / → cycles to the previous / next opener"
     >
       opener
     </span>

@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] — 2026-05-23
+
+### Changed — `opener` easter egg: ← / → cycle through openers
+
+Walking through the top-100 list via extra keystrokes (the seed-hash re-roll) was awkward. The opener row now reacts to **`←`** and **`→`** to step to the previous / next opener while the opener row is the selected entry:
+
+- First activation seeds the index deterministically via `pickOpenerIndex(query)` — re-typing `opener` lands on the same starting line, so the easter egg feels predictable.
+- The current pick lives in component state, so cycling state is preserved across additional keystrokes (the trigger is `^opener\b`, so `opener foo bar` still keeps your cycled pick).
+- The arrow handler only attaches while `combined[selected].kind === "opener"`, so once you arrow Down to a clipboard row, ← / → fall through to the search-bar input's normal cursor-movement.
+- HUD copy updated: "type any key to re-roll" → "← / → cycles to the previous / next opener" (HistoryItem chip tooltip + PreviewPanel hint).
+
+`lib/openers.ts` gains the `pickOpenerIndex(seed)` helper (kept `pickOpener` as a thin wrapper). +3 unit tests pinning the new helper. Frontend total: **330**.
+
+### Why 0.26.1
+
+UX refinement of the v0.26.0 easter egg — no new feature surface, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.26.0] — 2026-05-23
 
 ### Added — `opener` hidden German pickup-line easter egg

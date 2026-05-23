@@ -31,15 +31,25 @@ export function hashString(s: string): number {
 }
 
 /**
- * Pick a deterministic opener for the given `seed` string.
+ * Pick a deterministic *index* into `TOP_OPENERS` for the given seed.
  *
- * Callers pass the user's full query as the seed — so the suggestion is
- * stable as long as the query is, and re-rolls on each keystroke (every
- * keystroke changes the seed). Returns `null` only when the embedded
- * list is empty (defensive — shouldn't happen in production).
+ * Returns -1 only when the embedded list is empty (defensive). Used by
+ * App.tsx to seed the opener-cycle state on first activation, so the
+ * starting opener is reproducible (re-typing the same query lands on
+ * the same line). After that, the user walks with ← / → and the index
+ * is owned by component state, not by this picker.
+ */
+export function pickOpenerIndex(seed: string): number {
+  if (TOP_OPENERS.length === 0) return -1;
+  return hashString(seed) % TOP_OPENERS.length;
+}
+
+/**
+ * Convenience wrapper around [`pickOpenerIndex`] that returns the
+ * opener string at the seed-derived index. Returns `null` only when
+ * the embedded list is empty.
  */
 export function pickOpener(seed: string): string | null {
-  if (TOP_OPENERS.length === 0) return null;
-  const idx = hashString(seed) % TOP_OPENERS.length;
-  return TOP_OPENERS[idx];
+  const idx = pickOpenerIndex(seed);
+  return idx < 0 ? null : TOP_OPENERS[idx];
 }

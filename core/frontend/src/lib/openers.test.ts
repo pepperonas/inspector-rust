@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { TOP_OPENERS, hashString, pickOpener } from "./openers";
+import { TOP_OPENERS, hashString, pickOpener, pickOpenerIndex } from "./openers";
 
 describe("TOP_OPENERS data set", () => {
   it("contains exactly the curated top 100", () => {
@@ -33,6 +33,22 @@ describe("hashString", () => {
   it("handles empty + Unicode inputs without throwing", () => {
     expect(typeof hashString("")).toBe("number");
     expect(typeof hashString("über 🦊")).toBe("number");
+  });
+});
+
+describe("pickOpenerIndex", () => {
+  it("returns an in-bounds index for any non-empty seed", () => {
+    for (const seed of ["opener", "Opener", "opener xyz", "", "über 🦊"]) {
+      const i = pickOpenerIndex(seed);
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(i).toBeLessThan(TOP_OPENERS.length);
+    }
+  });
+  it("is deterministic — same seed, same index (used to anchor App's cycle)", () => {
+    expect(pickOpenerIndex("opener")).toBe(pickOpenerIndex("opener"));
+  });
+  it("agrees with pickOpener (same seed → same picked string)", () => {
+    expect(TOP_OPENERS[pickOpenerIndex("opener")]).toBe(pickOpener("opener"));
   });
 });
 

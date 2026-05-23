@@ -160,6 +160,19 @@ describe("ipc — settings + capture wrappers", () => {
     });
   });
 
+  it("getOcrSaveSourceImage / setOcrSaveSourceImage hit the right commands", async () => {
+    mockInvoke.mockResolvedValue(false);
+    await ipc.getOcrSaveSourceImage();
+    expect(mockInvoke).toHaveBeenCalledWith("get_ocr_save_source_image");
+
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue(undefined);
+    await ipc.setOcrSaveSourceImage(true);
+    expect(mockInvoke).toHaveBeenCalledWith("set_ocr_save_source_image", {
+      value: true,
+    });
+  });
+
   it("getThemePreference / setThemePreference round-trip the theme key", async () => {
     mockInvoke.mockResolvedValue("dark");
     const t = await ipc.getThemePreference();

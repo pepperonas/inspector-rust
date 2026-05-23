@@ -218,6 +218,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::paste_entry_formatted,
             commands::get_paste_plain_text_only,
             commands::set_paste_plain_text_only,
+            commands::get_ocr_save_source_image,
+            commands::set_ocr_save_source_image,
             commands::delete_entry,
             commands::clear_history,
             commands::toggle_capture,

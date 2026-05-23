@@ -59,6 +59,13 @@ pub fn search_history(
 /// want to drop the source app's styling when pasting elsewhere.
 const KEY_PLAIN_TEXT_ONLY: &str = "paste.plain_text_only";
 
+/// When false (the default), the OCR pipeline persists only the
+/// recognised text to history — the source PNG is captured for the
+/// recognition step and then discarded. When true, the PNG is also
+/// upserted as a history entry (the pre-v0.26.3 behaviour, opt-in via
+/// Settings → Capture → "Keep OCR source image in history").
+const KEY_OCR_SAVE_SOURCE: &str = "ocr.save_source_image";
+
 /// Sentinel error string the frontend recognises and presents as the
 /// "Accessibility access required" toast. Kept stable so the JS side
 /// can switch on it without parsing localized text.
@@ -138,6 +145,28 @@ pub fn set_paste_plain_text_only(
     settings::set(
         &db,
         KEY_PLAIN_TEXT_ONLY,
+        if value { "true" } else { "false" },
+    )
+    .map_err(map_err)
+}
+
+/// Read the current value of `ocr.save_source_image` (default `false` —
+/// OCR persists only the recognised text to history). When `true`, the
+/// source PNG is also upserted as a history entry.
+#[tauri::command]
+pub fn get_ocr_save_source_image(db: State<'_, DbHandle>) -> Result<bool, String> {
+    settings::get_bool(&db, KEY_OCR_SAVE_SOURCE, false).map_err(map_err)
+}
+
+/// Persist a new value for `ocr.save_source_image`.
+#[tauri::command]
+pub fn set_ocr_save_source_image(
+    db: State<'_, DbHandle>,
+    value: bool,
+) -> Result<(), String> {
+    settings::set(
+        &db,
+        KEY_OCR_SAVE_SOURCE,
         if value { "true" } else { "false" },
     )
     .map_err(map_err)
@@ -1079,28 +1108,32 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     ctx.set_text(trimmed.to_string())
         .map_err(|e| format!("set_text: {e:?}"))?;
 
-    // Persist the source PNG FIRST so the recognised text gets the
-    // later `last_used_at` timestamp and ends up at the top of the
-    // history list. Otherwise the image appears above the text — which
-    // is confusing because the *text* is what the user wanted from OCR,
-    // and pressing Enter on the top entry would paste the image.
+    // Persist the source PNG FIRST (when the setting is opted in) so
+    // the recognised text gets the later `last_used_at` timestamp and
+    // ends up at the top of the history list. By default the PNG is
+    // skipped — keeps the history list focused on the *text* the user
+    // actually wanted, instead of doubling up with a screenshot they
+    // can't paste back into a text field. Toggle this back on via
+    // Settings → Capture → "Keep OCR source image in history".
     if let Some(db) = app.try_state::<DbHandle>() {
-        let b64 = B64.encode(&png_bytes);
-        let summary = format!("[ocr source · {} B]", png_bytes.len());
-        let byte_size = png_bytes.len() as i64;
-        let _ = db::upsert_clip(
-            &db,
-            &crate::models::NewClip {
-                content_type: crate::models::ContentType::Image,
-                content_text: summary,
-                content_data: b64,
-                byte_size,
-            },
-        );
-    }
-    // Then the recognised text — this becomes the most-recent entry,
-    // matching what's on the clipboard and what Enter will paste.
-    if let Some(db) = app.try_state::<DbHandle>() {
+        let save_source = settings::get_bool(&db, KEY_OCR_SAVE_SOURCE, false).unwrap_or(false);
+        if save_source {
+            let b64 = B64.encode(&png_bytes);
+            let summary = format!("[ocr source · {} B]", png_bytes.len());
+            let byte_size = png_bytes.len() as i64;
+            let _ = db::upsert_clip(
+                &db,
+                &crate::models::NewClip {
+                    content_type: crate::models::ContentType::Image,
+                    content_text: summary,
+                    content_data: b64,
+                    byte_size,
+                },
+            );
+        }
+        // Then the recognised text — this becomes the most-recent
+        // entry, matching what's on the clipboard and what Enter will
+        // paste.
         let _ = db::upsert_clip(
             &db,
             &crate::models::NewClip {

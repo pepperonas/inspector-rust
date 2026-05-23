@@ -32,6 +32,18 @@ export function setPastePlainTextOnly(value: boolean): Promise<void> {
   return invoke("set_paste_plain_text_only", { value });
 }
 
+/** Read the persisted `ocr.save_source_image` flag. When `false`
+ *  (the default since v0.26.3), the OCR pipeline persists only the
+ *  recognised text to history; when `true`, the source PNG is also
+ *  upserted so the user can re-OCR it later. */
+export function getOcrSaveSourceImage(): Promise<boolean> {
+  return invoke("get_ocr_save_source_image");
+}
+
+export function setOcrSaveSourceImage(value: boolean): Promise<void> {
+  return invoke("set_ocr_save_source_image", { value });
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

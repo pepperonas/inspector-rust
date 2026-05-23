@@ -4,6 +4,31 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.3] — 2026-05-23
+
+### Changed — OCR no longer saves the source PNG to history by default
+
+The OCR pipeline used to upsert **two** history entries on every run — the source screenshot AND the recognised text — which doubled-up the history list with images you can't usefully paste back into a text field. The default is now **only the text**; the source PNG is captured for the recognition step and then discarded.
+
+Settings → **Capture → "Keep OCR source image in history"** toggles the old behaviour back on for users who want to re-OCR or keep the source visible. Defaults to `false`. Persisted under the settings key `ocr.save_source_image`.
+
+The system clipboard still receives only the recognised text (unchanged from before).
+
+### Fixed — `Shift+↑` / `Shift+↓` system volume change is now instant
+
+The volume shortcut spawned `osascript` **twice** per press (read current, then set new), ~150 ms each, so a single press took ~300 ms before the system moved — and a rapid Shift+↓ chord stacked latencies.
+
+`adjust_system_volume` now:
+
+- **Combines read + clamp + set into one `osascript` invocation** (multiple `-e` flags, atomic AppleScript). Saves ~50 % of the per-call latency.
+- **Spawns the script on a worker thread** so the IPC resolves immediately — the next Shift+↑ / Shift+↓ press isn't queued behind the previous one. macOS plays its own native volume-change feedback, so the caller doesn't need to wait for the result.
+
+Net result: pressing Shift+↑ feels native instead of laggy.
+
+### Why 0.26.3
+
+UX default flip + performance fix + new toggle — backwards-compatible (the old OCR behaviour is opt-in). Patch-level → `0.x.y`.
+
 ## [0.26.2] — 2026-05-23
 
 ### Fixed — HTML clipboard preview no longer clashes with the app theme

@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.5] — 2026-05-23
+
+### Fixed — `freeze` event tap installed on the **main** run loop now
+
+v0.28.3 / v0.28.4 ran the CGEventTap on its own worker thread with `CFRunLoopRun`. Compiled cleanly, returned success — but on macOS Sonoma+ never actually intercepted anything. Apple's docs don't promise that pattern works, and evidence (the user) said it didn't.
+
+This release installs the Mach-port source on **the main thread's run loop** instead — the one Tauri's `NSApp.run` is already spinning. This is what the `macOS-lock` Python script does (it blocks main with `CFRunLoopRun`) and what every real Cocoa-app event-tap example does. The tap object is `std::mem::forget`-ed so it outlives the IPC handler that installed it (Drop would otherwise tear down the Mach port).
+
+Plus first-eight-callback `tracing::info!` lines — launch the binary from a terminal (`/Applications/InspectorRust.app/Contents/MacOS/inspector-rust`) and you'll see whether the tap is receiving events.
+
+### Why 0.28.5
+
+Bug fix on top of v0.28.4 — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.4] — 2026-05-23
 
 ### Fixed — `freeze` errors now surface to the user (silent-fail diagnosis)

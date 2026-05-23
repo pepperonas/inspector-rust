@@ -2335,7 +2335,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2373,7 +2373,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2387,7 +2387,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2401,7 +2401,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.28.0"
+version = "0.28.1"
 dependencies = [
  "inspector-rust-core",
  "tauri",

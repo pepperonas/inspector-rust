@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] — 2026-05-23
+
+### Added — "Plain text" string-transform (`Cmd/Ctrl+^`)
+
+A new 12th transform on the TransformBar: **Plain text** — strips HTML / RTF markup, decodes named + numeric entities (`&amp;`, `&nbsp;`, `&#39;`, …), and commits the bare text as a new history entry + clipboard write. Use case: you copied a styled paragraph from a webpage / Notion / Slack and want the *text*, no formatting.
+
+Bound to **`Cmd/Ctrl+^`** (Mac users on German ISO press a single bare `^` key with Cmd; US/intl users get the same chord as `Cmd+Shift+6` since `^` requires Shift on those layouts). The handler accepts either Shift state for `^` specifically — digit shortcuts (1–9) still reject Shift to leave `Shift+digit` (`!@#$…`) free.
+
+Implementation uses the platform `DOMParser` for correctness — handles malformed HTML, nested tags, and the full entity set without us reimplementing an HTML spec. A regex-based fallback covers test environments without a DOM.
+
+### Why 0.28.1
+
+UX extension on an existing surface, backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.0] — 2026-05-23
 
 ### Added — Input lock (`freeze` command, macOS-lock-style)

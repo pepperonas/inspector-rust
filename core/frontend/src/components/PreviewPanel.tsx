@@ -706,9 +706,23 @@ function TransformBar({ text }: { text: string }) {
   // Cmd/Ctrl+1…9 → the digit-bound transforms. Digits alone can't be
   // used (they'd type into the search bar); Cmd/Ctrl+digit is the same
   // CmdOrCtrl pattern as ⌘B / ⌘S.
+  //
+  // Cmd/Ctrl+^ → "Plain text" (strip HTML / RTF styling). Accepts
+  // either Shift state since `^` requires Shift on US layouts
+  // (Shift+6) but is a bare keypress on German ISO. Only Alt is
+  // rejected to leave the German Alt+^ free for whatever the OS
+  // might map it to.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      if (!(e.metaKey || e.ctrlKey) || e.altKey) return;
+      if (e.key === "^") {
+        e.preventDefault();
+        void run("plain-text");
+        return;
+      }
+      // Digit shortcut path: reject shift so Shift+digit (which types
+      // !@#$… on US) doesn't trigger a transform.
+      if (e.shiftKey) return;
       if (!/^[1-9]$/.test(e.key)) return;
       const spec = TRANSFORMS.find((t) => t.digit === Number(e.key));
       if (!spec) return;
@@ -730,22 +744,31 @@ function TransformBar({ text }: { text: string }) {
         Transform → new entry + clipboard
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {TRANSFORMS.map((t) => (
-          <button
-            key={t.kind}
-            onClick={() => void run(t.kind)}
-            title={t.digit ? `${mod}${t.digit}` : undefined}
-            className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-          >
-            {t.digit && (
-              <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
-                {mod}
-                {t.digit}
-              </kbd>
-            )}
-            {t.label}
-          </button>
-        ))}
+        {TRANSFORMS.map((t) => {
+          // Special-case the plain-text transform — it carries no digit
+          // but is bound to Cmd/Ctrl+^ via the keyboard handler above.
+          const badge =
+            t.digit != null
+              ? `${mod}${t.digit}`
+              : t.kind === "plain-text"
+                ? `${mod}^`
+                : null;
+          return (
+            <button
+              key={t.kind}
+              onClick={() => void run(t.kind)}
+              title={badge ?? undefined}
+              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
+              {badge && (
+                <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
+                  {badge}
+                </kbd>
+              )}
+              {t.label}
+            </button>
+          );
+        })}
       </div>
     </div>
   );

@@ -18,7 +18,8 @@ export type TransformKind =
   | "base64-encode"
   | "url-encode"
   | "base64-decode"
-  | "url-decode";
+  | "url-decode"
+  | "plain-text";
 
 export interface TransformSpec {
   kind: TransformKind;
@@ -43,6 +44,9 @@ export const TRANSFORMS: ReadonlyArray<TransformSpec> = [
   { kind: "url-encode", label: "URL encode", digit: 9 },
   { kind: "base64-decode", label: "Base64 decode" },
   { kind: "url-decode", label: "URL decode" },
+  // No digit — bound to Cmd/Ctrl+^ in TransformBar (digit-shortcuts
+  // top out at 9, and `^` reads as "strip styling" intuitively).
+  { kind: "plain-text", label: "Plain text" },
 ];
 
 // ── word tokeniser (shared by camel / snake / kebab) ──────────────────
@@ -123,5 +127,39 @@ export function applyTransform(kind: TransformKind, input: string): string {
       } catch {
         return input; // malformed % sequence → no-op
       }
+    case "plain-text":
+      return toPlainText(input);
   }
+}
+
+/**
+ * Strip HTML markup and decode named / numeric entities. Uses the
+ * platform DOMParser for correctness — handles malformed HTML, nested
+ * tags, &amp; / &#x27; / &nbsp;, the lot — without us reimplementing
+ * an HTML spec.
+ *
+ * For inputs that don't contain HTML, DOMParser's `textContent`
+ * round-trips the string essentially unchanged (whitespace runs may
+ * collapse if the input has CR/LF + tabs). Safe to apply to any
+ * clipboard text — the worst case is a no-op.
+ *
+ * Falls back to a regex tag-strip + a tiny entity map when DOMParser
+ * isn't available (test environments without a DOM).
+ */
+function toPlainText(input: string): string {
+  if (typeof DOMParser !== "undefined") {
+    const doc = new DOMParser().parseFromString(input, "text/html");
+    return (doc.body.textContent ?? "").trim();
+  }
+  // No-DOM fallback: drop tags + decode the handful of entities most
+  // likely to appear in clipboard HTML.
+  return input
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .trim();
 }

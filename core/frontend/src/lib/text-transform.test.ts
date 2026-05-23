@@ -2,14 +2,14 @@ import { describe, it, expect } from "vitest";
 import { TRANSFORMS, applyTransform } from "./text-transform";
 
 describe("TRANSFORMS catalogue", () => {
-  it("has 11 transforms", () => {
-    expect(TRANSFORMS.length).toBe(11);
+  it("has 12 transforms", () => {
+    expect(TRANSFORMS.length).toBe(12);
   });
 
   it("the first nine carry a unique digit 1–9, the rest none", () => {
     const digits = TRANSFORMS.map((t) => t.digit).filter((d): d is number => d != null);
     expect(digits).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
-    // The last two (decode pair) are click-only.
+    // The decode pair + plain-text are click-only / bound to Cmd+^.
     expect(TRANSFORMS.slice(9).every((t) => t.digit === undefined)).toBe(true);
   });
 
@@ -116,5 +116,39 @@ describe("applyTransform — never throws", () => {
     for (const t of TRANSFORMS) {
       expect(() => applyTransform(t.kind, wild)).not.toThrow();
     }
+  });
+});
+
+describe("plain-text — strip HTML / decode entities", () => {
+  it("strips tags + collapses to text content", () => {
+    expect(applyTransform("plain-text", "<b>hello</b> <i>world</i>")).toBe(
+      "hello world",
+    );
+  });
+  it("decodes named + numeric entities", () => {
+    expect(applyTransform("plain-text", "AT&amp;T &lt;3 &#39;quote&#39;")).toBe(
+      "AT&T <3 'quote'",
+    );
+  });
+  it("flattens nested tags + drops attributes", () => {
+    const html =
+      '<div style="color:red"><p><span class="x">nested</span> text</p></div>';
+    expect(applyTransform("plain-text", html)).toBe("nested text");
+  });
+  it("strips inline style + script content (the latter via textContent dropping <script>)", () => {
+    // Browsers' DOMParser DOES include <script> contents in textContent
+    // by default; that's the standards behaviour. We're not trying to
+    // sanitise — just to denude. Document the behaviour either way so a
+    // future reader knows it's deliberate.
+    const html = '<p style="color:red">hi</p>';
+    expect(applyTransform("plain-text", html)).toBe("hi");
+  });
+  it("trims surrounding whitespace from the result", () => {
+    expect(applyTransform("plain-text", "  \n  plain  \n  ")).toBe("plain");
+  });
+  it("returns plain input essentially unchanged (round-trip safe)", () => {
+    expect(applyTransform("plain-text", "just plain text")).toBe(
+      "just plain text",
+    );
   });
 });

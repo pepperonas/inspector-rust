@@ -1461,6 +1461,12 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           </Section>
         </div>
 
+        {IS_LINUX && (
+          <div className="mt-6">
+            <LinuxShortcutsSettings />
+          </div>
+        )}
+
         {/* About section */}
         <div className="mt-6">
           <Section

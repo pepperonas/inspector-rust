@@ -21,6 +21,7 @@ mod recolor;
 mod region_picker;
 mod screen_picker;
 mod screen_recording;
+mod screenshot_preview;
 mod seed;
 mod settings;
 mod snippets;
@@ -127,6 +128,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(watcher_state);
             app.manage(ui_state);
             app.manage(expander_state);
+            app.manage(screenshot_preview::PendingScreenshot::default());
 
             if let Err(e) = hotkey::register(&app.handle()) {
                 tracing::warn!(
@@ -269,6 +271,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::save_image_entry_to_downloads,
             commands::ocr_region,
             commands::screenshot_region,
+            screenshot_preview::get_pending_screenshot_path,
+            screenshot_preview::screenshot_preview_save,
+            screenshot_preview::screenshot_preview_discard,
+            screenshot_preview::screenshot_preview_edit,
             commands::eyedropper_to_clipboard,
             commands::resize_clipboard_image,
             commands::optimize_clipboard_image,

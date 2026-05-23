@@ -44,6 +44,34 @@ export function setOcrSaveSourceImage(value: boolean): Promise<void> {
   return invoke("set_ocr_save_source_image", { value });
 }
 
+// ── Screenshot preview window (CleanShot-X-style) ──────────────────────────
+
+/** Path of the currently-pending captured PNG, or null if none. The
+ *  preview React component calls this on mount to know which file to
+ *  display in its thumbnail. */
+export function getPendingScreenshotPath(): Promise<string | null> {
+  return invoke("get_pending_screenshot_path");
+}
+
+/** Save: promote the temp PNG to ~/Downloads, push to clipboard, push
+ *  to history, close the preview window. */
+export function screenshotPreviewSave(): Promise<void> {
+  return invoke("screenshot_preview_save");
+}
+
+/** Discard: delete the temp PNG, close the preview window. No
+ *  side effects on clipboard / Downloads / history. */
+export function screenshotPreviewDiscard(): Promise<void> {
+  return invoke("screenshot_preview_discard");
+}
+
+/** Edit: move the temp PNG to ~/Downloads and hand it to the OS
+ *  default image viewer (Preview.app on macOS), then close the
+ *  preview window. */
+export function screenshotPreviewEdit(): Promise<void> {
+  return invoke("screenshot_preview_edit");
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

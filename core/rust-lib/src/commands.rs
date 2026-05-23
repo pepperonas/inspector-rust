@@ -1173,19 +1173,17 @@ pub struct ScreenshotResult {
 }
 
 /// Run the screenshot pipeline: hide popup → interactive region
-/// capture → write PNG to clipboard → add to history. Same plumbing
-/// as `run_ocr_pipeline` but with no OCR step — so regions that
-/// contain *no* text (a button, a chart, a photo) still produce a
-/// usable history entry and clipboard payload.
+/// capture → write PNG to a temp file → spawn the floating preview
+/// window on the cursor's monitor (bottom-left, CleanShot-X style).
+/// The user chooses Save / Discard / Edit from the preview, which
+/// runs the appropriate IPC (`screenshot_preview_*`). Until then NO
+/// clipboard write, NO Downloads file, NO history entry — so
+/// discarding is a true discard.
 ///
-/// Shared between the IPC command (tray "Screenshot Region", future
-/// button) and the global shortcut handler. Blocks for the duration
-/// of the screencapture (user-driven) — always invoke from a worker
-/// thread.
+/// Shared between the IPC command (tray "Screenshot Region") and the
+/// global shortcut handler. Blocks for the duration of the
+/// screencapture (user-driven) — always invoke from a worker thread.
 pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, String> {
-    use base64::{engine::general_purpose::STANDARD as B64, Engine};
-    use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
-
     if !screen_recording::screen_recording_granted() {
         return Err(ERR_NO_SCREEN_RECORDING.to_string());
     }
@@ -1202,61 +1200,35 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
         }
     };
 
-    let b64 = B64.encode(&png_bytes);
-    let summary = format!("[screenshot · {} B]", png_bytes.len());
-    let byte_size = png_bytes.len() as i64;
+    // Stage the PNG to the OS cache dir under a timestamped name. The
+    // preview window reads it via a `convertFileSrc`-style URL; the
+    // Save / Discard / Edit IPCs move or delete it.
+    let cache = dirs::cache_dir()
+        .map(|d| d.join("InspectorRust"))
+        .ok_or_else(|| "no cache dir on this system".to_string())?;
+    std::fs::create_dir_all(&cache)
+        .map_err(|e| format!("create cache dir {}: {e}", cache.display()))?;
+    let temp_path = cache.join(format!(
+        "screenshot-pending-{}.png",
+        chrono::Local::now().format("%Y%m%d-%H%M%S")
+    ));
+    std::fs::write(&temp_path, &png_bytes)
+        .map_err(|e| format!("write temp screenshot {}: {e}", temp_path.display()))?;
 
-    // 1) Write the PNG to the system clipboard so the user can paste it
-    //    anywhere immediately.
-    if let Some(watcher) = app.try_state::<WatcherState>() {
-        watcher.mark_self_write(crate::models::ContentType::Image, &b64);
-    }
-    let ctx = ClipboardContext::new()
-        .map_err(|e| format!("clipboard ctx init: {e:?}"))?;
-    let img = RustImageData::from_bytes(&png_bytes)
-        .map_err(|e| format!("decode png: {e:?}"))?;
-    ctx.set_image(img)
-        .map_err(|e| format!("set_image: {e:?}"))?;
-
-    // 2) Auto-save to ~/Downloads so a single Ctrl+Shift+S also produces
-    //    an on-disk PNG without a save dialog interrupting the flow.
-    //    Failure here is non-fatal — the clipboard write above and the
-    //    history entry below still succeed, so the user never loses the
-    //    capture.
-    if let Some(dir) = dirs::download_dir().or_else(dirs::picture_dir) {
-        let path = dir.join(format!(
-            "inspector-rust-screenshot-{}.png",
-            chrono::Local::now().format("%Y%m%d-%H%M%S")
-        ));
-        match std::fs::write(&path, &png_bytes) {
-            Ok(()) => {
-                let _ = app.emit("screenshot-saved", path.to_string_lossy().to_string());
-            }
-            Err(e) => {
-                tracing::warn!(
-                    "auto-save screenshot to {}: {e}",
-                    path.display()
-                );
-            }
-        }
+    // Stash the path in shared state so the preview-window IPCs can
+    // pick it up without the frontend round-tripping a filesystem path.
+    if let Some(pending) = app.try_state::<crate::screenshot_preview::PendingScreenshot>() {
+        *pending.inner().0.lock() = Some(temp_path.clone());
     } else {
-        tracing::warn!(
-            "no Downloads or Pictures dir available — screenshot not saved to disk"
-        );
+        tracing::warn!("PendingScreenshot state missing — preview won't work");
     }
 
-    // 3) Persist to history — recoverable from the History tab regardless.
-    if let Some(db) = app.try_state::<DbHandle>() {
-        let _ = db::upsert_clip(
-            &db,
-            &crate::models::NewClip {
-                content_type: crate::models::ContentType::Image,
-                content_text: summary,
-                content_data: b64,
-                byte_size,
-            },
-        );
+    // Build (or reuse) and position the preview window. Failure isn't
+    // fatal — the temp PNG is still on disk and the user can rerun.
+    if let Err(e) = crate::screenshot_preview::show_preview(app) {
+        tracing::warn!("screenshot preview window: {e:#}");
     }
+
     let _ = app.emit("clipboard-changed", ());
 
     Ok(ScreenshotResult { cancelled: false, bytes: png_bytes.len() })

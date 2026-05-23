@@ -4,6 +4,34 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] — 2026-05-23
+
+### Added — CleanShot-X-style floating screenshot preview
+
+After `Ctrl+Shift+S` (or the tray "Screenshot Region" entry), a small frameless preview window now appears in the **bottom-left corner of the monitor your cursor is on** — exactly like CleanShot X. Three actions on the preview:
+
+- **Save** — moves the PNG to `~/Downloads`, writes it to the system clipboard, adds a history entry.
+- **Discard** — deletes the temp file. No clipboard, no Downloads, no history.
+- **Edit** — moves to `~/Downloads` and hands the file to the system default image viewer (Preview.app on macOS, the default `.png` handler on Windows / Linux).
+
+The preview **auto-hides after 6 s of no interaction** (counts as Discard, so a forgotten capture doesn't leave temp files around). Hovering the preview cancels the timer.
+
+**Behaviour change**: until you click one of the three actions, the screenshot is **not** copied to the clipboard, **not** written to Downloads, and **not** added to history (the old v0.26.3 default did all three automatically). So Discard is now a true discard.
+
+Multi-display aware via the existing `pick_cursor_monitor` machinery: the preview always pops on the screen the user just captured on, not a random fixed display.
+
+### Implementation
+
+- New module `core/rust-lib/src/screenshot_preview.rs` with `PendingScreenshot` Tauri state + `show_preview` window-builder + the three action IPCs (`screenshot_preview_save` / `_discard` / `_edit`).
+- The capture pipeline writes the PNG to `~/Library/Caches/InspectorRust/screenshot-pending-<ts>.png` (or per-OS cache dir), stashes the path in `PendingScreenshot`, then builds (or reuses) a frameless transparent `screenshot-preview` Tauri window positioned at the cursor monitor's bottom-left with a 24 px margin.
+- `main.tsx` routes by `getCurrentWebviewWindow().label` — the preview window mounts only the new `<ScreenshotPreview>` React component, not the full clipboard browser, so it's lightweight.
+- `<ScreenshotPreview>` loads the PNG via `convertFileSrc(path)` (Tauri asset protocol — newly enabled in all three shells, scoped to the cache dir for safety) and renders the thumbnail + three action buttons + the auto-hide timer.
+- Workspace `tauri` features gained `macos-private-api` (transparent windows) and `protocol-asset` (the `convertFileSrc` path); all three per-OS `tauri.conf.json` got matching `macOSPrivateApi: true` and `assetProtocol.scope` entries; capabilities extended to include the `screenshot-preview` window label.
+
+### Why 0.27.0
+
+Whole new interactive surface for an existing action — backwards-compatible (no IPC removed, no command renamed). Feature-level → `0.x.0`.
+
 ## [0.26.4] — 2026-05-23
 
 ### Added — String-transform bar on HTML + RTF entries

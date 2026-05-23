@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.26.4"
+version = "0.27.0"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -11,7 +11,7 @@ repository = "https://github.com/pepperonas/inspector-rust"
 
 [workspace.dependencies]
 # Tauri core
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api", "protocol-asset"] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-clipboard-manager = "2"

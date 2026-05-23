@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Optional manual fallback — Inspector Rust 0.25.1+ does this automatically on
+# first start (see desktop_shortcuts.rs: reconcile_terminal_copy_paste).
 # Move GNOME Terminal copy/paste from Ctrl+Shift+C/V to Ctrl+C/V so they do not
 # clash with Inspector Rust (popup Ctrl+Shift+V, color Ctrl+Shift+C).
 #

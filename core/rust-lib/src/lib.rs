@@ -298,6 +298,12 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,
             commands::force_reset_screen_recording_grant,
+            #[cfg(target_os = "linux")]
+            commands::linux_scan_desktop_shortcuts,
+            #[cfg(target_os = "linux")]
+            commands::linux_apply_desktop_shortcuts,
+            #[cfg(target_os = "linux")]
+            commands::linux_web_hotkey_to_gsettings,
         ])
         .run(context)
         .expect("error while running Inspector Rust");

@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 
@@ -18,6 +18,7 @@ use crate::screen_recording;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
+use crate::desktop_shortcuts;
 use crate::ui_state::UiState;
 
 fn map_err<E: std::fmt::Display>(e: E) -> String {
@@ -1801,4 +1802,42 @@ fn write_cutout(image_bytes: &[u8], name_hint: Option<&str>) -> Result<String, S
     std::fs::write(&out_path, &png_bytes).map_err(|e| format!("write {filename}: {e}"))?;
 
     Ok(out_path.to_string_lossy().into_owned())
+}
+
+// ── Linux desktop shortcuts (GNOME/Cinnamon gsettings) ───────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct LinuxShortcutBindingInput {
+    pub id: String,
+    pub binding: String,
+}
+
+/// Scan occupied keys, terminal conflicts, and recommended bindings.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn linux_scan_desktop_shortcuts(
+    db: State<'_, DbHandle>,
+) -> Result<desktop_shortcuts::ShortcutSetupScan, String> {
+    desktop_shortcuts::scan_shortcut_setup(&db).map_err(map_err)
+}
+
+/// Apply user-chosen bindings (or auto-pick when `bindings` is empty).
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn linux_apply_desktop_shortcuts(
+    db: State<'_, DbHandle>,
+    bindings: Vec<LinuxShortcutBindingInput>,
+) -> Result<(), String> {
+    let pairs: Vec<(String, String)> = bindings
+        .into_iter()
+        .map(|b| (b.id, b.binding))
+        .collect();
+    desktop_shortcuts::apply_shortcut_setup(&db, pairs).map_err(map_err)
+}
+
+/// Convert a recorded W3C hotkey to GNOME gsettings accel format.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String> {
+    desktop_shortcuts::web_hotkey_to_gsettings(&shortcut)
 }

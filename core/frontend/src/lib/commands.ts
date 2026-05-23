@@ -295,6 +295,16 @@ export function rockTheBoxMode(query: string): SnakeMode | null {
 }
 
 /**
+ * Hidden easter egg: typing `space` turns the popup into Space Invaders.
+ *
+ * Like the other game triggers, NOT in `COMMANDS` / autocomplete — exact
+ * match only (whitespace-tolerant, case-insensitive).
+ */
+export function isSpaceInvadersTrigger(query: string): boolean {
+  return query.trim().toLowerCase() === "space";
+}
+
+/**
  * Parse the kill command's argument into `{ force, pattern }`.
  * - `kill <pattern>`     → force=false, pattern=<pattern>
  * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>

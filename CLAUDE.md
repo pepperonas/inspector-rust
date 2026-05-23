@@ -16,7 +16,8 @@ pnpm dev:linux        # Linux (Ubuntu/Debian)
 # Production builds
 pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/inspector-rust.exe
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
-pnpm build:linux      # → target/release/bundle/deb/*.deb + AppImage
+pnpm build:linux      # → .deb + AppImage (AppImage may fail locally; use build:linux:deb)
+pnpm build:linux:deb  # → .deb only (recommended on Ubuntu)
 
 ### Hidden game easter eggs (search bar)
 
@@ -27,6 +28,7 @@ Exact match in the popup search field (case-insensitive, no autocomplete):
 | `getshaky` | Pong (`PongGame.tsx`, `lib/pong.ts`) |
 | `rockthebox` | Snake — walls kill (`SnakeGame.tsx`, `lib/snake.ts`) |
 | `rockthabox` | Snake — wrap-around edges |
+| `space` | Space Invaders (`SpaceInvadersGame.tsx`, `lib/space-invaders.ts`) |
 
 # Tests
 pnpm test                                     # frontend vitest (all, single run)
@@ -221,6 +223,13 @@ The third hidden trigger, same shape as `getshaky` / `rockthebox`. Typing **`ope
 - `lib/openers.ts` — pure picker. `hashString` (FNV-1a-variant) returns an unsigned 32-bit integer; `pickOpener(seed)` returns `TOP_OPENERS[hash % length]`. Deterministic per seed, so the React render loop doesn't flicker between picks while the query is unchanged.
 - App.tsx wires an `openerEntry: ListEntry | null` (kind `"opener"`, `data.text`) into the top of `combined` when the trigger matches; the seed is the full query, so each keystroke re-rolls. The activate-handler pastes via `pasteText`. `HistoryItem` renders it with a `Sparkles` icon + italic body + an "opener" chip; `PreviewPanel` shows the full text with a "type any key to re-roll" hint.
 - Entirely client-side at runtime — no live DB call, no IPC, no Rust module.
+
+### `space` — hidden Space Invaders easter egg (`components/SpaceInvadersGame.tsx`, `lib/space-invaders.ts`)
+
+Typing the exact word **`space`** (`commands::isSpaceInvadersTrigger`) sets `gameMode` to `"space"` and replaces the app-shell with `<SpaceInvadersGame>`. Not in `COMMANDS`. Arrow/A-D to move, Space/W/↑ to fire, Esc to quit (Space rematches on game-over).
+
+- `lib/space-invaders.ts` — formation movement, bullets, collision, scoring (row bonuses).
+- `components/SpaceInvadersGame.tsx` — canvas loop; intro uses `space-invaders-descend` / `space-invaders-title` in `styles.css` (`INTRO_MS` = 1400).
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 

@@ -18,7 +18,11 @@
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use tauri::{AppHandle, Emitter, Manager, PhysicalPosition, WebviewUrl, WebviewWindowBuilder};
+use std::sync::atomic::{AtomicBool, Ordering};
+use tauri::{
+    AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
+    WebviewWindow, WebviewWindowBuilder,
+};
 
 /// Shared state holding the on-disk path of the most recently captured
 /// (still-pending) screenshot, written by `run_screenshot_pipeline` and
@@ -34,6 +38,57 @@ pub const PREVIEW_LABEL: &str = "screenshot-preview";
 const WIN_W: f64 = 340.0;
 const WIN_H: f64 = 220.0;
 const EDGE_MARGIN: i32 = 24;
+
+/// How often the cursor-follow thread checks whether the cursor has
+/// crossed to a different monitor. 200 ms is fast enough that a human
+/// won't perceive lag when they drag the mouse over to the other
+/// screen + cheap on CPU (one cursor query + one bounds check per
+/// tick).
+const FOLLOW_TICK_MS: u64 = 200;
+
+/// True while the cursor-monitor-follower thread is alive. Spawned
+/// the first time [`show_preview`] runs and re-spawned every time the
+/// preview window is closed + re-opened (the thread exits when the
+/// window vanishes).
+static FOLLOWER_RUNNING: AtomicBool = AtomicBool::new(false);
+
+/// Compute the preview's target position + size for whichever monitor
+/// the OS cursor currently lives on. Bottom-left of that monitor plus
+/// [`EDGE_MARGIN`]. Returns `None` if the cursor + every monitor query
+/// both fail.
+fn cursor_monitor_target(win: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
+    let pos = win.cursor_position().ok()?;
+    let monitors = win.available_monitors().unwrap_or_default();
+    let monitor = monitors
+        .iter()
+        .find(|m| {
+            let mp = m.position();
+            let ms = m.size();
+            let x = pos.x as i32;
+            let y = pos.y as i32;
+            x >= mp.x
+                && x < mp.x + ms.width as i32
+                && y >= mp.y
+                && y < mp.y + ms.height as i32
+        })
+        .cloned()
+        .or_else(|| win.primary_monitor().ok().flatten())?;
+
+    let mp = monitor.position();
+    let ms = monitor.size();
+    let scale = monitor.scale_factor();
+    // Window size in physical pixels (`set_position` / `set_size`
+    // take physical units).
+    let win_w_px = (WIN_W * scale) as i32;
+    let win_h_px = (WIN_H * scale) as i32;
+    let margin_px = ((EDGE_MARGIN as f64) * scale) as i32;
+    let x = mp.x + margin_px;
+    let y = mp.y + ms.height as i32 - win_h_px - margin_px;
+    Some((
+        PhysicalPosition::new(x, y),
+        PhysicalSize::new(win_w_px as u32, win_h_px as u32),
+    ))
+}
 
 /// Create (or re-show) the preview window on the monitor that currently
 /// holds the cursor, positioned at its bottom-left corner with a
@@ -58,40 +113,50 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
             .build()?
     };
 
-    // Pick the monitor the cursor's on so the preview never shows on a
-    // wrong screen in a multi-display setup. Fall back to primary if
-    // the cursor query fails.
-    let monitor = {
-        let pos = win.cursor_position().ok();
-        let monitors = win.available_monitors().unwrap_or_default();
-        let containing = pos.and_then(|p| {
-            monitors.iter().find(|m| {
-                let mp = m.position();
-                let ms = m.size();
-                let x = p.x as i32;
-                let y = p.y as i32;
-                x >= mp.x
-                    && x < mp.x + ms.width as i32
-                    && y >= mp.y
-                    && y < mp.y + ms.height as i32
-            }).cloned()
-        });
-        containing.or_else(|| win.primary_monitor().ok().flatten())
-    };
+    // Place + size for the current cursor monitor.
+    if let Some((target_pos, target_size)) = cursor_monitor_target(&win) {
+        let _ = win.set_position(target_pos);
+        let _ = win.set_size(target_size);
+    }
 
-    if let Some(m) = monitor {
-        let mp = m.position();
-        let ms = m.size();
-        let scale = m.scale_factor();
-        // Window size in physical pixels (for set_position which takes
-        // PhysicalPosition).
-        let win_w_px = (WIN_W * scale) as i32;
-        let win_h_px = (WIN_H * scale) as i32;
-        let margin_px = ((EDGE_MARGIN as f64) * scale) as i32;
-        let x = mp.x + margin_px;
-        let y = mp.y + ms.height as i32 - win_h_px - margin_px;
-        let _ = win.set_position(PhysicalPosition::new(x, y));
-        let _ = win.set_size(tauri::PhysicalSize::new(win_w_px as u32, win_h_px as u32));
+    // ── Cursor-monitor follower ──────────────────────────────────────
+    // Once the preview is up, recompute the target every 200 ms and
+    // re-position whenever the cursor crosses to a different monitor.
+    // The thread terminates when the preview window vanishes; gated by
+    // `FOLLOWER_RUNNING` so re-using an already-open window doesn't
+    // spawn a second follower.
+    if !FOLLOWER_RUNNING.swap(true, Ordering::SeqCst) {
+        let app_for_follower = app.clone();
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_millis(FOLLOW_TICK_MS));
+                let Some(win) = app_for_follower.get_webview_window(PREVIEW_LABEL) else {
+                    // Window closed by user action / auto-hide → exit
+                    // the loop + reset the gate so the next capture
+                    // can spawn a fresh follower.
+                    FOLLOWER_RUNNING.store(false, Ordering::SeqCst);
+                    break;
+                };
+                let Some((target_pos, target_size)) = cursor_monitor_target(&win) else {
+                    continue;
+                };
+                let current = match win.outer_position() {
+                    Ok(p) => p,
+                    Err(_) => continue,
+                };
+                // Reposition only on a monitor change — within a single
+                // monitor the target stays fixed (we always anchor to
+                // the same bottom-left). 50 px tolerance both for the
+                // diff threshold (no per-pixel toggling) and to absorb
+                // small layout jitter on first-frame.
+                if (current.x - target_pos.x).abs() > 50
+                    || (current.y - target_pos.y).abs() > 50
+                {
+                    let _ = win.set_position(target_pos);
+                    let _ = win.set_size(target_size);
+                }
+            }
+        });
     }
 
     // Notify the React side that there's a fresh capture to show. If

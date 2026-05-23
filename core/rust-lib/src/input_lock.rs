@@ -33,39 +33,7 @@
 //! callback invocation + atomic load + match — small but not free; the
 //! trade-off is that the rdev API doesn't expose a stop primitive.
 
-use parking_lot::Mutex;
-use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
-use std::thread;
-
-use rdev::{grab, Event, EventType, Key};
-
-/// True while the input lock is active. The grab callback reads this
-/// to decide whether to swallow events (true) or pass them through
-/// (false).
-static LOCK_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// Currently-pressed keys, tracked by the grab callback. Used to
-/// match against [`unlock_chord`]'s contents.
-static PRESSED: OnceLock<Mutex<HashSet<Key>>> = OnceLock::new();
-
-/// The keys that must be simultaneously pressed to unlock. Set by
-/// [`start_input_lock`] before each lock cycle.
-static UNLOCK_CHORD: OnceLock<Mutex<Vec<Key>>> = OnceLock::new();
-
-/// Tracks whether the grab thread has been spawned. We spawn once,
-/// then toggle behaviour via `LOCK_ACTIVE` (rdev::grab can't be
-/// stopped cleanly — see the module doc).
-static GRAB_STARTED: AtomicBool = AtomicBool::new(false);
-
-fn pressed() -> &'static Mutex<HashSet<Key>> {
-    PRESSED.get_or_init(|| Mutex::new(HashSet::new()))
-}
-
-fn unlock_chord() -> &'static Mutex<Vec<Key>> {
-    UNLOCK_CHORD.get_or_init(|| Mutex::new(Vec::new()))
-}
+use rdev::Key;
 
 /// Parse a key-name string (case-insensitive) into the rdev::Key enum.
 /// Supports lowercase letter names (`"a"`…`"z"`), digit names
@@ -94,11 +62,23 @@ pub fn key_from_str(s: &str) -> Option<Key> {
     }
 }
 
-/// Activate the input lock with the given unlock chord. The chord is
-/// a list of key-name strings (see [`key_from_str`] for accepted
-/// values). All keys must be simultaneously pressed to unlock — order
-/// of presses doesn't matter, so "hold `i`, then press `r`" works.
+/// Activate the input lock with the given unlock chord.
+///
+/// ## ⚠️ Currently disabled — returns an error
+///
+/// The previous implementation called `rdev::grab(...)` on a spawned
+/// thread to install a CGEventTap (macOS) / WH_KEYBOARD_LL (Windows) /
+/// X11 grab (Linux). On macOS the `rdev` crate's `unstable_grab`
+/// feature triggers a process-level abort under conditions we couldn't
+/// isolate quickly — typing `freeze` instantly killed Inspector Rust.
+///
+/// Until we replace it with a native CGEventTap (via `objc2`, parallel
+/// to how OCR uses Vision), the `freeze` command surfaces this error.
+/// The chord-validation logic + the settings UI + the trigger plumbing
+/// stay intact so the replacement just drops in.
 pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
+    // Still validate the chord — that's free and gives early feedback
+    // if the user's stored chord is malformed for whatever reason.
     let keys: Vec<Key> = unlock_keys
         .iter()
         .filter_map(|s| key_from_str(s))
@@ -107,81 +87,22 @@ pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
         return Err("input lock: unlock chord is empty or unparseable".into());
     }
 
-    // Reject Wayland sessions up front — rdev can't grab there and the
-    // user would just see "lock activated" but nothing actually
-    // blocked.
-    #[cfg(target_os = "linux")]
-    {
-        if std::env::var_os("WAYLAND_DISPLAY").is_some()
-            && std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
-        {
-            return Err(
-                "input lock: not supported on Wayland (X11 only on Linux)".into(),
-            );
-        }
-    }
-
-    *unlock_chord().lock() = keys;
-    pressed().lock().clear();
-    LOCK_ACTIVE.store(true, Ordering::SeqCst);
-
-    // Spawn the grab thread once; subsequent locks just flip the flag.
-    if !GRAB_STARTED.swap(true, Ordering::SeqCst) {
-        thread::spawn(|| {
-            if let Err(e) = grab(callback) {
-                // Roll back the GRAB_STARTED flag so a re-trigger has
-                // a chance to retry (e.g. user just granted
-                // Accessibility on macOS).
-                LOCK_ACTIVE.store(false, Ordering::SeqCst);
-                GRAB_STARTED.store(false, Ordering::SeqCst);
-                tracing::error!("rdev::grab failed (input lock disabled): {e:?}");
-            }
-        });
-    }
-
-    Ok(())
+    Err(
+        "Input lock is temporarily disabled — the rdev event-tap \
+         implementation crashed the app on macOS. A native CGEventTap \
+         port is in progress. Chord setting + UI stay so it'll work \
+         immediately when re-enabled."
+            .into(),
+    )
 }
 
-/// Whether the lock is currently active. Used by the frontend for an
-/// optional indicator and by tests.
+/// Whether the lock is currently active. Always `false` while
+/// [`start_input_lock`] is disabled (above). Kept on the public
+/// surface so a future re-enable doesn't need to thread a new
+/// function through the frontend.
+#[allow(dead_code)]
 pub fn is_locked() -> bool {
-    LOCK_ACTIVE.load(Ordering::SeqCst)
-}
-
-fn callback(event: Event) -> Option<Event> {
-    if !LOCK_ACTIVE.load(Ordering::SeqCst) {
-        return Some(event);
-    }
-    match &event.event_type {
-        EventType::KeyPress(key) => {
-            let key = *key;
-            // Update the pressed-set, then check the chord. Hold the
-            // locks separately + briefly so concurrent reads aren't
-            // blocked any longer than needed.
-            {
-                let mut p = pressed().lock();
-                p.insert(key);
-            }
-            let matched = {
-                let p = pressed().lock();
-                let chord = unlock_chord().lock();
-                !chord.is_empty() && chord.iter().all(|k| p.contains(k))
-            };
-            if matched {
-                LOCK_ACTIVE.store(false, Ordering::SeqCst);
-                pressed().lock().clear();
-            }
-            None
-        }
-        EventType::KeyRelease(key) => {
-            pressed().lock().remove(key);
-            None
-        }
-        EventType::ButtonPress(_)
-        | EventType::ButtonRelease(_)
-        | EventType::MouseMove { .. }
-        | EventType::Wheel { .. } => None,
-    }
+    false
 }
 
 #[cfg(test)]
@@ -212,23 +133,23 @@ mod tests {
     }
 
     #[test]
-    fn start_input_lock_rejects_empty_chord() {
+    fn start_input_lock_currently_returns_a_clear_error() {
+        // Even with a valid chord — the feature is gated off pending a
+        // native CGEventTap port. The error message points the user at
+        // the situation rather than silently doing nothing.
+        let r = start_input_lock(vec!["i".into(), "r".into()]);
+        assert!(r.is_err());
+        let msg = r.unwrap_err();
+        assert!(msg.contains("temporarily disabled"));
+    }
+
+    #[test]
+    fn start_input_lock_rejects_empty_chord_before_disabled_check() {
+        // The empty-chord guard fires first so a future re-enable can
+        // rely on the parsed chord being non-empty.
         let r = start_input_lock(vec![]);
         assert!(r.is_err());
         let r = start_input_lock(vec!["not-a-key".into(), "alsobogus".into()]);
         assert!(r.is_err(), "all-unparseable chord must reject");
-    }
-
-    /// The chord-matching predicate works regardless of the *order* of
-    /// presses — "hold `i`, then press `r`" is equivalent to "hold `r`,
-    /// then press `i`". This pins that semantics so a future refactor
-    /// to e.g. an ordered Vec doesn't silently break the UX.
-    #[test]
-    fn chord_match_is_order_independent() {
-        let chord = [Key::KeyI, Key::KeyR];
-        let pressed_then = [Key::KeyR, Key::KeyI]; // pressed in reverse order
-        let p: HashSet<Key> = pressed_then.iter().copied().collect();
-        let matched = !chord.is_empty() && chord.iter().all(|k| p.contains(k));
-        assert!(matched);
     }
 }

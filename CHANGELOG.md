@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.2] — 2026-05-23
+
+### Fixed (critical) — `freeze` (input lock) was crashing the app
+
+Typing `freeze` + Enter terminated Inspector Rust on macOS. Root cause: the v0.28.0 implementation spawned a worker thread that called `rdev::grab(...)` with the crate's `unstable_grab` feature — that combination triggers a process-level abort in the CGEventTap setup we couldn't isolate quickly.
+
+`input_lock::start_input_lock` now returns an error immediately (with a clear message) instead of spawning the grab thread. The settings UI + the `freeze` trigger + the chord validation all stay in place so the planned replacement (native CGEventTap via `objc2`, parallel to how OCR uses Vision) just drops in.
+
+If you typed `freeze` before and your app died — sorry. v0.28.2 is now safe; the worst that can happen is a clear error toast.
+
+### Changed — Screenshot preview follows the cursor between monitors
+
+The CleanShot-X-style preview spawned on the cursor monitor at capture time but stayed there if you dragged the mouse to another display. Now a 200 ms-ticking follower thread re-positions the window whenever the cursor crosses to a different monitor. Within a single monitor the target stays fixed (we anchor to the same bottom-left), so it only "jumps" on monitor changes, not on every pixel of mouse motion.
+
+### Changed — Screenshots land on the clipboard immediately
+
+Before, the captured PNG only hit the clipboard when you clicked **Save**. Now it lands on the clipboard the instant the capture completes — paste it anywhere right away. **Discard** still cancels the on-disk file + history entry, but leaves the clipboard alone (you may already have pasted it elsewhere; nulling it from under you would be surprising). **Save** still writes the file + history (and re-writes the clipboard idempotently in case you copied something else in between).
+
+### Why 0.28.2
+
+Critical crash fix + two UX refinements. Patch-level → `0.x.y`.
+
 ## [0.28.1] — 2026-05-23
 
 ### Added — "Plain text" string-transform (`Cmd/Ctrl+^`)

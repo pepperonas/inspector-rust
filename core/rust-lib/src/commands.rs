@@ -1272,6 +1272,35 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
     std::fs::write(&temp_path, &png_bytes)
         .map_err(|e| format!("write temp screenshot {}: {e}", temp_path.display()))?;
 
+    // ── Auto-clipboard ────────────────────────────────────────────────
+    // Write the captured PNG to the system clipboard IMMEDIATELY,
+    // before showing the preview. The user wanted the screenshot
+    // ready to paste right away — the preview's Save / Discard /
+    // Edit just decides what *else* happens to it (on-disk file +
+    // history). `mark_self_write` keeps the clipboard watcher from
+    // capturing this as a separate clipboard event.
+    {
+        use base64::{engine::general_purpose::STANDARD as B64, Engine};
+        use clipboard_rs::{
+            common::RustImage, Clipboard, ClipboardContext, RustImageData,
+        };
+        let b64 = B64.encode(&png_bytes);
+        if let Some(watcher) = app.try_state::<WatcherState>() {
+            watcher.mark_self_write(crate::models::ContentType::Image, &b64);
+        }
+        match ClipboardContext::new() {
+            Ok(ctx) => match RustImageData::from_bytes(&png_bytes) {
+                Ok(img) => {
+                    if let Err(e) = ctx.set_image(img) {
+                        tracing::warn!("auto-clipboard set_image: {e:?}");
+                    }
+                }
+                Err(e) => tracing::warn!("auto-clipboard decode png: {e:?}"),
+            },
+            Err(e) => tracing::warn!("auto-clipboard ctx init: {e:?}"),
+        }
+    }
+
     // Stash the path in shared state so the preview-window IPCs can
     // pick it up without the frontend round-tripping a filesystem path.
     if let Some(pending) = app.try_state::<crate::screenshot_preview::PendingScreenshot>() {

@@ -72,6 +72,14 @@ export function screenshotPreviewEdit(): Promise<void> {
   return invoke("screenshot_preview_edit");
 }
 
+/** Cursor-follow: if the cursor has crossed to a different monitor,
+ *  re-position the preview window to the new monitor's bottom-left.
+ *  Called from the preview React component every 200 ms while the
+ *  window is open. */
+export function repositionPreviewToCursor(): Promise<void> {
+  return invoke("reposition_preview_to_cursor");
+}
+
 // ── Input lock (macOS-lock-style chord-to-unlock) ──────────────────────────
 
 /** Read the persisted unlock chord. Defaults to `["i", "r"]` on a

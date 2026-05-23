@@ -1,7 +1,7 @@
 {
   "name": "inspector-rust-linux",
   "private": true,
-  "version": "0.28.2",
+  "version": "0.28.3",
   "description": "Inspector Rust — Linux bundle shell (Tauri CLI entry + frontend proxy scripts)",
   "scripts": {
     "tauri": "tauri",

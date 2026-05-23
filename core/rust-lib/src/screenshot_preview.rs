@@ -18,7 +18,6 @@
 
 use parking_lot::Mutex;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{
     AppHandle, Emitter, Manager, PhysicalPosition, PhysicalSize, WebviewUrl,
     WebviewWindow, WebviewWindowBuilder,
@@ -38,19 +37,6 @@ pub const PREVIEW_LABEL: &str = "screenshot-preview";
 const WIN_W: f64 = 340.0;
 const WIN_H: f64 = 220.0;
 const EDGE_MARGIN: i32 = 24;
-
-/// How often the cursor-follow thread checks whether the cursor has
-/// crossed to a different monitor. 200 ms is fast enough that a human
-/// won't perceive lag when they drag the mouse over to the other
-/// screen + cheap on CPU (one cursor query + one bounds check per
-/// tick).
-const FOLLOW_TICK_MS: u64 = 200;
-
-/// True while the cursor-monitor-follower thread is alive. Spawned
-/// the first time [`show_preview`] runs and re-spawned every time the
-/// preview window is closed + re-opened (the thread exits when the
-/// window vanishes).
-static FOLLOWER_RUNNING: AtomicBool = AtomicBool::new(false);
 
 /// Compute the preview's target position + size for whichever monitor
 /// the OS cursor currently lives on. Bottom-left of that monitor plus
@@ -113,50 +99,16 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
             .build()?
     };
 
-    // Place + size for the current cursor monitor.
+    // Place + size for the current cursor monitor. The continuous
+    // monitor-follow happens via the `reposition_preview_to_cursor`
+    // IPC, called every 200 ms from the React side of the preview
+    // window (the React polling is *much* more reliable than a
+    // std::thread spawned on the Rust side — Tauri's IPC layer
+    // marshals set_position onto the main thread cleanly, while a
+    // bare std::thread doing the same has been flaky on macOS).
     if let Some((target_pos, target_size)) = cursor_monitor_target(&win) {
         let _ = win.set_position(target_pos);
         let _ = win.set_size(target_size);
-    }
-
-    // ── Cursor-monitor follower ──────────────────────────────────────
-    // Once the preview is up, recompute the target every 200 ms and
-    // re-position whenever the cursor crosses to a different monitor.
-    // The thread terminates when the preview window vanishes; gated by
-    // `FOLLOWER_RUNNING` so re-using an already-open window doesn't
-    // spawn a second follower.
-    if !FOLLOWER_RUNNING.swap(true, Ordering::SeqCst) {
-        let app_for_follower = app.clone();
-        std::thread::spawn(move || {
-            loop {
-                std::thread::sleep(std::time::Duration::from_millis(FOLLOW_TICK_MS));
-                let Some(win) = app_for_follower.get_webview_window(PREVIEW_LABEL) else {
-                    // Window closed by user action / auto-hide → exit
-                    // the loop + reset the gate so the next capture
-                    // can spawn a fresh follower.
-                    FOLLOWER_RUNNING.store(false, Ordering::SeqCst);
-                    break;
-                };
-                let Some((target_pos, target_size)) = cursor_monitor_target(&win) else {
-                    continue;
-                };
-                let current = match win.outer_position() {
-                    Ok(p) => p,
-                    Err(_) => continue,
-                };
-                // Reposition only on a monitor change — within a single
-                // monitor the target stays fixed (we always anchor to
-                // the same bottom-left). 50 px tolerance both for the
-                // diff threshold (no per-pixel toggling) and to absorb
-                // small layout jitter on first-frame.
-                if (current.x - target_pos.x).abs() > 50
-                    || (current.y - target_pos.y).abs() > 50
-                {
-                    let _ = win.set_position(target_pos);
-                    let _ = win.set_size(target_size);
-                }
-            }
-        });
     }
 
     // Notify the React side that there's a fresh capture to show. If
@@ -299,6 +251,38 @@ pub fn screenshot_preview_discard(
         let _ = std::fs::remove_file(&temp);
     }
     close_preview(&app);
+    Ok(())
+}
+
+/// Frontend-driven cursor-follow: the preview React component polls
+/// this every 200 ms. If the cursor has crossed to a different monitor
+/// since the last call, the preview window is re-positioned to the
+/// bottom-left of the new monitor.
+///
+/// IPC instead of a pure Rust background thread because Tauri marshals
+/// window operations onto the main thread inside its IPC layer — much
+/// more reliable than spawning a std::thread that calls `set_position`
+/// from a worker (which was flaky on macOS).
+#[tauri::command]
+pub fn reposition_preview_to_cursor(app: AppHandle) -> Result<(), String> {
+    let Some(win) = app.get_webview_window(PREVIEW_LABEL) else {
+        return Ok(()); // window already closed — no-op
+    };
+    let Some((target_pos, target_size)) = cursor_monitor_target(&win) else {
+        return Ok(());
+    };
+    let current = match win.outer_position() {
+        Ok(p) => p,
+        Err(_) => return Ok(()),
+    };
+    // Reposition only on a monitor change. Within a single monitor the
+    // target stays fixed (we always anchor to the same bottom-left)
+    // so the diff is 0 and we don't churn set_position every tick.
+    // 50 px tolerance absorbs window-decoration rounding etc.
+    if (current.x - target_pos.x).abs() > 50 || (current.y - target_pos.y).abs() > 50 {
+        let _ = win.set_position(target_pos);
+        let _ = win.set_size(target_size);
+    }
     Ok(())
 }
 

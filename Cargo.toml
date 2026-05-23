@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.28.2"
+version = "0.28.3"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -38,11 +38,6 @@ keyring = "3"
 # OS integration
 clipboard-rs = "0.2"
 enigo = "0.3"
-# Low-level input event grab — for the input-lock feature (macOS
-# CGEventTap, Windows WH_KEYBOARD_LL + WH_MOUSE_LL, Linux X11). Wayland
-# is NOT supported by rdev; Inspector Rust degrades to "lock not
-# supported on this session" there.
-rdev = { version = "0.5", features = ["unstable_grab"] }
 dirs = "5"
 # Image decode/encode for the recolor / cutout features. Output is
 # always PNG (alpha-preserving), but inputs can be any of the formats

@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.3] — 2026-05-23
+
+### Fixed — `freeze` actually works now (native CGEventTap on macOS)
+
+The v0.28.0 implementation used `rdev::grab` with the `unstable_grab` feature; that combination crashed Inspector Rust on macOS (v0.28.2 disabled it with a clear error). This release replaces it with a **native `CGEventTap`** via the `core-graphics` + `core-foundation` crates — the same Quartz Event Services API the original `pepperonas/macOS-lock` Python script uses through PyObjC.
+
+- Tap installed at HID-session level + `HeadInsertEventTap` placement, so it sees every keyboard / mouse / trackpad event before any other process — exactly what's needed to swallow them.
+- Runs on a dedicated `input-lock-tap` thread with its own `CFRunLoopRun`. Toggle behaviour via `LOCK_ACTIVE` atomic flag so subsequent lock cycles don't pay the tap-creation cost.
+- Chord matching unchanged — press `i + r` (default) to unlock; configurable in Settings → Input Lock.
+- Requires Accessibility (the existing grant covers it). If missing, the tap creation fails and `start_input_lock` returns an error without crashing.
+- **Windows / Linux** still return "not implemented yet" — the Settings UI + trigger stay platform-agnostic; a native port (Windows `WH_KEYBOARD_LL`, Linux X11) is the next step.
+- `rdev` dep dropped entirely.
+
+Safety hatch: `⌥⌘Esc` (Force Quit) is processed by macOS WindowServer above any user-level event tap and cannot be intercepted — you can always recover even if you forget the chord.
+
+### Fixed — Screenshot preview now actually follows the cursor between monitors
+
+The v0.28.2 Rust background thread that called `set_position` from a `std::thread` was unreliable on macOS (Tauri's main-thread dispatch from a bare worker thread is flaky). Replaced with **frontend-driven polling**: the preview React component calls a new `reposition_preview_to_cursor` IPC every 200 ms, and Tauri's IPC layer marshals the `set_position` onto the main thread cleanly. Behaviour identical from the user's POV — the preview only "jumps" on monitor changes, not on every pixel of mouse motion — just actually working now.
+
+### Why 0.28.3
+
+Two real-feature-completes (freeze works, cursor-follow works) — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.2] — 2026-05-23
 
 ### Fixed (critical) — `freeze` (input lock) was crashing the app

@@ -4,6 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Check, Pencil, X } from "lucide-react";
 import {
   getPendingScreenshotPath,
+  repositionPreviewToCursor,
   screenshotPreviewDiscard,
   screenshotPreviewEdit,
   screenshotPreviewSave,
@@ -61,6 +62,19 @@ export function ScreenshotPreview() {
       if (timerRef.current !== null) window.clearTimeout(timerRef.current);
       unlisten?.();
     };
+  }, []);
+
+  // Cursor-follow: every 200 ms, ask the backend to re-position the
+  // preview window if the cursor has crossed to a different monitor.
+  // Backend is idempotent and cheap when the cursor stays put — only
+  // monitor changes trigger an actual set_position. Driving this from
+  // React (rather than a Rust std::thread) goes through Tauri's IPC
+  // layer which marshals set_position onto the main thread cleanly.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void repositionPreviewToCursor().catch(() => undefined);
+    }, 200);
+    return () => window.clearInterval(id);
   }, []);
 
   // Cancel auto-hide while the user is hovering — assumes they're

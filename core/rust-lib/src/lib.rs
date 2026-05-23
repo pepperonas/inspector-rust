@@ -279,6 +279,7 @@ pub fn run(context: tauri::Context<Wry>) {
             screenshot_preview::screenshot_preview_save,
             screenshot_preview::screenshot_preview_discard,
             screenshot_preview::screenshot_preview_edit,
+            screenshot_preview::reposition_preview_to_cursor,
             commands::eyedropper_to_clipboard,
             commands::resize_clipboard_image,
             commands::optimize_clipboard_image,

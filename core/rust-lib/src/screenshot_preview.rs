@@ -32,48 +32,125 @@ pub struct PendingScreenshot(pub Mutex<Option<PathBuf>>);
 pub const PREVIEW_LABEL: &str = "screenshot-preview";
 
 /// Inner-window dimensions for the floating preview. ~16:10 aspect so
-/// landscape thumbnails read well; 24 px margin from the screen edge
-/// (Dock-friendly on macOS without overlapping it).
+/// landscape thumbnails read well.
 const WIN_W: f64 = 340.0;
 const WIN_H: f64 = 220.0;
-const EDGE_MARGIN: i32 = 24;
+/// Margin from the screen edge. Bottom margin needs to clear the
+/// macOS Dock — default Dock is ~78 px high, "Magnification: Large"
+/// goes ~128 px. 110 px gives breathing room for both. Side margin
+/// can stay tight.
+const EDGE_MARGIN_X: i32 = 24;
+const EDGE_MARGIN_Y_BOTTOM: i32 = 110;
+
+// ── macOS global cursor position (raw FFI) ─────────────────────────────
+//
+// `WebviewWindow::cursor_position()` returns coords that only refresh
+// when the window receives a mouse event — so polling it from an
+// inactive preview window kept giving the stale position from the last
+// click. We need the GLOBAL cursor instead: macOS exposes that via
+// `CGEventGetLocation` on an `event` synthesised from the null event
+// source. Coords come back in POINTS with top-left origin (Carbon
+// coords) — convert to physical pixels per monitor via its scale
+// factor.
+
+#[cfg(target_os = "macos")]
+mod cg_cursor {
+    use std::ffi::c_void;
+    #[repr(C)]
+    pub struct CGPoint {
+        pub x: f64,
+        pub y: f64,
+    }
+
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventCreate(source: *mut c_void) -> *mut c_void;
+        fn CGEventGetLocation(event: *mut c_void) -> CGPoint;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(cf: *mut c_void);
+    }
+
+    /// Global cursor position in POINTS (top-left origin), or `None`
+    /// if the system call failed.
+    pub fn position_in_points() -> Option<(f64, f64)> {
+        unsafe {
+            let ev = CGEventCreate(std::ptr::null_mut());
+            if ev.is_null() {
+                return None;
+            }
+            let p = CGEventGetLocation(ev);
+            CFRelease(ev);
+            Some((p.x, p.y))
+        }
+    }
+}
 
 /// Compute the preview's target position + size for whichever monitor
 /// the OS cursor currently lives on. Bottom-left of that monitor plus
-/// [`EDGE_MARGIN`]. Returns `None` if the cursor + every monitor query
-/// both fail.
+/// a Dock-clearing margin. Returns `None` if no monitor is reachable.
 fn cursor_monitor_target(win: &WebviewWindow) -> Option<(PhysicalPosition<i32>, PhysicalSize<u32>)> {
-    let pos = win.cursor_position().ok()?;
     let monitors = win.available_monitors().unwrap_or_default();
-    let monitor = monitors
-        .iter()
-        .find(|m| {
-            let mp = m.position();
-            let ms = m.size();
-            let x = pos.x as i32;
-            let y = pos.y as i32;
-            x >= mp.x
-                && x < mp.x + ms.width as i32
-                && y >= mp.y
-                && y < mp.y + ms.height as i32
-        })
-        .cloned()
+    let monitor = pick_cursor_monitor_globally(&monitors)
         .or_else(|| win.primary_monitor().ok().flatten())?;
 
     let mp = monitor.position();
     let ms = monitor.size();
     let scale = monitor.scale_factor();
-    // Window size in physical pixels (`set_position` / `set_size`
-    // take physical units).
+    // Window size + margins in physical pixels (`set_position` /
+    // `set_size` take physical units).
     let win_w_px = (WIN_W * scale) as i32;
     let win_h_px = (WIN_H * scale) as i32;
-    let margin_px = ((EDGE_MARGIN as f64) * scale) as i32;
-    let x = mp.x + margin_px;
-    let y = mp.y + ms.height as i32 - win_h_px - margin_px;
+    let margin_x_px = ((EDGE_MARGIN_X as f64) * scale) as i32;
+    let margin_y_px = ((EDGE_MARGIN_Y_BOTTOM as f64) * scale) as i32;
+    let x = mp.x + margin_x_px;
+    let y = mp.y + ms.height as i32 - win_h_px - margin_y_px;
     Some((
         PhysicalPosition::new(x, y),
         PhysicalSize::new(win_w_px as u32, win_h_px as u32),
     ))
+}
+
+/// Find the monitor containing the OS cursor using the **global**
+/// cursor query (`CGEventGetLocation`) rather than
+/// `WebviewWindow::cursor_position()` — the latter only refreshes when
+/// the preview window itself receives a mouse event, so polling it
+/// returned a stale position until the user clicked on a new monitor.
+/// Returns `None` if the cursor query fails or no monitor contains
+/// the cursor.
+fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri::Monitor> {
+    #[cfg(target_os = "macos")]
+    {
+        let (cx_pt, cy_pt) = cg_cursor::position_in_points()?;
+        // Bounds-check in POINTS — convert each monitor's physical
+        // pixel bounds via its own scale factor (handles mixed-scale
+        // multi-monitor setups correctly).
+        monitors
+            .iter()
+            .find(|m| {
+                let scale = m.scale_factor();
+                let mp = m.position();
+                let ms = m.size();
+                let pt_x = mp.x as f64 / scale;
+                let pt_y = mp.y as f64 / scale;
+                let pt_w = ms.width as f64 / scale;
+                let pt_h = ms.height as f64 / scale;
+                cx_pt >= pt_x
+                    && cx_pt < pt_x + pt_w
+                    && cy_pt >= pt_y
+                    && cy_pt < pt_y + pt_h
+            })
+            .cloned()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Non-macOS fallback: we don't have a portable global-cursor
+        // query yet. None here makes the caller fall back to
+        // `primary_monitor`.
+        let _ = monitors;
+        None
+    }
 }
 
 /// Create (or re-show) the preview window on the monitor that currently

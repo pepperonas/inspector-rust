@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.7] — 2026-05-23
+
+### Fixed — Screenshot preview clears the Dock + follows cursor live
+
+Two long-standing annoyances on the floating screenshot preview window:
+
+1. **Dock occlusion.** The preview's 24 px bottom margin wasn't enough to clear the macOS Dock (default ~78 px, "Magnification: Large" up to ~128 px). Bumped the bottom margin to **110 px** so the preview sits cleanly above the Dock at any standard size. Side margin stays at 24 px.
+
+2. **Cursor follow only on click.** The 200 ms reposition polling used `WebviewWindow::cursor_position()`, which is a Tauri/tao wrapper that returns coordinates from the *last mouse event delivered to the window* — so polling from an inactive preview window kept reporting a stale position until the user actually clicked on a different monitor. Replaced with **raw FFI `CGEventGetLocation`** on a freshly-synthesised event from the null source — returns the **global** cursor position in real time, exactly what we need. The preview now jumps to the new monitor the moment the cursor crosses the boundary.
+
+The bounds check is done in POINTS (Carbon coords from `CGEventGetLocation`) against each monitor's physical-pixel bounds divided by its scale factor — handles mixed-DPI multi-monitor setups correctly.
+
+Both changes are macOS-specific; the non-macOS code path falls back to `primary_monitor()`.
+
+### Why 0.28.7
+
+Two UX fixes on an existing feature — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.6] — 2026-05-23
 
 ### Fixed — `freeze` callback now uses **raw FFI** (was: core-graphics wrapper)

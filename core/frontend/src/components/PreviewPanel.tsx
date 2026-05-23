@@ -273,13 +273,62 @@ export function PreviewPanel({ entry }: Props) {
   }
 
   if (clip.content_type === "html") {
+    // Clipboard HTML usually arrives with the source page's own
+    // colours / fonts baked in as inline styles — copy from a dark-mode
+    // site, you get black backgrounds; copy from a light-mode site,
+    // you get a glaring white sheet on top of the app's dark theme.
+    // Neither matches Inspector Rust's UI. Inject a theme-aware base
+    // style into the iframe + override the source's background and
+    // text colours so the preview reads in the app's theme. Inline
+    // styles that aren't background / text colour (layout, sizing,
+    // borders' radius, image styling) survive — only the colour war
+    // is suppressed.
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n: string, fb: string) => cs.getPropertyValue(n).trim() || fb;
+    const fg = v("--color-fg", "#e0e0e0");
+    const bg = v("--color-surface", "#15171d");
+    const muted = v("--color-muted", "#9a9fac");
+    const accent = v("--color-accent", "#6366f1");
+    const border = v("--color-border", "#2b2e38");
+    const themedSrcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        padding: 12px;
+        background: ${bg};
+        color: ${fg};
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      /* Override the pasted HTML's colour decisions so the preview
+         matches the app theme. Layout / sizing / images are left
+         alone — we only suppress colour clashes. */
+      body, body * {
+        background-color: transparent !important;
+        color: ${fg} !important;
+        border-color: ${border} !important;
+      }
+      a, body a * { color: ${accent} !important; }
+      code, pre {
+        background: rgba(127, 127, 127, 0.12) !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+      }
+      img { max-width: 100%; height: auto; }
+      table { border-collapse: collapse; }
+      td, th { border: 1px solid ${border} !important; padding: 4px 8px; }
+      blockquote {
+        margin: 8px 0 8px 0;
+        padding-left: 12px;
+        border-left: 3px solid ${accent} !important;
+        color: ${muted} !important;
+      }
+    </style></head><body>${clip.content_data}</body></html>`;
     return (
       <div className="flex h-full flex-col p-4">
         {meta}
         <iframe
           sandbox=""
-          srcDoc={clip.content_data}
-          className="flex-1 rounded-lg border border-[var(--color-border)] bg-white"
+          srcDoc={themedSrcDoc}
+          className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
           title="html preview"
         />
       </div>

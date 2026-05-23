@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.2] — 2026-05-23
+
+### Fixed — HTML clipboard preview no longer clashes with the app theme
+
+The HTML preview rendered the clipboard's HTML in a sandboxed iframe with a hardcoded white background, and the pasted HTML carried the source page's own inline `style="…"` attributes — so copying from any styled webpage produced a glaring white box on top of Inspector Rust's dark UI, often with the page's own colours leaking through (black-on-black blocks, neon highlights, etc.).
+
+The iframe now:
+
+- has its container `bg-` set to the app's `--color-surface` instead of hardcoded `bg-white`,
+- ships a base `<style>` in its `srcDoc` that pulls live theme colours from the parent's CSS custom properties (`--color-fg` / `--color-surface` / `--color-accent` / …) and applies them with `!important` to `body, body *`, so pasted-in inline colours don't fight the theme,
+- declares `color-scheme: dark` so browser-default scrollbars / form widgets match,
+- gives `<a>`, `<code>`/`<pre>`, `<blockquote>`, `<table>` and `<img>` sensible theme-aware defaults.
+
+Only colour and background are overridden — layout (margins, padding, sizing, borders' radius) survives, so the preview keeps the source's structure while reading like the rest of the app.
+
+### Why 0.26.2
+
+Visual polish for the HTML preview — no new feature, no breaking change. Patch-level → `0.x.y`.
+
 ## [0.26.1] — 2026-05-23
 
 ### Changed — `opener` easter egg: ← / → cycle through openers

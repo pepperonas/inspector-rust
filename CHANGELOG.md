@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.9] — 2026-05-23
+
+### Added — Native cursor queries on Windows + Linux X11
+
+The screenshot preview's cursor-follow polling (every 200 ms it asks the backend to re-position itself if the cursor crossed to a different monitor) was macOS-only. The non-macOS path returned `None`, so the preview anchored to the primary monitor and never followed the cursor across screens. Filled in:
+
+- **Windows** — `win_cursor::position_in_pixels` calls `GetCursorPos` (from the already-bundled `windows` crate, feature `Win32_UI_WindowsAndMessaging`). Result is physical pixels in the virtual-screen coord system, same units as Tauri's `Monitor::position` — direct bounds-check, no scale conversion.
+- **Linux X11** — `x11_cursor::position_in_pixels` calls `XQueryPointer` on the root window via raw FFI (`#[link(name = "X11")]`). The `Display` connection is opened once via `OnceLock<Mutex<Option<DisplayPtr>>>` and reused for the app lifetime (opening one per 200 ms poll would burn server-side state).
+- **Linux Wayland** — deliberately denied at the protocol level. `is_wayland()` (checks `WAYLAND_DISPLAY` + `XDG_SESSION_TYPE`) short-circuits to `None`, falling back to the primary monitor.
+
+Same picker function (`pick_cursor_monitor_globally`) — now per-OS branch with each native API filling in the same `Option<Monitor>` contract.
+
+### Why 0.28.9
+
+Feature parity: cursor-follow now works on all three desktop OSes (modulo Wayland, where it's an OS-level restriction). Backwards-compatible. Patch-level.
+
 ## [0.28.8] — 2026-05-23
 
 ### Changed — Dock-aware preview position + no auto-hide + X-close button

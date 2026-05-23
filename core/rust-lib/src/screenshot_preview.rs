@@ -89,6 +89,124 @@ mod cg_cursor {
     }
 }
 
+// ── Native cursor queries: Windows ─────────────────────────────────────
+//
+// `GetCursorPos` returns the cursor in physical pixels under the
+// virtual screen coordinate system (the same one Tauri's
+// `Monitor::position` uses). The `windows` crate's binding lives
+// in `Win32_UI_WindowsAndMessaging` — already in our feature set.
+
+#[cfg(target_os = "windows")]
+mod win_cursor {
+    use windows::Win32::Foundation::POINT;
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+
+    /// Global cursor position in physical pixels (top-left origin of
+    /// the Windows virtual screen).
+    pub fn position_in_pixels() -> Option<(i32, i32)> {
+        let mut pt = POINT::default();
+        unsafe {
+            if GetCursorPos(&mut pt).is_ok() {
+                Some((pt.x, pt.y))
+            } else {
+                None
+            }
+        }
+    }
+}
+
+// ── Native cursor queries: Linux X11 ───────────────────────────────────
+//
+// `XQueryPointer` on the root window returns the global cursor
+// position. A single X11 connection is cached for the app lifetime
+// (opening one per 200 ms poll would burn server-side state). Wayland
+// is *not* supported — the protocol deliberately denies global cursor
+// queries for security, so the caller falls back to `primary_monitor`.
+
+#[cfg(target_os = "linux")]
+mod x11_cursor {
+    use parking_lot::Mutex;
+    use std::ffi::c_void;
+    use std::os::raw::c_char;
+    use std::sync::OnceLock;
+
+    type Display = *mut c_void;
+    type XID = u64;
+
+    #[link(name = "X11")]
+    extern "C" {
+        fn XOpenDisplay(display_name: *const c_char) -> Display;
+        fn XDefaultRootWindow(display: Display) -> XID;
+        fn XQueryPointer(
+            display: Display,
+            window: XID,
+            root_return: *mut XID,
+            child_return: *mut XID,
+            root_x_return: *mut i32,
+            root_y_return: *mut i32,
+            win_x_return: *mut i32,
+            win_y_return: *mut i32,
+            mask_return: *mut u32,
+        ) -> i32;
+    }
+
+    // `Display` is a raw pointer — not Send/Sync by default. Wrap in
+    // a newtype + unsafe impl, and serialise access with a Mutex so
+    // concurrent QueryPointer calls don't race on the same connection.
+    struct DisplayPtr(Display);
+    unsafe impl Send for DisplayPtr {}
+    unsafe impl Sync for DisplayPtr {}
+
+    static DISPLAY: OnceLock<Mutex<Option<DisplayPtr>>> = OnceLock::new();
+
+    fn display() -> &'static Mutex<Option<DisplayPtr>> {
+        DISPLAY.get_or_init(|| unsafe {
+            let d = XOpenDisplay(std::ptr::null());
+            Mutex::new(if d.is_null() { None } else { Some(DisplayPtr(d)) })
+        })
+    }
+
+    /// Global cursor position in physical pixels (X11 root-window
+    /// coords). Returns `None` on Wayland (X11 connection unavailable
+    /// or XWayland can't see the real cursor outside its surfaces).
+    pub fn position_in_pixels() -> Option<(i32, i32)> {
+        let dlock = display().lock();
+        let dp = dlock.as_ref()?;
+        let d = dp.0;
+        unsafe {
+            let root = XDefaultRootWindow(d);
+            let mut root_return: XID = 0;
+            let mut child_return: XID = 0;
+            let mut rx = 0i32;
+            let mut ry = 0i32;
+            let mut wx = 0i32;
+            let mut wy = 0i32;
+            let mut mask = 0u32;
+            let ok = XQueryPointer(
+                d,
+                root,
+                &mut root_return,
+                &mut child_return,
+                &mut rx,
+                &mut ry,
+                &mut wx,
+                &mut wy,
+                &mut mask,
+            );
+            if ok == 0 {
+                None
+            } else {
+                Some((rx, ry))
+            }
+        }
+    }
+
+    pub fn is_wayland() -> bool {
+        std::env::var_os("WAYLAND_DISPLAY").is_some()
+            || std::env::var("XDG_SESSION_TYPE").as_deref() == Ok("wayland")
+    }
+}
+
 // ── NSScreen.visibleFrame — Dock-aware screen geometry ─────────────────
 //
 // macOS shows the Dock on exactly one screen at a time (the one with the
@@ -257,11 +375,49 @@ fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri::Mo
             })
             .cloned()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
     {
-        // Non-macOS fallback: we don't have a portable global-cursor
-        // query yet. None here makes the caller fall back to
+        // Windows `GetCursorPos` returns physical pixels in the
+        // virtual-screen coord system — same units as
+        // `Monitor::position`/`Monitor::size`, so we bounds-check
+        // directly without a scale conversion.
+        let (cx, cy) = win_cursor::position_in_pixels()?;
+        monitors
+            .iter()
+            .find(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                cx >= mp.x
+                    && cx < mp.x + ms.width as i32
+                    && cy >= mp.y
+                    && cy < mp.y + ms.height as i32
+            })
+            .cloned()
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // X11 only — Wayland deliberately denies global cursor queries.
+        // On Wayland we return None and let the caller fall back to
         // `primary_monitor`.
+        if x11_cursor::is_wayland() {
+            let _ = monitors;
+            return None;
+        }
+        let (cx, cy) = x11_cursor::position_in_pixels()?;
+        monitors
+            .iter()
+            .find(|m| {
+                let mp = m.position();
+                let ms = m.size();
+                cx >= mp.x
+                    && cx < mp.x + ms.width as i32
+                    && cy >= mp.y
+                    && cy < mp.y + ms.height as i32
+            })
+            .cloned()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
         let _ = monitors;
         None
     }

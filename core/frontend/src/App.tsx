@@ -47,6 +47,7 @@ import {
   systemLock,
   adjustVolume,
   toggleMute,
+  startInputLock,
   systemReboot,
   systemShutdown,
   getThemePreference,
@@ -266,6 +267,11 @@ function App() {
       case "mute":
         label = "Toggle system mute";
         hint = "macOS — mutes if unmuted, unmutes if muted";
+        break;
+      case "freeze":
+        label = "Block all input — unlock with the chord";
+        hint =
+          "Press the configured chord (Settings → Input Lock, default i+r) to unlock";
         break;
       default:
         // kill is handled above; this guards against future additions.
@@ -529,6 +535,17 @@ function App() {
           // Toggle — no confirmation, trivially reversible.
           await toggleMute();
           await hidePopup();
+        } else if (commandKind === "freeze") {
+          // Input lock — backend hides the popup itself, then blocks
+          // all keyboard / mouse input until the unlock chord is
+          // pressed. The backend rejects empty / unparseable chords +
+          // surfaces a clear error on Wayland.
+          try {
+            await startInputLock();
+          } catch (e) {
+            setPasteError("other");
+            console.error("input lock failed", e);
+          }
         }
         return;
       } else if (target.kind === "kill-target") {

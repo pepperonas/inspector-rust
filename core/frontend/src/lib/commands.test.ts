@@ -12,8 +12,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 11 commands", () => {
-    expect(COMMANDS.length).toBe(11);
+  it("has 12 commands", () => {
+    expect(COMMANDS.length).toBe(12);
   });
 
   it("every keyword is unique", () => {

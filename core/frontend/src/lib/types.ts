@@ -78,7 +78,8 @@ export interface CommandEntryView {
     | "reboot"
     | "shutdown"
     | "lock"
-    | "mute";
+    | "mute"
+    | "freeze";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

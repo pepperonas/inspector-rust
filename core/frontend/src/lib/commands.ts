@@ -32,7 +32,8 @@ export type CommandKind =
   | "reboot"
   | "shutdown"
   | "lock"
-  | "mute";
+  | "mute"
+  | "freeze";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -128,6 +129,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "mute",
     syntax: "mute",
     description: "Toggle system mute / unmute (macOS)",
+    requiresArg: false,
+  },
+  {
+    kind: "freeze",
+    keyword: "freeze",
+    syntax: "freeze",
+    description:
+      "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
     requiresArg: false,
   },
 ];

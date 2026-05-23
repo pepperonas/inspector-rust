@@ -66,6 +66,11 @@ const KEY_PLAIN_TEXT_ONLY: &str = "paste.plain_text_only";
 /// Settings → Capture → "Keep OCR source image in history").
 const KEY_OCR_SAVE_SOURCE: &str = "ocr.save_source_image";
 
+/// Persisted list of key-name strings (e.g. `["i", "r"]`) that the
+/// user must press simultaneously to release the input lock. Default
+/// is `["i", "r"]` — hold `i`, press `r`. Stored as a JSON array.
+const KEY_INPUT_LOCK_CHORD: &str = "input_lock.unlock_keys";
+
 /// Sentinel error string the frontend recognises and presents as the
 /// "Accessibility access required" toast. Kept stable so the JS side
 /// can switch on it without parsing localized text.
@@ -170,6 +175,58 @@ pub fn set_ocr_save_source_image(
         if value { "true" } else { "false" },
     )
     .map_err(map_err)
+}
+
+/// Read the persisted unlock chord for the input lock. Returns the
+/// default (`["i", "r"]`) if nothing is stored or the stored JSON is
+/// malformed.
+#[tauri::command]
+pub fn get_input_lock_chord(db: State<'_, DbHandle>) -> Result<Vec<String>, String> {
+    let default = vec!["i".to_string(), "r".to_string()];
+    let raw = match settings::get(&db, KEY_INPUT_LOCK_CHORD) {
+        Ok(Some(s)) => s,
+        _ => return Ok(default),
+    };
+    match serde_json::from_str::<Vec<String>>(&raw) {
+        Ok(v) if !v.is_empty() => Ok(v),
+        _ => Ok(default),
+    }
+}
+
+/// Persist a new unlock chord. Rejects empty / all-unparseable
+/// chords so the user can never lock themselves out by saving an
+/// unusable chord.
+#[tauri::command]
+pub fn set_input_lock_chord(
+    db: State<'_, DbHandle>,
+    keys: Vec<String>,
+) -> Result<(), String> {
+    if keys.is_empty() {
+        return Err("chord cannot be empty".into());
+    }
+    let any_valid = keys
+        .iter()
+        .any(|k| crate::input_lock::key_from_str(k).is_some());
+    if !any_valid {
+        return Err("chord contains no recognised keys".into());
+    }
+    let json =
+        serde_json::to_string(&keys).map_err(|e| format!("serialise chord: {e}"))?;
+    settings::set(&db, KEY_INPUT_LOCK_CHORD, &json).map_err(map_err)
+}
+
+/// Activate the input lock. Reads the persisted unlock chord from
+/// settings and hands it to `input_lock::start_input_lock`.
+#[tauri::command]
+pub fn start_input_lock(
+    db: State<'_, DbHandle>,
+    app: AppHandle,
+) -> Result<(), String> {
+    let chord = get_input_lock_chord(db)?;
+    // Hide the popup so the user isn't visually staring at an open
+    // window that can no longer accept clicks.
+    hotkey::hide_popup(&app);
+    crate::input_lock::start_input_lock(chord)
 }
 
 // ── Appearance / theme ────────────────────────────────────────────────

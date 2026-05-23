@@ -18,6 +18,7 @@ mod notes;
 mod ocr;
 mod paste;
 mod recolor;
+mod input_lock;
 mod region_picker;
 mod screen_picker;
 mod screen_recording;
@@ -222,6 +223,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_paste_plain_text_only,
             commands::get_ocr_save_source_image,
             commands::set_ocr_save_source_image,
+            commands::get_input_lock_chord,
+            commands::set_input_lock_chord,
+            commands::start_input_lock,
             commands::delete_entry,
             commands::clear_history,
             commands::toggle_capture,

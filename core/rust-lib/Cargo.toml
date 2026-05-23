@@ -42,6 +42,7 @@ tauri-plugin-autostart = { workspace = true }
 tauri-plugin-global-shortcut = { workspace = true }
 tauri-plugin-single-instance = { workspace = true }
 enigo = { workspace = true }
+rdev = { workspace = true }
 
 # Windows UI Automation bindings — only pulled in on Windows targets so
 # macOS / Linux builds stay slim. Used by the text_field/windows module

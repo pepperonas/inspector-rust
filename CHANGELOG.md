@@ -4,6 +4,37 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] — 2026-05-23
+
+### Added — Input lock (`freeze` command, macOS-lock-style)
+
+Inspired by `pepperonas/macOS-lock`. Type **`freeze`** in the popup search bar → all keyboard, mouse and trackpad input is blocked until you press the configured **unlock chord**. The default chord is **`i + r`** (hold `i`, press `r`); configurable in **Settings → Input Lock** via a "Capture chord" widget that listens for keys held simultaneously.
+
+Cross-platform via the `rdev` crate:
+
+- **macOS** — `CGEventTap`. Uses the existing Accessibility grant.
+- **Windows** — `WH_KEYBOARD_LL` + `WH_MOUSE_LL` low-level hooks. No extra permission.
+- **Linux X11** — `XGrabKeyboard` + `XGrabPointer`. **Wayland is NOT supported** (rdev limitation); `start_input_lock` returns a clear error there.
+
+**Safety hatches that always work** — OS-level system shortcuts cannot be intercepted by user-level event taps, so you can never truly lock yourself out of the machine:
+
+- macOS: `⌥⌘Esc` → Force Quit Applications.
+- Windows: `Ctrl+Alt+Del`.
+- Linux: `Ctrl+Alt+F2` (switch VT).
+
+### Implementation
+
+- New module `core/rust-lib/src/input_lock.rs` with the persistent grab thread (spawned once at first lock activation, lives for the rest of the app — `rdev::grab` has no clean stop API; subsequent locks just flip an atomic flag), the `Key` parser (`key_from_str("i")` → `rdev::Key::KeyI`), and the chord-match callback. 4 unit tests.
+- `start_input_lock` validates the chord and rejects empty / unparseable ones + Wayland sessions up front.
+- Settings key `input_lock.unlock_keys` (JSON array). New IPCs `get_input_lock_chord` / `set_input_lock_chord` / `start_input_lock`.
+- `lib/commands.ts::COMMANDS` gains the `freeze` entry; `App.tsx` dispatches it to `startInputLock()`.
+- `SettingsPanel.tsx` gains a new **Input Lock** section with a chord-capture widget that listens for keydowns + commits on first keyup. Esc cancels.
+- Workspace dep `rdev = "0.5"` with the `unstable_grab` feature.
+
+### Why 0.28.0
+
+A whole new system-level capability — backwards-compatible, no breaking changes. Feature-level → `0.x.0`.
+
 ## [0.27.0] — 2026-05-23
 
 ### Added — CleanShot-X-style floating screenshot preview

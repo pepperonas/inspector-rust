@@ -72,6 +72,28 @@ export function screenshotPreviewEdit(): Promise<void> {
   return invoke("screenshot_preview_edit");
 }
 
+// ── Input lock (macOS-lock-style chord-to-unlock) ──────────────────────────
+
+/** Read the persisted unlock chord. Defaults to `["i", "r"]` on a
+ *  fresh install or a malformed stored value. */
+export function getInputLockChord(): Promise<string[]> {
+  return invoke("get_input_lock_chord");
+}
+
+/** Persist a new unlock chord. Backend rejects empty / all-unparseable
+ *  chords so the user can't lock themselves out via Settings. */
+export function setInputLockChord(keys: string[]): Promise<void> {
+  return invoke("set_input_lock_chord", { keys });
+}
+
+/** Activate the input lock — block all keyboard / mouse input until
+ *  the configured chord is pressed. On macOS needs Accessibility (same
+ *  grant the text-expander already uses). On Linux Wayland this
+ *  returns an error (rdev's grab is X11-only). */
+export function startInputLock(): Promise<void> {
+  return invoke("start_input_lock");
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

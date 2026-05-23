@@ -50,6 +50,7 @@ import {
   startInputLock,
   systemReboot,
   systemShutdown,
+  wakelockSet,
   getThemePreference,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -272,6 +273,14 @@ function App() {
         label = "Block all input — unlock with the chord";
         hint =
           "Press the configured chord (Settings → Input Lock, default i+r) to unlock";
+        break;
+      case "wakelock-on":
+        label = "Wakelock: ON — keep the computer awake";
+        hint = "Cursor jiggles 1 px every 60 s · turn off with wakelock=0";
+        break;
+      case "wakelock-off":
+        label = "Wakelock: OFF — stop the cursor jiggle";
+        hint = "Idle-sleep timers resume their normal behaviour";
         break;
       default:
         // kill is handled above; this guards against future additions.
@@ -546,6 +555,9 @@ function App() {
             setPasteError("other");
             console.error("input lock failed", e);
           }
+        } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
+          await wakelockSet(commandKind === "wakelock-on");
+          await hidePopup();
         }
         return;
       } else if (target.kind === "kill-target") {

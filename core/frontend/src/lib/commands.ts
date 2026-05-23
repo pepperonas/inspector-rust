@@ -33,7 +33,9 @@ export type CommandKind =
   | "shutdown"
   | "lock"
   | "mute"
-  | "freeze";
+  | "freeze"
+  | "wakelock-on"
+  | "wakelock-off";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -47,6 +49,10 @@ export interface CommandSpec {
   description: string;
   /** True if the command needs an argument after the keyword. */
   requiresArg: boolean;
+  /** If true, parses to a runnable command but never appears in the
+   *  autocomplete suggestion list. Used for alias spellings (e.g.
+   *  `wakelock1` as a synonym for `wakelock=1`). */
+  hidden?: boolean;
 }
 
 /** Catalogue of all supported commands. Order = suggestion-list order. */
@@ -139,6 +145,41 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
     requiresArg: false,
   },
+  // ── Wakelock (mouse-jiggle keep-awake) ────────────────────────────
+  // Two canonical forms visible in autocomplete; two un-equalsed
+  // aliases (`wakelock1` / `wakelock0`) parse to the same kinds but
+  // stay out of the suggestion list to keep it tidy.
+  {
+    kind: "wakelock-on",
+    keyword: "wakelock=1",
+    syntax: "wakelock=1",
+    description:
+      "Keep awake — nudge the cursor 1 px every 60 s until you turn it off (wakelock=0)",
+    requiresArg: false,
+  },
+  {
+    kind: "wakelock-off",
+    keyword: "wakelock=0",
+    syntax: "wakelock=0",
+    description: "Disable the wakelock — stop the cursor jiggle",
+    requiresArg: false,
+  },
+  {
+    kind: "wakelock-on",
+    keyword: "wakelock1",
+    syntax: "wakelock1",
+    description: "(alias of wakelock=1)",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "wakelock-off",
+    keyword: "wakelock0",
+    syntax: "wakelock0",
+    description: "(alias of wakelock=0)",
+    requiresArg: false,
+    hidden: true,
+  },
 ];
 
 /** Lookup by exact keyword. O(n=6); a HashMap would be premature. */
@@ -208,7 +249,9 @@ export function commandSuggestions(query: string): CommandSpec[] {
   // an exact command AND a prefix for `tren`/`trde`. The user typing
   // "tr" might mean any of the three; surface them all and let them
   // pick.
-  const matches = COMMANDS.filter((c) => c.keyword.startsWith(firstToken));
+  const matches = COMMANDS.filter(
+    (c) => !c.hidden && c.keyword.startsWith(firstToken),
+  );
 
   // Suppress no-arg exact matches — the user can run them with Enter
   // directly via the parseCommand path, and an autocomplete row showing

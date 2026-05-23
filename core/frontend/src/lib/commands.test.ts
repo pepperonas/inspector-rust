@@ -12,8 +12,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 12 commands", () => {
-    expect(COMMANDS.length).toBe(12);
+  it("has 16 commands (12 base + 4 wakelock entries)", () => {
+    expect(COMMANDS.length).toBe(16);
   });
 
   it("every keyword is unique", () => {
@@ -22,6 +22,16 @@ describe("COMMANDS catalogue", () => {
       expect(seen.has(c.keyword)).toBe(false);
       seen.add(c.keyword);
     }
+  });
+
+  it("wakelock has both canonical (=) and hidden (no-=) spellings", () => {
+    const on = COMMANDS.filter((c) => c.kind === "wakelock-on");
+    const off = COMMANDS.filter((c) => c.kind === "wakelock-off");
+    expect(on.map((c) => c.keyword).sort()).toEqual(["wakelock1", "wakelock=1"]);
+    expect(off.map((c) => c.keyword).sort()).toEqual(["wakelock0", "wakelock=0"]);
+    // Aliases are hidden from autocomplete.
+    expect(on.find((c) => c.keyword === "wakelock1")?.hidden).toBe(true);
+    expect(on.find((c) => c.keyword === "wakelock=1")?.hidden).toBeFalsy();
   });
 
   it("every command has a non-empty description and syntax", () => {

@@ -229,6 +229,23 @@ pub fn start_input_lock(
     crate::input_lock::start_input_lock(chord)
 }
 
+// ── Wakelock ──────────────────────────────────────────────────────────
+
+/// Toggle the mouse-jiggle wakelock. Returns the resulting state
+/// (`true` = active, `false` = off).
+#[tauri::command]
+pub fn wakelock_set(
+    state: State<'_, crate::wakelock::WakelockState>,
+    enable: bool,
+) -> bool {
+    crate::wakelock::set_enabled(state.inner(), enable)
+}
+
+#[tauri::command]
+pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> bool {
+    crate::wakelock::is_enabled(state.inner())
+}
+
 // ── Appearance / theme ────────────────────────────────────────────────
 
 const KEY_THEME: &str = "appearance.theme";

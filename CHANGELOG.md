@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] — 2026-05-23
+
+### Added — `wakelock=1` keep-awake mouse-jiggle
+
+Type **`wakelock=1`** (or `wakelock1`) into the search bar and the cursor starts jumping 1 px right and immediately back every 60 s in the background. Defeats:
+
+- macOS screen-saver / display-sleep idle timers.
+- Teams / Slack / Discord "away" detection (anything that watches for HID activity).
+- App-level "idle" UX (auto-pause on streaming sites, etc.).
+
+Disable with **`wakelock=0`** (or `wakelock0`). State is in-memory only — restarting the app clears it (intentional: you shouldn't accidentally leave a stranger's machine awake).
+
+Three platforms:
+
+- **macOS** — `CGEventCreateMouseEvent(kCGEventMouseMoved, …)` + `CGEventPost(kCGHIDEventTap, …)` via raw `#[link(name = "ApplicationServices")]` FFI. Reads cursor with `CGEventGetLocation`. Same Accessibility TCC grant the paste / expander pipelines already need.
+- **Windows** — `GetCursorPos` + `SetCursorPos` from the bundled `windows` crate (`Win32_UI_WindowsAndMessaging`). No extra permission.
+- **Linux X11** — `XQueryPointer` + `XWarpPointer` on the root window via raw `#[link(name = "X11")]` FFI; `Display` connection cached for the app lifetime. Wayland is a no-op (the protocol denies global cursor synth at the security layer — a future D-Bus `org.freedesktop.ScreenSaver` inhibit would be the proper path there).
+
+Architecture: `core/rust-lib/src/wakelock.rs` owns a Tauri-managed `WakelockState` (`active: AtomicBool`, worker `JoinHandle`, fresh per-worker stop `Arc<AtomicBool>` to avoid resurrecting a still-sleeping previous worker on rapid off→on→off). Worker thread polls a 200 ms cancel-tick wait so toggling off lands within 200 ms instead of waiting up to a minute. Two synthetic moves spaced 30 ms apart (one to `(x+1, y)`, one back to `(x, y)`) — the OS sees two distinct HID events, the user sees nothing.
+
+Frontend: two visible `COMMANDS` entries (`wakelock=1` / `wakelock=0`) + two `hidden: true` aliases (`wakelock1` / `wakelock0`) so the autocomplete stays tidy. IPC: `wakelock_set(enable)` / `wakelock_get()`.
+
+### Why 0.29.0
+
+New user-facing command + new Rust module + new platform FFI surface (mouse synth on all three desktop OSes). Additive — no behaviour change for anyone who doesn't type the command. Bumping the minor digit fits.
+
 ## [0.28.9] — 2026-05-23
 
 ### Added — Native cursor queries on Windows + Linux X11

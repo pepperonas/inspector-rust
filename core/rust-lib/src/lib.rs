@@ -29,6 +29,7 @@ mod snippets;
 mod system_commands;
 mod text_field;
 mod ui_state;
+mod wakelock;
 
 pub use ui_state::UiState;
 
@@ -130,6 +131,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(ui_state);
             app.manage(expander_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
+            app.manage(wakelock::WakelockState::default());
 
             if let Err(e) = hotkey::register(&app.handle()) {
                 tracing::warn!(
@@ -291,6 +293,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::system_lock,
             commands::adjust_volume,
             commands::toggle_mute,
+            commands::wakelock_set,
+            commands::wakelock_get,
             commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,

@@ -102,6 +102,20 @@ export function startInputLock(): Promise<void> {
   return invoke("start_input_lock");
 }
 
+// ── Wakelock (mouse-jiggle keep-awake) ─────────────────────────────────────
+
+/** Toggle the wakelock. While active, the cursor jumps 1 px right
+ *  and immediately back every 60 s — defeats idle-sleep timers and
+ *  "away" detection (Teams, Slack, screen savers). Resolves with the
+ *  resulting state. */
+export function wakelockSet(enable: boolean): Promise<boolean> {
+  return invoke("wakelock_set", { enable });
+}
+
+export function wakelockGet(): Promise<boolean> {
+  return invoke("wakelock_get");
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

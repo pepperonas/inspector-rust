@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.6] — 2026-05-23
+
+### Fixed — `freeze` callback now uses **raw FFI** (was: core-graphics wrapper)
+
+The v0.28.5 callback used `core-graphics 0.24`'s `CGEventTap::new` closure API and returned `None` to drop events. Diagnostic logs proved the callback fired with `lock_active=true` on every key press — yet the events still reached focused apps. Best hypothesis: the core-graphics wrapper's `Option<CGEvent>` → C-ABI return path silently mis-translates `None` on macOS Sonoma (possibly due to having both 0.24 and 0.25 of the crate in the dep tree).
+
+This release drops the wrapper entirely and uses **raw FFI**: `#[link(name = "ApplicationServices")]` for `CGEventTapCreate` / `CGEventTapEnable` / `CGEventGetIntegerValueField`, `#[link(name = "CoreFoundation")]` for `CFMachPortCreateRunLoopSource` / `CFRunLoopGetMain` / `CFRunLoopAddSource`. The callback is a plain `extern "C" fn` returning `CGEventRef` — `event` for pass-through, `std::ptr::null_mut()` for drop. Same C-ABI semantics as `macos-lock.py` (which works via PyObjC).
+
+Tap installed on the main thread's run loop (where Tauri's NSApp is already spinning). Diagnostic log line gained `(raw FFI)` suffix so the install path is identifiable.
+
+`core-graphics` + `core-foundation` dependencies dropped from `core/rust-lib/Cargo.toml` (transitive pulls from Tauri remain in the lock file).
+
+### Why 0.28.6
+
+Continuing to chase down the freeze regression — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.5] — 2026-05-23
 
 ### Fixed — `freeze` event tap installed on the **main** run loop now

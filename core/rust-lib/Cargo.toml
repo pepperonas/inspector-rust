@@ -67,8 +67,11 @@ windows = { version = "0.61", features = [
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"
-# Native CGEventTap + CFRunLoop for the input-lock feature. Wraps the
-# Quartz Event Services C API with proper Rust ownership; same as what
-# `pepperonas/macOS-lock` (Python) uses via PyObjC.
-core-graphics = "0.24"
-core-foundation = "0.10"
+# Native CGEventTap + CFRunLoop for the input-lock feature lives in
+# `input_lock.rs` as raw FFI via `#[link(name = "ApplicationServices")]`
+# / `#[link(name = "CoreFoundation")]` — no wrapper crate. The
+# core-graphics 0.24 wrapper's CGEventTap::new closure return value
+# wasn't actually dropping events on macOS Sonoma despite returning
+# `None`. Raw FFI gives us a real C-ABI `extern "C" fn` callback whose
+# return value is unambiguously the CGEventRef passed back to the OS
+# (or NULL to drop).

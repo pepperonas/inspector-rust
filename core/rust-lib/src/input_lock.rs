@@ -5,37 +5,29 @@
 //! the `freeze` autocomplete row). Unlock: press the chord configured
 //! in Settings → Input Lock (default: hold `i`, press `r`).
 //!
-//! ## Implementation
+//! ## macOS implementation
 //!
-//! Native `CGEventTap` via the `core-graphics` + `core-foundation`
-//! crates — the Quartz Event Services API the Python `macOS-lock`
-//! script uses through PyObjC.
+//! **Raw FFI** to `CGEventTapCreate` + `CFRunLoop*` via `#[link]` —
+//! we previously tried the `core-graphics` crate's `CGEventTap::new`
+//! wrapper but it returned `None` from the closure without actually
+//! dropping events on macOS Sonoma (the callback fired with
+//! `lock_active=true` but events still reached apps anyway). Raw FFI
+//! gives us a real C-ABI `extern "C" fn` whose return value is
+//! unambiguously the `CGEventRef` passed back to the OS (or `NULL`
+//! to drop) — identical semantics to what `macos-lock.py` uses via
+//! PyObjC.
 //!
-//! The tap is installed on **the main thread's run loop** (the one
-//! Tauri's NSApp is already spinning), not a worker thread with its
-//! own run loop. The latter compiled but didn't actually intercept
-//! events on macOS Sonoma+ — Apple's docs don't promise it works, and
-//! evidence said it didn't. Installing on the main loop is what
-//! macOS-lock's Python equivalent does (it blocks main with
-//! `CFRunLoopRun`), and what most real-world Cocoa apps that use
-//! event taps do. The tap object itself is `std::mem::forget`-ed so
-//! it stays alive past the IPC handler's return — Rust's Drop would
-//! otherwise tear down the Mach port the moment the binding leaves
-//! scope.
+//! The tap is installed on **the main thread's** run loop (the one
+//! Tauri's `NSApp.run` is already spinning), not a worker thread —
+//! Apple's HID/Session taps need that for reliable event delivery.
 //!
-//! Toggle behaviour via `LOCK_ACTIVE` atomic: when false the callback
-//! returns the event unchanged (passes through); when true it tracks
-//! the unlock chord and swallows the event.
-//!
-//! Requires Accessibility (the existing grant covers it). On Windows /
-//! Linux `start_input_lock` returns "not implemented yet" so the
-//! Settings UI + trigger stay platform-agnostic.
+//! Requires Accessibility (the existing grant for the text-expander
+//! covers it).
 //!
 //! ## Safety hatch
 //!
 //! `⌥⌘Esc` (Force Quit) is processed by WindowServer above any
-//! user-level event tap and cannot be intercepted — you can always
-//! recover even if you forget the chord.
+//! user-level event tap — you can always recover.
 
 use parking_lot::Mutex;
 use std::collections::HashSet;
@@ -43,14 +35,9 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::OnceLock;
 
 // ── Key-name → macOS keycode table ───────────────────────────────────────
-//
-// Identical mapping to `macos-lock-cli.py`'s `KEYCODE_MAP`. Stored
-// platform-agnostically so the chord-validation logic on Windows/Linux
-// still works even though the tap there isn't wired up yet.
 
 /// Parse a key-name string (case-insensitive) into the macOS keycode
-/// the event tap compares against. Returns `None` for unknown names so
-/// the caller can surface a clear "invalid chord" error.
+/// the event tap compares against. Returns `None` for unknown names.
 pub fn key_from_str(name: &str) -> Option<i64> {
     let s = name.trim().to_lowercase();
     match s.as_str() {
@@ -76,24 +63,10 @@ pub fn key_from_str(name: &str) -> Option<i64> {
 
 // ── Shared state ─────────────────────────────────────────────────────────
 
-/// True while the input lock is active. The tap callback reads this
-/// on every event; when false the event is passed through unmodified.
 static LOCK_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-/// Set to true once the tap is installed for the app's lifetime. We
-/// only install once — subsequent lock cycles just flip `LOCK_ACTIVE`.
 static TAP_INSTALLED: AtomicBool = AtomicBool::new(false);
-
-/// Diagnostic counter — incremented on every callback invocation.
-/// The first few invocations are logged at info level so we can verify
-/// the tap is actually receiving events.
 static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
-
-/// Keycodes that must be simultaneously pressed to unlock. Set by
-/// `start_input_lock` before each cycle.
 static UNLOCK_CODES: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
-
-/// Currently-pressed keycodes, tracked by the tap callback.
 static PRESSED: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
 
 fn unlock_codes() -> &'static Mutex<Vec<i64>> {
@@ -105,13 +78,11 @@ fn pressed() -> &'static Mutex<HashSet<i64>> {
 
 // ── Public API ───────────────────────────────────────────────────────────
 
-/// Activate the input lock with the given unlock chord.
 pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
     let codes: Vec<i64> = unlock_keys.iter().filter_map(|s| key_from_str(s)).collect();
     if codes.is_empty() {
         return Err("input lock: unlock chord is empty or unparseable".into());
     }
-
     *unlock_codes().lock() = codes;
     pressed().lock().clear();
 
@@ -139,110 +110,115 @@ pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
     }
 }
 
-/// Whether the lock is currently active. Used by tests + possible
-/// frontend indicators.
 #[allow(dead_code)]
 pub fn is_locked() -> bool {
     LOCK_ACTIVE.load(Ordering::SeqCst)
 }
 
-// ── macOS event-tap implementation ───────────────────────────────────────
+// ── macOS event-tap (raw FFI) ────────────────────────────────────────────
 
 #[cfg(target_os = "macos")]
 mod macos_impl {
     use super::*;
-    use core_foundation::runloop::{kCFRunLoopCommonModes, CFRunLoop};
-    use core_graphics::event::{
-        CGEventTap, CGEventTapLocation, CGEventTapOptions, CGEventTapPlacement,
-        CGEventType, EventField,
-    };
+    use std::ffi::c_void;
 
-    /// Build the CGEventTap, install its run-loop source on the **main
-    /// thread's** run loop, enable it, and `mem::forget` the tap so
-    /// it outlives this function (Drop would tear down the Mach port).
-    pub fn install_tap_on_main_runloop() -> Result<(), String> {
-        let events_of_interest = vec![
-            CGEventType::KeyDown,
-            CGEventType::KeyUp,
-            CGEventType::FlagsChanged,
-            CGEventType::LeftMouseDown,
-            CGEventType::LeftMouseUp,
-            CGEventType::LeftMouseDragged,
-            CGEventType::RightMouseDown,
-            CGEventType::RightMouseUp,
-            CGEventType::RightMouseDragged,
-            CGEventType::OtherMouseDown,
-            CGEventType::OtherMouseUp,
-            CGEventType::OtherMouseDragged,
-            CGEventType::MouseMoved,
-            CGEventType::ScrollWheel,
-        ];
+    // ── Opaque CF / CG types as void pointers ─────────────────────
+    type CGEventRef = *mut c_void;
+    type CGEventTapProxy = *mut c_void;
+    type CFMachPortRef = *mut c_void;
+    type CFAllocatorRef = *mut c_void;
+    type CFRunLoopRef = *mut c_void;
+    type CFRunLoopSourceRef = *mut c_void;
+    type CFStringRef = *const c_void;
+    type CGEventMask = u64;
+    type CGEventTapCallBack = extern "C" fn(
+        proxy: CGEventTapProxy,
+        event_type: u32,
+        event: CGEventRef,
+        user_info: *mut c_void,
+    ) -> CGEventRef;
 
-        let tap = CGEventTap::new(
-            CGEventTapLocation::Session,
-            CGEventTapPlacement::HeadInsertEventTap,
-            CGEventTapOptions::Default, // intercepting, not listen-only
-            events_of_interest,
-            callback,
-        )
-        .map_err(|_| {
-            "CGEventTap::new failed. Grant Inspector Rust Accessibility access \
-             (System Settings → Privacy & Security → Accessibility), then try \
-             `freeze` again."
-                .to_string()
-        })?;
-
-        unsafe {
-            let loop_source = tap
-                .mach_port
-                .create_runloop_source(0)
-                .map_err(|_| "create_runloop_source failed".to_string())?;
-            // The MAIN run loop, not the current thread's. Tauri's
-            // NSApp.run is already spinning the main run loop, so
-            // adding a Mach port source there means callbacks fire
-            // on the main thread — what macOS expects for an HID-
-            // session event tap.
-            CFRunLoop::get_main().add_source(&loop_source, kCFRunLoopCommonModes);
-        }
-        tap.enable();
-
-        // Drop would CFRelease the Mach port and disconnect the tap.
-        // Forget keeps the underlying objects alive for the app's
-        // lifetime.
-        std::mem::forget(tap);
-
-        tracing::info!("input_lock: CGEventTap installed on main run loop");
-        Ok(())
+    // ── Constants from <CoreGraphics/CGEventTypes.h> ──────────────
+    #[allow(non_upper_case_globals)]
+    mod c {
+        // CGEventTapLocation
+        pub const SESSION_EVENT_TAP: u32 = 1;
+        // CGEventTapPlacement
+        pub const HEAD_INSERT_EVENT_TAP: u32 = 0;
+        // CGEventTapOptions
+        pub const EVENT_TAP_OPTION_DEFAULT: u32 = 0;
+        // CGEventField
+        pub const KEYBOARD_EVENT_KEYCODE: u32 = 9;
+        // CGEventType — values from CGEventTypes.h
+        pub const EVT_LEFT_MOUSE_DOWN: u32 = 1;
+        pub const EVT_LEFT_MOUSE_UP: u32 = 2;
+        pub const EVT_RIGHT_MOUSE_DOWN: u32 = 3;
+        pub const EVT_RIGHT_MOUSE_UP: u32 = 4;
+        pub const EVT_MOUSE_MOVED: u32 = 5;
+        pub const EVT_LEFT_MOUSE_DRAGGED: u32 = 6;
+        pub const EVT_RIGHT_MOUSE_DRAGGED: u32 = 7;
+        pub const EVT_KEY_DOWN: u32 = 10;
+        pub const EVT_KEY_UP: u32 = 11;
+        pub const EVT_FLAGS_CHANGED: u32 = 12;
+        pub const EVT_SCROLL_WHEEL: u32 = 22;
+        pub const EVT_OTHER_MOUSE_DOWN: u32 = 25;
+        pub const EVT_OTHER_MOUSE_UP: u32 = 26;
+        pub const EVT_OTHER_MOUSE_DRAGGED: u32 = 27;
     }
 
-    /// The CGEventTap callback — fires on the main thread (where the
-    /// run loop hosting our source lives). Returns `None` to drop the
-    /// event, `Some(event)` to pass it through.
-    fn callback(
-        _proxy: core_graphics::event::CGEventTapProxy,
-        ty: CGEventType,
-        event: &core_graphics::event::CGEvent,
-    ) -> Option<core_graphics::event::CGEvent> {
-        // Diagnostic: log the first handful of invocations so we can
-        // verify the tap is actually receiving events. Cheap atomic
-        // increment + bounded logging.
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventTapCreate(
+            tap: u32,
+            place: u32,
+            options: u32,
+            events_of_interest: CGEventMask,
+            callback: CGEventTapCallBack,
+            user_info: *mut c_void,
+        ) -> CFMachPortRef;
+        fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+        fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFMachPortCreateRunLoopSource(
+            allocator: CFAllocatorRef,
+            port: CFMachPortRef,
+            order: isize,
+        ) -> CFRunLoopSourceRef;
+        fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+        fn CFRunLoopGetMain() -> CFRunLoopRef;
+        static kCFRunLoopCommonModes: CFStringRef;
+    }
+
+    /// The raw C-ABI tap callback. Returning `event` passes the event
+    /// through unchanged; returning `null_mut()` drops it from the
+    /// queue. Single source of truth — no Rust wrapper between us and
+    /// the OS, so there's no chance of an ABI-level mismatch.
+    extern "C" fn tap_callback(
+        _proxy: CGEventTapProxy,
+        event_type: u32,
+        event: CGEventRef,
+        _user_info: *mut c_void,
+    ) -> CGEventRef {
         let n = CALLBACK_COUNT.fetch_add(1, Ordering::SeqCst);
         if n < 8 {
             tracing::info!(
-                "input_lock callback #{n}: type={:?}, lock_active={}",
-                ty,
+                "input_lock callback #{n}: type={event_type}, lock_active={}",
                 LOCK_ACTIVE.load(Ordering::SeqCst)
             );
         }
 
-        // Fast path — when not locked, pass every event through.
         if !LOCK_ACTIVE.load(Ordering::SeqCst) {
-            return Some(event.clone());
+            return event; // pass through unchanged
         }
 
-        match ty {
-            CGEventType::KeyDown => {
-                let kc = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+        match event_type {
+            ty if ty == c::EVT_KEY_DOWN => {
+                let kc = unsafe {
+                    CGEventGetIntegerValueField(event, c::KEYBOARD_EVENT_KEYCODE)
+                };
                 let matched = {
                     let mut p = pressed().lock();
                     p.insert(kc);
@@ -254,15 +230,69 @@ mod macos_impl {
                     pressed().lock().clear();
                     tracing::info!("input_lock: unlock chord matched, releasing");
                 }
-                None
+                std::ptr::null_mut() // drop
             }
-            CGEventType::KeyUp => {
-                let kc = event.get_integer_value_field(EventField::KEYBOARD_EVENT_KEYCODE);
+            ty if ty == c::EVT_KEY_UP => {
+                let kc = unsafe {
+                    CGEventGetIntegerValueField(event, c::KEYBOARD_EVENT_KEYCODE)
+                };
                 pressed().lock().remove(&kc);
-                None
+                std::ptr::null_mut()
             }
-            _ => None, // swallow mouse + scroll while locked
+            _ => std::ptr::null_mut(), // drop mouse / scroll / flags while locked
         }
+    }
+
+    pub fn install_tap_on_main_runloop() -> Result<(), String> {
+        let mask: CGEventMask = (1u64 << c::EVT_KEY_DOWN)
+            | (1u64 << c::EVT_KEY_UP)
+            | (1u64 << c::EVT_FLAGS_CHANGED)
+            | (1u64 << c::EVT_LEFT_MOUSE_DOWN)
+            | (1u64 << c::EVT_LEFT_MOUSE_UP)
+            | (1u64 << c::EVT_LEFT_MOUSE_DRAGGED)
+            | (1u64 << c::EVT_RIGHT_MOUSE_DOWN)
+            | (1u64 << c::EVT_RIGHT_MOUSE_UP)
+            | (1u64 << c::EVT_RIGHT_MOUSE_DRAGGED)
+            | (1u64 << c::EVT_OTHER_MOUSE_DOWN)
+            | (1u64 << c::EVT_OTHER_MOUSE_UP)
+            | (1u64 << c::EVT_OTHER_MOUSE_DRAGGED)
+            | (1u64 << c::EVT_MOUSE_MOVED)
+            | (1u64 << c::EVT_SCROLL_WHEEL);
+
+        let tap_port = unsafe {
+            CGEventTapCreate(
+                c::SESSION_EVENT_TAP,
+                c::HEAD_INSERT_EVENT_TAP,
+                c::EVENT_TAP_OPTION_DEFAULT,
+                mask,
+                tap_callback,
+                std::ptr::null_mut(),
+            )
+        };
+        if tap_port.is_null() {
+            return Err(
+                "CGEventTapCreate returned NULL. Grant Inspector Rust \
+                 Accessibility access (System Settings → Privacy & Security → \
+                 Accessibility), then try `freeze` again."
+                    .into(),
+            );
+        }
+
+        unsafe {
+            let loop_source =
+                CFMachPortCreateRunLoopSource(std::ptr::null_mut(), tap_port, 0);
+            if loop_source.is_null() {
+                return Err("CFMachPortCreateRunLoopSource returned NULL".into());
+            }
+            let main_loop = CFRunLoopGetMain();
+            CFRunLoopAddSource(main_loop, loop_source, kCFRunLoopCommonModes);
+            CGEventTapEnable(tap_port, true);
+        }
+
+        tracing::info!(
+            "input_lock: CGEventTap installed on main run loop (raw FFI)"
+        );
+        Ok(())
     }
 }
 

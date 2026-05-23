@@ -2211,7 +2211,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.28.5"
+version = "0.28.6"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2219,8 +2219,6 @@ dependencies = [
  "block2 0.6.2",
  "chrono",
  "clipboard-rs",
- "core-foundation",
- "core-graphics 0.24.0",
  "dirs 5.0.1",
  "enigo",
  "image",
@@ -2250,7 +2248,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.28.5"
+version = "0.28.6"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2264,7 +2262,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.28.5"
+version = "0.28.6"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2278,7 +2276,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.28.5"
+version = "0.28.6"
 dependencies = [
  "inspector-rust-core",
  "tauri",

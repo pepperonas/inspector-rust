@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.4] — 2026-05-23
+
+### Added — String-transform bar on HTML + RTF entries
+
+The transform bar (`Cmd/Ctrl+1…9` → remove vowels / UPPER / lower / Title / camel / snake / kebab / Base64 / URL-encode, plus click-only Base64/URL decode) now shows on **HTML** and **RTF** clipboard entries too, not just plain text. It operates on the entry's `content_text` (the plain-text representation), so the existing transforms apply directly.
+
+This also covers a subtle dedup case: when the OCR-recognised text matches the SHA-256 hash of an existing HTML entry (e.g. the same text was previously copied from a webpage), the database upserts the existing HTML row rather than inserting a new Text row — without this fix the transform bar would have been hidden on that "OCR" result.
+
+Plain-text and OCR-result entries (`content_type = Text`) already showed the bar; this extends the coverage so any text-bearing clip — text, OCR, HTML, RTF — has the same toolbox.
+
+### Why 0.26.4
+
+UX coverage extension on an existing feature — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.26.3] — 2026-05-23
 
 ### Changed — OCR no longer saves the source PNG to history by default

@@ -331,6 +331,9 @@ export function PreviewPanel({ entry }: Props) {
           className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
           title="html preview"
         />
+        {/* HTML clips have a text representation in `content_text` —
+            offer the same string transforms as plain-text entries. */}
+        {clip.content_text && <TransformBar text={clip.content_text} />}
       </div>
     );
   }
@@ -345,10 +348,15 @@ export function PreviewPanel({ entry }: Props) {
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
           RTF formatting will be preserved on paste.
         </div>
+        {/* RTF clips: same string transforms apply to the plain-text
+            representation, like OCR / HTML / plain text. */}
+        {clip.content_text && <TransformBar text={clip.content_text} />}
       </div>
     );
   }
 
+  // Default text branch — also where OCR-recognised text (saved as
+  // content_type=Text) lands, so the transform bar shows there too.
   return (
     <div className="flex h-full flex-col p-4">
       {meta}

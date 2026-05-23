@@ -48,6 +48,7 @@ function readThemeColors() {
 
 export function SpaceInvadersGame({ onExit }: Props) {
   const [phase, setPhase] = useState<Phase>("intro");
+  const [playerWon, setPlayerWon] = useState(false);
   const [score, setScore] = useState(0);
   const [lives, setLives] = useState(INITIAL_LIVES);
   const scoreRef = useRef(0);
@@ -74,6 +75,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
     livesRef.current = INITIAL_LIVES;
     setScore(0);
     setLives(INITIAL_LIVES);
+    setPlayerWon(false);
     const s = stateRef.current;
     s.playerX = s.fieldW / 2;
     s.playerY = s.fieldH - 48;
@@ -239,6 +241,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
           s.bullets = s.bullets.filter((x) => !x.active || x.fromPlayer);
           if (livesRef.current <= 0) {
             s.running = false;
+            setPlayerWon(false);
             setPhase("over");
             return;
           }
@@ -249,12 +252,14 @@ export function SpaceInvadersGame({ onExit }: Props) {
 
       if (allDead(s.aliens)) {
         s.running = false;
+        setPlayerWon(true);
         setPhase("over");
         return;
       }
 
       if (aliensReachedPlayer(s.aliens, s.playerY)) {
         s.running = false;
+        setPlayerWon(false);
         setPhase("over");
         return;
       }
@@ -268,7 +273,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
     return () => cancelAnimationFrame(raf);
   }, [phase]);
 
-  const won = phase === "over" && allDead(stateRef.current.aliens) && lives > 0;
+  const won = phase === "over" && playerWon;
 
   return (
     <div

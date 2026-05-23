@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.4] — 2026-05-23
+
+### Fixed — `freeze` errors now surface to the user (silent-fail diagnosis)
+
+v0.28.3 swallowed `CGEventTap::new` failures inside the background tap thread — if the tap couldn't be created (most commonly because Accessibility for the just-installed binary wasn't actually granted yet), the IPC returned Ok and the user saw "lock activated" but nothing actually blocked.
+
+`start_input_lock` now uses a `mpsc::channel` handshake with the tap thread: it waits up to 2 s for the thread to report whether `CGEventTap::new` succeeded. On failure, the IPC returns the actual error string (mentions Accessibility) instead of pretending success. On 2 s timeout it surfaces a "stuck waiting on Accessibility prompt" hint. Extra `tracing::info!` lines around tap install / run loop entry-exit for log-side debugging.
+
+If `freeze` still doesn't block input on your machine, the toast will now name the actual reason.
+
+### Why 0.28.4
+
+Diagnostic hardening of the v0.28.3 freeze implementation — backwards-compatible. Patch-level → `0.x.y`.
+
 ## [0.28.3] — 2026-05-23
 
 ### Fixed — `freeze` actually works now (native CGEventTap on macOS)

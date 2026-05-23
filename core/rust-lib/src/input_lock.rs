@@ -108,14 +108,39 @@ pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        LOCK_ACTIVE.store(true, Ordering::SeqCst);
-        if !TAP_STARTED.swap(true, Ordering::SeqCst) {
-            std::thread::Builder::new()
-                .name("input-lock-tap".into())
-                .spawn(macos_impl::run_event_tap)
-                .map_err(|e| format!("spawn tap thread: {e}"))?;
+        // If the tap thread is already up from a previous lock cycle,
+        // just flip the flag — no need to re-create.
+        if TAP_STARTED.load(Ordering::SeqCst) {
+            LOCK_ACTIVE.store(true, Ordering::SeqCst);
+            return Ok(());
         }
-        Ok(())
+
+        // First-time setup. Spawn the tap thread, wait briefly for it
+        // to report whether `CGEventTap::new` succeeded — so a missing
+        // Accessibility permission (or any other failure mode) surfaces
+        // back to the IPC caller as a clear error instead of silently
+        // failing on a background thread.
+        use std::sync::mpsc;
+        let (tx, rx) = mpsc::channel::<Result<(), String>>();
+        std::thread::Builder::new()
+            .name("input-lock-tap".into())
+            .spawn(move || macos_impl::run_event_tap(tx))
+            .map_err(|e| format!("spawn tap thread: {e}"))?;
+
+        match rx.recv_timeout(std::time::Duration::from_secs(2)) {
+            Ok(Ok(())) => {
+                TAP_STARTED.store(true, Ordering::SeqCst);
+                LOCK_ACTIVE.store(true, Ordering::SeqCst);
+                Ok(())
+            }
+            Ok(Err(e)) => Err(e),
+            Err(_) => Err(
+                "input lock: tap thread didn't report within 2 s — likely \
+                 stuck waiting on Accessibility prompt. Grant Inspector Rust \
+                 Accessibility access and try again."
+                    .into(),
+            ),
+        }
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -146,7 +171,7 @@ mod macos_impl {
         CGEventType, EventField,
     };
 
-    pub fn run_event_tap() {
+    pub fn run_event_tap(init_tx: std::sync::mpsc::Sender<Result<(), String>>) {
         let events_of_interest = vec![
             CGEventType::KeyDown,
             CGEventType::KeyUp,
@@ -208,24 +233,34 @@ mod macos_impl {
             Ok(t) => t,
             Err(_) => {
                 // Creation failed — almost always missing Accessibility.
-                // Reset the gates so a future attempt can retry after
-                // the user grants permission.
-                LOCK_ACTIVE.store(false, Ordering::SeqCst);
-                TAP_STARTED.store(false, Ordering::SeqCst);
-                tracing::error!(
-                    "CGEventTap::new failed — Accessibility permission required"
-                );
+                let msg = "CGEventTap::new failed. \
+                           Grant Inspector Rust Accessibility access \
+                           (System Settings → Privacy → Accessibility), \
+                           then try `freeze` again.".to_string();
+                tracing::error!("{msg}");
+                let _ = init_tx.send(Err(msg));
                 return;
             }
         };
 
+        // Tap created OK — report success so the IPC unblocks.
+        let _ = init_tx.send(Ok(()));
+
         // Install on this thread's run loop, enable, and block.
         unsafe {
-            let loop_source = tap.mach_port.create_runloop_source(0).unwrap();
+            let loop_source = match tap.mach_port.create_runloop_source(0) {
+                Ok(s) => s,
+                Err(_) => {
+                    tracing::error!("create_runloop_source failed after tap init");
+                    return;
+                }
+            };
             CFRunLoop::get_current().add_source(&loop_source, kCFRunLoopCommonModes);
         }
         tap.enable();
+        tracing::info!("input-lock CGEventTap installed; running run loop");
         CFRunLoop::run_current();
+        tracing::info!("input-lock run loop exited");
     }
 }
 

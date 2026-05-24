@@ -4,6 +4,33 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.1] — 2026-05-24
+
+### Fixed — Expander silent-no-op (or wrong-paste!) in terminals
+
+User report: `mfg + Alt+1` expands in CotEditor but does nothing in Terminal.app / iTerm2. Root cause was actually worse than "silent no-op":
+
+1. AX read fails for terminals (no AX-exposed input line) → falls to the clipboard cycle.
+2. The clipboard cycle synthesises `Option+Shift+Left` to select the previous word + `Cmd+C` to copy it.
+3. **In terminals, `Option+Shift+Left` is not a selection** — it becomes an ESC-sequence (`ESC b` / readline word-back) that the shell interprets as text input. **Nothing gets selected; nothing new lands on the clipboard.**
+4. We then read the clipboard, get the *old* contents back, look it up against the snippet table. **If the old clipboard text happens to match a configured abbreviation, we paste the WRONG body** into the terminal command line.
+
+Two-layer fix:
+
+**1. Terminal-frontmost short-circuit.** New `is_terminal_frontmost()` helper checks `frontmost_app::name()` against an allow-list (`Terminal`, `iTerm`, `iTerm2`, `Warp`, `kitty`, `Alacritty`, `Ghostty`, `WezTerm`, `Tabby`, `Hyper`) + substring catch-all. When matched, `expand_at_cursor` bails before the clipboard cycle even starts, with new sentinel `ax.terminal_unsupported`.
+
+**2. Clipboard-unchanged guard.** Even for non-terminal apps that mistreat the keystroke selection (some browser text fields with custom key handlers, etc.), `expand_via_clipboard` now compares the post-cycle clipboard text against the saved pre-cycle text. If they're equal — meaning our select+copy was a no-op — bail with the same sentinel instead of looking up stale clipboard contents.
+
+**Loud failure UX.** The hotkey handler reacts to `BlockReason::TerminalUnsupported` by **opening the popup** with the search bar focused + an 8-second amber hint banner: "Text expansion can't work in terminals. Workarounds: (a) type the abbreviation here in the popup, press Enter to paste; OR (b) configure a Direct hotkey → snippet in Settings (those bypass reading and work in any app, terminals included)." The user knows exactly what happened and what to do.
+
+New tests:
+- `error_sentinel_is_stable` extended to pin the new sentinel.
+- `block_reason_round_trips_through_anyhow` — pins the `to_sentinel` / `from_error` round-trip for all five variants.
+
+### Why 0.35.1
+
+Real-world bug report fix. No new feature surface, no IPC break. Patch-level → `0.x.y`.
+
 ## [0.35.0] — 2026-05-24
 
 ### Performance — Expander: caching, batched-AX, smart sleeps (~80–150 ms faster per expansion)

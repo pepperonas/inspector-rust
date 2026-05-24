@@ -644,14 +644,14 @@ function App() {
   // so the user *knows* the expansion was blocked rather than
   // wondering why nothing happened.
   const [expanderBlocked, setExpanderBlocked] = useState<
-    null | "password" | "secure_input"
+    null | "password" | "secure_input" | "terminal"
   >(null);
   useEffect(() => {
     let unlisten: UnlistenFn | undefined;
     (async () => {
       unlisten = await listen<string>("expander-blocked", (e) => {
         const reason = e.payload as string;
-        if (reason === "password" || reason === "secure_input") {
+        if (reason === "password" || reason === "secure_input" || reason === "terminal") {
           setExpanderBlocked(reason);
         }
       });
@@ -660,7 +660,11 @@ function App() {
   }, []);
   useEffect(() => {
     if (!expanderBlocked) return;
-    const id = window.setTimeout(() => setExpanderBlocked(null), 4000);
+    // Terminal banner gets longer dwell time — the popup just opened,
+    // user needs to read the hint + decide to search vs. configure
+    // a direct-slot. Password / secure-input are dismiss-and-forget.
+    const dwell = expanderBlocked === "terminal" ? 8000 : 4000;
+    const id = window.setTimeout(() => setExpanderBlocked(null), dwell);
     return () => window.clearTimeout(id);
   }, [expanderBlocked]);
 
@@ -1097,12 +1101,23 @@ function App() {
                   field would leak the body into your password manager / sudo
                   prompt / OS password dialog.
                 </>
-              ) : (
+              ) : expanderBlocked === "secure_input" ? (
                 <>
                   <b>Text expansion blocked — secure event input is active.</b>{" "}
                   macOS is suppressing synthetic input (typically because a
                   password field is the keyboard responder). Try again after
                   leaving the secure field.
+                </>
+              ) : (
+                <>
+                  <b>Text expansion can't work in terminals.</b>{" "}
+                  Terminals don't expose their input line to the accessibility
+                  API, and the keystroke-cycle fallback (<code>⌥⇧←</code> select-word)
+                  becomes an ESC-sequence instead of a selection. Workarounds:{" "}
+                  <b>type the abbreviation here in the popup search bar</b> and
+                  press <b>⏎</b> to paste, OR configure a{" "}
+                  <b>Direct hotkey → snippet</b> in Settings (those bypass
+                  reading and work in any app, terminals included).
                 </>
               )}
             </span>

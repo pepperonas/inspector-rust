@@ -306,6 +306,14 @@ pub fn register_expander(
                             Some(expander::BlockReason::InspectorFrontmost) => {
                                 tracing::debug!("expander hotkey: Inspector Rust frontmost");
                             }
+                            Some(expander::BlockReason::TerminalUnsupported) => {
+                                // Terminals can't be expanded into via
+                                // the AX/clipboard cycle. Open the
+                                // popup as a fallback so the user can
+                                // search + paste a snippet manually.
+                                let _ = show_popup(&app_for_err);
+                                let _ = app_for_err.emit("expander-blocked", "terminal");
+                            }
                             None => tracing::warn!("expand_at_cursor failed: {e:#}"),
                         },
                     }
@@ -401,6 +409,14 @@ pub fn register_direct_slots(
                                 }
                                 Some(crate::expander::BlockReason::InspectorFrontmost) => {
                                     tracing::debug!("direct-slot: Inspector Rust frontmost");
+                                }
+                                Some(crate::expander::BlockReason::TerminalUnsupported) => {
+                                    // Direct slots themselves DO work in
+                                    // terminals (they don't read anything,
+                                    // just Backspace + paste). This branch
+                                    // is dead but the enum is exhaustive
+                                    // so we keep it for completeness.
+                                    tracing::debug!("direct-slot in terminal — shouldn't fire");
                                 }
                                 None => tracing::warn!("direct-slot paste failed: {e:#}"),
                             },

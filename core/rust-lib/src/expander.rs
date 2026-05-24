@@ -222,6 +222,41 @@ fn inspector_rust_is_frontmost() -> bool {
     }
 }
 
+/// Best-effort check whether the frontmost app is a terminal. In
+/// terminals the abbreviation expander **cannot** read the typed
+/// text (no AX-exposed input line) AND the clipboard-cycle fallback
+/// produces garbage (`Option+Shift+Left` becomes an ESC-sequence,
+/// not a selection — see comments in `expand_at_cursor`). Without
+/// this check the user would either get a silent no-op *or* — worse
+/// — a wrong expansion based on stale clipboard contents that
+/// happened to match an abbreviation.
+///
+/// Returns `true` for: Terminal.app, iTerm2, Warp, kitty, Alacritty,
+/// Ghostty, WezTerm, Tabby, Hyper, kovid's terminal-related tools.
+/// Case-insensitive substring + exact match where useful.
+fn is_terminal_frontmost() -> bool {
+    let Some(name) = crate::frontmost_app::name() else {
+        // Can't probe (non-macOS, automation denied) → optimistic
+        // false. Worst case: user hits clipboard cycle in a terminal
+        // and gets the same silent no-op as before this fix.
+        return false;
+    };
+    let n = name.to_ascii_lowercase();
+    // Exact matches first (faster; covers the dominant cases).
+    matches!(
+        n.as_str(),
+        "terminal" | "iterm" | "iterm2" | "warp" | "kitty" | "alacritty"
+            | "ghostty" | "wezterm" | "tabby" | "hyper"
+    )
+        // Substring catch-all for less common spellings / forks
+        // (e.g. "Apple Terminal" reported as just "Terminal" most of
+        // the time, but defensive). `terminal` covers Apple Terminal
+        // and many forks; we already matched the exact name above
+        // so this branch handles weird display variants.
+        || n.contains("terminal")
+        || n.contains("iterm")
+}
+
 /// Trigger the macOS "would like to control this computer" dialog and
 /// add Inspector Rust to **System Settings → Privacy & Security → Accessibility**
 /// so the user can flip the toggle there. Returns the *current* trusted
@@ -348,6 +383,13 @@ pub const ERR_INSPECTOR_FRONTMOST: &str = "ax.inspector_frontmost";
 /// sudo prompt. Surfaced as a brief toast.
 pub const ERR_PASSWORD_FIELD: &str = "ax.password_field";
 
+/// Sentinel: the frontmost app is a terminal where the abbreviation
+/// expander fundamentally can't work (no AX-exposed input line + the
+/// keystroke-cycle fallback's `Option+Shift+Left` becomes an
+/// ESC-sequence, not a selection). The hotkey handler opens the
+/// popup as a workaround so the user can search + paste.
+pub const ERR_TERMINAL_UNSUPPORTED: &str = "ax.terminal_unsupported";
+
 /// Typed enum for expander pre-check rejections. The hotkey handler
 /// pattern-matches on this instead of doing fragile string equality
 /// on `e.to_string()` — fewer copy-paste typos, easier to spot in a
@@ -364,6 +406,10 @@ pub enum BlockReason {
     InspectorFrontmost,
     /// Focused field is a password / secure text field.
     PasswordField,
+    /// Frontmost is a terminal — abbreviation expansion can't work
+    /// there (see [`ERR_TERMINAL_UNSUPPORTED`]). Hotkey handler
+    /// reacts by opening the popup as a fallback.
+    TerminalUnsupported,
 }
 
 impl BlockReason {
@@ -375,6 +421,7 @@ impl BlockReason {
             BlockReason::SecureInput => ERR_SECURE_INPUT,
             BlockReason::InspectorFrontmost => ERR_INSPECTOR_FRONTMOST,
             BlockReason::PasswordField => ERR_PASSWORD_FIELD,
+            BlockReason::TerminalUnsupported => ERR_TERMINAL_UNSUPPORTED,
         }
     }
 
@@ -387,6 +434,7 @@ impl BlockReason {
             ERR_SECURE_INPUT => Some(BlockReason::SecureInput),
             ERR_INSPECTOR_FRONTMOST => Some(BlockReason::InspectorFrontmost),
             ERR_PASSWORD_FIELD => Some(BlockReason::PasswordField),
+            ERR_TERMINAL_UNSUPPORTED => Some(BlockReason::TerminalUnsupported),
             _ => None,
         }
     }
@@ -765,6 +813,21 @@ pub fn expand_at_cursor(
         }
     }
 
+    // 4) Terminal short-circuit. The Path 2 clipboard cycle below
+    //    *cannot* work in terminals — `Option+Shift+Left` becomes an
+    //    ESC-sequence in the shell, not a selection. The captured
+    //    "abbreviation" would be empty or stale clipboard contents,
+    //    which is at best a silent no-op and at worst a wrong-paste
+    //    (if the old clipboard happened to match an abbreviation).
+    //    Bail with the sentinel so the hotkey handler can open the
+    //    popup as a fallback (loud + actionable instead of silent).
+    if is_terminal_frontmost() {
+        tracing::info!(
+            "expand_at_cursor: terminal frontmost — clipboard cycle would mis-paste; opening popup"
+        );
+        return Err(anyhow!(ERR_TERMINAL_UNSUPPORTED));
+    }
+
     // ── Path 2: clipboard roundtrip (legacy) ───────────────────────────────
     // This path synthesizes `Cmd/Ctrl+Shift+←` + `Cmd/Ctrl+C` + `Cmd/Ctrl+V`
     // via enigo. On macOS that needs the Accessibility (AXIsProcessTrusted)
@@ -803,6 +866,25 @@ fn expand_via_clipboard(
     thread::sleep(Duration::from_millis(80));
 
     let abbr_raw = read_clipboard_text().unwrap_or_default();
+
+    // SAFETY GUARD: if our select+copy didn't change the clipboard at
+    // all (the new `abbr_raw` equals the pre-cycle `saved`), it means
+    // `Option/Ctrl+Shift+Left` produced no selection — typical for
+    // any app where word-back-with-shift isn't a real keyboard
+    // selection (terminals, some web text fields with custom key
+    // handlers, …). Without this check we'd then look up the OLD
+    // clipboard text as if it were the typed abbreviation — and if it
+    // happens to match a configured snippet, we'd paste the WRONG
+    // body into the cursor position. Bail loudly with the terminal
+    // sentinel so the popup-fallback fires.
+    if prefetched_word.is_none() && Some(abbr_raw.as_str()) == saved.as_deref() {
+        tracing::warn!(
+            "expand_via_clipboard: select+copy yielded same clipboard as before — \
+             cycle had no effect (terminal? non-AX text view?). Bailing to popup."
+        );
+        return Err(anyhow!(ERR_TERMINAL_UNSUPPORTED));
+    }
+
     let abbr = if let Some(w) = prefetched_word {
         // Prefer the AX-captured word — guards against the clipboard
         // capturing the wrong region in apps that mistreat Shift+Left.
@@ -1118,6 +1200,24 @@ mod tests {
         assert_eq!(ERR_SECURE_INPUT, "ax.secure_input_active");
         assert_eq!(ERR_INSPECTOR_FRONTMOST, "ax.inspector_frontmost");
         assert_eq!(ERR_PASSWORD_FIELD, "ax.password_field");
+        assert_eq!(ERR_TERMINAL_UNSUPPORTED, "ax.terminal_unsupported");
+    }
+
+    #[test]
+    fn block_reason_round_trips_through_anyhow() {
+        for r in [
+            BlockReason::NoAccessibility,
+            BlockReason::SecureInput,
+            BlockReason::InspectorFrontmost,
+            BlockReason::PasswordField,
+            BlockReason::TerminalUnsupported,
+        ] {
+            let e = anyhow::anyhow!(r.to_sentinel());
+            assert_eq!(BlockReason::from_error(&e), Some(r));
+        }
+        // Unrelated errors map to None.
+        let e = anyhow::anyhow!("something else");
+        assert_eq!(BlockReason::from_error(&e), None);
     }
 
     #[test]

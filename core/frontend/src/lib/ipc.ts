@@ -53,10 +53,37 @@ export function getPendingScreenshotPath(): Promise<string | null> {
   return invoke("get_pending_screenshot_path");
 }
 
-/** Save: promote the temp PNG to ~/Downloads, push to clipboard, push
- *  to history, close the preview window. */
+/** Richer variant — includes the frontmost-app name captured at
+ *  shot time + the current pin state. Used by the preview HUD to
+ *  show the source-app chip and reflect the pinned visual state. */
+export interface PendingScreenshotInfo {
+  path: string;
+  app_name: string | null;
+  pinned: boolean;
+}
+export function getPendingScreenshotInfo(): Promise<PendingScreenshotInfo | null> {
+  return invoke("get_pending_screenshot_info");
+}
+
+/** Set the pin state. While pinned, a subsequent screenshot does NOT
+ *  replace the on-screen preview (the new PNG still goes to clipboard
+ *  + history). Returns the resulting state. */
+export function setScreenshotPinned(pinned: boolean): Promise<boolean> {
+  return invoke("set_screenshot_pinned", { pinned });
+}
+
+/** Save: promote the temp PNG to ~/Downloads (with the captured app
+ *  name baked into the filename), push to clipboard, push to history,
+ *  close the preview window. */
 export function screenshotPreviewSave(): Promise<void> {
   return invoke("screenshot_preview_save");
+}
+
+/** Copy: re-write the PNG to the clipboard. Preview stays open
+ *  (unlike Save). Useful when the user has copied something else in
+ *  the meantime and wants the screenshot back on the clipboard. */
+export function screenshotPreviewCopy(): Promise<void> {
+  return invoke("screenshot_preview_copy");
 }
 
 /** Discard: delete the temp PNG, close the preview window. No
@@ -65,11 +92,27 @@ export function screenshotPreviewDiscard(): Promise<void> {
   return invoke("screenshot_preview_discard");
 }
 
-/** Edit: move the temp PNG to ~/Downloads and hand it to the OS
- *  default image viewer (Preview.app on macOS), then close the
- *  preview window. */
+/** Edit: open the annotation editor window (arrows / text / rect /
+ *  highlight / blur). The preview hides itself; the editor's Save
+ *  bakes the annotated PNG to ~/Downloads + clipboard + history and
+ *  re-shows the preview with the edited image. */
 export function screenshotPreviewEdit(): Promise<void> {
   return invoke("screenshot_preview_edit");
+}
+
+// ── Screenshot editor ──────────────────────────────────────────────────────
+
+/** Save the annotated PNG (base64 from canvas.toDataURL). Backend
+ *  writes to ~/Downloads with `<App>-<ts>-edited.png`, pushes to
+ *  clipboard + history, closes the editor, re-shows the preview. */
+export function editorSave(pngB64: string): Promise<string> {
+  return invoke("editor_save", { pngB64 });
+}
+
+/** Cancel: close the editor, re-show the preview with the original
+ *  (unedited) capture. */
+export function editorCancel(): Promise<void> {
+  return invoke("editor_cancel");
 }
 
 /** Cursor-follow: if the cursor has crossed to a different monitor,

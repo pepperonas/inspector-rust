@@ -22,6 +22,8 @@ mod input_lock;
 mod region_picker;
 mod screen_picker;
 mod screen_recording;
+mod frontmost_app;
+mod screenshot_editor;
 mod screenshot_preview;
 mod seed;
 mod settings;
@@ -279,10 +281,15 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::ocr_region,
             commands::screenshot_region,
             screenshot_preview::get_pending_screenshot_path,
+            screenshot_preview::get_pending_screenshot_info,
+            screenshot_preview::set_screenshot_pinned,
             screenshot_preview::screenshot_preview_save,
+            screenshot_preview::screenshot_preview_copy,
             screenshot_preview::screenshot_preview_discard,
             screenshot_preview::screenshot_preview_edit,
             screenshot_preview::reposition_preview_to_cursor,
+            screenshot_editor::editor_save,
+            screenshot_editor::editor_cancel,
             commands::eyedropper_to_clipboard,
             commands::resize_clipboard_image,
             commands::optimize_clipboard_image,

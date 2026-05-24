@@ -18,6 +18,7 @@ use crate::screen_recording;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
+#[cfg(target_os = "linux")]
 use crate::desktop_shortcuts;
 use crate::ui_state::UiState;
 
@@ -1334,6 +1335,12 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
         return Err(ERR_NO_SCREEN_RECORDING.to_string());
     }
 
+    // Capture the frontmost app name BEFORE hiding the popup or
+    // starting screencapture — once those run, focus may already
+    // have shifted to System Events / our own process. macOS-only;
+    // best-effort, never fails the pipeline.
+    let captured_app_name = crate::frontmost_app::name();
+
     hotkey::hide_popup(app);
 
     let png_bytes = match region_picker::capture() {
@@ -1390,18 +1397,42 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
         }
     }
 
-    // Stash the path in shared state so the preview-window IPCs can
-    // pick it up without the frontend round-tripping a filesystem path.
-    if let Some(pending) = app.try_state::<crate::screenshot_preview::PendingScreenshot>() {
-        *pending.inner().0.lock() = Some(temp_path.clone());
-    } else {
-        tracing::warn!("PendingScreenshot state missing — preview won't work");
-    }
+    // Stash the path + app name in shared state so the preview-window
+    // IPCs can pick them up without the frontend round-tripping. When
+    // the previous preview is pinned, we still write the new PNG to
+    // clipboard + history (already done above) but DON'T replace the
+    // pinned preview's pending entry or re-show the window. The new
+    // shot still ends up everywhere it normally would; just the
+    // floating preview stays put.
+    let pinned = app
+        .try_state::<crate::screenshot_preview::PendingScreenshot>()
+        .map(|p| {
+            p.inner()
+                .pinned
+                .load(std::sync::atomic::Ordering::SeqCst)
+        })
+        .unwrap_or(false);
 
-    // Build (or reuse) and position the preview window. Failure isn't
-    // fatal — the temp PNG is still on disk and the user can rerun.
-    if let Err(e) = crate::screenshot_preview::show_preview(app) {
-        tracing::warn!("screenshot preview window: {e:#}");
+    if !pinned {
+        if let Some(pending) =
+            app.try_state::<crate::screenshot_preview::PendingScreenshot>()
+        {
+            *pending.inner().current.lock() =
+                Some(crate::screenshot_preview::Pending {
+                    path: temp_path.clone(),
+                    app_name: captured_app_name.clone(),
+                });
+        } else {
+            tracing::warn!("PendingScreenshot state missing — preview won't work");
+        }
+
+        // Build (or reuse) and position the preview window. Failure isn't
+        // fatal — the temp PNG is still on disk and the user can rerun.
+        if let Err(e) = crate::screenshot_preview::show_preview(app) {
+            tracing::warn!("screenshot preview window: {e:#}");
+        }
+    } else {
+        tracing::info!("screenshot preview pinned — keeping existing preview, new PNG only goes to clipboard");
     }
 
     let _ = app.emit("clipboard-changed", ());

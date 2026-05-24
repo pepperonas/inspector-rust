@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Capability for the Inspector Rust popup window",
-  "windows": ["popup", "screenshot-preview"],
+  "windows": ["popup", "screenshot-preview", "screenshot-editor"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

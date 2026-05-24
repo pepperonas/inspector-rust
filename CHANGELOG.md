@@ -4,6 +4,51 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] — 2026-05-24
+
+### Added — CleanShot-X-style preview HUD, annotation editor, app-name filenames
+
+Three additions, each useful on its own, packaged together because they all flow from the same screenshot pipeline.
+
+**1. New preview HUD.** The screenshot-preview window is now a CleanShot-X-style dark card with the screenshot itself as the background and six controls floating on top:
+
+- **X** (top-left) — close + discard the capture.
+- **Pin** 📌 (top-right) — toggle pin state. While pinned, a *subsequent* screenshot doesn't replace the on-screen preview (new PNG still goes to clipboard + history as usual). Frontend-driven optimistic state, backed by an `AtomicBool` in `PendingScreenshot`.
+- **Copy** (centre) — re-write the image to the clipboard. Keeps the preview open. 1.4 s "Copied" confirmation chip.
+- **Save** (centre) — write to `~/Downloads` with the app-name prefix + clipboard + history + close.
+- **Pencil** ✏️ (bottom-left) — open the annotation editor (see below).
+- **Cloud** ☁️ (bottom-right) — placeholder, no-op, tooltip "Coming soon" — wired in a future commit when we pick a host.
+
+**2. Annotation editor.** New Tauri window `screenshot-editor` (routed in `main.tsx` by window label). Five tools:
+
+- **Arrow** (A) — line + filled arrowhead, stroke + colour configurable.
+- **Text** (T) — click position, inline overlay input, Enter commits.
+- **Rectangle** (R) — empty-outline box.
+- **Highlight** (H) — translucent yellow marker, always #facc15 (ignores colour picker on purpose).
+- **Blur** (B) — pixelate the underlying source pixels (mosaic, sampled from the original screenshot — non-destructive across undo/redo). Block size scales with the stroke-width slider.
+
+Hotkeys: `⌘Z` / `⌘⇧Z` undo/redo, `⌘S` save, `Esc` cancel. Single-key tool shortcuts (A/T/R/H/B). 4 colour presets (red/yellow/white/black). 2–16 px stroke slider. Canvas is sized to the screenshot's natural pixel dimensions so the saved PNG is full-resolution; CSS scales to fit the viewport. Save bakes the canvas to PNG via `canvas.toDataURL`, ships it to the backend, which writes it as `<App>-<ts>-edited.png`, pushes to clipboard + history, closes the editor, re-shows the preview with the edited image.
+
+**3. App-name in filenames.** The screenshot pipeline now captures the frontmost app's name (`osascript` → `tell application "System Events" to get name of first application process whose frontmost is true`) BEFORE the region picker opens (so we don't catch ourselves). Saved files become **`<App>-YYYYMMDD-HHMMSS.png`** (or `Screenshot-…` if the lookup fails — never blocks the save). Alphabetical sort in Finder groups all screenshots of the same app together. Edited variants get the `-edited` suffix. Uses the same Automation TCC grant the Finder-selection feature already needs.
+
+### Backend changes
+
+- New module `core/rust-lib/src/frontmost_app.rs` — best-effort `osascript` wrapper, 4 unit tests pinning the sanitiser (path separators, control chars, length cap, Unicode).
+- New module `core/rust-lib/src/screenshot_editor.rs` — owns the editor webview, the `editor_save` (decode base64 → write Downloads → clipboard + history → re-show preview) and `editor_cancel` (close + re-show preview) IPCs.
+- `PendingScreenshot` extended: now holds `current: Mutex<Option<Pending>>` (path + app_name) + `pinned: AtomicBool`. New IPCs `get_pending_screenshot_info`, `set_screenshot_pinned`, `screenshot_preview_copy`. `screenshot_preview_save` updated to bake the app name into the destination filename.
+- `commands::run_screenshot_pipeline` captures `frontmost_app::name()` before `hide_popup`, respects the `pinned` flag (skips preview replacement but still writes to clipboard + history).
+
+### Misc
+
+- Tauri capabilities updated on all three platforms — `screenshot-editor` window added to the allow-list alongside `popup` + `screenshot-preview`.
+- Frontend `main.tsx` routing extended to mount `<ScreenshotEditor>` for the new window label.
+
+### Why 0.32.0
+
+New user-facing surface (new preview HUD, new editor window, new filename schema), additive on the backend (existing IPCs untouched apart from the filename change in Save). Minor digit bump.
+
+
+
 ## [0.31.0] — 2026-05-24
 
 ### Added — `optim` on Finder files + resize-preset autocomplete

@@ -23,11 +23,29 @@ use tauri::{
     WebviewWindow, WebviewWindowBuilder,
 };
 
-/// Shared state holding the on-disk path of the most recently captured
-/// (still-pending) screenshot, written by `run_screenshot_pipeline` and
-/// read by the Save / Discard / Edit IPCs.
+/// Snapshot of one pending screenshot — the temp PNG path plus the
+/// name of the app that was frontmost when the user triggered the
+/// capture. The app name (best-effort, may be `None` on permission
+/// denial or non-macOS) is baked into the saved filename so a long
+/// Downloads folder is grep-able.
+#[derive(Clone, Debug)]
+pub struct Pending {
+    pub path: PathBuf,
+    pub app_name: Option<String>,
+}
+
+/// Shared state holding the most recently captured (still-pending)
+/// screenshot. Written by `run_screenshot_pipeline`, read by the
+/// Save / Discard / Edit IPCs. `pinned` is a frontend-driven flag:
+/// when `true`, a subsequent screenshot does NOT replace the current
+/// preview (the pinned one stays; the new one would need its own
+/// future "stacked preview" mechanism — for v1 we just don't
+/// surface the new one's preview).
 #[derive(Default)]
-pub struct PendingScreenshot(pub Mutex<Option<PathBuf>>);
+pub struct PendingScreenshot {
+    pub current: Mutex<Option<Pending>>,
+    pub pinned: std::sync::atomic::AtomicBool,
+}
 
 pub const PREVIEW_LABEL: &str = "screenshot-preview";
 
@@ -507,14 +525,23 @@ fn open_with_default(path: &std::path::Path) -> std::io::Result<()> {
 
 /// Move the pending capture from the cache temp into ~/Downloads under
 /// a friendly name. Returns the final destination path.
-fn promote_to_downloads(temp: &std::path::Path) -> std::io::Result<PathBuf> {
+fn promote_to_downloads(
+    temp: &std::path::Path,
+    app_name: Option<&str>,
+) -> std::io::Result<PathBuf> {
     let dir = dirs::download_dir()
         .or_else(dirs::picture_dir)
         .ok_or_else(|| std::io::Error::other("no Downloads or Pictures dir"))?;
-    let stem = format!(
-        "inspector-rust-screenshot-{}.png",
-        chrono::Local::now().format("%Y%m%d-%H%M%S")
-    );
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    // App-prefixed: `Safari-20260524-153012.png`. Alphabetical sort
+    // groups screenshots of the same app together in Finder — usually
+    // more useful than chronological for screenshot folders. Falls
+    // back to a generic prefix when the frontmost-app lookup failed
+    // (Automation denied / non-macOS / app process unnamed).
+    let stem = match app_name {
+        Some(app) if !app.is_empty() => format!("{app}-{ts}.png"),
+        _ => format!("Screenshot-{ts}.png"),
+    };
     let dest = dir.join(stem);
     // rename across the same volume is atomic; falls back to copy+remove
     // if temp + downloads are on different mounts.
@@ -536,9 +563,55 @@ use crate::db::{self, DbHandle};
 /// preview React component calls this on mount to know which PNG to
 /// load. Returns `None` when there's nothing pending (e.g. window was
 /// reopened from a previous session).
+/// Snapshot of the pending screenshot's display-relevant fields,
+/// shipped to the React preview window so it can render the app name
+/// chip + load the PNG. `app_name` is optional — the frontmost-app
+/// lookup is best-effort.
+#[derive(serde::Serialize)]
+pub struct PendingInfo {
+    pub path: String,
+    pub app_name: Option<String>,
+    pub pinned: bool,
+}
+
 #[tauri::command]
 pub fn get_pending_screenshot_path(state: State<'_, PendingScreenshot>) -> Option<String> {
-    state.inner().0.lock().clone().map(|p| p.to_string_lossy().into_owned())
+    state
+        .inner()
+        .current
+        .lock()
+        .as_ref()
+        .map(|p| p.path.to_string_lossy().into_owned())
+}
+
+/// Richer variant that includes the app name + pin state. The preview
+/// React component uses this on mount + on `screenshot-pending` events
+/// so it can show the source-app chip and reflect the pinned state.
+#[tauri::command]
+pub fn get_pending_screenshot_info(state: State<'_, PendingScreenshot>) -> Option<PendingInfo> {
+    let cur = state.inner().current.lock();
+    let p = cur.as_ref()?;
+    Some(PendingInfo {
+        path: p.path.to_string_lossy().into_owned(),
+        app_name: p.app_name.clone(),
+        pinned: state.inner().pinned.load(std::sync::atomic::Ordering::SeqCst),
+    })
+}
+
+/// Toggle / set the pin state. While pinned, a subsequent
+/// `run_screenshot_pipeline` call leaves the existing preview alone
+/// (writes the new PNG to the clipboard + history as usual, but does
+/// not replace the on-screen preview). Returns the resulting state.
+#[tauri::command]
+pub fn set_screenshot_pinned(
+    state: State<'_, PendingScreenshot>,
+    pinned: bool,
+) -> bool {
+    state
+        .inner()
+        .pinned
+        .store(pinned, std::sync::atomic::Ordering::SeqCst);
+    pinned
 }
 
 /// Save action — promote the temp PNG to ~/Downloads, push to clipboard,
@@ -552,12 +625,22 @@ pub fn screenshot_preview_save(
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
     use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
 
-    let temp = pending.inner().0.lock().take().ok_or_else(|| "nothing pending".to_string())?;
+    let pending_item = pending
+        .inner()
+        .current
+        .lock()
+        .take()
+        .ok_or_else(|| "nothing pending".to_string())?;
+    let temp = pending_item.path.clone();
+    let app_name = pending_item.app_name.clone();
     let bytes = std::fs::read(&temp).map_err(|e| format!("read pending {}: {e}", temp.display()))?;
 
     // Move to ~/Downloads first so a clipboard or history failure
-    // doesn't leave the user without the file.
-    let dest = promote_to_downloads(&temp).map_err(|e| format!("promote to Downloads: {e}"))?;
+    // doesn't leave the user without the file. App name (best-effort)
+    // is baked into the filename so the Downloads folder stays
+    // grep-able.
+    let dest = promote_to_downloads(&temp, app_name.as_deref())
+        .map_err(|e| format!("promote to Downloads: {e}"))?;
 
     // Clipboard.
     let b64 = B64.encode(&bytes);
@@ -587,6 +670,39 @@ pub fn screenshot_preview_save(
     Ok(())
 }
 
+/// Copy action — re-write the PNG to the clipboard but keep the
+/// preview open. The image is already on the clipboard from the
+/// auto-step at capture time; Copy exists for the case where the user
+/// has copied something else in the meantime and wants the screenshot
+/// back on the clipboard without closing the preview.
+#[tauri::command]
+pub fn screenshot_preview_copy(
+    app: AppHandle,
+    pending: State<'_, PendingScreenshot>,
+) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
+
+    // Don't `.take()` — we want the preview to stay alive for further
+    // actions (Save / Edit / Discard / re-Copy).
+    let temp = {
+        let cur = pending.inner().current.lock();
+        cur.as_ref()
+            .map(|p| p.path.clone())
+            .ok_or_else(|| "nothing pending".to_string())?
+    };
+    let bytes = std::fs::read(&temp).map_err(|e| format!("read pending {}: {e}", temp.display()))?;
+    let b64 = B64.encode(&bytes);
+    if let Some(watcher) = app.try_state::<WatcherState>() {
+        watcher.mark_self_write(crate::models::ContentType::Image, &b64);
+    }
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard ctx: {e:?}"))?;
+    let img = RustImageData::from_bytes(&bytes).map_err(|e| format!("decode png: {e:?}"))?;
+    ctx.set_image(img).map_err(|e| format!("set_image: {e:?}"))?;
+    let _ = app.emit("clipboard-changed", ());
+    Ok(())
+}
+
 /// Discard action — delete the temp file, close the preview. No
 /// clipboard, no Downloads, no history. The default-on-auto-hide too.
 #[tauri::command]
@@ -594,9 +710,13 @@ pub fn screenshot_preview_discard(
     app: AppHandle,
     pending: State<'_, PendingScreenshot>,
 ) -> Result<(), String> {
-    if let Some(temp) = pending.inner().0.lock().take() {
-        let _ = std::fs::remove_file(&temp);
+    if let Some(p) = pending.inner().current.lock().take() {
+        let _ = std::fs::remove_file(&p.path);
     }
+    // Discarding also clears the pin state so the next screenshot
+    // starts fresh; otherwise a leftover pinned=true would silently
+    // suppress the next preview.
+    pending.inner().pinned.store(false, std::sync::atomic::Ordering::SeqCst);
     close_preview(&app);
     Ok(())
 }
@@ -641,13 +761,17 @@ pub fn screenshot_preview_edit(
     app: AppHandle,
     pending: State<'_, PendingScreenshot>,
 ) -> Result<(), String> {
-    let temp = pending.inner().0.lock().take().ok_or_else(|| "nothing pending".to_string())?;
-    let dest = promote_to_downloads(&temp).map_err(|e| format!("promote: {e}"))?;
-    if let Err(e) = open_with_default(&dest) {
-        // Don't surface as fatal — the file is on disk, the user can
-        // open it themselves. Just log.
-        tracing::warn!("open {} with default app: {e}", dest.display());
+    // Keep the pending entry alive — the editor window reads it via
+    // `get_pending_screenshot_info`.
+    {
+        let cur = pending.inner().current.lock();
+        if cur.is_none() {
+            return Err("nothing pending".to_string());
+        }
     }
-    close_preview(&app);
+    crate::screenshot_editor::open_editor(&app).map_err(|e| format!("open editor: {e}"))?;
+    if let Some(win) = app.get_webview_window(PREVIEW_LABEL) {
+        let _ = win.hide();
+    }
     Ok(())
 }

@@ -200,6 +200,43 @@ impl AxFieldAccess {
 }
 
 impl FieldAccess for AxFieldAccess {
+    fn is_focused_field_secure(&self) -> Result<bool> {
+        unsafe {
+            let system = AXUIElementCreateSystemWide();
+            if system.is_null() {
+                return Ok(false);
+            }
+            let attr_focused = cf_string("AXFocusedUIElement");
+            let mut focused_value: CFTypeRef = std::ptr::null();
+            let err = AXUIElementCopyAttributeValue(system, attr_focused, &mut focused_value);
+            CFRelease(attr_focused);
+            CFRelease(system);
+            if err != KAX_ERROR_SUCCESS || focused_value.is_null() {
+                return Ok(false);
+            }
+            let focused: AXUIElementRef = focused_value;
+
+            // Subrole is the standard way Cocoa text fields signal
+            // their security flag. NSSecureTextField sets
+            // `AXSubrole == "AXSecureTextField"`. WKWebView'd password
+            // inputs are a different story (they go through Web AX
+            // and expose `AXRole == "AXTextField"` + sometimes a
+            // `AXSubrole` of `AXSecureTextField` when input type
+            // is "password"). Checking the subrole catches both.
+            let attr_subrole = cf_string("AXSubrole");
+            let mut subrole_cf: CFTypeRef = std::ptr::null();
+            let err = AXUIElementCopyAttributeValue(focused, attr_subrole, &mut subrole_cf);
+            CFRelease(attr_subrole);
+            CFRelease(focused);
+            if err != KAX_ERROR_SUCCESS || subrole_cf.is_null() {
+                return Ok(false);
+            }
+            let subrole = cf_string_to_rust(subrole_cf);
+            CFRelease(subrole_cf);
+            Ok(matches!(subrole.as_deref(), Some("AXSecureTextField")))
+        }
+    }
+
     fn read_word_before_cursor(&self) -> Result<Option<String>> {
         let Some((focused, value, cursor_chars)) = self.read_focused()? else {
             return Ok(None);
@@ -289,27 +326,39 @@ impl FieldAccess for AxFieldAccess {
             CFRelease(attr_seltext);
             CFRelease(replacement_cf);
 
-            // 3) Verify. Give the app a beat, then re-read AXValue. If the
-            //    field's text actually changed, the in-place replace took.
-            //    If not, the word is still selected from step 1 — tell the
-            //    caller to paste over the selection.
-            std::thread::sleep(std::time::Duration::from_millis(15));
+            // 3) Verify. Poll AXValue up to 60 ms (12 × 5 ms). The old
+            //    single 15 ms sleep was fragile under load — slow
+            //    Electron apps occasionally took 20-40 ms to apply
+            //    the AX set, and we'd mis-classify those as
+            //    SelectionActive and then double-paste. Poll wins on
+            //    both: returns *fast* (5-10 ms) when the app is
+            //    snappy, gives the slow ones a fair shake.
             let attr_value = cf_string("AXValue");
-            let mut new_value_cf: CFTypeRef = std::ptr::null();
-            let verr = AXUIElementCopyAttributeValue(focused, attr_value, &mut new_value_cf);
+            let mut new_value: Option<String> = None;
+            for _attempt in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+                let mut new_value_cf: CFTypeRef = std::ptr::null();
+                let verr = AXUIElementCopyAttributeValue(focused, attr_value, &mut new_value_cf);
+                if verr == KAX_ERROR_SUCCESS && !new_value_cf.is_null() {
+                    let s = cf_string_to_rust(new_value_cf);
+                    CFRelease(new_value_cf);
+                    if let Some(nv) = s {
+                        if nv != value {
+                            new_value = Some(nv);
+                            break;
+                        }
+                        // Same as before — keep polling.
+                    }
+                } else if !new_value_cf.is_null() {
+                    CFRelease(new_value_cf);
+                }
+            }
             CFRelease(attr_value);
-            let new_value = if verr == KAX_ERROR_SUCCESS && !new_value_cf.is_null() {
-                let s = cf_string_to_rust(new_value_cf);
-                CFRelease(new_value_cf);
-                s
-            } else {
-                None
-            };
             CFRelease(focused);
 
             match new_value {
-                Some(nv) if nv != value => Ok(ReplaceOutcome::Replaced),
-                _ => Ok(ReplaceOutcome::SelectionActive),
+                Some(_) => Ok(ReplaceOutcome::Replaced),
+                None => Ok(ReplaceOutcome::SelectionActive),
             }
         }
     }

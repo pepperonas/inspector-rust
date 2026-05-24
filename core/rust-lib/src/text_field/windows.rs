@@ -120,42 +120,108 @@ impl UiaFieldAccess {
 }
 
 impl FieldAccess for UiaFieldAccess {
+    fn is_focused_field_secure(&self) -> Result<bool> {
+        unsafe {
+            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+            let automation: IUIAutomation =
+                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+                    .context("CoCreateInstance(CUIAutomation) for password probe")?;
+            let focused = match automation.GetFocusedElement() {
+                Ok(e) => e,
+                Err(_) => return Ok(false),
+            };
+            // `CurrentIsPassword` is the standard UIA way to ask
+            // "would Windows show dots instead of characters here?".
+            // Modern WinUI / WPF / WinForms password fields all set
+            // this; legacy Win32 EDIT with ES_PASSWORD style does
+            // too. Returns BOOL → 0 / nonzero.
+            let is_pw = focused.CurrentIsPassword().unwrap_or_default();
+            Ok(is_pw.as_bool())
+        }
+    }
+
     fn read_word_before_cursor(&self) -> Result<Option<String>> {
         self.read_word()
     }
 
-    /// Windows replace: Backspace × char_count(word) + type the body via
-    /// `SendInput`. The caller hides the popup beforehand so the keystrokes
-    /// land in the previously focused app, not in Inspector Rust.
+    /// Windows replace: **Backspace × char_count(word) + clipboard-paste**.
+    /// We deliberately do NOT use `enigo.text(replacement)` — that
+    /// translates each char into a key-event sequence, which (a) is
+    /// slow for long bodies, (b) breaks dead-key layouts
+    /// (US-International ", e → "e instead of ë), (c) doesn't work
+    /// when an IME is active for CJK input, and (d) drops
+    /// supplementary-plane Unicode (emoji, etc.). The clipboard-paste
+    /// path matches the macOS in-place-fallback path and handles all
+    /// of these correctly.
     ///
-    /// Returns `Unsupported` only when the focused element exposes no UIA
-    /// TextPattern at all (caller does the keystroke-select fallback);
-    /// otherwise `Replaced` — `SendInput` on Windows has none of the
-    /// macOS reliability caveats, so the Backspace+type path is trusted.
+    /// Returns `Unsupported` only when the focused element exposes no
+    /// UIA TextPattern at all (caller does the keystroke-select
+    /// fallback); otherwise `Replaced`.
     fn try_replace_word_before_cursor(&self, replacement: &str) -> Result<ReplaceOutcome> {
+        use clipboard_rs::{Clipboard, ClipboardContext};
+
         let word = match self.read_word()? {
             Some(w) => w,
             None => return Ok(ReplaceOutcome::Unsupported),
         };
         let backspaces = word.chars().count();
 
-        // `open_prompt_to_get_permissions: false` is a no-op on
-        // Windows (macOS-only flag) but we set it everywhere for
-        // consistency with the paste / expander modules.
         let settings = Settings {
             open_prompt_to_get_permissions: false,
             ..Settings::default()
         };
         let mut e = Enigo::new(&settings)
             .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
-        for _ in 0..backspaces {
+
+        // Delete the abbreviation with a 4 ms pace gap — matches the
+        // expander.rs::send_backspaces fix; some apps drop tightly
+        // packed Backspaces.
+        for i in 0..backspaces {
             e.key(Key::Backspace, Press)
                 .map_err(|err| anyhow!("backspace press: {err:?}"))?;
             e.key(Key::Backspace, Release)
                 .map_err(|err| anyhow!("backspace release: {err:?}"))?;
+            if i + 1 < backspaces {
+                std::thread::sleep(std::time::Duration::from_millis(4));
+            }
         }
-        e.text(replacement)
-            .map_err(|err| anyhow!("type body: {err:?}"))?;
+
+        // Save → write body → paste → restore. Caller has already
+        // hidden the popup and dispatched the new word; this code
+        // runs in the target app's keyboard-focus context.
+        let saved = ClipboardContext::new()
+            .ok()
+            .and_then(|c| c.get_text().ok());
+        {
+            let ctx = ClipboardContext::new()
+                .map_err(|err| anyhow!("clipboard ctx: {err:?}"))?;
+            ctx.set_text(replacement.to_string())
+                .map_err(|err| anyhow!("set_text: {err:?}"))?;
+        }
+        // Let the pasteboard write settle (Win32 + Catalyst-style apps
+        // can briefly lag observing OpenClipboard events).
+        std::thread::sleep(std::time::Duration::from_millis(30));
+
+        // Synthesize Ctrl+V.
+        e.key(Key::Control, Press)
+            .map_err(|err| anyhow!("ctrl press: {err:?}"))?;
+        e.key(Key::Unicode('v'), Press)
+            .map_err(|err| anyhow!("v press: {err:?}"))?;
+        e.key(Key::Unicode('v'), Release)
+            .map_err(|err| anyhow!("v release: {err:?}"))?;
+        e.key(Key::Control, Release)
+            .map_err(|err| anyhow!("ctrl release: {err:?}"))?;
+
+        // Restore the user's clipboard after the paste has consumed
+        // our body. 180 ms matches the macOS path — too short risks
+        // the app pasting the restored value instead.
+        std::thread::sleep(std::time::Duration::from_millis(180));
+        if let Some(text) = saved {
+            if let Ok(ctx) = ClipboardContext::new() {
+                let _ = ctx.set_text(text);
+            }
+        }
+
         Ok(ReplaceOutcome::Replaced)
     }
 }

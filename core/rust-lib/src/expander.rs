@@ -103,6 +103,54 @@ pub fn accessibility_granted() -> bool {
     true
 }
 
+/// True if macOS has currently raised the "secure event input" flag
+/// — typically because a password field (or a sudo prompt in Terminal)
+/// is the keyboard responder. While this is on, **`CGEventPost` is
+/// dropped at the HID layer** for the affected process, so any
+/// expansion attempt would silently no-op. We check this before
+/// trying so we can fail loudly + actionably instead of "hotkey did
+/// nothing".
+///
+/// Returns `false` on non-macOS (no equivalent system flag).
+#[cfg(target_os = "macos")]
+pub fn secure_event_input_active() -> bool {
+    #[link(name = "Carbon", kind = "framework")]
+    extern "C" {
+        fn IsSecureEventInputEnabled() -> u8;
+    }
+    unsafe { IsSecureEventInputEnabled() != 0 }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn secure_event_input_active() -> bool {
+    false
+}
+
+/// Best-effort check whether our own popup/editor window is the
+/// frontmost app. If yes, pressing the expander hotkey would expand
+/// into our own search bar — confusing + useless. We refuse the
+/// expansion in that case (logged + sentinel returned).
+fn inspector_rust_is_frontmost() -> bool {
+    match crate::frontmost_app::name() {
+        Some(name) => {
+            // The bundle's display name is "InspectorRust"; the
+            // process-name lookup via System Events typically returns
+            // the LSDisplayName, which is also "InspectorRust". On
+            // some macOS variants it returns "Inspector Rust" with a
+            // space — match both case-insensitively, hyphenated and
+            // not.
+            let n = name.to_ascii_lowercase();
+            n == "inspectorrust" || n == "inspector rust" || n == "inspector-rust"
+        }
+        // No lookup possible (non-macOS, automation denied) → assume
+        // we're not frontmost. Failing open is the right move: the
+        // worst case is "expansion fires into our own popup" which is
+        // already mitigated by the popup-being-hidden invariant in
+        // the hotkey handler.
+        None => false,
+    }
+}
+
 /// Trigger the macOS "would like to control this computer" dialog and
 /// add Inspector Rust to **System Settings → Privacy & Security → Accessibility**
 /// so the user can flip the toggle there. Returns the *current* trusted
@@ -209,6 +257,26 @@ pub const LEGACY_DEFAULT_HOTKEY: &str = "Alt+Backquote";
 /// banner instead of a silent no-op.
 pub const ERR_NO_ACCESSIBILITY: &str = "ax.permission_denied";
 
+/// macOS-only sentinel: secure event input is active (typically a
+/// password field is keyboard responder). `CGEventPost` is dropped at
+/// the HID layer in this state, so any synthesis would silently
+/// no-op. We bail with this sentinel so the hotkey handler can show
+/// a "expansion blocked — secure input active" toast instead.
+pub const ERR_SECURE_INPUT: &str = "ax.secure_input_active";
+
+/// Sentinel: we ourselves are the frontmost app, so expanding into
+/// our own search bar would be a no-op at best, confusing at worst.
+/// The hotkey handler ignores this silently (a debug log is enough —
+/// the user just hit the hotkey while looking at our popup, no
+/// "error" worth surfacing).
+pub const ERR_INSPECTOR_FRONTMOST: &str = "ax.inspector_frontmost";
+
+/// Sentinel: the focused element is a password / secure text field.
+/// We refuse to expand into one — risk of leaking a configured
+/// expansion (e.g. a signature snippet) into a password manager or
+/// sudo prompt. Surfaced as a brief toast.
+pub const ERR_PASSWORD_FIELD: &str = "ax.password_field";
+
 /// Settings key: the direct hotkey→snippet bindings, stored as a JSON
 /// array of [`DirectSlot`]. Empty / missing → no direct slots.
 pub const KEY_DIRECT_SLOTS: &str = "expander.direct_slots";
@@ -260,9 +328,32 @@ pub fn paste_snippet_body(
         tracing::warn!("direct slot points at deleted snippet id {snippet_id}; ignoring");
         return Ok(());
     };
+    // Same safety gates as `expand_at_cursor`. Direct-slot is even more
+    // dangerous in a password field — the slot has a known body and
+    // would happily paste it into a sudo prompt or password manager.
+    if inspector_rust_is_frontmost() {
+        tracing::debug!("paste_snippet_body: Inspector Rust is frontmost — skipping");
+        return Err(anyhow!(ERR_INSPECTOR_FRONTMOST));
+    }
     #[cfg(target_os = "macos")]
-    if !accessibility_granted() {
-        return Err(anyhow!(ERR_NO_ACCESSIBILITY));
+    {
+        if !accessibility_granted() {
+            return Err(anyhow!(ERR_NO_ACCESSIBILITY));
+        }
+        if secure_event_input_active() {
+            return Err(anyhow!(ERR_SECURE_INPUT));
+        }
+    }
+    // Password-field guard. Direct slots are especially risky here
+    // because they paste a *known* body — if it's a signature or
+    // similar, that body would land in a password manager / sudo
+    // prompt / system password dialog. Bail loudly.
+    if matches!(
+        default_field_access().is_focused_field_secure(),
+        Ok(true)
+    ) {
+        tracing::warn!("paste_snippet_body: focused field is secure — refusing");
+        return Err(anyhow!(ERR_PASSWORD_FIELD));
     }
     // If the user typed the snippet's abbreviation before pressing the
     // direct hotkey (the dominant flow — type `aiplan`, press hotkey,
@@ -424,6 +515,21 @@ pub fn expand_at_cursor(
     db: &DbHandle,
     watcher: Option<&crate::clipboard_watcher::WatcherState>,
 ) -> Result<()> {
+    // ── Pre-flight safety checks (cheap; bail before any AX/keystroke work) ──
+    // 1) Inspector Rust itself frontmost? Hotkey was bounced into our
+    //    own popup; do nothing.
+    if inspector_rust_is_frontmost() {
+        tracing::debug!("expand_at_cursor: Inspector Rust is frontmost — skipping");
+        return Err(anyhow!(ERR_INSPECTOR_FRONTMOST));
+    }
+    // 2) macOS secure event input → CGEventPost is dropped; bail
+    //    actionably rather than fail silently.
+    #[cfg(target_os = "macos")]
+    if secure_event_input_active() {
+        tracing::warn!("expand_at_cursor: secure event input active — refusing");
+        return Err(anyhow!(ERR_SECURE_INPUT));
+    }
+
     // The hotkey itself is `Alt+<key>` — when this runs (queued onto the
     // main thread, a few ms after key-down) the user may still be
     // physically holding that `Alt`. Give it a beat to come up before we
@@ -442,6 +548,18 @@ pub fn expand_at_cursor(
     // is the right place to surface the underlying permission issue.
     let access = default_field_access();
     if accessibility_granted() {
+        // 3) Password-field guard. Cheap AX/UIA query *before* we
+        //    try to read text — refuse to expand into a credentials
+        //    field. The AX/UIA path returns None for unsupported
+        //    elements; treat true as "yes, password" and bail loudly.
+        match access.is_focused_field_secure() {
+            Ok(true) => {
+                tracing::warn!("expand_at_cursor: focused field is secure — refusing");
+                return Err(anyhow!(ERR_PASSWORD_FIELD));
+            }
+            Ok(false) => {} // proceed
+            Err(e) => tracing::debug!("password-field probe failed (continuing): {e:#}"),
+        }
         if let Ok(Some(word)) = access.read_word_before_cursor() {
             if let Some(snippet) = snippets::find_by_exact_abbreviation(db, &word)? {
                 // Try the in-place replace via the same accessibility layer.
@@ -783,8 +901,12 @@ mod tests {
 
     #[test]
     fn error_sentinel_is_stable() {
-        // The hotkey handler matches on this exact string.
+        // The hotkey handler matches on these exact strings — bumping
+        // any of them is a frontend-coordination break, so pin them.
         assert_eq!(ERR_NO_ACCESSIBILITY, "ax.permission_denied");
+        assert_eq!(ERR_SECURE_INPUT, "ax.secure_input_active");
+        assert_eq!(ERR_INSPECTOR_FRONTMOST, "ax.inspector_frontmost");
+        assert_eq!(ERR_PASSWORD_FIELD, "ax.password_field");
     }
 
     #[test]

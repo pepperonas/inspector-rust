@@ -4,6 +4,40 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.0] — 2026-05-24
+
+### Security — Text-expander hardening across all OSes
+
+Four new safety gates fire **before** the expander does any AX/UIA query or keystroke synthesis. Each one solves a real failure mode that v0.33.x could hit.
+
+**1. Password-field refusal (macOS + Windows).** Before reading the focused field, we now query its security flag and refuse to expand into a password input:
+- **macOS** — `AXSubrole == "AXSecureTextField"` on the focused element (catches Cocoa `NSSecureTextField` + WKWebView'd `<input type="password">`).
+- **Windows** — `IUIAutomationElement::CurrentIsPassword` on the focused element (catches WinUI / WPF / WinForms password boxes + legacy Win32 EDIT with ES_PASSWORD style).
+
+Without this, an unfortunate `mfg`-typed-in-password-field could expand the signature into a credential store or sudo prompt. New sentinel `ax.password_field`; backend emits `expander-blocked` event with reason `"password"`; popup (if open) shows an amber banner.
+
+**2. macOS `IsSecureEventInputEnabled` check.** When the OS-level secure-event-input flag is on (typical for sudo prompts, password dialogs, some terminal apps), `CGEventPost` is silently dropped at the HID layer. Pre-0.34 the expander would fire, fail invisibly, and the user wondered why nothing happened. Now we probe via `Carbon::IsSecureEventInputEnabled` and bail with sentinel `ax.secure_input_active` + the same banner reason `"secure_input"`.
+
+**3. Inspector-Rust-frontmost guard.** If the user has the popup open and accidentally fires the expander hotkey, the expansion used to dispatch into our own search bar (no-op at best). Now `frontmost_app::name()` is checked first and the expansion is silently skipped with sentinel `ax.inspector_frontmost`.
+
+**4. Windows: clipboard-paste replaces `enigo.text()`.** The old replace path on Windows did `Backspace × N + enigo.text(body)` — which translates each char to a SendInput key event. That breaks:
+- Dead-key layouts (US-International `"` + `e` → `"e` instead of `ë`).
+- Active IMEs (CJK / Korean input).
+- Supplementary-plane Unicode (emoji, math symbols).
+- Speed on long bodies (each char is press + release).
+
+New path mirrors macOS: save clipboard → write body → `Ctrl+V` → restore. IME-safe, dead-key-safe, fast. Adds a 4 ms pace gap between Backspaces too (same fix v0.33.0 made on macOS).
+
+**5. macOS AX replace verification — poll instead of fixed sleep.** v0.33.x slept 15 ms after the AX `setAttributeValue` then re-read once to verify. Slow Electron apps occasionally take 20-40 ms to apply, and we'd mis-classify those as `SelectionActive` then double-paste. Now polls every 5 ms up to 60 ms total — returns fast (5-10 ms) when the app is snappy, gives slow ones a fair shake.
+
+### Frontend
+
+- New `expander-blocked` event listener in App.tsx with a 4-second amber banner explaining what happened ("focused field is a password input" / "secure event input is active"). Banner only fires if the popup is already visible — the safety guards explicitly don't steal focus from a password field by raising the popup.
+
+### Why 0.34.0
+
+User-visible behaviour change (expansions can now be blocked, with reasons). Plus a real cross-platform bug fix (Windows IME / dead-keys). Minor digit bump.
+
 ## [0.33.0] — 2026-05-24
 
 ### Added — `bruno`: Brutto/Netto-Rechner als Power-Command

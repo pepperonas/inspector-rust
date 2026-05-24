@@ -71,6 +71,22 @@ pub trait FieldAccess {
     /// See [`ReplaceOutcome`] for the three success cases; `Err(_)` is an
     /// actual error (e.g. AX permission revoked mid-call).
     fn try_replace_word_before_cursor(&self, replacement: &str) -> Result<ReplaceOutcome>;
+
+    /// Returns `true` if the currently-focused element is a secure
+    /// text field (password). Used by the expander to **refuse**
+    /// expansion: pasting a snippet into a password field is at best
+    /// useless and at worst leaks the snippet body into a credential
+    /// store / sudo prompt / etc.
+    ///
+    /// Implementations:
+    /// - macOS: `AXSubrole == "AXSecureTextField"` on the focused element.
+    /// - Windows: `IUIAutomationElement::CurrentIsPassword`.
+    /// - Linux stub: always `false`.
+    ///
+    /// Default impl returns `false` — overridable per platform.
+    fn is_focused_field_secure(&self) -> Result<bool> {
+        Ok(false)
+    }
 }
 
 /// What `try_inplace_capture_and_replace` actually did. Surfaced via the

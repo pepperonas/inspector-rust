@@ -632,6 +632,38 @@ function App() {
     return () => window.clearTimeout(id);
   }, [expanderPermissionMissing]);
 
+  // Expander safety-block notifications (v0.34.0+). Backend emits
+  // `expander-blocked` with one of:
+  //   - "password" : focused field is a password / secure text field;
+  //                  we refuse to leak the snippet body into it.
+  //   - "secure_input": macOS IsSecureEventInputEnabled is true
+  //                     (system-wide secure-input flag — typically a
+  //                     sudo prompt). CGEventPost is dropped anyway,
+  //                     so we bail loudly instead of failing silently.
+  // Surfaced as a 4-second floating toast at the bottom of the popup
+  // so the user *knows* the expansion was blocked rather than
+  // wondering why nothing happened.
+  const [expanderBlocked, setExpanderBlocked] = useState<
+    null | "password" | "secure_input"
+  >(null);
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen<string>("expander-blocked", (e) => {
+        const reason = e.payload as string;
+        if (reason === "password" || reason === "secure_input") {
+          setExpanderBlocked(reason);
+        }
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+  useEffect(() => {
+    if (!expanderBlocked) return;
+    const id = window.setTimeout(() => setExpanderBlocked(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [expanderBlocked]);
+
   // Finder selection hotkey (Ctrl+Shift+F) — backend reads the
   // selection, opens the popup, then fires this event with the items.
   // We switch into "finder-mode": the list is replaced by the files,
@@ -1047,6 +1079,35 @@ function App() {
             </span>
             <button
               onClick={() => setFinderAutomationDenied(false)}
+              className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
+        {expanderBlocked && (
+          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+            <span className="flex-1">
+              {expanderBlocked === "password" ? (
+                <>
+                  <b>Text expansion blocked — focused field is a password input.</b>{" "}
+                  Refusing on purpose: pasting a snippet into a credential
+                  field would leak the body into your password manager / sudo
+                  prompt / OS password dialog.
+                </>
+              ) : (
+                <>
+                  <b>Text expansion blocked — secure event input is active.</b>{" "}
+                  macOS is suppressing synthetic input (typically because a
+                  password field is the keyboard responder). Try again after
+                  leaving the secure field.
+                </>
+              )}
+            </span>
+            <button
+              onClick={() => setExpanderBlocked(null)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               title="Dismiss"
             >

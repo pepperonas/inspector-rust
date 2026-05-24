@@ -176,6 +176,31 @@ code {
   100% { opacity: 0; transform: scale(0.6); }
 }
 
+/* ── `space` easter egg — invaders descend flourish ───────────────────── */
+
+.space-invaders-descend {
+  animation: spaceInvadersDescend 1400ms ease-in-out;
+}
+@keyframes spaceInvadersDescend {
+  0%   { transform: translateY(-6px); }
+  20%  { transform: translateY(4px); }
+  40%  { transform: translateY(-3px); }
+  60%  { transform: translateY(2px); }
+  80%  { transform: translateY(-1px); }
+  100% { transform: translateY(0); }
+}
+
+.space-invaders-title {
+  animation: spaceInvadersTitle 1400ms ease-out forwards;
+}
+@keyframes spaceInvadersTitle {
+  0%   { opacity: 0; transform: translateY(-40px) scale(0.5); letter-spacing: 0.6em; }
+  30%  { opacity: 1; transform: translateY(0) scale(1.1); letter-spacing: 0.35em; }
+  55%  { opacity: 1; transform: scale(1); }
+  80%  { opacity: 1; }
+  100% { opacity: 0; transform: translateY(12px) scale(0.85); letter-spacing: 0.5em; }
+}
+
 /* ── `rockthebox` easter egg — the box-assembling flourish ───────────── */
 
 /* Whole-overlay rocking during the ~1.9 s intro — a damped side-to-side

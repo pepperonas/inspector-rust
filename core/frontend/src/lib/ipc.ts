@@ -737,3 +737,44 @@ export function openFinderAutomationSettings(): Promise<void> {
 export function forceResetFinderAutomationGrant(): Promise<boolean> {
   return invoke("force_reset_finder_automation_grant");
 }
+
+// ── Linux desktop shortcuts (GNOME/Cinnamon) ───────────────────────────────
+
+export interface LinuxShortcutCandidate {
+  binding: string;
+  display: string;
+  free: boolean;
+}
+
+export interface LinuxShortcutRow {
+  id: string;
+  name: string;
+  arg: string;
+  candidates: LinuxShortcutCandidate[];
+  chosen: string;
+  chosen_display: string;
+}
+
+export interface LinuxShortcutSetupScan {
+  desktop: string;
+  profile: string;
+  can_configure: boolean;
+  message: string | null;
+  terminal_profiles_to_fix: number;
+  rows: LinuxShortcutRow[];
+  saved_summary: string | null;
+}
+
+export function linuxScanDesktopShortcuts(): Promise<LinuxShortcutSetupScan> {
+  return invoke("linux_scan_desktop_shortcuts");
+}
+
+export function linuxApplyDesktopShortcuts(
+  bindings: Array<{ id: string; binding: string }>,
+): Promise<void> {
+  return invoke("linux_apply_desktop_shortcuts", { bindings });
+}
+
+export function linuxWebHotkeyToGsettings(shortcut: string): Promise<string> {
+  return invoke("linux_web_hotkey_to_gsettings", { shortcut });
+}

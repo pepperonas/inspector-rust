@@ -2,9 +2,9 @@
 //! receive key events (common on GNOME + Wayland). Bind these flags in
 //! Settings → Keyboard → Custom Shortcuts, e.g. `inspector-rust --toggle-popup`.
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Manager};
 
-use crate::{commands, hotkey};
+use crate::{commands, db::DbHandle, hotkey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CliAction {
@@ -12,6 +12,8 @@ pub enum CliAction {
     Ocr,
     Screenshot,
     PickColor,
+    /// Re-scan gsettings conflicts and reinstall desktop shortcuts (Linux).
+    SetupShortcuts,
 }
 
 /// Parse `argv` (program name + flags). Returns the first recognized action.
@@ -26,6 +28,8 @@ where
             "--ocr" => return Some(CliAction::Ocr),
             "--screenshot" | "--shot" => return Some(CliAction::Screenshot),
             "--pick-color" | "--color" => return Some(CliAction::PickColor),
+            #[cfg(target_os = "linux")]
+            "--setup-shortcuts" => return Some(CliAction::SetupShortcuts),
             "--help" | "-h" => {
                 print_help();
                 return None;
@@ -57,9 +61,10 @@ pub fn print_help() {
            --ocr            OCR a screen region (Ctrl+Shift+O)\n\
            --screenshot     Capture region to clipboard (Ctrl+Shift+S)\n\
            --pick-color     Pick pixel color to clipboard (Ctrl+Shift+C)\n\
+           --setup-shortcuts  (Linux) Re-scan shortcut conflicts and reinstall bindings\n\
          \n\
-         On GNOME/Cinnamon + Wayland, shortcuts are usually installed automatically.\n\
-         Manual re-apply: restart the app after clearing setting `linux.desktop_shortcuts_profile`.\n"
+         On GNOME/Cinnamon + Wayland, shortcuts are installed automatically on first start\n\
+         (conflict scan moves Terminal to Ctrl+C/V when needed; fallbacks if keys are taken).\n"
     );
 }
 
@@ -94,6 +99,21 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
         CliAction::PickColor => {
             let app = app.clone();
             std::thread::spawn(move || commands::run_eyedropper_pipeline(&app));
+        }
+        #[cfg(target_os = "linux")]
+        CliAction::SetupShortcuts => {
+            if let Some(db) = app.try_state::<DbHandle>() {
+                match crate::desktop_shortcuts::force_reinstall(&db) {
+                    Ok(()) => tracing::info!("--setup-shortcuts: desktop shortcuts reinstalled"),
+                    Err(e) => tracing::warn!("--setup-shortcuts failed: {e:#}"),
+                }
+            } else {
+                tracing::warn!("--setup-shortcuts: database not ready yet");
+            }
+        }
+        #[cfg(not(target_os = "linux"))]
+        CliAction::SetupShortcuts => {
+            tracing::warn!("--setup-shortcuts is only available on Linux");
         }
     }
 }

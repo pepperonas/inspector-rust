@@ -10,19 +10,32 @@ From the repository root:
 bash scripts/install-linux.sh   # apt deps + Node 20 + pnpm + Rust stable
 source "$HOME/.cargo/env"       # if rustup was installed by the script
 pnpm dev:linux                  # development (tray + Ctrl+Shift+V popup)
-pnpm build:linux                # release .deb + AppImage
+pnpm build:linux                # release .deb + AppImage (AppImage may fail locally)
+pnpm build:linux:deb            # .deb only — recommended on Ubuntu (exit 0)
 ```
 
 Install artifacts:
 
-- Binary: `linux/src-tauri/target/release/inspector-rust`
+- Binary: `target/release/inspector-rust`
 - Bundle: `target/release/bundle/deb/InspectorRust_<ver>_amd64.deb`
 
-Install:
+Install (use the **exact version**, not a glob — old `.deb` files can linger in `bundle/deb/`):
 
 ```bash
-sudo dpkg -i target/release/bundle/deb/InspectorRust_*_amd64.deb
+sudo dpkg -i target/release/bundle/deb/InspectorRust_0.25.1_amd64.deb
+killall inspector-rust 2>/dev/null; inspector-rust &
 ```
+
+### Build notes
+
+| Target | Local Ubuntu | CI |
+|--------|----------------|-----|
+| `.deb` | `pnpm build:linux:deb` | ✅ |
+| `.AppImage` | Often fails with `failed to run linuxdeploy` unless `libfuse2` is installed and FUSE works | ✅ (CI installs `libfuse2`) |
+
+If `pnpm build:linux` exits **1** but you see `Bundling InspectorRust_…_amd64.deb` above the AppImage error, the **`.deb` is still valid** — install it, or use `pnpm build:linux:deb` next time.
+
+AppImage troubleshooting: `sudo apt install libfuse2`, then rebuild. In Cursor’s integrated terminal, linuxdeploy sometimes fails for sandbox reasons; use a normal GNOME Terminal for AppImage builds.
 
 ## What works on Linux
 
@@ -71,7 +84,24 @@ sudo apt-get install -y grim slurp
 | Screenshot region | `Ctrl+Shift+S` | `inspector-rust --screenshot` |
 | Pick color | `Ctrl+Shift+C` | `inspector-rust --pick-color` |
 
-Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Inspector Rust — …”). Re-run after reinstall: delete setting `linux.desktop_shortcuts_profile` in the DB or remove those four bindings and restart the app.
+Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Inspector Rust — …”).
+
+**Automatic conflict handling (v2):** On first start (and after profile upgrades) Inspector Rust:
+
+1. Scans existing **custom shortcuts** and **GNOME Terminal** copy/paste bindings via `gsettings`.
+2. Moves Terminal off **Ctrl+Shift+C/V** to **Ctrl+C/V** when that would clash with Inspector’s color/popup shortcuts.
+3. Picks the first free binding per action (defaults: Ctrl+Shift+V/O/S/C; fallbacks e.g. Ctrl+Alt+… if occupied).
+
+No manual `ubuntu-terminal-copy-paste-ctrl-cv.sh` required.
+
+**Settings UI:** Open the app → **Settings** → **Linux desktop shortcuts**. The panel rescans conflicts, lists free presets per action, and supports **record mode** (press a combination, verify, then **Save shortcuts**). **Auto-resolve all** runs the same automatic install as first launch.
+
+**CLI / install script:**
+
+```bash
+inspector-rust --setup-shortcuts   # force re-scan + install (after .deb upgrade)
+bash scripts/install-linux.sh    # runs --setup-shortcuts when the binary is on PATH
+```
 
 - **X11**: No extra setup — built-in global shortcuts usually work.
 - **KDE Plasma**: Not automated yet; bind shortcuts manually to the commands above.
@@ -89,7 +119,7 @@ Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Ins
 | Region capture fails | Install `scrot` (X11) or `grim`+`slurp` (Wayland) |
 | OCR shortcut errors | `sudo apt install tesseract-ocr tesseract-ocr-eng` (optional German: `tesseract-ocr-deu`) |
 | `Ctrl+Shift+V` does nothing (Wayland) | Restart app once (auto gsettings), or run `bash scripts/install-desktop-shortcuts.sh` after build |
-| Conflict with copy/paste (`Ctrl+Shift+C/V`) | GNOME Terminal defaults to those keys — run `bash scripts/ubuntu-terminal-copy-paste-ctrl-cv.sh` to use `Ctrl+C` / `Ctrl+V` in the terminal |
+| Conflict with copy/paste (`Ctrl+Shift+C/V`) | Automatic on install/first start; or Settings → Linux desktop shortcuts → **Auto-resolve all** |
 | Tray icon missing | `libayatana-appindicator3-dev` + log out/in |
 
 ## Related docs

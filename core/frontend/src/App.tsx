@@ -19,6 +19,7 @@ import {
   commandSuggestions,
   isGetShakyTrigger,
   isOpenerTrigger,
+  isSpaceInvadersTrigger,
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
@@ -30,6 +31,7 @@ import {
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
+import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import {
   clearHistory,
   deleteEntry,
@@ -75,7 +77,7 @@ function App() {
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
   // Exited only with Esc (handled inside the game).
   const [gameMode, setGameMode] = useState<
-    "pong" | "snake-classic" | "snake-wrap" | null
+    "pong" | "snake-classic" | "snake-wrap" | "space" | null
   >(null);
   const [matchingSnippets, setMatchingSnippets] = useState<Snippet[]>([]);
   const [version, setVersion] = useState<string | undefined>(undefined);
@@ -143,7 +145,11 @@ function App() {
       return;
     }
     const snake = rockTheBoxMode(query);
-    if (snake) setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
+    if (snake) {
+      setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
+      return;
+    }
+    if (isSpaceInvadersTrigger(query)) setGameMode("space");
   }, [query]);
 
   // Inline calculator: when the query parses as a math expression with at
@@ -861,6 +867,8 @@ function App() {
         <div className="app-shell fade-in flex h-full w-full flex-col">
           {gameMode === "pong" ? (
             <PongGame onExit={exitGame} />
+          ) : gameMode === "space" ? (
+            <SpaceInvadersGame onExit={exitGame} />
           ) : (
             <SnakeGame onExit={exitGame} wrap={gameMode === "snake-wrap"} />
           )}

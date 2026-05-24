@@ -12,6 +12,9 @@ export const IS_MAC: boolean =
   (/Mac/i.test(navigator.platform || "") ||
     /Mac/i.test(navigator.userAgent || ""));
 
+export const IS_LINUX: boolean =
+  typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent || "");
+
 /** "⌘+Shift+O" on macOS, "Ctrl+Shift+O" elsewhere. Used in tooltips
  *  and shortcut tables — keep the input keys human-readable. */
 export function shortcut(...keys: string[]): string {

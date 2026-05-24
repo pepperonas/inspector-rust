@@ -77,11 +77,19 @@ echo "See linux/README.md for Wayland shortcuts and optional tools."
 
 if [ -n "${WAYLAND_DISPLAY:-}" ] || [ "${XDG_SESSION_TYPE:-}" = "wayland" ]; then
   echo ""
-  bash "$ROOT/scripts/install-desktop-shortcuts.sh" || true
-  echo "    After build/install, Inspector Rust also registers shortcuts on first launch (GNOME/Cinnamon)."
-fi
-
-if command -v gsettings >/dev/null 2>&1 && gsettings list-schemas 2>/dev/null | grep -q org.gnome.Terminal.ProfilesList; then
-  echo ""
-  bash "$ROOT/scripts/ubuntu-terminal-copy-paste-ctrl-cv.sh" || true
+  echo "==> Desktop shortcuts (GNOME/Cinnamon Wayland)"
+  if command -v inspector-rust >/dev/null 2>&1; then
+    inspector-rust --setup-shortcuts || true
+    echo "    Ran inspector-rust --setup-shortcuts (conflict scan + install)."
+    echo "    Review or change keys in Settings → Linux desktop shortcuts."
+  elif [ -x "$ROOT/target/release/inspector-rust" ]; then
+    "$ROOT/target/release/inspector-rust" --setup-shortcuts || true
+    echo "    Ran target/release/inspector-rust --setup-shortcuts."
+  else
+    bash "$ROOT/scripts/install-desktop-shortcuts.sh" || true
+    echo "    Dev fallback script only — after build/install, run:"
+    echo "      inspector-rust --setup-shortcuts"
+    echo "    Or open Settings → Linux desktop shortcuts (scan, record, save)."
+  fi
+  echo "    First app launch also auto-configures shortcuts when gsettings is available."
 fi

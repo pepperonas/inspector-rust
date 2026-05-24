@@ -256,13 +256,18 @@ pub fn bruno_set_defaults(
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the mouse-jiggle wakelock. Returns the resulting state
-/// (`true` = active, `false` = off).
+/// (`true` = active, `false` = off). Also emits `wakelock-changed`
+/// with the resulting state so the popup's footer LED can update
+/// without polling.
 #[tauri::command]
 pub fn wakelock_set(
+    app: AppHandle,
     state: State<'_, crate::wakelock::WakelockState>,
     enable: bool,
 ) -> bool {
-    crate::wakelock::set_enabled(state.inner(), enable)
+    let new_state = crate::wakelock::set_enabled(state.inner(), enable);
+    let _ = app.emit("wakelock-changed", new_state);
+    new_state
 }
 
 #[tauri::command]

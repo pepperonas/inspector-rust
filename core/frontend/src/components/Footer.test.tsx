@@ -48,4 +48,20 @@ describe("Footer", () => {
     render(<Footer index={0} total={1} />);
     expect(screen.getByText(/Martin Pfeffer/)).toBeTruthy();
   });
+
+  it("hides the wakelock LED by default (wakelockActive omitted)", () => {
+    render(<Footer index={0} total={1} />);
+    expect(screen.queryByText("wake")).toBeNull();
+  });
+
+  it("hides the wakelock LED when wakelockActive=false", () => {
+    render(<Footer index={0} total={1} wakelockActive={false} />);
+    expect(screen.queryByText("wake")).toBeNull();
+  });
+
+  it("shows the wakelock LED + label when wakelockActive=true", () => {
+    render(<Footer index={0} total={1} wakelockActive={true} />);
+    // The LED label is `wake` next to the red dot — easy text probe.
+    expect(screen.getByText("wake")).toBeTruthy();
+  });
 });

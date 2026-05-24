@@ -142,6 +142,25 @@ code {
   }
 }
 
+/* ── Wakelock LED pulse (v0.36.0+) ────────────────────────────────────
+   Slow ease-in-out brightness + glow animation for the footer's red
+   "wakelock on" indicator. 1.6 s cycle is slow enough to read as a
+   gentle status pulse, not a frantic warning. The dot itself stays
+   in the layout flow at full opacity at the *low* point so the
+   indicator never visually disappears. */
+@keyframes wakelockPulse {
+  0%, 100% {
+    opacity: 0.55;
+    box-shadow: 0 0 3px rgba(239, 68, 68, 0.55),
+                0 0 6px rgba(239, 68, 68, 0.25);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: 0 0 5px rgba(239, 68, 68, 1),
+                0 0 10px rgba(239, 68, 68, 0.6);
+  }
+}
+
 /* ── `getshaky` easter egg — the shaky transformation flourish ──────── */
 
 /* Whole-overlay jitter during the ~1.3 s intro phase, intensifying

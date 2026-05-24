@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] — 2026-05-24
+
+### Added — Wakelock LED indicator in the popup footer
+
+When `wakelock=1` is active, a small pulsing red LED + `wake` label now appears at the left edge of the popup footer (next to the keyboard-shortcut hints). Toggling `wakelock=0` makes it disappear. Hovering shows a tooltip explaining what it means and how to disable.
+
+The LED itself is a 8×8 px `bg-red-500` dot with a soft red box-shadow bleed-glow, animated via a new `wakelockPulse` keyframe (1.6 s ease-in-out cycle, opacity 0.55→1, shadow 3px→5px glow). Slow enough to read as a gentle status pulse, not a frantic warning.
+
+**Event-driven, no polling.** Backend `commands::wakelock_set` now emits a `wakelock-changed` event with the resulting boolean state after every successful toggle. Frontend reads the initial value once on mount via `wakelock_get`, then subscribes to the event for updates.
+
+### Tests
+
++3 frontend tests for the LED visibility (hidden default / hidden when false / visible when true).
+
+**245 Rust + 388 frontend tests now pass.**
+
+### Why 0.36.0
+
+User-visible new feature (LED indicator). Backwards-compatible: `wakelockActive` is an optional prop on `Footer`, IPC surface unchanged. Minor digit bump.
+
 ## [0.35.2] — 2026-05-24
 
 ### Fixed — Three audit findings: timer leak, TOCTOU race, hung-osascript wedge

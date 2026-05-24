@@ -6,9 +6,14 @@ interface Props {
   /** App version, e.g. "0.2.6". Rendered as `v0.2.6` next to the counter
    *  when provided. Optional so unit tests don't need a Tauri context. */
   version?: string;
+  /** Wakelock state — when `true`, a tiny red LED dot pulses next to
+   *  the shortcut hints as a visual confirmation that the cursor
+   *  jiggler is running. Optional so unit tests + cold popup mounts
+   *  don't need to know the state. */
+  wakelockActive?: boolean;
 }
 
-export function Footer({ index, total, version }: Props) {
+export function Footer({ index, total, version, wakelockActive }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
@@ -23,6 +28,7 @@ export function Footer({ index, total, version }: Props) {
           the edge instead of wrapping items onto a second line and
           overflowing the fixed `h-8` height. */}
       <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
+        {wakelockActive && <WakelockLed />}
         <Hint k="⏎" label="Paste" />
         <Hint k="↑↓" label="Navigate" />
         <Hint k="Esc" label="Close" />
@@ -54,6 +60,34 @@ function Hint({ k, label }: { k: string; label: string }) {
         {k}
       </kbd>
       <span>{label}</span>
+    </span>
+  );
+}
+
+/**
+ * Tiny red LED dot indicating the wakelock is on. Pulses slowly
+ * (1.6 s cycle) via the shared `wakelockPulse` keyframe in
+ * `styles.css` so the user's eye notices it without it being
+ * distracting. The dot has a soft red box-shadow that mimics a real
+ * LED bleed-glow.
+ */
+function WakelockLed() {
+  return (
+    <span
+      title="Wakelock active — cursor jiggles every 60 s to keep the computer awake. Type `wakelock=0` to turn off."
+      className="flex shrink-0 items-center gap-1"
+    >
+      <span
+        aria-hidden
+        className="h-2 w-2 rounded-full bg-red-500"
+        style={{
+          boxShadow: "0 0 4px rgba(239, 68, 68, 0.85), 0 0 8px rgba(239, 68, 68, 0.45)",
+          animation: "wakelockPulse 1.6s ease-in-out infinite",
+        }}
+      />
+      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+        wake
+      </span>
     </span>
   );
 }

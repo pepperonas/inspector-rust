@@ -53,6 +53,7 @@ import {
   startInputLock,
   systemReboot,
   systemShutdown,
+  wakelockGet,
   wakelockSet,
   resizeFile,
   optimizeFile,
@@ -109,6 +110,11 @@ function App() {
   // want to show the empty-state hint.
   const [finderFiles, setFinderFiles] = useState<FinderFileView[] | null>(null);
   const [finderAutomationDenied, setFinderAutomationDenied] = useState(false);
+  // Wakelock state for the footer LED (v0.36.0+). Loaded once on
+  // mount; subsequently refreshed by the `wakelock-changed` event
+  // emitted by the backend after every `wakelock_set` call. No
+  // polling — purely event-driven.
+  const [wakelockActive, setWakelockActive] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -711,6 +717,21 @@ function App() {
     return () => unlisten?.();
   }, []);
 
+  // Wakelock LED state. Initial value via one IPC on mount; subsequent
+  // updates via the `wakelock-changed` event the backend emits after
+  // every successful `wakelock_set` (in commands.rs). No polling —
+  // wakelock toggles are user-driven, never spontaneous.
+  useEffect(() => {
+    void wakelockGet().then(setWakelockActive).catch(() => undefined);
+    let unlisten: UnlistenFn | undefined;
+    void listen<boolean>("wakelock-changed", (e) => {
+      setWakelockActive(Boolean(e.payload));
+    }).then((u) => {
+      unlisten = u;
+    });
+    return () => unlisten?.();
+  }, []);
+
   const activate = async (i: number, shiftKey = false) => {
     const target = combined[i];
     if (!target) return;
@@ -1219,6 +1240,7 @@ function App() {
                   : 0
           }
           version={version}
+          wakelockActive={wakelockActive}
         />
       </div>
     </div>

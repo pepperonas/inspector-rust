@@ -9,7 +9,7 @@ import {
   SERVE_DELAY_MS,
   SHIFT_SPEED_MULTIPLIER,
   WIN_SCORE,
-  botMaxSpeed,
+  botBehavior,
   clamp,
   frameScale,
   nextBallSpeed,
@@ -252,9 +252,29 @@ export function PongGame({ onExit }: Props) {
       if (s.keys.down) s.playerY += keySpeed;
       s.playerY = clamp(s.playerY, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
 
-      // ── Bot paddle — tracks the ball, capped (ramp-up difficulty) ───
-      const botCap = botMaxSpeed(scoreRef.current.bot);
-      const botDelta = clamp(s.ballY - s.botY, -botCap, botCap) * dt;
+      // ── Bot paddle — rubber-band AI (v0.38.0+) ──────────────────────
+      // `botBehavior` factors in BOTH scores: leads badly when
+      // ahead by 2+, plays hardcore when the human is one point
+      // from winning, baseline-hard otherwise. Predicts the ball's
+      // intercept Y at the bot's column instead of just chasing the
+      // current ballY → harder to beat with sharp-angle shots.
+      //
+      // `botCenterX` is the *center* of the paddle (used for the
+      // prediction target); the variable named `botX` further down
+      // is the paddle's LEFT edge (collision test). Different
+      // X values — same paddle, different purposes.
+      const botCenterX = s.fieldW - PADDLE_INSET - PADDLE_W / 2;
+      const botMove = botBehavior({
+        botScore: scoreRef.current.bot,
+        playerScore: scoreRef.current.player,
+        ballX: s.ballX,
+        ballY: s.ballY,
+        ballVx: s.ballVx,
+        ballVy: s.ballVy,
+        botX: botCenterX,
+        fieldH: s.fieldH,
+      });
+      const botDelta = clamp(botMove.targetY - s.botY, -botMove.maxSpeed, botMove.maxSpeed) * dt;
       s.botY = clamp(s.botY + botDelta, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
 
       // ── Serve delay — ball is parked until `serveAt` elapses ────────
@@ -381,7 +401,17 @@ export function PongGame({ onExit }: Props) {
 
       {/* Play field */}
       <div className="relative min-h-0 flex-1">
-        <canvas ref={canvasRef} className="h-full w-full" />
+        {/* Hide the cursor over the canvas while the match is live —
+            mouse controls the paddle, so the cursor would just be a
+            visual distraction (especially during a fast rally). Keep
+            it visible during `intro` (so the user sees the page they
+            triggered) and during `over` (so the rematch button is
+            click-targetable). v0.38.0+. */}
+        <canvas
+          ref={canvasRef}
+          className="h-full w-full"
+          style={phase === "playing" ? { cursor: "none" } : undefined}
+        />
 
         {/* Intro overlay — the shaky transformation flourish. */}
         {phase === "intro" && (

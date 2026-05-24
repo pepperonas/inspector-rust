@@ -8,8 +8,10 @@ import {
   SERVE_DELAY_MS,
   SHIFT_SPEED_MULTIPLIER,
   WIN_SCORE,
+  botBehavior,
   botMaxSpeed,
   clamp,
+  pseudoNoise,
   frameScale,
   nextBallSpeed,
   paddleBounce,
@@ -220,5 +222,139 @@ describe("serveBall", () => {
       const b = serveBall(700, 452, true, () => r);
       expect(Math.hypot(b.vx, b.vy)).toBeCloseTo(BALL_BASE_SPEED);
     }
+  });
+});
+
+describe("pseudoNoise — deterministic [-1, +1] hash", () => {
+  it("returns same value for same seed (deterministic)", () => {
+    expect(pseudoNoise(123)).toBe(pseudoNoise(123));
+    expect(pseudoNoise(0.5)).toBe(pseudoNoise(0.5));
+  });
+  it("stays inside [-1, +1] for any seed", () => {
+    for (const seed of [0, 1, -5, 12345, 99.99, -1e6]) {
+      const v = pseudoNoise(seed);
+      expect(v).toBeGreaterThanOrEqual(-1);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+  });
+  it("different seeds → different outputs (spot-check)", () => {
+    const a = pseudoNoise(1);
+    const b = pseudoNoise(2);
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("botBehavior — rubber-band AI (v0.38.0+)", () => {
+  // Boilerplate ball state — moving toward bot (+x), midfield, normal pace.
+  const baseBall = {
+    ballX: 700,
+    ballY: 226,
+    ballVx: 7,
+    ballVy: 0,
+    botX: 1280,
+    fieldH: 452,
+  };
+
+  it("bot leading by 2+ → plays badly (low maxSpeed, large error)", () => {
+    const move = botBehavior({ ...baseBall, botScore: 3, playerScore: 1 });
+    expect(move.maxSpeed).toBeLessThan(5); // 9.5 * 0.45 = 4.275
+  });
+  it("bot leading by 1 → only slightly slow", () => {
+    const move = botBehavior({ ...baseBall, botScore: 2, playerScore: 1 });
+    expect(move.maxSpeed).toBeGreaterThan(6);
+    expect(move.maxSpeed).toBeLessThan(8);
+  });
+  it("tied → standard hard", () => {
+    const move = botBehavior({ ...baseBall, botScore: 2, playerScore: 2 });
+    expect(move.maxSpeed).toBeCloseTo(9.5, 1);
+  });
+  it("bot behind by 2+ → harder than baseline", () => {
+    const move = botBehavior({ ...baseBall, botScore: 0, playerScore: 2 });
+    expect(move.maxSpeed).toBeGreaterThan(12);
+  });
+  it("player one-away-from-winning → HARDCORE override", () => {
+    // Even with a huge bot lead, player on match point flips to hardcore.
+    const move = botBehavior({ ...baseBall, botScore: 4, playerScore: WIN_SCORE - 1 });
+    expect(move.maxSpeed).toBeGreaterThan(15); // 9.5 * 1.65 = 15.675
+  });
+
+  it("predicts ball intercept when ball moves toward bot", () => {
+    // Ball at (700, 100) moving +x +vy=0 toward botX=1280:
+    // predicted Y = 100 + 0*((1280-700)/7) = 100.
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 700,
+      ballY: 100,
+      ballVx: 7,
+      ballVy: 0,
+      botScore: 0,
+      playerScore: 0,
+    });
+    // At tied (skill=1), error magnitude is 0 → targetY == predicted.
+    expect(move.targetY).toBeCloseTo(100, 0);
+  });
+
+  it("predicts with vertical velocity (linear extrapolation)", () => {
+    // dt = (1280-700)/7 = 82.86; ballY 100 + ballVy*82.86 = 100 + 2*82.86 = 265.71
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 700,
+      ballY: 100,
+      ballVx: 7,
+      ballVy: 2,
+      botScore: 0,
+      playerScore: 0,
+    });
+    expect(move.targetY).toBeCloseTo(265.71, 0);
+  });
+
+  it("idle toward centre when ball is moving away from bot", () => {
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 800,
+      ballY: 50,
+      ballVx: -5, // moving away
+      ballVy: 0,
+      botScore: 0,
+      playerScore: 0,
+    });
+    expect(move.targetY).toBeCloseTo(baseBall.fieldH / 2, 0);
+  });
+
+  it("higher skill = smaller deterministic error", () => {
+    // Same ball state, varying skill — predicted target stays the
+    // same; only the error magnitude changes.
+    const hardcore = botBehavior({
+      ...baseBall,
+      botScore: 0,
+      playerScore: WIN_SCORE - 1,
+    });
+    const easy = botBehavior({
+      ...baseBall,
+      botScore: 3,
+      playerScore: 0,
+    });
+    // Easy bot's targetY can deviate up to ~60 px from prediction.
+    // Hardcore should deviate <1 px (skill > 1).
+    const predicted = baseBall.ballY; // ballVy=0
+    expect(Math.abs(hardcore.targetY - predicted)).toBeLessThan(1);
+    expect(Math.abs(easy.targetY - predicted)).toBeGreaterThan(
+      Math.abs(hardcore.targetY - predicted),
+    );
+  });
+
+  it("targetY always clamped inside the field", () => {
+    // Crazy prediction that would extrapolate way off-field.
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 700,
+      ballY: 226,
+      ballVx: 0.5, // very slow — dt huge
+      ballVy: 50,  // would extrapolate to ballY + 50*(580/0.5) = 58226
+      botScore: 0,
+      playerScore: 0,
+    });
+    expect(move.targetY).toBeGreaterThanOrEqual(0);
+    expect(move.targetY).toBeLessThanOrEqual(baseBall.fieldH);
   });
 });

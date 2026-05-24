@@ -4,6 +4,41 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] — 2026-05-25
+
+### Changed — Pong (`getshaky`): rubber-band AI + ball prediction + cursor hides on canvas
+
+Three changes to the Pong easter egg, requested by the user. The bot is now actually a challenge, with a self-balancing dynamic that keeps matches close.
+
+**1. Cursor hidden over the play field while the match is live.** Mouse controls the paddle, so the visible cursor was just a distraction during fast rallies. `cursor: none` on the canvas during `phase === "playing"`; stays visible during `intro` (so the user sees the page they triggered) and during `over` (so the rematch button is click-targetable).
+
+**2. Rubber-band AI** — new `botBehavior(state)` in `lib/pong.ts` replaces the v0.37.x `botMaxSpeed(botScore)`. Takes *both* scores plus the live ball state and returns `{ targetY, maxSpeed }`. Skill multiplier curve:
+
+| Score state | Skill | Max speed | Behaviour |
+|---|---|---|---|
+| Bot leads by 2+ | 0.45× | ~4.3 px/frame | **Plays badly** — slow paddle + ~50 px tracking error → human catches up |
+| Bot leads by 1 | 0.78× | ~7.4 px/frame | Slightly slow |
+| Tied | 1.00× | 9.5 px/frame | Baseline hard |
+| Behind by 1 | 1.18× | ~11.2 px/frame | Slightly faster |
+| Behind by 2+ | 1.35× | ~12.8 px/frame | Hard |
+| **Player one away from winning** | **1.65×** | **~15.7 px/frame** | **HARDCORE** — perfect tracking, near-max ball-speed paddle. Match-point overrides any lead-based throwing. |
+
+**3. Ball-intercept prediction.** When the ball moves toward the bot (`ballVx > 0`), the bot now predicts where it'll be at the bot's paddle column by straight-line extrapolation (ignoring wall bounces — refinement for later) instead of just chasing the live `ballY`. Makes the bot proactive — sharp-angle shots that used to slip past now get intercepted. When the ball moves *away*, the bot drifts toward field-centre as a defensive idle posture.
+
+**Deterministic tracking error.** Low-skill bots add up to ±60 px error to their target via a pure `pseudoNoise(seed)` hash (FNV-1a-style `fract(sin)` hack) — no `Math.random`, so the bot's behaviour is reproducible per game state and unit-testable.
+
+### Tests
+
++13 frontend tests in `pong.test.ts`:
+- 3 `pseudoNoise` (determinism, bounds, distinct seeds).
+- 10 `botBehavior` covering each skill bucket + ball prediction (forward + with vertical velocity + ball moving away) + the field-clamp invariant.
+
+**253 Rust + 401 frontend tests now pass.**
+
+### Why 0.38.0
+
+User-feelable behaviour change (the bot now plays seriously) + new exported API (`botBehavior`, `pseudoNoise`). `botMaxSpeed` kept as `@deprecated` for the existing tests' baseline. Minor digit bump.
+
 ## [0.37.1] — 2026-05-25
 
 ### Fixed — 5 audit findings + Pong input-fight

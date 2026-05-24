@@ -127,7 +127,8 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
             let _ = app.run_on_main_thread(move || {
                 std::thread::sleep(std::time::Duration::from_millis(250));
                 if let Some(db) = app2.try_state::<DbHandle>() {
-                    match crate::expander::expand_at_cursor(&db) {
+                    let watcher = app2.try_state::<crate::clipboard_watcher::WatcherState>();
+                    match crate::expander::expand_at_cursor(&db, watcher.as_deref()) {
                         Ok(()) => tracing::info!("--expand-at-cursor: expansion completed"),
                         Err(e) => tracing::warn!("--expand-at-cursor failed: {e:#}"),
                     }

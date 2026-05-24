@@ -153,7 +153,9 @@ export function HistoryList({
                                 ? `finder-${entry.data.path}`
                                 : entry.kind === "bruno"
                                   ? `bruno-${entry.data.yearlyGross}-${entry.data.period}`
-                                  : `c-${entry.data.id}`;
+                                  : entry.kind === "app"
+                                    ? `app-${entry.data.path}`
+                                    : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

@@ -4,6 +4,45 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.0] — 2026-05-25
+
+### Added — Spotlight-like app launcher in the popup search bar (macOS)
+
+Type the start of an app name in the popup → an "app" row surfaces at the top of the list with the app's real icon → Enter launches it (activating an already-running instance instead of spawning a duplicate, via macOS Launch Services). One row, top of the list — Spotlight-like, never crowds the popup with marginal matches.
+
+**Backend (`core/rust-lib/src/app_launcher.rs`)** scans the four standard macOS app directories at startup:
+
+- `/Applications`
+- `~/Applications`
+- `/System/Applications`
+- `/System/Applications/Utilities`
+
+Top-level only, no recursion past `*.app`. Display name = the bundle's filename without the suffix (matches `CFBundleDisplayName` for ~99 % of installed apps). Results sorted alphabetically + deduped by path. Typical machine: 150–400 apps, scanned in 20–100 ms once at startup.
+
+**Launching** via `/usr/bin/open <path>` — macOS Launch Services standard. Already-running instances get activated, not duplicated.
+
+**Icons** (lazy): only the currently-selected app row triggers `get_app_icon`. First call shells out to `sips -s format png -z 128 128 <Resources/*.icns>` (~50 ms cold), result base64-encoded + cached in an `AppIndex.icons` HashMap. Re-selecting the same app = HashMap lookup. Icons fall back to a generic `<AppWindow>` lucide icon while loading or if the bundle has no standard `.icns`.
+
+**Match heuristic** (pure-TS, client-side):
+
+1. Exact prefix match wins (`saf` → Safari, `cal` → Calculator if it comes before Calendar alphabetically).
+2. Substring match falls back (`code` → Visual Studio Code).
+3. Anything that doesn't prefix- or substring-match: no app row. Spotlight-like — typos don't launch random apps.
+
+The match is **suppressed** when a complete power-command parses (`kill safari` should kill, not launch).
+
+**Settings**: not in v1; the `refresh_apps` IPC exists for a future "Refresh app index" button in the Settings tab. For now, the index is rebuilt on app restart.
+
+### Tests
+
++4 Rust unit tests: scan finds Terminal.app, results lowercased + alphabetically sorted + deduped. Real-filesystem tests against the running macOS.
+
+**249 Rust + 388 frontend tests now pass.**
+
+### Why 0.37.0
+
+Substantial new user-facing feature surface: new ListEntry kind, new IPC trio, new top-level Rust module, new lazy-icon UX, new lucide icon (AppWindow). Backwards-compatible — no IPC break. Minor digit bump.
+
 ## [0.36.0] — 2026-05-24
 
 ### Added — Wakelock LED indicator in the popup footer

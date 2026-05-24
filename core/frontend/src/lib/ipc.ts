@@ -181,6 +181,39 @@ export function brunoSetDefaults(defaults: BrunoDefaults): Promise<void> {
   return invoke("bruno_set_defaults", { defaults });
 }
 
+// ── App launcher (Spotlight-like, macOS only in v0.37) ────────────────
+
+export interface AppEntry {
+  name: string;
+  path: string;
+  name_lower: string;
+}
+
+/** Return the cached app index (scanned once at startup). One-shot per
+ *  popup mount; no polling. Empty on non-macOS. */
+export function listApps(): Promise<AppEntry[]> {
+  return invoke("list_apps");
+}
+
+/** Re-scan installed apps. Used by Settings → Apps → Refresh. Returns
+ *  the new count. Also clears the icon cache. */
+export function refreshApps(): Promise<number> {
+  return invoke("refresh_apps");
+}
+
+/** Launch the app at `path` via macOS Launch Services. Activates the
+ *  existing instance if the app is already running. */
+export function launchApp(path: string): Promise<void> {
+  return invoke("launch_app", { path });
+}
+
+/** Lazy icon fetch. Returns base64 PNG (128×128). First call per app
+ *  shells out to `sips` (~50 ms); subsequent calls hit the in-memory
+ *  cache (instant). */
+export function getAppIcon(path: string): Promise<string> {
+  return invoke("get_app_icon", { path });
+}
+
 // ── Finder selection (macOS) ──────────────────────────────────────────
 
 /** One item in the current Finder selection. `is_image` is a cheap

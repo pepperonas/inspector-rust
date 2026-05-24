@@ -299,6 +299,28 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  if (entry.kind === "app") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          App launcher
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="truncate text-[14px] font-semibold leading-snug">
+            {entry.data.name}
+          </div>
+          <div className="mt-2 break-all font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            {entry.data.path}
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter launches the app (activates the existing instance if
+            it's already running)
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "finder-file") {
     return (
       <div className="flex h-full flex-col gap-3 p-4">

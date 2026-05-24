@@ -1,5 +1,6 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
+mod app_launcher;
 mod backup;
 mod bruno;
 mod cli_dispatch;
@@ -138,6 +139,20 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(expander_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
+
+            // App-launcher cache. Scan once at startup; the Settings
+            // → Apps Refresh button can re-trigger via `refresh_apps`.
+            // Done on the setup thread (not blocking the main loop)
+            // because scanning ~200-400 .app bundles is ~20-100 ms.
+            {
+                let app_index = app_launcher::AppIndex::default();
+                *app_index.apps.lock() = app_launcher::scan();
+                tracing::info!(
+                    "app launcher: indexed {} apps",
+                    app_index.apps.lock().len()
+                );
+                app.manage(app_index);
+            }
 
             if let Err(e) = hotkey::register(&app.handle()) {
                 tracing::warn!(
@@ -317,6 +332,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::wakelock_get,
             commands::bruno_get_defaults,
             commands::bruno_set_defaults,
+            commands::list_apps,
+            commands::refresh_apps,
+            commands::launch_app,
+            commands::get_app_icon,
             commands::get_finder_selection,
             commands::resize_file,
             commands::optimize_file,

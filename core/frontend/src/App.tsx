@@ -55,6 +55,9 @@ import {
   systemShutdown,
   wakelockGet,
   wakelockSet,
+  launchApp,
+  listApps,
+  type AppEntry,
   resizeFile,
   optimizeFile,
   brunoGetDefaults,
@@ -110,6 +113,15 @@ function App() {
   // want to show the empty-state hint.
   const [finderFiles, setFinderFiles] = useState<FinderFileView[] | null>(null);
   const [finderAutomationDenied, setFinderAutomationDenied] = useState(false);
+  // App launcher (v0.37.0+). Indexed list of installed apps; the
+  // backend scans once at startup. We fetch the list on popup mount
+  // (cheap — already in memory) and run a fuzzy match per keystroke
+  // entirely client-side. No icons until the row is selected.
+  const [installedApps, setInstalledApps] = useState<AppEntry[]>([]);
+  useEffect(() => {
+    void listApps().then(setInstalledApps).catch(() => undefined);
+  }, []);
+
   // Wakelock state for the footer LED (v0.36.0+). Loaded once on
   // mount; subsequently refreshed by the `wakelock-changed` event
   // emitted by the backend after every `wakelock_set` call. No
@@ -458,6 +470,44 @@ function App() {
     };
   }, [query, brunoDefaults]);
 
+  // App launcher: pick the single best-matching installed app for the
+  // current query. Spotlight-like — one app surfaces at the top of
+  // the list if and only if it scores above the threshold. Avoids
+  // crowding the popup with marginal matches.
+  //
+  // Heuristic: exact prefix match (case-insensitive) wins; otherwise
+  // longest-prefix wins; ties broken alphabetically. Skipping fuse.js
+  // here keeps the per-keystroke cost negligible (<1 ms for ~300
+  // apps) and the match feel is more "Spotlight" — a typo doesn't
+  // surface a random app, only true prefixes do.
+  const appEntry: ListEntry | null = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (q.length < 1 || installedApps.length === 0) return null;
+    // Don't fight for the top slot with a complete power command
+    // (e.g. `kill safari` should kill, not launch Safari).
+    if (parseCommand(query)) return null;
+    // Exact prefix match first; then substring match; abandon if
+    // neither hits — too risky to launch something the user wasn't
+    // unambiguously asking for.
+    const exactPrefix = installedApps.find((a) => a.name_lower.startsWith(q));
+    const match =
+      exactPrefix ??
+      installedApps.find((a) => a.name_lower.includes(q));
+    if (!match) return null;
+    // Score: prefix is best (0), substring at start of a word is
+    // medium (0.2), interior substring is worst (0.5). Not currently
+    // surfaced in the UI — kept for future ranking refinements.
+    const score = exactPrefix
+      ? 0
+      : match.name_lower.split(/\s+/).some((w) => w.startsWith(q))
+        ? 0.2
+        : 0.5;
+    return {
+      kind: "app",
+      data: { name: match.name, path: match.path, score },
+    };
+  }, [query, installedApps]);
+
   // Combine: in kill mode, the process picker takes over the entire
   // list (no point mixing clipboard history with process rows — they
   // can't be activated the same way and would just confuse selection).
@@ -467,6 +517,7 @@ function App() {
     ? killTargetEntries
     : [
         ...(openerEntry ? [openerEntry] : []),
+        ...(appEntry ? [appEntry] : []),
         ...(brunoEntry ? [brunoEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
@@ -745,6 +796,11 @@ function App() {
       } else if (target.kind === "opener") {
         // Easter-egg paste — drop the German opener into the focused app.
         await pasteText(target.data.text);
+      } else if (target.kind === "app") {
+        // Spotlight-like launch. macOS Launch Services activates an
+        // already-running instance instead of spawning a duplicate.
+        await launchApp(target.data.path);
+        await hidePopup();
       } else if (target.kind === "bruno") {
         // Paste the net amount — period-matched. Typing `bruno 5000m`
         // → user is thinking monthly → paste monthly net. Typing

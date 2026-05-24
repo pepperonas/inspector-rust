@@ -231,6 +231,54 @@ pub fn start_input_lock(
     crate::input_lock::start_input_lock(chord)
 }
 
+// ── App launcher (Spotlight-like) ─────────────────────────────────────
+
+/// Return the cached app index. Frontend fuzzy-matches against this
+/// list in the popup search bar; one shot at popup-mount, no polling.
+#[tauri::command]
+pub fn list_apps(state: State<'_, crate::app_launcher::AppIndex>) -> Vec<crate::app_launcher::AppEntry> {
+    state.inner().apps.lock().clone()
+}
+
+/// Re-scan installed apps. Called from Settings → Apps → Refresh.
+/// Returns the new count so the UI can confirm the rescan ran.
+#[tauri::command]
+pub fn refresh_apps(state: State<'_, crate::app_launcher::AppIndex>) -> usize {
+    let fresh = crate::app_launcher::scan();
+    let n = fresh.len();
+    *state.inner().apps.lock() = fresh;
+    // Drop cached icons too — a fresh scan may have replaced apps at
+    // the same path with a new version (Sparkle/MAS update).
+    state.inner().icons.lock().clear();
+    n
+}
+
+/// Launch the app at `path` via `/usr/bin/open` (macOS Launch Services).
+/// If the app is already running, this activates the existing instance
+/// instead of spawning a duplicate.
+#[tauri::command]
+pub fn launch_app(path: String) -> Result<(), String> {
+    crate::app_launcher::launch(std::path::Path::new(&path)).map_err(map_err)
+}
+
+/// Lazy icon fetch. First call per `path` shells out to sips
+/// (~50 ms); subsequent calls hit the in-memory cache.
+#[tauri::command]
+pub fn get_app_icon(
+    state: State<'_, crate::app_launcher::AppIndex>,
+    path: String,
+) -> Result<String, String> {
+    {
+        let cache = state.inner().icons.lock();
+        if let Some(cached) = cache.get(&path) {
+            return Ok(cached.clone());
+        }
+    }
+    let b64 = crate::app_launcher::icon_png_base64(std::path::Path::new(&path)).map_err(map_err)?;
+    state.inner().icons.lock().insert(path, b64.clone());
+    Ok(b64)
+}
+
 // ── Bruno (Brutto-Netto-Rechner) ──────────────────────────────────────
 
 #[tauri::command]

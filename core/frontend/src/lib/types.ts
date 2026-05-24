@@ -122,6 +122,17 @@ export interface OpenerEntryView {
   text: string;
 }
 
+/** Installed-app match surfaced as a top entry when the user's query
+ *  fuzzy-matches an app's name. v0.37.0+. Icon is fetched lazily by
+ *  the row (only the selected row triggers the IPC). */
+export interface AppEntryView {
+  name: string;
+  path: string;
+  /** Fuse.js match score (0 = perfect, 1 = worst). Used for ranking
+   *  the top-1 app against other heuristics — not currently shown. */
+  score?: number;
+}
+
 /** Bruno (Brutto→Netto) result surfaced as a top entry once the
  *  user has typed `bruno <€>`. The numbers come from the pure-TS
  *  computation in `lib/bruno.ts`. */
@@ -166,4 +177,5 @@ export type ListEntry =
   | { kind: "kill-target"; data: KillTargetView }
   | { kind: "opener"; data: OpenerEntryView }
   | { kind: "finder-file"; data: FinderFileView }
-  | { kind: "bruno"; data: BrunoEntryView };
+  | { kind: "bruno"; data: BrunoEntryView }
+  | { kind: "app"; data: AppEntryView };

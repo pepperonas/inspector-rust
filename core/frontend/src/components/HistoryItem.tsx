@@ -1,5 +1,6 @@
-import { memo, useState } from "react";
-import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { memo, useEffect, useState } from "react";
+import { AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
@@ -26,6 +27,14 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
+  if (entry.kind === "app") {
+    return (
+      <AppIcon
+        path={entry.data.path}
+        fallback={<AppWindow size={size} className={cls} />}
+      />
+    );
+  }
   if (entry.kind === "finder-file") {
     return entry.data.is_image
       ? <Image size={size} className={cls} />
@@ -63,12 +72,13 @@ export const HistoryItem = memo(function HistoryItem({
   const isKillTarget = entry.kind === "kill-target";
   const isOpener = entry.kind === "opener";
   const isBruno = entry.kind === "bruno";
+  const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isFinderFile
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -174,6 +184,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Brutto → Netto (Steuerjahr 2025, vereinfacht)"
     >
       bruno
+    </span>
+  ) : isApp ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Launch app (Spotlight-like)"
+    >
+      app
     </span>
   ) : (
     (() => {
@@ -367,6 +389,18 @@ export const HistoryItem = memo(function HistoryItem({
               })()}
             </span>
           </span>
+        ) : isApp && entry.kind === "app" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.name}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Launch · {entry.data.path}
+            </span>
+          </span>
         ) : isFinderFile && entry.kind === "finder-file" ? (
           <span className="flex flex-col">
             <span className="truncate font-semibold">{entry.data.name}</span>
@@ -435,3 +469,42 @@ export const HistoryItem = memo(function HistoryItem({
     </div>
   );
 });
+
+/**
+ * Lazy-loads the macOS app icon for the currently-selected app row.
+ * Triggers a single `get_app_icon` IPC the first time the component
+ * mounts; the backend caches the result, so a re-mount (e.g.
+ * re-selecting the same app after navigating away) returns instantly.
+ *
+ * Sized to match the row's `TypeIcon` (14 px) so the row layout
+ * doesn't jump when the icon arrives. Until the IPC resolves we
+ * render `null` — the surrounding `<TypeIcon>` already drew the
+ * generic `<AppWindow>` lucide icon, so there's no visual gap.
+ */
+function AppIcon({ path, fallback }: { path: string; fallback: React.ReactNode }) {
+  const [src, setSrc] = useState<string | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    void getAppIcon(path)
+      .then((b64) => {
+        if (!cancelled) setSrc(`data:image/png;base64,${b64}`);
+      })
+      .catch(() => {
+        // Failed extraction (rare — apps without standard .icns).
+        // Stick with the lucide fallback.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [path]);
+  if (!src) return <>{fallback}</>;
+  return (
+    <img
+      src={src}
+      alt=""
+      aria-hidden
+      className="h-3.5 w-3.5 shrink-0 rounded-sm"
+      draggable={false}
+    />
+  );
+}

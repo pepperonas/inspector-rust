@@ -15,12 +15,14 @@ mod desktop_shortcuts;
 mod expander;
 mod hotkey;
 mod image_ops;
+mod input_lock;
+#[cfg(target_os = "linux")]
+mod linux_portal;
 mod models;
 mod notes;
 mod ocr;
 mod paste;
 mod recolor;
-mod input_lock;
 mod region_picker;
 mod screen_picker;
 mod screen_recording;
@@ -168,6 +170,9 @@ pub fn run(context: tauri::Context<Wry>) {
                 let enabled = settings::get_bool(&db_handle, expander::KEY_ENABLED, false)
                     .unwrap_or(false);
                 let hotkey_str = expander::migrate_legacy_default(&db_handle);
+                #[cfg(target_os = "linux")]
+                let hotkey_str =
+                    expander::migrate_linux_wayland_hotkey(&db_handle, hotkey_str);
                 let state = app
                     .state::<hotkey::ExpanderShortcutState>();
                 if let Err(e) = hotkey::register_expander(
@@ -177,6 +182,17 @@ pub fn run(context: tauri::Context<Wry>) {
                     enabled,
                 ) {
                     tracing::warn!("expander hotkey register failed at startup: {e:#}");
+                }
+
+                #[cfg(target_os = "linux")]
+                if enabled {
+                    if let Err(e) = desktop_shortcuts::sync_expander_shortcut(
+                        &db_handle,
+                        true,
+                        &hotkey_str,
+                    ) {
+                        tracing::warn!("expander desktop shortcut sync at startup: {e:#}");
+                    }
                 }
 
                 // Direct hotkey→snippet slots (independent of the
@@ -215,7 +231,21 @@ pub fn run(context: tauri::Context<Wry>) {
 
             #[cfg(target_os = "linux")]
             {
+                if let Err(e) = pollster::block_on(atspi::connection::set_session_accessibility(
+                    true,
+                )) {
+                    tracing::warn!("AT-SPI set_session_accessibility(true): {e}");
+                } else {
+                    tracing::info!(
+                        "AT-SPI session accessibility enabled (text expander uses focused field, not clipboard)"
+                    );
+                }
                 cli_dispatch::log_wayland_shortcut_hint();
+                if let Err(e) =
+                    desktop_shortcuts::restore_terminal_and_fix_shortcut_conflicts(&db_handle)
+                {
+                    tracing::warn!("restore Terminal / fix shortcut conflicts: {e:#}");
+                }
                 if let Err(e) = desktop_shortcuts::try_auto_install(&db_handle) {
                     tracing::warn!("desktop shortcut auto-setup: {e:#}");
                 }

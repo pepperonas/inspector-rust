@@ -645,6 +645,17 @@ function App() {
     return () => unlisten?.();
   }, [refreshNotes]);
 
+  // After expander diagnose, backend re-opens the popup — stay on Settings.
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    (async () => {
+      unlisten = await listen("expander-diagnose-ready", () => {
+        setActiveTab("settings");
+      });
+    })();
+    return () => unlisten?.();
+  }, []);
+
   // Backend fires this when the OCR shortcut is pressed but the
   // Screen Recording TCC grant is missing. Switch to Settings (which
   // shows the Permissions overview) and surface a banner so the

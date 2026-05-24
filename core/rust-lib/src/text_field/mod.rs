@@ -102,7 +102,9 @@ pub enum CapturePath {
     Ax,
     /// Windows UI Automation succeeded.
     Uia,
-    /// Both AX/UIA returned None — fell back to the clipboard roundtrip.
+    /// Linux AT-SPI2 succeeded.
+    Atspi,
+    /// Native a11y returned None — fell back to the clipboard roundtrip.
     Clipboard,
 }
 
@@ -116,7 +118,11 @@ pub fn default_field_access() -> Box<dyn FieldAccess + Send + Sync> {
     {
         Box::new(windows::UiaFieldAccess)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        Box::new(linux::AtspiFieldAccess)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Box::new(stub::StubFieldAccess)
     }
@@ -132,7 +138,11 @@ pub fn native_path() -> CapturePath {
     {
         CapturePath::Uia
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        CapturePath::Atspi
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         CapturePath::Clipboard
     }
@@ -177,7 +187,10 @@ pub mod macos;
 #[cfg(target_os = "windows")]
 pub mod windows;
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+pub mod linux;
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 pub mod stub {
     use super::*;
 

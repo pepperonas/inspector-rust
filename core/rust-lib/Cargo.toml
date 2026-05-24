@@ -64,6 +64,12 @@ windows = { version = "0.61", features = [
 # macOS-only Cocoa bindings for the screen color picker (NSColorSampler).
 # objc2 + block2 give us safe-ish msg_send + stack-allocated Objective-C
 # blocks without dragging in the deprecated `cocoa` crate.
+[target.'cfg(target_os = "linux")'.dependencies]
+ashpd = { version = "0.11", default-features = false, features = ["async-std"] }
+atspi = { version = "0.30.0", default-features = true, features = ["zbus"] }
+pollster = "0.4"
+url = "2"
+
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6"
 block2 = "0.6"

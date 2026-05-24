@@ -470,7 +470,7 @@ export interface DiagnoseResult {
   matched_abbreviation: string | null;
   paste_preview: string | null;
   /** Which capture mechanism was actually used. */
-  path: "ax" | "uia" | "clipboard";
+  path: "ax" | "uia" | "atspi" | "clipboard";
 }
 
 /** Capture the word before the cursor (select prev word + copy) and run

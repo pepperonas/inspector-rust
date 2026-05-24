@@ -6,6 +6,7 @@ use crate::backup::{self, BackupImportResult};
 use crate::clipboard_watcher::WatcherState;
 use crate::cutout_ml;
 use crate::db::{self, DbHandle};
+use crate::desktop_shortcuts;
 use crate::expander;
 use crate::hotkey::{self, ExpanderShortcutState};
 use crate::models::ClipEntry;
@@ -18,8 +19,6 @@ use crate::screen_recording;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
-#[cfg(target_os = "linux")]
-use crate::desktop_shortcuts;
 use crate::ui_state::UiState;
 
 fn map_err<E: std::fmt::Display>(e: E) -> String {
@@ -145,10 +144,7 @@ pub fn get_paste_plain_text_only(db: State<'_, DbHandle>) -> Result<bool, String
 
 /// Persist a new value for `paste.plain_text_only`.
 #[tauri::command]
-pub fn set_paste_plain_text_only(
-    db: State<'_, DbHandle>,
-    value: bool,
-) -> Result<(), String> {
+pub fn set_paste_plain_text_only(db: State<'_, DbHandle>, value: bool) -> Result<(), String> {
     settings::set(
         &db,
         KEY_PLAIN_TEXT_ONLY,
@@ -167,10 +163,7 @@ pub fn get_ocr_save_source_image(db: State<'_, DbHandle>) -> Result<bool, String
 
 /// Persist a new value for `ocr.save_source_image`.
 #[tauri::command]
-pub fn set_ocr_save_source_image(
-    db: State<'_, DbHandle>,
-    value: bool,
-) -> Result<(), String> {
+pub fn set_ocr_save_source_image(db: State<'_, DbHandle>, value: bool) -> Result<(), String> {
     settings::set(
         &db,
         KEY_OCR_SAVE_SOURCE,
@@ -199,10 +192,7 @@ pub fn get_input_lock_chord(db: State<'_, DbHandle>) -> Result<Vec<String>, Stri
 /// chords so the user can never lock themselves out by saving an
 /// unusable chord.
 #[tauri::command]
-pub fn set_input_lock_chord(
-    db: State<'_, DbHandle>,
-    keys: Vec<String>,
-) -> Result<(), String> {
+pub fn set_input_lock_chord(db: State<'_, DbHandle>, keys: Vec<String>) -> Result<(), String> {
     if keys.is_empty() {
         return Err("chord cannot be empty".into());
     }
@@ -212,18 +202,14 @@ pub fn set_input_lock_chord(
     if !any_valid {
         return Err("chord contains no recognised keys".into());
     }
-    let json =
-        serde_json::to_string(&keys).map_err(|e| format!("serialise chord: {e}"))?;
+    let json = serde_json::to_string(&keys).map_err(|e| format!("serialise chord: {e}"))?;
     settings::set(&db, KEY_INPUT_LOCK_CHORD, &json).map_err(map_err)
 }
 
 /// Activate the input lock. Reads the persisted unlock chord from
 /// settings and hands it to `input_lock::start_input_lock`.
 #[tauri::command]
-pub fn start_input_lock(
-    db: State<'_, DbHandle>,
-    app: AppHandle,
-) -> Result<(), String> {
+pub fn start_input_lock(db: State<'_, DbHandle>, app: AppHandle) -> Result<(), String> {
     let chord = get_input_lock_chord(db)?;
     // Hide the popup so the user isn't visually staring at an open
     // window that can no longer accept clicks.
@@ -350,10 +336,7 @@ pub fn get_theme_preference(db: State<'_, DbHandle>) -> Result<String, String> {
 /// Persist the theme preference. Rejects anything that isn't one of
 /// the three valid values rather than silently storing garbage.
 #[tauri::command]
-pub fn set_theme_preference(
-    db: State<'_, DbHandle>,
-    theme: String,
-) -> Result<(), String> {
+pub fn set_theme_preference(db: State<'_, DbHandle>, theme: String) -> Result<(), String> {
     let normalised = normalise_theme(&theme);
     if normalised != theme {
         return Err(format!(
@@ -449,10 +432,7 @@ pub fn list_snippets(db: State<'_, DbHandle>) -> Result<Vec<Snippet>, String> {
 }
 
 #[tauri::command]
-pub fn find_snippets(
-    db: State<'_, DbHandle>,
-    query: String,
-) -> Result<Vec<Snippet>, String> {
+pub fn find_snippets(db: State<'_, DbHandle>, query: String) -> Result<Vec<Snippet>, String> {
     snippets::find_by_query(&db, &query).map_err(map_err)
 }
 
@@ -468,8 +448,7 @@ pub fn upsert_snippet(
     match id {
         None => snippets::create(&db, &abbreviation, &title, &body).map_err(map_err),
         Some(existing_id) => {
-            snippets::update(&db, existing_id, &abbreviation, &title, &body)
-                .map_err(map_err)?;
+            snippets::update(&db, existing_id, &abbreviation, &title, &body).map_err(map_err)?;
             Ok(existing_id)
         }
     }
@@ -505,10 +484,7 @@ pub fn paste_snippet(
 /// abbreviation are overwritten. Per-row errors are returned in the result
 /// instead of aborting the whole import.
 #[tauri::command]
-pub fn import_snippets(
-    db: State<'_, DbHandle>,
-    json: String,
-) -> Result<ImportResult, String> {
+pub fn import_snippets(db: State<'_, DbHandle>, json: String) -> Result<ImportResult, String> {
     snippets::import_from_json(&db, &json).map_err(map_err)
 }
 
@@ -519,8 +495,7 @@ pub fn import_snippets_from_file(
     db: State<'_, DbHandle>,
     path: String,
 ) -> Result<ImportResult, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {path}: {e}"))?;
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
     snippets::import_from_json(&db, &json).map_err(map_err)
 }
 
@@ -642,8 +617,7 @@ pub fn paste_note_formatted(
 
     hotkey::hide_popup(&app);
     watcher.mark_self_write(note.content_type, &note.content_data);
-    paste::paste_payload(note.content_type, &note.content_data, &note.content_text)
-        .map_err(map_err)
+    paste::paste_payload(note.content_type, &note.content_data, &note.content_text).map_err(map_err)
 }
 
 // ── Backup (full app export / import) ────────────────────────────────────────
@@ -693,12 +667,8 @@ pub fn save_backup_to_file(
 /// (snippets upsert by abbreviation, history dedupes by hash, notes are
 /// appended).
 #[tauri::command]
-pub fn import_backup(
-    db: State<'_, DbHandle>,
-    path: String,
-) -> Result<BackupImportResult, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {path}: {e}"))?;
+pub fn import_backup(db: State<'_, DbHandle>, path: String) -> Result<BackupImportResult, String> {
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
     backup::import_json(&db, &json).map_err(map_err)
 }
 
@@ -718,8 +688,8 @@ pub struct ExpanderConfig {
 #[tauri::command]
 pub fn get_expander_config(db: State<'_, DbHandle>) -> Result<ExpanderConfig, String> {
     let enabled = settings::get_bool(&db, expander::KEY_ENABLED, false).map_err(map_err)?;
-    let hotkey = settings::get_or(&db, expander::KEY_HOTKEY, expander::DEFAULT_HOTKEY)
-        .map_err(map_err)?;
+    let hotkey =
+        settings::get_or(&db, expander::KEY_HOTKEY, expander::DEFAULT_HOTKEY).map_err(map_err)?;
     Ok(ExpanderConfig {
         enabled,
         hotkey,
@@ -1049,6 +1019,9 @@ pub fn set_expander_config(
     // don't touch the persisted settings.
     hotkey::register_expander(&app, &state, &hotkey, enabled).map_err(map_err)?;
 
+    #[cfg(target_os = "linux")]
+    desktop_shortcuts::sync_expander_shortcut(&db, enabled, &hotkey).map_err(map_err)?;
+
     settings::set(&db, expander::KEY_HOTKEY, &hotkey).map_err(map_err)?;
     settings::set(
         &db,
@@ -1098,9 +1071,7 @@ pub fn trigger_expand_at_cursor(app: AppHandle) -> Result<(), String> {
 /// blocking `mpsc` to ferry the result back from the main-thread closure
 /// to the IPC handler thread.
 #[tauri::command]
-pub fn diagnose_expand_at_cursor(
-    app: AppHandle,
-) -> Result<expander::DiagnoseResult, String> {
+pub fn diagnose_expand_at_cursor(app: AppHandle) -> Result<expander::DiagnoseResult, String> {
     hotkey::hide_popup(&app);
     let app2 = app.clone();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -1113,8 +1084,26 @@ pub fn diagnose_expand_at_cursor(
         let _ = tx.send(result);
     })
     .map_err(|e| format!("dispatch to main thread: {e}"))?;
-    rx.recv()
-        .map_err(|e| format!("main thread didn't reply: {e}"))?
+    let result = rx
+        .recv()
+        .map_err(|e| format!("main thread didn't reply: {e}"))?;
+    match &result {
+        Ok(data) => {
+            tracing::info!(
+                "expander diagnose: path={:?} captured={:?} matched={:?}",
+                data.path,
+                data.captured,
+                data.matched_abbreviation
+            );
+            let _ = app.emit("expander-diagnose-result", data);
+            let _ = app.emit("expander-diagnose-ready", ());
+        }
+        Err(e) => tracing::warn!("expander diagnose failed: {e}"),
+    }
+  // Re-open the popup on Settings so the user sees the result (hide_popup
+  // alone makes it look like the app crashed).
+    let _ = hotkey::show_popup(&app);
+    result
 }
 
 // ── Direct hotkey → snippet slots ───────────────────────────────────────────
@@ -1171,7 +1160,10 @@ pub fn set_direct_slots(
         })
         .collect();
     for s in &parsed {
-        if snippets::get_by_id(&db, s.snippet_id).map_err(map_err)?.is_none() {
+        if snippets::get_by_id(&db, s.snippet_id)
+            .map_err(map_err)?
+            .is_none()
+        {
             return Err(format!("snippet id {} no longer exists", s.snippet_id));
         }
     }
@@ -1223,7 +1215,10 @@ pub fn recolor_image_entry(
     // Use the brightness/dimensions plus the chosen tint as the
     // human-readable preview line. Keeps it visually distinct from the
     // source entry in the history list.
-    let summary = format!("[image · tinted #{}]", hex.trim_start_matches('#').to_uppercase());
+    let summary = format!(
+        "[image · tinted #{}]",
+        hex.trim_start_matches('#').to_uppercase()
+    );
 
     let new_id = db::upsert_clip(
         &db,
@@ -1245,10 +1240,7 @@ pub fn recolor_image_entry(
 /// is in [0, 1] — frontend treats anything below ~0.1 as "looks
 /// monochrome, recolor button worth showing".
 #[tauri::command]
-pub fn image_chromaticity(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<f32, String> {
+pub fn image_chromaticity(db: State<'_, DbHandle>, id: i64) -> Result<f32, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -1309,7 +1301,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
         Err(e) => {
             // Distinguish "user cancelled" from a real error.
             if e.downcast_ref::<region_picker::Cancelled>().is_some() {
-                return Ok(OcrResult { text: String::new(), cancelled: true, chars: 0 });
+                return Ok(OcrResult {
+                    text: String::new(),
+                    cancelled: true,
+                    chars: 0,
+                });
             }
             return Err(format!("region capture failed: {e:#}"));
         }
@@ -1318,7 +1314,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     let text = ocr::recognize(&png_bytes).map_err(|e| format!("ocr failed: {e:#}"))?;
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return Ok(OcrResult { text: String::new(), cancelled: false, chars: 0 });
+        return Ok(OcrResult {
+            text: String::new(),
+            cancelled: false,
+            chars: 0,
+        });
     }
 
     // Write to system clipboard. Mark first so the watcher doesn't
@@ -1326,8 +1326,7 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     if let Some(watcher) = app.try_state::<WatcherState>() {
         watcher.mark_self_write(crate::models::ContentType::Text, trimmed);
     }
-    let ctx = ClipboardContext::new()
-        .map_err(|e| format!("clipboard ctx init: {e:?}"))?;
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard ctx init: {e:?}"))?;
     ctx.set_text(trimmed.to_string())
         .map_err(|e| format!("set_text: {e:?}"))?;
 
@@ -1370,7 +1369,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     let _ = app.emit("clipboard-changed", ());
 
     let chars = trimmed.chars().count();
-    Ok(OcrResult { text: trimmed.to_string(), cancelled: false, chars })
+    Ok(OcrResult {
+        text: trimmed.to_string(),
+        cancelled: false,
+        chars,
+    })
 }
 
 /// IPC entry point — the menu / button caller. Dispatched to a thread
@@ -1423,7 +1426,10 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
         Ok(b) => b,
         Err(e) => {
             if e.downcast_ref::<region_picker::Cancelled>().is_some() {
-                return Ok(ScreenshotResult { cancelled: true, bytes: 0 });
+                return Ok(ScreenshotResult {
+                    cancelled: true,
+                    bytes: 0,
+                });
             }
             return Err(format!("region capture failed: {e:#}"));
         }
@@ -1453,9 +1459,7 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
     // capturing this as a separate clipboard event.
     {
         use base64::{engine::general_purpose::STANDARD as B64, Engine};
-        use clipboard_rs::{
-            common::RustImage, Clipboard, ClipboardContext, RustImageData,
-        };
+        use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
         let b64 = B64.encode(&png_bytes);
         if let Some(watcher) = app.try_state::<WatcherState>() {
             watcher.mark_self_write(crate::models::ContentType::Image, &b64);
@@ -1513,7 +1517,10 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
 
     let _ = app.emit("clipboard-changed", ());
 
-    Ok(ScreenshotResult { cancelled: false, bytes: png_bytes.len() })
+    Ok(ScreenshotResult {
+        cancelled: false,
+        bytes: png_bytes.len(),
+    })
 }
 
 /// IPC entry point. Same threading note as `ocr_region` — the Tauri
@@ -1580,7 +1587,19 @@ pub fn run_eyedropper_pipeline(app: &AppHandle) {
             clear_eyedropper_no_popup(&app_for_thread);
         });
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        let app_for_thread = app.clone();
+        std::thread::spawn(move || {
+            match crate::linux_portal::pick_color() {
+                Ok(Some(hex)) => write_eyedropper_result(&app_for_thread, &hex),
+                Ok(None) => tracing::debug!("color pick cancelled"),
+                Err(e) => tracing::warn!("eyedropper pipeline (portal): {e:#}"),
+            }
+            clear_eyedropper_no_popup(&app_for_thread);
+        });
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         clear_eyedropper_no_popup(app);
     }
@@ -1843,10 +1862,21 @@ pub fn strip_vowels(s: &str) -> String {
         .filter(|c| {
             !matches!(
                 c,
-                'a' | 'e' | 'i' | 'o' | 'u'
-                    | 'A' | 'E' | 'I' | 'O' | 'U'
-                    | 'ä' | 'ö' | 'ü'
-                    | 'Ä' | 'Ö' | 'Ü'
+                'a' | 'e'
+                    | 'i'
+                    | 'o'
+                    | 'u'
+                    | 'A'
+                    | 'E'
+                    | 'I'
+                    | 'O'
+                    | 'U'
+                    | 'ä'
+                    | 'ö'
+                    | 'ü'
+                    | 'Ä'
+                    | 'Ö'
+                    | 'Ü'
             )
         })
         .collect()
@@ -1984,10 +2014,7 @@ fn clear_eyedropper_no_popup(app: &AppHandle) {
 /// this is a "save the cutout to a file" action, not a clipboard
 /// modification.
 #[tauri::command]
-pub fn cut_out_image_entry(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<String, String> {
+pub fn cut_out_image_entry(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -2009,10 +2036,7 @@ pub fn cut_out_image_entry(
 /// recolor. Particularly useful after a recolor since the new tinted
 /// entry only lives in the SQLite history otherwise.
 #[tauri::command]
-pub fn save_image_entry_to_downloads(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<String, String> {
+pub fn save_image_entry_to_downloads(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
     use chrono::Local;
 
@@ -2114,10 +2138,7 @@ pub fn linux_apply_desktop_shortcuts(
     db: State<'_, DbHandle>,
     bindings: Vec<LinuxShortcutBindingInput>,
 ) -> Result<(), String> {
-    let pairs: Vec<(String, String)> = bindings
-        .into_iter()
-        .map(|b| (b.id, b.binding))
-        .collect();
+    let pairs: Vec<(String, String)> = bindings.into_iter().map(|b| (b.id, b.binding)).collect();
     desktop_shortcuts::apply_shortcut_setup(&db, pairs).map_err(map_err)
 }
 

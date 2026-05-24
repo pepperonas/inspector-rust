@@ -47,10 +47,10 @@ AppImage troubleshooting: `sudo apt install libfuse2`, then rebuild. In Cursor�
 | Global shortcuts + system tray | Yes (X11; Wayland may need compositor support) |
 | Paste into focused app (`Ctrl+V` via enigo) | Yes |
 | ML background cutout (ONNX) | Yes (offline) |
-| Region screenshot (`Ctrl+Shift+S`) | Yes with **scrot** (X11) or **grim+slurp** (Wayland) |
-| Screen OCR (`Ctrl+Shift+O`) | Requires **tesseract** + `tesseract-ocr-eng` (German optional: `tesseract-ocr-deu`) |
-| In-app eyedropper | Not yet (macOS/Windows only) |
-| Text expander in-place (AX/UIA) | Keystroke/clipboard fallback only |
+| Region screenshot (`Ctrl+Shift+S`) | Yes — **xdg-desktop-portal** on GNOME Wayland; **grim+slurp** on wlroots; **scrot** on X11 |
+| Screen OCR (`Ctrl+Shift+O`) | Same capture path as screenshot + **tesseract** (`tesseract-ocr-eng`; German: `tesseract-ocr-deu`) |
+| Color picker (`Ctrl+Shift+C`) | Yes on GNOME Wayland via **xdg-desktop-portal PickColor** (macOS/Windows use native loupe) |
+| Text expander hotkey | **Enable** in Settings → pick **Alt+1** preset → **Save & re-register**. On GNOME Wayland the hotkey is registered via gsettings (not in-app). Avoid `Ctrl+Backquote` on German keyboards — it maps to `grave`, not the `<` key (`less`). Expansion uses **AT-SPI** (reads the focused text field over D-Bus) — **not** synthetic Ctrl+Shift+← in the terminal. |
 
 Data path: `~/.local/share/InspectorRust/history.db`
 
@@ -68,8 +68,10 @@ Recommended for full feature set:
 
 ```bash
 sudo apt-get install -y scrot tesseract-ocr tesseract-ocr-eng tesseract-ocr-deu
-# Wayland only:
+# wlroots Wayland (Sway/Hyprland) — not needed on GNOME (uses xdg-desktop-portal):
 sudo apt-get install -y grim slurp
+# GNOME Wayland needs the portal (usually preinstalled):
+sudo apt-get install -y xdg-desktop-portal xdg-desktop-portal-gnome
 ```
 
 ## Desktop environment notes
@@ -89,8 +91,8 @@ Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Ins
 **Automatic conflict handling (v2):** On first start (and after profile upgrades) Inspector Rust:
 
 1. Scans existing **custom shortcuts** and **GNOME Terminal** copy/paste bindings via `gsettings`.
-2. Moves Terminal off **Ctrl+Shift+C/V** to **Ctrl+C/V** when that would clash with Inspector’s color/popup shortcuts.
-3. Picks the first free binding per action (defaults: Ctrl+Shift+V/O/S/C; fallbacks e.g. Ctrl+Alt+… if occupied).
+2. **Never** changes Terminal — copy/paste stay **Ctrl+Shift+C/V**. If an older build wrongly set Ctrl+C/V, Inspector restores Terminal on startup.
+3. Picks the first free binding per action (defaults: Ctrl+Shift+V/O/S/C; fallbacks e.g. Ctrl+Alt+… when Terminal or other apps occupy a key).
 
 No manual `ubuntu-terminal-copy-paste-ctrl-cv.sh` required.
 
@@ -106,7 +108,8 @@ bash scripts/install-linux.sh    # runs --setup-shortcuts when the binary is on 
 - **X11**: No extra setup — built-in global shortcuts usually work.
 - **KDE Plasma**: Not automated yet; bind shortcuts manually to the commands above.
 
-- **Wayland region capture**: Install `grim` and `slurp` (used when OCR/Screenshot runs from tray or CLI).
+- **Wayland region capture (GNOME)**: Uses **xdg-desktop-portal** (Ubuntu's native screenshot UI). Do **not** rely on `slurp` on GNOME — it hangs with no UI.
+- **Wayland region capture (Sway/Hyprland)**: Install `grim` + `slurp`.
 - **Clipboard on Wayland**: If the log shows `ext-data-control` / `wlr-data-control` is missing, the app falls back to the X11 clipboard bridge. For full Wayland clipboard sync, use a compositor that supports those protocols, or run under an X11/XWayland session.
 - **Autostart**: Uses the Tauri autostart plugin (typically `~/.config/autostart/`).
 
@@ -116,8 +119,13 @@ bash scripts/install-linux.sh    # runs --setup-shortcuts when the binary is on 
 | -------- | ----- |
 | `webkit2gtk` not found | Run `scripts/install-linux.sh` or install `libwebkit2gtk-4.1-dev` |
 | `cargo` / edition errors | `rustup default stable` (need Rust ≥ 1.77) |
-| Region capture fails | Install `scrot` (X11) or `grim`+`slurp` (Wayland) |
+| Region capture fails / nothing on screen | GNOME: ensure `xdg-desktop-portal-gnome` is installed. Sway/Hyprland: install `grim`+`slurp`. X11: `scrot` |
 | OCR shortcut errors | `sudo apt install tesseract-ocr tesseract-ocr-eng` (optional German: `tesseract-ocr-deu`) |
+| Color picker does nothing | Rebuild with latest Linux portal support; needs `xdg-desktop-portal-gnome` |
+| Text expander hotkey dead (Wayland) | Settings → **Enable** expander → pick hotkey (e.g. Alt+1) → **Save & re-register** — gsettings entry is created automatically |
+| Expander captures terminal scrollback / huge text | You tested with focus in the **terminal** — use WhatsApp, gedit, or Firefox. Log should show `AT-SPI: read word before cursor: "mfg"` not clipboard fallback |
+| Diagnose shows **clipboard** path | Focus a normal text field (not Terminal) before Diagnose; ensure `org.a11y.Bus` is running (`gsettings get org.gnome.desktop.a11y.interface toolkit-accessibility`) |
+| Diagnose closes Settings | **Expected** — the popup must hide so Inspector can read the field in the app behind it. Type your abbreviation in another app first, then click Diagnose |
 | `Ctrl+Shift+V` does nothing (Wayland) | Restart app once (auto gsettings), or run `bash scripts/install-desktop-shortcuts.sh` after build |
 | Conflict with copy/paste (`Ctrl+Shift+C/V`) | Automatic on install/first start; or Settings → Linux desktop shortcuts → **Auto-resolve all** |
 | Tray icon missing | `libayatana-appindicator3-dev` + log out/in |

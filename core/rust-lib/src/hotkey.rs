@@ -289,7 +289,8 @@ pub fn register_expander(
             let app_for_err = app.clone();
             let _ = app.run_on_main_thread(move || {
                 if let Some(db) = app_in_closure.try_state::<DbHandle>() {
-                    match expander::expand_at_cursor(&db) {
+                    let watcher = app_in_closure.try_state::<crate::clipboard_watcher::WatcherState>();
+                    match expander::expand_at_cursor(&db, watcher.as_deref()) {
                         Ok(()) => {}
                         Err(e) if e.to_string() == expander::ERR_NO_ACCESSIBILITY => {
                             // Grant revoked between the check above and
@@ -375,7 +376,8 @@ pub fn register_direct_slots(
                 let app_err = app.clone();
                 let _ = app.run_on_main_thread(move || {
                     if let Some(db) = app_main.try_state::<DbHandle>() {
-                        match crate::expander::paste_snippet_body(&db, snippet_id) {
+                        let watcher = app_main.try_state::<crate::clipboard_watcher::WatcherState>();
+                        match crate::expander::paste_snippet_body(&db, snippet_id, watcher.as_deref()) {
                             Ok(()) => {}
                             Err(e) if e.to_string() == crate::expander::ERR_NO_ACCESSIBILITY => {
                                 let _ = show_popup(&app_err);

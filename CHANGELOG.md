@@ -4,6 +4,37 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] — 2026-05-24
+
+### Added — `bruno`: Brutto/Netto-Rechner als Power-Command
+
+Type **`bruno 60000`** (yearly gross) or **`bruno 5000m`** (monthly gross) in the search bar and get a full German income-tax + social-contributions breakdown for Steuerjahr 2025 (§32a EStG, simplified). Inline row shows net/month + net/year + Abgabenquote; preview-pane shows the full split (KV / PV / RV / AV + ESt / Soli / Kirche + Grenzsteuersatz). Enter copies the net amount to the clipboard (period-matched: `bruno 5000m` → monthly net, `bruno 60000` → yearly net).
+
+- **Smart defaults**: Steuerklasse I, NRW, 0 children, no church, 2.45 % KV-Zusatz (TK 2025). Override per user in **Settings → Bruno** (Steuerklasse selector, all 16 Bundesländer, kids spinner, church toggle, KV-Zusatz numeric). Persisted via SQLite `settings` table; `bruno-defaults-changed` event refreshes the popup without restart.
+- **Pure-TS compute** (`core/frontend/src/lib/bruno.ts`) — no IPC round-trip per keystroke. Ported from the maintainer's [steuerschleuder](https://steuerschleuder.celox.io/) web app. Number-format-tolerant parser (`bruno 60.000` ↔ `bruno 60,000` ↔ `bruno 60000`).
+- **32 new frontend tests** (parser + compute + edge cases) + **4 new Rust tests** (settings round-trip).
+- Backend: new `core/rust-lib/src/bruno.rs` owns only the persisted defaults (compute lives in TS for instant feedback). New IPCs `bruno_get_defaults` / `bruno_set_defaults`.
+
+### Fixed — Text expander pollution & backspace timing
+
+Two real bugs in the expander code, caught during a code audit:
+
+1. **`paste_over_selection` and `expand_via_clipboard` polluted history** — they wrote the snippet body to the clipboard without arming `mark_self_write`, so the clipboard watcher captured every expansion as a new history entry (and sometimes the restored clipboard too). Pre-v0.33.0 every `Alt+1` expansion silently added the snippet body as a "new" clip.
+   - **Fix:** thread `Option<&WatcherState>` through `expand_at_cursor` / `paste_snippet_body` / `expand_via_clipboard` / `paste_over_selection`; arm the watcher before BOTH the body-write and the clipboard-restore. Hotkey handlers in `hotkey.rs` pass `app.try_state::<WatcherState>()`. Backward-compatible signature: `None` = no protection (used in tests).
+2. **`send_backspaces` synthesised key events with zero pacing** — older Electron + IME-active terminals coalesce or drop consecutive Backspace presses, leaving a residual character before the snippet body. **Fix:** 4 ms pace gap between presses (skipped after the final key so we don't add idle time before paste). Total overhead: <80 ms for a 20-char abbreviation — imperceptible.
+
+### Docs — README refresh + new image + badges + LoC
+
+- **New hero image** (`docs/ir-w1024.png`, 1.9 MB) — replaces the v3 inspector-rust.png + ir-ff-w1024-optimized.png pair in both READMEs.
+- **+5 badges** in the status block: Last commit, Issues, Stars, Tests (235 Rust + 385 TS), Code Style (clippy + eslint).
+- **Feature-matrix expansion** with v0.28.0–v0.33.0 entries: `freeze`, `wakelock`, Finder selection actions, resize-preset autocomplete, `bruno`, screenshot preview HUD, annotation editor, app-name filenames.
+- **5 new feature sections** (Screenshot preview HUD + editor, Finder selection actions, Bruno, freeze, wakelock) in both `README.md` and `README.de.md`.
+- Test counts updated: 213 + 162 → **235 Rust + 385 TS**.
+
+### Why 0.33.0
+
+New user-facing power command (bruno) + bug fixes in the expander (history pollution was real and user-visible). Additive on the IPC surface; backwards-compatible. Minor digit bump.
+
 ## [0.32.0] — 2026-05-24
 
 ### Added — CleanShot-X-style preview HUD, annotation editor, app-name filenames

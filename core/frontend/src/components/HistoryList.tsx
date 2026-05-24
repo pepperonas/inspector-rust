@@ -151,7 +151,9 @@ export function HistoryList({
                               ? `opener-${entry.data.text.slice(0, 24)}`
                               : entry.kind === "finder-file"
                                 ? `finder-${entry.data.path}`
-                                : `c-${entry.data.id}`;
+                                : entry.kind === "bruno"
+                                  ? `bruno-${entry.data.yearlyGross}-${entry.data.period}`
+                                  : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

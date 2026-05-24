@@ -251,7 +251,11 @@ pub fn set_direct_slots(db: &DbHandle, slots: &[DirectSlot]) -> Result<()> {
 ///
 /// Must run on the main thread on macOS — `enigo`'s `Cmd+V` synthesis
 /// touches TSM, which asserts main-thread (see `hotkey.rs` / `docs/text-expander.md`).
-pub fn paste_snippet_body(db: &DbHandle, snippet_id: i64) -> Result<()> {
+pub fn paste_snippet_body(
+    db: &DbHandle,
+    snippet_id: i64,
+    watcher: Option<&crate::clipboard_watcher::WatcherState>,
+) -> Result<()> {
     let Some(snippet) = snippets::get_by_id(db, snippet_id)? else {
         tracing::warn!("direct slot points at deleted snippet id {snippet_id}; ignoring");
         return Ok(());
@@ -276,7 +280,7 @@ pub fn paste_snippet_body(db: &DbHandle, snippet_id: i64) -> Result<()> {
         // process the deletes before the clipboard write hits.
         thread::sleep(Duration::from_millis(40));
     }
-    paste_over_selection(&snippet.body)
+    paste_over_selection(&snippet.body, watcher)
 }
 
 /// One-time settings migration: if the stored hotkey is still the pre-0.12
@@ -416,7 +420,10 @@ pub fn diagnose_at_cursor(db: &DbHandle) -> Result<DiagnoseResult> {
 /// clipboard touch and no flickering selection. Falls back to the
 /// keystroke + clipboard roundtrip only when the focused element doesn't
 /// expose accessibility info.
-pub fn expand_at_cursor(db: &DbHandle) -> Result<()> {
+pub fn expand_at_cursor(
+    db: &DbHandle,
+    watcher: Option<&crate::clipboard_watcher::WatcherState>,
+) -> Result<()> {
     // The hotkey itself is `Alt+<key>` — when this runs (queued onto the
     // main thread, a few ms after key-down) the user may still be
     // physically holding that `Alt`. Give it a beat to come up before we
@@ -452,7 +459,7 @@ pub fn expand_at_cursor(db: &DbHandle) -> Result<()> {
                             "AX selected the abbreviation but in-place replace \
                              was a no-op; pasting body over the live selection"
                         );
-                        return paste_over_selection(&snippet.body);
+                        return paste_over_selection(&snippet.body, watcher);
                     }
                     Ok(ReplaceOutcome::Unsupported) => {
                         tracing::debug!(
@@ -460,11 +467,11 @@ pub fn expand_at_cursor(db: &DbHandle) -> Result<()> {
                              falling back to keystroke-select + paste"
                         );
                         // Reuse the abbreviation we already captured.
-                        return expand_via_clipboard(db, Some(&word), Some(&snippet.body));
+                        return expand_via_clipboard(db, Some(&word), Some(&snippet.body), watcher);
                     }
                     Err(e) => {
                         tracing::warn!("AX/UIA replace errored: {e:#}; falling back");
-                        return expand_via_clipboard(db, Some(&word), Some(&snippet.body));
+                        return expand_via_clipboard(db, Some(&word), Some(&snippet.body), watcher);
                     }
                 }
             }
@@ -488,7 +495,7 @@ pub fn expand_at_cursor(db: &DbHandle) -> Result<()> {
         return Err(anyhow!(ERR_NO_ACCESSIBILITY));
     }
 
-    expand_via_clipboard(db, None, None)
+    expand_via_clipboard(db, None, None, watcher)
 }
 
 /// Pre-AX/UIA expand path. Used as a fallback when the focused element
@@ -500,6 +507,7 @@ fn expand_via_clipboard(
     db: &DbHandle,
     prefetched_word: Option<&str>,
     prefetched_body: Option<&str>,
+    watcher: Option<&crate::clipboard_watcher::WatcherState>,
 ) -> Result<()> {
     let saved = read_clipboard_text();
 
@@ -539,6 +547,12 @@ fn expand_via_clipboard(
     };
 
     // 5) Replace selection: write the body, paste over the highlight.
+    //    Arm the watcher so the body + restored clipboard don't
+    //    pollute history (pre-v0.33.0 bug: every expansion via this
+    //    path added the snippet body as a "new clip").
+    if let Some(w) = watcher {
+        w.mark_self_write(crate::models::ContentType::Text, &body);
+    }
     write_clipboard_text(&body)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
@@ -547,6 +561,9 @@ fn expand_via_clipboard(
     //    consumed the snippet body. The delay is generous — too short and
     //    the source app may end up pasting the *restored* clipboard.
     thread::sleep(Duration::from_millis(180));
+    if let (Some(w), Some(text)) = (watcher, saved.as_deref()) {
+        w.mark_self_write(crate::models::ContentType::Text, text);
+    }
     restore_clipboard(saved.as_deref());
 
     Ok(())
@@ -558,16 +575,27 @@ fn expand_via_clipboard(
 /// text in place — the typical Electron / Mac-Catalyst case. No
 /// re-selection here: the selection is already on the abbreviation, so a
 /// `Cmd/Ctrl+Shift+←` would only extend it onto the previous word.
-fn paste_over_selection(body: &str) -> Result<()> {
+fn paste_over_selection(
+    body: &str,
+    watcher: Option<&crate::clipboard_watcher::WatcherState>,
+) -> Result<()> {
     let saved = read_clipboard_text();
+    // Arm the watcher for BOTH writes — the body about to be pasted
+    // *and* the restored clipboard. Without this, every snippet
+    // expansion would pollute history with the body (and sometimes
+    // a duplicate of the saved text). Pre-v0.33.0 bug: missing
+    // mark_self_write here meant `aiplan` → body got stored in
+    // history *and* re-surfaced as a "recent" clip.
+    if let Some(w) = watcher {
+        w.mark_self_write(crate::models::ContentType::Text, body);
+    }
     write_clipboard_text(body)?;
-    // Give the pasteboard write time to propagate before we paste —
-    // Catalyst / Electron apps can be sluggish about observing it.
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
-    // Generous restore delay — too short and the source app ends up
-    // pasting the *restored* clipboard instead of the body.
     thread::sleep(Duration::from_millis(180));
+    if let (Some(w), Some(text)) = (watcher, saved.as_deref()) {
+        w.mark_self_write(crate::models::ContentType::Text, text);
+    }
     restore_clipboard(saved.as_deref());
     Ok(())
 }
@@ -653,11 +681,21 @@ fn send_backspaces(count: usize) -> Result<()> {
     }
     let mut e = Enigo::new(&enigo_settings())
         .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
-    for _ in 0..count {
+    for i in 0..count {
         e.key(Key::Backspace, Press)
             .map_err(|err| anyhow!("backspace press: {err:?}"))?;
         e.key(Key::Backspace, Release)
             .map_err(|err| anyhow!("backspace release: {err:?}"))?;
+        // Tiny pace gap between events. Without it some apps (notably
+        // older Electron + IME-active terminals) coalesce or drop
+        // consecutive Backspace presses, leaving a residual character
+        // before the snippet body. 4 ms × 20 chars = 80 ms total — too
+        // small to notice, big enough that the OS event loop drains
+        // each Backspace before the next lands. Skip after the final
+        // key so we don't add idle time before the subsequent paste.
+        if i + 1 < count {
+            thread::sleep(Duration::from_millis(4));
+        }
     }
     Ok(())
 }

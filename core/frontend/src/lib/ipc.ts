@@ -159,6 +159,28 @@ export function wakelockGet(): Promise<boolean> {
   return invoke("wakelock_get");
 }
 
+// ── Bruno (Brutto-Netto-Rechner — German income-tax + SV) ─────────────
+
+/** Per-user defaults applied to a bare `bruno <€>` invocation.
+ *  Persistent via the SQLite settings table. Settings panel has a
+ *  collapsible Bruno section that edits these. */
+export interface BrunoDefaults {
+  tax_class: number;          // 1..6
+  state: string;              // German state ISO short
+  children: number;
+  is_church_member: boolean;
+  /** Krankenkasse-Zusatzbeitrag in **percent** (e.g. 2.45 for TK 2025). */
+  health_add: number;
+}
+
+export function brunoGetDefaults(): Promise<BrunoDefaults> {
+  return invoke("bruno_get_defaults");
+}
+
+export function brunoSetDefaults(defaults: BrunoDefaults): Promise<void> {
+  return invoke("bruno_set_defaults", { defaults });
+}
+
 // ── Finder selection (macOS) ──────────────────────────────────────────
 
 /** One item in the current Finder selection. `is_image` is a cheap

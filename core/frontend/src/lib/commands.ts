@@ -35,7 +35,8 @@ export type CommandKind =
   | "mute"
   | "freeze"
   | "wakelock-on"
-  | "wakelock-off";
+  | "wakelock-off"
+  | "bruno";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -179,6 +180,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "(alias of wakelock=0)",
     requiresArg: false,
     hidden: true,
+  },
+  // ── Bruno — German income-tax / net-pay calculator ────────────────
+  {
+    kind: "bruno",
+    keyword: "bruno",
+    syntax: "bruno <€>[m|j]",
+    description:
+      "Brutto → Netto (2025). e.g. `bruno 60000` (yearly) or `bruno 5000m` (monthly)",
+    requiresArg: true,
   },
 ];
 

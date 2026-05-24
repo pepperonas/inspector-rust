@@ -231,6 +231,28 @@ pub fn start_input_lock(
     crate::input_lock::start_input_lock(chord)
 }
 
+// ── Bruno (Brutto-Netto-Rechner) ──────────────────────────────────────
+
+#[tauri::command]
+pub fn bruno_get_defaults(
+    db: State<'_, DbHandle>,
+) -> Result<crate::bruno::BrunoDefaults, String> {
+    crate::bruno::get_defaults(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn bruno_set_defaults(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    defaults: crate::bruno::BrunoDefaults,
+) -> Result<(), String> {
+    crate::bruno::set_defaults(&db, &defaults).map_err(map_err)?;
+    // Let the popup re-fetch — otherwise the running App.tsx keeps
+    // using stale defaults until next app launch.
+    let _ = app.emit("bruno-defaults-changed", ());
+    Ok(())
+}
+
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the mouse-jiggle wakelock. Returns the resulting state
@@ -1005,7 +1027,8 @@ pub fn trigger_expand_at_cursor(app: AppHandle) -> Result<(), String> {
         // before we start synthesizing keystrokes.
         std::thread::sleep(std::time::Duration::from_millis(250));
         if let Some(db) = app2.try_state::<DbHandle>() {
-            if let Err(e) = expander::expand_at_cursor(&db) {
+            let watcher = app2.try_state::<WatcherState>();
+            if let Err(e) = expander::expand_at_cursor(&db, watcher.as_deref()) {
                 tracing::warn!("expand_at_cursor failed: {e:#}");
             }
         }

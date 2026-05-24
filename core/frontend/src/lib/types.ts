@@ -122,6 +122,31 @@ export interface OpenerEntryView {
   text: string;
 }
 
+/** Bruno (Brutto→Netto) result surfaced as a top entry once the
+ *  user has typed `bruno <€>`. The numbers come from the pure-TS
+ *  computation in `lib/bruno.ts`. */
+export interface BrunoEntryView {
+  yearlyGross: number;
+  /** What the user typed: monthly vs yearly. Drives the row's
+   *  primary label (so `bruno 5000m` shows `5.000 €/Monat`). */
+  period: "monthly" | "yearly";
+  netYear: number;
+  netMonth: number;
+  totalDeductions: number;
+  deductionRate: number;
+  marginalRate: number;
+  // Components for the preview-pane split.
+  social: { health: number; care: number; pension: number; unemployment: number };
+  incomeTax: number;
+  soli: number;
+  churchTax: number;
+  // The defaults used (so the preview can show "Klasse I · NRW · …").
+  taxClass: number;
+  state: string;
+  children: number;
+  isChurchMember: boolean;
+}
+
 /** One file from the current Finder selection (Ctrl+Shift+F path). */
 export interface FinderFileView {
   path: string;
@@ -140,4 +165,5 @@ export type ListEntry =
   | { kind: "command-suggestion"; data: CommandSuggestionView }
   | { kind: "kill-target"; data: KillTargetView }
   | { kind: "opener"; data: OpenerEntryView }
-  | { kind: "finder-file"; data: FinderFileView };
+  | { kind: "finder-file"; data: FinderFileView }
+  | { kind: "bruno"; data: BrunoEntryView };

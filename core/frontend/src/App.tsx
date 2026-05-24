@@ -56,9 +56,12 @@ import {
   wakelockSet,
   resizeFile,
   optimizeFile,
+  brunoGetDefaults,
   getThemePreference,
+  type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
+import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
@@ -388,6 +391,67 @@ function App() {
     );
   }, [finderFiles]);
 
+  // Bruno (Brutto→Netto). User's persisted defaults override the
+  // ship defaults; we fetch them once on mount and refresh after the
+  // Settings panel saves. `null` while loading — falls back to the
+  // pure-TS defaults so the user can still use `bruno` before the
+  // IPC round-trip completes.
+  const [brunoDefaults, setBrunoDefaults] = useState<BrunoDefaults | null>(null);
+  useEffect(() => {
+    void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
+    let unlisten: UnlistenFn | undefined;
+    void listen("bruno-defaults-changed", () => {
+      void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
+    }).then((u) => {
+      unlisten = u;
+    });
+    return () => unlisten?.();
+  }, []);
+  const brunoEntry: ListEntry | null = useMemo(() => {
+    const parsed = parseBrunoCommand(query);
+    if (!parsed) return null;
+    const d = brunoDefaults ?? {
+      tax_class: 1,
+      state: "nw",
+      children: 0,
+      is_church_member: false,
+      health_add: 2.45,
+    };
+    const result = computeBruno({
+      yearlyGross: parsed.yearlyGross,
+      taxClass: Math.min(6, Math.max(1, d.tax_class)) as 1 | 2 | 3 | 4 | 5 | 6,
+      state: d.state as GermanState,
+      children: d.children,
+      isChurchMember: d.is_church_member,
+      healthAdd: d.health_add,
+    });
+    return {
+      kind: "bruno",
+      data: {
+        yearlyGross: result.yearlyGross,
+        period: parsed.period,
+        netYear: result.netYear,
+        netMonth: result.netMonth,
+        totalDeductions: result.totalDeductions,
+        deductionRate: result.deductionRate,
+        marginalRate: result.marginalRate,
+        social: {
+          health: result.social.health,
+          care: result.social.care,
+          pension: result.social.pension,
+          unemployment: result.social.unemployment,
+        },
+        incomeTax: result.incomeTax,
+        soli: result.soli,
+        churchTax: result.churchTax,
+        taxClass: d.tax_class,
+        state: d.state,
+        children: d.children,
+        isChurchMember: d.is_church_member,
+      },
+    };
+  }, [query, brunoDefaults]);
+
   // Combine: in kill mode, the process picker takes over the entire
   // list (no point mixing clipboard history with process rows — they
   // can't be activated the same way and would just confuse selection).
@@ -397,6 +461,7 @@ function App() {
     ? killTargetEntries
     : [
         ...(openerEntry ? [openerEntry] : []),
+        ...(brunoEntry ? [brunoEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...resizePresetEntries,
@@ -623,6 +688,19 @@ function App() {
       } else if (target.kind === "opener") {
         // Easter-egg paste — drop the German opener into the focused app.
         await pasteText(target.data.text);
+      } else if (target.kind === "bruno") {
+        // Paste the net amount — period-matched. Typing `bruno 5000m`
+        // → user is thinking monthly → paste monthly net. Typing
+        // `bruno 60000` → yearly. German number format (de-DE Intl).
+        const v = target.data.period === "monthly"
+          ? target.data.netMonth
+          : target.data.netYear;
+        const formatted = new Intl.NumberFormat("de-DE", {
+          style: "currency",
+          currency: "EUR",
+          maximumFractionDigits: 2,
+        }).format(v);
+        await pasteText(formatted);
       } else if (target.kind === "command-suggestion") {
         // If the completion already parses as a complete command
         // (e.g. `rz 1920x1080` from a resize preset), RUN it directly

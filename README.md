@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/inspector-rust.png?v=3" alt="Built with Rust" width="600" />
+  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
 
   # Inspector Rust 🕵️‍♂️
 
@@ -29,7 +29,7 @@
 
   **Zero telemetry. Zero network calls. Zero account.** Your data lives at `~/Library/Application Support/InspectorRust/history.db` (macOS) or `%APPDATA%\InspectorRust\history.db` (Windows) and nowhere else. The 4.5 MB ONNX model is *bundled* — even cutouts run offline. The Vision OCR is *local* — Apple's on-device ML, no API key, no rate limit. The encryption keys never leave your machine, the snippets sync nowhere, the history is yours.
 
-  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **213 Rust unit tests + 162 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
+  Built with **Tauri 2** (WebView2 / WKWebView), **Rust** (workspace: `core/rust-lib` is the single shared library, `win/src-tauri` + `macos/src-tauri` are two-line bundle shells), **React 19** + **TypeScript 5** + **Tailwind v4** + **Vite 7**, packaged into a **~5 MB MSI** (Windows) or **~5 MB DMG** (macOS Apple Silicon). **239 Rust unit tests + 385 frontend vitest tests** keep it honest. **MIT-licensed**, hackable, and unapologetically built for the kind of person who already has muscle memory for three different clipboard managers and is tired of every one of them.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>
@@ -39,13 +39,18 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.28.8-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.33.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
   [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=download)](https://github.com/pepperonas/inspector-rust/releases/latest)
+  [![Last commit](https://img.shields.io/github/last-commit/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
+  [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
+  [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
+  [![Tests](https://img.shields.io/badge/tests-239%20Rust%20%2B%20385%20TS-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
+  [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
 
   <!-- ── Platforms ────────────────────────────────────────────── -->
   [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
@@ -209,7 +214,7 @@ Everything else (snippets management, notes, settings, image tools) lives in the
 ## Features & shortcuts at a glance
 
 <div align="center">
-  <img src="docs/ir-ff-w1024-optimized.png?v=1" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
+  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
 </div>
 
 ### 🔥🔥🔥 Global hotkeys — fire and forget, from anywhere 🔥🔥🔥
@@ -220,6 +225,7 @@ Everything else (snippets management, notes, settings, image tools) lives in the
 | `Ctrl+Shift+O` | Screen-region **OCR** → text on clipboard + History | Screen Recording |
 | `Ctrl+Shift+S` *(v0.15.0+)* | Screen-region **screenshot** → PNG on clipboard + History (no OCR); press **`S`** during overlay to save to file instead (green border) *(v0.19.2+)* | Screen Recording *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → hex (`#RRGGBB`) on clipboard + History | — |
+| `Ctrl+Shift+F` *(v0.30.0+)* | **Finder selection** → popup with the currently-selected files + actions (Resize, Optim, …) | Automation → Finder |
 | `Alt+1` *(default, configurable, opt-in)* | Expand snippet abbreviation in place | Accessibility |
 | *(user-configurable)* | **Direct hotkey → snippet** — paste a specific snippet body | Accessibility |
 
@@ -284,8 +290,15 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **System command — `shutdown`** *(v0.19.0+)* | Search bar | Power off the system (macOS — confirms first, no sudo) |
 | **System command — `lock`** *(v0.19.0+)* | Search bar | Lock the screen (macOS — instant, no confirm) |
 | **System command — `mute`** *(v0.23.0+)* | Search bar | Toggle system mute / unmute (macOS) |
-| **String transforms** *(v0.23.0+)* | Select a text entry → preview-pane Transform toolbar, or `Cmd/Ctrl+1…9` | 11 ops — remove vowels, UPPER/lower/Title/camel/snake/kebab case, Base64 + URL encode/decode → new History entry + clipboard |
-| Power-command autocomplete | Type a partial keyword (`tre`, `rm`, `reb`, …) → suggestion appears as a `hint` row | core |
+| **System command — `freeze`** *(v0.28.0+)* | Search bar | Block keyboard + mouse — unlock with the configured chord (default `i + r`) — native CGEventTap, no rdev |
+| **`wakelock=1` / `wakelock=0`** *(v0.29.0+)* | Search bar | Keep computer awake — cursor jiggles 1 px every 60 s; defeats Teams/Slack "away" + screen-saver idle timers (macOS / Windows / Linux X11) |
+| **Finder selection actions** *(v0.30.0+, macOS)* | `Ctrl+Shift+F` | Popup lists the currently-selected Finder files; type `rz 1200x800` to resize all selected images (writes `<name>-1200x800.<ext>` next to source) or `optim` to oxipng each PNG. Enter on a row opens the file |
+| **Resize-preset autocomplete** *(v0.31.0+)* | Type `rz` or `rz <partial>` | Labelled preset rows (Full HD, HD, XGA, SVGA, …); Enter runs, Tab / → fills into the search bar before running |
+| **`bruno <€>[m|j]`** *(v0.33.0+)* | Search bar — `bruno 60000` (jährlich) or `bruno 5000m` (monatlich) | German Brutto→Netto rechner (Steuerjahr 2025); preview-pane shows full split (KV/PV/RV/AV/ESt/Soli/Kirche/Abgabenquote/Grenzsteuersatz); Enter copies net amount to clipboard. Personal defaults (Steuerklasse, Bundesland, Kinder, Kirche, KV-Zusatz) in Settings → Bruno |
+| **Screenshot preview HUD** *(v0.32.0+)* | After `Ctrl+Shift+S` | CleanShot-X-style floating card with X / Pin / Copy / Save / Edit / Cloud buttons over the captured PNG. Pin keeps the preview across the next screenshot |
+| **Annotation editor** *(v0.32.0+)* | Preview HUD → Pencil button | New window with 5 tools: Arrow / Text / Rect / Highlight / Blur (mosaic pixelation). 4 colour presets, 2–16 px stroke, ⌘Z/⌘⇧Z undo/redo, ⌘S save, Esc cancel. Save bakes to `<App>-<ts>-edited.png` |
+| **App-name in screenshot filenames** *(v0.32.0+)* | Automatic | `osascript`-captured frontmost-app name baked into the saved filename: `Safari-20260524-153012.png`. Edited variants get `-edited` suffix |
+| Power-command autocomplete | Type a partial keyword (`tre`, `rm`, `reb`, `bru`, …) → suggestion appears as a `hint` row | core |
 
 ## Features
 
@@ -369,6 +382,30 @@ Inspector Rust needs **two** independent macOS TCC grants — Accessibility (pas
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 
+### Screenshot preview HUD + editor (v0.32.0)
+- **CleanShot-X-style HUD** — after `Ctrl+Shift+S`, the captured PNG floats as the background of a small dark card with six controls overlayed: **X** (top-left, discard), **Pin** (top-right, keep preview across next screenshot), **Copy** + **Save** (centre pills), **Pencil** (open editor), **Cloud** (placeholder — coming soon).
+- **App-name baked into filename** — `osascript` reads the frontmost app *before* the region picker fires; saved file becomes `Safari-20260524-153012.png`. Alphabetical sort in Finder groups by app. Edited variants use `-edited` suffix.
+- **Annotation editor** — Pencil opens a separate Tauri window with five tools: **Arrow / Text / Rect / Highlight / Blur** (mosaic pixelation, samples from the source so undo is non-destructive). 4 colour presets, 2–16 px stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` save, `Esc` cancel, single-key tool switches (`A`/`T`/`R`/`H`/`B`). Canvas is sized to the screenshot's natural pixel dimensions, so the saved PNG is full-resolution.
+- **Pin behaviour** — while pinned, the next screenshot still writes to clipboard + history but doesn't replace the on-screen preview. Useful for batch capture-and-annotate workflows.
+
+### Finder selection actions (v0.30.0, macOS)
+- **`Ctrl+Shift+F`** — `osascript` reads the current Finder selection (with TCC Automation → Finder grant, prompted on first use). The popup opens with the selected files listed at top, each with a `finder` chip.
+- **Multi-file `rz`** — typing `rz 1200x800` in finder-mode resizes every selected image, writes `<name>-1200x800.<ext>` next to source (format preserved). Originals untouched.
+- **Multi-file `optim`** — same shape: oxipng every selected PNG, writes `<stem>-optim.png` next to source. Non-PNG selections are skipped (oxipng-only).
+- **Permission via Settings** — the macOS permissions card has three rows (Accessibility · Screen Recording · Automation → Finder); "Set up permissions" chains all three with one click via `tccutil reset` + re-prompt.
+
+### Bruno — Brutto/Netto-Rechner (v0.33.0)
+- **Command** — type `bruno 60000` (yearly) or `bruno 5000m` (monthly) in the search bar. Result row shows net / month + net / year inline; preview-pane shows full split (KV / PV / RV / AV + ESt / Soli / Kirche + Abgabenquote + Grenzsteuersatz).
+- **Smart defaults** — Steuerklasse I, NRW, 0 Kinder, kein Kirchensteuerpflichtig, TK-Niveau 2,45 % KV-Zusatz. Override per user in **Settings → Bruno** (persisted via SQLite settings table; `bruno-defaults-changed` event refreshes the popup without restart).
+- **Steuerjahr 2025** — §32a EStG tariff (simplified), Grundfreibetrag 12.096 €, Beitragsbemessungsgrenzen KV 66.150 € / RV 96.600 €. Ported from the maintainer's [steuerschleuder](https://steuerschleuder.celox.io/) web app.
+- **Pure-TS compute** — no IPC round-trip per keystroke. Number-format-tolerant parser (`bruno 60.000` = `bruno 60,000` = `bruno 60000`). 32 unit tests pin the compute + parser. ⚠️ Simplified — no Faktorverfahren, no individual Freibeträge. Keine Steuerberatung.
+
+### `freeze` (v0.28.0)
+- Native macOS `CGEventTap` (raw FFI on `ApplicationServices` + `CoreFoundation`) blocks all keyboard + mouse input until the configured unlock chord (default `i + r`) is pressed. Installed on the main run loop via `CFRunLoopGetMain()` — worker-thread variants silently failed to drop events on Sonoma+.
+
+### `wakelock` (v0.29.0)
+- Type **`wakelock=1`** (or `wakelock1`) to enable, **`wakelock=0`** to disable. The cursor jumps 1 px right and immediately back every 60 s — defeats macOS screen-saver / display-sleep idle timers, Teams / Slack / Discord "away" detection, app-level idle UX. Worker uses raw FFI per platform: macOS `CGEventCreateMouseEvent`, Windows `GetCursorPos` + `SetCursorPos`, Linux X11 `XQueryPointer` + `XWarpPointer` (cached `Display`). Wayland: no-op (protocol denies global cursor synth).
+
 ### System tray + multi-monitor
 - **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · **Screenshot Region (Ctrl+Shift+S)** *(v0.15.0+)* · **Pick Color (Ctrl+Shift+C)** *(v0.17.0+)* · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.
 - **Autostart on login** (v0.14.0) — toggle in Settings → Startup, or from the tray menu. macOS writes `~/Library/LaunchAgents/InspectorRust.plist`; Windows uses the run-key registry entry. App launches hidden in the tray so it's ready when the popup hotkey hits.
@@ -438,8 +475,7 @@ inspector-rust/
 │   ├── ai-prompts.md        # 25 bundled default AI prompt snippets
 │   ├── encryption.md        # AES-256-GCM at-rest encryption — threat model, key storage, migration
 │   ├── RELEASING.md         # Release procedure
-│   ├── inspector-rust.png   # Brand artwork — README hero image (1024×1024, palette-encoded, ~589 KB)
-│   ├── ir-ff-w1024-optimized.png  # Brand artwork — inline image under the shortcuts section (~534 KB)
+│   ├── ir-w1024.png         # Brand artwork — README hero + inline image (1024×1024, ~1.9 MB)
 │   └── examples/
 │       └── snippets/        # 5 themed JSON examples + their own README
 ├── scripts/

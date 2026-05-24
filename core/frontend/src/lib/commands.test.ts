@@ -15,8 +15,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 16 commands (12 base + 4 wakelock entries)", () => {
-    expect(COMMANDS.length).toBe(16);
+  it("has 17 commands (12 base + 4 wakelock entries + bruno)", () => {
+    expect(COMMANDS.length).toBe(17);
   });
 
   it("every keyword is unique", () => {

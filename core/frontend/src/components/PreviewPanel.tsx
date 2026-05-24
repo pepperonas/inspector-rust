@@ -217,6 +217,88 @@ export function PreviewPanel({ entry }: Props) {
     );
   }
 
+  if (entry.kind === "bruno") {
+    const eur = new Intl.NumberFormat("de-DE", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 0,
+    });
+    const eurExact = new Intl.NumberFormat("de-DE", {
+      style: "currency",
+      currency: "EUR",
+      maximumFractionDigits: 2,
+    });
+    const pct = new Intl.NumberFormat("de-DE", {
+      style: "percent",
+      maximumFractionDigits: 1,
+    });
+    const d = entry.data;
+    const Row = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
+      <div
+        className={
+          "flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5 last:border-b-0 " +
+          (accent ? "font-semibold text-[var(--color-fg)]" : "text-[var(--color-muted)]")
+        }
+      >
+        <span>{k}</span>
+        <span className="font-[var(--font-mono)] tabular-nums">{v}</span>
+      </div>
+    );
+    const STATE_LABELS: Record<string, string> = {
+      bw: "Baden-Württemberg", by: "Bayern", be: "Berlin", bb: "Brandenburg",
+      hb: "Bremen", hh: "Hamburg", he: "Hessen", mv: "Mecklenburg-Vorp.",
+      ni: "Niedersachsen", nw: "Nordrhein-Westfalen", rp: "Rheinland-Pfalz",
+      sl: "Saarland", sn: "Sachsen", st: "Sachsen-Anhalt",
+      sh: "Schleswig-Holstein", th: "Thüringen",
+    };
+    return (
+      <div className="flex h-full flex-col gap-3 overflow-auto p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Brutto → Netto · Steuerjahr 2025 (vereinfacht)
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+            Annahmen
+          </div>
+          <div className="text-[12px] leading-tight text-[var(--color-fg)]">
+            Klasse {d.taxClass} · {STATE_LABELS[d.state] ?? d.state.toUpperCase()} ·{" "}
+            {d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`}{" "}
+            · {d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer"}
+          </div>
+          <div className="mt-1 text-[11px] text-[var(--color-muted)]">
+            Über Settings → Bruno anpassen.
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <Row k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
+          <Row k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
+          <Row k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
+          <Row k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
+          <Row k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
+          <Row k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
+          <Row k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <Row k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <Row k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
+          <Row k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
+          <Row k="Abgabenquote" v={pct.format(d.deductionRate)} />
+          <Row k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+        </div>
+
+        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+          <Row k="Netto / Monat" v={eurExact.format(d.netMonth)} accent />
+          <Row k="Netto / Jahr" v={eurExact.format(d.netYear)} accent />
+        </div>
+
+        <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"} ins Clipboard
+          {" "}·{" "}
+          ⚠ Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "finder-file") {
     return (
       <div className="flex h-full flex-col gap-3 p-4">

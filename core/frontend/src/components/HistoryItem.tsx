@@ -1,5 +1,5 @@
 import { memo, useState } from "react";
-import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
@@ -25,6 +25,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "command-suggestion") return <ChevronsRight size={size} className={cls} />;
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
+  if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
   if (entry.kind === "finder-file") {
     return entry.data.is_image
       ? <Image size={size} className={cls} />
@@ -61,12 +62,13 @@ export const HistoryItem = memo(function HistoryItem({
   const isSuggestion = entry.kind === "command-suggestion";
   const isKillTarget = entry.kind === "kill-target";
   const isOpener = entry.kind === "opener";
+  const isBruno = entry.kind === "bruno";
   const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isFinderFile
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -160,6 +162,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Selected in Finder"
     >
       finder
+    </span>
+  ) : isBruno ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Brutto → Netto (Steuerjahr 2025, vereinfacht)"
+    >
+      bruno
     </span>
   ) : (
     (() => {
@@ -315,6 +329,44 @@ export const HistoryItem = memo(function HistoryItem({
           // Whole opener text — they're short (<200 chars) so a single
           // truncated line reads well without an extra hint row.
           <span className="truncate italic">{entry.data.text}</span>
+        ) : isBruno && entry.kind === "bruno" ? (
+          <span className="flex flex-col">
+            <span className="font-semibold">
+              {(() => {
+                const fmt = new Intl.NumberFormat("de-DE", {
+                  style: "currency",
+                  currency: "EUR",
+                  maximumFractionDigits: 0,
+                });
+                const v = entry.data.period === "monthly"
+                  ? entry.data.netMonth
+                  : entry.data.netYear;
+                const label = entry.data.period === "monthly"
+                  ? "/ Monat netto"
+                  : "/ Jahr netto";
+                return `${fmt.format(v)} ${label}`;
+              })()}
+            </span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              {(() => {
+                const fmt = new Intl.NumberFormat("de-DE", {
+                  style: "currency",
+                  currency: "EUR",
+                  maximumFractionDigits: 0,
+                });
+                const pct = new Intl.NumberFormat("de-DE", {
+                  style: "percent",
+                  maximumFractionDigits: 1,
+                });
+                return `Brutto ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)}`;
+              })()}
+            </span>
+          </span>
         ) : isFinderFile && entry.kind === "finder-file" ? (
           <span className="flex flex-col">
             <span className="truncate font-semibold">{entry.data.name}</span>

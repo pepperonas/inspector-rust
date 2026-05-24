@@ -1,6 +1,7 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod backup;
+mod bruno;
 mod cli_dispatch;
 mod clipboard_watcher;
 mod commands;
@@ -303,6 +304,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::toggle_mute,
             commands::wakelock_set,
             commands::wakelock_get,
+            commands::bruno_get_defaults,
+            commands::bruno_set_defaults,
             commands::get_finder_selection,
             commands::resize_file,
             commands::optimize_file,

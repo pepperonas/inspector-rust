@@ -165,6 +165,15 @@ pub fn run(context: tauri::Context<Wry>) {
                 // Direct hotkey→snippet slots (independent of the
                 // abbreviation expander; the only mode that works in
                 // terminals, since it pastes without reading anything).
+                //
+                // Before reading + arming the slots, sweep any whose
+                // referenced snippet has been deleted — otherwise the
+                // hotkey would silently no-op + spam the log. (v0.35.0+)
+                match expander::prune_stale_direct_slots(&db_handle) {
+                    Ok(n) if n > 0 => tracing::info!("pruned {n} stale direct slot(s) at startup"),
+                    Ok(_) => {}
+                    Err(e) => tracing::warn!("direct-slot prune at startup: {e:#}"),
+                }
                 match expander::get_direct_slots(&db_handle) {
                     Ok(slots) if !slots.is_empty() => {
                         if let Err(e) =

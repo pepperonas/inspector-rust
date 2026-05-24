@@ -15,6 +15,10 @@ use tauri::{AppHandle, Emitter};
 use crate::db::{hash_payload, upsert_clip, DbHandle};
 use crate::models::{ContentType, NewClip, MAX_IMAGE_BYTES};
 
+/// `Clone` is a cheap `Arc::clone` of both fields — used by the
+/// expander's background-restore thread (v0.35.0+) to ferry a handle
+/// past a thread boundary without lifetimes.
+#[derive(Clone)]
 pub struct WatcherState {
     pub paused: Arc<AtomicBool>,
     /// SHA-256 hash of a clipboard payload **we** wrote to the OS just

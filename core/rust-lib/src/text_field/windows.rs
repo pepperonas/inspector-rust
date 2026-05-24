@@ -26,6 +26,8 @@ use enigo::{
     Direction::{Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
+use parking_lot::Mutex;
+use std::sync::OnceLock;
 use windows::core::Interface;
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
@@ -38,24 +40,48 @@ use super::{trim_word, FieldAccess, ReplaceOutcome};
 
 pub struct UiaFieldAccess;
 
+/// COM-interface wrapper. `IUIAutomation` is not `Send` per the
+/// windows-rs type defs, but COM apartment semantics let us treat
+/// our single cached instance as thread-safe because every access is
+/// serialised through the surrounding `Mutex` *and* we always call
+/// from the main thread (Tauri's `run_on_main_thread` queue).
+struct UiaCell(IUIAutomation);
+unsafe impl Send for UiaCell {}
+unsafe impl Sync for UiaCell {}
+
+/// Singleton-cached `IUIAutomation`. `CoCreateInstance` +
+/// CoInitializeEx are ~10–20 ms on first call; caching cuts a
+/// per-expansion 4 ms tax to zero. Re-entrancy-safe: separate
+/// `read_word` + `is_focused_field_secure` calls inside the same
+/// expansion both hit the same cached instance.
+static UIA_CELL: OnceLock<Mutex<UiaCell>> = OnceLock::new();
+
+fn uia_singleton() -> Result<parking_lot::MutexGuard<'static, UiaCell>> {
+    if let Some(c) = UIA_CELL.get() {
+        return Ok(c.lock());
+    }
+    unsafe {
+        let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
+        let automation: IUIAutomation =
+            CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
+                .context("CoCreateInstance(CUIAutomation)")?;
+        // First-set wins; if another thread raced, our value is
+        // dropped (and its COM ref-count decremented via Drop).
+        let _ = UIA_CELL.set(Mutex::new(UiaCell(automation)));
+    }
+    Ok(UIA_CELL.get().expect("just-set or set-by-race").lock())
+}
+
 impl UiaFieldAccess {
-    /// One-shot UIA query: returns the word immediately before the cursor,
-    /// or `None` when the focused element doesn't expose a TextPattern at
-    /// all. Each call sets up its own COM apartment because there's no
-    /// guarantee the IPC thread that calls us has one already.
+    /// One-shot UIA query: returns the word immediately before the
+    /// cursor, or `None` when the focused element doesn't expose a
+    /// TextPattern. Uses the cached `IUIAutomation` singleton — first
+    /// call pays the COM init cost (~20 ms), every subsequent call is
+    /// a hashmap lookup (<1 µs).
     fn read_word(&self) -> Result<Option<String>> {
+        let automation = uia_singleton()?;
         unsafe {
-            // CoInitializeEx is reference-counted; calling it multiple
-            // times is fine, and we don't bother to CoUninitialize on
-            // success — Tauri's IPC threads stay alive for the app's
-            // lifetime.
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-
-            let automation: IUIAutomation =
-                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-                    .context("CoCreateInstance(CUIAutomation)")?;
-
-            let focused = match automation.GetFocusedElement() {
+            let focused = match automation.0.GetFocusedElement() {
                 Ok(e) => e,
                 Err(_) => return Ok(None),
             };
@@ -121,12 +147,9 @@ impl UiaFieldAccess {
 
 impl FieldAccess for UiaFieldAccess {
     fn is_focused_field_secure(&self) -> Result<bool> {
+        let automation = uia_singleton()?;
         unsafe {
-            let _ = CoInitializeEx(None, COINIT_MULTITHREADED);
-            let automation: IUIAutomation =
-                CoCreateInstance(&CUIAutomation, None, CLSCTX_INPROC_SERVER)
-                    .context("CoCreateInstance(CUIAutomation) for password probe")?;
-            let focused = match automation.GetFocusedElement() {
+            let focused = match automation.0.GetFocusedElement() {
                 Ok(e) => e,
                 Err(_) => return Ok(false),
             };

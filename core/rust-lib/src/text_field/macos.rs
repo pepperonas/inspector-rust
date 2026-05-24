@@ -24,9 +24,12 @@ type Boolean = u8;
 
 const KCF_STRING_ENCODING_UTF8: u32 = 0x08000100;
 
+type CFArrayRef = *const c_void;
+
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     static kCFAllocatorDefault: CFAllocatorRef;
+    static kCFTypeArrayCallBacks: c_void;
 
     fn CFStringCreateWithCString(
         allocator: CFAllocatorRef,
@@ -44,6 +47,16 @@ extern "C" {
     ) -> Boolean;
 
     fn CFStringGetMaximumSizeForEncoding(length: CFIndex, encoding: u32) -> CFIndex;
+
+    fn CFArrayCreate(
+        allocator: CFAllocatorRef,
+        values: *const CFTypeRef,
+        num_values: CFIndex,
+        callbacks: *const c_void,
+    ) -> CFArrayRef;
+
+    fn CFArrayGetCount(array: CFArrayRef) -> CFIndex;
+    fn CFArrayGetValueAtIndex(array: CFArrayRef, idx: CFIndex) -> CFTypeRef;
 
     fn CFRelease(cf: CFTypeRef);
     fn CFGetTypeID(cf: CFTypeRef) -> usize;
@@ -71,6 +84,16 @@ extern "C" {
         out_value: *mut CFTypeRef,
     ) -> AXError;
 
+    /// Fetch multiple attributes in **one** kernel round-trip. Each
+    /// returned element is either the attribute value or a CFNull
+    /// (we can't tell missing vs. null from the API surface).
+    fn AXUIElementCopyMultipleAttributeValues(
+        element: AXUIElementRef,
+        attributes: CFArrayRef,
+        options: u32,
+        out_values: *mut CFArrayRef,
+    ) -> AXError;
+
     fn AXUIElementSetAttributeValue(
         element: AXUIElementRef,
         attribute: CFStringRef,
@@ -87,6 +110,33 @@ extern "C" {
 fn cf_string(s: &str) -> CFStringRef {
     let c = CString::new(s).expect("AX attribute name must be ASCII");
     unsafe { CFStringCreateWithCString(kCFAllocatorDefault, c.as_ptr(), KCF_STRING_ENCODING_UTF8) }
+}
+
+/// Cached, deliberately-leaked `CFStringRef` for an AX attribute name.
+/// Avoids re-creating + re-releasing the same ~10 strings per
+/// expansion. CF strings are reference-counted; one leaked ref per
+/// process is harmless (the strings live for the process lifetime
+/// anyway since they're const at the call sites).
+mod attr {
+    use super::{cf_string, CFStringRef};
+    use std::sync::OnceLock;
+
+    macro_rules! cached {
+        ($name:ident, $value:literal) => {
+            pub fn $name() -> CFStringRef {
+                // We can't store *const c_void in OnceLock directly
+                // (not Send/Sync); wrap in a usize-cast helper.
+                static CACHE: OnceLock<usize> = OnceLock::new();
+                *CACHE.get_or_init(|| cf_string($value) as usize) as CFStringRef
+            }
+        };
+    }
+
+    cached!(focused_ui_element, "AXFocusedUIElement");
+    cached!(value, "AXValue");
+    cached!(selected_text_range, "AXSelectedTextRange");
+    cached!(selected_text, "AXSelectedText");
+    cached!(subrole, "AXSubrole");
 }
 
 /// Convert a `CFStringRef` to an owned Rust `String`. Returns `None` if
@@ -119,9 +169,16 @@ pub struct AxFieldAccess;
 
 impl AxFieldAccess {
     /// One-shot: read focused element, return (`value`, `cursor_chars`)
-    /// where `cursor_chars` is the cursor's start position in UTF-16 code
-    /// units (which AX reports), or `None` if the element doesn't expose
-    /// the necessary attributes.
+    /// where `cursor_chars` is the cursor's start position in UTF-16
+    /// code units, or `None` if the element doesn't expose the
+    /// necessary attributes.
+    ///
+    /// **v0.35.0 optimisation**: batches `AXValue` + `AXSelectedTextRange`
+    /// reads into a single `AXUIElementCopyMultipleAttributeValues`
+    /// call instead of two separate `AXUIElementCopyAttributeValue`
+    /// round-trips. Each AX round-trip is ~2–5 ms (XPC IPC to the
+    /// accessibility daemon), so one batched call vs. two sequential
+    /// ones saves ~5 ms per expansion.
     fn read_focused(&self) -> Result<Option<(AXUIElementRef, String, usize)>> {
         unsafe {
             let system = AXUIElementCreateSystemWide();
@@ -129,48 +186,73 @@ impl AxFieldAccess {
                 return Err(anyhow!("AXUIElementCreateSystemWide returned null"));
             }
 
-            // 1) Find the focused UI element.
-            let attr_focused = cf_string("AXFocusedUIElement");
+            // 1) Find the focused UI element. (Can't batch with the
+            //    subsequent reads — those go to *this* element, not
+            //    the system-wide one.)
             let mut focused_value: CFTypeRef = std::ptr::null();
-            let err = AXUIElementCopyAttributeValue(system, attr_focused, &mut focused_value);
-            CFRelease(attr_focused);
+            let err = AXUIElementCopyAttributeValue(
+                system,
+                attr::focused_ui_element(),
+                &mut focused_value,
+            );
             CFRelease(system);
             if err != KAX_ERROR_SUCCESS || focused_value.is_null() {
                 return Ok(None);
             }
             let focused: AXUIElementRef = focused_value;
 
-            // 2) Read kAXValueAttribute (the field's text content).
-            let attr_value = cf_string("AXValue");
-            let mut value_cf: CFTypeRef = std::ptr::null();
-            let err = AXUIElementCopyAttributeValue(focused, attr_value, &mut value_cf);
-            CFRelease(attr_value);
-            if err != KAX_ERROR_SUCCESS || value_cf.is_null() {
+            // 2) Batch-read AXValue + AXSelectedTextRange in one call.
+            let attrs: [CFTypeRef; 2] = [
+                attr::value() as CFTypeRef,
+                attr::selected_text_range() as CFTypeRef,
+            ];
+            let attrs_array = CFArrayCreate(
+                kCFAllocatorDefault,
+                attrs.as_ptr(),
+                2,
+                &kCFTypeArrayCallBacks as *const _ as *const c_void,
+            );
+            if attrs_array.is_null() {
                 CFRelease(focused);
                 return Ok(None);
             }
-            let value_str = cf_string_to_rust(value_cf);
-            CFRelease(value_cf);
-            let Some(value_str) = value_str else {
+            let mut values_array: CFArrayRef = std::ptr::null();
+            let err = AXUIElementCopyMultipleAttributeValues(
+                focused,
+                attrs_array,
+                0, // no kAXCopyMultipleAttributeOptionStopOnError
+                &mut values_array,
+            );
+            CFRelease(attrs_array);
+            if err != KAX_ERROR_SUCCESS || values_array.is_null() {
+                CFRelease(focused);
+                return Ok(None);
+            }
+            // Returned array always has the same length as the request
+            // (positions hold CFNull for missing attributes — we treat
+            // those as Unsupported).
+            if CFArrayGetCount(values_array) < 2 {
+                CFRelease(values_array);
+                CFRelease(focused);
+                return Ok(None);
+            }
+            // The array owns its contents; CFArrayGetValueAtIndex
+            // returns a borrowed CFTypeRef (no retain needed for our
+            // immediate read).
+            let value_cf = CFArrayGetValueAtIndex(values_array, 0);
+            let range_cf = CFArrayGetValueAtIndex(values_array, 1);
+
+            // 2a) Decode AXValue.
+            let Some(value_str) = cf_string_to_rust(value_cf) else {
+                CFRelease(values_array);
                 CFRelease(focused);
                 return Ok(None);
             };
 
-            // 3) Read kAXSelectedTextRangeAttribute (cursor position +
-            //    selection length). It comes back as an AXValue wrapping
-            //    a CFRange — location is the cursor position in UTF-16
-            //    units when length == 0.
-            let attr_range = cf_string("AXSelectedTextRange");
-            let mut range_cf: CFTypeRef = std::ptr::null();
-            let err = AXUIElementCopyAttributeValue(focused, attr_range, &mut range_cf);
-            CFRelease(attr_range);
-            if err != KAX_ERROR_SUCCESS || range_cf.is_null() {
-                CFRelease(focused);
-                return Ok(None);
-            }
-            // Verify it's actually a CFRange-bearing AXValue.
-            if AXValueGetType(range_cf) != KAX_VALUE_CFRANGE_TYPE {
-                CFRelease(range_cf);
+            // 2b) Decode AXSelectedTextRange — must be a CFRange-bearing
+            //     AXValue.
+            if range_cf.is_null() || AXValueGetType(range_cf) != KAX_VALUE_CFRANGE_TYPE {
+                CFRelease(values_array);
                 CFRelease(focused);
                 return Ok(None);
             }
@@ -180,18 +262,12 @@ impl AxFieldAccess {
                 KAX_VALUE_CFRANGE_TYPE,
                 &mut range as *mut _ as *mut c_void,
             );
-            CFRelease(range_cf);
+            CFRelease(values_array);
             if got == 0 {
                 CFRelease(focused);
                 return Ok(None);
             }
             let cursor_utf16 = range.0.max(0) as usize;
-
-            // AX reports cursor in UTF-16 code units. Our `value_str` is
-            // UTF-8. Convert: walk char_indices, find the char at cursor
-            // by counting UTF-16 units. For BMP chars one UTF-16 unit per
-            // char; for non-BMP (emoji, …) two. For ASCII text these are
-            // the same.
             let cursor_chars = utf16_units_to_char_index(&value_str, cursor_utf16);
 
             Ok(Some((focused, value_str, cursor_chars)))
@@ -206,10 +282,12 @@ impl FieldAccess for AxFieldAccess {
             if system.is_null() {
                 return Ok(false);
             }
-            let attr_focused = cf_string("AXFocusedUIElement");
             let mut focused_value: CFTypeRef = std::ptr::null();
-            let err = AXUIElementCopyAttributeValue(system, attr_focused, &mut focused_value);
-            CFRelease(attr_focused);
+            let err = AXUIElementCopyAttributeValue(
+                system,
+                attr::focused_ui_element(),
+                &mut focused_value,
+            );
             CFRelease(system);
             if err != KAX_ERROR_SUCCESS || focused_value.is_null() {
                 return Ok(false);
@@ -223,10 +301,8 @@ impl FieldAccess for AxFieldAccess {
             // and expose `AXRole == "AXTextField"` + sometimes a
             // `AXSubrole` of `AXSecureTextField` when input type
             // is "password"). Checking the subrole catches both.
-            let attr_subrole = cf_string("AXSubrole");
             let mut subrole_cf: CFTypeRef = std::ptr::null();
-            let err = AXUIElementCopyAttributeValue(focused, attr_subrole, &mut subrole_cf);
-            CFRelease(attr_subrole);
+            let err = AXUIElementCopyAttributeValue(focused, attr::subrole(), &mut subrole_cf);
             CFRelease(focused);
             if err != KAX_ERROR_SUCCESS || subrole_cf.is_null() {
                 return Ok(false);
@@ -295,9 +371,8 @@ impl FieldAccess for AxFieldAccess {
                 CFRelease(focused);
                 return Ok(ReplaceOutcome::Unsupported);
             }
-            let attr_range = cf_string("AXSelectedTextRange");
-            let err = AXUIElementSetAttributeValue(focused, attr_range, range_value);
-            CFRelease(attr_range);
+            let err =
+                AXUIElementSetAttributeValue(focused, attr::selected_text_range(), range_value);
             CFRelease(range_value);
             if err != KAX_ERROR_SUCCESS {
                 CFRelease(focused);
@@ -310,20 +385,17 @@ impl FieldAccess for AxFieldAccess {
             //    Mac-Catalyst text views it commonly returns
             //    kAXErrorSuccess but does nothing — so we don't trust the
             //    return code; we verify by re-reading AXValue below.
-            let attr_seltext = cf_string("AXSelectedText");
             let replacement_cf = {
                 let c = CString::new(replacement.replace('\0', "")).unwrap();
                 CFStringCreateWithCString(kCFAllocatorDefault, c.as_ptr(), KCF_STRING_ENCODING_UTF8)
             };
             if replacement_cf.is_null() {
-                CFRelease(attr_seltext);
                 CFRelease(focused);
                 // The range was set in step 1 → the abbreviation is
                 // selected → caller can paste over it.
                 return Ok(ReplaceOutcome::SelectionActive);
             }
-            let _ = AXUIElementSetAttributeValue(focused, attr_seltext, replacement_cf);
-            CFRelease(attr_seltext);
+            let _ = AXUIElementSetAttributeValue(focused, attr::selected_text(), replacement_cf);
             CFRelease(replacement_cf);
 
             // 3) Verify. Poll AXValue up to 60 ms (12 × 5 ms). The old
@@ -333,12 +405,11 @@ impl FieldAccess for AxFieldAccess {
             //    SelectionActive and then double-paste. Poll wins on
             //    both: returns *fast* (5-10 ms) when the app is
             //    snappy, gives the slow ones a fair shake.
-            let attr_value = cf_string("AXValue");
             let mut new_value: Option<String> = None;
             for _attempt in 0..12 {
                 std::thread::sleep(std::time::Duration::from_millis(5));
                 let mut new_value_cf: CFTypeRef = std::ptr::null();
-                let verr = AXUIElementCopyAttributeValue(focused, attr_value, &mut new_value_cf);
+                let verr = AXUIElementCopyAttributeValue(focused, attr::value(), &mut new_value_cf);
                 if verr == KAX_ERROR_SUCCESS && !new_value_cf.is_null() {
                     let s = cf_string_to_rust(new_value_cf);
                     CFRelease(new_value_cf);
@@ -353,7 +424,6 @@ impl FieldAccess for AxFieldAccess {
                     CFRelease(new_value_cf);
                 }
             }
-            CFRelease(attr_value);
             CFRelease(focused);
 
             match new_value {

@@ -292,25 +292,22 @@ pub fn register_expander(
                     let watcher = app_in_closure.try_state::<crate::clipboard_watcher::WatcherState>();
                     match expander::expand_at_cursor(&db, watcher.as_deref()) {
                         Ok(()) => {}
-                        Err(e) if e.to_string() == expander::ERR_NO_ACCESSIBILITY => {
-                            // Grant revoked between the check above and
-                            // here (rare). Same actionable UX.
-                            let _ = show_popup(&app_for_err);
-                            let _ = app_for_err.emit("expander-permission-needed", ());
-                        }
-                        Err(e) if e.to_string() == expander::ERR_PASSWORD_FIELD => {
-                            let _ = app_for_err.emit("expander-blocked", "password");
-                        }
-                        Err(e) if e.to_string() == expander::ERR_SECURE_INPUT => {
-                            let _ = app_for_err.emit("expander-blocked", "secure_input");
-                        }
-                        Err(e) if e.to_string() == expander::ERR_INSPECTOR_FRONTMOST => {
-                            // Silent — user just hit the hotkey while
-                            // looking at our popup. Nothing to surface.
-                            tracing::debug!("expander hotkey: Inspector Rust frontmost");
-                            let _ = e;
-                        }
-                        Err(e) => tracing::warn!("expand_at_cursor failed: {e:#}"),
+                        Err(e) => match expander::BlockReason::from_error(&e) {
+                            Some(expander::BlockReason::NoAccessibility) => {
+                                let _ = show_popup(&app_for_err);
+                                let _ = app_for_err.emit("expander-permission-needed", ());
+                            }
+                            Some(expander::BlockReason::PasswordField) => {
+                                let _ = app_for_err.emit("expander-blocked", "password");
+                            }
+                            Some(expander::BlockReason::SecureInput) => {
+                                let _ = app_for_err.emit("expander-blocked", "secure_input");
+                            }
+                            Some(expander::BlockReason::InspectorFrontmost) => {
+                                tracing::debug!("expander hotkey: Inspector Rust frontmost");
+                            }
+                            None => tracing::warn!("expand_at_cursor failed: {e:#}"),
+                        },
                     }
                 }
             });
@@ -391,21 +388,22 @@ pub fn register_direct_slots(
                         let watcher = app_main.try_state::<crate::clipboard_watcher::WatcherState>();
                         match crate::expander::paste_snippet_body(&db, snippet_id, watcher.as_deref()) {
                             Ok(()) => {}
-                            Err(e) if e.to_string() == crate::expander::ERR_NO_ACCESSIBILITY => {
-                                let _ = show_popup(&app_err);
-                                let _ = app_err.emit("expander-permission-needed", ());
-                            }
-                            Err(e) if e.to_string() == crate::expander::ERR_PASSWORD_FIELD => {
-                                let _ = app_err.emit("expander-blocked", "password");
-                            }
-                            Err(e) if e.to_string() == crate::expander::ERR_SECURE_INPUT => {
-                                let _ = app_err.emit("expander-blocked", "secure_input");
-                            }
-                            Err(e) if e.to_string() == crate::expander::ERR_INSPECTOR_FRONTMOST => {
-                                tracing::debug!("direct-slot: Inspector Rust frontmost");
-                                let _ = e;
-                            }
-                            Err(e) => tracing::warn!("direct-slot paste failed: {e:#}"),
+                            Err(e) => match crate::expander::BlockReason::from_error(&e) {
+                                Some(crate::expander::BlockReason::NoAccessibility) => {
+                                    let _ = show_popup(&app_err);
+                                    let _ = app_err.emit("expander-permission-needed", ());
+                                }
+                                Some(crate::expander::BlockReason::PasswordField) => {
+                                    let _ = app_err.emit("expander-blocked", "password");
+                                }
+                                Some(crate::expander::BlockReason::SecureInput) => {
+                                    let _ = app_err.emit("expander-blocked", "secure_input");
+                                }
+                                Some(crate::expander::BlockReason::InspectorFrontmost) => {
+                                    tracing::debug!("direct-slot: Inspector Rust frontmost");
+                                }
+                                None => tracing::warn!("direct-slot paste failed: {e:#}"),
+                            },
                         }
                     }
                 });

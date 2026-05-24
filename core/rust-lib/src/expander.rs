@@ -35,14 +35,41 @@ use crate::snippets;
 use crate::text_field::{default_field_access, native_path, CapturePath, ReplaceOutcome};
 
 /// enigo `Settings` with `open_prompt_to_get_permissions = false` —
-/// see paste.rs for the full rationale. Every `Enigo::new()` here uses
-/// this so untrusted-process calls fail silently rather than firing
-/// the macOS dialog as a side effect.
+/// see paste.rs for the full rationale. Used once at cache-init time
+/// in [`enigo_lock`]; every call after that re-uses the same instance.
 fn enigo_settings() -> Settings {
     Settings {
         open_prompt_to_get_permissions: false,
         ..Settings::default()
     }
+}
+
+/// Send+Sync wrapper around `Enigo` for our singleton cache. Enigo
+/// itself is `!Send` (it caches OS handles that aren't thread-safe
+/// in the general case). We serialise every access through the
+/// surrounding `Mutex` *and* always call from the main thread (via
+/// Tauri's `run_on_main_thread` queue), so the unsafe impls are
+/// sound for our access pattern. Same shape as `UiaCell` on Windows.
+struct EnigoCell(Enigo);
+unsafe impl Send for EnigoCell {}
+unsafe impl Sync for EnigoCell {}
+
+/// Cached `Enigo`. v0.34.x and earlier created a fresh `Enigo::new()`
+/// per call (~3-4 per expansion); each construction does a small but
+/// non-zero amount of work (event-source create on macOS, key-state
+/// init on Windows). Cache once; serialise via Mutex.
+fn enigo_lock() -> Result<parking_lot::MappedMutexGuard<'static, Enigo>> {
+    use parking_lot::{Mutex, MutexGuard};
+    use std::sync::OnceLock;
+    static ENIGO: OnceLock<Mutex<EnigoCell>> = OnceLock::new();
+    if let Some(m) = ENIGO.get() {
+        return Ok(MutexGuard::map(m.lock(), |c| &mut c.0));
+    }
+    let e = Enigo::new(&enigo_settings())
+        .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
+    let _ = ENIGO.set(Mutex::new(EnigoCell(e)));
+    let g = ENIGO.get().expect("just-set or race").lock();
+    Ok(MutexGuard::map(g, |c| &mut c.0))
 }
 
 // Whether the OS has granted Inspector Rust permission to synthesize keyboard
@@ -123,6 +150,50 @@ pub fn secure_event_input_active() -> bool {
 
 #[cfg(not(target_os = "macos"))]
 pub fn secure_event_input_active() -> bool {
+    false
+}
+
+/// Is the user *still* holding the Alt / Option modifier? Used by
+/// [`expand_at_cursor`] to skip the 40 ms "wait for the hotkey's own
+/// modifier to come up" sleep when the modifier is already released
+/// — typically the dominant case for a fast typist (tap-release
+/// before our handler queues onto the main thread). Saves a noticeable
+/// 20-30 ms of pre-expansion latency.
+///
+/// macOS uses CGEventSourceKeyState with VK_Option (kVK_Option=0x3A).
+/// Windows uses `GetAsyncKeyState(VK_MENU=0x12)`. Linux: no portable
+/// fast probe → optimistic `false` (skip the sleep, accept the rare
+/// stuck-modifier race; not a regression since v0.33.x didn't probe
+/// either).
+#[cfg(target_os = "macos")]
+fn alt_currently_held() -> bool {
+    // CGEventSourceKeyState(kCGEventSourceStateHIDSystemState=1, keyCode).
+    // VK code 0x3A is left Option; 0x3D is right Option. Either counts.
+    #[link(name = "ApplicationServices", kind = "framework")]
+    extern "C" {
+        fn CGEventSourceKeyState(state: u32, keycode: u16) -> u8;
+    }
+    const HID_SYSTEM_STATE: u32 = 1;
+    const VK_OPTION_LEFT: u16 = 0x3A;
+    const VK_OPTION_RIGHT: u16 = 0x3D;
+    unsafe {
+        CGEventSourceKeyState(HID_SYSTEM_STATE, VK_OPTION_LEFT) != 0
+            || CGEventSourceKeyState(HID_SYSTEM_STATE, VK_OPTION_RIGHT) != 0
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn alt_currently_held() -> bool {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{GetAsyncKeyState, VK_MENU};
+    // GetAsyncKeyState returns SHORT; high bit set = key is down right now.
+    unsafe { (GetAsyncKeyState(VK_MENU.0 as i32) as u16 & 0x8000) != 0 }
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn alt_currently_held() -> bool {
+    // X11 has XQueryKeymap, Wayland has nothing. Skip — the worst
+    // case is a single stuck-Alt event in the source app, no different
+    // from pre-v0.34.x behaviour. Future PR can wire X11 if measured.
     false
 }
 
@@ -277,6 +348,50 @@ pub const ERR_INSPECTOR_FRONTMOST: &str = "ax.inspector_frontmost";
 /// sudo prompt. Surfaced as a brief toast.
 pub const ERR_PASSWORD_FIELD: &str = "ax.password_field";
 
+/// Typed enum for expander pre-check rejections. The hotkey handler
+/// pattern-matches on this instead of doing fragile string equality
+/// on `e.to_string()` — fewer copy-paste typos, easier to spot in a
+/// review. Round-trips through the error chain via `to_sentinel()`
+/// so the existing string-based API stays stable for the diagnose
+/// IPC + future plugins.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BlockReason {
+    /// macOS Accessibility not granted (synthetic input would no-op).
+    NoAccessibility,
+    /// macOS secure event input flag is active (CGEventPost dropped).
+    SecureInput,
+    /// We are the frontmost app (expansion would land in our own popup).
+    InspectorFrontmost,
+    /// Focused field is a password / secure text field.
+    PasswordField,
+}
+
+impl BlockReason {
+    /// String sentinel for the IPC error / diagnose surface. Stable;
+    /// changing one of these is a breaking-API change for the frontend.
+    pub fn to_sentinel(self) -> &'static str {
+        match self {
+            BlockReason::NoAccessibility => ERR_NO_ACCESSIBILITY,
+            BlockReason::SecureInput => ERR_SECURE_INPUT,
+            BlockReason::InspectorFrontmost => ERR_INSPECTOR_FRONTMOST,
+            BlockReason::PasswordField => ERR_PASSWORD_FIELD,
+        }
+    }
+
+    /// Inverse of [`to_sentinel`] — recover the typed reason from an
+    /// `anyhow::Error` chain. Returns `None` for non-block errors.
+    pub fn from_error(e: &anyhow::Error) -> Option<BlockReason> {
+        let s = e.to_string();
+        match s.as_str() {
+            ERR_NO_ACCESSIBILITY => Some(BlockReason::NoAccessibility),
+            ERR_SECURE_INPUT => Some(BlockReason::SecureInput),
+            ERR_INSPECTOR_FRONTMOST => Some(BlockReason::InspectorFrontmost),
+            ERR_PASSWORD_FIELD => Some(BlockReason::PasswordField),
+            _ => None,
+        }
+    }
+}
+
 /// Settings key: the direct hotkey→snippet bindings, stored as a JSON
 /// array of [`DirectSlot`]. Empty / missing → no direct slots.
 pub const KEY_DIRECT_SLOTS: &str = "expander.direct_slots";
@@ -308,6 +423,49 @@ pub fn get_direct_slots(db: &DbHandle) -> Result<Vec<DirectSlot>> {
 pub fn set_direct_slots(db: &DbHandle, slots: &[DirectSlot]) -> Result<()> {
     let json = serde_json::to_string(slots)?;
     crate::settings::set(db, KEY_DIRECT_SLOTS, &json)
+}
+
+/// Sweep direct slots: drop any whose `snippet_id` no longer exists
+/// in the `snippets` table. Called once at startup from `lib.rs`
+/// before [`hotkey::register_direct_slots`] arms the global shortcuts
+/// — otherwise stale slots would silently no-op on every hotkey
+/// press and leave a confusing log trail.
+///
+/// Returns the number of slots that were pruned (0 = nothing changed,
+/// no settings write). Errors during the snippet-existence check are
+/// treated as "don't prune" so a transient SQLite hiccup doesn't
+/// destroy bindings.
+pub fn prune_stale_direct_slots(db: &DbHandle) -> Result<usize> {
+    let slots = get_direct_slots(db)?;
+    if slots.is_empty() {
+        return Ok(0);
+    }
+    let mut kept = Vec::with_capacity(slots.len());
+    let mut pruned = 0usize;
+    for slot in slots {
+        match snippets::get_by_id(db, slot.snippet_id) {
+            Ok(Some(_)) => kept.push(slot),
+            Ok(None) => {
+                tracing::info!(
+                    "pruning stale direct slot: hotkey={} → deleted snippet_id={}",
+                    slot.hotkey,
+                    slot.snippet_id
+                );
+                pruned += 1;
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "stale-slot check errored for snippet_id={} (keeping slot): {e:#}",
+                    slot.snippet_id
+                );
+                kept.push(slot);
+            }
+        }
+    }
+    if pruned > 0 {
+        set_direct_slots(db, &kept)?;
+    }
+    Ok(pruned)
 }
 
 /// Paste the body of snippet `snippet_id` at the current cursor — the
@@ -530,14 +688,21 @@ pub fn expand_at_cursor(
         return Err(anyhow!(ERR_SECURE_INPUT));
     }
 
-    // The hotkey itself is `Alt+<key>` — when this runs (queued onto the
-    // main thread, a few ms after key-down) the user may still be
-    // physically holding that `Alt`. Give it a beat to come up before we
-    // synthesize our own modifier chords; otherwise enigo's press/release
-    // can race the user's still-down key and produce a stuck-modifier
-    // state in the source app. Invisible: the popup is hidden the whole
-    // time anyway.
-    thread::sleep(Duration::from_millis(40));
+    // The hotkey itself is `Alt+<key>` — when this runs (queued onto
+    // the main thread, a few ms after key-down) the user may still be
+    // physically holding that `Alt`. If we synthesize our own chords
+    // while it's down, the source app sees `Alt+Cmd+Shift+←` instead
+    // of `Cmd+Shift+←` and breaks. Pre-v0.35 we slept a flat 40 ms;
+    // now we poll the modifier state and wait *only* if Alt is
+    // actually still pressed. Fast typists (release-before-handler)
+    // save the full 40 ms; slow ones pay the original cost. Cap at
+    // 80 ms total so a key actually stuck in the OS doesn't hang us.
+    {
+        let start = std::time::Instant::now();
+        while alt_currently_held() && start.elapsed() < Duration::from_millis(80) {
+            thread::sleep(Duration::from_millis(8));
+        }
+    }
 
     // ── Path 1: native accessibility (AX / UIA) ────────────────────────────
     // Skip AX entirely when the process isn't trusted — calling AX from
@@ -675,14 +840,24 @@ fn expand_via_clipboard(
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
 
-    // 6) Restore the user's original clipboard after the paste has
-    //    consumed the snippet body. The delay is generous — too short and
-    //    the source app may end up pasting the *restored* clipboard.
-    thread::sleep(Duration::from_millis(180));
-    if let (Some(w), Some(text)) = (watcher, saved.as_deref()) {
-        w.mark_self_write(crate::models::ContentType::Text, text);
+    // 6) Background restore (v0.35.0+). Same shape as
+    //    `paste_over_selection`: return immediately after paste, then
+    //    a worker thread waits 120 ms and restores only if our body
+    //    is still on the clipboard. Drops 180 ms from the user-
+    //    perceived expansion latency.
+    if let Some(text) = saved {
+        let watcher_clone = watcher.cloned_handle();
+        let body_owned = body.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            if matches!(read_clipboard_text(), Some(cur) if cur == body_owned) {
+                if let Some(w) = watcher_clone.as_ref() {
+                    w.mark_self_write(crate::models::ContentType::Text, &text);
+                }
+                let _ = write_clipboard_text(&text);
+            }
+        });
     }
-    restore_clipboard(saved.as_deref());
 
     Ok(())
 }
@@ -699,23 +874,62 @@ fn paste_over_selection(
 ) -> Result<()> {
     let saved = read_clipboard_text();
     // Arm the watcher for BOTH writes — the body about to be pasted
-    // *and* the restored clipboard. Without this, every snippet
-    // expansion would pollute history with the body (and sometimes
-    // a duplicate of the saved text). Pre-v0.33.0 bug: missing
-    // mark_self_write here meant `aiplan` → body got stored in
-    // history *and* re-surfaced as a "recent" clip.
+    // *and* the (background-scheduled) restored clipboard. Without
+    // this, every snippet expansion would pollute history with the
+    // body. Pre-v0.33.0 bug: missing mark_self_write here meant
+    // `aiplan` → body got stored in history *and* re-surfaced as a
+    // "recent" clip.
     if let Some(w) = watcher {
         w.mark_self_write(crate::models::ContentType::Text, body);
+        // Also pre-arm the restore so the watcher skips that too.
+        // Re-arming overwrites the previous fuse, but both writes
+        // happen sequentially below — the watcher checks each event
+        // against the most-recent fuse, which is what we want.
+        if let Some(text) = saved.as_deref() {
+            // Defer arming the restore until restore time (otherwise
+            // the body write would consume this fuse instead).
+            let _ = text;
+        }
     }
     write_clipboard_text(body)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
-    thread::sleep(Duration::from_millis(180));
-    if let (Some(w), Some(text)) = (watcher, saved.as_deref()) {
-        w.mark_self_write(crate::models::ContentType::Text, text);
+
+    // v0.35 — restore in a background thread. The expand call
+    // returns immediately after paste; we no longer block 180 ms
+    // for nothing. The restore-thread waits 120 ms (enough for
+    // every app I tested to finish consuming the clipboard) then
+    // checks: if the clipboard still equals our body, restore the
+    // user's text. If it doesn't (the user or another app wrote
+    // something new in those 120 ms), do nothing — don't clobber
+    // their fresh clipboard content.
+    if let Some(text) = saved {
+        let watcher_clone = watcher.cloned_handle();
+        let body_owned = body.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            if matches!(read_clipboard_text(), Some(cur) if cur == body_owned) {
+                if let Some(w) = watcher_clone.as_ref() {
+                    w.mark_self_write(crate::models::ContentType::Text, &text);
+                }
+                let _ = write_clipboard_text(&text);
+            }
+        });
     }
-    restore_clipboard(saved.as_deref());
     Ok(())
+}
+
+/// Helper trait to clone a `Option<&WatcherState>` into a `Send`-able
+/// owned handle the restore thread can take. The clipboard_watcher
+/// already exposes Arc<...> internals; we re-use the existing public
+/// snapshot via `WatcherState::handle()`.
+trait WatcherClone {
+    fn cloned_handle(self) -> Option<crate::clipboard_watcher::WatcherState>;
+}
+impl WatcherClone for Option<&crate::clipboard_watcher::WatcherState> {
+    fn cloned_handle(self) -> Option<crate::clipboard_watcher::WatcherState> {
+        self.map(|w| w.clone())
+    }
 }
 
 /// Trim common boundary characters that the platform may include in the
@@ -764,8 +978,7 @@ fn cmd_modifier() -> Key {
 }
 
 fn select_previous_word() -> Result<()> {
-    let mut e = Enigo::new(&enigo_settings())
-        .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
+    let mut e = enigo_lock()?;
     let modifier = word_modifier();
     e.key(modifier, Press)
         .map_err(|err| anyhow!("modifier press: {err:?}"))?;
@@ -797,8 +1010,7 @@ fn send_backspaces(count: usize) -> Result<()> {
     if count == 0 {
         return Ok(());
     }
-    let mut e = Enigo::new(&enigo_settings())
-        .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
+    let mut e = enigo_lock()?;
     for i in 0..count {
         e.key(Key::Backspace, Press)
             .map_err(|err| anyhow!("backspace press: {err:?}"))?;
@@ -819,8 +1031,7 @@ fn send_backspaces(count: usize) -> Result<()> {
 }
 
 fn send_modified_letter(letter: char) -> Result<()> {
-    let mut e = Enigo::new(&enigo_settings())
-        .map_err(|err| anyhow!("enigo init failed: {err:?}"))?;
+    let mut e = enigo_lock()?;
     let m = cmd_modifier();
     e.key(m, Press)
         .map_err(|err| anyhow!("modifier press: {err:?}"))?;

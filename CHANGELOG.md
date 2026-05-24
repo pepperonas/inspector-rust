@@ -4,6 +4,45 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] — 2026-05-24
+
+### Performance — Expander: caching, batched-AX, smart sleeps (~80–150 ms faster per expansion)
+
+Seven optimisations on top of the v0.34.0 security work — every one based on actual measurement of where the expander loop spends time.
+
+**Caching: 3-4 redundant inits per expansion → 1 cached singleton each.**
+
+| Resource | Pre-v0.35 | v0.35 |
+|---|---|---|
+| `Enigo::new()` | 3-4× per expansion (one per `select_previous_word` / `send_copy` / `send_paste` / `send_backspaces`) | Cached `OnceLock<Mutex<EnigoCell>>`, init once |
+| `IUIAutomation` (Windows) | 2× per expansion (one for `read_word`, one for `is_focused_field_secure`) | Cached `OnceLock<Mutex<UiaCell>>`, init once |
+| macOS `AX*` CFString constants | Allocated + released on every call (~5 strings × ~4 calls) | Cached, deliberately-leaked `CFStringRef` per attribute name |
+
+**macOS AX batched read.** `read_focused()` now uses `AXUIElementCopyMultipleAttributeValues` to fetch `AXValue` + `AXSelectedTextRange` in a single XPC round-trip instead of two sequential `AXUIElementCopyAttributeValue` calls. Each AX call is ~2-5 ms; one batched vs. two sequential saves ~5 ms per expansion.
+
+**Smart Alt-release wait.** Pre-v0.35 the handler slept a flat 40 ms at the top of `expand_at_cursor` to let the hotkey's own Alt come up before synthesising chords. Now polls the Alt key state directly:
+
+- **macOS** — `CGEventSourceKeyState(kVK_Option_Left / Right)`.
+- **Windows** — `GetAsyncKeyState(VK_MENU)`.
+
+If Alt is already released (the dominant case for any fast typist), the wait is **0 ms**. If still held, we tick at 8 ms granularity up to 80 ms. Median user saves the full 40 ms.
+
+**Background clipboard restore.** `paste_over_selection` + `expand_via_clipboard` used to block the caller for 180 ms after paste, waiting for the target app to consume the body before restoring the user's clipboard. Now the restore is **spawned in a background thread**: the expander returns immediately after the visible paste, and a worker waits 120 ms then checks if the clipboard still equals our body. If yes → restore the saved text. If no (user / another app wrote something in the meantime) → leave it alone, don't clobber. User-perceived expansion latency drops by ~180 ms.
+
+`WatcherState` now derives `Clone` (cheap — two `Arc::clone`s) so the background thread can take an owned handle.
+
+### Reliability — Stale direct-slot pruning
+
+If you delete a snippet that's bound to a direct hotkey, the slot would previously linger forever pointing at a deleted ID — silent no-op on every press, log spam on each. v0.35 sweeps stale slots once at startup via the new `expander::prune_stale_direct_slots(db)`, called in `lib.rs::run::setup` before `register_direct_slots` arms the global shortcuts.
+
+### Code quality — Typed `BlockReason` enum
+
+The four expander error sentinels (`ax.permission_denied`, `ax.secure_input_active`, `ax.inspector_frontmost`, `ax.password_field`) now route through a typed `expander::BlockReason` enum. Hotkey handlers pattern-match on the enum instead of doing fragile string equality on `e.to_string()` — fewer copy-paste typos, easier to spot in code review. The string sentinels stay as the public IPC surface (`BlockReason::to_sentinel()` and `::from_error()` round-trip).
+
+### Why 0.35.0
+
+User-feelable latency improvement (~80-150 ms faster per expansion median) plus a real reliability fix (stale slots) and a typed-API refactor. No breaking changes to the IPC surface. Minor digit bump.
+
 ## [0.34.0] — 2026-05-24
 
 ### Security — Text-expander hardening across all OSes

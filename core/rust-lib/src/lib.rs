@@ -31,6 +31,8 @@ mod settings;
 mod snippets;
 mod system_commands;
 mod finder_selection;
+#[cfg(target_os = "macos")]
+mod osascript_util;
 mod text_field;
 mod ui_state;
 mod wakelock;

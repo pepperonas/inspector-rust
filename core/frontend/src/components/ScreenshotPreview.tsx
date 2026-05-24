@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { Cloud, Copy, Pencil, Pin, Save, X } from "lucide-react";
@@ -51,6 +51,10 @@ export function ScreenshotPreview() {
   // a snappy optimistic update.
   const [pinned, setPinned] = useState(false);
   const [copied, setCopied] = useState(false);
+  // v0.35.2 — track the 1.4 s "Copied" toast timer so we can clear it on
+  // unmount; otherwise the timeout fires its setCopied(false) on a
+  // stale component instance and React logs a warning.
+  const copyTimerRef = useRef<number | null>(null);
 
   // Initial load + listen for subsequent screenshots.
   useEffect(() => {
@@ -83,13 +87,29 @@ export function ScreenshotPreview() {
   const onSave = () => {
     void screenshotPreviewSave().catch(() => undefined);
   };
+  // Cleanup the "Copied" toast timer on unmount to avoid a state
+  // update on an unmounted component. Mirror pattern used by the
+  // expander-blocked banner in App.tsx.
+  useEffect(() => () => {
+    if (copyTimerRef.current !== null) {
+      window.clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = null;
+    }
+  }, []);
+
   const onCopy = () => {
     void screenshotPreviewCopy()
       .then(() => {
-        // Two-second visual confirmation — the action is otherwise
-        // invisible (it just updates the clipboard).
+        // 1.4 s visual confirmation — the action is otherwise invisible
+        // (it just updates the clipboard).
         setCopied(true);
-        window.setTimeout(() => setCopied(false), 1400);
+        if (copyTimerRef.current !== null) {
+          window.clearTimeout(copyTimerRef.current);
+        }
+        copyTimerRef.current = window.setTimeout(() => {
+          setCopied(false);
+          copyTimerRef.current = null;
+        }, 1400);
       })
       .catch(() => undefined);
   };

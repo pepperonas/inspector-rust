@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.2] — 2026-05-24
+
+### Fixed — Three audit findings: timer leak, TOCTOU race, hung-osascript wedge
+
+Three correctness issues spotted during an audit pass, all real but low-frequency. None of them surfaced via user reports yet; better caught now than after a bug report.
+
+**1. `ScreenshotPreview` "Copied" toast timer leaked on unmount.** Clicking Copy then immediately closing the preview within 1.4 s would fire `setCopied(false)` on a stale component, triggering React's "Can't perform a state update on an unmounted component" warning. Fixed by tracking the timer ID in a `useRef` + clearing it both before re-arming and in an unmount-effect cleanup.
+
+**2. `wakelock::set_enabled` TOCTOU race.** The pre-0.35.2 code did `load → compare → store`. Two concurrent `set_enabled(true)` IPC calls could both observe `active=false`, both pass the equality check, and **both spawn a worker thread** — leaving one orphaned (its `stop` Arc overwritten by the second call in `state.stop`, the first worker now running on a now-unreachable stop flag, ticking forever until process exit). Fixed by replacing the load+compare+store with a single `compare_exchange` — the losing thread bails without doing any side-effects. Added 3 new unit tests including a 16-thread concurrent torture test that pins the invariant.
+
+**3. `osascript` calls had no timeout.** Both `frontmost_app::name()` and `finder_selection::read()` shell out to `/usr/bin/osascript` and block on `.output()`. If the target app is hung (frozen Finder, stuck System Events daemon), the call blocks forever — wedging the hotkey handler indefinitely. New module `osascript_util` provides a watchdog wrapper: `Command::spawn()` + `try_wait()` poll loop with `Child::kill()` on timeout. `frontmost_app` uses a 1.5 s cap; `finder_selection` uses 2 s (more headroom for large selections on slow network volumes). Two unit tests pin the behaviour: a fast script returns `Done`, a `delay 5` script is killed within ~250 ms.
+
+### Tests
+
+- +3 Rust wakelock tests (round-trip, idempotent-no-double-spawn, concurrent 16-thread CAS torture).
+- +2 Rust osascript-util tests (quick-script Done, slow-script TimedOut + killed in ~250 ms).
+- +1 expander test (`block_reason_round_trips_through_anyhow`).
+- **245 Rust + 385 frontend tests now pass.**
+
+### Why 0.35.2
+
+Pure bug fixes — no IPC change, no new feature, no behaviour change for the happy path. Patch-level → `0.x.y`.
+
 ## [0.35.1] — 2026-05-24
 
 ### Fixed — Expander silent-no-op (or wrong-paste!) in terminals

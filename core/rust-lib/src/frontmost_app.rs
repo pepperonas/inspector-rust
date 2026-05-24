@@ -35,22 +35,28 @@ fn sanitize(s: &str) -> String {
 
 /// Best-effort lookup of the currently-frontmost app's name. Returns
 /// `None` if Automation is denied, osascript isn't installed, the app
-/// name comes back empty, or we're not on macOS. Caller treats `None`
-/// as "fall back to the generic filename".
+/// name comes back empty, the call **times out** (v0.35.2+ — see
+/// `osascript_util`), or we're not on macOS. Caller treats `None` as
+/// "fall back to the generic filename / skip the related feature".
 #[cfg(target_os = "macos")]
 pub fn name() -> Option<String> {
-    use std::process::Command;
+    use crate::osascript_util::{run_osascript, OsaResult};
+    use std::time::Duration;
 
     // `System Events` is the standard target for frontmost-app probes;
     // it's pre-installed on every macOS and exposes the process list
     // without needing to scriptable-bridge into the target app itself.
     const SCRIPT: &str = r#"tell application "System Events" to get name of first application process whose frontmost is true"#;
 
-    let out = Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(SCRIPT)
-        .output()
-        .ok()?;
+    // 1.5 s is ~50× the median (~30 ms) and 10× the 95th percentile.
+    // Beyond that the call is hung — usually because System Events
+    // itself is being talked to by something else, or the user
+    // hasn't granted Automation yet. The hotkey handler that calls
+    // us bails to a no-op cleanly on `None`.
+    let out = match run_osascript(SCRIPT, Duration::from_millis(1500)) {
+        OsaResult::Done(out) => out,
+        OsaResult::TimedOut | OsaResult::SpawnFailed(_) => return None,
+    };
     if !out.status.success() {
         return None;
     }

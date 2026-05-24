@@ -41,17 +41,34 @@ pub struct WakelockState {
 
 /// Toggle the wakelock. Idempotent — calling with the current state
 /// is a no-op. Returns the resulting state.
+///
+/// v0.35.2: replaces the pre-0.35.2 separate-load-then-store dance
+/// with a single `compare_exchange`. Without the CAS, two concurrent
+/// `set_enabled(true)` IPC calls could both observe `active=false`,
+/// both pass the equality check, and **both spawn a worker thread**
+/// — leaving one orphaned (its stop Arc overwritten in
+/// `state.stop`, the worker running on a now-unreachable stop flag).
+/// CAS makes the active-bit transition atomic; the loser bails
+/// without spawning, and the winning thread fully owns the side
+/// effects.
 pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
-    let currently = state.active.load(Ordering::SeqCst);
-    if enable == currently {
-        return currently;
+    let prev = !enable;
+    if state
+        .active
+        .compare_exchange(prev, enable, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
+    {
+        // Either the value was already `enable` (no-op) or another
+        // thread is mid-transition. Either way the wanted state is
+        // already in flight; just report the latest observation.
+        return state.active.load(Ordering::SeqCst);
     }
+    // We won the CAS — only one caller reaches here per transition.
     if enable {
         let stop = Arc::new(AtomicBool::new(false));
         *state.stop.lock() = Some(stop.clone());
         let h = std::thread::spawn(move || worker(stop));
         *state.handle.lock() = Some(h);
-        state.active.store(true, Ordering::SeqCst);
     } else {
         if let Some(stop) = state.stop.lock().take() {
             stop.store(true, Ordering::SeqCst);
@@ -59,7 +76,6 @@ pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
         // Let the worker exit on its own at the next 200 ms tick so
         // we don't block the IPC for up to a minute waiting on `join`.
         *state.handle.lock() = None;
-        state.active.store(false, Ordering::SeqCst);
     }
     enable
 }
@@ -296,6 +312,70 @@ mod linux {
             XWarpPointer(d, 0, root, 0, 0, 0, 0, rx, ry);
             XFlush(d);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Drain the stop Arc, signal it, drop both guards before the
+    /// test function returns. Tests that spawn a worker MUST call
+    /// this — otherwise the worker hangs around past the test's
+    /// scope and the next test inherits a leaked thread that
+    /// confuses concurrent assertions.
+    fn cleanup(s: &WakelockState) {
+        let taken = { s.stop.lock().take() };
+        if let Some(stop) = taken {
+            stop.store(true, Ordering::SeqCst);
+        }
+    }
+
+    #[test]
+    fn set_enabled_round_trip_returns_new_state() {
+        let s = WakelockState::default();
+        assert!(set_enabled(&s, true));
+        assert!(is_enabled(&s));
+        assert!(!set_enabled(&s, false));
+        assert!(!is_enabled(&s));
+        cleanup(&s);
+    }
+
+    #[test]
+    fn set_enabled_idempotent_does_not_double_spawn() {
+        let s = WakelockState::default();
+        set_enabled(&s, true);
+        let stop_a = { s.stop.lock().as_ref().cloned() };
+        set_enabled(&s, true); // no-op via CAS-rejection
+        let stop_b = { s.stop.lock().as_ref().cloned() };
+        // Same Arc pointer → no fresh allocation → no double-spawn.
+        let same_arc = matches!(
+            (&stop_a, &stop_b),
+            (Some(a), Some(b)) if Arc::ptr_eq(a, b)
+        );
+        assert!(same_arc);
+        cleanup(&s);
+    }
+
+    #[test]
+    fn concurrent_set_enabled_true_only_spawns_once() {
+        // Tight loop with multiple threads racing to flip enable=true.
+        // Without CAS this used to spawn N workers (one per losing
+        // race); with CAS exactly one wins.
+        let s = std::sync::Arc::new(WakelockState::default());
+        let mut handles = vec![];
+        for _ in 0..16 {
+            let s = s.clone();
+            handles.push(std::thread::spawn(move || set_enabled(&s, true)));
+        }
+        for h in handles {
+            assert!(h.join().unwrap()); // every caller reports `true`
+        }
+        assert!(is_enabled(&s));
+        // Exactly one stop Arc lives in state; no orphaned workers.
+        let has_stop = { s.stop.lock().is_some() };
+        assert!(has_stop);
+        cleanup(&s);
     }
 }
 

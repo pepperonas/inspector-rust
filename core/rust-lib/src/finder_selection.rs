@@ -34,10 +34,13 @@ pub const ERR_AUTOMATION_DENIED: &str = "finder.automation_denied";
 
 /// Read the current Finder selection. Returns the list of POSIX
 /// paths of every selected item (files + folders), or an empty list
-/// when nothing is selected.
+/// when nothing is selected. v0.35.2+: a 2-second watchdog kills the
+/// osascript process if Finder is hung, so the Ctrl+Shift+F hotkey
+/// can't wedge the popup indefinitely on a frozen Finder.
 #[cfg(target_os = "macos")]
 pub fn read() -> Result<Vec<PathBuf>, String> {
-    use std::process::Command;
+    use crate::osascript_util::{run_osascript, OsaResult};
+    use std::time::Duration;
 
     // The script iterates Finder's selection, coerces each item to an
     // `alias` (works for both files and folders, fails silently for
@@ -55,11 +58,19 @@ pub fn read() -> Result<Vec<PathBuf>, String> {
     return out
 end tell"#;
 
-    let output = Command::new("/usr/bin/osascript")
-        .arg("-e")
-        .arg(SCRIPT)
-        .output()
-        .map_err(|e| format!("osascript spawn failed: {e}"))?;
+    // 2 s — more headroom than the frontmost-app probe because
+    // Finder genuinely can take ~100-300 ms when a large selection
+    // is open + a slow network volume is mounted, but still well
+    // below the user's patience threshold for "hotkey did nothing".
+    let output = match run_osascript(SCRIPT, Duration::from_secs(2)) {
+        OsaResult::Done(out) => out,
+        OsaResult::TimedOut => {
+            return Err(
+                "finder selection: osascript timed out after 2 s (Finder hung?)".into(),
+            );
+        }
+        OsaResult::SpawnFailed(e) => return Err(format!("osascript spawn failed: {e}")),
+    };
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);

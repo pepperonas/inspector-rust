@@ -143,6 +143,16 @@ export function resizeFile(path: string, width: number, height: number): Promise
   return invoke("resize_file", { path, width, height });
 }
 
+/** Optimise a single PNG file losslessly with oxipng. Writes the
+ *  result next to the source as `<stem>-optim.png`. Returns the output
+ *  path + before/after byte counts. Non-PNG sources reject with a
+ *  clear error (oxipng is PNG-only). */
+export function optimizeFile(
+  path: string,
+): Promise<{ path: string; before_bytes: number; after_bytes: number }> {
+  return invoke("optimize_file", { path });
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

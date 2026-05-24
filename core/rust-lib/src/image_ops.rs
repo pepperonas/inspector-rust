@@ -172,6 +172,56 @@ pub struct OptimResult {
     pub after_bytes: usize,
 }
 
+/// Read a PNG file from disk, run it through oxipng (lossless), and
+/// write the result next to the source as `<stem>-optim.png`. Source
+/// is NOT touched. Returns the output path + before/after sizes.
+///
+/// PNG-only by design — oxipng only handles PNG. JPEG support would
+/// need `mozjpeg` (a separate native lib); we defer that to a later
+/// PR rather than silently no-op-ing on non-PNG files. Caller is
+/// expected to filter to PNGs before invoking (the frontend already
+/// does, via the `is_image` + extension check on `FinderItem`).
+pub fn optimize_file_to_neighbor(src: &std::path::Path) -> Result<OptimResult> {
+    let ext_lower = src
+        .extension()
+        .and_then(|s| s.to_str())
+        .map(|s| s.to_ascii_lowercase())
+        .unwrap_or_default();
+    if ext_lower != "png" {
+        return Err(anyhow!(
+            "oxipng only supports PNG files; got `.{ext_lower}` for {}",
+            src.display()
+        ));
+    }
+
+    let bytes = std::fs::read(src)
+        .with_context(|| format!("read source {}", src.display()))?;
+    let before_bytes = bytes.len();
+
+    let opts = oxipng::Options::max_compression();
+    let optimised = oxipng::optimize_from_memory(&bytes, &opts)
+        .with_context(|| format!("oxipng optimise {}", src.display()))?;
+    let after_bytes = optimised.len();
+
+    let stem = src
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .ok_or_else(|| anyhow!("source has no readable file stem: {}", src.display()))?;
+    let dir = src
+        .parent()
+        .ok_or_else(|| anyhow!("source has no parent dir: {}", src.display()))?;
+    let out_path = dir.join(format!("{stem}-optim.png"));
+
+    std::fs::write(&out_path, &optimised)
+        .with_context(|| format!("write optim PNG to {}", out_path.display()))?;
+
+    Ok(OptimResult {
+        path: out_path,
+        before_bytes,
+        after_bytes,
+    })
+}
+
 /// Read the clipboard's PNG, run it through oxipng (lossless), and
 /// write the result to `~/Downloads/inspector-rust-optim-<ts>.png`.
 /// Does NOT modify the clipboard. Returns the saved path + before/after

@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   COMMANDS,
+  RESIZE_PRESETS,
   commandSuggestions,
   isGetShakyTrigger,
   isOpenerTrigger,
@@ -8,6 +9,7 @@ import {
   parseCommand,
   parseKillArg,
   parseResizeArg,
+  resizePresetSuggestions,
   translateUrl,
 } from "./commands";
 
@@ -414,6 +416,43 @@ describe("isOpenerTrigger — hidden German pickup-line easter egg", () => {
   it("never surfaces as an autocomplete suggestion", () => {
     for (const prefix of ["o", "op", "ope", "open", "opene"]) {
       expect(commandSuggestions(prefix).some((c) => c.keyword.startsWith("open"))).toBe(false);
+    }
+  });
+});
+
+describe("resizePresetSuggestions", () => {
+  it("returns all presets for the bare keyword `rz`", () => {
+    const out = resizePresetSuggestions("rz");
+    expect(out.length).toBe(RESIZE_PRESETS.length);
+    expect(out[0].completion).toBe(`rz ${RESIZE_PRESETS[0].dims}`);
+  });
+  it("returns all presets for `rz ` (trailing space)", () => {
+    expect(resizePresetSuggestions("rz ").length).toBe(RESIZE_PRESETS.length);
+  });
+  it("filters presets by the partial dimension prefix", () => {
+    const out = resizePresetSuggestions("rz 19");
+    // Only `1920x1080` starts with `19`.
+    expect(out.length).toBe(1);
+    expect(out[0].completion).toBe("rz 1920x1080");
+  });
+  it("returns empty for an already-complete WxH (runnable command takes over)", () => {
+    expect(resizePresetSuggestions("rz 1920x1080")).toEqual([]);
+    expect(resizePresetSuggestions("rz 800x600")).toEqual([]);
+  });
+  it("is case-insensitive on the keyword", () => {
+    expect(resizePresetSuggestions("RZ").length).toBe(RESIZE_PRESETS.length);
+    expect(resizePresetSuggestions("Rz 5").length).toBeGreaterThan(0);
+  });
+  it("does not match unrelated prefixes (`rzz`, `r`, `rz=…`)", () => {
+    expect(resizePresetSuggestions("rzz")).toEqual([]);
+    expect(resizePresetSuggestions("r")).toEqual([]);
+    expect(resizePresetSuggestions("rz=1")).toEqual([]);
+  });
+  it("each suggestion completion parses as a complete `resize` command", () => {
+    for (const p of resizePresetSuggestions("rz")) {
+      const parsed = parseCommand(p.completion);
+      expect(parsed?.spec.kind).toBe("resize");
+      expect(parseResizeArg(parsed!.arg)).not.toBeNull();
     }
   });
 });

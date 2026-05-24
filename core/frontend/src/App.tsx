@@ -23,6 +23,7 @@ import {
   parseCommand,
   parseKillArg,
   parseResizeArg,
+  resizePresetSuggestions,
   translateUrl,
   type ParsedCommand,
 } from "./lib/commands";
@@ -52,6 +53,7 @@ import {
   systemShutdown,
   wakelockSet,
   resizeFile,
+  optimizeFile,
   getThemePreference,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -349,6 +351,26 @@ function App() {
     [commandSuggestionList],
   );
 
+  // Context-aware presets — currently just resize (`rz <preset>`).
+  // Surface as `command-suggestion` rows so the existing nav UX
+  // (highlight, Tab/→ to autocomplete, Enter to run) just works.
+  // Enter on a *complete* command-suggestion runs it (see activate
+  // handler) rather than just filling the input.
+  const resizePresetEntries: ListEntry[] = useMemo(() => {
+    const presets = resizePresetSuggestions(query);
+    return presets.map(
+      (p): ListEntry => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: p.label.split(" · ")[0],
+          syntax: p.label,
+          description: p.description,
+          completion: p.completion,
+        },
+      }),
+    );
+  }, [query]);
+
   // In finder-mode (Ctrl+Shift+F just fired), the file list takes the
   // top of the result list. A complete `rz <W>x<H>` command still
   // shows as the runnable command row above the files so the user
@@ -371,6 +393,7 @@ function App() {
         ...(openerEntry ? [openerEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
+        ...resizePresetEntries,
         ...finderFileEntries,
         ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
         ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
@@ -398,6 +421,45 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedIsOpener]);
+
+  // Tab / → autocomplete on a focused `command-suggestion` row. Fills
+  // `query` with the suggestion's `completion` (e.g. `rz 1920x1080`)
+  // and parks the caret at the end so the user can keep editing
+  // *before* hitting Enter to run. → only intercepts when the caret
+  // is already at the end of the input — otherwise → still moves
+  // the caret within the typed text as normal.
+  const selectedSuggestion =
+    combined[selected]?.kind === "command-suggestion"
+      ? combined[selected]
+      : null;
+  useEffect(() => {
+    if (!selectedSuggestion || gameMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" && e.key !== "ArrowRight") return;
+      if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      const input = searchRef.current;
+      if (!input) return;
+      if (e.key === "ArrowRight") {
+        const atEnd =
+          input.selectionStart === input.value.length &&
+          input.selectionEnd === input.value.length;
+        if (!atEnd) return;
+      }
+      if (selectedSuggestion.kind !== "command-suggestion") return;
+      const completion = selectedSuggestion.data.completion;
+      if (completion === input.value) return; // nothing to fill
+      e.preventDefault();
+      e.stopPropagation();
+      setQuery(completion);
+      requestAnimationFrame(() => {
+        searchRef.current?.focus();
+        const len = completion.length;
+        searchRef.current?.setSelectionRange(len, len);
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedSuggestion, gameMode]);
 
   // Find matching snippets whenever query changes.
   useEffect(() => {
@@ -556,9 +618,38 @@ function App() {
         // Easter-egg paste — drop the German opener into the focused app.
         await pasteText(target.data.text);
       } else if (target.kind === "command-suggestion") {
-        // Autocomplete: don't run anything; just populate the search
-        // bar with the command prefix so the user can fill in the
-        // argument. Keep the popup open + refocus the input.
+        // If the completion already parses as a complete command
+        // (e.g. `rz 1920x1080` from a resize preset), RUN it directly
+        // on Enter — saves a round-trip through the input field. Use
+        // Tab or → to autocomplete-without-running instead (handled
+        // by the global keydown effect below). Currently the only
+        // kind that takes the runnable path is `resize`; other future
+        // preset kinds would go in this same switch.
+        const parsed = parseCommand(target.data.completion);
+        if (parsed && parsed.spec.kind === "resize") {
+          const dims = parseResizeArg(parsed.arg);
+          if (!dims) {
+            setPasteError("other");
+            return;
+          }
+          const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
+          if (finderFiles && finderImages.length > 0) {
+            await Promise.all(
+              finderImages.map((f) =>
+                resizeFile(f.path, dims.width, dims.height).catch((e) => {
+                  console.error("resize_file failed", f.path, e);
+                  return "";
+                }),
+              ),
+            );
+          } else {
+            await resizeClipboardImage(dims.width, dims.height);
+          }
+          await hidePopup();
+          return;
+        }
+        // Otherwise: just populate the search bar with the command
+        // prefix so the user can fill in the argument.
         setQuery(target.data.completion);
         requestAnimationFrame(() => {
           searchRef.current?.focus();
@@ -598,7 +689,26 @@ function App() {
           }
           await hidePopup();
         } else if (commandKind === "optim") {
-          await optimizeClipboardImage();
+          // In finder-mode, optimise each PNG in the selection (writes
+          // <stem>-optim.png next to source). Non-PNGs are skipped
+          // — oxipng is PNG-only. Otherwise fall back to the existing
+          // clipboard-PNG pipeline that writes to ~/Downloads.
+          const finderPngs =
+            finderFiles?.filter(
+              (f) => f.is_image && /\.png$/i.test(f.path),
+            ) ?? [];
+          if (finderFiles && finderPngs.length > 0) {
+            await Promise.all(
+              finderPngs.map((f) =>
+                optimizeFile(f.path).catch((e) => {
+                  console.error("optimize_file failed", f.path, e);
+                  return null;
+                }),
+              ),
+            );
+          } else {
+            await optimizeClipboardImage();
+          }
           await hidePopup();
         } else if (commandKind === "rmvvls") {
           await removeVowelsToClipboard(arg);

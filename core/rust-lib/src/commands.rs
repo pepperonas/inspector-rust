@@ -1543,6 +1543,15 @@ pub fn resize_file(path: String, width: u32, height: u32) -> Result<String, Stri
     Ok(r.path.display().to_string())
 }
 
+/// Optimise a single PNG file losslessly with oxipng, writing the
+/// result next to the source as `<stem>-optim.png`. Returns the output
+/// path + before/after byte counts.
+#[tauri::command]
+pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, String> {
+    let src = std::path::PathBuf::from(&path);
+    crate::image_ops::optimize_file_to_neighbor(&src).map_err(map_err)
+}
+
 /// Runs the hotkey-driven Finder-selection pipeline: read the
 /// selection, open the popup, emit the `finder-selection-loaded`
 /// event with the items. Mirrors the pattern of the OCR / eyedropper

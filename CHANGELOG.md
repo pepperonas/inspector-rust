@@ -4,6 +4,36 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] — 2026-05-24
+
+### Added — `optim` on Finder files + resize-preset autocomplete
+
+Three small but compounding improvements to the v0.30.0 Finder-selection flow.
+
+**1. `optim` for Finder PNGs.** Same shape as `rz`: select one or more PNGs in Finder, `Ctrl+Shift+F`, type `optim`, Enter. Each PNG is run through oxipng (lossless, max compression) and written next to the source as `<stem>-optim.png`. Non-PNG selections are skipped (oxipng is PNG-only — JPEG support would need `mozjpeg` and is deferred). Mixed selections work; only the PNGs get touched. Originals are untouched. New backend `image_ops::optimize_file_to_neighbor(src)` + IPC `optimize_file(path)`. Outside finder-mode, `optim` still does the v0.18.0 thing (clipboard PNG → `~/Downloads/inspector-rust-optim-<ts>.png`).
+
+**2. Multi-file resize.** Already shipped in v0.30.0 — `rz <W>x<H>` with multiple Finder images selected runs in parallel (`Promise.all`) and writes a `<stem>-<W>x<H>.<ext>` for each. Documented now in the CHANGELOG since the user asked.
+
+**3. Resize-preset autocomplete.** Type `rz` (or `rz <partial-digits>`) and a list of preset dimensions appears in the suggestion list — `1920x1080`, `1280x720`, `1024x768`, `800x600`, `500x500`, `200x200`, `100x100`. Each is a labelled suggestion ("Full HD · 1920×1080", "HD · 1280×720", …). Filter narrows as you type (`rz 19` → only `1920x1080`; `rz 5` → only `500x500`).
+
+Three keys do different things on a focused preset row:
+
+- **Enter** — runs the resize directly (operates on Finder selection if in finder-mode, else clipboard image).
+- **Tab** — fills the preset's completion into the search bar, parks the caret at the end. Lets you tweak before hitting Enter.
+- **→ (Arrow Right)** — same as Tab, but *only when the caret is already at the end of the input* (so → still moves the caret within typed text otherwise).
+
+### Behind the scenes
+
+- New pure function `resizePresetSuggestions(query)` in `core/frontend/src/lib/commands.ts`. Filter-by-prefix on the dimension string; returns empty once the user typed a complete `WxH` (the runnable command row carries the load from there). 7 new unit tests pin the behaviour.
+- New `command-suggestion` Enter branch in App.tsx: if the completion parses as a complete `resize` command, dispatch the resize directly (finder vs. clipboard logic mirrored from the regular `command` branch). Otherwise the existing autocomplete-only behaviour.
+- Global keydown handler attached when a `command-suggestion` row is selected: intercepts Tab unconditionally, and → only when the caret is at the input's end. Same shape as the existing opener `← / →` cycling handler — capture-phase listener that's mounted/unmounted with the selection state.
+
+345 frontend tests (+7).
+
+### Why 0.31.0
+
+New IPC + new user-visible interaction surface (preset rows + Tab/→ semantics). Additive. Bumping the minor digit.
+
 ## [0.30.1] — 2026-05-23
 
 ### Changed — Automation→Finder folded into the Set-up-permissions flow

@@ -288,6 +288,53 @@ export function parseResizeArg(arg: string): { width: number; height: number } |
   return { width, height };
 }
 
+/** Canonical resize-dimension presets surfaced as autocomplete rows
+ *  once the user has typed `rz` (or `rz <partial>`). Selecting one
+ *  with **Enter** runs the resize immediately; **Tab** or **→**
+ *  (with the cursor at the end of the input) fills it into the
+ *  search bar so the user can tweak before running. */
+export const RESIZE_PRESETS: ReadonlyArray<{ dims: string; label: string }> = [
+  { dims: "1920x1080", label: "Full HD · 1920×1080" },
+  { dims: "1280x720", label: "HD · 1280×720" },
+  { dims: "1024x768", label: "XGA · 1024×768" },
+  { dims: "800x600", label: "SVGA · 800×600" },
+  { dims: "500x500", label: "Square · 500×500" },
+  { dims: "200x200", label: "Thumb · 200×200" },
+  { dims: "100x100", label: "Icon · 100×100" },
+];
+
+/** One context-aware suggestion (e.g. a resize preset). Same shape
+ *  the regular `command-suggestion` rows use — `completion` is the
+ *  full runnable command, `label` + `description` drive the row. */
+export interface PresetSuggestion {
+  completion: string;
+  label: string;
+  description: string;
+}
+
+/** When the user has typed `rz`, `rz `, or `rz <partial-dims>`,
+ *  return the matching presets. Empty when the user has already
+ *  typed a complete `<W>x<H>` (the runnable command row already
+ *  shows what would happen, so presets would be noise). Filtering
+ *  is by `dims.startsWith(partial)` — typing `rz 1` narrows to
+ *  the four presets starting with `1`. */
+export function resizePresetSuggestions(query: string): PresetSuggestion[] {
+  const trimmed = query.trimStart();
+  // `rz` alone, `rz `, or `rz <stuff>`. The `\b` rejects `rzz` etc.
+  const m = trimmed.match(/^rz\b\s*(.*)$/i);
+  if (!m) return [];
+  const partial = m[1].trim().toLowerCase();
+  // Complete WxH already — let the runnable command row carry it.
+  if (/^\d+\s*[x×]\s*\d+$/i.test(partial)) return [];
+  return RESIZE_PRESETS.filter(
+    (p) => !partial || p.dims.toLowerCase().startsWith(partial),
+  ).map((p) => ({
+    completion: `rz ${p.dims}`,
+    label: `rz ${p.dims}`,
+    description: p.label,
+  }));
+}
+
 /**
  * Hidden easter egg: `getshaky` turns the popup into a game of Pong.
  *

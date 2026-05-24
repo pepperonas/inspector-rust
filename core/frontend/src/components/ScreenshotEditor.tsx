@@ -272,11 +272,43 @@ export function ScreenshotEditor() {
   };
 
   const onCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (textInput) return; // text input is open — clicks dismiss the editor focus, ignore
     const p = toCanvasCoords(e);
+    // v0.37.1 — if a text input is open, commit it first (was: return
+    // early and require a second click). The blur handler also runs
+    // when the canvas takes focus, but blur is async wrt the click;
+    // committing here keeps single-click semantics consistent with
+    // native macOS apps (TextEdit, Pages, etc.).
+    if (textInput) {
+      const v = textInput.value.trim();
+      if (v.length > 0) {
+        setAnnotations((cur) => [
+          ...cur,
+          {
+            type: "text",
+            x: textInput.x,
+            y: textInput.y,
+            text: v,
+            color,
+            size: Math.max(14, strokeWidth * 4),
+          },
+        ]);
+        setRedoStack([]);
+      }
+      setTextInput(null);
+      // Fall through — the click that committed the text now ALSO
+      // starts the next action (drag-start or text-relocate). Only
+      // skip the new-action if user is still on the text tool AND
+      // we want a clean "click outside to dismiss" UX → re-place
+      // the text input at the new spot, which matches Spotlight-style
+      // text-placement editors.
+      if (tool === "text") {
+        setTextInput({ x: p.x, y: p.y, value: "" });
+        return;
+      }
+      // Non-text tool → fall through to the drag-start path below.
+    }
     if (tool === "text") {
-      // Click-to-place text input. Existing text input (if any) is
-      // committed/dropped by its own blur handler.
+      // Click-to-place text input — no existing input to dismiss.
       setTextInput({ x: p.x, y: p.y, value: "" });
       return;
     }

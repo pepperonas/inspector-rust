@@ -4,6 +4,36 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.37.1] — 2026-05-25
+
+### Fixed — 5 audit findings + Pong input-fight
+
+Five real bugs caught in an audit pass over the v0.36–v0.37 surface, plus a UX glitch in the Pong easter egg.
+
+**A — `app_launcher::icon_png_base64` race-condition with temp file.** Pre-0.37.1 the `sips` output path was `inspector-rust-appicon-<pid>.png` — PID is constant for a single process, so two concurrent `get_app_icon` IPCs (user scrolls list quickly, multiple rows lazy-load in parallel) both wrote to the SAME path → last writer wins → first reader gets the wrong icon → wrong icon cached for the path → wrong icon shown forever. Fix: per-call atomic counter suffix (`-<pid>-<seq>.png`).
+
+**B — Wakelock LED init-state race.** The `wakelock-changed` listener registration and the initial `wakelock_get()` fetch were both async, with a ~10 ms window where an event-driven update could arrive *before* the fetch completed → fetch's stale value then overwrote the fresher event-set state → LED flickered wrong. Fix: register the listener FIRST, set a flag when an event has already fired, and skip the initial-fetch's setState if the flag is set.
+
+**C — Wakelock worker died silently on `jiggle_cursor` panic.** A future FFI break (macOS update changing `CGEventCreate`-style symbol signatures) would propagate the panic up the worker thread and kill it — leaving `state.active == true` but no actual jiggling happening. LED-on-but-machine-still-sleeps. Fix: `std::panic::catch_unwind(AssertUnwindSafe(jiggle_cursor))` inside the loop logs + continues.
+
+**D — Screenshot Editor: clicking the canvas during a text-input required two clicks.** First click only blurred the input (which committed via onBlur); second click finally triggered the action. Native macOS apps (TextEdit, Pages) commit + act on a single click. Fix: `onCanvasMouseDown` now commits any pending text-input inline before dispatching the click's normal action.
+
+**E — App icon cache grew unbounded.** Was a plain `HashMap<String, String>` — no eviction. Worst-case 500 apps × 5 KB icon = 2.5 MB. Not catastrophic but not defensive. Fix: replaced with `IconCache` LRU (FIFO eviction by insertion order), capped at 100 entries (~500 KB). +3 unit tests pin the cap behaviour, overwrite semantics, and clear().
+
+### Fixed — Pong (`getshaky`): mouse + W/S keys fought each other
+
+The mouse handler was on `window`, so *every* cursor movement anywhere in the popup wrote to `playerY` — meaning if the user pressed W to fly up but their mouse cursor happened to be at canvas Y=200, every tiny mouse twitch snapped the paddle back to 200, paddle looked stuck. Fix: register the mousemove listener on the canvas itself, so off-canvas movement no longer fights the keys. Mouse + keys now coexist contextually exclusive — mouse owns when hovering the play field, keys own otherwise. Header hint updated: "↑↓ / W/S / mouse on field".
+
+### Tests
+
+- +3 Rust tests for `IconCache` (cap eviction, overwrite-keeps-position, clear).
+- +1 Rust test for the `catch_unwind` panic-shield semantics used by the wakelock worker.
+- **253 Rust + 388 frontend tests now pass.**
+
+### Why 0.37.1
+
+Pure bug fixes — no IPC break, no new feature, no behaviour change for the happy path. Patch-level → `0.x.y`.
+
 ## [0.37.0] — 2026-05-25
 
 ### Added — Spotlight-like app launcher in the popup search bar (macOS)

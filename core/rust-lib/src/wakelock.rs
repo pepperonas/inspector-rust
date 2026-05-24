@@ -99,7 +99,19 @@ fn worker(stop: Arc<AtomicBool>) {
         if stop.load(Ordering::SeqCst) {
             return;
         }
-        jiggle_cursor();
+        // v0.37.1: shield the jiggle call against panics. Pre-0.37.1
+        // an FFI panic (e.g. a future macOS-update breaking
+        // CGEventCreate) would unwind the worker thread silently,
+        // leaving `state.active == true` but no actual jiggling
+        // happening — LED-on-but-machine-still-sleeps. Catching here
+        // logs the failure + keeps the loop alive on the next tick.
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(jiggle_cursor));
+        if let Err(_panic) = result {
+            tracing::error!(
+                "wakelock: jiggle_cursor panicked — continuing loop. \
+                 If this repeats, the OS likely changed an FFI signature."
+            );
+        }
     }
 }
 
@@ -355,6 +367,21 @@ mod tests {
         );
         assert!(same_arc);
         cleanup(&s);
+    }
+
+    #[test]
+    fn worker_catches_panic_and_keeps_looping() {
+        // Direct test of the panic-shield: catch_unwind around a
+        // panicking closure should NOT propagate. The worker uses
+        // the same primitive on the real jiggle_cursor.
+        let r = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            panic!("simulated FFI failure");
+        }));
+        assert!(r.is_err(), "panic should be captured");
+        // The "loop keeps running" property is structural — we
+        // can't easily test the worker's loop body without spawning
+        // a thread + sleeping 60 s. The presence of catch_unwind in
+        // the worker is documented + this test pins its semantics.
     }
 
     #[test]

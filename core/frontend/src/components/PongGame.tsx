@@ -151,19 +151,29 @@ export function PongGame({ onExit }: Props) {
     };
   }, [phase, onExit]);
 
-  // ── Mouse control — moving the cursor sets the player paddle Y. ─────
+  // ── Mouse control — moving the cursor sets the player paddle Y,
+  // but *only* while the cursor is over the canvas. Pre-v0.37.1 the
+  // listener was on `window`, which meant *every* mouse twitch
+  // anywhere in the popup fought the W/S keys: user holds W to fly
+  // up, mouse sits at canvas Y=200, every mousemove overwrote
+  // playerY back to 200, paddle looked stuck. Now mouse + keys are
+  // contextually exclusive — mouse owns when hovering the canvas;
+  // keys own otherwise. Both still work, just don't fight.
   useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     const onMove = (e: MouseEvent) => {
-      const canvas = canvasRef.current;
-      if (!canvas) return;
       const rect = canvas.getBoundingClientRect();
       const s = stateRef.current;
       // Map screen Y → logical field Y.
       const logicalY = ((e.clientY - rect.top) / rect.height) * s.fieldH;
       s.playerY = clamp(logicalY, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
     };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+    // Register on the canvas itself (not window). React's
+    // mousemove gets bubbled to the canvas only when cursor is
+    // inside it — no off-canvas movement reaches us.
+    canvas.addEventListener("mousemove", onMove);
+    return () => canvas.removeEventListener("mousemove", onMove);
   }, []);
 
   // ── The game loop — runs while phase === "playing". ─────────────────
@@ -354,6 +364,14 @@ export function PongGame({ onExit }: Props) {
         </span>
         <span className="text-[11px] text-[var(--color-muted)]">
           You · Bot &nbsp;·&nbsp; first to {WIN_SCORE} &nbsp;·&nbsp;{" "}
+          <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
+            ↑↓
+          </kbd>{" "}
+          /{" "}
+          <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
+            W/S
+          </kbd>{" "}
+          / mouse on field &nbsp;·&nbsp;{" "}
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
             Esc
           </kbd>{" "}

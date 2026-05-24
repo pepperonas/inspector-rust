@@ -262,7 +262,7 @@ pub fn launch_app(path: String) -> Result<(), String> {
 }
 
 /// Lazy icon fetch. First call per `path` shells out to sips
-/// (~50 ms); subsequent calls hit the in-memory cache.
+/// (~50 ms); subsequent calls hit the in-memory LRU cache.
 #[tauri::command]
 pub fn get_app_icon(
     state: State<'_, crate::app_launcher::AppIndex>,

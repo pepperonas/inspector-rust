@@ -53,15 +53,72 @@ pub struct AppEntry {
     pub name_lower: String,
 }
 
+/// Bounded LRU cache for icon PNGs. v0.37.1+ — was an unbounded
+/// HashMap pre-0.37.1, which would (theoretically) grow indefinitely
+/// as the user navigated through hundreds of apps. Cap at 100 entries
+/// (≈500 KB of base64 PNG data); evict oldest insertion order on
+/// overflow. Insertion order is FIFO not strict-LRU because tracking
+/// access requires reshuffling per lookup — overkill for the size +
+/// access frequency we see.
+pub struct IconCache {
+    map: std::collections::HashMap<String, String>,
+    order: std::collections::VecDeque<String>,
+    cap: usize,
+}
+
+impl IconCache {
+    pub fn new(cap: usize) -> Self {
+        Self {
+            map: std::collections::HashMap::with_capacity(cap),
+            order: std::collections::VecDeque::with_capacity(cap),
+            cap,
+        }
+    }
+
+    pub fn get(&self, key: &str) -> Option<&String> {
+        self.map.get(key)
+    }
+
+    pub fn insert(&mut self, key: String, value: String) {
+        if self.map.contains_key(&key) {
+            // Refresh existing entry — overwrite value (in case a
+            // refresh_apps cleared+refilled at the same path) but
+            // keep its position in the insertion order.
+            self.map.insert(key, value);
+            return;
+        }
+        if self.order.len() >= self.cap {
+            if let Some(evicted) = self.order.pop_front() {
+                self.map.remove(&evicted);
+            }
+        }
+        self.order.push_back(key.clone());
+        self.map.insert(key, value);
+    }
+
+    pub fn clear(&mut self) {
+        self.map.clear();
+        self.order.clear();
+    }
+}
+
 /// Tauri-managed cache of every installed app + their (lazily filled)
 /// icons. All access serialised behind `parking_lot::Mutex` — the
-/// scan happens once at startup, lookups are read-only after that
-/// (icon cache is the only thing that grows).
-#[derive(Default)]
+/// scan happens once at startup, lookups are read-only after that.
 pub struct AppIndex {
     pub apps: Mutex<Vec<AppEntry>>,
     /// path → base64 PNG. Filled lazily by `get_app_icon` IPC.
-    pub icons: Mutex<std::collections::HashMap<String, String>>,
+    /// Bounded at 100 entries (~500 KB) via the [`IconCache`] LRU.
+    pub icons: Mutex<IconCache>,
+}
+
+impl Default for AppIndex {
+    fn default() -> Self {
+        Self {
+            apps: Mutex::new(Vec::new()),
+            icons: Mutex::new(IconCache::new(100)),
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -181,10 +238,18 @@ pub fn icon_png_base64(app_path: &Path) -> Result<String> {
         .or_else(|| first_icns_in(&resources))
         .ok_or_else(|| anyhow!("no .icns found in {}", resources.display()))?;
 
-    // sips writes to a temp file; we read + delete + base64.
+    // sips writes to a temp file; we read + delete + base64. Per-call
+    // unique suffix via an AtomicUsize counter — pre-v0.37.1 used only
+    // PID, so two concurrent `get_app_icon` IPCs (user scrolls list
+    // quickly, multiple rows lazy-load in parallel) both wrote to the
+    // *same* path → race → last writer wins → wrong icon cached.
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    static SEQ: AtomicUsize = AtomicUsize::new(0);
+    let seq = SEQ.fetch_add(1, Ordering::Relaxed);
     let tmp = std::env::temp_dir().join(format!(
-        "inspector-rust-appicon-{}.png",
-        std::process::id()
+        "inspector-rust-appicon-{}-{}.png",
+        std::process::id(),
+        seq
     ));
     let status = std::process::Command::new("/usr/bin/sips")
         .args([
@@ -307,5 +372,47 @@ mod tests {
         paths.dedup();
         let after = paths.len();
         assert_eq!(before, after, "path dedup invariant broken");
+    }
+
+    #[test]
+    fn icon_cache_evicts_oldest_at_cap() {
+        let mut c = IconCache::new(3);
+        c.insert("a".into(), "A".into());
+        c.insert("b".into(), "B".into());
+        c.insert("c".into(), "C".into());
+        assert_eq!(c.get("a").map(String::as_str), Some("A"));
+        // 4th insertion evicts "a" (oldest).
+        c.insert("d".into(), "D".into());
+        assert_eq!(c.get("a"), None);
+        assert_eq!(c.get("d").map(String::as_str), Some("D"));
+        assert_eq!(c.get("b").map(String::as_str), Some("B"));
+    }
+
+    #[test]
+    fn icon_cache_overwrite_keeps_order_position() {
+        let mut c = IconCache::new(3);
+        c.insert("a".into(), "A1".into());
+        c.insert("b".into(), "B".into());
+        c.insert("c".into(), "C".into());
+        // Overwrite "a" — should update value but NOT reposition,
+        // so the next insertion still evicts "a".
+        c.insert("a".into(), "A2".into());
+        assert_eq!(c.get("a").map(String::as_str), Some("A2"));
+        c.insert("d".into(), "D".into());
+        // "a" was oldest by insertion-order; eviction took it.
+        assert_eq!(c.get("a"), None);
+    }
+
+    #[test]
+    fn icon_cache_clear_empties_both_structures() {
+        let mut c = IconCache::new(3);
+        c.insert("a".into(), "A".into());
+        c.insert("b".into(), "B".into());
+        c.clear();
+        assert_eq!(c.get("a"), None);
+        assert_eq!(c.get("b"), None);
+        // Inserting after clear works as fresh.
+        c.insert("z".into(), "Z".into());
+        assert_eq!(c.get("z").map(String::as_str), Some("Z"));
     }
 }

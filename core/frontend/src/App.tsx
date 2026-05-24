@@ -768,18 +768,31 @@ function App() {
     return () => unlisten?.();
   }, []);
 
-  // Wakelock LED state. Initial value via one IPC on mount; subsequent
-  // updates via the `wakelock-changed` event the backend emits after
-  // every successful `wakelock_set` (in commands.rs). No polling —
-  // wakelock toggles are user-driven, never spontaneous.
+  // Wakelock LED state. v0.37.1+: register the `wakelock-changed`
+  // event listener BEFORE firing the initial `wakelock_get` IPC, and
+  // skip the initial value if an event already arrived. Pre-0.37.1
+  // had a ~10 ms race: if the user toggled wakelock while
+  // `wakelockGet()` was in flight, the event fired (setState→new),
+  // then wakelockGet returned and reverted with the stale value. No
+  // polling — wakelock toggles are user-driven, never spontaneous.
   useEffect(() => {
-    void wakelockGet().then(setWakelockActive).catch(() => undefined);
     let unlisten: UnlistenFn | undefined;
+    // `true` once an event-driven update has landed — subsequent
+    // initial-fetch resolution should NOT overwrite the fresher value.
+    let eventAlreadyFired = false;
     void listen<boolean>("wakelock-changed", (e) => {
+      eventAlreadyFired = true;
       setWakelockActive(Boolean(e.payload));
     }).then((u) => {
       unlisten = u;
     });
+    // Initial value via IPC, but defer the setState if an event
+    // beat us to it.
+    void wakelockGet()
+      .then((v) => {
+        if (!eventAlreadyFired) setWakelockActive(v);
+      })
+      .catch(() => undefined);
     return () => unlisten?.();
   }, []);
 

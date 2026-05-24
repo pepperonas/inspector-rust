@@ -96,6 +96,7 @@ const COLOR_PRESETS = ["#ef4444", "#facc15", "#ffffff", "#000000"] as const;
 
 export function ScreenshotEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [canvasEl, setCanvasEl] = useState<HTMLCanvasElement | null>(null);
   /** The decoded screenshot image. Kept in a ref because we need it
    *  for every redraw (background) and for blur (sampling source
    *  pixels). State would re-create the Image on every render. */
@@ -409,7 +410,10 @@ export function ScreenshotEditor() {
           {imgReady ? (
             <div className="relative">
               <canvas
-                ref={canvasRef}
+                ref={(el) => {
+                  canvasRef.current = el;
+                  setCanvasEl(el);
+                }}
                 onMouseDown={onCanvasMouseDown}
                 onMouseMove={onCanvasMouseMove}
                 onMouseUp={onCanvasMouseUp}
@@ -426,7 +430,7 @@ export function ScreenshotEditor() {
               />
               {textInput && (
                 <TextInputOverlay
-                  canvas={canvasRef.current}
+                  canvas={canvasEl}
                   input={textInput}
                   color={color}
                   fontSize={Math.max(14, strokeWidth * 4)}
@@ -451,6 +455,35 @@ export function ScreenshotEditor() {
 
 // ── Toolbar component ───────────────────────────────────────────────
 
+function ToolButton({
+  active,
+  onSelect,
+  icon,
+  label,
+  shortcut,
+}: {
+  active: boolean;
+  onSelect: () => void;
+  icon: React.ReactNode;
+  label: string;
+  shortcut: string;
+}) {
+  return (
+    <button
+      onClick={onSelect}
+      title={`${label} (${shortcut})`}
+      className={
+        "flex h-10 w-10 items-center justify-center rounded-md border transition-colors " +
+        (active
+          ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+          : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+      }
+    >
+      {icon}
+    </button>
+  );
+}
+
 function Toolbar({
   tool,
   setTool,
@@ -466,43 +499,43 @@ function Toolbar({
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
 }) {
-  const Btn = ({
-    t,
-    icon,
-    label,
-    shortcut,
-  }: {
-    t: Tool;
-    icon: React.ReactNode;
-    label: string;
-    shortcut: string;
-  }) => (
-    <button
-      onClick={() => setTool(t)}
-      title={`${label} (${shortcut})`}
-      className={
-        "flex h-10 w-10 items-center justify-center rounded-md border transition-colors " +
-        (tool === t
-          ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
-          : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
-      }
-    >
-      {icon}
-    </button>
-  );
-
   return (
     <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-      <Btn t="arrow" icon={<ArrowUpRight size={16} />} label="Arrow" shortcut="A" />
-      <Btn t="text" icon={<Type size={16} />} label="Text" shortcut="T" />
-      <Btn t="rect" icon={<Square size={16} />} label="Rectangle" shortcut="R" />
-      <Btn
-        t="highlight"
+      <ToolButton
+        active={tool === "arrow"}
+        onSelect={() => setTool("arrow")}
+        icon={<ArrowUpRight size={16} />}
+        label="Arrow"
+        shortcut="A"
+      />
+      <ToolButton
+        active={tool === "text"}
+        onSelect={() => setTool("text")}
+        icon={<Type size={16} />}
+        label="Text"
+        shortcut="T"
+      />
+      <ToolButton
+        active={tool === "rect"}
+        onSelect={() => setTool("rect")}
+        icon={<Square size={16} />}
+        label="Rectangle"
+        shortcut="R"
+      />
+      <ToolButton
+        active={tool === "highlight"}
+        onSelect={() => setTool("highlight")}
         icon={<Highlighter size={16} />}
         label="Highlight"
         shortcut="H"
       />
-      <Btn t="blur" icon={<Droplets size={16} />} label="Blur" shortcut="B" />
+      <ToolButton
+        active={tool === "blur"}
+        onSelect={() => setTool("blur")}
+        icon={<Droplets size={16} />}
+        label="Blur"
+        shortcut="B"
+      />
 
       <div className="mt-3 flex flex-col items-center gap-1.5">
         {COLOR_PRESETS.map((c) => (

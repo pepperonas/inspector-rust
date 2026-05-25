@@ -214,6 +214,33 @@ export function getAppIcon(path: string): Promise<string> {
   return invoke("get_app_icon", { path });
 }
 
+// ── Timer (search-bar `timer N s|min|h`) ─────────────────────────────
+
+export interface TimerView {
+  id: number;
+  label: string;
+  remaining_secs: number;
+}
+
+/** Start a new timer; backend spawns a worker thread that sleeps for
+ *  `seconds` then fires macOS native notification + sound + emits a
+ *  `timer-fired` event. Returns the new timer's id. */
+export function startTimer(seconds: number, label: string): Promise<number> {
+  return invoke("start_timer", { seconds, label });
+}
+
+/** Cancel an in-flight timer by id. Returns `true` if the id was
+ *  active (was cancelled), `false` if it was unknown (already fired). */
+export function cancelTimer(id: number): Promise<boolean> {
+  return invoke("cancel_timer", { id });
+}
+
+/** Snapshot of currently-active timers. Used by the footer indicator
+ *  to show count + (future) inline cancel buttons. */
+export function listTimers(): Promise<TimerView[]> {
+  return invoke("list_timers");
+}
+
 // ── Finder selection (macOS) ──────────────────────────────────────────
 
 /** One item in the current Finder selection. `is_image` is a cheap

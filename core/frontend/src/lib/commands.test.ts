@@ -10,13 +10,14 @@ import {
   parseCommand,
   parseKillArg,
   parseResizeArg,
+  parseTimerArg,
   resizePresetSuggestions,
   translateUrl,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 17 commands (12 base + 4 wakelock entries + bruno)", () => {
-    expect(COMMANDS.length).toBe(17);
+  it("has 18 commands (12 base + 4 wakelock entries + bruno + timer)", () => {
+    expect(COMMANDS.length).toBe(18);
   });
 
   it("every keyword is unique", () => {
@@ -470,5 +471,55 @@ describe("resizePresetSuggestions", () => {
       expect(parsed?.spec.kind).toBe("resize");
       expect(parseResizeArg(parsed!.arg)).not.toBeNull();
     }
+  });
+});
+
+describe("parseTimerArg", () => {
+  it("bare number → minutes (default unit)", () => {
+    expect(parseTimerArg("12")).toEqual({ seconds: 720, label: "12 minutes" });
+    expect(parseTimerArg("1")).toEqual({ seconds: 60, label: "1 minute" });
+  });
+  it("seconds aliases (s / sec / sek / sekunden)", () => {
+    for (const u of ["s", "sec", "secs", "sek", "second", "seconds", "sekunde", "sekunden"]) {
+      expect(parseTimerArg(`30${u}`)).toEqual({ seconds: 30, label: "30 seconds" });
+      expect(parseTimerArg(`30 ${u}`)).toEqual({ seconds: 30, label: "30 seconds" });
+    }
+  });
+  it("minutes aliases (m / min / mins / minuten)", () => {
+    for (const u of ["m", "min", "mins", "minute", "minutes", "minuten"]) {
+      expect(parseTimerArg(`12${u}`)).toEqual({ seconds: 720, label: "12 minutes" });
+      expect(parseTimerArg(`12 ${u}`)).toEqual({ seconds: 720, label: "12 minutes" });
+    }
+  });
+  it("hours aliases (h / hr / hrs / hour / hours / std / stunden)", () => {
+    for (const u of ["h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden"]) {
+      expect(parseTimerArg(`2${u}`)).toEqual({ seconds: 7200, label: "2 hours" });
+      expect(parseTimerArg(`2 ${u}`)).toEqual({ seconds: 7200, label: "2 hours" });
+    }
+  });
+  it("singular labels (1 second / 1 minute / 1 hour)", () => {
+    expect(parseTimerArg("1s")?.label).toBe("1 second");
+    expect(parseTimerArg("1m")?.label).toBe("1 minute");
+    expect(parseTimerArg("1h")?.label).toBe("1 hour");
+  });
+  it("case-insensitive unit + comma decimal", () => {
+    expect(parseTimerArg("30 SEC")?.seconds).toBe(30);
+    expect(parseTimerArg("2,5 min")?.seconds).toBe(150);
+    expect(parseTimerArg("0.5 h")?.seconds).toBe(1800);
+  });
+  it("rejects zero / negative / non-numeric", () => {
+    expect(parseTimerArg("0")).toBeNull();
+    expect(parseTimerArg("0 min")).toBeNull();
+    expect(parseTimerArg("-5")).toBeNull();
+    expect(parseTimerArg("abc")).toBeNull();
+    expect(parseTimerArg("")).toBeNull();
+  });
+  it("rejects unknown units", () => {
+    expect(parseTimerArg("12 fortnights")).toBeNull();
+    expect(parseTimerArg("12 d")).toBeNull(); // no day support in v1
+  });
+  it("rejects garbage suffix on a valid number", () => {
+    expect(parseTimerArg("12 minutes!")).toBeNull();
+    expect(parseTimerArg("12 ★")).toBeNull();
   });
 });

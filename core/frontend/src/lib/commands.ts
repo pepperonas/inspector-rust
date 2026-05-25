@@ -36,7 +36,8 @@ export type CommandKind =
   | "freeze"
   | "wakelock-on"
   | "wakelock-off"
-  | "bruno";
+  | "bruno"
+  | "timer";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -188,6 +189,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "bruno <€>[m|j]",
     description:
       "Brutto → Netto (2025). e.g. `bruno 60000` (yearly) or `bruno 5000m` (monthly)",
+    requiresArg: true,
+  },
+  // ── Timer ─────────────────────────────────────────────────────────
+  {
+    kind: "timer",
+    keyword: "timer",
+    syntax: "timer <N>[s|min|h]",
+    description:
+      "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
     requiresArg: true,
   },
 ];
@@ -419,4 +429,66 @@ export function parseKillArg(arg: string): { force: boolean; pattern: string } {
     return { force: true, pattern: trimmed.slice(2).trim() };
   }
   return { force: false, pattern: trimmed };
+}
+
+/** Parsed `timer` invocation: how many seconds + a display label
+ *  ("12 min", "30 sec", "2 h") for the notification. */
+export interface TimerSpec {
+  seconds: number;
+  label: string;
+}
+
+/**
+ * Parse a `timer` command. Accepts (case-insensitive, whitespace-
+ * forgiving):
+ *
+ *   `timer 12`        → 12 minutes (default unit when none given)
+ *   `timer 12 m`
+ *   `timer 12min`     → 12 minutes (`min` / `mins` / `m`)
+ *   `timer 12 mins`
+ *   `timer 30s`       → 30 seconds (`s` / `sec` / `secs` / `sek`)
+ *   `timer 30 sek`
+ *   `timer 2h`        → 2 hours (`h` / `hr` / `hrs` / `hour` / `hours`)
+ *
+ * Returns `null` for any unparseable / empty / zero / negative input.
+ * The "default unit = minutes" choice reflects the dominant use case
+ * (pomodoro / cooking / break).
+ */
+export function parseTimerArg(arg: string): TimerSpec | null {
+  const trimmed = arg.trim();
+  if (trimmed.length === 0) return null;
+  // Number, optional whitespace, optional unit token.
+  const m = trimmed.match(/^(\d+(?:[.,]\d+)?)\s*([a-zäöüß]*)$/i);
+  if (!m) return null;
+  const n = parseFloat(m[1].replace(",", "."));
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const unit = m[2].toLowerCase();
+
+  // Sub-second precision wouldn't be useful (notification latency
+  // alone is ~100 ms). Round to nearest whole second after applying
+  // the unit multiplier.
+  const SECONDS = new Set(["s", "sec", "secs", "sek", "second", "seconds", "sekunde", "sekunden"]);
+  const MINUTES = new Set(["", "m", "min", "mins", "minute", "minutes", "minuten"]);
+  const HOURS = new Set(["h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden"]);
+
+  let seconds: number;
+  let labelUnit: string;
+  if (SECONDS.has(unit)) {
+    seconds = Math.round(n);
+    labelUnit = n === 1 ? "second" : "seconds";
+  } else if (HOURS.has(unit)) {
+    seconds = Math.round(n * 3600);
+    labelUnit = n === 1 ? "hour" : "hours";
+  } else if (MINUTES.has(unit)) {
+    seconds = Math.round(n * 60);
+    labelUnit = n === 1 ? "minute" : "minutes";
+  } else {
+    return null;
+  }
+  if (seconds < 1) return null;
+
+  // Strip trailing `.0` so `12.0 min` displays as `12 minutes`.
+  const numText = Number.isInteger(n) ? String(n) : String(n);
+  const label = `${numText} ${labelUnit}`;
+  return { seconds, label };
 }

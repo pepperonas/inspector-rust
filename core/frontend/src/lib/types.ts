@@ -81,7 +81,8 @@ export interface CommandEntryView {
     | "mute"
     | "freeze"
     | "wakelock-on"
-    | "wakelock-off";
+    | "wakelock-off"
+    | "timer";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

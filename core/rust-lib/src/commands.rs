@@ -231,6 +231,40 @@ pub fn start_input_lock(
     crate::input_lock::start_input_lock(chord)
 }
 
+// ── Timer (search-bar `timer N s|min|h`) ──────────────────────────────
+
+#[tauri::command]
+pub fn start_timer(
+    app: AppHandle,
+    state: State<'_, crate::timer::TimerRegistry>,
+    seconds: u64,
+    label: String,
+) -> u64 {
+    let id = crate::timer::start(state.inner(), app.clone(), seconds, label);
+    let _ = app.emit("timers-changed", ());
+    id
+}
+
+#[tauri::command]
+pub fn cancel_timer(
+    app: AppHandle,
+    state: State<'_, crate::timer::TimerRegistry>,
+    id: u64,
+) -> bool {
+    let ok = crate::timer::cancel(state.inner(), id);
+    if ok {
+        let _ = app.emit("timers-changed", ());
+    }
+    ok
+}
+
+#[tauri::command]
+pub fn list_timers(
+    state: State<'_, crate::timer::TimerRegistry>,
+) -> Vec<crate::timer::TimerView> {
+    crate::timer::list(state.inner())
+}
+
 // ── App launcher (Spotlight-like) ─────────────────────────────────────
 
 /// Return the cached app index. Frontend fuzzy-matches against this

@@ -11,9 +11,13 @@ interface Props {
    *  jiggler is running. Optional so unit tests + cold popup mounts
    *  don't need to know the state. */
   wakelockActive?: boolean;
+  /** Number of in-flight timers (v0.39.0+). When > 0, a small `⏰ N`
+   *  badge surfaces in the footer to remind the user a timer is
+   *  ticking. */
+  activeTimerCount?: number;
 }
 
-export function Footer({ index, total, version, wakelockActive }: Props) {
+export function Footer({ index, total, version, wakelockActive, activeTimerCount }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
@@ -29,6 +33,9 @@ export function Footer({ index, total, version, wakelockActive }: Props) {
           overflowing the fixed `h-8` height. */}
       <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
         {wakelockActive && <WakelockLed />}
+        {activeTimerCount != null && activeTimerCount > 0 && (
+          <TimerBadge count={activeTimerCount} />
+        )}
         <Hint k="⏎" label="Paste" />
         <Hint k="↑↓" label="Navigate" />
         <Hint k="Esc" label="Close" />
@@ -71,6 +78,23 @@ function Hint({ k, label }: { k: string; label: string }) {
  * distracting. The dot has a soft red box-shadow that mimics a real
  * LED bleed-glow.
  */
+/**
+ * Footer badge showing the count of in-flight `timer` commands.
+ * Single timer → `⏰ 1`; multiple → `⏰ 3` etc. Tooltip nudges the
+ * user toward `timer 0` (planned cancel UX) — currently the only way
+ * to cancel is to wait or restart the app.
+ */
+function TimerBadge({ count }: { count: number }) {
+  return (
+    <span
+      title={`${count} timer${count === 1 ? "" : "s"} running — will fire a macOS notification + Glass sound`}
+      className="flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
+    >
+      ⏰ {count}
+    </span>
+  );
+}
+
 function WakelockLed() {
   return (
     <span

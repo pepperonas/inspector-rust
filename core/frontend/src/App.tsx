@@ -25,6 +25,7 @@ import {
   parseCommand,
   parseKillArg,
   parseResizeArg,
+  parseTimerArg,
   resizePresetSuggestions,
   translateUrl,
   type ParsedCommand,
@@ -62,6 +63,8 @@ import {
   resizeFile,
   optimizeFile,
   brunoGetDefaults,
+  startTimer,
+  listTimers,
   getThemePreference,
   type BrunoDefaults,
   type ProcessInfo,
@@ -128,6 +131,14 @@ function App() {
   // emitted by the backend after every `wakelock_set` call. No
   // polling — purely event-driven.
   const [wakelockActive, setWakelockActive] = useState(false);
+  // v0.39.0+: count of active timers, displayed in the footer next to
+  // the wakelock LED. Refreshed by `timers-changed` + `timer-fired`
+  // events the backend emits. Also fetched once on mount.
+  const [activeTimerCount, setActiveTimerCount] = useState(0);
+  // Brief banner when a timer fires (4 s dwell) — separate from the
+  // OS-native macOS notification so the user gets feedback even if
+  // the popup is open at fire time.
+  const [timerFiredLabel, setTimerFiredLabel] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -322,6 +333,17 @@ function App() {
         label = "Wakelock: OFF — stop the cursor jiggle";
         hint = "Idle-sleep timers resume their normal behaviour";
         break;
+      case "timer": {
+        const t = parseTimerArg(arg);
+        if (!t) {
+          label = `Timer: invalid format ("${arg}") — use 12, 30s, 12 min, 2h`;
+          hint = "Default unit is minutes when none given";
+        } else {
+          label = `Start timer · ${t.label}`;
+          hint = "macOS native notification + Glass sound when it fires";
+        }
+        break;
+      }
       default:
         // kill is handled above; this guards against future additions.
         return null;
@@ -790,6 +812,25 @@ function App() {
     };
   }, []);
 
+  // Timer state: count active timers (footer badge) + show a banner
+  // when one fires. Both via simple useTauriEvent — no special
+  // ordering needed since the count is recomputed via list_timers
+  // on every change.
+  useEffect(() => {
+    void listTimers().then((ts) => setActiveTimerCount(ts.length)).catch(() => undefined);
+  }, []);
+  useTauriEvent("timers-changed", () => {
+    void listTimers().then((ts) => setActiveTimerCount(ts.length)).catch(() => undefined);
+  });
+  useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {
+    setTimerFiredLabel(e.payload?.label ?? "Timer done");
+  });
+  useEffect(() => {
+    if (!timerFiredLabel) return;
+    const id = window.setTimeout(() => setTimerFiredLabel(null), 4000);
+    return () => window.clearTimeout(id);
+  }, [timerFiredLabel]);
+
   const activate = async (i: number, shiftKey = false) => {
     const target = combined[i];
     if (!target) return;
@@ -951,6 +992,14 @@ function App() {
           }
         } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
           await wakelockSet(commandKind === "wakelock-on");
+          await hidePopup();
+        } else if (commandKind === "timer") {
+          const t = parseTimerArg(arg);
+          if (!t) {
+            setPasteError("other");
+            return;
+          }
+          await startTimer(t.seconds, t.label);
           await hidePopup();
         }
         return;
@@ -1215,6 +1264,24 @@ function App() {
           </div>
         )}
 
+        {timerFiredLabel && (
+          <div className="flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
+            <span className="flex-1">
+              ⏰ <b>Timer done — {timerFiredLabel}</b>{" "}
+              <span className="text-[var(--color-muted)]">
+                · also fired a macOS notification + Glass sound
+              </span>
+            </span>
+            <button
+              onClick={() => setTimerFiredLabel(null)}
+              className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+              title="Dismiss"
+            >
+              ×
+            </button>
+          </div>
+        )}
+
         {/* Header — fixed height, tab buttons anchored top-right */}
         <div className="relative shrink-0">
           {activeTab === "history" ? (
@@ -1304,6 +1371,7 @@ function App() {
           }
           version={version}
           wakelockActive={wakelockActive}
+          activeTimerCount={activeTimerCount}
         />
       </div>
     </div>

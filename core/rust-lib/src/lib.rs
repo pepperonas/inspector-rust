@@ -35,6 +35,7 @@ mod finder_selection;
 #[cfg(target_os = "macos")]
 mod osascript_util;
 mod text_field;
+mod timer;
 mod ui_state;
 mod wakelock;
 
@@ -139,6 +140,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(expander_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
+            app.manage(timer::TimerRegistry::default());
 
             // App-launcher cache. Scan once at startup; the Settings
             // → Apps Refresh button can re-trigger via `refresh_apps`.
@@ -336,6 +338,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::refresh_apps,
             commands::launch_app,
             commands::get_app_icon,
+            commands::start_timer,
+            commands::cancel_timer,
+            commands::list_timers,
             commands::get_finder_selection,
             commands::resize_file,
             commands::optimize_file,

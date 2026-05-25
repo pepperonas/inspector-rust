@@ -4,6 +4,52 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.0] — 2026-05-25
+
+### Added — `timer N[s|min|h]` command with visual + audio notification
+
+Type `timer 12` in the popup → 12-minute timer fires → macOS native notification + Glass system sound. Defaults: minutes (so `timer 12` = 12 minutes, the dominant pomodoro/cooking case).
+
+**Parser (`parseTimerArg`)** accepts every spelling combination:
+
+| Input | Result |
+|---|---|
+| `12` | 12 minutes |
+| `12m`, `12 min`, `12 mins`, `12 minute`, `12 minutes`, `12 minuten` | 12 minutes |
+| `30s`, `30 sec`, `30 secs`, `30 sek`, `30 sekunden`, `30 second(s)` | 30 seconds |
+| `2h`, `2 hr`, `2 hrs`, `2 hour`, `2 hours`, `2 std`, `2 stunden` | 2 hours |
+| `2,5 min`, `0.5 h` | comma + dot decimals supported |
+
+Rejects: zero, negative, unknown units (`12 fortnights`, `12 d`), garbage suffixes.
+
+**Backend (`core/rust-lib/src/timer.rs`)** spawns a worker thread per active timer (poll-sleep every 200 ms for responsive cancellation), then fires three notifications in parallel when it elapses:
+
+1. **macOS native notification** via `osascript -e 'display notification …'` — top-right of screen, visible regardless of whether the popup is open. Quote-sanitised so a user-typed `"` can't break the AppleScript string.
+2. **System sound** via `/usr/bin/afplay /System/Library/Sounds/Glass.aiff` — spawned (not `status()`), so the worker exits immediately even if audio takes ~500 ms to play through.
+3. **Tauri `timer-fired` event** → popup, if open, shows a 4-second accent-coloured banner with the timer's label.
+
+State is a `HashMap<TimerId, TimerSlot>` behind a `parking_lot::Mutex`; the frontend uses `list_timers` to count active timers for the footer's new `⏰ N` badge. `timers-changed` event fires on every start / cancel / fire so the badge updates without polling.
+
+### Footer indicator
+
+When ≥ 1 timer is active, a small `⏰ N` chip appears in the footer's left cluster next to the wakelock LED and the keyboard hints. Hover tooltip explains it will fire a macOS notification + Glass sound.
+
+### Frontend wiring
+
+- New `parseTimerArg(arg)` in `lib/commands.ts` + 9 unit tests covering every alias / case-sensitivity / German term / decimal format / rejection path.
+- New `timer` entry in the `COMMANDS` catalogue + `CommandKind`.
+- `commandEntry` switch surfaces a runnable command row with the parsed label (`Start timer · 12 minutes`).
+- Activate handler dispatches via new `startTimer` IPC.
+- App.tsx now subscribes to `timers-changed` (recount → footer) + `timer-fired` (set banner state, 4 s dwell) using the v0.38.2 `useTauriEvent` hook (no listener leak).
+
+### Tests
+
++9 frontend (`parseTimerArg` — bare-number default-minutes, all unit aliases, singular/plural labels, case + decimal handling, every rejection class). **253 Rust + 412 frontend tests now pass.**
+
+### Why 0.39.0
+
+Substantial new user-facing feature surface: new search-bar command, new IPC trio, new Rust module, new footer indicator, new toast banner. Backwards-compatible. Minor digit bump.
+
 ## [0.38.2] — 2026-05-25
 
 ### Fixed — Pong bot div-by-zero on stationary ball + 11× listener-leak race

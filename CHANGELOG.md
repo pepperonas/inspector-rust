@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.1] — 2026-05-25
+
+### Fixed — Pong mouse keeps working when cursor leaves the canvas
+
+v0.37.1 moved the mouse listener from `window` to `canvas` to stop the keys-vs-mouse fight, but that meant the paddle stopped tracking the cursor as soon as it left the play field — annoying because `cursor: none` (v0.38.0) hides the cursor *inside* the canvas, so the user often has the cursor parked outside or off-screen while playing.
+
+Better fix: listener back on `window` (so off-canvas + off-window movement reaches us), but **skip mouse updates while any paddle key is currently held** (`s.keys.up || s.keys.down`). Keys still win during keystrokes, mouse wins between. Off-canvas cursor → still drives the paddle.
+
+The clientY-to-fieldY mapping uses the canvas's `getBoundingClientRect`; even when the cursor sits outside the rect, the formula produces a usable logical Y that `clamp` pins to the field bounds — sliding the cursor off the top/bottom edge parks the paddle at the corresponding extreme.
+
+Header hint updated: "↑↓ / W/S / mouse" (was: "mouse on field").
+
 ## [0.38.0] — 2026-05-25
 
 ### Changed — Pong (`getshaky`): rubber-band AI + ball prediction + cursor hides on canvas

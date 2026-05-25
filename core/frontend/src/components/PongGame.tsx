@@ -151,29 +151,35 @@ export function PongGame({ onExit }: Props) {
     };
   }, [phase, onExit]);
 
-  // ── Mouse control — moving the cursor sets the player paddle Y,
-  // but *only* while the cursor is over the canvas. Pre-v0.37.1 the
-  // listener was on `window`, which meant *every* mouse twitch
-  // anywhere in the popup fought the W/S keys: user holds W to fly
-  // up, mouse sits at canvas Y=200, every mousemove overwrote
-  // playerY back to 200, paddle looked stuck. Now mouse + keys are
-  // contextually exclusive — mouse owns when hovering the canvas;
-  // keys own otherwise. Both still work, just don't fight.
+  // ── Mouse control — moving the cursor sets the player paddle Y.
+  // Listener is on `window` so the paddle keeps tracking even when
+  // the cursor leaves the canvas area (header, footer, edges, or
+  // entirely off-window with `cursor: none`). The original concern
+  // that motivated the v0.37.1 canvas-only listener — keys fighting
+  // a stationary mouse — is now solved differently: **if the user
+  // is currently pressing W / S / ↑ / ↓, mouse updates are
+  // skipped**. So keys win during keystrokes, mouse wins between.
+  // Best of both: works outside the canvas + doesn't fight the
+  // keyboard. v0.38.1+.
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const onMove = (e: MouseEvent) => {
-      const rect = canvas.getBoundingClientRect();
       const s = stateRef.current;
-      // Map screen Y → logical field Y.
+      // Keys take priority while held — don't snap the paddle to
+      // mouse Y mid-keystroke.
+      if (s.keys.up || s.keys.down) return;
+      const rect = canvas.getBoundingClientRect();
+      // Even when the cursor is outside the canvas rect, mapping by
+      // (clientY - rect.top) / rect.height still produces a usable
+      // logical Y — `clamp` below pins it to the field bounds, so
+      // sliding the cursor off the top/bottom edge parks the paddle
+      // at the corresponding extreme instead of overshooting.
       const logicalY = ((e.clientY - rect.top) / rect.height) * s.fieldH;
       s.playerY = clamp(logicalY, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
     };
-    // Register on the canvas itself (not window). React's
-    // mousemove gets bubbled to the canvas only when cursor is
-    // inside it — no off-canvas movement reaches us.
-    canvas.addEventListener("mousemove", onMove);
-    return () => canvas.removeEventListener("mousemove", onMove);
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
   }, []);
 
   // ── The game loop — runs while phase === "playing". ─────────────────
@@ -391,7 +397,7 @@ export function PongGame({ onExit }: Props) {
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
             W/S
           </kbd>{" "}
-          / mouse on field &nbsp;·&nbsp;{" "}
+          / mouse &nbsp;·&nbsp;{" "}
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
             Esc
           </kbd>{" "}

@@ -116,11 +116,13 @@ mod imp {
         },
     ];
 
-    /// GNOME Terminal defaults that steal Inspector's Ctrl+Shift+C/V.
+    /// GNOME Terminal defaults — Inspector must **not** steal these; pick fallbacks instead.
     const TERMINAL_SHIFT_COPY: &str = "<Control><Shift>c";
     const TERMINAL_SHIFT_PASTE: &str = "<Control><Shift>v";
-    const TERMINAL_STD_COPY: &str = "<Control>c";
-    const TERMINAL_STD_PASTE: &str = "<Control>v";
+    /// Broken state from an earlier Inspector build that wrongly moved Terminal here.
+    /// In terminals Ctrl+C is SIGINT, not copy — never assign these as copy/paste.
+    const TERMINAL_BROKEN_COPY: &str = "<Control>c";
+    const TERMINAL_BROKEN_PASTE: &str = "<Control>v";
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq)]
     pub enum LinuxDesktop {
@@ -286,9 +288,10 @@ mod imp {
         Ok(occupied)
     }
 
-    /// Move GNOME Terminal off Ctrl+Shift+C/V when that would block Inspector (or is non-standard).
-    /// Returns number of profiles updated.
-    pub(crate) fn reconcile_terminal_copy_paste() -> Result<u32> {
+    /// Restore GNOME Terminal copy/paste to Ctrl+Shift+C/V when a previous
+    /// Inspector build wrongly moved them to Ctrl+C/V (SIGINT / broken paste).
+    /// Idempotent — safe to call on every startup.
+    pub(crate) fn restore_terminal_copy_paste() -> Result<u32> {
         let list = gsettings(&["get", "org.gnome.Terminal.ProfilesList", "list"])?;
         let mut changed = 0u32;
         for uuid in parse_gsettings_array(&list) {
@@ -297,24 +300,114 @@ mod imp {
             );
             let copy = gsettings(&["get", &schema, "copy"]).unwrap_or_default();
             let paste = gsettings(&["get", &schema, "paste"]).unwrap_or_default();
-            let needs_copy = bindings_conflict(&copy, TERMINAL_SHIFT_COPY)
-                || bindings_conflict(&copy, "<Control><Shift>C");
-            let needs_paste = bindings_conflict(&paste, TERMINAL_SHIFT_PASTE)
-                || bindings_conflict(&paste, "<Control><Shift>V");
+            let needs_copy = bindings_conflict(&copy, TERMINAL_BROKEN_COPY)
+                || bindings_conflict(&copy, "<Control>C");
+            let needs_paste = bindings_conflict(&paste, TERMINAL_BROKEN_PASTE)
+                || bindings_conflict(&paste, "<Control>V");
             if needs_copy || needs_paste {
                 if needs_copy {
-                    gsettings_set(&["set", &schema, "copy", TERMINAL_STD_COPY])?;
+                    gsettings_set(&["set", &schema, "copy", TERMINAL_SHIFT_COPY])?;
                 }
                 if needs_paste {
-                    gsettings_set(&["set", &schema, "paste", TERMINAL_STD_PASTE])?;
+                    gsettings_set(&["set", &schema, "paste", TERMINAL_SHIFT_PASTE])?;
                 }
                 changed += 1;
                 tracing::info!(
-                    "Terminal profile {uuid}: copy/paste moved to Ctrl+C / Ctrl+V (frees Ctrl+Shift+C/V for Inspector)"
+                    "Terminal profile {uuid}: restored copy/paste to Ctrl+Shift+C / Ctrl+Shift+V"
                 );
             }
         }
         Ok(changed)
+    }
+
+    /// After restoring Terminal keys, move any Inspector shortcut that still
+    /// collides with Terminal copy/paste (Ctrl+Shift+C/V) to the next free preset.
+    pub fn restore_terminal_and_fix_shortcut_conflicts(db: &DbHandle) -> Result<()> {
+        let restored = restore_terminal_copy_paste()?;
+        if restored > 0 {
+            tracing::info!(
+                "Restored {restored} GNOME Terminal profile(s) — Ctrl+Shift+C/V is copy/paste again"
+            );
+        }
+
+        let desktop = detect();
+        let Some((list_key, list_schema, custom_schema, path_prefix, id_prefix)) =
+            gnome_family_config(desktop)
+        else {
+            return Ok(());
+        };
+
+        let terminal_occupied = collect_terminal_bindings()?;
+        let installed = read_our_installed_bindings(
+            list_schema,
+            list_key,
+            custom_schema,
+            path_prefix,
+            id_prefix,
+        )?;
+        if installed.is_empty() {
+            return Ok(());
+        }
+
+        let mut occupied =
+            collect_custom_shortcut_bindings(list_schema, list_key, custom_schema, id_prefix)?;
+        occupied.extend(terminal_occupied.iter().cloned());
+
+        let mut reserved = HashSet::new();
+        let mut resolved: Vec<(String, String)> = Vec::new();
+        let mut changed = false;
+
+        for spec in SHORTCUTS {
+            let current = installed
+                .iter()
+                .find(|(id, _)| id == spec.id)
+                .map(|(_, b)| b.clone())
+                .unwrap_or_else(|| spec.binding_candidates[0].to_string());
+
+            let norm = normalize_binding(&current);
+            let collides = terminal_occupied.contains(&norm);
+
+            let chosen = if collides || norm.is_empty() {
+                pick_binding(spec.binding_candidates, &occupied, &reserved).with_context(|| {
+                    format!("no free binding for {} after Terminal restore", spec.name)
+                })?
+            } else {
+                current.clone()
+            };
+
+            let chosen_norm = normalize_binding(&chosen);
+            if chosen_norm != norm {
+                changed = true;
+                tracing::info!(
+                    "{} moved {} → {} (Terminal reserves Ctrl+Shift+C/V)",
+                    spec.name,
+                    binding_label(&current),
+                    binding_label(&chosen)
+                );
+            }
+
+            if !chosen_norm.is_empty() {
+                reserved.insert(chosen_norm.clone());
+                occupied.insert(chosen_norm);
+            }
+
+            let path = format!("{path_prefix}{id_prefix}{}/", spec.id);
+            let schema = format!("{custom_schema}:{path}");
+            gsettings_set(&["set", &schema, "binding", &chosen])?;
+            resolved.push((spec.id.to_string(), chosen));
+        }
+
+        if changed {
+            let summary: String = resolved
+                .iter()
+                .map(|(id, b)| format!("{id}={b}"))
+                .collect::<Vec<_>>()
+                .join(",");
+            settings::set(db, SETTINGS_BINDINGS_KEY, &summary)?;
+            tracing::info!("Updated Inspector desktop shortcuts to avoid Terminal copy/paste");
+        }
+
+        Ok(())
     }
 
     fn pick_binding(
@@ -392,6 +485,19 @@ mod imp {
                 "Space" => key = "space".into(),
                 "Tab" => key = "Tab".into(),
                 "Escape" => key = "Escape".into(),
+                "Backquote" => key = "grave".into(),
+                "Less" => key = "less".into(),
+                "Minus" => key = "minus".into(),
+                "Equal" => key = "equal".into(),
+                "BracketLeft" => key = "bracketleft".into(),
+                "BracketRight" => key = "bracketright".into(),
+                "Backslash" => key = "backslash".into(),
+                "Semicolon" => key = "semicolon".into(),
+                "Quote" => key = "apostrophe".into(),
+                "Comma" => key = "comma".into(),
+                "Period" => key = "period".into(),
+                "Slash" => key = "slash".into(),
+                "IntlBackslash" => key = "section".into(),
                 "F1" | "F2" | "F3" | "F4" | "F5" | "F6" | "F7" | "F8" | "F9" | "F10" | "F11"
                 | "F12" => key = p.to_lowercase(),
                 s if s.len() == 1 => key = s.to_lowercase(),
@@ -407,7 +513,7 @@ mod imp {
         Ok(format!("{}{}", mods.concat(), key))
     }
 
-    fn count_terminal_profiles_needing_fix() -> Result<u32> {
+    fn count_terminal_profiles_needing_restore() -> Result<u32> {
         let list = gsettings(&["get", "org.gnome.Terminal.ProfilesList", "list"])?;
         let mut count = 0u32;
         for uuid in parse_gsettings_array(&list) {
@@ -416,11 +522,11 @@ mod imp {
             );
             let copy = gsettings(&["get", &schema, "copy"]).unwrap_or_default();
             let paste = gsettings(&["get", &schema, "paste"]).unwrap_or_default();
-            let needs_copy = bindings_conflict(&copy, TERMINAL_SHIFT_COPY)
-                || bindings_conflict(&copy, "<Control><Shift>C");
-            let needs_paste = bindings_conflict(&paste, TERMINAL_SHIFT_PASTE)
-                || bindings_conflict(&paste, "<Control><Shift>V");
-            if needs_copy || needs_paste {
+            let broken_copy = bindings_conflict(&copy, TERMINAL_BROKEN_COPY)
+                || bindings_conflict(&copy, "<Control>C");
+            let broken_paste = bindings_conflict(&paste, TERMINAL_BROKEN_PASTE)
+                || bindings_conflict(&paste, "<Control>V");
+            if broken_copy || broken_paste {
                 count += 1;
             }
         }
@@ -581,7 +687,7 @@ mod imp {
             return Ok(base());
         };
 
-        let terminal_profiles_to_fix = count_terminal_profiles_needing_fix()?;
+        let terminal_profiles_to_fix = count_terminal_profiles_needing_restore()?;
         let occupied = collect_occupied_for_scan(list_schema, list_key, custom_schema, id_prefix)?;
 
         let installed: std::collections::HashMap<String, String> = read_our_installed_bindings(
@@ -657,8 +763,9 @@ mod imp {
             rows,
             message: if terminal_profiles_to_fix > 0 {
                 Some(format!(
-                    "{terminal_profiles_to_fix} GNOME Terminal profile(s) still use Ctrl+Shift+C/V — \
-                     saving will move them to Ctrl+C / Ctrl+V automatically."
+                    "{terminal_profiles_to_fix} GNOME Terminal profile(s) still have broken Ctrl+C/V copy/paste \
+                     from an older Inspector build — saving will restore Ctrl+Shift+C/V and move Inspector \
+                     shortcuts to free fallbacks."
                 ))
             } else {
                 None
@@ -723,10 +830,7 @@ mod imp {
             anyhow::bail!("desktop does not support gsettings shortcut configuration");
         };
 
-        let term_changed = reconcile_terminal_copy_paste()?;
-        if term_changed > 0 {
-            tracing::info!("Adjusted {term_changed} GNOME Terminal profile(s) to Ctrl+C / Ctrl+V");
-        }
+        restore_terminal_copy_paste()?;
 
         let mut occupied =
             collect_custom_shortcut_bindings(list_schema, list_key, custom_schema, id_prefix)?;
@@ -787,12 +891,7 @@ mod imp {
         path_prefix: &str,
         id_prefix: &str,
     ) -> Result<()> {
-        let term_changed = reconcile_terminal_copy_paste()?;
-        if term_changed > 0 {
-            tracing::info!(
-                "Adjusted {term_changed} GNOME Terminal profile(s) to Ctrl+C / Ctrl+V after shortcut conflict scan"
-            );
-        }
+        restore_terminal_copy_paste()?;
 
         let mut occupied =
             collect_custom_shortcut_bindings(list_schema, list_key, custom_schema, id_prefix)?;
@@ -917,6 +1016,96 @@ mod imp {
         Ok(())
     }
 
+    const EXPANDER_SHORTCUT_ID: &str = "expander";
+    const EXPANDER_SHORTCUT_NAME: &str = "Inspector Rust — Text expander";
+
+    /// True when the text-expander hotkey is registered via gsettings (GNOME/Cinnamon
+    /// Wayland), not Tauri's in-app global shortcut.
+    pub fn expander_hotkey_needs_gsettings() -> bool {
+        !matches!(detect(), LinuxDesktop::X11 | LinuxDesktop::Kde)
+    }
+
+    /// Register (or remove) the text-expander hotkey in GNOME/Cinnamon gsettings.
+    /// On Wayland, Tauri global shortcuts do not fire — this is the only path that
+    /// makes the expander hotkey work without manual GNOME Settings setup.
+    pub fn sync_expander_shortcut(_db: &DbHandle, enabled: bool, hotkey: &str) -> Result<()> {
+        let desktop = detect();
+        let Some((list_key, list_schema, custom_schema, path_prefix, id_prefix)) =
+            gnome_family_config(desktop)
+        else {
+            return Ok(());
+        };
+
+        let path = format!("{path_prefix}{id_prefix}{EXPANDER_SHORTCUT_ID}/");
+        let mut paths = parse_gsettings_array(&gsettings(&["get", list_schema, list_key])?);
+
+        if !enabled {
+            if paths.contains(&path) {
+                paths.retain(|p| p != &path);
+                gsettings_set(&[
+                    "set",
+                    list_schema,
+                    list_key,
+                    &format_gsettings_array(&paths),
+                ])?;
+                tracing::info!("Removed desktop shortcut for text expander");
+            }
+            return Ok(());
+        }
+
+        let gsettings_binding = web_hotkey_to_gsettings(hotkey).map_err(anyhow::Error::msg)?;
+        let norm = normalize_binding(&gsettings_binding);
+        if norm.is_empty() {
+            anyhow::bail!("invalid expander hotkey");
+        }
+
+        let mut occupied =
+            collect_custom_shortcut_bindings(list_schema, list_key, custom_schema, id_prefix)?;
+        occupied.extend(collect_terminal_bindings()?);
+
+        let schema = format!("{custom_schema}:{path}");
+        let current_norm = if paths.contains(&path) {
+            gsettings(&["get", &schema, "binding"])
+                .ok()
+                .map(|b| normalize_binding(&b))
+        } else {
+            None
+        };
+
+        if occupied.contains(&norm) && current_norm.as_ref() != Some(&norm) {
+            anyhow::bail!(
+                "{} is already used — pick another hotkey (try Alt+1)",
+                binding_label(&gsettings_binding)
+            );
+        }
+
+        let cmd = inspector_command();
+        if !paths.contains(&path) {
+            paths.push(path.clone());
+        }
+        gsettings_set(&["set", &schema, "name", EXPANDER_SHORTCUT_NAME])?;
+        gsettings_set(&[
+            "set",
+            &schema,
+            "command",
+            &format!("{cmd} --expand-at-cursor"),
+        ])?;
+        gsettings_set(&["set", &schema, "binding", &gsettings_binding])?;
+        gsettings_set(&[
+            "set",
+            list_schema,
+            list_key,
+            &format_gsettings_array(&paths),
+        ])?;
+        tracing::info!(
+            "{} → {} ({})",
+            EXPANDER_SHORTCUT_NAME,
+            binding_label(&gsettings_binding),
+            gsettings_binding
+        );
+        Ok(())
+    }
+
     #[cfg(test)]
     mod tests {
         use super::{bindings_conflict, normalize_binding, pick_binding};
@@ -948,13 +1137,28 @@ mod imp {
                 Some("<Control><Alt>c")
             );
         }
+
+        #[test]
+        fn web_hotkey_converts_backquote() {
+            use super::web_hotkey_to_gsettings;
+            assert_eq!(
+                web_hotkey_to_gsettings("Ctrl+Backquote").unwrap(),
+                "<Control>grave"
+            );
+            assert_eq!(web_hotkey_to_gsettings("Alt+Digit1").unwrap(), "<Alt>1");
+            assert_eq!(
+                web_hotkey_to_gsettings("Ctrl+Less").unwrap(),
+                "<Control>less"
+            );
+        }
     }
 }
 
 #[cfg(target_os = "linux")]
 pub use imp::{
-    apply_shortcut_setup, force_reinstall, scan_shortcut_setup, try_auto_install,
-    web_hotkey_to_gsettings, ShortcutCandidate, ShortcutRow, ShortcutSetupScan,
+    apply_shortcut_setup, expander_hotkey_needs_gsettings, force_reinstall,
+    restore_terminal_and_fix_shortcut_conflicts, scan_shortcut_setup, sync_expander_shortcut,
+    try_auto_install, web_hotkey_to_gsettings, ShortcutSetupScan,
 };
 
 #[cfg(not(target_os = "linux"))]
@@ -966,6 +1170,21 @@ pub enum LinuxDesktop {
 #[cfg(not(target_os = "linux"))]
 pub fn detect() -> LinuxDesktop {
     LinuxDesktop::Other
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn expander_hotkey_needs_gsettings() -> bool {
+    false
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn restore_terminal_and_fix_shortcut_conflicts(_db: &DbHandle) -> anyhow::Result<()> {
+    Ok(())
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn sync_expander_shortcut(_db: &DbHandle, _enabled: bool, _hotkey: &str) -> anyhow::Result<()> {
+    Ok(())
 }
 
 #[cfg(not(target_os = "linux"))]

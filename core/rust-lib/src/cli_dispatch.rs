@@ -14,6 +14,8 @@ pub enum CliAction {
     PickColor,
     /// Re-scan gsettings conflicts and reinstall desktop shortcuts (Linux).
     SetupShortcuts,
+    /// Text expander: capture word before cursor and paste snippet (Linux Wayland).
+    ExpandAtCursor,
 }
 
 /// Parse `argv` (program name + flags). Returns the first recognized action.
@@ -30,6 +32,7 @@ where
             "--pick-color" | "--color" => return Some(CliAction::PickColor),
             #[cfg(target_os = "linux")]
             "--setup-shortcuts" => return Some(CliAction::SetupShortcuts),
+            "--expand-at-cursor" | "--expand" => return Some(CliAction::ExpandAtCursor),
             "--help" | "-h" => {
                 print_help();
                 return None;
@@ -62,6 +65,7 @@ pub fn print_help() {
            --screenshot     Capture region to clipboard (Ctrl+Shift+S)\n\
            --pick-color     Pick pixel color to clipboard (Ctrl+Shift+C)\n\
            --setup-shortcuts  (Linux) Re-scan shortcut conflicts and reinstall bindings\n\
+           --expand-at-cursor (Linux) Run text expander once (if global hotkey does not fire)\n\
          \n\
          On GNOME/Cinnamon + Wayland, shortcuts are installed automatically on first start\n\
          (conflict scan moves Terminal to Ctrl+C/V when needed; fallbacks if keys are taken).\n"
@@ -82,7 +86,8 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
                 Ok(r) if !r.cancelled && r.chars > 0 => {
                     tracing::info!("--ocr: {} chars", r.chars);
                 }
-                Ok(_) => tracing::debug!("--ocr: cancelled or empty"),
+                Ok(r) if r.cancelled => tracing::info!("--ocr: cancelled by user"),
+                Ok(_) => tracing::warn!("--ocr: empty result (no text in region?)"),
                 Err(e) => tracing::warn!("--ocr failed: {e}"),
             });
         }
@@ -92,7 +97,8 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
                 Ok(r) if !r.cancelled && r.bytes > 0 => {
                     tracing::info!("--screenshot: {} bytes", r.bytes);
                 }
-                Ok(_) => tracing::debug!("--screenshot: cancelled or empty"),
+                Ok(r) if r.cancelled => tracing::info!("--screenshot: cancelled by user"),
+                Ok(_) => tracing::warn!("--screenshot: empty capture"),
                 Err(e) => tracing::warn!("--screenshot failed: {e}"),
             });
         }
@@ -114,6 +120,20 @@ pub fn dispatch(app: &AppHandle, action: CliAction) {
         #[cfg(not(target_os = "linux"))]
         CliAction::SetupShortcuts => {
             tracing::warn!("--setup-shortcuts is only available on Linux");
+        }
+        CliAction::ExpandAtCursor => {
+            hotkey::hide_popup(app);
+            let app2 = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                std::thread::sleep(std::time::Duration::from_millis(250));
+                if let Some(db) = app2.try_state::<DbHandle>() {
+                    let watcher = app2.try_state::<crate::clipboard_watcher::WatcherState>();
+                    match crate::expander::expand_at_cursor(&db, watcher.as_deref()) {
+                        Ok(()) => tracing::info!("--expand-at-cursor: expansion completed"),
+                        Err(e) => tracing::warn!("--expand-at-cursor failed: {e:#}"),
+                    }
+                }
+            });
         }
     }
 }

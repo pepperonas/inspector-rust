@@ -18,6 +18,47 @@ interface Props {
   entry: ListEntry | null;
 }
 
+function BrunoDetailRow({
+  k,
+  v,
+  accent,
+}: {
+  k: string;
+  v: string;
+  accent?: boolean;
+}) {
+  return (
+    <div
+      className={
+        "flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5 last:border-b-0 " +
+        (accent ? "font-semibold text-[var(--color-fg)]" : "text-[var(--color-muted)]")
+      }
+    >
+      <span>{k}</span>
+      <span className="font-[var(--font-mono)] tabular-nums">{v}</span>
+    </div>
+  );
+}
+
+const BRUNO_STATE_LABELS: Record<string, string> = {
+  bw: "Baden-Württemberg",
+  by: "Bayern",
+  be: "Berlin",
+  bb: "Brandenburg",
+  hb: "Bremen",
+  hh: "Hamburg",
+  he: "Hessen",
+  mv: "Mecklenburg-Vorp.",
+  ni: "Niedersachsen",
+  nw: "Nordrhein-Westfalen",
+  rp: "Rheinland-Pfalz",
+  sl: "Saarland",
+  sn: "Sachsen",
+  st: "Sachsen-Anhalt",
+  sh: "Schleswig-Holstein",
+  th: "Thüringen",
+};
+
 export function PreviewPanel({ entry }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -233,24 +274,6 @@ export function PreviewPanel({ entry }: Props) {
       maximumFractionDigits: 1,
     });
     const d = entry.data;
-    const Row = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
-      <div
-        className={
-          "flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5 last:border-b-0 " +
-          (accent ? "font-semibold text-[var(--color-fg)]" : "text-[var(--color-muted)]")
-        }
-      >
-        <span>{k}</span>
-        <span className="font-[var(--font-mono)] tabular-nums">{v}</span>
-      </div>
-    );
-    const STATE_LABELS: Record<string, string> = {
-      bw: "Baden-Württemberg", by: "Bayern", be: "Berlin", bb: "Brandenburg",
-      hb: "Bremen", hh: "Hamburg", he: "Hessen", mv: "Mecklenburg-Vorp.",
-      ni: "Niedersachsen", nw: "Nordrhein-Westfalen", rp: "Rheinland-Pfalz",
-      sl: "Saarland", sn: "Sachsen", st: "Sachsen-Anhalt",
-      sh: "Schleswig-Holstein", th: "Thüringen",
-    };
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -261,7 +284,7 @@ export function PreviewPanel({ entry }: Props) {
             Annahmen
           </div>
           <div className="text-[12px] leading-tight text-[var(--color-fg)]">
-            Klasse {d.taxClass} · {STATE_LABELS[d.state] ?? d.state.toUpperCase()} ·{" "}
+            Klasse {d.taxClass} · {BRUNO_STATE_LABELS[d.state] ?? d.state.toUpperCase()} ·{" "}
             {d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`}{" "}
             · {d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer"}
           </div>
@@ -271,23 +294,23 @@ export function PreviewPanel({ entry }: Props) {
         </div>
 
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <Row k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
-          <Row k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
-          <Row k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
-          <Row k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
-          <Row k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
-          <Row k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
-          <Row k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
-          {d.soli > 0 && <Row k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
-          {d.churchTax > 0 && <Row k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
-          <Row k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
-          <Row k="Abgabenquote" v={pct.format(d.deductionRate)} />
-          <Row k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+          <BrunoDetailRow k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
+          <BrunoDetailRow k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
+          <BrunoDetailRow k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
+          <BrunoDetailRow k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
+          <BrunoDetailRow k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
+          <BrunoDetailRow k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
+          <BrunoDetailRow k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <BrunoDetailRow k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <BrunoDetailRow k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
+          <BrunoDetailRow k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
+          <BrunoDetailRow k="Abgabenquote" v={pct.format(d.deductionRate)} />
+          <BrunoDetailRow k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
         </div>
 
         <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
-          <Row k="Netto / Monat" v={eurExact.format(d.netMonth)} accent />
-          <Row k="Netto / Jahr" v={eurExact.format(d.netYear)} accent />
+          <BrunoDetailRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent />
+          <BrunoDetailRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent />
         </div>
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">

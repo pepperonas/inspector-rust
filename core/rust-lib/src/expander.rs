@@ -122,11 +122,15 @@ pub fn accessibility_granted() -> bool {
 }
 
 /// Whether the OS-level synthetic-input permission is active.
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub fn accessibility_granted() -> bool {
-    // Other platforms either don't gate synthetic input behind a TCC-style
-    // permission (Windows, X11) or do so through an entirely different
-    // mechanism (Wayland portals). Optimistic default.
+    // Always attempt AT-SPI first; fall back to the clipboard path when it
+    // returns None (same policy as Windows UI Automation).
+    true
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn accessibility_granted() -> bool {
     true
 }
 
@@ -343,6 +347,9 @@ pub const KEY_ENABLED: &str = "expander.enabled";
 /// migrated to [`DEFAULT_HOTKEY`]. Prevents re-migrating a value the user
 /// deliberately set back to `Alt+Backquote` afterwards.
 pub const KEY_HOTKEY_MIGRATED: &str = "expander.hotkey_migrated_v0_12";
+/// One-shot flag: on Linux Wayland, migrate layout-sensitive hotkeys
+/// (`Ctrl+Backquote`, German `<` key confusion) to [`DEFAULT_HOTKEY`].
+pub const KEY_HOTKEY_MIGRATED_LINUX: &str = "expander.hotkey_migrated_linux_v1";
 
 /// Default hotkey when no setting has ever been written. `Alt + Digit1`
 /// (the `1` row key, **not** the numpad) is layout-stable on every
@@ -462,7 +469,9 @@ pub struct DirectSlot {
 /// will let the user re-add them) rather than a hard error.
 pub fn get_direct_slots(db: &DbHandle) -> Result<Vec<DirectSlot>> {
     match crate::settings::get(db, KEY_DIRECT_SLOTS)? {
-        Some(json) if !json.trim().is_empty() => Ok(serde_json::from_str(&json).unwrap_or_default()),
+        Some(json) if !json.trim().is_empty() => {
+            Ok(serde_json::from_str(&json).unwrap_or_default())
+        }
         _ => Ok(Vec::new()),
     }
 }
@@ -606,6 +615,52 @@ pub fn migrate_legacy_default(db: &DbHandle) -> String {
     upgraded
 }
 
+/// Linux Wayland hotkeys are registered via GNOME gsettings, not Tauri.
+/// Keys like `Ctrl+Backquote` map to `<Control>grave`, which is **not**
+/// the German `<` key (`less`) — the shortcut looks armed but never fires.
+/// Migrate known-broken combos once to the layout-stable default.
+#[cfg(target_os = "linux")]
+pub fn migrate_linux_wayland_hotkey(db: &DbHandle, stored: String) -> String {
+    use crate::desktop_shortcuts::expander_hotkey_needs_gsettings;
+    use crate::settings;
+
+    if settings::get_bool(db, KEY_HOTKEY_MIGRATED_LINUX, false).unwrap_or(false) {
+        return stored;
+    }
+
+    if !expander_hotkey_needs_gsettings() {
+        let _ = settings::set(db, KEY_HOTKEY_MIGRATED_LINUX, "true");
+        return stored;
+    }
+
+    const BROKEN: &[&str] = &[
+        "Ctrl+Backquote",
+        "Control+Backquote",
+        "Alt+Backquote",
+        "Ctrl+IntlBackslash",
+        "Alt+IntlBackslash",
+    ];
+
+    let upgraded = if BROKEN.iter().any(|b| stored.eq_ignore_ascii_case(b)) {
+        let _ = settings::set(db, KEY_HOTKEY, DEFAULT_HOTKEY);
+        tracing::info!(
+            "Linux Wayland: migrated expander hotkey {stored} → {DEFAULT_HOTKEY} \
+             (Backquote/grave does not match the German < key in gsettings; use Alt+1)"
+        );
+        DEFAULT_HOTKEY.to_string()
+    } else {
+        stored
+    };
+
+    let _ = settings::set(db, KEY_HOTKEY_MIGRATED_LINUX, "true");
+    upgraded
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn migrate_linux_wayland_hotkey(_db: &DbHandle, stored: String) -> String {
+    stored
+}
+
 /// Diagnostic outcome of an expand-cycle attempt: what got captured,
 /// whether it matched a snippet, and a preview of what would be pasted.
 /// Used by the Settings panel's "Test now" button so the user can see
@@ -695,12 +750,7 @@ pub fn diagnose_at_cursor(db: &DbHandle) -> Result<DiagnoseResult> {
     if !captured.is_empty() {
         if let Some(snippet) = snippets::find_by_exact_abbreviation(db, &captured)? {
             // First 80 chars of the body, single-line preview.
-            let preview: String = snippet
-                .body
-                .replace('\n', " ")
-                .chars()
-                .take(80)
-                .collect();
+            let preview: String = snippet.body.replace('\n', " ").chars().take(80).collect();
             result.matched_abbreviation = Some(snippet.abbreviation);
             result.paste_preview = Some(preview);
         }
@@ -777,7 +827,14 @@ pub fn expand_at_cursor(
             if let Some(snippet) = snippets::find_by_exact_abbreviation(db, &word)? {
                 // Try the in-place replace via the same accessibility layer.
                 match access.try_replace_word_before_cursor(&snippet.body) {
-                    Ok(ReplaceOutcome::Replaced) => return Ok(()),
+                    Ok(ReplaceOutcome::Replaced) => {
+                        tracing::info!(
+                            "expander: matched snippet {:?} via {:?}",
+                            snippet.abbreviation,
+                            native_path()
+                        );
+                        return Ok(());
+                    }
                     Ok(ReplaceOutcome::SelectionActive) => {
                         // The AX layer *selected* the abbreviation but the
                         // in-place text set was a no-op — the typical
@@ -893,6 +950,10 @@ fn expand_via_clipboard(
         trim_abbreviation(&abbr_raw)
     };
     if abbr.is_empty() {
+        tracing::info!(
+            "expander: no abbreviation captured before cursor (clipboard path empty — \
+             keystroke synthesis may not reach this app on Wayland, or nothing to select)"
+        );
         restore_clipboard(saved.as_deref());
         return Ok(());
     }
@@ -903,11 +964,16 @@ fn expand_via_clipboard(
     } else {
         let hit = snippets::find_by_exact_abbreviation(db, abbr)?;
         let Some(snippet) = hit else {
+            tracing::info!("expander: captured {abbr:?} but no snippet matches that abbreviation");
             // Selection stays highlighted in the source app — visual cue
             // that nothing matched. Restore clipboard before bailing.
             restore_clipboard(saved.as_deref());
             return Ok(());
         };
+        tracing::info!(
+            "expander: matched snippet {:?} via clipboard path",
+            snippet.abbreviation
+        );
         snippet.body
     };
 
@@ -921,6 +987,10 @@ fn expand_via_clipboard(
     write_clipboard_text(&body)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
+    tracing::info!(
+        "expander: pasted snippet body ({body_len} chars)",
+        body_len = body.len()
+    );
 
     // 6) Background restore (v0.35.0+). Same shape as
     //    `paste_over_selection`: return immediately after paste, then
@@ -1027,8 +1097,7 @@ fn read_clipboard_text() -> Option<String> {
 }
 
 fn write_clipboard_text(text: &str) -> Result<()> {
-    let ctx = ClipboardContext::new()
-        .map_err(|e| anyhow!("clipboard ctx init failed: {e:?}"))?;
+    let ctx = ClipboardContext::new().map_err(|e| anyhow!("clipboard ctx init failed: {e:?}"))?;
     ctx.set_text(text.to_string())
         .map_err(|e| anyhow!("set_text failed: {e:?}"))?;
     Ok(())

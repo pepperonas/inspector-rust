@@ -384,12 +384,25 @@ mod win_impl {
     }
 }
 
-/// Linux: Wayland (`grim` + `slurp`) when available, else X11 (`scrot -s`).
+/// Linux: xdg-desktop-portal on GNOME/Cinnamon Wayland, else grim+slurp
+/// (wlroots), else X11 scrot.
 #[cfg(target_os = "linux")]
 fn capture_impl() -> Result<Vec<u8>> {
     use anyhow::Context;
     use chrono::Utc;
     use std::process::Command;
+
+    if crate::linux_portal::prefer_portal_capture() {
+        match crate::linux_portal::capture_region() {
+            Ok(bytes) => return Ok(bytes),
+            Err(e) if crate::linux_portal::is_portal_cancelled(&e) => {
+                return Err(Cancelled.into());
+            }
+            Err(e) => {
+                tracing::warn!("portal region capture failed ({e:#}); trying grim+slurp fallback");
+            }
+        }
+    }
 
     let tmp = std::env::temp_dir().join(format!(
         "inspector-rust-region-{}.png",
@@ -425,9 +438,10 @@ fn capture_impl() -> Result<Vec<u8>> {
             .context("spawn scrot")?
     } else {
         anyhow::bail!(
-            "region capture needs scrot (X11) or grim+slurp (Wayland). \
+            "region capture needs xdg-desktop-portal (GNOME Wayland), scrot (X11), \
+             or grim+slurp (wlroots Wayland). \
              Install: sudo apt install scrot   # X11\n\
-             or: sudo apt install grim slurp   # Wayland"
+             or: sudo apt install grim slurp   # Sway/Hyprland"
         );
     };
 

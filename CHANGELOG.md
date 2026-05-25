@@ -4,6 +4,36 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2] — 2026-05-25
+
+### Fixed — Pong bot div-by-zero on stationary ball + 11× listener-leak race
+
+Two audit findings.
+
+**A — `botBehavior` div-by-zero on `ballVx == 0`.** Pre-0.38.2 the predict-intercept branch fired on `ballVx > 0`. With `ballVx` exactly 0 (theoretical: serve-delay state, or a sub-frame axis-aligned bounce), the formula `dt = (botX - ballX) / ballVx` produced `Infinity`, `predictedY = ballY + ballVy * Infinity = ±Infinity`, then `clamp(0, fieldH)` → `fieldH` or `0`. Combined with the v0.38.0 hardcore-bot 15.7 px/frame cap, the paddle would jerk to a field edge. **Fix:** threshold is now `ballVx > 0.01` — anything below counts as "not approaching" and routes to the existing idle-to-centre branch. +2 regression tests pinned.
+
+**B — Listener-on-unmount race (11 sites).** All `useEffect`-based Tauri event subscriptions in `App.tsx` had the standard race:
+
+```tsx
+let unlisten: UnlistenFn | undefined;
+void listen("foo", handler).then(u => unlisten = u);
+return () => unlisten?.();
+```
+
+If the component unmounts before the `listen()` promise resolves, the cleanup runs with `unlisten === undefined` → no-op, and the listener leaks for the app's lifetime. Symptom: under React strict-mode double-mount in dev, every event delivered twice; in production, slow leak across popup show/hide cycles.
+
+Fixed two ways:
+1. **6 simple single-listener cases** converted to a new `useTauriEvent(name, handler, deps?)` hook in `core/frontend/src/hooks/useTauriEvent.ts`. The hook owns the cancelled-flag + cleans up orphan listeners that resolve post-unmount.
+2. **3 stateful / multi-listener cases** kept inline with a `cancelled` flag pattern: bruno-defaults-changed (paired with an IPC fetch), finder-loaded + finder-denied (two sequential listens), wakelock-changed (paired with the v0.37.1 `eventAlreadyFired` flag).
+
+### Tests
+
++2 frontend (`botBehavior` Vx-0 + Vx-below-threshold). **253 Rust + 403 frontend tests now pass.**
+
+### Why 0.38.2
+
+Pure bug fixes. The Pong fix is a real crash-class issue (Infinity propagation through later code); the listener race was a slow leak. No IPC break, no behaviour change for the happy path. Patch-level → `0.x.y`.
+
 ## [0.38.1] — 2026-05-25
 
 ### Fixed — Pong mouse keeps working when cursor leaves the canvas

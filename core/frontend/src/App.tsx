@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useTauriEvent } from "./hooks/useTauriEvent";
 import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
 import { NotesPanel } from "./components/NotesPanel";
@@ -417,13 +418,18 @@ function App() {
   const [brunoDefaults, setBrunoDefaults] = useState<BrunoDefaults | null>(null);
   useEffect(() => {
     void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
+    let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     void listen("bruno-defaults-changed", () => {
       void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
     }).then((u) => {
-      unlisten = u;
+      if (cancelled) u();
+      else unlisten = u;
     });
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
   const brunoEntry: ListEntry | null = useMemo(() => {
     const parsed = parseBrunoCommand(query);
@@ -604,61 +610,49 @@ function App() {
     setSelected(0);
   }, [query, entries.length]);
 
-  // Handle window-shown (hotkey): reset to history tab.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("window-shown", () => {
-        setActiveTab("history");
-        setQuery("");
-        setSelected(0);
-        requestAnimationFrame(() => {
-          searchRef.current?.focus();
-          searchRef.current?.select();
-        });
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
+  // these use `useTauriEvent` instead of the inline let-then-async
+  // pattern — the hook guards against the unmount-before-listen-
+  // resolves race that would otherwise leak listeners across the
+  // app's lifetime.
+  useTauriEvent("window-shown", () => {
+    setActiveTab("history");
+    setQuery("");
+    setSelected(0);
+    requestAnimationFrame(() => {
+      searchRef.current?.focus();
+      searchRef.current?.select();
+    });
+  });
 
   // Handle tray "Manage Snippets": switch to snippets tab.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("open-snippets-tab", () => {
-        setActiveTab("snippets");
-        void refreshSnippets();
-      });
-    })();
-    return () => unlisten?.();
-  }, [refreshSnippets]);
+  useTauriEvent(
+    "open-snippets-tab",
+    () => {
+      setActiveTab("snippets");
+      void refreshSnippets();
+    },
+    [refreshSnippets],
+  );
 
   // Handle tray "Manage Notes": switch to notes tab.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("open-notes-tab", () => {
-        setActiveTab("notes");
-        void refreshNotes();
-      });
-    })();
-    return () => unlisten?.();
-  }, [refreshNotes]);
+  useTauriEvent(
+    "open-notes-tab",
+    () => {
+      setActiveTab("notes");
+      void refreshNotes();
+    },
+    [refreshNotes],
+  );
 
   // Backend fires this when the OCR shortcut is pressed but the
   // Screen Recording TCC grant is missing. Switch to Settings (which
   // shows the Permissions overview) and surface a banner so the
   // failure isn't silent.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("ocr-permission-needed", () => {
-        setOcrPermissionMissing(true);
-        setActiveTab("settings");
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  useTauriEvent("ocr-permission-needed", () => {
+    setOcrPermissionMissing(true);
+    setActiveTab("settings");
+  });
 
   // Auto-dismiss the OCR-permission banner after a longer window —
   // 15 s gives the user time to read + click into System Settings.
@@ -672,16 +666,10 @@ function App() {
   // Accessibility grant is missing. Switch to Settings (where the
   // Accessibility banner + "Force re-grant" button live) and surface a
   // banner so the failed expansion isn't silent.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("expander-permission-needed", () => {
-        setExpanderPermissionMissing(true);
-        setActiveTab("settings");
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  useTauriEvent("expander-permission-needed", () => {
+    setExpanderPermissionMissing(true);
+    setActiveTab("settings");
+  });
 
   useEffect(() => {
     if (!expanderPermissionMissing) return;
@@ -703,18 +691,12 @@ function App() {
   const [expanderBlocked, setExpanderBlocked] = useState<
     null | "password" | "secure_input" | "terminal"
   >(null);
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen<string>("expander-blocked", (e) => {
-        const reason = e.payload as string;
-        if (reason === "password" || reason === "secure_input" || reason === "terminal") {
-          setExpanderBlocked(reason);
-        }
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  useTauriEvent<string>("expander-blocked", (e) => {
+    const reason = e.payload;
+    if (reason === "password" || reason === "secure_input" || reason === "terminal") {
+      setExpanderBlocked(reason);
+    }
+  });
   useEffect(() => {
     if (!expanderBlocked) return;
     // Terminal banner gets longer dwell time — the popup just opened,
@@ -732,10 +714,15 @@ function App() {
   // Hidden trigger words (`getshaky`, `rockthebox`, …) and the OCR /
   // expander permission banners share the same overlay-event pattern.
   useEffect(() => {
+    // v0.38.2: cancelled-flag pattern — sequential `await`s mean two
+    // potential leak points (if component unmounts between them), and
+    // even the first listener can leak if we unmount before its
+    // promise resolves.
+    let cancelled = false;
     let unlistenLoaded: UnlistenFn | undefined;
     let unlistenDenied: UnlistenFn | undefined;
     (async () => {
-      unlistenLoaded = await listen<FinderFileView[]>("finder-selection-loaded", (e) => {
+      const u1 = await listen<FinderFileView[]>("finder-selection-loaded", (e) => {
         setFinderFiles(e.payload ?? []);
         setFinderAutomationDenied(false);
         setActiveTab("history");
@@ -743,13 +730,18 @@ function App() {
         setSelected(0);
         requestAnimationFrame(() => searchRef.current?.focus());
       });
-      unlistenDenied = await listen("finder-automation-needed", () => {
+      if (cancelled) { u1(); return; }
+      unlistenLoaded = u1;
+      const u2 = await listen("finder-automation-needed", () => {
         setFinderAutomationDenied(true);
         setFinderFiles([]);
         setActiveTab("history");
       });
+      if (cancelled) { u2(); return; }
+      unlistenDenied = u2;
     })();
     return () => {
+      cancelled = true;
       unlistenLoaded?.();
       unlistenDenied?.();
     };
@@ -757,16 +749,10 @@ function App() {
 
   // Clear finder-mode on popup-hidden so the next normal Ctrl+Shift+V
   // open doesn't still show stale finder rows.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("popup-hidden", () => {
-        setFinderFiles(null);
-        setFinderAutomationDenied(false);
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  useTauriEvent("popup-hidden", () => {
+    setFinderFiles(null);
+    setFinderAutomationDenied(false);
+  });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`
   // event listener BEFORE firing the initial `wakelock_get` IPC, and
@@ -776,24 +762,32 @@ function App() {
   // then wakelockGet returned and reverted with the stale value. No
   // polling — wakelock toggles are user-driven, never spontaneous.
   useEffect(() => {
+    // v0.38.2: cancelled flag + plus the v0.37.1 eventAlreadyFired
+    // flag — two separate concerns that look similar:
+    //   cancelled        = "component unmounted, don't touch state"
+    //   eventAlreadyFired = "an event-driven update landed, the
+    //                        initial-fetch's stale value would
+    //                        clobber it"
+    let cancelled = false;
     let unlisten: UnlistenFn | undefined;
-    // `true` once an event-driven update has landed — subsequent
-    // initial-fetch resolution should NOT overwrite the fresher value.
     let eventAlreadyFired = false;
     void listen<boolean>("wakelock-changed", (e) => {
+      if (cancelled) return;
       eventAlreadyFired = true;
       setWakelockActive(Boolean(e.payload));
     }).then((u) => {
-      unlisten = u;
+      if (cancelled) u();
+      else unlisten = u;
     });
-    // Initial value via IPC, but defer the setState if an event
-    // beat us to it.
     void wakelockGet()
       .then((v) => {
-        if (!eventAlreadyFired) setWakelockActive(v);
+        if (!cancelled && !eventAlreadyFired) setWakelockActive(v);
       })
       .catch(() => undefined);
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const activate = async (i: number, shiftKey = false) => {

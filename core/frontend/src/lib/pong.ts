@@ -204,8 +204,15 @@ export function botBehavior(
   const maxSpeed = baseHard * skill;
 
   // ── Predict ball intercept Y at botX ────────────────────────────
+  // v0.38.2: the threshold is 0.01 instead of `> 0` — a `ballVx`
+  // of exactly 0 (theoretical: serve-delay state, or a sub-frame
+  // bounce that ends up axis-aligned) would divide by zero and
+  // produce Infinity → after clamp(0..fieldH), the paddle would
+  // jerk to a field edge with the current frame's max speed.
+  // Treating "essentially stationary horizontally" as "ball not
+  // approaching" gives the idle-to-centre branch instead.
   let predictedY: number;
-  if (ballVx > 0) {
+  if (ballVx > 0.01) {
     // Ball moving toward bot — linear extrapolation.
     const dt = (botX - ballX) / ballVx;
     predictedY = ballY + ballVy * dt;
@@ -214,7 +221,7 @@ export function botBehavior(
     // sanely).
     predictedY = clamp(predictedY, 0, fieldH);
   } else {
-    // Ball moving away → idle toward field centre.
+    // Ball moving away (or stationary) → idle toward field centre.
     predictedY = fieldH / 2;
   }
 

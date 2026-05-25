@@ -308,6 +308,37 @@ describe("botBehavior — rubber-band AI (v0.38.0+)", () => {
     expect(move.targetY).toBeCloseTo(265.71, 0);
   });
 
+  it("idle toward centre when ballVx is exactly 0 (no div-by-zero)", () => {
+    // v0.38.2 regression test — pre-0.38.2 this produced Infinity
+    // intercept → clamp to fieldH → paddle jerked to edge.
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 700,
+      ballY: 100,
+      ballVx: 0, // exactly stationary horizontally
+      ballVy: 5,
+      botScore: 0,
+      playerScore: 0,
+    });
+    expect(move.targetY).toBeCloseTo(baseBall.fieldH / 2, 0);
+    expect(Number.isFinite(move.targetY)).toBe(true);
+  });
+
+  it("idle toward centre when ballVx is below the 0.01 threshold", () => {
+    // Tiny positive Vx that mathematically would mean "approaching"
+    // but is so small it's effectively stationary — treat as idle.
+    const move = botBehavior({
+      ...baseBall,
+      ballX: 700,
+      ballY: 100,
+      ballVx: 0.005,
+      ballVy: 5,
+      botScore: 0,
+      playerScore: 0,
+    });
+    expect(move.targetY).toBeCloseTo(baseBall.fieldH / 2, 0);
+  });
+
   it("idle toward centre when ball is moving away from bot", () => {
     const move = botBehavior({
       ...baseBall,

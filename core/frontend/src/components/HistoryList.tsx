@@ -155,7 +155,9 @@ export function HistoryList({
                                   ? `bruno-${entry.data.yearlyGross}-${entry.data.period}`
                                   : entry.kind === "app"
                                     ? `app-${entry.data.path}`
-                                    : `c-${entry.data.id}`;
+                                    : entry.kind === "pwgen"
+                                      ? `pwgen-${entry.data.length}-${entry.data.mode}`
+                                      : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

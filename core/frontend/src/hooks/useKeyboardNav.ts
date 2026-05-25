@@ -4,10 +4,11 @@ interface Args {
   length: number;
   selected: number;
   setSelected: (i: number) => void;
-  /** Called on Enter or Shift+Enter. The boolean argument tells the
-   *  caller whether Shift was held — the activate logic uses that to
-   *  pick `paste_entry_formatted` over `paste_entry`. */
-  onEnter: (shiftKey: boolean) => void;
+  /** Called on Enter / Shift+Enter / Alt+Enter. The booleans tell the
+   *  caller whether Shift / Alt was held — the activate logic uses
+   *  Shift to pick `paste_entry_formatted` over `paste_entry`, and
+   *  Alt to switch the pwgen mode to alphanumeric-only on copy. */
+  onEnter: (shiftKey: boolean, altKey: boolean) => void;
   onEscape: () => void;
   /** Shift+ArrowUp / Shift+ArrowDown. When provided, holding Shift
    *  while pressing an arrow calls this *instead of* moving the list
@@ -51,7 +52,7 @@ export function useKeyboardNav({
         setSelected(Math.max(selected - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (length > 0) onEnter(e.shiftKey);
+        if (length > 0) onEnter(e.shiftKey, e.altKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
         onEscape();

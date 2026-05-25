@@ -24,6 +24,7 @@ import {
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
+  parsePwgenArg,
   parseResizeArg,
   parseTimerArg,
   resizePresetSuggestions,
@@ -70,6 +71,7 @@ import {
   type ProcessInfo,
 } from "./lib/ipc";
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
@@ -139,6 +141,13 @@ function App() {
   // OS-native macOS notification so the user gets feedback even if
   // the popup is open at fire time.
   const [timerFiredLabel, setTimerFiredLabel] = useState<string | null>(null);
+  // pwgen mode toggle (v0.40.0+). Persists across keystrokes so the
+  // user can type `pwgen 16`, click `dict` once in the preview pane,
+  // then re-type lengths without losing the mode. Re-generation is
+  // driven by query + mode + a `pwgenSeed` bump that activates on
+  // mode-switch and on Enter (for explicit re-rolls).
+  const [pwgenMode, setPwgenMode] = useState<PwgenMode>("all");
+  const [pwgenSeed, setPwgenSeed] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -344,6 +353,12 @@ function App() {
         }
         break;
       }
+      case "pwgen": {
+        // Pwgen is rendered as its own ListEntry kind further down
+        // (with `mode` + `password` baked in). Return null here so we
+        // don't render the generic `command` row above the pwgen row.
+        return null;
+      }
       default:
         // kill is handled above; this guards against future additions.
         return null;
@@ -541,12 +556,34 @@ function App() {
   // can't be activated the same way and would just confuse selection).
   // Otherwise: command/suggestion first, then calc / color, then
   // snippets, then history clips.
+  // pwgen entry — surfaces when the query parses as `pwgen <N>`.
+  // Re-evaluates on query / mode / seed change; password regenerates
+  // each render because `generatePassword` calls CSPRNG.
+  const pwgenEntry: ListEntry | null = useMemo(() => {
+    const parsed = parseCommand(query);
+    if (!parsed || parsed.spec.kind !== "pwgen") return null;
+    const len = parsePwgenArg(parsed.arg);
+    if (!len) return null;
+    return {
+      kind: "pwgen",
+      data: {
+        length: len,
+        mode: pwgenMode,
+        password: generatePassword(pwgenMode, len),
+      },
+    };
+    // Seed dep so explicit re-rolls (Enter) regenerate even when
+    // query + mode are unchanged.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, pwgenMode, pwgenSeed]);
+
   const combined: ListEntry[] = isKillMode
     ? killTargetEntries
     : [
         ...(openerEntry ? [openerEntry] : []),
         ...(appEntry ? [appEntry] : []),
         ...(brunoEntry ? [brunoEntry] : []),
+        ...(pwgenEntry ? [pwgenEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...resizePresetEntries,
@@ -831,10 +868,33 @@ function App() {
     return () => window.clearTimeout(id);
   }, [timerFiredLabel]);
 
-  const activate = async (i: number, shiftKey = false) => {
+  const activate = async (i: number, shiftKey = false, altKey = false) => {
     const target = combined[i];
     if (!target) return;
     try {
+      // pwgen has special Enter semantics: copies the password (no
+      // paste — explicit, since the user is rarely typing into a
+      // focused-app password field directly from Inspector Rust's
+      // popup). Alt+Enter switches mode to alphanumeric + re-rolls
+      // + copies, all in one shot.
+      if (target.kind === "pwgen") {
+        let modeToCopy: PwgenMode = target.data.mode;
+        let passwordToCopy = target.data.password;
+        if (altKey) {
+          modeToCopy = "alnum";
+          setPwgenMode("alnum");
+          // Regenerate with the new mode so the user actually gets
+          // alnum on their clipboard, not whatever was on screen.
+          passwordToCopy = generatePassword("alnum", target.data.length);
+          setPwgenSeed((s) => s + 1);
+        }
+        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+        await writeText(passwordToCopy);
+        await hidePopup();
+        // Acknowledge in console for the user's debugging convenience.
+        console.info(`pwgen → copied ${target.data.length}-char ${modeToCopy} password`);
+        return;
+      }
       if (target.kind === "snippet") {
         await pasteSnippet(target.data.id);
       } else if (target.kind === "calc") {
@@ -1080,7 +1140,7 @@ function App() {
     length: combined.length,
     selected,
     setSelected,
-    onEnter: (shiftKey) => void activate(selected, shiftKey),
+    onEnter: (shiftKey, altKey) => void activate(selected, shiftKey, altKey),
     onEscape: () => {
       void hidePopup();
     },
@@ -1339,7 +1399,15 @@ function App() {
               />
             </div>
             <div className="w-3/5 min-w-0">
-              <PreviewPanel entry={current} />
+              <PreviewPanel
+                entry={current}
+                pwgenMode={pwgenMode}
+                onPwgenModeChange={(m) => {
+                  setPwgenMode(m);
+                  setPwgenSeed((s) => s + 1);
+                }}
+                onPwgenReroll={() => setPwgenSeed((s) => s + 1)}
+              />
             </div>
           </div>
         ) : activeTab === "snippets" ? (

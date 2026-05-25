@@ -4,6 +4,57 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] — 2026-05-25
+
+### Added — `pwgen N` password generator with 4 modes
+
+Type `pwgen 16` in the popup → generated 16-char password surfaces at the top of the list with the new `pwgen` chip. Four modes selectable via preview-pane buttons or keyboard:
+
+| Mode | Charset | Example (`pwgen 16`) |
+|---|---|---|
+| **All chars** *(default)* | A-Z, a-z, 0-9, `!@#$%^&*()_+-=[]{};:,.?` | `7K$pX2#mQ@vN!9zR` |
+| **Alphanumeric** | A-Z, a-z, 0-9 | `K7pXmQvN9zRwB2sT` |
+| **Dictionary** | English words + digit padding to exact length | `BraveCoffee94Run` |
+| **Leetspeak** | dict words with `a→@ e→3 i→1 o→0 s→$ t→7 l→1 g→9 b→8` | `8r@v3C0ff33Run` |
+
+**Keyboard shortcuts on the pwgen row:**
+- `Enter` — copy current password (current mode).
+- `⌥ Enter` (Alt+Enter) — switch to alphanumeric mode + regenerate + copy in one shot. Quick path for "I want a password I can paste without breaking field validators that reject symbols".
+
+**Preview pane:**
+- The full password in big mono font (easy to eyeball-check).
+- 4 radio-style mode buttons (active highlighted).
+- `↻ Regenerate` button for fresh randomness without changing mode.
+- Hotkey hint.
+
+### Entropy
+
+All four modes use Web Crypto's `crypto.getRandomValues` (CSPRNG, available since Node 19 in test env). `randInt(max)` does proper **rejection sampling** to eliminate modulo bias when the charset size doesn't divide 2³². Fallback to `Math.random` exists only for environments without Web Crypto — never hit at runtime.
+
+### Length bounds
+
+Minimum 4 chars (anything shorter is trivially brute-forceable); maximum 128 (web password fields commonly cap there). Anything outside that range — or any non-integer / negative — surfaces as a no-op (no entry in the list).
+
+### Files
+
+- `core/frontend/src/lib/pwgen-dict.ts` — 400 curated 4-7 letter English words. ~3 KB minified, no proper nouns / no ambiguous-looking glyphs (no `rn` → `m` lookalikes).
+- `core/frontend/src/lib/pwgen.ts` — pure-TS generator with all 4 modes + CSPRNG.
+- `core/frontend/src/lib/pwgen.test.ts` — 8 tests: exact-length invariant across all 4 modes × 8 lengths, charset guarantees, determinism (CSPRNG produces distinct outputs), leet-substitution presence.
+- New `parsePwgenArg` in `commands.ts` + 5 unit tests (range, integer-only, edge cases).
+- New `pwgen` entry in `COMMANDS`; new `PwgenEntryView` type + ListEntry kind.
+- App.tsx owns `pwgenMode` + `pwgenSeed` state; `pwgenEntry` useMemo regenerates when query / mode / seed change.
+- Activate handler: special-cased for `pwgen` — copies to clipboard via `@tauri-apps/plugin-clipboard-manager.writeText` (no paste-to-app — explicit user choice since you rarely want a generated password pasted into the previously-focused window).
+- `useKeyboardNav.onEnter` signature widened to `(shiftKey, altKey)` so the Alt+Enter→alphanumeric shortcut works.
+- PreviewPanel takes `pwgenMode` / `onPwgenModeChange` / `onPwgenReroll` props.
+
+### Tests
+
++8 pwgen generator + +5 parser + +1 altKey-flag test in useKeyboardNav. **253 Rust + 424 frontend tests now pass.**
+
+### Why 0.40.0
+
+Substantial new user-facing surface: new search-bar command, new ListEntry kind, new preview-pane UX (4-mode radio + regenerate), new altKey keyboard semantic. Backwards-compatible. Minor digit bump.
+
 ## [0.39.0] — 2026-05-25
 
 ### Added — `timer N[s|min|h]` command with visual + audio notification

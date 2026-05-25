@@ -5,9 +5,14 @@ import { useKeyboardNav } from "./useKeyboardNav";
 afterEach(cleanup);
 
 /** Dispatch a window keydown the hook will see. */
-function press(key: string, opts: { shiftKey?: boolean } = {}) {
+function press(key: string, opts: { shiftKey?: boolean; altKey?: boolean } = {}) {
   window.dispatchEvent(
-    new KeyboardEvent("keydown", { key, shiftKey: opts.shiftKey ?? false, bubbles: true }),
+    new KeyboardEvent("keydown", {
+      key,
+      shiftKey: opts.shiftKey ?? false,
+      altKey: opts.altKey ?? false,
+      bubbles: true,
+    }),
   );
 }
 
@@ -55,12 +60,16 @@ describe("useKeyboardNav — list navigation", () => {
     expect(setSelected).toHaveBeenCalledWith(0);
   });
 
-  it("Enter calls onEnter with the shift flag", () => {
+  it("Enter calls onEnter with (shiftKey, altKey) flags", () => {
     const { onEnter } = setup();
     press("Enter");
-    expect(onEnter).toHaveBeenCalledWith(false);
+    expect(onEnter).toHaveBeenCalledWith(false, false);
     press("Enter", { shiftKey: true });
-    expect(onEnter).toHaveBeenCalledWith(true);
+    expect(onEnter).toHaveBeenCalledWith(true, false);
+    press("Enter", { altKey: true });
+    expect(onEnter).toHaveBeenCalledWith(false, true);
+    press("Enter", { shiftKey: true, altKey: true });
+    expect(onEnter).toHaveBeenCalledWith(true, true);
   });
 
   it("Escape calls onEscape", () => {

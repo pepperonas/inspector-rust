@@ -82,7 +82,8 @@ export interface CommandEntryView {
     | "freeze"
     | "wakelock-on"
     | "wakelock-off"
-    | "timer";
+    | "timer"
+    | "pwgen";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */
@@ -179,4 +180,16 @@ export type ListEntry =
   | { kind: "opener"; data: OpenerEntryView }
   | { kind: "finder-file"; data: FinderFileView }
   | { kind: "bruno"; data: BrunoEntryView }
-  | { kind: "app"; data: AppEntryView };
+  | { kind: "app"; data: AppEntryView }
+  | { kind: "pwgen"; data: PwgenEntryView };
+
+/** Generated-password row surfaced when the user types `pwgen N`.
+ *  v0.40.0+. `password` is regenerated each render based on the
+ *  active `mode` (which is component state in App.tsx) so the user
+ *  can mash Enter for a fresh random or click mode buttons in the
+ *  preview pane to switch modes. */
+export interface PwgenEntryView {
+  length: number;
+  mode: "all" | "alnum" | "dict" | "leet";
+  password: string;
+}

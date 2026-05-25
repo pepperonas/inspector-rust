@@ -10,14 +10,15 @@ import {
   parseCommand,
   parseKillArg,
   parseResizeArg,
+  parsePwgenArg,
   parseTimerArg,
   resizePresetSuggestions,
   translateUrl,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 18 commands (12 base + 4 wakelock entries + bruno + timer)", () => {
-    expect(COMMANDS.length).toBe(18);
+  it("has 19 commands (12 base + 4 wakelock entries + bruno + timer + pwgen)", () => {
+    expect(COMMANDS.length).toBe(19);
   });
 
   it("every keyword is unique", () => {
@@ -521,5 +522,28 @@ describe("parseTimerArg", () => {
   it("rejects garbage suffix on a valid number", () => {
     expect(parseTimerArg("12 minutes!")).toBeNull();
     expect(parseTimerArg("12 ★")).toBeNull();
+  });
+});
+
+describe("parsePwgenArg", () => {
+  it("accepts integers in the sane range [4, 128]", () => {
+    expect(parsePwgenArg("12")).toBe(12);
+    expect(parsePwgenArg("4")).toBe(4);
+    expect(parsePwgenArg("128")).toBe(128);
+  });
+  it("rejects too-short (below 4 chars — trivially brute-forceable)", () => {
+    expect(parsePwgenArg("3")).toBeNull();
+    expect(parsePwgenArg("0")).toBeNull();
+  });
+  it("rejects too-long (above 128 chars — web fields often cap there)", () => {
+    expect(parsePwgenArg("129")).toBeNull();
+    expect(parsePwgenArg("1000")).toBeNull();
+  });
+  it("rejects non-integer formats", () => {
+    expect(parsePwgenArg("12.5")).toBeNull();
+    expect(parsePwgenArg("12 chars")).toBeNull();
+    expect(parsePwgenArg("abc")).toBeNull();
+    expect(parsePwgenArg("")).toBeNull();
+    expect(parsePwgenArg("-12")).toBeNull();
   });
 });

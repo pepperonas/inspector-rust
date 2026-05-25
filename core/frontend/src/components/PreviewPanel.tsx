@@ -16,9 +16,19 @@ import {
 
 interface Props {
   entry: ListEntry | null;
+  /** Active pwgen mode (v0.40.0+). Used to drive the radio-style
+   *  mode picker in the preview pane when the selected row is a
+   *  `pwgen` entry. */
+  pwgenMode?: "all" | "alnum" | "dict" | "leet";
+  /** Setter — App.tsx owns the state; PreviewPanel just dispatches
+   *  user clicks on the mode buttons. */
+  onPwgenModeChange?: (m: "all" | "alnum" | "dict" | "leet") => void;
+  /** Bump to force a fresh password generation without changing mode
+   *  (the "regenerate" button calls this). */
+  onPwgenReroll?: () => void;
 }
 
-export function PreviewPanel({ entry }: Props) {
+export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenReroll }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
     try {
@@ -294,6 +304,67 @@ export function PreviewPanel({ entry }: Props) {
           ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"} ins Clipboard
           {" "}·{" "}
           ⚠ Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "pwgen") {
+    const d = entry.data;
+    const MODES: Array<{ key: "all" | "alnum" | "dict" | "leet"; label: string; hint: string }> = [
+      { key: "all", label: "All chars", hint: "A-Z a-z 0-9 + symbols" },
+      { key: "alnum", label: "Alphanumeric", hint: "A-Z a-z 0-9 (no symbols)" },
+      { key: "dict", label: "Dictionary", hint: "English words + digit padding" },
+      { key: "leet", label: "Leetspeak", hint: "dict words with a→@, e→3, …" },
+    ];
+    return (
+      <div className="flex h-full flex-col gap-3 overflow-auto p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Password · {d.length} chars · CSPRNG
+        </div>
+        {/* The password itself — large, mono, easy to eyeball-check. */}
+        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+          <div className="break-all font-[var(--font-mono)] text-[16px] font-semibold leading-snug">
+            {d.password}
+          </div>
+        </div>
+        {/* Mode picker — radio style, currently-active highlighted. */}
+        <div className="flex flex-col gap-1.5">
+          <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+            Mode
+          </div>
+          <div className="grid grid-cols-2 gap-1.5">
+            {MODES.map((m) => {
+              const active = (pwgenMode ?? d.mode) === m.key;
+              return (
+                <button
+                  key={m.key}
+                  onClick={() => onPwgenModeChange?.(m.key)}
+                  className={
+                    "flex flex-col items-start rounded-md border px-2.5 py-1.5 text-left text-[12px] " +
+                    (active
+                      ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 text-[var(--color-fg)]"
+                      : "border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface)]")
+                  }
+                >
+                  <span className="font-medium">{m.label}</span>
+                  <span className="text-[10px] opacity-80">{m.hint}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+        {/* Regenerate + hotkey hint */}
+        <div className="flex items-center justify-between">
+          <button
+            onClick={() => onPwgenReroll?.()}
+            className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+          >
+            ↻ Regenerate
+          </button>
+          <span className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ copy · ⌥⏎ alphanumeric + copy
+          </span>
         </div>
       </div>
     );

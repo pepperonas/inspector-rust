@@ -37,7 +37,8 @@ export type CommandKind =
   | "wakelock-on"
   | "wakelock-off"
   | "bruno"
-  | "timer";
+  | "timer"
+  | "pwgen";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -198,6 +199,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "timer <N>[s|min|h]",
     description:
       "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
+    requiresArg: true,
+  },
+  // ── Password generator ────────────────────────────────────────────
+  {
+    kind: "pwgen",
+    keyword: "pwgen",
+    syntax: "pwgen <N>",
+    description:
+      "Password generator. e.g. `pwgen 16`. Enter copies; Alt+Enter = alphanumeric only. Dict + leet modes via preview-pane buttons.",
     requiresArg: true,
   },
 ];
@@ -491,4 +501,18 @@ export function parseTimerArg(arg: string): TimerSpec | null {
   const numText = Number.isInteger(n) ? String(n) : String(n);
   const label = `${numText} ${labelUnit}`;
   return { seconds, label };
+}
+
+/** Parse `pwgen <N>` length argument. Returns the integer length
+ *  clamped to a sane range, or `null` for non-numeric / zero / too-big.
+ *
+ *  - Min: 4 chars (anything shorter is trivially brute-forceable).
+ *  - Max: 128 chars (web password fields often cap there).
+ */
+export function parsePwgenArg(arg: string): number | null {
+  const trimmed = arg.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const n = parseInt(trimmed, 10);
+  if (!Number.isFinite(n) || n < 4 || n > 128) return null;
+  return n;
 }

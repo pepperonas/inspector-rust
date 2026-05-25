@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -27,6 +27,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
+  if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "app") {
     return (
       <AppIcon
@@ -73,12 +74,13 @@ export const HistoryItem = memo(function HistoryItem({
   const isOpener = entry.kind === "opener";
   const isBruno = entry.kind === "bruno";
   const isApp = entry.kind === "app";
+  const isPwgen = entry.kind === "pwgen";
   const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isFinderFile
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -196,6 +198,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Launch app (Spotlight-like)"
     >
       app
+    </span>
+  ) : isPwgen ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Generated password — ⏎ copies, ⌥⏎ switches to alphanumeric + copies"
+    >
+      pwgen
     </span>
   ) : (
     (() => {
@@ -387,6 +401,20 @@ export const HistoryItem = memo(function HistoryItem({
                 });
                 return `Brutto ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)}`;
               })()}
+            </span>
+          </span>
+        ) : isPwgen && entry.kind === "pwgen" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-[var(--font-mono)] font-semibold">
+              {entry.data.password}
+            </span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              {entry.data.length} chars · {entry.data.mode} · ⏎ copy · ⌥⏎ alnum
             </span>
           </span>
         ) : isApp && entry.kind === "app" ? (

@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.1] — 2026-05-29
+
+### Changed — Transform chip overlay is now press-to-reveal (Cmd/Ctrl held)
+
+The 12-chip "Transform" toolbar that surfaces under text / HTML / RTF / OCR previews was always-visible since it was added — taking ~2-3 rows of space at the bottom of the preview pane and pushing the actual clip content up. Hiding the content the user is actually trying to read defeats the purpose of the preview pane.
+
+The toolbar is now **only rendered while Cmd (macOS) / Ctrl (Win+Linux) is held** — the same modifier the `Cmd/Ctrl+1…9` digit shortcuts already fire on. Release the modifier → it disappears + the text content expands back to fill the pane.
+
+The digit shortcuts themselves still work without peeking at the overlay: the `keydown` handler is mounted regardless of toolbar visibility, so muscle-memory users who already know `Cmd+1` = "Remove vowels" never need the visual reminder.
+
+### Files
+
+- `core/frontend/src/hooks/useModifierHeld.ts` (new) — generic `boolean`-returning hook tracking platform-modifier hold state. Resets to `false` on window `blur` to dodge the "stuck modifier after Cmd+Tab" trap.
+- `core/frontend/src/components/PreviewPanel.tsx` — `TransformBar` calls `useModifierHeld`; returns `null` when not held (keyboard `useEffect` keeps firing).
+- `core/frontend/src/hooks/useModifierHeld.test.ts` (new) — 6 tests cover default-false, Meta + Control round-trip, blur-reset, accepting `metaKey` on non-modifier keys (Cmd+1 typed fast), and listener cleanup on unmount.
+
+### Tests
+
+**253 Rust + 430 frontend tests pass** (+6 for the new hook).
+
 ## [0.42.0] — 2026-05-29
 
 ### Changed — Windows wakelock now uses `SetThreadExecutionState` instead of cursor-jiggle

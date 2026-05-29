@@ -5,6 +5,7 @@ import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
 import { IS_MAC } from "../lib/platform";
 import { TRANSFORMS, applyTransform, type TransformKind } from "../lib/text-transform";
+import { useModifierHeld } from "../hooks/useModifierHeld";
 import {
   commitTransformedText,
   cutOutImageEntry,
@@ -899,12 +900,21 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
   );
 }
 
-/** String-manipulation toolbar shown under a selected *text* entry.
- *  Each chip applies a transform from `lib/text-transform.ts`; the
- *  result is committed to the clipboard + a new History entry via
+/** String-manipulation toolbar for the selected *text* entry. Each chip
+ *  applies a transform from `lib/text-transform.ts`; the result is
+ *  committed to the clipboard + a new History entry via
  *  `commit_transformed_text`. The first nine transforms also bind to
- *  `Cmd/Ctrl+1…9` while a text entry is selected. */
+ *  `Cmd/Ctrl+1…9` while a text entry is selected.
+ *
+ *  **The chip UI is only rendered while Cmd / Ctrl is held** (the same
+ *  modifier the digit shortcuts fire on). Without the modifier, the
+ *  preview pane is the full content; press + hold the modifier to see
+ *  which digit triggers which transform. The keyboard handler itself
+ *  is always mounted so the shortcuts still fire even if the user
+ *  doesn't bother peeking at the chip overlay. */
 function TransformBar({ text }: { text: string }) {
+  const modHeld = useModifierHeld();
+
   const run = async (kind: TransformKind) => {
     try {
       await commitTransformedText(applyTransform(kind, text));
@@ -944,6 +954,8 @@ function TransformBar({ text }: { text: string }) {
     // `text` is the only thing `run` closes over that changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
+
+  if (!modHeld) return null;
 
   const mod = IS_MAC ? "⌘" : "Ctrl+";
 

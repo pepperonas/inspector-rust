@@ -351,7 +351,7 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
                 <button
                   key={m.key}
                   onClick={() => onPwgenModeChange?.(m.key)}
-                  title={`Alt+${m.digit} → switch + regenerate + copy`}
+                  title={`Alt+${m.digit} → switch + regenerate (Enter copies)`}
                   className={
                     "flex flex-col items-start rounded-md border px-2.5 py-1.5 text-left text-[12px] " +
                     (active
@@ -380,7 +380,7 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
             ↻ Regenerate
           </button>
           <span className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ copy · ⌥1–4 switch mode + copy
+            ⏎ copy · ⌥1–4 switch mode + regenerate
           </span>
         </div>
       </div>

@@ -201,6 +201,10 @@ fn alt_currently_held() -> bool {
 /// frontmost app. If yes, pressing the expander hotkey would expand
 /// into our own search bar — confusing + useless. We refuse the
 /// expansion in that case (logged + sentinel returned).
+pub fn inspector_rust_is_frontmost_public() -> bool {
+    inspector_rust_is_frontmost()
+}
+
 fn inspector_rust_is_frontmost() -> bool {
     match crate::frontmost_app::name() {
         Some(name) => {

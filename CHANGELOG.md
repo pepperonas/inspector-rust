@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.1] — 2026-05-30
+
+### Fixed — pwgen Alt+1…4 no longer hijacked by the global expander hotkey
+
+Two issues with the v0.43.0 pwgen mode-switch shortcut:
+
+1. **Alt+1 was opening the Settings tab.** If the user had the abbreviation expander enabled (default hotkey `Alt+Digit1`), pressing Alt+1 in our popup fired the *global* expander shortcut, which — on a fresh install with no Accessibility grant — emitted `expander-permission-needed` → the frontend switched to the Settings tab to show the permission banner. That was intrusive when the user is interacting with our own popup, not an external app.
+
+   **Fix:** `hotkey::register_expander` now early-bails when Inspector Rust is the frontmost app (via `frontmost_app::name`, which uses NSWorkspace / AppleScript and doesn't need the Accessibility grant). When the popup owns focus the global hotkey is effectively a no-op, leaving the in-popup JS handler to do whatever the feature wants. Same early-bail added to `register_direct_slots`.
+
+2. **Alt+1…4 was copying + hiding the popup.** Wrong UX — the user wants to tap Alt+1…4 several times to cycle through generated samples, then press Enter to commit. Now Alt+1…4 just switches the mode + regenerates; the password stays on screen + the popup stays open. Enter still copies + hides via the existing pwgen activate path.
+
+### Files
+
+- `core/rust-lib/src/expander.rs`: `inspector_rust_is_frontmost` now has a `_public` wrapper exposed for `hotkey.rs` callers.
+- `core/rust-lib/src/hotkey.rs`: `register_expander` + `register_direct_slots` hotkey callbacks early-bail when Inspector Rust is frontmost.
+- `core/frontend/src/App.tsx`: pwgen Alt+1…4 effect drops the `writeText` + `hidePopup` calls — pure mode-switch + regenerate.
+- `core/frontend/src/components/PreviewPanel.tsx`: copy hints + tooltip text updated to "Enter copies".
+
+### Tests
+
+**253 Rust + 430 frontend tests pass.**
+
 ## [0.43.0] — 2026-05-29
 
 ### Added — `pwgen` mode-switch shortcuts (Alt+1…4)

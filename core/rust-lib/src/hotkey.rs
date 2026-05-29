@@ -347,6 +347,31 @@ pub fn register_expander(
             }
             let app = app_for_handler.clone();
 
+            // **Order matters here.** Inspector-frontmost gate runs BEFORE
+            // the accessibility check. If the user has the popup open and
+            // hits the expander hotkey — e.g. Alt+1 while a pwgen row is
+            // selected, expecting our in-popup mode-switch handler to
+            // fire — the global expander hotkey fires *too*. Before
+            // 0.43.1 we'd then run the accessibility check and, on a
+            // miss, emit `expander-permission-needed` → frontend jumps to
+            // Settings tab. That was unwanted UI movement triggered by
+            // a hotkey the user pressed in *our* window, not the
+            // expander's target. Bailing early when Inspector Rust is
+            // frontmost makes the global hotkey effectively a no-op
+            // while the popup owns focus, leaving the JS-side handler
+            // to do whatever the in-popup feature wants.
+            //
+            // This uses `frontmost_app::name` (AppleScript / NSWorkspace)
+            // which doesn't need the Accessibility TCC grant — works
+            // even on a fresh install with no permissions yet.
+            if expander::inspector_rust_is_frontmost_public() {
+                tracing::debug!(
+                    "expander hotkey pressed while Inspector Rust is frontmost — \
+                     no-op (in-popup handler owns this combo)"
+                );
+                return;
+            }
+
             // Bail *loudly* when synthetic input isn't available (macOS
             // Accessibility). Without this the whole expand cycle silently
             // no-ops — enigo's keystrokes never reach the source app — and
@@ -471,6 +496,16 @@ pub fn register_direct_slots(
                     return;
                 }
                 let app = app_h.clone();
+                // Same early-bail as the abbreviation expander: when
+                // Inspector Rust owns focus the slot's hotkey is *very
+                // likely* something the in-popup UI handles (e.g. the
+                // pwgen Alt+1…4 mode-switch). Firing the paste pipeline
+                // anyway would surface a spurious permission banner on
+                // a fresh install where AX hasn't been granted yet.
+                if crate::expander::inspector_rust_is_frontmost_public() {
+                    tracing::debug!("direct-slot hotkey pressed while Inspector Rust is frontmost — no-op");
+                    return;
+                }
                 // Paste needs the Accessibility grant on macOS — same gate +
                 // banner as the abbreviation expander.
                 if !crate::expander::accessibility_granted() {

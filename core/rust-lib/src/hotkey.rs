@@ -338,6 +338,12 @@ pub fn register_expander(
 
     let shortcut = parse_shortcut(hotkey)
         .with_context(|| format!("could not parse expander hotkey {hotkey:?}"))?;
+    // Clone for the closure — the OS-level shortcut SWALLOWS the
+    // keydown on macOS, so when Inspector Rust is frontmost the webview
+    // never sees the keystroke. We forward the hotkey string as a
+    // Tauri event so the frontend's in-popup handlers (e.g. pwgen
+    // Alt+1…4) can react.
+    let hotkey_str = hotkey.to_string();
 
     let app_for_handler = app.clone();
     app.global_shortcut()
@@ -350,25 +356,23 @@ pub fn register_expander(
             // **Order matters here.** Inspector-frontmost gate runs BEFORE
             // the accessibility check. If the user has the popup open and
             // hits the expander hotkey — e.g. Alt+1 while a pwgen row is
-            // selected, expecting our in-popup mode-switch handler to
-            // fire — the global expander hotkey fires *too*. Before
-            // 0.43.1 we'd then run the accessibility check and, on a
-            // miss, emit `expander-permission-needed` → frontend jumps to
-            // Settings tab. That was unwanted UI movement triggered by
-            // a hotkey the user pressed in *our* window, not the
-            // expander's target. Bailing early when Inspector Rust is
-            // frontmost makes the global hotkey effectively a no-op
-            // while the popup owns focus, leaving the JS-side handler
-            // to do whatever the in-popup feature wants.
+            // selected — the global expander hotkey fires AND swallows
+            // the keydown so the webview never sees it. We do two
+            // things: (a) skip the expand-cycle entirely (it would only
+            // type into our own search bar) and (b) emit
+            // `expander-hotkey-forwarded` with the hotkey string so the
+            // frontend can run whatever in-popup handler maps to it
+            // (e.g. `Alt+Digit1` → pwgen mode "all").
             //
-            // This uses `frontmost_app::name` (AppleScript / NSWorkspace)
-            // which doesn't need the Accessibility TCC grant — works
-            // even on a fresh install with no permissions yet.
+            // `inspector_rust_is_frontmost_public` uses NSWorkspace /
+            // AppleScript and doesn't need the Accessibility TCC grant —
+            // works even on a fresh install with no permissions yet.
             if expander::inspector_rust_is_frontmost_public() {
                 tracing::debug!(
-                    "expander hotkey pressed while Inspector Rust is frontmost — \
-                     no-op (in-popup handler owns this combo)"
+                    "expander hotkey {hotkey_str:?} pressed while Inspector Rust is \
+                     frontmost — forwarding to popup"
                 );
+                let _ = app.emit("expander-hotkey-forwarded", hotkey_str.clone());
                 return;
             }
 
@@ -490,20 +494,32 @@ pub fn register_direct_slots(
     // 3) Register each.
     for &(sc, snippet_id) in &parsed {
         let app_h = app.clone();
+        // Find this slot's hotkey string so we can forward it when
+        // Inspector is frontmost — needed because the global shortcut
+        // swallows the macOS keydown before the webview sees it.
+        let slot_hotkey = slots
+            .iter()
+            .find(|s| s.snippet_id == snippet_id)
+            .map(|s| s.hotkey.clone())
+            .unwrap_or_default();
         app.global_shortcut()
             .on_shortcut(sc, move |_app, fired, event| {
                 if event.state != ShortcutState::Pressed || *fired != sc {
                     return;
                 }
                 let app = app_h.clone();
-                // Same early-bail as the abbreviation expander: when
-                // Inspector Rust owns focus the slot's hotkey is *very
-                // likely* something the in-popup UI handles (e.g. the
-                // pwgen Alt+1…4 mode-switch). Firing the paste pipeline
-                // anyway would surface a spurious permission banner on
-                // a fresh install where AX hasn't been granted yet.
+                // Same forwarding as the abbreviation expander: when
+                // Inspector Rust owns focus, the slot's hotkey is most
+                // likely meant for an in-popup handler (e.g. pwgen
+                // Alt+1…4 mode-switch). Don't fire the paste pipeline;
+                // instead emit the hotkey string so the frontend can
+                // route it.
                 if crate::expander::inspector_rust_is_frontmost_public() {
-                    tracing::debug!("direct-slot hotkey pressed while Inspector Rust is frontmost — no-op");
+                    tracing::debug!(
+                        "direct-slot hotkey {slot_hotkey:?} pressed while Inspector Rust is \
+                         frontmost — forwarding to popup"
+                    );
+                    let _ = app.emit("expander-hotkey-forwarded", slot_hotkey.clone());
                     return;
                 }
                 // Paste needs the Accessibility grant on macOS — same gate +

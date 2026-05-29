@@ -658,6 +658,30 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedPwgen]);
 
+  // The OS-level global expander / direct-slot hotkeys SWALLOW their
+  // keydowns on macOS — when Inspector Rust is frontmost the webview
+  // never sees them. The Rust handlers forward the hotkey string via
+  // `expander-hotkey-forwarded` whenever they fire while we own focus.
+  // We map a forwarded `Alt+Digit1…4` to the same pwgen mode-switch
+  // the JS keydown handler above runs for digits 2-4 (which DO reach
+  // the webview because nothing global is registered on them). This is
+  // the fix for "alle funktionieren nur alt+1 nicht" — Alt+1 collides
+  // with the default expander hotkey (`Alt+Digit1`), so it never made
+  // it through to the JS listener.
+  useTauriEvent<string>("expander-hotkey-forwarded", (e) => {
+    if (!selectedPwgen) return;
+    const hotkey = e.payload;
+    // Match `Alt+Digit<n>` (case-insensitive, only Alt as modifier).
+    const m = hotkey.match(/^Alt\+Digit([1-4])$/i);
+    if (!m) return;
+    const digit = Number(m[1]) as 1 | 2 | 3 | 4;
+    const modes: PwgenMode[] = ["all", "alnum", "dict", "leet"];
+    const newMode = modes[digit - 1];
+    setPwgenMode(newMode);
+    setPwgenSeed((s) => s + 1);
+    console.info(`pwgen ← forwarded ${hotkey} → ${newMode} + regenerated`);
+  });
+
   // Tab / → autocomplete on a focused `command-suggestion` row. Fills
   // `query` with the suggestion's `completion` (e.g. `rz 1920x1080`)
   // and parks the caret at the end so the user can keep editing

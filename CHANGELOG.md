@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.2] — 2026-05-30
+
+### Fixed — pwgen Alt+1 actually fires now (event-forward through the global hotkey)
+
+After v0.43.1 stopped the Settings-tab from popping open on Alt+1, the in-popup pwgen mode-switch *still* didn't trigger on Alt+1 specifically — only Alt+2 / 3 / 4 worked. Root cause: macOS' Carbon hotkey dispatcher **swallows** the keydown of any registered global shortcut, so the webview never receives `Alt+Digit1` while the abbreviation expander is enabled on its default hotkey. The early-bail added in v0.43.1 prevented the wrong side-effect, but couldn't deliver the digit to the in-popup JS handler.
+
+**Fix:** when the global expander / direct-slot hotkey fires while Inspector Rust is frontmost, the Rust handler now emits a new `expander-hotkey-forwarded` Tauri event carrying the hotkey string (e.g. `"Alt+Digit1"`). The pwgen handler in App.tsx listens for it and, if it matches `Alt+Digit1…4` and a pwgen row is selected, performs the same mode-switch + regenerate as the JS keydown handler would for the un-swallowed digits. Net effect: all four digits feel identical regardless of which one (if any) collides with the expander/slot binding.
+
+### Files
+
+- `core/rust-lib/src/hotkey.rs`: the expander + direct-slot handlers, on `inspector_rust_is_frontmost`, now `app.emit("expander-hotkey-forwarded", hotkey)` with the bound hotkey string instead of just bailing silently.
+- `core/frontend/src/App.tsx`: new `useTauriEvent("expander-hotkey-forwarded", ...)` that translates `Alt+Digit1…4` into the same `setPwgenMode` + `setPwgenSeed` the keydown handler runs.
+
+### Tests
+
+**253 Rust + 430 frontend tests pass.**
+
 ## [0.43.1] — 2026-05-30
 
 ### Fixed — pwgen Alt+1…4 no longer hijacked by the global expander hotkey

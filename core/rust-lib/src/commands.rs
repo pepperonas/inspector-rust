@@ -337,10 +337,11 @@ pub fn bruno_set_defaults(
 
 // ── Wakelock ──────────────────────────────────────────────────────────
 
-/// Toggle the mouse-jiggle wakelock. Returns the resulting state
-/// (`true` = active, `false` = off). Also emits `wakelock-changed`
-/// with the resulting state so the popup's footer LED can update
-/// without polling.
+/// Toggle the wakelock. Returns the resulting state (`true` = active,
+/// `false` = off). On macOS this spawns `caffeinate -disu`; on
+/// Windows / Linux it spawns the cursor-jiggle worker. Also emits
+/// `wakelock-changed` with the resulting state so the popup's footer
+/// LED can update without polling.
 #[tauri::command]
 pub fn wakelock_set(
     app: AppHandle,

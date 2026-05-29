@@ -4,6 +4,34 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] — 2026-05-29
+
+### Fixed — wakelock now actually keeps macOS awake
+
+Pre-0.41.0 the wakelock LED would pulse + the search-bar `wakelock1` command would report enabled, but **the screen still locked** after the user's "Require password after N minutes" timeout fired. The cursor-jiggle path (60 s `CGEventPost` mouse-moves) survives application-level idle detectors (Teams / Slack), but **does not** reset the macOS idle counter for screensaver / screen-lock on modern macOS — Apple hardens against synthetic `kCGEventMouseMoved` events being counted as user activity.
+
+The fix replaces the macOS jiggle worker with a spawned `/usr/bin/caffeinate -disu` child process held alive while wakelock is on, killed on toggle-off. `caffeinate` raises proper IOPM kernel assertions (`PreventUserIdleSystemSleep` + `PreventUserIdleDisplaySleep` + `kIOPMAssertionTypeNoDisplaySleep`) — the supported way to keep macOS awake (and how Apple's own `caffeinate` CLI works internally). The screen now stays unlocked as long as the LED is on.
+
+**Windows + Linux** keep the cursor-jiggle worker — those OSes don't ship an equivalent CLI in the base install. Future Win could use `SetThreadExecutionState(ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)`; future Linux/Wayland could use `org.freedesktop.ScreenSaver` D-Bus inhibit.
+
+### Files
+
+- `core/rust-lib/src/wakelock.rs`:
+  - New `WakelockState::caffeinate: Mutex<Option<std::process::Child>>` (macOS-only field; `handle` + `stop` are now `#[cfg(not(target_os = "macos"))]`-gated to the jiggle path).
+  - `set_enabled(true)` on macOS spawns `caffeinate` with `Stdio::null()` on all 3 streams (no terminal noise).
+  - `set_enabled(false)` on macOS calls `child.kill() + child.wait()` (no zombie).
+  - CAS-based idempotency still applies — 16 racing `set_enabled(true)` callers still spawn exactly one child.
+  - The legacy `mod macos` (jiggle FFI) is kept under `#[allow(dead_code)]` as documentation of the FFI shape, in case a future fallback wants it.
+- 4 wakelock unit tests now: shared round-trip + panic-shield test, plus the idempotency + concurrent-CAS test in two variants (`stop`-Arc-pointer on non-mac, `caffeinate.id()` PID on mac).
+
+### Tests
+
+**253 Rust + 424 frontend tests pass.** 2 new macOS-specific tests verify the new `caffeinate` spawn / kill / no-double-spawn invariants.
+
+### Why 0.41.0
+
+A latent feature was advertised but didn't actually work on the primary platform. Bumping minor (not patch) because the macOS implementation backend swapped (jiggle → IOKit assertion via caffeinate) — observable in any monitoring tool that lists IOPM assertions (`pmset -g assertions`).
+
 ## [0.40.0] — 2026-05-25
 
 ### Added — `pwgen N` password generator with 4 modes

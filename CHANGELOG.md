@@ -4,6 +4,34 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] — 2026-05-29
+
+### Changed — Windows wakelock now uses `SetThreadExecutionState` instead of cursor-jiggle
+
+Sibling change to the v0.41.0 macOS fix. The Windows path keeps a worker thread alive while wakelock is on; on entry it calls `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED | ES_SYSTEM_REQUIRED)` from `kernel32`, on exit it clears with `SetThreadExecutionState(ES_CONTINUOUS)`. The flag is per-thread and sticky between those two calls, so the worker just sleeps in 200 ms chunks waiting for the stop signal — no periodic re-arming, no `SetCursorPos`-jiggle, no visual blip.
+
+Why this matters even though Windows generally honoured the old `SetCursorPos` jiggle (unlike macOS):
+
+- **Group-policy-managed corporate Windows** can disable synthetic-input idle resets. `SetThreadExecutionState` is the documented + GPO-resistant API.
+- Zero visual cursor disturbance every 60 s.
+- No 60 s polling — the worker just blocks on the stop flag.
+- Symmetric architecture with the macOS `caffeinate` path (both are "engage the kernel-side inhibit, hold, release").
+
+### Files
+
+- `core/rust-lib/src/wakelock.rs`:
+  - New `mod win_power` (raw `extern "system"` FFI to `SetThreadExecutionState` from `kernel32`, no `windows`-crate feature added — pattern matches the existing raw macOS FFI in the file).
+  - `worker` split into two `#[cfg]`-gated implementations: Linux keeps the jiggle loop with panic-shield; Windows engages power state on entry, sleeps for stop, disengages on exit.
+  - The legacy `mod win` (`SetCursorPos` jiggle) is kept under `#[allow(dead_code)]` for documentation symmetry with the `#[allow(dead_code)] mod macos` from v0.41.0.
+
+### Tests
+
+**253 Rust + 424 frontend tests pass** (no test changes — the platform-internal CAS tests already split per OS in v0.41.0; Win path is covered by the shared `set_enabled_round_trip_returns_new_state`).
+
+### Why 0.42.0
+
+Backend swap on a tier-1 platform — same reasoning as v0.41.0's minor bump. macOS users see no change; Windows users see better reliability + no cursor twitch.
+
 ## [0.41.0] — 2026-05-29
 
 ### Fixed — wakelock now actually keeps macOS awake

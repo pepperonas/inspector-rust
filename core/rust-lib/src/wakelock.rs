@@ -8,21 +8,28 @@
 //! (`PreventUserIdleSystemSleep` + `PreventUserIdleDisplaySleep`),
 //! which actually pauses the screen-lock / screensaver counters.
 //!
-//! Pre-0.41.0 macOS used the same cursor-jiggle path as Windows /
-//! Linux below — `CGEventPost`-synthesized mouse moves every 60 s.
-//! That defeats application-level "away" detectors (Teams, Slack) but
-//! **does not** stop the macOS screen-lock: modern macOS hardens its
-//! idle counter against synthetic mouse-moved events, so the screen
-//! still locked despite the LED pulsing.
+//! **Windows (v0.41.0+):** a worker thread calls
+//! `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
+//! ES_SYSTEM_REQUIRED)` on entry and clears with `ES_CONTINUOUS` on
+//! exit. This is the documented Win32 API for suppressing system +
+//! display sleep, and (unlike `SetCursorPos`-jiggle) survives
+//! group-policy-managed corporate Windows configurations that
+//! disable synthetic-input idle resets.
 //!
-//! **Windows / Linux:** cursor-jiggle worker remains in place — those
-//! OSes don't ship an equivalent CLI in the base install. The jiggle
-//! is **two** synthetic mouse-move events spaced 30 ms apart: one to
-//! `(x+1, y)`, one back to `(x, y)`. The OS sees real motion, but the
-//! visual blip is imperceptible. On Linux it's X11-only — Wayland
-//! deliberately denies cursor synth at the protocol level, so the
-//! jiggle is a no-op there (a future `org.freedesktop.ScreenSaver`
-//! D-Bus inhibit would be the proper Wayland path).
+//! Pre-0.41.0 both platforms used cursor-jiggle: macOS via
+//! `CGEventPost`, Windows via `SetCursorPos`. macOS hardens its idle
+//! counter against synthetic mouse-moved events, so the screen still
+//! locked despite the LED pulsing — leading to the fix above. Windows
+//! generally honoured jiggle, but the supported API is more reliable
+//! + has zero visual blip.
+//!
+//! **Linux:** cursor-jiggle worker remains — the base install has no
+//! equivalent inhibit API. The jiggle is **two** synthetic mouse-move
+//! events spaced 30 ms apart: one to `(x+1, y)`, one back to `(x, y)`.
+//! X11-only — Wayland deliberately denies cursor synth at the protocol
+//! level, so the jiggle is a no-op there (a future
+//! `org.freedesktop.ScreenSaver` D-Bus inhibit would be the proper
+//! Wayland path).
 
 use parking_lot::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -169,7 +176,10 @@ pub fn is_enabled(state: &WakelockState) -> bool {
     state.active.load(Ordering::SeqCst)
 }
 
-#[cfg(not(target_os = "macos"))]
+/// Linux worker — 60 s cursor-jiggle loop. (Linux has no kernel-side
+/// idle-inhibit API in the base install; a future Wayland path would
+/// use `org.freedesktop.ScreenSaver.Inhibit` over D-Bus.)
+#[cfg(target_os = "linux")]
 fn worker(stop: Arc<AtomicBool>) {
     loop {
         // Wait TICK in 200 ms chunks so the stop signal lands within
@@ -201,15 +211,36 @@ fn worker(stop: Arc<AtomicBool>) {
     }
 }
 
-// ── Platform jiggle ────────────────────────────────────────────────────
-// macOS skips the jiggle entirely — `caffeinate` is the supported path.
-// The legacy mod macos below is kept (gated dead) as documentation of
-// the FFI shape, in case a future Win/Linux-style fallback is wanted.
-
+/// Windows worker — engages `SetThreadExecutionState` then idles
+/// waiting for the stop signal. **v0.41.0:** replaces the pre-0.41.0
+/// `SetCursorPos` jiggle. The `ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
+/// ES_SYSTEM_REQUIRED` combination resets the display-idle timer the
+/// screensaver / lock counter watches, and crucially survives
+/// group-policy-managed corporate Windows configurations that disable
+/// synthetic-input idle resets. The flag is **per-thread**, so the
+/// worker must stay alive the entire time wakelock is on — engage on
+/// entry, disengage on exit, sleep in 200 ms chunks in between.
 #[cfg(target_os = "windows")]
-fn jiggle_cursor() {
-    win::jiggle();
+fn worker(stop: Arc<AtomicBool>) {
+    let engaged = win_power::engage();
+    if !engaged {
+        tracing::warn!(
+            "wakelock: SetThreadExecutionState returned 0 (engage failed). \
+             The OS may sleep / lock as usual."
+        );
+    }
+    while !stop.load(Ordering::SeqCst) {
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    // Always release — even if engage returned 0, calling disengage
+    // with just ES_CONTINUOUS is a no-op so it's safe.
+    win_power::disengage();
 }
+
+// ── Platform jiggle ────────────────────────────────────────────────────
+// macOS uses `caffeinate` (no jiggle). Windows uses
+// `SetThreadExecutionState` (no jiggle). Only Linux still jiggles, since
+// the base install lacks an equivalent inhibit API.
 
 #[cfg(target_os = "linux")]
 fn jiggle_cursor() {
@@ -286,9 +317,55 @@ mod macos {
     }
 }
 
-// ── Windows: GetCursorPos + SetCursorPos ───────────────────────────────
+// ── Windows: SetThreadExecutionState (kernel32) ────────────────────────
+//
+// Win32 `SetThreadExecutionState` is the documented way to suppress
+// system + display sleep. The flag is per-thread + sticky until
+// cleared; the worker thread engages on entry and clears on exit.
+//
+// References:
+//   <https://learn.microsoft.com/en-us/windows/win32/api/winbase/nf-winbase-setthreadexecutionstate>
 
 #[cfg(target_os = "windows")]
+mod win_power {
+    // EXECUTION_STATE flags (from `winbase.h`):
+    //   ES_CONTINUOUS         0x80000000  keep the flag set until cleared
+    //   ES_SYSTEM_REQUIRED    0x00000001  forces the system to be in working state
+    //   ES_DISPLAY_REQUIRED   0x00000002  forces the display to be on (resets idle timer)
+    pub const ES_CONTINUOUS: u32 = 0x8000_0000;
+    pub const ES_SYSTEM_REQUIRED: u32 = 0x0000_0001;
+    pub const ES_DISPLAY_REQUIRED: u32 = 0x0000_0002;
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        /// Returns the previous EXECUTION_STATE, or 0 on failure.
+        fn SetThreadExecutionState(es_flags: u32) -> u32;
+    }
+
+    /// Engage the wakelock on the calling thread. Returns `true` if
+    /// the call returned a non-zero previous state (i.e. the OS
+    /// accepted the request).
+    pub fn engage() -> bool {
+        let prev = unsafe {
+            SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED)
+        };
+        prev != 0
+    }
+
+    /// Clear the wakelock on the calling thread. Calling with just
+    /// `ES_CONTINUOUS` cancels any previously-set DISPLAY/SYSTEM
+    /// flags, returning the thread to default behaviour.
+    pub fn disengage() -> bool {
+        let prev = unsafe { SetThreadExecutionState(ES_CONTINUOUS) };
+        prev != 0
+    }
+}
+
+// Legacy Win32 cursor-jiggle — kept (gated dead) as documentation of
+// the FFI shape in case a future fallback wants it.
+
+#[cfg(target_os = "windows")]
+#[allow(dead_code)]
 mod win {
     use std::time::Duration;
     use windows::Win32::Foundation::POINT;

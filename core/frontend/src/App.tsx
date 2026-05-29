@@ -615,6 +615,47 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedIsOpener]);
 
+  // Alt+1…4 while a `pwgen` entry is selected → switch mode, regenerate,
+  // copy + hide popup. Mirrors the existing Alt+Enter → alphanumeric
+  // shortcut but lets the user pick any of the 4 modes directly.
+  //   Alt+1 → all chars
+  //   Alt+2 → alphanumeric (no symbols)
+  //   Alt+3 → dictionary (English words + digit padding)
+  //   Alt+4 → leetspeak
+  // Uses `e.code` (Digit1…4) instead of `e.key` so this still works on
+  // German Mac keyboards where Alt+1 would otherwise type `¡`.
+  const selectedPwgen =
+    combined[selected]?.kind === "pwgen" ? (combined[selected] as Extract<typeof combined[number], { kind: "pwgen" }>) : null;
+  useEffect(() => {
+    if (!selectedPwgen) return;
+    const codeToMode: Record<string, PwgenMode> = {
+      Digit1: "all",
+      Digit2: "alnum",
+      Digit3: "dict",
+      Digit4: "leet",
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat) return;
+      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      const newMode = codeToMode[e.code];
+      if (!newMode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const len = selectedPwgen.data.length;
+      const newPassword = generatePassword(newMode, len);
+      setPwgenMode(newMode);
+      setPwgenSeed((s) => s + 1);
+      void (async () => {
+        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+        await writeText(newPassword);
+        await hidePopup();
+        console.info(`pwgen → Alt+${e.code.slice(-1)} switched to ${newMode} + copied ${len}-char password`);
+      })();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedPwgen]);
+
   // Tab / → autocomplete on a focused `command-suggestion` row. Fills
   // `query` with the suggestion's `completion` (e.g. `rz 1920x1080`)
   // and parks the caret at the end so the user can keep editing

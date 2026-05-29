@@ -312,11 +312,18 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
 
   if (entry.kind === "pwgen") {
     const d = entry.data;
-    const MODES: Array<{ key: "all" | "alnum" | "dict" | "leet"; label: string; hint: string }> = [
-      { key: "all", label: "All chars", hint: "A-Z a-z 0-9 + symbols" },
-      { key: "alnum", label: "Alphanumeric", hint: "A-Z a-z 0-9 (no symbols)" },
-      { key: "dict", label: "Dictionary", hint: "English words + digit padding" },
-      { key: "leet", label: "Leetspeak", hint: "dict words with a→@, e→3, …" },
+    // `digit` matches the global Alt+1…4 listener in App.tsx — keep
+    // the two in sync if reordering or adding modes.
+    const MODES: Array<{
+      key: "all" | "alnum" | "dict" | "leet";
+      label: string;
+      hint: string;
+      digit: 1 | 2 | 3 | 4;
+    }> = [
+      { key: "all", label: "All chars", hint: "A-Z a-z 0-9 + symbols", digit: 1 },
+      { key: "alnum", label: "Alphanumeric", hint: "A-Z a-z 0-9 (no symbols)", digit: 2 },
+      { key: "dict", label: "Dictionary", hint: "English words + digit padding", digit: 3 },
+      { key: "leet", label: "Leetspeak", hint: "dict words with a→@, e→3, …", digit: 4 },
     ];
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
@@ -329,7 +336,10 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
             {d.password}
           </div>
         </div>
-        {/* Mode picker — radio style, currently-active highlighted. */}
+        {/* Mode picker — radio style, currently-active highlighted.
+            Each button shows its Alt+digit shortcut (handled globally
+            in App.tsx → "selectedPwgen" effect: switches mode,
+            regenerates, copies, hides popup in one shot). */}
         <div className="flex flex-col gap-1.5">
           <div className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
             Mode
@@ -341,6 +351,7 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
                 <button
                   key={m.key}
                   onClick={() => onPwgenModeChange?.(m.key)}
+                  title={`Alt+${m.digit} → switch + regenerate + copy`}
                   className={
                     "flex flex-col items-start rounded-md border px-2.5 py-1.5 text-left text-[12px] " +
                     (active
@@ -348,7 +359,12 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
                       : "border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface)]")
                   }
                 >
-                  <span className="font-medium">{m.label}</span>
+                  <div className="flex w-full items-center justify-between gap-2">
+                    <span className="font-medium">{m.label}</span>
+                    <kbd className="rounded bg-[var(--color-bg)] px-1 py-px font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
+                      ⌥{m.digit}
+                    </kbd>
+                  </div>
                   <span className="text-[10px] opacity-80">{m.hint}</span>
                 </button>
               );
@@ -364,7 +380,7 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
             ↻ Regenerate
           </button>
           <span className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ copy · ⌥⏎ alphanumeric + copy
+            ⏎ copy · ⌥1–4 switch mode + copy
           </span>
         </div>
       </div>

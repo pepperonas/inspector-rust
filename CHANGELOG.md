@@ -4,6 +4,56 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] — 2026-05-29
+
+### Added — `pwgen` mode-switch shortcuts (Alt+1…4)
+
+While a `pwgen` row is selected in the popup, **Alt+1…4** switches the generator mode, regenerates the password with the new mode, copies to clipboard, and hides the popup — all in one keypress.
+
+| Shortcut | Mode |
+|---|---|
+| `Alt+1` | All chars (A-Z a-z 0-9 + symbols) |
+| `Alt+2` | Alphanumeric (no symbols) |
+| `Alt+3` | Dictionary (English words + digit padding) |
+| `Alt+4` | Leetspeak (dict + `a→@ e→3 i→1 o→0 s→$ t→7 …`) |
+
+Mirrors the existing `Alt+Enter → alphanumeric + copy` shortcut. Uses `e.code = "Digit1"…"Digit4"` (W3C `KeyboardEvent.code`) not `e.key`, so it still works on German Mac keyboards where Alt+1 would otherwise type `¡`.
+
+The mode-picker buttons in the preview pane now show each mode's `⌥1`-`⌥4` badge.
+
+### Added — configurable popup hotkey (Settings → Popup hotkey)
+
+The global shortcut that opens the search popup is now user-configurable from Settings. Pre-0.43.0 it was hard-coded to `Ctrl+Shift+V`; now any combination `parse_shortcut` accepts will do.
+
+- New section **Settings → Popup hotkey** with `HotkeyCapture` widget + platform-aware preset chips:
+  - macOS: `⌃⇧V (default)`, `⌘⇧V`, `⌘⇧Space`, `⌘J`
+  - Windows: `Ctrl+Shift+V (default)`, `Win+Shift+V`, `Alt+Space`
+  - Linux: `Ctrl+Shift+V (default)`, `Super+V`, `Super+Space`, `Alt+Space`
+- Saved to the existing `settings` table under key `popup.hotkey`; restored at startup.
+- Validation rejects collisions with the still-hard-coded `Ctrl+Shift+O/S/C/F` (OCR / Screenshot / Eyedropper / Finder) + the currently-armed expander hotkey + direct-slot hotkeys. On rejection the **old** hotkey stays armed (no orphaned popup access).
+
+### Not yet — bare-modifier triggers (just ⌘ / Win / Super)
+
+The OS-level global-shortcut plugin requires a non-modifier key, so registering a bare modifier ("just press ⌘ to open") isn't possible through the standard API. Adding it would need a separate `CGEventTap` (macOS) / `SetWindowsHookEx WH_KEYBOARD_LL` (Windows) / `libinput`-based monitor (Linux) and per-platform double-tap-vs-long-press logic. Tracked for a future release if there's demand — for now use any combo with at least one regular key.
+
+### Files
+
+- `core/rust-lib/src/hotkey.rs`:
+  - New `pub struct PopupShortcutState` (Tauri state holding the current `Shortcut`).
+  - New `pub const DEFAULT_POPUP_HOTKEY = "Ctrl+Shift+KeyV"` + `pub const KEY_POPUP_HOTKEY = "popup.hotkey"`.
+  - New `pub fn register_popup(app, state, hotkey)` — collision-check + unregister-old + register-new. Validates against OCR / Screenshot / Eyedropper / Finder / expander / direct slots.
+  - The popup registration is removed from `register(app)` (which now handles only the still-hard-coded globals).
+- `core/rust-lib/src/commands.rs`: 3 new IPCs — `get_popup_hotkey`, `get_popup_hotkey_default`, `set_popup_hotkey`.
+- `core/rust-lib/src/lib.rs`: manages `PopupShortcutState`; on startup, reads from settings (fallback to default) and calls `register_popup`. On failure (e.g. user-customised hotkey now colliding with something) falls back to the default so the popup is always reachable.
+- `core/frontend/src/lib/ipc.ts`: 3 typed wrappers matching the new IPCs.
+- `core/frontend/src/components/SettingsPanel.tsx`: new `PopupHotkeySection` component placed before the Text expander section.
+- `core/frontend/src/App.tsx`: new `selectedPwgen` effect — Alt+1…4 keyboard listener firing only while a pwgen row is selected.
+- `core/frontend/src/components/PreviewPanel.tsx`: pwgen mode buttons now display `⌥1`-`⌥4` badges; bottom hint updated to "`⏎ copy · ⌥1–4 switch mode + copy`".
+
+### Tests
+
+**253 Rust + 430 frontend tests pass.** No new tests added — the pwgen Alt+1-4 path reuses `generatePassword` (already tested), the popup-hotkey IPC path reuses the same code path as the existing `set_expander_config` (already tested via integration).
+
 ## [0.42.1] — 2026-05-29
 
 ### Changed — Transform chip overlay is now press-to-reveal (Cmd/Ctrl held)

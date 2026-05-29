@@ -133,11 +133,13 @@ pub fn run(context: tauri::Context<Wry>) {
             let suppress_hide = ui_state.suppress_hide.clone();
 
             let expander_state = hotkey::ExpanderShortcutState::default();
+            let popup_state = hotkey::PopupShortcutState::default();
 
             app.manage(db_handle.clone());
             app.manage(watcher_state);
             app.manage(ui_state);
             app.manage(expander_state);
+            app.manage(popup_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
             app.manage(timer::TimerRegistry::default());
@@ -160,6 +162,33 @@ pub fn run(context: tauri::Context<Wry>) {
                 tracing::warn!(
                     "global shortcut registration failed: {e:#} — use tray menu or CLI flags (linux/README.md)"
                 );
+            }
+
+            // Popup hotkey — read user-configured string from settings,
+            // fall back to default (Ctrl+Shift+V). Separate from
+            // `hotkey::register` because it's user-configurable + needs
+            // re-registration at runtime from the settings panel.
+            {
+                let stored = settings::get_or(
+                    &db_handle,
+                    hotkey::KEY_POPUP_HOTKEY,
+                    hotkey::DEFAULT_POPUP_HOTKEY,
+                )
+                .unwrap_or_else(|_| hotkey::DEFAULT_POPUP_HOTKEY.to_string());
+                let popup_state = app.state::<hotkey::PopupShortcutState>();
+                if let Err(e) = hotkey::register_popup(&app.handle(), &popup_state, &stored) {
+                    tracing::warn!(
+                        "popup hotkey {stored:?} register failed: {e:#} — \
+                         falling back to default {default}",
+                        default = hotkey::DEFAULT_POPUP_HOTKEY,
+                    );
+                    // Best-effort fallback so the user can still open the popup.
+                    let _ = hotkey::register_popup(
+                        &app.handle(),
+                        &popup_state,
+                        hotkey::DEFAULT_POPUP_HOTKEY,
+                    );
+                }
             }
 
             // Restore the expander hotkey from settings if it was enabled
@@ -289,6 +318,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::import_backup,
             commands::get_expander_config,
             commands::set_expander_config,
+            commands::get_popup_hotkey,
+            commands::set_popup_hotkey,
+            commands::get_popup_hotkey_default,
             commands::trigger_expand_at_cursor,
             commands::diagnose_expand_at_cursor,
             commands::get_direct_slots,

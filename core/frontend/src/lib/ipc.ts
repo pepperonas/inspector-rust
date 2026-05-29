@@ -492,6 +492,27 @@ export function triggerExpandAtCursor(): Promise<void> {
   return invoke("trigger_expand_at_cursor");
 }
 
+// ── Popup hotkey (v0.43.0+) ────────────────────────────────────────────
+
+/** Read the user-configured popup hotkey (or default if never customised). */
+export function getPopupHotkey(): Promise<string> {
+  return invoke("get_popup_hotkey");
+}
+
+/** The hard-coded default hotkey string, useful for "Reset to default" buttons. */
+export function getPopupHotkeyDefault(): Promise<string> {
+  return invoke("get_popup_hotkey_default");
+}
+
+/** Set the popup hotkey. Backend validates against the reserved global
+ *  shortcuts (OCR / Screenshot / Eyedropper / Finder / expander / direct
+ *  slots) and re-registers; nothing is persisted if the new hotkey is
+ *  rejected, so the previous hotkey stays armed. Returns the applied
+ *  hotkey on success; rejects with a descriptive error on collision. */
+export function setPopupHotkey(hotkey: string): Promise<string> {
+  return invoke("set_popup_hotkey", { hotkey });
+}
+
 export interface DiagnoseResult {
   captured: string;
   matched_abbreviation: string | null;

@@ -62,6 +62,19 @@ pub fn parse_shortcut(s: &str) -> Result<Shortcut> {
 
 pub const POPUP_LABEL: &str = "popup";
 
+/// Default popup-show hotkey: `Ctrl+Shift+V` on every platform. The
+/// literal Control (not Cmd on macOS) was the original choice — Cmd+V
+/// is universally taken by paste, so Cmd+Shift+V would collide with
+/// "paste without formatting" in many apps. Settings can override this
+/// to anything `parse_shortcut` accepts (e.g. `Cmd+Space`,
+/// `Alt+Space`, `F19`, …).
+pub const DEFAULT_POPUP_HOTKEY: &str = "Ctrl+Shift+KeyV";
+
+/// Settings key for the user-configured popup hotkey. Stored as the
+/// same `Modifier+...+Code` string format that `parse_shortcut`
+/// accepts. Absent → default applies.
+pub const KEY_POPUP_HOTKEY: &str = "popup.hotkey";
+
 /// Holds the currently-registered expander shortcut (if any), so we can
 /// unregister it cleanly when the user changes it from the settings panel.
 /// Also tracks the direct hotkey→snippet slots. Tauri state.
@@ -73,19 +86,95 @@ pub struct ExpanderShortcutState {
     pub direct: Arc<Mutex<Vec<(Shortcut, i64)>>>,
 }
 
-/// Ctrl+Shift+V global hotkey for the popup.
-pub fn register(app: &AppHandle) -> Result<()> {
-    let popup = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+/// Holds the currently-registered popup-show shortcut so we can swap
+/// it cleanly when the user changes it from Settings. Tauri state.
+#[derive(Default)]
+pub struct PopupShortcutState {
+    pub current: Arc<Mutex<Option<Shortcut>>>,
+}
+
+/// Register the popup-show hotkey from a string. If a previous popup
+/// shortcut was registered, it is unregistered first. Default is
+/// `Ctrl+Shift+V` on every platform (see `DEFAULT_POPUP_HOTKEY`).
+///
+/// Validates that the new hotkey doesn't collide with the hard-coded
+/// global shortcuts (`Ctrl+Shift+O` OCR, `Ctrl+Shift+S` screenshot,
+/// `Ctrl+Shift+C` eyedropper, `Ctrl+Shift+F` Finder) or the
+/// abbreviation expander / direct-slot hotkeys currently registered.
+/// Returns a descriptive `Err` on collision and persists nothing.
+pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str) -> Result<()> {
+    let shortcut = parse_shortcut(hotkey)
+        .with_context(|| format!("could not parse popup hotkey {hotkey:?}"))?;
+
+    // ── Collision check against the still-hard-coded global shortcuts.
+    let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
+    let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
+    let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
+    let finder = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF);
+    let reserved = [
+        (ocr, "OCR region (Ctrl+Shift+O)"),
+        (screenshot, "Screenshot region (Ctrl+Shift+S)"),
+        (color, "Eyedropper (Ctrl+Shift+C)"),
+        (finder, "Finder selection (Ctrl+Shift+F)"),
+    ];
+    for (sc, name) in reserved {
+        if shortcut == sc {
+            return Err(anyhow!(
+                "hotkey {hotkey} is reserved by {name} — pick another"
+            ));
+        }
+    }
+
+    // ── Collision check against the currently-armed expander + direct-slot
+    //    hotkeys (read from the existing ExpanderShortcutState if any).
+    if let Some(exp_state) = app.try_state::<ExpanderShortcutState>() {
+        if let Some(abbr) = *exp_state.current.lock() {
+            if shortcut == abbr {
+                return Err(anyhow!(
+                    "hotkey {hotkey} is bound to the text expander — pick another"
+                ));
+            }
+        }
+        for (sc, _id) in exp_state.direct.lock().iter() {
+            if shortcut == *sc {
+                return Err(anyhow!(
+                    "hotkey {hotkey} is bound to a direct snippet slot — pick another"
+                ));
+            }
+        }
+    }
+
+    // Unregister the previous popup hotkey (if any) only AFTER all
+    // validation passes — that way a rejected change leaves the old
+    // hotkey still working.
+    {
+        let mut current = state.current.lock();
+        if let Some(prev) = current.take() {
+            let _ = app.global_shortcut().unregister(prev);
+        }
+    }
+
     let app_for_popup = app.clone();
     app.global_shortcut()
-        .on_shortcut(popup, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == popup {
+        .on_shortcut(shortcut, move |_app, sc, event| {
+            if event.state == ShortcutState::Pressed && *sc == shortcut {
                 if let Err(e) = toggle_popup(&app_for_popup) {
                     tracing::warn!("toggle_popup failed: {e:#}");
                 }
             }
         })
-        .context("failed to register Ctrl+Shift+V")?;
+        .with_context(|| format!("failed to register popup hotkey {hotkey:?}"))?;
+
+    *state.current.lock() = Some(shortcut);
+    tracing::info!("popup hotkey armed: {hotkey}");
+    Ok(())
+}
+
+/// Register the *other* global hotkeys (OCR, screenshot, eyedropper,
+/// Finder selection). The popup hotkey is configurable + registered
+/// separately via [`register_popup`] — leave this to handle the
+/// hard-coded ones.
+pub fn register(app: &AppHandle) -> Result<()> {
 
     // OCR region — Ctrl+Shift+O on every platform. Literal Control on
     // macOS too (not Cmd): Cmd+Shift+O collides with "Go to Symbol" in

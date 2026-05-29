@@ -1099,6 +1099,38 @@ pub fn set_expander_config(
     })
 }
 
+// ── Popup hotkey ─────────────────────────────────────────────────────────
+
+/// Read the user-configured popup hotkey (or the default if never set).
+#[tauri::command]
+pub fn get_popup_hotkey(db: State<'_, DbHandle>) -> Result<String, String> {
+    settings::get_or(&db, hotkey::KEY_POPUP_HOTKEY, hotkey::DEFAULT_POPUP_HOTKEY)
+        .map_err(map_err)
+}
+
+/// The hard-coded default. Used by the frontend to display "reset" / "default" hints.
+#[tauri::command]
+pub fn get_popup_hotkey_default() -> String {
+    hotkey::DEFAULT_POPUP_HOTKEY.to_string()
+}
+
+/// Set the popup hotkey: validate not colliding with the other globals
+/// (OCR / Screenshot / Eyedropper / Finder / expander / direct slots),
+/// re-register, persist. On any failure (invalid string, collision)
+/// the **old** popup hotkey stays armed — nothing is persisted, so a
+/// user can keep clicking around safely.
+#[tauri::command]
+pub fn set_popup_hotkey(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, hotkey::PopupShortcutState>,
+    hotkey: String,
+) -> Result<String, String> {
+    hotkey::register_popup(&app, &state, &hotkey).map_err(map_err)?;
+    settings::set(&db, hotkey::KEY_POPUP_HOTKEY, &hotkey).map_err(map_err)?;
+    Ok(hotkey)
+}
+
 /// Trigger an expand-at-cursor cycle programmatically (no hotkey press).
 /// Hides the popup first so the synthetic Cmd+Shift+← / Cmd+C / Cmd+V
 /// land in the previously focused app instead of Inspector Rust itself.

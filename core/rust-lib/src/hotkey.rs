@@ -62,6 +62,22 @@ pub fn parse_shortcut(s: &str) -> Result<Shortcut> {
 
 pub const POPUP_LABEL: &str = "popup";
 
+/// Cheap, TCC-free check: is our popup currently visible? Used by the
+/// global hotkey handlers to bail out when the user is interacting with
+/// our own window. **Crucially does not call AppleScript / NSWorkspace
+/// frontmost-app probes**, so it works on a fresh install where Apple
+/// Events ("System Events" automation) hasn't been granted — that grant
+/// is independent from Finder's. Pre-0.43.3 we used
+/// `inspector_rust_is_frontmost_public` which silently returned false
+/// when the System Events grant was missing, leaving the hotkey gate
+/// open and the expander cycle continuing into a spurious AX-permission
+/// banner when the user pressed Alt+1 in the popup.
+fn popup_is_visible(app: &AppHandle) -> bool {
+    app.get_webview_window(POPUP_LABEL)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
+}
+
 /// Default popup-show hotkey: `Ctrl+Shift+V` on every platform. The
 /// literal Control (not Cmd on macOS) was the original choice — Cmd+V
 /// is universally taken by paste, so Cmd+Shift+V would collide with
@@ -353,7 +369,7 @@ pub fn register_expander(
             }
             let app = app_for_handler.clone();
 
-            // **Order matters here.** Inspector-frontmost gate runs BEFORE
+            // **Order matters here.** Popup-visible gate runs BEFORE
             // the accessibility check. If the user has the popup open and
             // hits the expander hotkey — e.g. Alt+1 while a pwgen row is
             // selected — the global expander hotkey fires AND swallows
@@ -364,13 +380,13 @@ pub fn register_expander(
             // frontend can run whatever in-popup handler maps to it
             // (e.g. `Alt+Digit1` → pwgen mode "all").
             //
-            // `inspector_rust_is_frontmost_public` uses NSWorkspace /
-            // AppleScript and doesn't need the Accessibility TCC grant —
-            // works even on a fresh install with no permissions yet.
-            if expander::inspector_rust_is_frontmost_public() {
+            // `popup_is_visible` is a pure Tauri window-state read —
+            // no TCC grant of any kind required. Works on a fresh
+            // install with zero permissions.
+            if popup_is_visible(&app) {
                 tracing::debug!(
-                    "expander hotkey {hotkey_str:?} pressed while Inspector Rust is \
-                     frontmost — forwarding to popup"
+                    "expander hotkey {hotkey_str:?} pressed while popup is visible — \
+                     forwarding to in-popup handler"
                 );
                 let _ = app.emit("expander-hotkey-forwarded", hotkey_str.clone());
                 return;
@@ -509,15 +525,15 @@ pub fn register_direct_slots(
                 }
                 let app = app_h.clone();
                 // Same forwarding as the abbreviation expander: when
-                // Inspector Rust owns focus, the slot's hotkey is most
+                // the popup is visible, the slot's hotkey is most
                 // likely meant for an in-popup handler (e.g. pwgen
                 // Alt+1…4 mode-switch). Don't fire the paste pipeline;
                 // instead emit the hotkey string so the frontend can
-                // route it.
-                if crate::expander::inspector_rust_is_frontmost_public() {
+                // route it. TCC-free check; see `popup_is_visible`.
+                if popup_is_visible(&app) {
                     tracing::debug!(
-                        "direct-slot hotkey {slot_hotkey:?} pressed while Inspector Rust is \
-                         frontmost — forwarding to popup"
+                        "direct-slot hotkey {slot_hotkey:?} pressed while popup visible — \
+                         forwarding to in-popup handler"
                     );
                     let _ = app.emit("expander-hotkey-forwarded", slot_hotkey.clone());
                     return;

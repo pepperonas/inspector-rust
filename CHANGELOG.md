@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.3] — 2026-05-30
+
+### Fixed — frontmost check no longer needs the System Events TCC grant
+
+v0.43.2 still surfaced the "Text expansion failed — Accessibility not granted" banner on Alt+1, even though the bail-out was supposed to short-circuit before the AX check ever ran. Root cause: `inspector_rust_is_frontmost_public` calls AppleScript `tell application "System Events"` to read the frontmost process — which requires the *System Events* Apple Events grant, **separate** from the Finder one. On a fresh install where only Finder automation is granted (or neither), the probe silently returns `None` → the gate evaluates false → handler continues into the AX check → emits `expander-permission-needed` → Settings tab + amber banner.
+
+**Fix:** replace the AppleScript probe with `popup_is_visible(app)` — a pure Tauri `Window::is_visible()` read. Needs zero TCC grants of any kind, works on a brand-new install with no permissions clicked. The "popup visible == we own the user's attention" heuristic is more accurate for our use-case anyway than "frontmost app name matches Inspector Rust"; the popup auto-hides on focus loss, so visibility is a reliable proxy for "user is interacting with us".
+
+Both the expander handler and the direct-slot handler use the new check.
+
+### Files
+
+- `core/rust-lib/src/hotkey.rs`: new `fn popup_is_visible(app)` helper; both `register_expander` + `register_direct_slots` callbacks now gate on it instead of `expander::inspector_rust_is_frontmost_public`.
+
+### Tests
+
+**253 Rust + 430 frontend tests pass.**
+
 ## [0.43.2] — 2026-05-30
 
 ### Fixed — pwgen Alt+1 actually fires now (event-forward through the global hotkey)

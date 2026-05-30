@@ -16,6 +16,7 @@ mod expander;
 mod hotkey;
 mod image_ops;
 mod models;
+mod mrxdown;
 mod notes;
 mod ocr;
 mod paste;

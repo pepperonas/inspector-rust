@@ -127,11 +127,13 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
     let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
     let finder = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF);
+    let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
     let reserved = [
         (ocr, "OCR region (Ctrl+Shift+O)"),
         (screenshot, "Screenshot region (Ctrl+Shift+S)"),
         (color, "Eyedropper (Ctrl+Shift+C)"),
         (finder, "Finder selection (Ctrl+Shift+F)"),
+        (markdown, "Markdown → PDF (Ctrl+Shift+M)"),
     ];
     for (sc, name) in reserved {
         if shortcut == sc {
@@ -326,6 +328,52 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register Finder-selection hotkey")?;
 
+    // Markdown → PDF via mrxdown — Ctrl+Shift+M. Reads the Finder
+    // selection (same osascript path as Ctrl+Shift+F), filters to
+    // `.md`/`.markdown`, shells out to `mrxdown <file>` per file.
+    // Output PDF lands sibling to input (mrxdown's own convention).
+    // Pre-checks `mrxdown` availability via PATH scan so a fresh
+    // install without mrxdown surfaces a clear "not installed"
+    // notification rather than silent failure.
+    //
+    // Worker thread: mrxdown spawns Electron per call (~1-3 s, ~150
+    // MB RSS), so a 10-file batch is ~30 s — way too long for the
+    // global-shortcut callback thread.
+    let markdown = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT),
+        Code::KeyM,
+    );
+    let app_for_markdown = app.clone();
+    app.global_shortcut()
+        .on_shortcut(markdown, move |_app, sc, event| {
+            if event.state != ShortcutState::Pressed || *sc != markdown {
+                return;
+            }
+            let _app = app_for_markdown.clone();
+            std::thread::spawn(move || {
+                let paths = match crate::finder_selection::read() {
+                    Ok(p) => p,
+                    Err(e) => {
+                        tracing::warn!("markdown→pdf: finder selection failed: {e}");
+                        // Still notify so the user knows the hotkey fired.
+                        let summary = crate::mrxdown::ConvertSummary::default();
+                        crate::mrxdown::notify(&summary);
+                        return;
+                    }
+                };
+                let summary = crate::mrxdown::convert_files(&paths);
+                tracing::info!(
+                    "markdown→pdf: {} converted, {} skipped, {} failed (mrxdown_missing={})",
+                    summary.converted.len(),
+                    summary.skipped.len(),
+                    summary.failed.len(),
+                    summary.mrxdown_missing,
+                );
+                crate::mrxdown::notify(&summary);
+            });
+        })
+        .context("failed to register Markdown→PDF hotkey")?;
+
     Ok(())
 }
 
@@ -489,15 +537,22 @@ pub fn register_direct_slots(
     let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
     let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
+    let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
     let abbr_hotkey: Option<Shortcut> = *state.current.lock();
 
     let mut parsed: Vec<(Shortcut, i64)> = Vec::with_capacity(slots.len());
     for slot in slots {
         let sc = parse_shortcut(&slot.hotkey)
             .with_context(|| format!("invalid direct-slot hotkey {:?}", slot.hotkey))?;
-        if sc == popup || sc == ocr || sc == screenshot || sc == color || abbr_hotkey == Some(sc) {
+        if sc == popup
+            || sc == ocr
+            || sc == screenshot
+            || sc == color
+            || sc == markdown
+            || abbr_hotkey == Some(sc)
+        {
             return Err(anyhow!(
-                "hotkey {} is reserved (popup / OCR / screenshot / color picker / text-expander) — pick another",
+                "hotkey {} is reserved (popup / OCR / screenshot / color picker / markdown / text-expander) — pick another",
                 slot.hotkey
             ));
         }

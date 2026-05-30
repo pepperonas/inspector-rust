@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] — 2026-05-30
+
+### Added — `Ctrl+Shift+M` Markdown → PDF via mrxdown
+
+New global hotkey: `Ctrl+Shift+M` reads the current Finder selection (via the same `osascript`-driven path as `Ctrl+Shift+F`), filters to `.md`/`.markdown` files, and shells out to the user-installed `mrxdown` CLI per file. Each PDF lands sibling to its source (`foo.md` → `foo.pdf` in the same directory) — mrxdown's own output convention, so we just pass paths through.
+
+Native macOS notification on completion: `"3 konvertiert"`, `"1 konvertiert, 2 übersprungen"`, `"mrxdown ist nicht installiert"` (the PATH-scan pre-check surfaces this *before* spawning Electron N times). Glass sound on success, Funk sound on any failure.
+
+The hotkey is non-fatal when mrxdown isn't installed — the user gets a clear actionable message instead of silent failure. Helpful for distributing the app to users who might not have mrxdown set up yet.
+
+### Files
+
+- **`core/rust-lib/src/mrxdown.rs`** (new) — `pub fn convert_files(&[PathBuf]) -> ConvertSummary` filters `.md`/`.markdown` extensions, runs `Command::new("mrxdown").arg(path)` per file. `mrxdown_available()` PATH-scans (cross-platform, also probes `.exe`/`.cmd`/`.bat` on Windows). `notify(&summary)` mirrors `timer.rs::notify_visual` pattern (`osascript display notification` + `afplay`). 8 unit tests pin the filter + summary-message invariants without requiring mrxdown to be installed.
+- `core/rust-lib/src/lib.rs` — `mod mrxdown` declaration.
+- `core/rust-lib/src/hotkey.rs`:
+  - `Ctrl+Shift+M` registered in `register(app)` alongside the OCR/Screenshot/Eyedropper/Finder handlers. Worker thread dispatch (mrxdown spawns Electron per call, ~1-3 s).
+  - Added to reserved-list in `register_popup` + `register_direct_slots` collision-check.
+
+### Tests
+
+**261 Rust + 430 frontend tests pass** (+8 new mrxdown unit tests).
+
+### Why 0.44.0
+
+New user-facing hotkey + new external integration → minor bump. No breaking changes; existing hotkeys + IPCs unchanged.
+
 ## [0.43.4] — 2026-05-30
 
 ### Changed — pwgen mode shortcut moves to Cmd/Ctrl+1…4

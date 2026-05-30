@@ -182,7 +182,26 @@ export type ListEntry =
   | { kind: "bruno"; data: BrunoEntryView }
   | { kind: "app"; data: AppEntryView }
   | { kind: "pwgen"; data: PwgenEntryView }
-  | { kind: "bpm"; data: BpmTriggerView };
+  | { kind: "bpm"; data: BpmTriggerView }
+  | { kind: "totp-manage"; data: { label: string } }
+  | { kind: "totp"; data: TotpListView };
+
+/** Single TOTP autocomplete row — shows issuer + account + live
+ *  6-digit code with countdown. Activate (Enter) → code is copied to
+ *  clipboard + popup hides. */
+export interface TotpListView {
+  id: number;
+  issuer: string;
+  account: string;
+  digits: number;
+  period: number;
+  /** Currently-displayed code. Refreshed by the App.tsx polling tick
+   *  while a `totp` row is in `combined`. */
+  code: string;
+  /** Seconds until the code rolls over (0..period). Drives the
+   *  countdown ring in the row. */
+  seconds_remaining: number;
+}
 
 /** Row surfaced when the user types `bpm` exactly. Enter activates
  *  the live BPM detector overlay (`<BpmDetector />`). The view itself

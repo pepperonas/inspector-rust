@@ -439,6 +439,29 @@ export function isBpmTrigger(query: string): boolean {
 }
 
 /**
+ * `2fa` → surface a "2FA / TOTP management" row that on Enter opens
+ * the full overlay (add / import / export / delete entries). Exact
+ * match, whitespace + case tolerant.
+ */
+export function is2faTrigger(query: string): boolean {
+  return query.trim().toLowerCase() === "2fa";
+}
+
+/**
+ * `otp <query>` → autocomplete trigger for TOTP entries. Returns the
+ * trimmed query portion (so `otp ama` → `"ama"`) when the input
+ * starts with `otp` followed by a space; otherwise null.
+ *
+ * Special-case: bare `otp` (no space, no query) returns the empty
+ * string so the autocomplete shows all entries unfiltered.
+ */
+export function parseOtpQuery(query: string): string | null {
+  const m = query.match(/^otp(\s+(.*))?$/i);
+  if (!m) return null;
+  return (m[2] ?? "").trim();
+}
+
+/**
  * Parse the kill command's argument into `{ force, pattern }`.
  * - `kill <pattern>`     → force=false, pattern=<pattern>
  * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>

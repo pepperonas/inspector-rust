@@ -42,6 +42,10 @@ sysinfo = { workspace = true }
 # HTML→PDF (WKWebView on macOS) to keep the whole pipeline standalone
 # (no mrxdown CLI required) without bundling Chromium.
 pulldown-cmark = { version = "0.10", default-features = false, features = ["html"] }
+# TOTP (RFC 6238) generator + otpauth URI parser. Used by the
+# `2fa` overlay / `otp <issuer>` autocomplete (v0.47.0+).
+# ~30 KB binary impact, MIT, well-maintained.
+totp-rs = "5.7"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

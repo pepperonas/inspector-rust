@@ -4,6 +4,110 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.47.0] — 2026-05-30
+
+### Added — 2FA / TOTP manager + `otp <issuer>` autocomplete
+
+Full TOTP (RFC 6238) integration:
+
+- **`otp ama` → live code copied on Enter.** Type `otp` plus a fuzzy
+  query, and the matching entries surface as autocomplete rows at the
+  top of the list with their currently-rolling 6-digit code and
+  seconds-remaining. ↩ copies the code to clipboard + hides the popup.
+- **`2fa` → full-screen management overlay.** List view with live codes
+  + animated countdown rings + per-row copy/delete. Add tab with
+  manual form (Issuer / Account / Secret + advanced digits/period/
+  algorithm toggle). Import/Export tab with paste-and-go for every
+  popular format.
+
+### Supported import formats (autodetected)
+
+| Format | Source |
+|---|---|
+| `otpauth://totp/...` | Single QR-code URI (universal) |
+| `otpauth-migration://offline?data=...` | Google Authenticator bulk export |
+| Aegis JSON (unencrypted) | Android Aegis Authenticator |
+| 2FAS JSON | 2FAS Auth (Android/iOS) |
+| Plain-text URI list (one per line) | manual / scripted exports |
+
+The Google migration format is decoded via a hand-written protobuf
+wire-format reader (no `prost` / `protoc` build-time dependency). All
+parsers live in `core/rust-lib/src/totp_import.rs` and return a
+common `ImportedEntry` shape that flows through the same
+`totp_store::add` path as manual entries.
+
+### Storage + encryption
+
+Secrets are **never** stored in plaintext. Each base32 secret is
+AES-GCM-encrypted via the existing `crate::crypto` (key in macOS
+Keychain via `keyring`) before going into the DB, and decrypted
+on-demand for code generation. The frontend never sees the raw
+secret — only the live code.
+
+DB schema:
+```sql
+CREATE TABLE totp_entries (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    issuer      TEXT NOT NULL,
+    account     TEXT NOT NULL,
+    secret_enc  TEXT NOT NULL,   -- crypto::encrypt(base32 secret)
+    digits      INTEGER NOT NULL DEFAULT 6,
+    period      INTEGER NOT NULL DEFAULT 30,
+    algorithm   TEXT NOT NULL DEFAULT 'SHA1',
+    created_at  INTEGER NOT NULL
+);
+CREATE INDEX idx_totp_issuer ON totp_entries (LOWER(issuer));
+```
+
+Export option dumps all entries as `otpauth://` URIs to the clipboard
+— Plaintext, with a prominent warning in the UI.
+
+### Files
+
+- `core/rust-lib/src/totp_store.rs` (new) — DB schema, CRUD, code
+  generation via `totp-rs`, base32 codec, normalization. 6 unit tests
+  (base32 RFC 4648 vectors, padding tolerance, secret normalization,
+  invalid char rejection, default-options code generation).
+- `core/rust-lib/src/totp_import.rs` (new) — multi-format parsers +
+  format autodetection + export. Hand-written protobuf reader (no
+  `prost`). 11 unit tests cover all four parser families + the
+  protobuf round-trip.
+- `core/rust-lib/src/commands.rs` — 7 new IPCs: `totp_list`,
+  `totp_add`, `totp_delete`, `totp_current_code`,
+  `totp_current_codes_all`, `totp_import`, `totp_export`.
+- `core/rust-lib/Cargo.toml` — added `totp-rs = "5.7"` (MIT, ~30 KB).
+- `core/frontend/src/lib/totp.ts` (new) — `TotpEntry`/`TotpCode`
+  types + `matchTotpEntries(query, entries)` (fuzzy issuer/account
+  matcher with prefix-bonus ranking).
+- `core/frontend/src/lib/ipc.ts` — 7 typed wrappers.
+- `core/frontend/src/lib/types.ts` — new `ListEntry` kinds
+  `"totp-manage"` + `"totp"` with full type info.
+- `core/frontend/src/lib/commands.ts` — `is2faTrigger(query)` +
+  `parseOtpQuery(query)`.
+- `core/frontend/src/components/TotpOverlay.tsx` (new) — three-tab
+  overlay (List / Add / Import-Export). Lives in App.tsx via the same
+  full-screen-takeover pattern as `<BpmDetector />`. 1 s polling for
+  live codes; SVG-based animated countdown ring per row that
+  interpolates locally between server ticks for smooth animation.
+- `core/frontend/src/App.tsx` — `totpMode` state, polling for
+  `otp <query>` autocomplete, activate handler for `totp` (copy
+  code) + `totp-manage` (open overlay) kinds.
+- `core/frontend/src/components/HistoryItem.tsx` — icon + chip + row
+  body for both new kinds; TOTP rows show issuer + account on the
+  left and the big code on the right.
+- `core/frontend/src/components/PreviewPanel.tsx` — preview panels
+  for both new kinds (TOTP shows big code + countdown).
+
+### Tests
+
+**281 Rust + 450 frontend tests pass** (+17 new TOTP tests in Rust).
+
+### Why 0.47.0
+
+Major feature add: new search-bar shortcut family (`otp <query>`),
+new command (`2fa`), new overlay, new DB table, new dependency
+(`totp-rs`), new encryption usage. Minor bump.
+
 ## [0.46.1] — 2026-05-30
 
 ### Fixed — BPM displayed "too fast" for the first ~20 seconds

@@ -159,7 +159,11 @@ export function HistoryList({
                                       ? `pwgen-${entry.data.length}-${entry.data.mode}`
                                       : entry.kind === "bpm"
                                         ? `bpm-trigger`
-                                        : `c-${entry.data.id}`;
+                                        : entry.kind === "totp-manage"
+                                          ? `totp-manage`
+                                          : entry.kind === "totp"
+                                            ? `totp-${entry.data.id}`
+                                            : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

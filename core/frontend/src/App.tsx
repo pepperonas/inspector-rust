@@ -19,9 +19,11 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isGetShakyTrigger,
+  is2faTrigger,
   isBpmTrigger,
   isOpenerTrigger,
   isSpaceInvadersTrigger,
+  parseOtpQuery,
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
@@ -37,6 +39,7 @@ import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BpmDetector } from "./components/BpmDetector";
+import { TotpOverlay } from "./components/TotpOverlay";
 import {
   clearHistory,
   deleteEntry,
@@ -75,6 +78,7 @@ import {
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
+import { matchTotpEntries } from "./lib/totp";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
@@ -99,6 +103,16 @@ function App() {
   // has different lifecycle semantics: audio teardown, mic
   // permission, and Enter-to-start (vs gameMode's type-to-start).
   const [bpmMode, setBpmMode] = useState(false);
+  // 2FA management overlay state (separate from `bpmMode`/`gameMode`
+  // — same fullscreen-takeover pattern but with its own polling
+  // lifecycle for live TOTP codes).
+  const [totpMode, setTotpMode] = useState(false);
+  // Cached TOTP entries + live codes for the `otp <query>` autocomplete.
+  // Polled while the popup is visible so codes stay current in the list.
+  const [totpEntries, setTotpEntries] = useState<import("./lib/totp").TotpEntry[]>([]);
+  const [totpCodes, setTotpCodes] = useState<Map<number, import("./lib/totp").TotpCode>>(
+    new Map(),
+  );
   const [matchingSnippets, setMatchingSnippets] = useState<Snippet[]>([]);
   const [version, setVersion] = useState<string | undefined>(undefined);
   // Sticky banner shown when a paste fails. `"ax"` = macOS Accessibility
@@ -595,6 +609,67 @@ function App() {
     };
   }, [query]);
 
+  // 2FA management trigger — exact `2fa` surfaces a "TOTP management"
+  // row; Enter takes over the popup with the full <TotpOverlay />.
+  const totpManageEntry: ListEntry | null = useMemo(() => {
+    if (!is2faTrigger(query)) return null;
+    return {
+      kind: "totp-manage",
+      data: { label: "2FA · TOTP verwalten" },
+    };
+  }, [query]);
+
+  // `otp <query>` autocomplete: fuzzy-match against issuer/account.
+  // We poll codes once a second while at least one TOTP row is in
+  // the list, so the displayed codes stay current.
+  const otpQuery = parseOtpQuery(query);
+  useEffect(() => {
+    if (otpQuery === null) return;
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const [{ totpList, totpCurrentCodesAll }] = await Promise.all([
+          import("./lib/ipc"),
+        ]);
+        const [entries, codes] = await Promise.all([
+          totpList(),
+          totpCurrentCodesAll(),
+        ]);
+        if (cancelled) return;
+        setTotpEntries(entries);
+        setTotpCodes(new Map(codes.map((c) => [c.id, c])));
+      } catch (e) {
+        if (!cancelled) console.warn("totp poll failed", e);
+      }
+    };
+    void refresh();
+    const interval = setInterval(refresh, 1000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [otpQuery !== null]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const totpAutocompleteEntries: ListEntry[] = useMemo(() => {
+    if (otpQuery === null) return [];
+    const matched = matchTotpEntries(otpQuery, totpEntries);
+    return matched.slice(0, 8).map((e): ListEntry => {
+      const c = totpCodes.get(e.id);
+      return {
+        kind: "totp",
+        data: {
+          id: e.id,
+          issuer: e.issuer,
+          account: e.account,
+          digits: e.digits,
+          period: e.period,
+          code: c?.code ?? "…",
+          seconds_remaining: c?.seconds_remaining ?? 0,
+        },
+      };
+    });
+  }, [otpQuery, totpEntries, totpCodes]);
+
   const combined: ListEntry[] = isKillMode
     ? killTargetEntries
     : [
@@ -603,6 +678,8 @@ function App() {
         ...(brunoEntry ? [brunoEntry] : []),
         ...(pwgenEntry ? [pwgenEntry] : []),
         ...(bpmEntry ? [bpmEntry] : []),
+        ...(totpManageEntry ? [totpManageEntry] : []),
+        ...totpAutocompleteEntries,
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...resizePresetEntries,
@@ -974,6 +1051,21 @@ function App() {
         setBpmMode(true);
         return;
       }
+      // 2FA management overlay — Enter swaps the popup body for the
+      // TOTP manager (list / add / import / export). Esc returns.
+      if (target.kind === "totp-manage") {
+        setTotpMode(true);
+        return;
+      }
+      // TOTP autocomplete row — Enter copies the 6-digit code to
+      // the clipboard + hides the popup (analog to pwgen Enter).
+      if (target.kind === "totp") {
+        const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+        await writeText(target.data.code);
+        await hidePopup();
+        console.info(`totp → copied ${target.data.issuer} code`);
+        return;
+      }
       // pwgen has special Enter semantics: copies the password (no
       // paste — explicit, since the user is rarely typing into a
       // focused-app password field directly from Inspector Rust's
@@ -1255,9 +1347,9 @@ function App() {
       );
     },
     // In game mode the game owns the keyboard — disable the popup nav
-    // handler so Esc / arrows don't double-fire. BPM mode owns it too
-    // (Esc inside the detector calls its own onExit).
-    enabled: !gameMode && !bpmMode,
+    // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
+    // own it too (Esc inside each overlay calls its own onExit).
+    enabled: !gameMode && !bpmMode && !totpMode,
   });
 
   const current = combined[selected] ?? null;
@@ -1302,6 +1394,23 @@ function App() {
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell fade-in flex h-full w-full flex-col">
           <BpmDetector onExit={exitBpm} />
+        </div>
+      </div>
+    );
+  }
+
+  // 2FA management — full overlay with list / add / import / export.
+  if (totpMode) {
+    const exitTotp = () => {
+      setTotpMode(false);
+      setQuery("");
+      setSelected(0);
+      requestAnimationFrame(() => searchRef.current?.focus());
+    };
+    return (
+      <div className="flex h-screen w-screen p-2">
+        <div className="app-shell fade-in flex h-full w-full flex-col">
+          <TotpOverlay onExit={exitTotp} />
         </div>
       </div>
     );

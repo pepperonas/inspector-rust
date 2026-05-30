@@ -310,6 +310,55 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
     );
   }
 
+  if (entry.kind === "totp-manage") {
+    return (
+      <div className="flex h-full flex-col gap-4 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          2FA · TOTP-Manager
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
+          <Zap size={36} className="text-[var(--color-accent)] opacity-80" />
+          <div className="text-[14px] font-semibold">{entry.data.label}</div>
+          <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
+            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the full
+            overlay: alle Einträge mit Live-Code + Countdown, neue
+            Einträge anlegen, importieren (otpauth://, Google
+            Authenticator Migration, Aegis JSON, 2FAS JSON), exportieren.
+          </div>
+          <div className="text-[10px] text-[var(--color-muted)]">
+            Secrets sind in der SQLite-DB AES-GCM-verschlüsselt;
+            Schlüssel liegt im macOS Keychain.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "totp") {
+    const e = entry.data;
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          TOTP · {e.digits} digits · {e.period}s period
+        </div>
+        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+          <div className="break-all font-[var(--font-mono)] text-[36px] font-bold tracking-[0.15em] tabular-nums">
+            {e.code}
+          </div>
+        </div>
+        <div className="flex flex-col gap-1 text-[13px]">
+          <div>
+            <b>{e.issuer || "(no issuer)"}</b>
+          </div>
+          {e.account && <div className="text-[var(--color-muted)]">{e.account}</div>}
+        </div>
+        <div className="mt-auto text-[11px] text-[var(--color-muted)]">
+          {e.seconds_remaining}s until next code · ⏎ kopiert in die Zwischenablage
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "bpm") {
     return (
       <div className="flex h-full flex-col gap-4 p-4">

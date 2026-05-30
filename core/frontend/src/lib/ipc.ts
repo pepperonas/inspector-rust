@@ -492,6 +492,54 @@ export function triggerExpandAtCursor(): Promise<void> {
   return invoke("trigger_expand_at_cursor");
 }
 
+// ── TOTP / 2FA (v0.47.0+) ──────────────────────────────────────────────
+
+import type { TotpCode, TotpEntry } from "./totp";
+
+export function totpList(): Promise<TotpEntry[]> {
+  return invoke("totp_list");
+}
+
+export function totpAdd(args: {
+  issuer: string;
+  account: string;
+  secret: string;
+  digits?: number;
+  period?: number;
+  algorithm?: string;
+}): Promise<TotpEntry> {
+  return invoke("totp_add", args);
+}
+
+export function totpDelete(id: number): Promise<void> {
+  return invoke("totp_delete", { id });
+}
+
+export function totpCurrentCode(id: number): Promise<{ code: string; seconds_remaining: number }> {
+  return invoke("totp_current_code", { id });
+}
+
+/** Polling helper for the management overlay — one IPC fetches every
+ *  entry's code in one round-trip. */
+export function totpCurrentCodesAll(): Promise<TotpCode[]> {
+  return invoke("totp_current_codes_all");
+}
+
+export interface TotpImportResult {
+  added: number;
+  error: string | null;
+}
+
+export function totpImport(input: string): Promise<TotpImportResult> {
+  return invoke("totp_import", { input });
+}
+
+/** Returns a newline-separated list of `otpauth://` URIs. Plaintext —
+ *  the user is responsible for storing safely. */
+export function totpExport(): Promise<string> {
+  return invoke("totp_export");
+}
+
 // ── Popup hotkey (v0.43.0+) ────────────────────────────────────────────
 
 /** Read the user-configured popup hotkey (or default if never customised). */

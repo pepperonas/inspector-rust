@@ -1131,6 +1131,127 @@ pub fn set_popup_hotkey(
     Ok(hotkey)
 }
 
+// ── TOTP (2FA) ──────────────────────────────────────────────────────────
+
+/// List all TOTP entries (without the secret). Sorted by issuer.
+#[tauri::command]
+pub fn totp_list(db: State<'_, DbHandle>) -> Result<Vec<crate::totp_store::TotpEntry>, String> {
+    crate::totp_store::list(&db).map_err(map_err)
+}
+
+/// Add a new TOTP entry. Secret is base32-encoded per RFC 4648 (the
+/// format every authenticator QR code uses). Defaults: 6 digits, 30s, SHA1.
+#[tauri::command]
+pub fn totp_add(
+    db: State<'_, DbHandle>,
+    issuer: String,
+    account: String,
+    secret: String,
+    digits: Option<u32>,
+    period: Option<u32>,
+    algorithm: Option<String>,
+) -> Result<crate::totp_store::TotpEntry, String> {
+    crate::totp_store::add(
+        &db,
+        &issuer,
+        &account,
+        &secret,
+        digits.unwrap_or(6),
+        period.unwrap_or(30),
+        &algorithm.unwrap_or_else(|| "SHA1".into()),
+    )
+    .map_err(map_err)
+}
+
+#[tauri::command]
+pub fn totp_delete(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+    crate::totp_store::delete(&db, id).map_err(map_err)
+}
+
+/// Current code + seconds-until-next-roll for a single entry.
+#[tauri::command]
+pub fn totp_current_code(
+    db: State<'_, DbHandle>,
+    id: i64,
+) -> Result<crate::totp_store::TotpCode, String> {
+    crate::totp_store::current_code(&db, id).map_err(map_err)
+}
+
+/// Current codes for every entry in one shot — the management
+/// overlay polls this once a second instead of N IPCs.
+#[tauri::command]
+pub fn totp_current_codes_all(
+    db: State<'_, DbHandle>,
+) -> Result<Vec<TotpCodeEntry>, String> {
+    let codes = crate::totp_store::current_codes_all(&db).map_err(map_err)?;
+    Ok(codes
+        .into_iter()
+        .map(|(id, c)| TotpCodeEntry {
+            id,
+            code: c.code,
+            seconds_remaining: c.seconds_remaining,
+        })
+        .collect())
+}
+
+#[derive(serde::Serialize)]
+pub struct TotpCodeEntry {
+    pub id: i64,
+    pub code: String,
+    pub seconds_remaining: u32,
+}
+
+/// Import TOTP entries from any of the supported formats (otpauth://,
+/// otpauth-migration://, Aegis JSON, 2FAS JSON, plaintext URI list).
+/// Per-entry failures are silently dropped — the count of successes
+/// is what the UI reports.
+#[derive(serde::Serialize)]
+pub struct TotpImportResult {
+    pub added: usize,
+    pub error: Option<String>,
+}
+
+#[tauri::command]
+pub fn totp_import(
+    db: State<'_, DbHandle>,
+    input: String,
+) -> Result<TotpImportResult, String> {
+    let parsed = match crate::totp_import::import_auto(&input) {
+        Ok(p) => p,
+        Err(e) => {
+            return Ok(TotpImportResult {
+                added: 0,
+                error: Some(format!("{e:#}")),
+            });
+        }
+    };
+    let mut added = 0usize;
+    for entry in parsed {
+        match crate::totp_store::add(
+            &db,
+            &entry.issuer,
+            &entry.account,
+            &entry.secret_base32,
+            entry.digits,
+            entry.period,
+            &entry.algorithm,
+        ) {
+            Ok(_) => added += 1,
+            Err(e) => tracing::warn!("totp_import: skipping entry {entry:?}: {e:#}"),
+        }
+    }
+    Ok(TotpImportResult { added, error: None })
+}
+
+/// Export all entries as a newline-separated list of `otpauth://`
+/// URIs. **Plaintext** — the user must understand they're holding the
+/// crown jewels of their 2FA. UI hint says so.
+#[tauri::command]
+pub fn totp_export(db: State<'_, DbHandle>) -> Result<String, String> {
+    let uris = crate::totp_import::export_otpauth_uris(&db).map_err(map_err)?;
+    Ok(uris.join("\n"))
+}
+
 /// Trigger an expand-at-cursor cycle programmatically (no hotkey press).
 /// Hides the popup first so the synthetic Cmd+Shift+← / Cmd+C / Cmd+V
 /// land in the previously focused app instead of Inspector Rust itself.

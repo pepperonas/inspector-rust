@@ -29,6 +29,8 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
   if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "bpm") return <Activity size={size} className={cls} />;
+  if (entry.kind === "totp-manage") return <KeyRound size={size} className={cls} />;
+  if (entry.kind === "totp") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "app") {
     return (
       <AppIcon
@@ -77,12 +79,14 @@ export const HistoryItem = memo(function HistoryItem({
   const isApp = entry.kind === "app";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
+  const isTotpManage = entry.kind === "totp-manage";
+  const isTotp = entry.kind === "totp";
   const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isFinderFile
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -224,6 +228,30 @@ export const HistoryItem = memo(function HistoryItem({
       title="Live BPM detector — listens to the microphone"
     >
       bpm
+    </span>
+  ) : isTotpManage ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="2FA / TOTP management overlay"
+    >
+      2fa
+    </span>
+  ) : isTotp ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="TOTP code — ⏎ copies"
+    >
+      otp
     </span>
   ) : (
     (() => {
@@ -441,6 +469,39 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               ⏎ Listen to mic + detect BPM live · Esc to exit
+            </span>
+          </span>
+        ) : isTotpManage && entry.kind === "totp-manage" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.label}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Liste, Add, Import, Export · Esc to exit
+            </span>
+          </span>
+        ) : isTotp && entry.kind === "totp" ? (
+          <span className="flex flex-1 items-center gap-3">
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate font-semibold">
+                {entry.data.issuer || "(no issuer)"}
+              </span>
+              {entry.data.account && (
+                <span
+                  className={
+                    "truncate text-[11px] " +
+                    (selected ? "text-white/70" : "text-[var(--color-muted)]")
+                  }
+                >
+                  {entry.data.account} · {entry.data.seconds_remaining}s remaining · ⏎ kopiert Code
+                </span>
+              )}
+            </span>
+            <span className="shrink-0 font-[var(--font-mono)] text-[16px] font-semibold tabular-nums tracking-[0.1em]">
+              {entry.data.code}
             </span>
           </span>
         ) : isApp && entry.kind === "app" ? (

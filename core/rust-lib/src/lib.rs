@@ -19,6 +19,8 @@ mod md_to_pdf;
 mod models;
 mod notes;
 mod ocr;
+mod totp_import;
+mod totp_store;
 mod paste;
 mod recolor;
 mod input_lock;
@@ -96,6 +98,7 @@ pub fn run(context: tauri::Context<Wry>) {
             snippets::init_table(&db_handle)?;
             notes::init_table(&db_handle)?;
             settings::init_table(&db_handle)?;
+            totp_store::init_table(&db_handle)?;
 
             // One-shot migration: rewrite any pre-encryption rows in
             // place so the next read paths through the cipher cleanly.
@@ -322,6 +325,13 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,
+            commands::totp_list,
+            commands::totp_add,
+            commands::totp_delete,
+            commands::totp_current_code,
+            commands::totp_current_codes_all,
+            commands::totp_import,
+            commands::totp_export,
             commands::trigger_expand_at_cursor,
             commands::diagnose_expand_at_cursor,
             commands::get_direct_slots,

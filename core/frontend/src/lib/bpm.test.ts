@@ -101,11 +101,12 @@ describe("BpmAnalyzer", () => {
 
   it("beatJustFired is true exactly once per beat", () => {
     const a = new BpmAnalyzer();
-    // Baseline.
-    for (let t = 0; t < 500; t += 10) a.push(chunk(0.02), t);
+    // Baseline long enough to open the v0.46.1 calibration gate
+    // (AVG_WINDOW_MS=3000).
+    for (let t = 0; t < 3000; t += 10) a.push(chunk(0.02), t);
     let fires = 0;
-    const beats = [500, 1000, 1500, 2000, 2500];
-    for (let t = 500; t <= 2500; t += 10) {
+    const beats = [3000, 3500, 4000, 4500, 5000];
+    for (let t = 3000; t <= 5000; t += 10) {
       const isBeat = beats.includes(t);
       a.push(chunk(isBeat ? 0.5 : 0.02), t);
       if (a.estimate(t).beatJustFired) fires++;
@@ -115,17 +116,15 @@ describe("BpmAnalyzer", () => {
 
   it("respects the refractory period (no double-trigger inside it)", () => {
     const a = new BpmAnalyzer();
-    for (let t = 0; t < 500; t += 10) a.push(chunk(0.02), t);
-    // Two loud chunks 100 ms apart (well under the 250 ms refractory).
-    a.push(chunk(0.6), 600);
-    a.push(chunk(0.6), 700);
+    // Baseline long enough for the calibration gate.
+    for (let t = 0; t < 3000; t += 10) a.push(chunk(0.02), t);
+    // Two loud chunks 100 ms apart (well under the 300 ms refractory).
+    a.push(chunk(0.6), 3050);
+    a.push(chunk(0.6), 3150);
     // Only the first should count.
     let fires = 0;
-    if (a.estimate(600).beatJustFired) fires++;
-    if (a.estimate(700).beatJustFired) fires++;
-    // The 700 ms push set justFiredBeat=false because of refractory;
-    // estimate consumes the edge, so the count is 1 if push@600 set
-    // it (correct) and push@700 didn't.
+    if (a.estimate(3050).beatJustFired) fires++;
+    if (a.estimate(3150).beatJustFired) fires++;
     expect(fires).toBeLessThanOrEqual(1);
   });
 
@@ -187,6 +186,36 @@ describe("BpmAnalyzer.estimate — stale-reset", () => {
       analyzer.push(chunk(0.02), t);
     }
     expect(analyzer.estimate(16_000).bpm).toBe(0);
+  });
+});
+
+describe("BpmAnalyzer.push — baseline-calibration gate", () => {
+  it("doesn't fire onsets while the energy moving-average is still filling", () => {
+    // Worst-case startup: 1 s of quiet background, then sudden loud
+    // music. Pre-v0.46.1 this fired a burst of false onsets pinned
+    // to the refractory floor (300 ms ≈ 200 BPM) because the avg
+    // was still biased toward the quiet baseline.
+    const a = new BpmAnalyzer();
+    for (let t = 0; t < 1000; t += 10) a.push(chunk(0.005), t);
+    for (let t = 1000; t < 2500; t += 10) a.push(chunk(0.5), t);
+    // At t=2500 we're well inside AVG_WINDOW_MS=3000 → gate still
+    // closed → no estimates exist yet.
+    const early = a.estimate(2500);
+    expect(early.bpm).toBe(0);
+    expect(early.confidence).toBe(0);
+  });
+
+  it("starts firing estimates once the baseline window is full", () => {
+    const a = new BpmAnalyzer();
+    // 120 BPM beats for 6 seconds. The gate opens at t=3000, so we
+    // get 3 seconds of valid onset accumulation by t=6000.
+    for (let t = 0; t < 6000; t += 10) {
+      const isBeat = t % 500 === 0;
+      a.push(chunk(isBeat ? 0.5 : 0.02), t);
+    }
+    const est = a.estimate(6000);
+    expect(est.bpm).toBeGreaterThan(115);
+    expect(est.bpm).toBeLessThan(125);
   });
 });
 

@@ -147,8 +147,26 @@ export class BpmAnalyzer {
       this.energyHistory.shift();
     }
 
-    // Need at least a few chunks before the moving average is meaningful.
-    if (this.energyHistory.length < 4) return;
+    // **Baseline-calibration gate.** Without this, the moving-average
+    // threshold is biased low for the first 1-3 seconds (history full
+    // of quiet startup chunks) — every loud chunk then exceeds
+    // `avg × THRESHOLD` and a burst of false onsets fires pinned to
+    // the refractory floor (300 ms ≈ 200 BPM). Those bad onsets pollute
+    // the IOI window AND the display history mean for ~15-20 s until
+    // they age out, which was the user-visible "too fast for the first
+    // 20 seconds" bug (v0.46.1).
+    //
+    // Wait until the energy buffer actually covers the full
+    // `AVG_WINDOW_MS` so the threshold is calibrated against real
+    // music-level baseline before we let any onset through. Cost: ~3 s
+    // delay before the first onset can fire, vs ~15-20 s of wrong
+    // readings the old gate produced. Net: massive UX win.
+    if (
+      this.energyHistory.length === 0 ||
+      nowMs - this.energyHistory[0].time < BPM_CONFIG.AVG_WINDOW_MS
+    ) {
+      return;
+    }
 
     const avg =
       this.energyHistory.reduce((s, e) => s + e.energy, 0) /

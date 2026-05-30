@@ -293,7 +293,7 @@ export function BpmDetector({ onExit }: Props) {
             <div className="flex flex-col items-center gap-2">
               <div className="text-[11px] text-[var(--color-muted)]">
                 {state.estimate.bpm === 0
-                  ? "Listening… spiele Musik in das Mikrofon"
+                  ? "Listening… (Baseline-Kalibrierung ~3s, dann lock-in)"
                   : `4-Sekunden-Mittel · Confidence: ${Math.round(state.estimate.confidence * 100)}%`}
               </div>
               <ConfidenceBar value={state.estimate.confidence} />

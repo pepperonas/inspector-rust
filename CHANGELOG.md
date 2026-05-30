@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.1] — 2026-05-30
+
+### Fixed — BPM displayed "too fast" for the first ~20 seconds
+
+User report after 0.45.2 landed: BPM detection is accurate after about 20 seconds but shows clearly too-high values before that. Root cause traced to a single overly-lax guard in `bpm.ts::push`:
+
+```ts
+if (this.energyHistory.length < 4) return;   // ← way too short
+```
+
+The energy moving-average baseline is supposed to cover `AVG_WINDOW_MS = 3000 ms` so the per-chunk threshold (`avg × 1.4`) reflects real music-level baseline. The old guard only required 4 chunks (≈ 67 ms at 60 Hz rAF). The avg was therefore biased to whatever ambient / silence was at startup. As soon as music kicked in, EVERY chunk exceeded `avg × 1.4` → a burst of false onsets fired pinned to the refractory floor (300 ms ≈ 200 BPM) → IOI median locked at 200 → display showed 200 BPM. Those bad onsets then needed ~6 s to age out of the IOI window and another ~4 s to age out of the display mean → user-visible "wrong for ~15-20 s" before the system recovered.
+
+**Fix:** replace the chunk-count guard with a duration guard — don't allow onsets until the energy history actually spans `AVG_WINDOW_MS`. Costs ~3 s of "Listening…" before the first BPM appears (vs ~15-20 s of wrong readings). Net UX win.
+
+UI sub-label also updated: `"Listening… (Baseline-Kalibrierung ~3s, dann lock-in)"` so the user knows the 3-second wait is expected, not a bug.
+
+### Files
+
+- `core/frontend/src/lib/bpm.ts` — replaced `energyHistory.length < 4` with `nowMs - energyHistory[0].time < AVG_WINDOW_MS`.
+- `core/frontend/src/components/BpmDetector.tsx` — listening sub-label mentions the 3-second baseline calibration.
+- `core/frontend/src/lib/bpm.test.ts` — 2 new tests assert (a) no onsets fire while the gate is closed (silence-then-music worst case) and (b) estimates start firing once the gate opens. Existing tests adjusted to push 3 s of baseline before injecting onsets.
+
+### Tests
+
+**264 Rust + 450 frontend tests pass.**
+
 ## [0.46.0] — 2026-05-30
 
 ### Changed — Markdown → PDF is now fully standalone (no mrxdown CLI required)

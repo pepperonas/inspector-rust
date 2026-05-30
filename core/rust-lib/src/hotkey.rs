@@ -328,17 +328,18 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register Finder-selection hotkey")?;
 
-    // Markdown → PDF via mrxdown — Ctrl+Shift+M. Reads the Finder
+    // Markdown → PDF (standalone) — Ctrl+Shift+M. Reads the Finder
     // selection (same osascript path as Ctrl+Shift+F), filters to
-    // `.md`/`.markdown`, shells out to `mrxdown <file>` per file.
-    // Output PDF lands sibling to input (mrxdown's own convention).
-    // Pre-checks `mrxdown` availability via PATH scan so a fresh
-    // install without mrxdown surfaces a clear "not installed"
-    // notification rather than silent failure.
+    // `.md`/`.markdown`, converts each via in-process pulldown-cmark
+    // (MD→HTML) + WKWebView createPDF (HTML→PDF). Output PDF lands
+    // sibling to input (`foo.md` → `foo.pdf` in same dir). v0.46.0+:
+    // no external mrxdown CLI required.
     //
-    // Worker thread: mrxdown spawns Electron per call (~1-3 s, ~150
-    // MB RSS), so a 10-file batch is ~30 s — way too long for the
-    // global-shortcut callback thread.
+    // Worker thread reads selection + filter; the actual WKWebView
+    // render then dispatches back to the **main thread** via
+    // `app.run_on_main_thread` because WebKit asserts main-thread.
+    // ~50-300 ms per file is a brief UI freeze for the duration of
+    // the batch; acceptable for an explicit one-shot hotkey action.
     let markdown = Shortcut::new(
         Some(Modifiers::CONTROL | Modifiers::SHIFT),
         Code::KeyM,
@@ -349,27 +350,43 @@ pub fn register(app: &AppHandle) -> Result<()> {
             if event.state != ShortcutState::Pressed || *sc != markdown {
                 return;
             }
-            let _app = app_for_markdown.clone();
+            let app = app_for_markdown.clone();
             std::thread::spawn(move || {
                 let paths = match crate::finder_selection::read() {
                     Ok(p) => p,
                     Err(e) => {
                         tracing::warn!("markdown→pdf: finder selection failed: {e}");
-                        // Still notify so the user knows the hotkey fired.
-                        let summary = crate::mrxdown::ConvertSummary::default();
-                        crate::mrxdown::notify(&summary);
+                        let summary = crate::md_to_pdf::ConvertSummary::default();
+                        crate::md_to_pdf::notify(&summary);
                         return;
                     }
                 };
-                let summary = crate::mrxdown::convert_files(&paths);
+
+                // Convert on the main thread (WebKit / AppKit requirement)
+                // via a oneshot channel — keeps the conversion synchronous
+                // from the worker's POV while letting the AppKit run loop
+                // service the WKWebView createPDF callbacks.
+                let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
+                let _ = app.run_on_main_thread(move || {
+                    let summary = crate::md_to_pdf::convert_files(&paths);
+                    let _ = tx.send(summary);
+                });
+                let summary = match rx.recv() {
+                    Ok(s) => s,
+                    Err(e) => {
+                        tracing::warn!("markdown→pdf: main-thread channel: {e}");
+                        crate::md_to_pdf::ConvertSummary::default()
+                    }
+                };
+
                 tracing::info!(
-                    "markdown→pdf: {} converted, {} skipped, {} failed (mrxdown_missing={})",
+                    "markdown→pdf: {} converted, {} skipped, {} failed (backend_unavailable={})",
                     summary.converted.len(),
                     summary.skipped.len(),
                     summary.failed.len(),
-                    summary.mrxdown_missing,
+                    summary.backend_unavailable,
                 );
-                crate::mrxdown::notify(&summary);
+                crate::md_to_pdf::notify(&summary);
             });
         })
         .context("failed to register Markdown→PDF hotkey")?;

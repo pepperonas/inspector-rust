@@ -36,6 +36,12 @@ ort = { workspace = true }
 ndarray = { workspace = true }
 oxipng = { workspace = true }
 sysinfo = { workspace = true }
+# Markdown parser for the standalone Markdown → PDF feature (v0.46.0+).
+# Pulldown-cmark is the CommonMark + GFM reference for Rust — pure,
+# ~150 KB binary impact, zero unsafe. We pair it with platform-native
+# HTML→PDF (WKWebView on macOS) to keep the whole pipeline standalone
+# (no mrxdown CLI required) without bundling Chromium.
+pulldown-cmark = { version = "0.10", default-features = false, features = ["html"] }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

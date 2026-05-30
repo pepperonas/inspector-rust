@@ -4,6 +4,63 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.46.0] — 2026-05-30
+
+### Changed — Markdown → PDF is now fully standalone (no mrxdown CLI required)
+
+Pre-0.46.0 `Ctrl+Shift+M` shelled out to the `mrxdown` Electron CLI to do the actual MD→PDF conversion. If mrxdown wasn't installed, the hotkey surfaced a "not installed" notification and did nothing. Now the whole pipeline runs in-process — every macOS install of Inspector Rust can convert Markdown to PDF, zero extra dependencies.
+
+### Pipeline
+
+```
+.md / .markdown
+   │
+   │  pulldown-cmark::Parser
+   │  (CommonMark + GFM tables + strikethrough + task-lists
+   │   + footnotes + smart-punctuation)
+   ▼
+self-contained HTML doc with embedded GitHub-flavored CSS
+   │
+   │  WKWebView.createPDF (Apple's own Chromium-equivalent renderer)
+   │  ↳ runs on main thread (WebKit requirement, dispatched via
+   │    `app.run_on_main_thread`)
+   ▼
+.pdf next to source (foo.md → foo.pdf, same dir)
+```
+
+The CSS template is a GitHub-flavored Markdown-inspired stylesheet baked into the Rust binary: sober typography, syntax-highlighted code blocks (background-tinted), bordered tables with striped rows, `@media print` rules that tighten margins + prevent code/tables from breaking across pages. No external resources (no web fonts, no CDN CSS) so the renderer never needs network access.
+
+Output PDF quality is comparable to mrxdown for plain markdown. KaTeX math + syntax-highlighting (syntect) are roadmap items for a future release if there's demand.
+
+### Why WKWebView (not Chromium / wkhtmltopdf / weasyprint)
+
+We're already in a Tauri app — WKWebView is the same engine that renders the popup UI, so we get Chromium-equivalent layout + CSS support **without bundling 100 MB of Chromium**. `createPDF` has been the Apple-blessed HTML→PDF API since macOS 11 (Big Sur, 2020), used by Safari's "Save as PDF…" itself.
+
+### Files
+
+- `core/rust-lib/src/md_to_pdf.rs` (renamed from `mrxdown.rs`):
+  - `pub fn render_html(md) -> String` — pulldown-cmark + HTML template. Pure, deterministic, testable in isolation.
+  - `pub fn convert_files(paths) -> ConvertSummary` — filters md, calls platform `write_pdf` per file. New `backend_unavailable` flag for Win/Linux fallback.
+  - `mod macos` — raw `objc2`-based FFI to WKWebView + WKWebViewConfiguration + createPDFWithConfiguration:completionHandler:. CFRunLoop pumping between async stages (load, then PDF). Pure raw FFI to keep dependencies slim — no `objc2-web-kit` crate added.
+- `core/rust-lib/src/hotkey.rs` — `Ctrl+Shift+M` handler now dispatches the conversion to the main thread via `app.run_on_main_thread` + oneshot channel (WebKit/AppKit assertion: main thread only). Per-file is brief (~50-300 ms) but a batch of 10 files briefly freezes the UI for the duration of the batch — acceptable trade-off for not bundling Chromium.
+- `core/rust-lib/Cargo.toml` — new dep `pulldown-cmark = "0.10"` (~150 KB, zero unsafe, pure Rust, MIT).
+- 11 unit tests in `md_to_pdf.rs`: filter behavior, sibling-path mapping, HTML rendering correctness (tables, strikethrough, task-lists, code blocks with language class), notification message variants including the new `backend_unavailable` case.
+
+### What this does NOT solve
+
+- **Windows + Linux not yet**: hotkey fires + notification reads "Markdown → PDF: macOS-only in v0.46.0 (Win + Linux folgen)". The architecture is set up to slot in `WebView2.PrintToPdfAsync` (Windows) + `webkit_print_operation_print_to_pdf` (Linux) — modules go behind the existing `cfg(target_os)` gate. Estimate: ~half a day per platform.
+- **No KaTeX math** — mrxdown supports `$inline$` / `$$display$$`. To match, we'd embed KaTeX's ~300 KB JS lib in the rendered HTML. Doable, separate release.
+- **No syntect / Prism syntax highlighting** — code blocks get a language-class attribute but no per-token coloring. Same story: embed a JS highlighter or pre-render via `syntect` crate.
+- **No PDF template / theme picker** — single default theme (the embedded CSS). mrxdown's frontmatter `pdfTemplate` is not honored.
+
+### Tests
+
+**264 Rust + 448 frontend tests pass** (+3 new HTML-rendering tests, retaining the existing filter / notification tests).
+
+### Why 0.46.0
+
+Major feature swap on a tier-1 platform (standalone → no external dependency). UX is identical from the user's perspective (same hotkey, same output convention), but the dependency footprint goes from "needs mrxdown installed" to "works on any macOS 11+ install". Minor bump.
+
 ## [0.45.2] — 2026-05-30
 
 ### Changed — narrower bass filter + 4-second display mean

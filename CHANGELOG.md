@@ -4,6 +4,34 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.2] — 2026-05-30
+
+### Changed — narrower bass filter + 4-second display mean
+
+User feedback after 0.45.1 landed: BPM detection now locks correctly but (a) wants the high frequencies filtered out more, and (b) wants the displayed value to be properly averaged over a few seconds instead of updating per beat.
+
+### Audio filter — 30-100 Hz bandpass
+
+Replaced the single `lowpass(150 Hz, Q=1)` BiquadFilter with a cascade of `highpass(30 Hz, Q=0.7)` + `lowpass(100 Hz, Q=1.5)`. Effectively a 30-100 Hz bandpass — the prime kick-drum range (sub 30-50, fundamental 60-90, body 100). Vocals start at ~200 Hz, snare attack at 200 Hz+, hi-hats at 5 kHz+: all way outside the passband, so they no longer pollute the RMS envelope. Q=1.5 on the lowpass gives a small resonance bump at the kick fundamental — built-in boost where it matters. Highpass at 30 Hz cuts room rumble + BT-speaker low-end thump.
+
+### Display — 4-second rolling mean
+
+Replaced the EMA smoothing (α=0.12) on `smoothedBpm` with an explicit time-bounded mean of raw per-onset estimates over the last `DISPLAY_AVG_WINDOW_MS = 4000` ms. Each raw IOI-based estimate goes into a sliding history; the displayed value is the arithmetic mean of that history. Consecutive identical estimates are deduped so the rAF loop (60×/sec) doesn't oversample the same value between onsets.
+
+At 120 BPM (~2 onsets/sec) the window holds ~8 raw estimates → reads "average tempo over the last few seconds", which is exactly what the user asked for. The number stops jumping per-beat; it stabilizes within ~6-8 seconds of locking on and only moves when the genuine average tempo moves.
+
+Octave-snap + stale-reset from v0.45.1 still apply on top — display drops to "—" after 4 s of silence; rogue half/double IOIs get snapped to the locked octave before being averaged in.
+
+### Files
+
+- `core/frontend/src/lib/bpm.ts`: removed `SMOOTHING_ALPHA` config + `smoothedBpm` field. Added `DISPLAY_AVG_WINDOW_MS` config + `rawBpmHistory: Array<{time, bpm}>` + `displayBpm` field. `estimate()` now records each raw estimate (deduped) into the history, trims to window, and returns the mean.
+- `core/frontend/src/components/BpmDetector.tsx`: cascaded `highpass(30 Hz) → lowpass(100 Hz, Q=1.5)` filter chain in the audio graph. Display sub-label now reads "4-Sekunden-Mittel · Confidence: N%".
+- `core/frontend/src/components/PreviewPanel.tsx`: explainer updated to mention the bandpass + rolling-mean approach.
+
+### Tests
+
+`bpm.test.ts` unchanged for accuracy tests (windowed mean of a single estimate is just that estimate). Config-shape tests updated to assert `DISPLAY_AVG_WINDOW_MS` is in the 3-5 s range. **261 Rust + 448 frontend tests pass.**
+
 ## [0.45.1] — 2026-05-30
 
 ### Fixed — BPM detector stability + honest stale-reset

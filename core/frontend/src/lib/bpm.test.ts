@@ -154,8 +154,9 @@ describe("BPM_CONFIG", () => {
   it("refractory caps detectable rate at 200 BPM (v0.45.1: raised from 240 for BT-echo resistance)", () => {
     expect(60000 / BPM_CONFIG.ONSET_REFRACTORY_MS).toBe(200);
   });
-  it("smoothing is gentle enough to absorb a few jittered estimates", () => {
-    expect(BPM_CONFIG.SMOOTHING_ALPHA).toBeLessThanOrEqual(0.15);
+  it("display average window covers 3-5 seconds (the user's expectation)", () => {
+    expect(BPM_CONFIG.DISPLAY_AVG_WINDOW_MS).toBeGreaterThanOrEqual(3000);
+    expect(BPM_CONFIG.DISPLAY_AVG_WINDOW_MS).toBeLessThanOrEqual(5000);
   });
 });
 

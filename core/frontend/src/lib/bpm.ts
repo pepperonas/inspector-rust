@@ -22,8 +22,15 @@
  *  6. Inter-onset intervals → median → BPM = 60 000 / median_ms.
  *  7. Octave-correction: fold into [60, 200] BPM by doubling /
  *     halving (so a half-speed reading on a fast track gets pulled up).
- *  8. Output is smoothed with an exponential moving average so the
- *     display doesn't flicker between adjacent integers.
+ *  8. Octave-snap: if the new raw estimate sits within ±8 BPM of
+ *     half / double the currently-displayed value, snap it back to
+ *     the locked octave (prevents 120 ↔ 240 flips from a few rogue
+ *     IOIs in the window).
+ *  9. **Displayed value is the mean over a 4-second sliding window
+ *     of raw estimates.** Replaces the v0.45.1 EMA — explicit
+ *     window is easier to reason about and gives a properly steady
+ *     readout that "shows the average tempo of the last few seconds"
+ *     instead of jumping per-beat.
  *
  *  Confidence is computed from IOI consistency:
  *    `1 - (stddev / median)`, clamped to [0, 1]. A track with steady
@@ -72,11 +79,6 @@ export const BPM_CONFIG = {
   /** BPM range we trust. Outside → octave-corrected (doubled / halved). */
   BPM_MIN: 60,
   BPM_MAX: 200,
-  /** EMA weight for new BPM samples. v0.45.1: 0.20 → 0.12 — less
-   *  twitchy display when echoes / BT artifacts inject occasional
-   *  off-tempo IOIs. Lock-in still happens in ~6-8 s, the display
-   *  just stops flickering ±3 BPM around the true value. */
-  SMOOTHING_ALPHA: 0.12,
   /** Minimum number of onsets in the window before we trust the
    *  median. Below this, return BPM=0 / confidence=0. */
   MIN_ONSETS_FOR_ESTIMATE: 4,
@@ -87,11 +89,21 @@ export const BPM_CONFIG = {
    *  don't kill the lock. */
   STALE_RESET_MS: 4000,
   /** v0.45.1: when a new raw BPM estimate is within this many BPM
-   *  of *half or double* the currently-locked smoothed BPM, snap to
+   *  of *half or double* the currently-locked display BPM, snap to
    *  the existing octave instead of taking the multiplicative jump.
    *  Prevents the classic "120 ↔ 240" oscillation when irregular
    *  onsets push the median IOI across an octave boundary. */
   OCTAVE_SNAP_TOLERANCE_BPM: 8,
+  /** v0.45.2: rolling window over which raw BPM estimates are mean-
+   *  averaged for the *displayed* value. Replaces the v0.45.1 EMA
+   *  smoothing with an explicit time-bounded mean — easier to
+   *  reason about, gives a properly steady display.
+   *
+   *  4 s is the sweet spot: at 120 BPM (~2 onsets/sec) the window
+   *  holds ~8 raw estimates, which averages out per-beat
+   *  median-IOI noise without lagging more than ~half a bar
+   *  behind a genuine tempo change. */
+  DISPLAY_AVG_WINDOW_MS: 4000,
 } as const;
 
 interface EnergyChunk {
@@ -103,11 +115,18 @@ export class BpmAnalyzer {
   private onsets: number[] = [];
   private energyHistory: EnergyChunk[] = [];
   private lastOnset = -Infinity;
-  private smoothedBpm = 0;
+  /** v0.45.2: per-estimate raw BPM samples used for the windowed
+   *  display mean. Each entry is one raw IOI-based estimate
+   *  (post octave-correction + octave-snap). Trimmed to
+   *  DISPLAY_AVG_WINDOW_MS. */
+  private rawBpmHistory: Array<{ time: number; bpm: number }> = [];
+  /** Mean of `rawBpmHistory` — what the UI shows. v0.45.2: replaces
+   *  the previous EMA `smoothedBpm`. */
+  private displayBpm = 0;
   private justFiredBeat = false;
   /** Wall-clock of the last `estimate()` that actually produced a
    *  fresh raw BPM (had ≥ MIN_ONSETS_FOR_ESTIMATE onsets in window).
-   *  Used to decay `smoothedBpm → 0` after STALE_RESET_MS of silence
+   *  Used to decay `displayBpm → 0` after STALE_RESET_MS of silence
    *  so the display drops back to "—" when the music stops, instead
    *  of misleadingly showing the last detected tempo forever. */
   private lastValidEstimateAt = -Infinity;
@@ -170,18 +189,19 @@ export class BpmAnalyzer {
 
     if (this.onsets.length < BPM_CONFIG.MIN_ONSETS_FOR_ESTIMATE) {
       // Sticky-value vs honest-reset balance: keep showing the last
-      // smoothed value through brief onset droughts (so a momentary
+      // display value through brief onset droughts (so a momentary
       // mic dropout doesn't blank the display), BUT after
-      // STALE_RESET_MS without any valid estimate, drop the display
+      // STALE_RESET_MS without any valid estimate, drop everything
       // to 0 — at that point the music has clearly stopped + a stale
       // number would be a lie.
       if (
-        this.smoothedBpm > 0 &&
+        this.displayBpm > 0 &&
         nowMs - this.lastValidEstimateAt > BPM_CONFIG.STALE_RESET_MS
       ) {
-        this.smoothedBpm = 0;
+        this.displayBpm = 0;
+        this.rawBpmHistory = [];
       }
-      return { bpm: this.smoothedBpm, confidence: 0, beatJustFired };
+      return { bpm: this.displayBpm, confidence: 0, beatJustFired };
     }
 
     // Build IOIs.
@@ -193,7 +213,7 @@ export class BpmAnalyzer {
     const sorted = [...intervals].sort((a, b) => a - b);
     const median = sorted[Math.floor(sorted.length / 2)];
     if (median <= 0) {
-      return { bpm: this.smoothedBpm, confidence: 0, beatJustFired };
+      return { bpm: this.displayBpm, confidence: 0, beatJustFired };
     }
 
     // Octave correction — pull a half-time or double-time reading
@@ -203,31 +223,49 @@ export class BpmAnalyzer {
     while (rawBpm > BPM_CONFIG.BPM_MAX) rawBpm /= 2;
 
     // **Octave snap.** If the new raw estimate sits suspiciously close
-    // to half / double the currently-locked smoothed value, snap it
+    // to half / double the currently-locked display value, snap it
     // back to the locked octave. Without this, a few ghost onsets
     // injected between real beats can push the median IOI across an
     // octave boundary and the display flips 120 → 240 → 120 → …
     // The tolerance is symmetric: works for both "raw doubled too
     // high" (jumped up an octave) and "raw halved too low".
-    if (this.smoothedBpm > 0) {
+    if (this.displayBpm > 0) {
       const tol = BPM_CONFIG.OCTAVE_SNAP_TOLERANCE_BPM;
-      if (Math.abs(rawBpm * 2 - this.smoothedBpm) < tol) {
+      if (Math.abs(rawBpm * 2 - this.displayBpm) < tol) {
         // raw is ~half of locked — promote raw to locked octave.
         rawBpm *= 2;
-      } else if (Math.abs(rawBpm / 2 - this.smoothedBpm) < tol) {
+      } else if (Math.abs(rawBpm / 2 - this.displayBpm) < tol) {
         // raw is ~double of locked — demote raw to locked octave.
         rawBpm /= 2;
       }
     }
 
-    // Smooth the visible BPM so the number doesn't flicker ±1 every
-    // beat. Seed with the raw value on the first non-zero estimate.
-    if (this.smoothedBpm === 0) {
-      this.smoothedBpm = rawBpm;
-    } else {
-      this.smoothedBpm =
-        this.smoothedBpm * (1 - BPM_CONFIG.SMOOTHING_ALPHA) +
-        rawBpm * BPM_CONFIG.SMOOTHING_ALPHA;
+    // **Display mean over a sliding window** (v0.45.2). Each raw
+    // estimate goes into a time-bounded history; the display value
+    // is the mean of that history. Replaces the previous EMA, which
+    // looked smooth on paper but per-frame readouts still drifted
+    // visibly — an explicit windowed mean is rock-stable AND easy to
+    // explain ("average BPM over the last 4 seconds").
+    //
+    // We dedupe consecutive identical estimates so back-to-back
+    // estimate() calls (the UI rAF loop) don't oversample the same
+    // value into history between onsets — the rawBpm only changes
+    // when a new IOI lands, so recording 60×/sec the same number
+    // would just slow window-rolloff for no signal benefit.
+    const last = this.rawBpmHistory[this.rawBpmHistory.length - 1];
+    if (!last || Math.abs(last.bpm - rawBpm) > 0.01) {
+      this.rawBpmHistory.push({ time: nowMs, bpm: rawBpm });
+    }
+    while (
+      this.rawBpmHistory.length > 0 &&
+      nowMs - this.rawBpmHistory[0].time > BPM_CONFIG.DISPLAY_AVG_WINDOW_MS
+    ) {
+      this.rawBpmHistory.shift();
+    }
+    if (this.rawBpmHistory.length > 0) {
+      this.displayBpm =
+        this.rawBpmHistory.reduce((s, e) => s + e.bpm, 0) /
+        this.rawBpmHistory.length;
     }
     this.lastValidEstimateAt = nowMs;
 
@@ -237,7 +275,7 @@ export class BpmAnalyzer {
     const stddev = Math.sqrt(variance);
     const confidence = Math.max(0, Math.min(1, 1 - stddev / median));
 
-    return { bpm: this.smoothedBpm, confidence, beatJustFired };
+    return { bpm: this.displayBpm, confidence, beatJustFired };
   }
 
   /** Drop all state — useful when restarting the audio source. */
@@ -245,7 +283,8 @@ export class BpmAnalyzer {
     this.onsets = [];
     this.energyHistory = [];
     this.lastOnset = -Infinity;
-    this.smoothedBpm = 0;
+    this.rawBpmHistory = [];
+    this.displayBpm = 0;
     this.justFiredBeat = false;
     this.lastValidEstimateAt = -Infinity;
   }

@@ -8,13 +8,22 @@ import { BpmAnalyzer, type BpmEstimate } from "../lib/bpm";
  *
  * ## Audio graph
  *
- *   mic → BiquadFilter(lowpass 150 Hz, Q=1) → AnalyserNode → (silent sink)
+ *   mic → BiquadFilter(highpass 30 Hz) → BiquadFilter(lowpass 100 Hz, Q=1.5) → AnalyserNode → (silent sink)
  *
- * The lowpass isolates kick / bass-drum transients (where popular
- * music carries the beat); the AnalyserNode exposes 1024-sample
- * Float32 time-domain frames at ~60 Hz. We feed each frame into
- * `BpmAnalyzer.push` and render `BpmAnalyzer.estimate` on the same
- * rAF tick.
+ * Two cascaded biquads form an effective 30-100 Hz **bandpass**,
+ * which is the prime kick-drum range (sub at 30-50, fundamental at
+ * 60-90, body at 100). v0.45.2 narrowed from a single lowpass at
+ * 150 Hz → much less vocal / snare / hi-hat energy leaks into the
+ * RMS, so the onset detector sees a cleaner kick-only signal.
+ *
+ *   • Highpass at 30 Hz removes room rumble + the BT-speaker's
+ *     own low-frequency thump that has nothing to do with the music.
+ *   • Lowpass at 100 Hz with Q=1.5 has a small resonance peak right
+ *     at the kick fundamental — small built-in boost where it matters.
+ *
+ * The AnalyserNode exposes 1024-sample Float32 time-domain frames
+ * at ~60 Hz. We feed each frame into `BpmAnalyzer.push` and render
+ * `BpmAnalyzer.estimate` on the same rAF tick.
  *
  * Why no `connect(destination)` on the audio graph: we explicitly
  * do NOT want to monitor the mic through the speakers (feedback
@@ -129,10 +138,22 @@ export function BpmDetector({ onExit }: Props) {
         const ctx = new AudioContext();
         const source = ctx.createMediaStreamSource(stream);
 
+        // Highpass cuts room rumble + BT-speaker low-end thump
+        // (anything below 30 Hz is sub-bass we don't need).
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = "highpass";
+        highpass.frequency.value = 30;
+        highpass.Q.value = 0.7;
+
+        // Lowpass at 100 Hz isolates the kick-drum body. v0.45.2:
+        // narrowed from 150 Hz to drop more vocals / snare attack
+        // out of the energy signal — the user reported the high-end
+        // bleed was making the BPM jump. Q=1.5 adds a small bump
+        // right at the kick fundamental.
         const lowpass = ctx.createBiquadFilter();
         lowpass.type = "lowpass";
-        lowpass.frequency.value = 150;
-        lowpass.Q.value = 1;
+        lowpass.frequency.value = 100;
+        lowpass.Q.value = 1.5;
 
         const analyser = ctx.createAnalyser();
         // 1024 samples ≈ 23 ms at 44.1 kHz — fine enough to localize
@@ -142,7 +163,8 @@ export function BpmDetector({ onExit }: Props) {
         // the BPM analyzer.
         analyser.smoothingTimeConstant = 0;
 
-        source.connect(lowpass);
+        source.connect(highpass);
+        highpass.connect(lowpass);
         lowpass.connect(analyser);
         // No connect(ctx.destination) on purpose — see header comment.
 
@@ -272,7 +294,7 @@ export function BpmDetector({ onExit }: Props) {
               <div className="text-[11px] text-[var(--color-muted)]">
                 {state.estimate.bpm === 0
                   ? "Listening… spiele Musik in das Mikrofon"
-                  : `Confidence: ${Math.round(state.estimate.confidence * 100)}%`}
+                  : `4-Sekunden-Mittel · Confidence: ${Math.round(state.estimate.confidence * 100)}%`}
               </div>
               <ConfidenceBar value={state.estimate.confidence} />
             </div>

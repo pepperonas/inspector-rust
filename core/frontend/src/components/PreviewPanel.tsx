@@ -326,9 +326,11 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
             close to a speaker, or sing along.
           </div>
           <div className="text-[10px] text-[var(--color-muted)]">
-            Algorithm: lowpass-filtered (~150 Hz) energy-based onset
-            detection + median IOI clustering, octave-corrected to
-            60-200 BPM. Esc inside the overlay to exit + release the mic.
+            Algorithm: 30-100 Hz bandpass-filtered (kick-drum band)
+            energy-based onset detection + median IOI clustering,
+            octave-corrected + octave-snapped to 60-200 BPM, displayed
+            as the 4-second rolling mean of raw estimates. Esc inside
+            the overlay to exit + release the mic.
           </div>
         </div>
       </div>

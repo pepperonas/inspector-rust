@@ -4,6 +4,31 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.4] — 2026-05-30
+
+### Changed — pwgen mode shortcut moves to Cmd/Ctrl+1…4
+
+Pre-0.43.4 the pwgen mode-switch was bound to `Alt+1…4`, which collided with the default text-expander hotkey (`Alt+Digit1`). Even with the v0.43.2 event-forward workaround firing reliably, the user-facing model was confusing: "why does Alt+1 need a special path while Alt+2/3/4 just work?"
+
+Bound the shortcut to `Cmd+1…4` on macOS and `Ctrl+1…4` on Win/Linux instead. No collision with anything global (the macOS Carbon dispatcher only swallows hotkeys we explicitly register, and none of our globals use `Cmd+Digit`). No collision with the `TransformBar` Cmd/Ctrl+1…9 listener either — that one only mounts for *text* entries, so pwgen rows have it unmounted.
+
+Net effect: all four digits hit the same JS keydown path uniformly. The Tauri event-forward is kept as belt-and-suspenders in case a user binds `Cmd+Digit` to a direct snippet slot.
+
+UI updated: mode buttons now display `⌘1`-`⌘4` (macOS) / `Ctrl+1`-`Ctrl+4` (else); bottom hint reads `⏎ copy · ⌘1–4 switch mode + regenerate`.
+
+### Files
+
+- `core/frontend/src/App.tsx`: pwgen keydown handler swaps `e.altKey` for the platform-correct `metaKey`/`ctrlKey` check; forwarded-event regex now matches `Cmd+Digit[1-4]` / `Ctrl+Digit[1-4]`.
+- `core/frontend/src/components/PreviewPanel.tsx`: mode-button badges + bottom hint switch to `⌘`/`Ctrl+` formatting via `IS_MAC`.
+
+### Docs
+
+- `docs/macos-permissions.md` (new) — bug-story article on the three macOS quirks Inspector Rust hit on the way to a working expander: unstable code signature → TCC re-grants, System-Events Apple-Events grant missing → silent frontmost False, Carbon hotkey dispatcher → swallowed Alt+1. Written as a transferable lesson for other Tauri/Electron-on-macOS devs.
+
+### Tests
+
+**253 Rust + 430 frontend tests pass.**
+
 ## [0.43.3] — 2026-05-30
 
 ### Fixed — frontmost check no longer needs the System Events TCC grant

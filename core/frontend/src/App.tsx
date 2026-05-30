@@ -71,6 +71,7 @@ import {
   type ProcessInfo,
 } from "./lib/ipc";
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -615,24 +616,30 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedIsOpener]);
 
-  // Alt+1…4 while a `pwgen` entry is selected → switch mode + regenerate
-  // (no copy, no popup-hide). The user keeps tapping until they see a
-  // password they like, then presses Enter to copy + hide. Reuses the
-  // `pwgenMode` + `pwgenSeed` state — the existing useMemo at line ~562
-  // re-derives the password from `(query, pwgenMode, pwgenSeed)`, so
-  // bumping the seed *and* the mode triggers a fresh generation.
-  //   Alt+1 → all chars
-  //   Alt+2 → alphanumeric (no symbols)
-  //   Alt+3 → dictionary (English words + digit padding)
-  //   Alt+4 → leetspeak
+  // Cmd+1…4 (macOS) / Ctrl+1…4 (Win/Linux) while a `pwgen` entry is
+  // selected → switch mode + regenerate (no copy, no popup-hide). The
+  // user keeps tapping until they see a password they like, then
+  // presses Enter to copy + hide. Reuses the `pwgenMode` + `pwgenSeed`
+  // state — the existing useMemo at line ~562 re-derives the password
+  // from `(query, pwgenMode, pwgenSeed)`, so bumping the seed *and*
+  // the mode triggers a fresh generation.
+  //   ⌘/Ctrl+1 → all chars
+  //   ⌘/Ctrl+2 → alphanumeric (no symbols)
+  //   ⌘/Ctrl+3 → dictionary (English words + digit padding)
+  //   ⌘/Ctrl+4 → leetspeak
   // Uses `e.code` (Digit1…4) instead of `e.key` so this still works on
   // German Mac keyboards where Alt+1 would otherwise type `¡`.
   //
-  // **0.43.1 fix:** the matching `Alt+Digit1` *global* expander hotkey
-  // would also fire here when the user has the expander enabled. That
-  // path is now gated by `inspector_rust_is_frontmost_public` in
-  // `hotkey::register_expander`, so it no-ops when our popup owns
-  // focus and the in-popup mode-switch alone runs.
+  // **0.43.4 change:** moved from Alt+1…4 to Cmd/Ctrl+1…4 specifically
+  // to dodge the collision with the default text-expander hotkey
+  // (`Alt+Digit1`). Alt+1 was forwarded through a Tauri event since the
+  // Carbon dispatcher swallowed the keydown; now there's no collision
+  // and the keydown reaches the webview directly for all four digits.
+  //
+  // No collision with `TransformBar`'s Cmd/Ctrl+1…9 (text transforms)
+  // because that listener is only mounted when the selected entry is a
+  // *text* row — pwgen rows have no text content, so the transform
+  // listener is unmounted and Cmd/Ctrl+1…4 is free.
   const selectedPwgen =
     combined[selected]?.kind === "pwgen" ? (combined[selected] as Extract<typeof combined[number], { kind: "pwgen" }>) : null;
   useEffect(() => {
@@ -645,36 +652,38 @@ function App() {
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.repeat) return;
-      if (!e.altKey || e.metaKey || e.ctrlKey || e.shiftKey) return;
+      // CmdOrCtrl semantic: Cmd alone on macOS, Ctrl alone elsewhere.
+      // Reject the other modifier so we don't fire on accidental
+      // Cmd+Ctrl combos, and reject Alt+Shift to keep digit-typing
+      // shortcuts free.
+      const modOk = IS_MAC
+        ? e.metaKey && !e.ctrlKey
+        : e.ctrlKey && !e.metaKey;
+      if (!modOk || e.altKey || e.shiftKey) return;
       const newMode = codeToMode[e.code];
       if (!newMode) return;
       e.preventDefault();
       e.stopPropagation();
       setPwgenMode(newMode);
       setPwgenSeed((s) => s + 1);
-      console.info(`pwgen → Alt+${e.code.slice(-1)} switched to ${newMode} + regenerated`);
+      console.info(`pwgen → ${IS_MAC ? "Cmd" : "Ctrl"}+${e.code.slice(-1)} switched to ${newMode} + regenerated`);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedPwgen]);
 
-  // The OS-level global expander / direct-slot hotkeys SWALLOW their
-  // keydowns on macOS — when Inspector Rust is frontmost the webview
-  // never sees them. The Rust handlers forward the hotkey string via
-  // `expander-hotkey-forwarded` whenever they fire while we own focus.
-  // We map a forwarded `Alt+Digit1…4` to the same pwgen mode-switch
-  // the JS keydown handler above runs for digits 2-4 (which DO reach
-  // the webview because nothing global is registered on them). This is
-  // the fix for "alle funktionieren nur alt+1 nicht" — Alt+1 collides
-  // with the default expander hotkey (`Alt+Digit1`), so it never made
-  // it through to the JS listener.
+  // Belt-and-suspenders: if a user has a global expander / direct-slot
+  // hotkey on a Cmd/Ctrl+Digit1…4 combo (unusual but possible) the
+  // Carbon dispatcher would still swallow the keydown before our JS
+  // handler sees it. The Rust handler forwards the hotkey string via
+  // `expander-hotkey-forwarded` whenever it fires while we own focus —
+  // route Cmd+Digit1…4 / Ctrl+Digit1…4 to the same mode-switch path.
   useTauriEvent<string>("expander-hotkey-forwarded", (e) => {
     if (!selectedPwgen) return;
     const hotkey = e.payload;
-    // Match `Alt+Digit<n>` (case-insensitive, only Alt as modifier).
-    const m = hotkey.match(/^Alt\+Digit([1-4])$/i);
+    const m = hotkey.match(/^(Cmd|Ctrl)\+Digit([1-4])$/i);
     if (!m) return;
-    const digit = Number(m[1]) as 1 | 2 | 3 | 4;
+    const digit = Number(m[2]) as 1 | 2 | 3 | 4;
     const modes: PwgenMode[] = ["all", "alnum", "dict", "leet"];
     const newMode = modes[digit - 1];
     setPwgenMode(newMode);

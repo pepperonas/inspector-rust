@@ -4,6 +4,30 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.1] — 2026-05-30
+
+### Fixed — BPM detector stability + honest stale-reset
+
+Two complaints after v0.45.0 shipped:
+
+1. **"springt"** — over a Bluetooth speaker the BPM display flipped between 120 ↔ 240 (or similar octave pairs). Root cause: BT speakers introduce echoes / dropouts → some real beats get ghost-onsets in the IOI window → median IOI occasionally crosses an octave boundary → octave-correction multiplicatively doubles or halves the result → display flips.
+
+2. **"soll live die aktuellen werte anzeigen"** — when audio stopped or BT dropped out, the last detected BPM stayed on screen indefinitely (smoothedBpm was sticky forever). Misleading — looked like a current reading but was historical.
+
+### Algorithm changes (`core/frontend/src/lib/bpm.ts`)
+
+**Octave snap** (`OCTAVE_SNAP_TOLERANCE_BPM = 8`): after octave-correcting the raw BPM into [60, 200], compare against the currently-locked smoothedBpm. If the raw value sits within ±8 BPM of half or double the locked value, snap to the locked octave instead of taking the multiplicative jump. Kills the 120↔240 oscillation directly — a few rogue IOIs no longer flip the displayed tempo across an octave.
+
+**Stale-reset** (`STALE_RESET_MS = 4000`): track wall-clock time of the last estimate that had ≥ 4 onsets in window. If onsets drop below the threshold AND no valid estimate has happened in 4 s, force smoothedBpm to 0 → display reverts to "—". Brief onset droughts (BT mic stutter, song instrumental break) under 4 s still show the last value (no flicker); sustained silence honestly resets.
+
+**Slightly stiffer refractory** (250 → 300 ms): drops max detectable from 240 to 200 BPM (still covers all popular music) but suppresses more BT-speaker echo onsets that arrived between the original refractory cutoff and the next real beat.
+
+**Slower EMA** (α 0.20 → 0.12): displayed BPM lock-in still happens in ~6-8 s but the number stops flickering ±3 around the true value when echoes inject noise.
+
+### Tests
+
+`bpm.test.ts` gained **4 new tests** verifying the stale-reset (sticks through brief silence, resets after sustained) + octave-snap (a rogue half-IOI burst can't flip a locked value across an octave). **261 Rust + 448 frontend tests pass.**
+
 ## [0.45.0] — 2026-05-30
 
 ### Added — `bpm` live tempo detector from microphone

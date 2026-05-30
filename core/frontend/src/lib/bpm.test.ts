@@ -151,7 +151,63 @@ describe("BPM_CONFIG", () => {
     expect(BPM_CONFIG.BPM_MIN).toBe(60);
     expect(BPM_CONFIG.BPM_MAX).toBe(200);
   });
-  it("refractory caps detectable rate at 240 BPM", () => {
-    expect(60000 / BPM_CONFIG.ONSET_REFRACTORY_MS).toBe(240);
+  it("refractory caps detectable rate at 200 BPM (v0.45.1: raised from 240 for BT-echo resistance)", () => {
+    expect(60000 / BPM_CONFIG.ONSET_REFRACTORY_MS).toBe(200);
+  });
+  it("smoothing is gentle enough to absorb a few jittered estimates", () => {
+    expect(BPM_CONFIG.SMOOTHING_ALPHA).toBeLessThanOrEqual(0.15);
+  });
+});
+
+describe("BpmAnalyzer.estimate — stale-reset", () => {
+  it("keeps showing the last BPM through a brief onset drought (< STALE_RESET_MS)", () => {
+    // Lock on at 120 BPM…
+    const { analyzer } = simulateBeats(120, 10);
+    const locked = analyzer.estimate(10_000).bpm;
+    expect(locked).toBeGreaterThan(115);
+    // …then feed pure baseline for 3 seconds (under the threshold).
+    for (let t = 10_010; t <= 13_000; t += 10) {
+      analyzer.push(chunk(0.02), t);
+    }
+    // Estimate still shows the last known BPM (we don't blank on
+    // brief silence — bt dropouts shouldn't kill the display).
+    const stillThere = analyzer.estimate(13_000).bpm;
+    expect(stillThere).toBeGreaterThan(115);
+    expect(stillThere).toBeLessThan(125);
+  });
+
+  it("decays BPM → 0 after sustained silence (> STALE_RESET_MS)", () => {
+    const { analyzer } = simulateBeats(120, 10);
+    expect(analyzer.estimate(10_000).bpm).toBeGreaterThan(115);
+    // Pure baseline for 5+ seconds — longer than STALE_RESET_MS (4s).
+    // We do still push chunks (the AVG window stays primed); just no
+    // beat-energy chunks, so no onsets accumulate.
+    for (let t = 10_010; t <= 16_000; t += 10) {
+      analyzer.push(chunk(0.02), t);
+    }
+    expect(analyzer.estimate(16_000).bpm).toBe(0);
+  });
+});
+
+describe("BpmAnalyzer.estimate — octave snap", () => {
+  it("doesn't flip from 120 to 240 when a single rogue half-IOI lands in the window", () => {
+    // Lock on at 120 BPM (500 ms IOI) first.
+    const { analyzer } = simulateBeats(120, 10);
+    const lockedAt120 = analyzer.estimate(10_000).bpm;
+    expect(lockedAt120).toBeGreaterThan(115);
+    expect(lockedAt120).toBeLessThan(125);
+    // Now inject 8 onsets that look like 240 BPM (250 ms IOI) — a worst
+    // case where some echoes happen to align into a double-tempo IOI
+    // pattern in the recent window.
+    for (let t = 10_500; t <= 12_500; t += 250) {
+      // baseline so the moving avg stays calibrated
+      analyzer.push(chunk(0.02), t - 50);
+      analyzer.push(chunk(0.6), t); // strong onset
+    }
+    const after = analyzer.estimate(12_500).bpm;
+    // Octave-snap should keep us in the 120 octave (loose tolerance
+    // since EMA still drifts slightly toward the new pattern).
+    expect(after).toBeGreaterThan(110);
+    expect(after).toBeLessThan(140);
   });
 });

@@ -59,23 +59,39 @@ export const BPM_CONFIG = {
    *  1.4 is a good balance: catches genuine kicks, rejects most
    *  background swells. */
   ONSET_THRESHOLD: 1.4,
-  /** Minimum gap between successive onsets. 250 ms caps detectable
-   *  rate at 240 BPM — above pop/rock/dance music's range, so this
-   *  doesn't artificially limit us. */
-  ONSET_REFRACTORY_MS: 250,
+  /** Minimum gap between successive onsets. v0.45.1: raised
+   *  250 → 300 ms (max detectable 200 BPM, was 240) to better
+   *  suppress room / BT-speaker echoes that arrive ~150-280 ms
+   *  after the kick and otherwise show up as ghost onsets between
+   *  real beats. Pop / rock / dance / metal all sit ≤ 200 BPM so
+   *  the cap doesn't bite real music. */
+  ONSET_REFRACTORY_MS: 300,
   /** Sliding window of onsets used to compute BPM. 6 s = enough beats
    *  for a stable median, short enough to adapt to a tempo change. */
   IOI_WINDOW_MS: 6000,
   /** BPM range we trust. Outside → octave-corrected (doubled / halved). */
   BPM_MIN: 60,
   BPM_MAX: 200,
-  /** EMA weight for new BPM samples. Lower = more stable display,
-   *  higher = faster reaction to tempo changes. 0.2 = ~5-sample
-   *  effective window. */
-  SMOOTHING_ALPHA: 0.2,
+  /** EMA weight for new BPM samples. v0.45.1: 0.20 → 0.12 — less
+   *  twitchy display when echoes / BT artifacts inject occasional
+   *  off-tempo IOIs. Lock-in still happens in ~6-8 s, the display
+   *  just stops flickering ±3 BPM around the true value. */
+  SMOOTHING_ALPHA: 0.12,
   /** Minimum number of onsets in the window before we trust the
    *  median. Below this, return BPM=0 / confidence=0. */
   MIN_ONSETS_FOR_ESTIMATE: 4,
+  /** v0.45.1: after this long without enough onsets for an estimate,
+   *  reset the displayed BPM to 0 — "music stopped, display the
+   *  truth, don't show a stale value forever". 4 s is short enough
+   *  to react to a pause + long enough that brief mic dropouts
+   *  don't kill the lock. */
+  STALE_RESET_MS: 4000,
+  /** v0.45.1: when a new raw BPM estimate is within this many BPM
+   *  of *half or double* the currently-locked smoothed BPM, snap to
+   *  the existing octave instead of taking the multiplicative jump.
+   *  Prevents the classic "120 ↔ 240" oscillation when irregular
+   *  onsets push the median IOI across an octave boundary. */
+  OCTAVE_SNAP_TOLERANCE_BPM: 8,
 } as const;
 
 interface EnergyChunk {
@@ -89,6 +105,12 @@ export class BpmAnalyzer {
   private lastOnset = -Infinity;
   private smoothedBpm = 0;
   private justFiredBeat = false;
+  /** Wall-clock of the last `estimate()` that actually produced a
+   *  fresh raw BPM (had ≥ MIN_ONSETS_FOR_ESTIMATE onsets in window).
+   *  Used to decay `smoothedBpm → 0` after STALE_RESET_MS of silence
+   *  so the display drops back to "—" when the music stops, instead
+   *  of misleadingly showing the last detected tempo forever. */
+  private lastValidEstimateAt = -Infinity;
 
   /** Feed one chunk of (lowpass-filtered) audio samples.
    *  `samples` are float in [-1, 1]; `nowMs` is monotonically
@@ -147,6 +169,18 @@ export class BpmAnalyzer {
     this.justFiredBeat = false; // consume the edge
 
     if (this.onsets.length < BPM_CONFIG.MIN_ONSETS_FOR_ESTIMATE) {
+      // Sticky-value vs honest-reset balance: keep showing the last
+      // smoothed value through brief onset droughts (so a momentary
+      // mic dropout doesn't blank the display), BUT after
+      // STALE_RESET_MS without any valid estimate, drop the display
+      // to 0 — at that point the music has clearly stopped + a stale
+      // number would be a lie.
+      if (
+        this.smoothedBpm > 0 &&
+        nowMs - this.lastValidEstimateAt > BPM_CONFIG.STALE_RESET_MS
+      ) {
+        this.smoothedBpm = 0;
+      }
       return { bpm: this.smoothedBpm, confidence: 0, beatJustFired };
     }
 
@@ -168,6 +202,24 @@ export class BpmAnalyzer {
     while (rawBpm < BPM_CONFIG.BPM_MIN) rawBpm *= 2;
     while (rawBpm > BPM_CONFIG.BPM_MAX) rawBpm /= 2;
 
+    // **Octave snap.** If the new raw estimate sits suspiciously close
+    // to half / double the currently-locked smoothed value, snap it
+    // back to the locked octave. Without this, a few ghost onsets
+    // injected between real beats can push the median IOI across an
+    // octave boundary and the display flips 120 → 240 → 120 → …
+    // The tolerance is symmetric: works for both "raw doubled too
+    // high" (jumped up an octave) and "raw halved too low".
+    if (this.smoothedBpm > 0) {
+      const tol = BPM_CONFIG.OCTAVE_SNAP_TOLERANCE_BPM;
+      if (Math.abs(rawBpm * 2 - this.smoothedBpm) < tol) {
+        // raw is ~half of locked — promote raw to locked octave.
+        rawBpm *= 2;
+      } else if (Math.abs(rawBpm / 2 - this.smoothedBpm) < tol) {
+        // raw is ~double of locked — demote raw to locked octave.
+        rawBpm /= 2;
+      }
+    }
+
     // Smooth the visible BPM so the number doesn't flicker ±1 every
     // beat. Seed with the raw value on the first non-zero estimate.
     if (this.smoothedBpm === 0) {
@@ -177,6 +229,7 @@ export class BpmAnalyzer {
         this.smoothedBpm * (1 - BPM_CONFIG.SMOOTHING_ALPHA) +
         rawBpm * BPM_CONFIG.SMOOTHING_ALPHA;
     }
+    this.lastValidEstimateAt = nowMs;
 
     // Confidence: tight IOI distribution → high confidence.
     const variance =
@@ -194,6 +247,7 @@ export class BpmAnalyzer {
     this.lastOnset = -Infinity;
     this.smoothedBpm = 0;
     this.justFiredBeat = false;
+    this.lastValidEstimateAt = -Infinity;
   }
 
   /** Current chunk RMS energy (the value compared against the avg).

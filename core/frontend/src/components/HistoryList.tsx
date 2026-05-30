@@ -157,7 +157,9 @@ export function HistoryList({
                                     ? `app-${entry.data.path}`
                                     : entry.kind === "pwgen"
                                       ? `pwgen-${entry.data.length}-${entry.data.mode}`
-                                      : `c-${entry.data.id}`;
+                                      : entry.kind === "bpm"
+                                        ? `bpm-trigger`
+                                        : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

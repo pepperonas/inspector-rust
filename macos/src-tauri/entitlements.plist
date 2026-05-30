@@ -36,5 +36,20 @@
   -->
   <key>com.apple.security.automation.apple-events</key>
   <true/>
+  <!--
+    Microphone access for the live BPM detector (v0.45.0+). The user
+    types `bpm` in the popup and presses Enter; the overlay calls
+    `navigator.mediaDevices.getUserMedia({ audio: true })` which
+    under Hardened Runtime requires BOTH this entitlement AND the
+    `NSMicrophoneUsageDescription` key in Info.plist (injected by
+    `scripts/install-macos.sh` post-build), AND user consent via the
+    TCC mic prompt that fires on first use.
+
+    No system-audio capture here — just mic. macOS doesn't have a
+    "system audio" device exposed via getUserMedia anyway; that
+    would need ScreenCaptureKit + its own TCC grant.
+  -->
+  <key>com.apple.security.device.audio-input</key>
+  <true/>
 </dict>
 </plist>

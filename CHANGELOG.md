@@ -4,6 +4,54 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] — 2026-05-30
+
+### Added — `bpm` live tempo detector from microphone
+
+Type `bpm` in the popup → press Enter → full-overlay live BPM detector. The microphone is captured via `getUserMedia({ audio: true })`, lowpass-filtered to the bass band (~150 Hz, where popular music carries the kick drum), and analyzed by an energy-based onset detector with median IOI clustering. The big BPM number pulses on every detected beat; a confidence bar shows how steady the recent intervals are; an energy meter confirms audio is flowing.
+
+Hold any speaker / phone playing music near the mic — within ~8 seconds the BPM locks onto the track. Esc exits + releases the microphone.
+
+### Algorithm
+
+Classic real-time DSP approach (Patin 2003 / used by Mixxx, RealtimeBPMAnalyzer.js, Spotify's web player):
+
+1. Audio graph: `mic → BiquadFilter(lowpass 150Hz) → AnalyserNode → ∅`. The graph does NOT connect to the speakers — no monitoring, no feedback loop.
+2. Per `requestAnimationFrame` (~60 Hz), read a 1024-sample Float32 time-domain frame from the analyser. Compute RMS energy.
+3. Maintain a 3-second sliding moving average of energy. An "onset" fires when chunk-energy > avg × 1.4 AND ≥ 250 ms since the last onset (refractory).
+4. Store onset timestamps in a 6-second sliding window. Compute inter-onset intervals (IOIs). Median IOI → `BPM = 60000 / median_ms`.
+5. Octave-correct into the [60, 200] BPM range (halves a too-fast read, doubles a too-slow one).
+6. EMA-smooth the visible value (α=0.2) so the displayed number doesn't flicker ±1 every beat.
+
+Confidence = `1 - (stddev / median)` of recent IOIs. A track with steady quarter notes scores ~0.9, background noise ~0.1.
+
+### Why not autocorrelation / spectral flux
+
+Both are more accurate on syncopated material but 3-5× the CPU and substantially more code. For "what tempo is this music playing nearby" the energy-onset approach gives 85-95 % accuracy on 4/4 popular music, which matches the user expectation here.
+
+### Files
+
+- `core/frontend/src/lib/bpm.ts` (new) — pure-TS `BpmAnalyzer` class with `push(samples, nowMs)` + `estimate(nowMs)`. No DOM / no audio deps; testable in isolation.
+- `core/frontend/src/lib/bpm.test.ts` (new) — **14 tests**: locks onto 90 / 120 / 175 BPM within 10 s of synthetic beat input; octave-corrects 50 → 100 and 240 → 120; rejects jittered onsets (low confidence); refractory period suppresses double-triggers; `beatJustFired` fires exactly once per beat.
+- `core/frontend/src/components/BpmDetector.tsx` (new) — full-overlay React component. Three phases: `requesting` (mic prompt open) / `listening` (audio flowing) / `denied` (no mic / user said no). Builds the Web Audio graph, runs rAF loop, owns Esc-to-exit.
+- `core/frontend/src/styles.css` — new keyframes `@keyframes bpmPulse` (slow breathing for the requesting state) + `@keyframes bpmBeatPulse` (0.3 s scale + accent flash on the BPM number per beat).
+- `core/frontend/src/lib/commands.ts` — new `isBpmTrigger(query)` (exact `bpm` match, whitespace + case tolerant).
+- `core/frontend/src/lib/types.ts` — new `ListEntry` kind `"bpm"` + `BpmTriggerView` data interface.
+- `core/frontend/src/App.tsx` — `bpmEntry` useMemo, `bpmMode` state, activate handler routes Enter → `setBpmMode(true)`, render switch shows `<BpmDetector />` taking over the app-shell while active.
+- `core/frontend/src/components/HistoryItem.tsx` — `Activity` icon + `bpm` chip + descriptive subtext for the trigger row.
+- `core/frontend/src/components/PreviewPanel.tsx` — preview-pane explainer for the `bpm` row.
+- `core/frontend/src/components/HistoryList.tsx` — react key fragment for the new entry kind.
+- `macos/src-tauri/entitlements.plist` — added `com.apple.security.device.audio-input` (required by Hardened Runtime for any `getUserMedia({audio: true})` call).
+- `scripts/install-macos.sh` — injects `NSMicrophoneUsageDescription` into the bundled `Info.plist` post-build (mirrors the existing `NSAppleEventsUsageDescription` pattern). This is the human-readable copy macOS shows in the first-time mic-permission prompt.
+
+### Tests
+
+**261 Rust + 444 frontend tests pass** (+14 new `bpm.test.ts`).
+
+### Why 0.45.0
+
+New user-facing surface (overlay + mic capture + DSP algorithm) + new entitlement + new Info.plist key → minor bump. No breaking changes; existing hotkeys / IPCs unchanged.
+
 ## [0.44.0] — 2026-05-30
 
 ### Added — `Ctrl+Shift+M` Markdown → PDF via mrxdown

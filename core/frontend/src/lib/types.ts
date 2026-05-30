@@ -181,7 +181,17 @@ export type ListEntry =
   | { kind: "finder-file"; data: FinderFileView }
   | { kind: "bruno"; data: BrunoEntryView }
   | { kind: "app"; data: AppEntryView }
-  | { kind: "pwgen"; data: PwgenEntryView };
+  | { kind: "pwgen"; data: PwgenEntryView }
+  | { kind: "bpm"; data: BpmTriggerView };
+
+/** Row surfaced when the user types `bpm` exactly. Enter activates
+ *  the live BPM detector overlay (`<BpmDetector />`). The view itself
+ *  carries no data — it's just a marker for the activate handler. */
+export interface BpmTriggerView {
+  /** Static label rendered in the row, kept here for the renderer
+   *  to read so it doesn't have to special-case the kind. */
+  label: string;
+}
 
 /** Generated-password row surfaced when the user types `pwgen N`.
  *  v0.40.0+. `password` is regenerated each render based on the

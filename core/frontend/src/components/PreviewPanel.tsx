@@ -310,6 +310,31 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
     );
   }
 
+  if (entry.kind === "bpm") {
+    return (
+      <div className="flex h-full flex-col gap-4 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          BPM detector · microphone
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
+          <Zap size={36} className="text-[var(--color-accent)] opacity-80" />
+          <div className="text-[14px] font-semibold">{entry.data.label}</div>
+          <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
+            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the live overlay. Inspector Rust will ask
+            for microphone access on first use and detect BPM from any
+            audio the mic picks up — play music nearby, hold the mic
+            close to a speaker, or sing along.
+          </div>
+          <div className="text-[10px] text-[var(--color-muted)]">
+            Algorithm: lowpass-filtered (~150 Hz) energy-based onset
+            detection + median IOI clustering, octave-corrected to
+            60-200 BPM. Esc inside the overlay to exit + release the mic.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "pwgen") {
     const d = entry.data;
     // `digit` matches the global Cmd/Ctrl+1…4 listener in App.tsx

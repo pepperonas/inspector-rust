@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -28,6 +28,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
   if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
+  if (entry.kind === "bpm") return <Activity size={size} className={cls} />;
   if (entry.kind === "app") {
     return (
       <AppIcon
@@ -75,12 +76,13 @@ export const HistoryItem = memo(function HistoryItem({
   const isBruno = entry.kind === "bruno";
   const isApp = entry.kind === "app";
   const isPwgen = entry.kind === "pwgen";
+  const isBpm = entry.kind === "bpm";
   const isFinderFile = entry.kind === "finder-file";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isFinderFile
+      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isFinderFile
         ? ""
         : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -210,6 +212,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Generated password — ⏎ copies, ⌥⏎ switches to alphanumeric + copies"
     >
       pwgen
+    </span>
+  ) : isBpm ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Live BPM detector — listens to the microphone"
+    >
+      bpm
     </span>
   ) : (
     (() => {
@@ -415,6 +429,18 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               {entry.data.length} chars · {entry.data.mode} · ⏎ copy · ⌥⏎ alnum
+            </span>
+          </span>
+        ) : isBpm && entry.kind === "bpm" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.label}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Listen to mic + detect BPM live · Esc to exit
             </span>
           </span>
         ) : isApp && entry.kind === "app" ? (

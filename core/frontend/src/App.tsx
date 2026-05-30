@@ -19,6 +19,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isGetShakyTrigger,
+  isBpmTrigger,
   isOpenerTrigger,
   isSpaceInvadersTrigger,
   rockTheBoxMode,
@@ -35,6 +36,7 @@ import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
+import { BpmDetector } from "./components/BpmDetector";
 import {
   clearHistory,
   deleteEntry,
@@ -93,6 +95,10 @@ function App() {
   const [gameMode, setGameMode] = useState<
     "pong" | "snake-classic" | "snake-wrap" | "space" | null
   >(null);
+  // BPM detector overlay state. Separate from `gameMode` because it
+  // has different lifecycle semantics: audio teardown, mic
+  // permission, and Enter-to-start (vs gameMode's type-to-start).
+  const [bpmMode, setBpmMode] = useState(false);
   const [matchingSnippets, setMatchingSnippets] = useState<Snippet[]>([]);
   const [version, setVersion] = useState<string | undefined>(undefined);
   // Sticky banner shown when a paste fails. `"ax"` = macOS Accessibility
@@ -578,6 +584,17 @@ function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query, pwgenMode, pwgenSeed]);
 
+  // bpm trigger — exact `bpm` (whitespace + case tolerant) surfaces
+  // a "Detect BPM" row at the top. Enter activates → bpmMode = true →
+  // <BpmDetector /> takes over the popup body.
+  const bpmEntry: ListEntry | null = useMemo(() => {
+    if (!isBpmTrigger(query)) return null;
+    return {
+      kind: "bpm",
+      data: { label: "Detect BPM (microphone)" },
+    };
+  }, [query]);
+
   const combined: ListEntry[] = isKillMode
     ? killTargetEntries
     : [
@@ -585,6 +602,7 @@ function App() {
         ...(appEntry ? [appEntry] : []),
         ...(brunoEntry ? [brunoEntry] : []),
         ...(pwgenEntry ? [pwgenEntry] : []),
+        ...(bpmEntry ? [bpmEntry] : []),
         ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...resizePresetEntries,
@@ -948,6 +966,14 @@ function App() {
     const target = combined[i];
     if (!target) return;
     try {
+      // bpm trigger — Enter swaps the popup body for the BPM
+      // detector overlay (asks for mic permission, starts listening).
+      // No paste, no clipboard write; the popup stays open until the
+      // user hits Esc inside the detector.
+      if (target.kind === "bpm") {
+        setBpmMode(true);
+        return;
+      }
       // pwgen has special Enter semantics: copies the password (no
       // paste — explicit, since the user is rarely typing into a
       // focused-app password field directly from Inspector Rust's
@@ -1229,8 +1255,9 @@ function App() {
       );
     },
     // In game mode the game owns the keyboard — disable the popup nav
-    // handler so Esc / arrows don't double-fire.
-    enabled: !gameMode,
+    // handler so Esc / arrows don't double-fire. BPM mode owns it too
+    // (Esc inside the detector calls its own onExit).
+    enabled: !gameMode && !bpmMode,
   });
 
   const current = combined[selected] ?? null;
@@ -1255,6 +1282,26 @@ function App() {
           ) : (
             <SnakeGame onExit={exitGame} wrap={gameMode === "snake-wrap"} />
           )}
+        </div>
+      </div>
+    );
+  }
+
+  // BPM mode — Enter on the `bpm` row takes over the app-shell with
+  // the microphone-driven BPM detector. Esc inside the component
+  // calls onExit (audio teardown handled there), which drops us back
+  // to the normal popup with a cleared query.
+  if (bpmMode) {
+    const exitBpm = () => {
+      setBpmMode(false);
+      setQuery("");
+      setSelected(0);
+      requestAnimationFrame(() => searchRef.current?.focus());
+    };
+    return (
+      <div className="flex h-screen w-screen p-2">
+        <div className="app-shell fade-in flex h-full w-full flex-col">
+          <BpmDetector onExit={exitBpm} />
         </div>
       </div>
     );

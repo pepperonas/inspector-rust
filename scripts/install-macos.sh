@@ -381,6 +381,18 @@ if [[ -f "${INFO_PLIST}" ]]; then
   else
     echo "  ⚠ plutil replace of NSAppleEventsUsageDescription failed — Automation prompt may show generic copy"
   fi
+
+  # Same trick for NSMicrophoneUsageDescription — required by macOS
+  # before getUserMedia({audio: true}) can pop the mic-permission
+  # prompt. Used by the `bpm` overlay (v0.45.0+) to detect BPM from
+  # the microphone in real time.
+  MIC_DESC='Inspector Rust uses the microphone for live BPM detection — type "bpm" in the popup and press Enter to estimate the tempo of music playing nearby.'
+  if plutil -replace NSMicrophoneUsageDescription -string "${MIC_DESC}" \
+       "${INFO_PLIST}" 2>/dev/null; then
+    echo "▸ Injected NSMicrophoneUsageDescription into Info.plist"
+  else
+    echo "  ⚠ plutil replace of NSMicrophoneUsageDescription failed — Microphone prompt may show generic copy"
+  fi
 fi
 
 # Stamp the source hash *before* signing so the file is covered by the

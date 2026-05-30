@@ -425,6 +425,20 @@ export function isSpaceInvadersTrigger(query: string): boolean {
 }
 
 /**
+ * `bpm` → surface a "Detect BPM" row at the top of the list. Unlike
+ * the game-mode triggers above, BPM mode is **Enter-activated**, not
+ * instant-on-type: short word with too many possible false positives
+ * (`bpms`, `bpmusic`, …) for an instant takeover. The trigger only
+ * fires on the exact word, whitespace-tolerant + case-insensitive.
+ *
+ * Listed here next to its siblings; the App.tsx command-builder reads
+ * this to decide whether to emit the bpm ListEntry row.
+ */
+export function isBpmTrigger(query: string): boolean {
+  return query.trim().toLowerCase() === "bpm";
+}
+
+/**
  * Parse the kill command's argument into `{ force, pattern }`.
  * - `kill <pattern>`     → force=false, pattern=<pattern>
  * - `kill -9 <pattern>`  → force=true,  pattern=<pattern>

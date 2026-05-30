@@ -161,6 +161,21 @@ code {
   }
 }
 
+/* ── BPM detector ──────────────────────────────────────────────────────
+   Two animations: the slow `bpmPulse` runs while waiting for mic
+   permission (mic icon breathing); `bpmBeatPulse` fires once per
+   detected beat on the big BPM number, with a quick scale + accent-
+   color flash that settles back to neutral. */
+@keyframes bpmPulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.95); }
+  50%      { opacity: 1;    transform: scale(1.05); }
+}
+@keyframes bpmBeatPulse {
+  0%   { transform: scale(1);     filter: drop-shadow(0 0 0 transparent); color: inherit; }
+  20%  { transform: scale(1.08);  filter: drop-shadow(0 0 18px var(--color-accent)); color: var(--color-accent); }
+  100% { transform: scale(1);     filter: drop-shadow(0 0 0 transparent); color: inherit; }
+}
+
 /* ── `getshaky` easter egg — the shaky transformation flourish ──────── */
 
 /* Whole-overlay jitter during the ~1.3 s intro phase, intensifying

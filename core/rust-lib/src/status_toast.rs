@@ -52,8 +52,11 @@ pub struct LatestToast(pub Mutex<Option<StatusToast>>);
 /// reusing thereafter) the toast window centred on the cursor's monitor
 /// and notify the frontend to (re)play its animation.
 pub fn show(app: &AppHandle, toast: StatusToast) {
+    tracing::debug!("status_toast: show kind={} on={}", toast.kind, toast.on);
     if let Some(state) = app.try_state::<LatestToast>() {
         *state.0.lock() = Some(toast);
+    } else {
+        tracing::warn!("status_toast: LatestToast state missing — payload not stored");
     }
 
     let win = match app.get_webview_window(TOAST_LABEL) {
@@ -93,6 +96,11 @@ pub fn show(app: &AppHandle, toast: StatusToast) {
     // on mount; the event covers the already-open (reused) window.
     let _ = win.emit("status-toast-changed", ());
     let _ = win.show();
+    // Force it on-screen + frontmost. After `app.hide()` (run at toggle
+    // time) the app is hidden, and an Accessory app's `show()` alone does
+    // not reliably order a fresh window in — `set_focus` makes it key and
+    // brings the overlay forward over whatever app is now frontmost.
+    let _ = win.set_focus();
 }
 
 /// Hide (not close) the toast window so the next toast re-shows instantly.

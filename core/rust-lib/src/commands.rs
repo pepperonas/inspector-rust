@@ -350,30 +350,32 @@ pub fn wakelock_set(
 ) -> bool {
     let new_state = crate::wakelock::set_enabled(state.inner(), enable);
     let _ = app.emit("wakelock-changed", new_state);
-    // Hide the popup WINDOW (only) and play a brief on-screen status
-    // flourish over whatever app the user returns to. We deliberately do
-    // NOT call `hotkey::hide_popup` here — on macOS that also fires
-    // `app.hide()` (to return focus), which would immediately hide the
-    // toast window we're about to show. Instead the toast restores focus
-    // via `app.hide()` itself once it auto-dismisses (`status_toast::hide`).
-    if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
-        let _ = w.hide();
-    }
-    let _ = app.emit("popup-hidden", ());
+    // Close the popup the normal way (on macOS this also `app.hide()`s, so
+    // focus returns to the prior app), then — a beat LATER — pop the
+    // status flourish. Showing the overlay shortly after `app.hide()` has
+    // settled mirrors the screenshot-preview flow, which is the one path
+    // that reliably orders a fresh Accessory-app window on-screen; showing
+    // it synchronously (or after a window-only hide) left it off-screen.
+    crate::hotkey::hide_popup(&app);
     let (title, subtitle) = if new_state {
         ("Wakelock On", "Sleep & screen lock are paused")
     } else {
         ("Wakelock Off", "Normal sleep behaviour resumed")
     };
-    crate::status_toast::show(
-        &app,
-        crate::status_toast::StatusToast {
-            kind: "wakelock".into(),
-            on: new_state,
-            title: title.into(),
-            subtitle: subtitle.into(),
-        },
-    );
+    let toast = crate::status_toast::StatusToast {
+        kind: "wakelock".into(),
+        on: new_state,
+        title: title.into(),
+        subtitle: subtitle.into(),
+    };
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(90));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            crate::status_toast::show(&app3, toast);
+        });
+    });
     new_state
 }
 

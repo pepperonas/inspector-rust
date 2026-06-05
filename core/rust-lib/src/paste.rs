@@ -4,7 +4,7 @@ use base64::Engine;
 use clipboard_rs::common::RustImage;
 use clipboard_rs::{Clipboard, ClipboardContext, RustImageData};
 use enigo::{
-    Direction::{Press, Release},
+    Direction::{Click, Press, Release},
     Enigo, Key, Keyboard, Settings,
 };
 use std::thread;
@@ -83,6 +83,25 @@ fn write_to_clipboard(content_type: ContentType, data: &str, text: &str) -> Resu
             ctx.set_text(text.to_string())
                 .map_err(|e| anyhow!("set_text (files fallback) failed: {e:?}"))?;
         }
+    }
+    Ok(())
+}
+
+/// Synthesize `count` Left-arrow presses to reposition the caret after a
+/// paste — used to honour the `{cursor}` snippet placeholder. Best-effort:
+/// the text is already pasted, so a failure here is non-fatal. A brief
+/// settle lets the target app finish consuming the paste before we move.
+pub fn move_cursor_left(count: usize) -> Result<()> {
+    if count == 0 {
+        return Ok(());
+    }
+    let mut enigo = Enigo::new(&enigo_settings())
+        .map_err(|e| anyhow!("enigo init failed: {e:?}"))?;
+    thread::sleep(Duration::from_millis(20));
+    for _ in 0..count {
+        enigo
+            .key(Key::LeftArrow, Click)
+            .map_err(|e| anyhow!("left arrow: {e:?}"))?;
     }
     Ok(())
 }

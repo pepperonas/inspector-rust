@@ -32,6 +32,7 @@ mod screenshot_editor;
 mod screenshot_preview;
 mod seed;
 mod settings;
+mod snippet_template;
 mod snippets;
 mod system_commands;
 mod finder_selection;

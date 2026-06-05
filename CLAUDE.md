@@ -158,6 +158,8 @@ The table maps each emitted event to where it's emitted and what the frontend do
 
 ### Text expander (`expander.rs`)
 
+**Dynamic placeholders (`snippet_template.rs`, v0.50.0+).** Snippet bodies are stored verbatim and expanded at *paste* time by the pure `snippet_template::render(body, now, clipboard) -> Rendered { text, cursor_back }`. Tokens: `{date}`/`{date:FMT}`, `{time}`/`{time:FMT}`, `{datetime}` (chrono strftime), `{clipboard}` (clipboard text at paste time), `{cursor}` (removed; the caret is repositioned there afterwards via `paste::move_cursor_left`), and `{{`/`}}` for literal braces; an unknown `{token}` or a malformed strftime is emitted verbatim (never panics). Rendering happens at the **leaf paste primitives** so every path gets it: `commands::paste_snippet` (popup, via `expander::render_snippet_body` — current clipboard), `expander::paste_over_selection` and `expand_via_clipboard` (the saved pre-cycle clipboard is the `{clipboard}` source, since the live clipboard transiently holds the abbreviation there), and the AX in-place `try_replace_word_before_cursor` arm. The Snippets editor shows a one-line placeholder cheat-sheet under the body field.
+
 Three expansion modes exist:
 
 1. **Search-based** (always on): type an abbreviation in the search field → matching snippets appear at top of list → Enter pastes. Handled entirely in the frontend via `findSnippets()`.

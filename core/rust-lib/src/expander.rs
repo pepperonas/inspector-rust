@@ -31,6 +31,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::db::DbHandle;
+use crate::snippet_template::{self, Rendered};
 use crate::snippets;
 use crate::text_field::{default_field_access, native_path, CapturePath, ReplaceOutcome};
 
@@ -779,9 +780,18 @@ pub fn expand_at_cursor(
         }
         if let Ok(Some(word)) = access.read_word_before_cursor() {
             if let Some(snippet) = snippets::find_by_exact_abbreviation(db, &word)? {
+                // Render dynamic placeholders before the in-place set. The
+                // clipboard is untouched on this path, so `{clipboard}`
+                // resolves to the user's current clipboard.
+                let rendered = render_body(&snippet.body, read_clipboard_text().as_deref());
                 // Try the in-place replace via the same accessibility layer.
-                match access.try_replace_word_before_cursor(&snippet.body) {
-                    Ok(ReplaceOutcome::Replaced) => return Ok(()),
+                match access.try_replace_word_before_cursor(&rendered.text) {
+                    Ok(ReplaceOutcome::Replaced) => {
+                        // Honour a `{cursor}` marker (best-effort — after an
+                        // AX value set the caret is typically at the end).
+                        let _ = crate::paste::move_cursor_left(rendered.cursor_back);
+                        return Ok(());
+                    }
                     Ok(ReplaceOutcome::SelectionActive) => {
                         // The AX layer *selected* the abbreviation but the
                         // in-place text set was a no-op — the typical
@@ -915,32 +925,39 @@ fn expand_via_clipboard(
         snippet.body
     };
 
-    // 5) Replace selection: write the body, paste over the highlight.
-    //    Arm the watcher so the body + restored clipboard don't
-    //    pollute history (pre-v0.33.0 bug: every expansion via this
-    //    path added the snippet body as a "new clip").
+    // 5) Replace selection: render dynamic placeholders, write the body,
+    //    paste over the highlight. `{clipboard}` resolves to `saved` — the
+    //    user's pre-cycle clipboard — because the live clipboard right now
+    //    transiently holds the abbreviation our select+copy just grabbed.
+    //    Arm the watcher so the body + restored clipboard don't pollute
+    //    history (pre-v0.33.0 bug: every expansion via this path added the
+    //    snippet body as a "new clip").
+    let rendered = render_body(&body, saved.as_deref());
+    let text = rendered.text;
     if let Some(w) = watcher {
-        w.mark_self_write(crate::models::ContentType::Text, &body);
+        w.mark_self_write(crate::models::ContentType::Text, &text);
     }
-    write_clipboard_text(&body)?;
+    write_clipboard_text(&text)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
+    // Honour a `{cursor}` marker — reposition the caret into the body.
+    let _ = crate::paste::move_cursor_left(rendered.cursor_back);
 
     // 6) Background restore (v0.35.0+). Same shape as
     //    `paste_over_selection`: return immediately after paste, then
     //    a worker thread waits 120 ms and restores only if our body
     //    is still on the clipboard. Drops 180 ms from the user-
     //    perceived expansion latency.
-    if let Some(text) = saved {
+    if let Some(saved_text) = saved {
         let watcher_clone = watcher.cloned_handle();
-        let body_owned = body.clone();
+        let body_owned = text;
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(120));
             if matches!(read_clipboard_text(), Some(cur) if cur == body_owned) {
                 if let Some(w) = watcher_clone.as_ref() {
-                    w.mark_self_write(crate::models::ContentType::Text, &text);
+                    w.mark_self_write(crate::models::ContentType::Text, &saved_text);
                 }
-                let _ = write_clipboard_text(&text);
+                let _ = write_clipboard_text(&saved_text);
             }
         });
     }
@@ -959,6 +976,10 @@ fn paste_over_selection(
     watcher: Option<&crate::clipboard_watcher::WatcherState>,
 ) -> Result<()> {
     let saved = read_clipboard_text();
+    // Render dynamic placeholders. `{clipboard}` resolves to the user's
+    // current clipboard (== `saved`, what we restore afterwards).
+    let rendered = render_body(body, saved.as_deref());
+    let text = rendered.text.as_str();
     // Arm the watcher for BOTH writes — the body about to be pasted
     // *and* the (background-scheduled) restored clipboard. Without
     // this, every snippet expansion would pollute history with the
@@ -966,20 +987,13 @@ fn paste_over_selection(
     // `aiplan` → body got stored in history *and* re-surfaced as a
     // "recent" clip.
     if let Some(w) = watcher {
-        w.mark_self_write(crate::models::ContentType::Text, body);
-        // Also pre-arm the restore so the watcher skips that too.
-        // Re-arming overwrites the previous fuse, but both writes
-        // happen sequentially below — the watcher checks each event
-        // against the most-recent fuse, which is what we want.
-        if let Some(text) = saved.as_deref() {
-            // Defer arming the restore until restore time (otherwise
-            // the body write would consume this fuse instead).
-            let _ = text;
-        }
+        w.mark_self_write(crate::models::ContentType::Text, text);
     }
-    write_clipboard_text(body)?;
+    write_clipboard_text(text)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
+    // Honour a `{cursor}` marker — reposition the caret into the body.
+    let _ = crate::paste::move_cursor_left(rendered.cursor_back);
 
     // v0.35 — restore in a background thread. The expand call
     // returns immediately after paste; we no longer block 180 ms
@@ -989,16 +1003,16 @@ fn paste_over_selection(
     // user's text. If it doesn't (the user or another app wrote
     // something new in those 120 ms), do nothing — don't clobber
     // their fresh clipboard content.
-    if let Some(text) = saved {
+    if let Some(saved_text) = saved {
         let watcher_clone = watcher.cloned_handle();
-        let body_owned = body.to_string();
+        let body_owned = rendered.text;
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(120));
             if matches!(read_clipboard_text(), Some(cur) if cur == body_owned) {
                 if let Some(w) = watcher_clone.as_ref() {
-                    w.mark_self_write(crate::models::ContentType::Text, &text);
+                    w.mark_self_write(crate::models::ContentType::Text, &saved_text);
                 }
-                let _ = write_clipboard_text(&text);
+                let _ = write_clipboard_text(&saved_text);
             }
         });
     }
@@ -1028,6 +1042,22 @@ fn trim_abbreviation(raw: &str) -> &str {
 fn read_clipboard_text() -> Option<String> {
     let ctx = ClipboardContext::new().ok()?;
     ctx.get_text().ok()
+}
+
+/// Expand a snippet body's dynamic placeholders ({date}, {time}, {clipboard},
+/// {cursor}, …) against `clipboard` (the `{clipboard}` source) and the current
+/// local time. Each paste path passes the clipboard text appropriate for its
+/// timing — the *current* clipboard for in-place paths, or the saved
+/// pre-cycle clipboard for the select+copy clipboard path (where the live
+/// clipboard transiently holds the abbreviation).
+fn render_body(body: &str, clipboard: Option<&str>) -> Rendered {
+    snippet_template::render(body, chrono::Local::now(), clipboard)
+}
+
+/// Public entry for the popup search-paste path (`commands::paste_snippet`):
+/// renders against the *current* clipboard contents.
+pub fn render_snippet_body(body: &str) -> Rendered {
+    render_body(body, read_clipboard_text().as_deref())
 }
 
 fn write_clipboard_text(text: &str) -> Result<()> {

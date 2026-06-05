@@ -341,6 +341,18 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
                   if (e.key === "Escape") cancel();
                 }}
               />
+              <span className="text-[10px] leading-snug text-[var(--color-muted)]">
+                Placeholders (expanded on paste):{" "}
+                <code className="text-[var(--color-fg)]">{"{date}"}</code>{" "}
+                <code className="text-[var(--color-fg)]">{"{time}"}</code>{" "}
+                <code className="text-[var(--color-fg)]">{"{datetime}"}</code>{" "}
+                <code className="text-[var(--color-fg)]">{"{clipboard}"}</code>{" "}
+                <code className="text-[var(--color-fg)]">{"{cursor}"}</code>
+                {" — "}custom format e.g.{" "}
+                <code className="text-[var(--color-fg)]">{"{date:%d.%m.%Y}"}</code>;{" "}
+                <code className="text-[var(--color-fg)]">{"{{"}</code>/
+                <code className="text-[var(--color-fg)]">{"}}"}</code> for literal braces.
+              </span>
             </label>
 
             {error && (

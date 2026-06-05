@@ -606,8 +606,12 @@ pub fn paste_snippet(
         .ok_or_else(|| "snippet not found".to_string())?;
 
     hotkey::hide_popup(&app);
-    watcher.mark_self_write(crate::models::ContentType::Text, &snippet.body);
-    paste::paste_text(&snippet.body).map_err(map_err)?;
+    // Expand dynamic placeholders ({date}, {clipboard}, {cursor}, …) against
+    // the current clipboard, then paste and honour any {cursor} marker.
+    let rendered = crate::expander::render_snippet_body(&snippet.body);
+    watcher.mark_self_write(crate::models::ContentType::Text, &rendered.text);
+    paste::paste_text(&rendered.text).map_err(map_err)?;
+    let _ = paste::move_cursor_left(rendered.cursor_back);
     Ok(())
 }
 

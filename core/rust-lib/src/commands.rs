@@ -350,12 +350,51 @@ pub fn wakelock_set(
 ) -> bool {
     let new_state = crate::wakelock::set_enabled(state.inner(), enable);
     let _ = app.emit("wakelock-changed", new_state);
+    // Hide the popup WINDOW (only) and play a brief on-screen status
+    // flourish over whatever app the user returns to. We deliberately do
+    // NOT call `hotkey::hide_popup` here — on macOS that also fires
+    // `app.hide()` (to return focus), which would immediately hide the
+    // toast window we're about to show. Instead the toast restores focus
+    // via `app.hide()` itself once it auto-dismisses (`status_toast::hide`).
+    if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+        let _ = w.hide();
+    }
+    let _ = app.emit("popup-hidden", ());
+    let (title, subtitle) = if new_state {
+        ("Wakelock On", "Sleep & screen lock are paused")
+    } else {
+        ("Wakelock Off", "Normal sleep behaviour resumed")
+    };
+    crate::status_toast::show(
+        &app,
+        crate::status_toast::StatusToast {
+            kind: "wakelock".into(),
+            on: new_state,
+            title: title.into(),
+            subtitle: subtitle.into(),
+        },
+    );
     new_state
 }
 
 #[tauri::command]
 pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> bool {
     crate::wakelock::is_enabled(state.inner())
+}
+
+/// Pull the most recent status-toast payload (the toast window reads this
+/// on mount + on each `status-toast-changed` event).
+#[tauri::command]
+pub fn get_status_toast(
+    state: State<'_, crate::status_toast::LatestToast>,
+) -> Option<crate::status_toast::StatusToast> {
+    state.0.lock().clone()
+}
+
+/// Hide the toast window — called by the toast's own auto-dismiss timer.
+#[tauri::command]
+pub fn hide_status_toast(app: AppHandle) {
+    crate::status_toast::hide(&app);
 }
 
 // ── Appearance / theme ────────────────────────────────────────────────

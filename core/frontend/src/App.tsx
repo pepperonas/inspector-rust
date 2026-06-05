@@ -1250,8 +1250,10 @@ function App() {
             console.error("input lock failed", e);
           }
         } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
+          // The backend hides the popup itself, then plays the on-screen
+          // status flourish (status_toast). Calling hidePopup() here would
+          // fire app.hide() on macOS and swallow that toast, so don't.
           await wakelockSet(commandKind === "wakelock-on");
-          await hidePopup();
         } else if (commandKind === "timer") {
           const t = parseTimerArg(arg);
           if (!t) {

@@ -34,6 +34,7 @@ mod seed;
 mod settings;
 mod snippet_template;
 mod snippets;
+mod status_toast;
 mod system_commands;
 mod finder_selection;
 #[cfg(target_os = "macos")]
@@ -148,6 +149,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
             app.manage(timer::TimerRegistry::default());
+            app.manage(status_toast::LatestToast::default());
 
             // App-launcher cache. Scan once at startup; the Settings
             // → Apps Refresh button can re-trigger via `refresh_apps`.
@@ -403,6 +405,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_theme_preference,
             commands::get_window_size_preference,
             commands::set_window_size_preference,
+            commands::get_status_toast,
+            commands::hide_status_toast,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

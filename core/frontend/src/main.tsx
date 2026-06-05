@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import App from "./App";
 import { ScreenshotPreview } from "./components/ScreenshotPreview";
 import { ScreenshotEditor } from "./components/ScreenshotEditor";
+import { StatusToast } from "./components/StatusToast";
 import "./styles.css";
 
 // Inspector Rust runs in three Tauri windows depending on what the
@@ -20,6 +21,7 @@ const label = getCurrentWebviewWindow().label;
 function Mount() {
   if (label === "screenshot-preview") return <ScreenshotPreview />;
   if (label === "screenshot-editor") return <ScreenshotEditor />;
+  if (label === "status-toast") return <StatusToast />;
   return <App />;
 }
 

@@ -306,6 +306,27 @@ export function setWindowSizePreference(size: string): Promise<void> {
   return invoke("set_window_size_preference", { size });
 }
 
+// ── Status toast (v0.51.0+) ────────────────────────────────────────────
+
+/** Payload rendered by the transient on-screen status-toast window. */
+export interface StatusToast {
+  kind: string;
+  on: boolean;
+  title: string;
+  subtitle: string;
+}
+
+/** Pull the latest status-toast payload (read by the toast window on
+ *  mount + on each `status-toast-changed` event). */
+export function getStatusToast(): Promise<StatusToast | null> {
+  return invoke("get_status_toast");
+}
+
+/** Hide the toast window — called by its own auto-dismiss timer. */
+export function hideStatusToast(): Promise<void> {
+  return invoke("hide_status_toast");
+}
+
 export function deleteEntry(id: number): Promise<void> {
   return invoke("delete_entry", { id });
 }

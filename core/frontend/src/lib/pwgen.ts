@@ -7,7 +7,8 @@
  *   - `alnum`     — alphanumeric only (uppercase + lowercase + digits)
  *   - `dict`      — English dictionary words, CapitalisedConcatenated,
  *                   padded with random digits to the exact target length
- *   - `leet`      — same as `dict`, then leet-substituted (a→@, e→3, …)
+ *   - `leet`      — same as `dict`, then vowel-only leet (a→4 e→3 i→1 o→0),
+ *                   kept readable so the base words stay recognisable
  *
  * Pure-TS; no IPC. The active mode is component state in App.tsx; the
  * password regenerates on every (query × mode) change so the user can
@@ -91,15 +92,17 @@ function generateDict(length: number): string {
   return s.slice(0, length);
 }
 
-/** Leet substitution. Conservative — only the most readable swaps,
- *  to preserve some recognisability while frustrating dictionary
- *  attacks. */
+/** Leet substitution — **vowels only, lowercase only**, so the original
+ *  words stay readable. Consonant swaps (l→1, t→7, g→9, b→8, s→$) and
+ *  capital-letter swaps mangled the word shape badly enough that you
+ *  couldn't recognise the base word; restricting to lowercase vowels
+ *  (a→4 e→3 i→1 o→0) keeps each word's capitalised initial AND its
+ *  silhouette intact — "Sunrise" → "Sunr1s3", not "$unr1$3". */
 const LEET: Record<string, string> = {
-  a: "@", e: "3", i: "1", o: "0", s: "$", t: "7", l: "1", g: "9", b: "8",
-  A: "@", E: "3", I: "1", O: "0", S: "$", T: "7", L: "1", G: "9", B: "8",
+  a: "4", e: "3", i: "1", o: "0",
 };
 
-function leetTransform(s: string): string {
+export function leetTransform(s: string): string {
   let out = "";
   for (const ch of s) out += LEET[ch] ?? ch;
   return out;

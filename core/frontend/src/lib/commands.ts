@@ -34,11 +34,12 @@ export type CommandKind =
   | "lock"
   | "mute"
   | "freeze"
-  | "wakelock-on"
-  | "wakelock-off"
+  | "wakelock"
   | "bruno"
   | "timer"
-  | "pwgen";
+  | "pwgen"
+  | "touch"
+  | "mkdir";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -53,8 +54,8 @@ export interface CommandSpec {
   /** True if the command needs an argument after the keyword. */
   requiresArg: boolean;
   /** If true, parses to a runnable command but never appears in the
-   *  autocomplete suggestion list. Used for alias spellings (e.g.
-   *  `wakelock1` as a synonym for `wakelock=1`). */
+   *  autocomplete suggestion list. Reserved for alias spellings that
+   *  shouldn't clutter the list. */
   hidden?: boolean;
 }
 
@@ -148,40 +149,23 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
     requiresArg: false,
   },
-  // ── Wakelock (mouse-jiggle keep-awake) ────────────────────────────
-  // Two canonical forms visible in autocomplete; two un-equalsed
-  // aliases (`wakelock1` / `wakelock0`) parse to the same kinds but
-  // stay out of the suggestion list to keep it tidy.
+  // ── Wakelock / caffeine (keep-awake) ──────────────────────────────
+  // `wakelock on|off` and the `caffeine on|off` alias. The on/off arg
+  // (no more `=1`/`=0`) parses via `parseWakelockArg`.
   {
-    kind: "wakelock-on",
-    keyword: "wakelock=1",
-    syntax: "wakelock=1",
+    kind: "wakelock",
+    keyword: "wakelock",
+    syntax: "wakelock on|off",
     description:
-      "Keep awake — nudge the cursor 1 px every 60 s until you turn it off (wakelock=0)",
-    requiresArg: false,
+      "Keep awake (pause sleep + screen lock). e.g. `wakelock on` / `wakelock off`",
+    requiresArg: true,
   },
   {
-    kind: "wakelock-off",
-    keyword: "wakelock=0",
-    syntax: "wakelock=0",
-    description: "Disable the wakelock — stop the cursor jiggle",
-    requiresArg: false,
-  },
-  {
-    kind: "wakelock-on",
-    keyword: "wakelock1",
-    syntax: "wakelock1",
-    description: "(alias of wakelock=1)",
-    requiresArg: false,
-    hidden: true,
-  },
-  {
-    kind: "wakelock-off",
-    keyword: "wakelock0",
-    syntax: "wakelock0",
-    description: "(alias of wakelock=0)",
-    requiresArg: false,
-    hidden: true,
+    kind: "wakelock",
+    keyword: "caffeine",
+    syntax: "caffeine on|off",
+    description: "Keep awake — alias of wakelock. e.g. `caffeine on` / `caffeine off`",
+    requiresArg: true,
   },
   // ── Bruno — German income-tax / net-pay calculator ────────────────
   {
@@ -213,10 +197,45 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     // that lets matching snippets outrank it.
     requiresArg: false,
   },
+  // ── Finder file/folder creation (in the front Finder window's dir) ──
+  {
+    kind: "touch",
+    keyword: "touch",
+    syntax: "touch <name>",
+    description: "Create an empty file in the frontmost Finder window's folder",
+    requiresArg: true,
+  },
+  {
+    kind: "mkdir",
+    keyword: "mkdir",
+    syntax: "mkdir <name>",
+    description: "Create a new folder in the frontmost Finder window's folder",
+    requiresArg: true,
+  },
 ];
 
 /** Default password length when `pwgen` is typed without a number. */
 export const DEFAULT_PWGEN_LENGTH = 20;
+
+/** Parse a wakelock/caffeine on/off argument. Accepts on/off (the new
+ *  canonical syntax) plus 1/0/true/false for leniency. Returns the
+ *  desired enabled state, or `null` if unrecognised. */
+export function parseWakelockArg(arg: string): boolean | null {
+  switch (arg.trim().toLowerCase()) {
+    case "on":
+    case "1":
+    case "true":
+    case "an":
+      return true;
+    case "off":
+    case "0":
+    case "false":
+    case "aus":
+      return false;
+    default:
+      return null;
+  }
+}
 
 /** Lookup by exact keyword. O(n=6); a HashMap would be premature. */
 function lookupKeyword(keyword: string): CommandSpec | undefined {

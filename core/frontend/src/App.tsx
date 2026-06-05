@@ -32,6 +32,7 @@ import {
   parsePwgenArg,
   parseResizeArg,
   parseTimerArg,
+  parseWakelockArg,
   resizePresetSuggestions,
   translateUrl,
   type CommandKind,
@@ -71,6 +72,8 @@ import {
   type AppEntry,
   resizeFile,
   optimizeFile,
+  finderTouch,
+  finderMkdir,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -358,13 +361,26 @@ function App() {
         hint =
           "Press the configured chord (Settings → Input Lock, default i+r) to unlock";
         break;
-      case "wakelock-on":
-        label = "Wakelock: ON — keep the computer awake";
-        hint = "Cursor jiggles 1 px every 60 s · turn off with wakelock=0";
+      case "wakelock": {
+        const on = parseWakelockArg(arg);
+        if (on === null) {
+          label = `wakelock: use "on" or "off" (got "${arg}")`;
+          hint = "e.g. wakelock on · wakelock off · caffeine on";
+        } else {
+          label = on
+            ? "Keep awake: ON — pause sleep & screen lock"
+            : "Keep awake: OFF — normal sleep behaviour resumes";
+          hint = on ? "Stays awake until you run wakelock off" : "";
+        }
         break;
-      case "wakelock-off":
-        label = "Wakelock: OFF — stop the cursor jiggle";
-        hint = "Idle-sleep timers resume their normal behaviour";
+      }
+      case "touch":
+        label = `Create file "${arg}" in the open Finder folder`;
+        hint = "Created in the frontmost Finder window's directory";
+        break;
+      case "mkdir":
+        label = `Create folder "${arg}" in the open Finder folder`;
+        hint = "Created in the frontmost Finder window's directory";
         break;
       case "timer": {
         const t = parseTimerArg(arg);
@@ -1139,11 +1155,30 @@ function App() {
           setPasteError("other");
           console.error("input lock failed", e);
         }
-      } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
+      } else if (commandKind === "wakelock") {
+        const on = parseWakelockArg(arg);
+        if (on === null) {
+          setPasteError("other");
+          return true;
+        }
         // The backend hides the popup itself, then plays the on-screen
         // status flourish (status_toast). Calling hidePopup() here would
         // fire app.hide() on macOS and swallow that toast, so don't.
-        await wakelockSet(commandKind === "wakelock-on");
+        await wakelockSet(on);
+      } else if (commandKind === "touch" || commandKind === "mkdir") {
+        // Create a file / folder in the frontmost Finder window's folder.
+        try {
+          const path =
+            commandKind === "touch"
+              ? await finderTouch(arg)
+              : await finderMkdir(arg);
+          console.info("created", path);
+        } catch (e) {
+          setPasteError("other");
+          console.error(`${commandKind} failed`, e);
+          return true;
+        }
+        await hidePopup();
       } else if (commandKind === "timer") {
         const t = parseTimerArg(arg);
         if (!t) {

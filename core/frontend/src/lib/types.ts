@@ -80,10 +80,11 @@ export interface CommandEntryView {
     | "lock"
     | "mute"
     | "freeze"
-    | "wakelock-on"
-    | "wakelock-off"
+    | "wakelock"
     | "timer"
-    | "pwgen";
+    | "pwgen"
+    | "touch"
+    | "mkdir";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

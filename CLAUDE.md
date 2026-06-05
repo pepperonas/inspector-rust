@@ -208,7 +208,8 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 | `reboot` / `shutdown` / `lock` | System power / lock (macOS) | `system_commands` |
 | `mute` | Toggle system mute (macOS) | IPC `toggle_mute` |
 | `freeze` | Input lock (block keyboard+mouse until unlock chord) | `input_lock` |
-| `wakelock=1`/`wakelock1` / `wakelock=0`/`wakelock0` | Keep-awake on / off | `wakelock` |
+| `wakelock on` / `wakelock off` (alias `caffeine on/off`) | Keep-awake on / off (arg parsed by `parseWakelockArg`; the old `=1`/`=0` syntax was removed v0.52.0) | `wakelock` |
+| `touch <name>` / `mkdir <name>` | Create a file / folder in the frontmost Finder window's folder (macOS) | `finder_selection::create_file`/`create_dir` |
 | `bruno <€>` | German net-pay calculator | `bruno` |
 | `timer <n>[s/min]` | Countdown timer | `timer` |
 | `pwgen [N]` | Password generator (bare = default length, runnable so it outranks snippet matches) | `lib/pwgen.ts` |
@@ -259,7 +260,11 @@ Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock cho
 ### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
 
 - **`timer <n>[s/min]`** — each `start_timer` spawns a worker; on expiry fires a native notification + `afplay Glass.aiff` + a `timer-fired` popup banner. Cancellable per-timer (`AtomicBool` polled ~200 ms). Footer shows the live count (`list_timers`, `timers-changed`). IPC: `start_timer`, `cancel_timer`, `list_timers`.
-- **`wakelock=1` / `wakelock=0`** — keep-awake. macOS spawns `/usr/bin/caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState` **plus** a periodic invisible `F15` keypress (v0.50.2 — `SetThreadExecutionState` blocks power-sleep but does NOT reset the screensaver/lock idle timer, so on its own Windows kept *locking* the screen; the F15 nudge every 30 s keeps the screensaver + lock from engaging, the Caffeine/PowerToys-Awake trick); Linux jiggles the cursor (X11 only, no-op on Wayland). IPC: `wakelock_set`, `wakelock_get` (`wakelock-changed` event drives the footer indicator).
+- **`wakelock on` / `wakelock off`** (alias **`caffeine on/off`**, v0.52.0 — the old `=1`/`=0` syntax was retired; `lib/commands.ts::parseWakelockArg` parses the on/off arg, also accepting 1/0/true/false). Keep-awake: macOS spawns `/usr/bin/caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState` **plus** a periodic invisible `F15` keypress (v0.50.2 — `SetThreadExecutionState` blocks power-sleep but does NOT reset the screensaver/lock idle timer, so on its own Windows kept *locking* the screen; the F15 nudge every 30 s keeps the screensaver + lock from engaging, the Caffeine/PowerToys-Awake trick); Linux jiggles the cursor (X11 only, no-op on Wayland). IPC: `wakelock_set`, `wakelock_get` (`wakelock-changed` event drives the footer indicator); `wakelock_set` also hides the popup + fires the status toast.
+
+### Finder file/folder creation (`finder_selection.rs`, v0.53.0, macOS)
+
+- **`touch <name>`** / **`mkdir <name>`** create an empty file / a folder in the **frontmost Finder window's folder** — resolved via `osascript` `insertion location` (the front window's target, or the Desktop if no window is open), the same Automation→Finder TCC surface as Finder selection (`finder.automation_denied` sentinel on a miss). `sanitize_name` rejects `/`, `.`, `..`, NUL so creation can't escape the folder; the new item is `reveal`-ed (selected) in Finder. IPC: `finder_touch` / `finder_mkdir` (macOS-only; Windows/Linux stubs return an error). Frontend: `touch`/`mkdir` commands dispatch via `App.tsx`'s `dispatchCommand`.
 
 ### Status toast (`status_toast.rs`, `StatusToast.tsx`, v0.51.0+)
 
@@ -271,7 +276,7 @@ CleanShot-X-style flow layered on `run_screenshot_pipeline`. After capture the t
 
 ### Password generator + text transforms (`lib/pwgen.ts`, `lib/text-transform.ts`)
 
-- **`pwgen [N]`** (frontend-only, `pwgen` `ListEntry`) — `requiresArg: false`, so a bare `pwgen` is a runnable command that surfaces the generator row (length `DEFAULT_PWGEN_LENGTH`) at the **top**, above any matching snippets; `pwgen 16` overrides the length. Four modes: `all` (alnum+symbols), `alnum`, `dict` (CapitalisedConcatenated words from `pwgen-dict.ts` padded with digits), `leet` (dict + leet-subst). CSPRNG via `crypto.getRandomValues` with rejection-sampling to avoid modulo bias; always returns exactly `length` chars.
+- **`pwgen [N]`** (frontend-only, `pwgen` `ListEntry`) — `requiresArg: false`, so a bare `pwgen` is a runnable command that surfaces the generator row (length `DEFAULT_PWGEN_LENGTH`) at the **top**, above any matching snippets; `pwgen 16` overrides the length. Four modes: `all` (alnum+symbols), `alnum`, `dict` (CapitalisedConcatenated words from `pwgen-dict.ts` padded with digits), `leet` (dict + **vowel-only** leet — `a→4 e→3 i→1 o→0`, lowercase keys only, so each word's capitalised initial + consonant silhouette survive and the base word stays recognisable; `leetTransform` is exported + unit-tested). CSPRNG via `crypto.getRandomValues` with rejection-sampling to avoid modulo bias; always returns exactly `length` chars. Mode shortcut: `Cmd/Ctrl+1…4` while a pwgen row is selected.
 - **`lib/text-transform.ts`** — pure transforms applied to a selected text entry and committed via the `commit_transformed_text` IPC: remove-vowels, upper/lower/title/camel/snake/kebab case, base64 encode/decode, url encode/decode, plain-text. The first nine map to `Cmd/Ctrl+1…9` in `PreviewPanel`.
 
 ### BPM detector (`components/BpmDetector.tsx`, `lib/bpm.ts`, v0.45.x)

@@ -98,7 +98,7 @@ function TimerBadge({ count }: { count: number }) {
 function WakelockLed() {
   return (
     <span
-      title="Wakelock active — cursor jiggles every 60 s to keep the computer awake. Type `wakelock=0` to turn off."
+      title="Keep-awake active — the computer won't sleep or lock. Type `wakelock off` (or `caffeine off`) to turn it off."
       className="flex shrink-0 items-center gap-1"
     >
       <span

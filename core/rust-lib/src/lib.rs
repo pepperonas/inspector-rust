@@ -397,6 +397,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_finder_selection,
             commands::resize_file,
             commands::optimize_file,
+            commands::finder_touch,
+            commands::finder_mkdir,
             commands::get_finder_automation_status,
             commands::open_finder_automation_settings,
             commands::force_reset_finder_automation_grant,

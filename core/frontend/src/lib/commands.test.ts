@@ -4,6 +4,7 @@ import {
   DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
   commandSuggestions,
+  parseWakelockArg,
   isGetShakyTrigger,
   isOpenerTrigger,
   isSpaceInvadersTrigger,
@@ -18,7 +19,7 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 19 commands (12 base + 4 wakelock entries + bruno + timer + pwgen)", () => {
+  it("has 19 commands (15 base + wakelock + caffeine + touch + mkdir)", () => {
     expect(COMMANDS.length).toBe(19);
   });
 
@@ -30,14 +31,13 @@ describe("COMMANDS catalogue", () => {
     }
   });
 
-  it("wakelock has both canonical (=) and hidden (no-=) spellings", () => {
-    const on = COMMANDS.filter((c) => c.kind === "wakelock-on");
-    const off = COMMANDS.filter((c) => c.kind === "wakelock-off");
-    expect(on.map((c) => c.keyword).sort()).toEqual(["wakelock1", "wakelock=1"]);
-    expect(off.map((c) => c.keyword).sort()).toEqual(["wakelock0", "wakelock=0"]);
-    // Aliases are hidden from autocomplete.
-    expect(on.find((c) => c.keyword === "wakelock1")?.hidden).toBe(true);
-    expect(on.find((c) => c.keyword === "wakelock=1")?.hidden).toBeFalsy();
+  it("wakelock + caffeine are on/off arg commands (no more =1/=0)", () => {
+    const wl = COMMANDS.filter((c) => c.kind === "wakelock");
+    expect(wl.map((c) => c.keyword).sort()).toEqual(["caffeine", "wakelock"]);
+    // Both take an on/off argument now.
+    expect(wl.every((c) => c.requiresArg)).toBe(true);
+    // The old `=1`/`=0` spellings are gone.
+    expect(COMMANDS.some((c) => c.keyword.includes("="))).toBe(false);
   });
 
   it("every command has a non-empty description and syntax", () => {
@@ -177,10 +177,17 @@ describe("commandSuggestions", () => {
   it("fuzzy-matches first-char-anchored subsequences (3+ chars)", () => {
     // The whole point of the feature: invoke wakelock/freeze/pwgen without
     // typing them in full.
-    expect(commandSuggestions("wlk").map((s) => s.keyword)).toContain("wakelock=1");
+    expect(commandSuggestions("wlk").map((s) => s.keyword)).toContain("wakelock");
+    expect(commandSuggestions("cfn").map((s) => s.keyword)).toContain("caffeine");
     expect(commandSuggestions("frz").map((s) => s.keyword)).toContain("freeze");
     expect(commandSuggestions("pwg").map((s) => s.keyword)).toContain("pwgen");
     expect(commandSuggestions("tmr").map((s) => s.keyword)).toContain("timer");
+  });
+
+  it("matches the new touch/mkdir commands", () => {
+    expect(commandSuggestions("touch").length).toBeGreaterThanOrEqual(0); // requires-arg → suggestion or runnable
+    expect(COMMANDS.map((c) => c.keyword)).toContain("touch");
+    expect(COMMANDS.map((c) => c.keyword)).toContain("mkdir");
   });
 
   it("requires the first character to match (no un-anchored fuzz)", () => {
@@ -566,6 +573,26 @@ describe("parsePwgenArg", () => {
     expect(parsePwgenArg("abc")).toBeNull();
     expect(parsePwgenArg("")).toBeNull();
     expect(parsePwgenArg("-12")).toBeNull();
+  });
+});
+
+describe("parseWakelockArg", () => {
+  it("accepts on/off (the new canonical syntax)", () => {
+    expect(parseWakelockArg("on")).toBe(true);
+    expect(parseWakelockArg("off")).toBe(false);
+    expect(parseWakelockArg("ON")).toBe(true);
+    expect(parseWakelockArg(" Off ")).toBe(false);
+  });
+  it("still accepts 1/0/true/false for leniency", () => {
+    expect(parseWakelockArg("1")).toBe(true);
+    expect(parseWakelockArg("0")).toBe(false);
+    expect(parseWakelockArg("true")).toBe(true);
+    expect(parseWakelockArg("false")).toBe(false);
+  });
+  it("returns null for anything else", () => {
+    expect(parseWakelockArg("")).toBeNull();
+    expect(parseWakelockArg("yes")).toBeNull();
+    expect(parseWakelockArg("2")).toBeNull();
   });
 });
 

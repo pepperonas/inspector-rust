@@ -1,6 +1,5 @@
 //! `wakelock` — keep the computer awake. Toggled via the search-bar
-//! command `wakelock1` / `wakelock=1` (on) and `wakelock0` /
-//! `wakelock=0` (off).
+//! commands `wakelock on` / `wakelock off` (alias `caffeine on/off`).
 //!
 //! **macOS (v0.41.0+):** spawns `/usr/bin/caffeinate -disu` as a
 //! child process while wakelock is on; killed on toggle-off. This

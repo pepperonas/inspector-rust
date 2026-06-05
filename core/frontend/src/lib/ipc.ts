@@ -278,6 +278,20 @@ export function optimizeFile(
   return invoke("optimize_file", { path });
 }
 
+/** Create an empty file named `name` in the frontmost Finder window's
+ *  folder (or the Desktop if no window is open). Returns the absolute
+ *  path created. Needs the Automation→Finder TCC grant. Backend:
+ *  `commands::finder_touch`. */
+export function finderTouch(name: string): Promise<string> {
+  return invoke("finder_touch", { name });
+}
+
+/** Create a folder named `name` in the frontmost Finder window's folder.
+ *  Returns the absolute path created. Backend: `commands::finder_mkdir`. */
+export function finderMkdir(name: string): Promise<string> {
+  return invoke("finder_mkdir", { name });
+}
+
 /** Read the persisted theme preference — `"light"`, `"dark"`, or
  *  `"system"`. Defaults to `"system"` on a fresh install. Backend:
  *  `commands::get_theme_preference`. */

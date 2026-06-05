@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { generatePassword } from "./pwgen";
+import { generatePassword, leetTransform } from "./pwgen";
 
 /**
  * Pwgen unit tests. Targets exact length (the most important invariant
@@ -49,19 +49,15 @@ describe("generatePassword", () => {
     }
   });
 
-  it("leet mode contains the leet substitution characters", () => {
-    // Across 20 attempts at length 32, at least one should land on
-    // a word with an `a`/`e`/`i`/`o`/`s` → @/3/1/0/$ swap. The
-    // dict has very common letters; "saw leet" rate is ~99%.
-    const LEET_CHARS = /[@301$789]/;
-    let sawLeet = false;
-    for (let i = 0; i < 20; i++) {
-      if (LEET_CHARS.test(generatePassword("leet", 32))) {
-        sawLeet = true;
-        break;
-      }
-    }
-    expect(sawLeet).toBe(true);
+  it("leet substitutes vowels only, keeping caps + consonants (readable)", () => {
+    // a→4 e→3 i→1 o→0; uppercase + consonants untouched, so the base
+    // word's capitalised initial + silhouette survive (the whole point —
+    // you should still recognise the original word).
+    expect(leetTransform("Sunrise")).toBe("Sunr1s3");
+    expect(leetTransform("Apple")).toBe("Appl3"); // capital A kept, e→3
+    expect(leetTransform("Octopus")).toBe("Oct0pus"); // capital O kept, o→0
+    // No consonant or symbol mangling.
+    expect(leetTransform("salt")).toBe("s4lt"); // s/l/t untouched, a→4
   });
 
   it("different calls produce different passwords (CSPRNG works)", () => {

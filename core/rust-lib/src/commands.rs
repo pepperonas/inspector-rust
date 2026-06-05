@@ -1968,6 +1968,39 @@ pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, Stri
     crate::image_ops::optimize_file_to_neighbor(&src).map_err(map_err)
 }
 
+/// `touch <name>` — create an empty file in the frontmost Finder
+/// window's folder (or the Desktop). Returns the absolute path created.
+/// Needs the Automation→Finder TCC grant (returns the same
+/// `finder.automation_denied` sentinel as Finder selection on a miss).
+/// macOS-only.
+#[tauri::command]
+pub fn finder_touch(name: String) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::finder_selection::create_file(&name).map(|p| p.display().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err("touch is macOS-only (needs Finder)".into())
+    }
+}
+
+/// `mkdir <name>` — create a folder in the frontmost Finder window's
+/// folder. Returns the absolute path created. macOS-only.
+#[tauri::command]
+pub fn finder_mkdir(name: String) -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::finder_selection::create_dir(&name).map(|p| p.display().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = name;
+        Err("mkdir is macOS-only (needs Finder)".into())
+    }
+}
+
 /// Runs the hotkey-driven Finder-selection pipeline: read the
 /// selection, open the popup, emit the `finder-selection-loaded`
 /// event with the items. Mirrors the pattern of the OCR / eyedropper

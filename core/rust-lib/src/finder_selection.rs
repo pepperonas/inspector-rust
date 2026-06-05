@@ -104,3 +104,94 @@ end tell"#;
 pub fn read() -> Result<Vec<PathBuf>, String> {
     Err("finder selection: only supported on macOS".into())
 }
+
+// ── touch / mkdir in the front Finder window's folder ────────────────────────
+
+/// Validate a user-supplied file/folder name: non-empty, no path
+/// separators or traversal, no NUL byte — so creation can't escape the
+/// target folder.
+#[cfg(target_os = "macos")]
+fn sanitize_name(name: &str) -> Result<&str, String> {
+    let n = name.trim();
+    if n.is_empty() {
+        return Err("name is empty".into());
+    }
+    if n.contains('/') || n.contains('\0') || n == "." || n == ".." {
+        return Err("name must be a plain file/folder name (no '/', '.', '..')".into());
+    }
+    Ok(n)
+}
+
+/// POSIX path of the folder where Finder would create a new item — the
+/// frontmost window's target, or the Desktop if no window is open
+/// (`insertion location`). Needs the Automation→Finder TCC grant.
+#[cfg(target_os = "macos")]
+fn front_dir() -> Result<PathBuf, String> {
+    use crate::osascript_util::{run_osascript, OsaResult};
+    use std::time::Duration;
+
+    const SCRIPT: &str =
+        r#"tell application "Finder" to return POSIX path of (insertion location as alias)"#;
+    let output = match run_osascript(SCRIPT, Duration::from_secs(2)) {
+        OsaResult::Done(o) => o,
+        OsaResult::TimedOut => return Err("finder dir: osascript timed out (Finder hung?)".into()),
+        OsaResult::SpawnFailed(e) => return Err(format!("osascript spawn failed: {e}")),
+    };
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("-1743") || stderr.contains("not allowed") || stderr.contains("not authorized") {
+            return Err(ERR_AUTOMATION_DENIED.into());
+        }
+        return Err(format!("osascript: {}", stderr.trim()));
+    }
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if path.is_empty() {
+        return Err("finder dir: no insertion location (no open window + no Desktop?)".into());
+    }
+    Ok(PathBuf::from(path))
+}
+
+/// Best-effort: select the freshly-created item in Finder so the user
+/// sees it appear. Failures are ignored (the file/folder already exists).
+#[cfg(target_os = "macos")]
+fn reveal_in_finder(path: &std::path::Path) {
+    use crate::osascript_util::run_osascript;
+    use std::time::Duration;
+    let escaped = path
+        .display()
+        .to_string()
+        .replace('\\', "\\\\")
+        .replace('"', "\\\"");
+    let script = format!(
+        r#"tell application "Finder" to reveal (POSIX file "{escaped}" as alias)"#,
+    );
+    let _ = run_osascript(&script, Duration::from_secs(2));
+}
+
+/// Create an empty file `name` in the front Finder folder. Errors if it
+/// already exists. Returns the absolute path created.
+#[cfg(target_os = "macos")]
+pub fn create_file(name: &str) -> Result<PathBuf, String> {
+    let n = sanitize_name(name)?;
+    let path = front_dir()?.join(n);
+    if path.exists() {
+        return Err(format!("already exists: {}", path.display()));
+    }
+    std::fs::File::create(&path).map_err(|e| format!("create file failed: {e}"))?;
+    reveal_in_finder(&path);
+    Ok(path)
+}
+
+/// Create a folder `name` in the front Finder folder. Errors if it
+/// already exists. Returns the absolute path created.
+#[cfg(target_os = "macos")]
+pub fn create_dir(name: &str) -> Result<PathBuf, String> {
+    let n = sanitize_name(name)?;
+    let path = front_dir()?.join(n);
+    if path.exists() {
+        return Err(format!("already exists: {}", path.display()));
+    }
+    std::fs::create_dir(&path).map_err(|e| format!("create folder failed: {e}"))?;
+    reveal_in_finder(&path);
+    Ok(path)
+}

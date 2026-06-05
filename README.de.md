@@ -17,19 +17,21 @@
 
   - 📋 **Clipboard-History** — Text, RTF, HTML, PNG, Datei-Listen; 1 000 Einträge per SHA-256 dedupliziert; Fuzzy-Suche while-you-type.
   - 🧮 **Inline-Rechner** (`2+2`, `sqrt(144)`, Hex/Bit-Ops) und **Farb-Konverter** (`#hex` / `rgb()` / `hsl()` in jede Richtung).
-  - 🎯 **Text-Expander — 3 Modi**: In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals).
+  - 🎯 **Text-Expander — 3 Modi**: In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals). **Dynamische Platzhalter** beim Einfügen: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (Cursor-Position), `{{`/`}}` für literale Klammern.
   - 🔍 **Bildschirm-Region-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade Texterkennung ins Clipboard.
   - 📸 **Region-Screenshot** (`Ctrl+Shift+S`) + **CleanShot-X-Style Vorschau-HUD** + **Annotations-Editor** (Pfeil / Text / Rect / Highlight / Blur). Dateinamen enthalten den Quell-App-Namen.
   - 🎨 **Color Picker** (`Ctrl+Shift+C`) — `NSColorSampler`-Lupe / GDI-Overlay / Hex direkt ins Clipboard.
-  - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Open auf was auch immer du im Finder selektiert hast.
+  - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Cut-Out / Open auf was auch immer du im Finder selektiert hast.
+  - 📄 **Markdown → PDF** (`Ctrl+Shift+M`, macOS) — konvertiert die im Finder ausgewählten `.md`-Dateien in-process zu PDF; keine externen CLI-Tools nötig.
+  - 🔐 **2FA / TOTP-Manager** — tippe `2fa`, um den TOTP-Tresor zu öffnen; tippe `otp <Aussteller>` für sofortiges OTP-Autocomplete mit lebendem 30-Sekunden-Countdown.
   - 🖼️ **Image-Tools** — Recolor (Logo-Einfärbung), ML-Cut-Out (U²-Net ONNX, 4,5 MB embedded), Lanczos3-Resize mit Preset-Autocomplete.
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
-  - 🟢 **Wakelock-LED** — pulsierende rote LED + `wake` Label im Popup-Footer wenn `wakelock=1` aktiv. Event-driven, kein Polling.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock=1/0` (Wachhalten), `rmvvls` (Text).
+  - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` (Datei/Ordner im offenen Finder-Ordner anlegen), `timer`, `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
-  - 🎮 **Versteckte Games** — drei Easter-Egg-Trigger-Wörter. Du findest sie schon.
+  - 🎮 **Versteckte Games** — vier Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
   ### 🧰 Tech-Stack
 
@@ -43,7 +45,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.38.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.52.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -141,8 +143,10 @@
   [![ADRs in CHANGELOG](https://img.shields.io/badge/ADRs-in%20CHANGELOG-orange?style=flat-square)](./CHANGELOG.md)
 
   <!-- ── Permissions / OS surfaces ───────────────────────────── -->
-  [![macOS TCC: Accessibility](https://img.shields.io/badge/macOS%20TCC-Accessibility-000000?style=flat-square&logo=apple&logoColor=white)](./docs/text-expander.md)
-  [![macOS TCC: Screen Recording](https://img.shields.io/badge/macOS%20TCC-Screen%20Recording-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![macOS TCC: Accessibility](https://img.shields.io/badge/macOS%20TCC-Accessibility-000000?style=flat-square&logo=apple&logoColor=white)](./macos/README.md#macos-permissions)
+  [![macOS TCC: Screen Recording](https://img.shields.io/badge/macOS%20TCC-Screen%20Recording-000000?style=flat-square&logo=apple&logoColor=white)](./macos/README.md#macos-permissions)
+  [![macOS TCC: Automation](https://img.shields.io/badge/macOS%20TCC-Automation%20%E2%86%92%20Finder-000000?style=flat-square&logo=apple&logoColor=white)](./macos/README.md#macos-permissions)
+  [![macOS TCC: Microphone](https://img.shields.io/badge/macOS%20TCC-Microphone%20(opt)-000000?style=flat-square&logo=apple&logoColor=white)](./macos/README.md#macos-permissions)
   [![Autostart](https://img.shields.io/badge/autostart-LaunchAgent%20%2F%20RegRun-blue?style=flat-square)](./CHANGELOG.md)
   [![Tray icon](https://img.shields.io/badge/UI-tray%20resident-blue?style=flat-square)](#)
 
@@ -181,11 +185,18 @@
 | **macOS Intel** | — | Aus Source bauen: [`macos/README.md`](./macos/README.md) |
 | **Linux (Ubuntu/Debian)** | Aus Source bauen — siehe [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
 
-> **macOS-Gatekeeper-Hinweis.** Local-Build-Releases sind **nicht Apple-signiert**. Beim ersten Start weigert sich macOS, die App zu öffnen — Rechtsklick → **Öffnen** → bestätigen, oder **Systemeinstellungen → Datenschutz & Sicherheit → "Trotzdem öffnen"**. Dann **zwei** TCC-Permissions erteilen:
-> - **Bedienungshilfen** — nötig für Paste (`enigo` synthetisiert Cmd+V) und den system-weiten Text-Expander (Cmd+Shift+← / Cmd+C / Cmd+V-Zyklus).
-> - **Bildschirmaufnahme** — nötig für den OCR-Shortcut (`screencapture -i` wird Inspector Rust zugeordnet und macOS verweigert es ohne diese Berechtigung). Der Settings-Tab zeigt beide als zusammenklappbare amber Banner mit Ein-Klick-Sprung zum richtigen Privacy-Pane.
+> **macOS-Gatekeeper-Hinweis.** Local-Build-Releases sind **nicht Apple-signiert**. Beim ersten Start weigert sich macOS, die App zu öffnen — Rechtsklick → **Öffnen** → bestätigen, oder **Systemeinstellungen → Datenschutz & Sicherheit → "Trotzdem öffnen"**. Danach die TCC-Berechtigungen erteilen:
 >
-> Komplettes Setup in [`macos/README.md`](./macos/README.md).
+> | Berechtigung | Benötigt für |
+> |--------------|-------------|
+> | **Bedienungshilfen** | Paste (`enigo` synthetisiert `Cmd+V`), system-weiter Text-Expander, `freeze`-Eingabesperre |
+> | **Bildschirmaufnahme** | OCR (`Ctrl+Shift+O`) und Screenshot-Region (`Ctrl+Shift+S`) |
+> | **Automation → Finder** | Finder-Selektion (`Ctrl+Shift+F`) und Markdown→PDF (`Ctrl+Shift+M`) |
+> | Mikrofon *(optional)* | BPM-Detektor (Befehl `bpm`) |
+>
+> Der Settings-Tab zeigt fehlende Grants als zusammenklappbare amber Banner mit Ein-Klick-Sprung zum richtigen Privacy-Pane. `scripts/install-macos.sh` signiert jeden Build mit einem **stabilen selbstsignierten Zertifikat**, sodass alle Grants künftige Rebuilds überleben — jede Berechtigung wird nur einmal erteilt. `scripts/grant-permissions-macos.sh` führt durch das einmalige Setup in einem geführten Durchlauf.
+>
+> Vollständige Details in [`macos/README.md`](./macos/README.md#macos-permissions).
 
 ---
 
@@ -227,7 +238,8 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
 | `Ctrl+Shift+O` | Bildschirm-Region-**OCR** → Text auf Clipboard + History | Bildschirmaufnahme |
 | `Ctrl+Shift+S` *(v0.15.0+)* | Bildschirm-Region-**Screenshot** → PNG auf Clipboard + History (kein OCR); **`S`** während Overlay → als Datei speichern (grüner Rahmen) *(v0.19.2+)* | Bildschirmaufnahme *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → Hex (`#RRGGBB`) auf Clipboard + History | — |
-| `Ctrl+Shift+F` *(v0.30.0+)* | **Finder-Selektion** → Popup mit gerade selektierten Dateien + Actions (Resize, Optim, …) | Automation → Finder |
+| `Ctrl+Shift+F` *(v0.30.0+)* | **Finder-Selektion** → Popup mit gerade selektierten Dateien + Actions (Resize, Optim, Cut-Out, …) | Automation → Finder |
+| `Ctrl+Shift+M` *(v0.46.0+, macOS)* | **Markdown → PDF** — im Finder gewählte `.md`-Dateien in-process zu PDF konvertieren | Automation → Finder |
 | `Alt+1` *(Default, konfigurierbar, opt-in)* | Snippet-Abbreviation in-place expandieren | Bedienungshilfen |
 | *(user-konfigurierbar)* | **Direct hotkey → snippet** — bestimmten Snippet-Body pasten | Bedienungshilfen |
 
@@ -293,14 +305,24 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **System-Command — `lock`** *(v0.19.0+)* | Suchfeld | Bildschirm sperren (macOS — sofort, kein Confirm) |
 | **System-Command — `mute`** *(v0.23.0+)* | Suchfeld | System-Stummschaltung an/aus toggeln (macOS) |
 | **System-Command — `freeze`** *(v0.28.0+)* | Suchfeld | Tastatur + Maus blocken — entsperren mit konfiguriertem Chord (Default `i + r`) — natives CGEventTap, kein rdev |
-| **`wakelock=1` / `wakelock=0`** *(v0.29.0+)* | Suchfeld | Computer wachhalten — Cursor wackelt alle 60 s um 1 px; trickst Teams/Slack "Abwesend" + Bildschirmschoner-Timer aus (macOS / Windows / Linux X11) |
+| **`wakelock on` / `wakelock off`** *(Alias `caffeine on/off`, v0.52.0+)* | Suchfeld | Computer wachhalten — pausiert Sleep + Bildschirmsperre. macOS `caffeinate`; Windows `SetThreadExecutionState` + unsichtbarer F15-Tastendruck; Linux X11 Cursor-Jiggle. Ein zentrierter Status-Toast bestätigt An/Aus |
+| **`touch <name>` / `mkdir <name>`** *(v0.53.0+, macOS)* | Suchfeld | Datei / Ordner im Ordner des vordersten Finder-Fensters anlegen (oder Desktop). Braucht Automation → Finder |
 | **Finder-Selection-Actions** *(v0.30.0+, macOS)* | `Ctrl+Shift+F` | Popup listet die im Finder selektierten Dateien; `rz 1200x800` tippen skaliert alle Bilder (schreibt `<name>-1200x800.<ext>` neben Quelle), `optim` läuft oxipng auf jedes PNG. Enter auf einer Zeile öffnet die Datei |
 | **Resize-Preset-Autocomplete** *(v0.31.0+)* | `rz` oder `rz <partial>` tippen | Beschriftete Preset-Zeilen (Full HD, HD, XGA, SVGA, …); Enter führt aus, Tab / → füllt ins Suchfeld vor dem Ausführen |
 | **`bruno <€>[m|j]`** *(v0.33.0+)* | Suchfeld — `bruno 60000` (jährlich) oder `bruno 5000m` (monatlich) | Deutscher Brutto→Netto-Rechner (Steuerjahr 2025); Preview-Panel zeigt volle Aufteilung (KV/PV/RV/AV/ESt/Soli/Kirche/Abgabenquote/Grenzsteuersatz); Enter kopiert Netto-Betrag ins Clipboard. Persönliche Defaults (Steuerklasse, Bundesland, Kinder, Kirche, KV-Zusatz) in Settings → Bruno |
 | **Screenshot-Vorschau-HUD** *(v0.32.0+)* | Nach `Ctrl+Shift+S` | CleanShot-X-Style schwebende Karte mit X / Pin / Copy / Save / Edit / Cloud Buttons über dem PNG. Pin behält die Vorschau über den nächsten Screenshot |
 | **Annotations-Editor** *(v0.32.0+)* | Vorschau-HUD → Stift-Button | Neues Fenster mit 5 Tools: Pfeil / Text / Rect / Highlight / Blur (Mosaik-Pixelung). 4 Farb-Presets, 2–16 px Stroke, ⌘Z/⌘⇧Z undo/redo, ⌘S speichern, Esc abbrechen. Save backt zu `<App>-<ts>-edited.png` |
 | **App-Name in Screenshot-Dateinamen** *(v0.32.0+)* | Automatisch | `osascript`-gefangener Frontmost-App-Name im gespeicherten Dateinamen: `Safari-20260524-153012.png`. Bearbeitete Varianten bekommen `-edited`-Suffix |
-| Power-Command-Autocomplete | Teil-Keyword tippen (`tre`, `rm`, `reb`, `bru`, …) → Vorschlag als `hint`-Zeile | core |
+| Power-Command-Autocomplete (Fuzzy-Command-Matching) | Teil-Keyword tippen (`tre`, `rm`, `reb`, `bru`, `tim`, `pw`, …) → Vorschlag als `hint`-Zeile | core |
+| **Markdown → PDF** *(v0.46.0+, macOS)* | `Ctrl+Shift+M` mit im Finder ausgewählten `.md`-Dateien | Automation → Finder |
+| **2FA / TOTP-Manager** *(v0.47.0+)* | `2fa` im Suchfeld tippen → Enter öffnet TOTP-Tresor | core |
+| **OTP-Autocomplete** *(v0.47.0+)* | `otp <Aussteller>` tippen → lebendiger 30-Sekunden-Countdown + Enter kopiert aktuellen Code | core |
+| **Timer** | `timer 12` (12 min) · `timer 30s` · `timer 2h` tippen → Countdown + visueller/akustischer Alarm | core |
+| **Passwort-Generator** | `pwgen` oder `pwgen 16` tippen → Enter kopiert; Alt+Enter = nur alphanumerisch; Dict- + Leet-Modi im Preview-Panel | core |
+| **BPM-Detektor** | `bpm` tippen → Enter startet Live-Takterkennung via Mikrofon | Mikrofon *(macOS)* |
+| **Features-Tab** | History · Snippets · Notes · **Features** · Settings Tabs; Features-Tab listet alle Shortcuts und Fähigkeiten mit Live-Hotkey-Anzeige | core |
+| **Overlay-Größen-Einstellung** | Settings → Appearance → Popup-Größe: Small / Medium / Large | core |
+| **Status-Toast** *(v0.51.0+)* | Zentrierter Bildschirm-Toast bestätigt wakelock an/aus (und andere Zustandsänderungen) mit animiertem Ring | core |
 
 ## Features
 
@@ -372,12 +394,22 @@ Settings-Tab → *Backup & restore* → History / Snippets / Notes einzeln ankre
 HTML- / RTF-Clipboard-Einträge werden zur Paste-Zeit auf ihren Text-Preview gestrippt, sodass Copy-aus-Word / -Browser / -Mail nicht länger Styling in andere Apps leakt. Toggle in Settings → Paste. Shift+Enter im Popup überschreibt für einen Paste.
 
 ### Permissions-UX (v0.11.0)
-Inspector Rust braucht **zwei** unabhängige macOS-TCC-Grants — Accessibility (Paste + Text-Expander) und Bildschirmaufnahme (OCR + Screenshot-Region). Der Settings-Tab zeigt jeden als zusammenklappbares amber Banner, das:
+Inspector Rust nutzt **vier** unabhängige macOS-TCC-Surfaces. Der Settings-Tab zeigt jede als zusammenklappbares amber Banner:
 
-- Laut bleibt (Border + Warn-Icon + primärer `Open System Settings`-Button), wenn fehlend, aber per Default zu einer einzelnen Zeile kollabiert, damit die Page nicht zugemüllt ist.
-- Pre-checked, bevor der relevante native Call invoked wird. OCR returnt eine `screen.permission_denied`-Sentinel statt still zu failen, wenn Bildschirmaufnahme verweigert ist; ein Tauri-Event öffnet das Popup + flippt ein In-App-Toast-Banner, das auf den richtigen Pane zeigt.
-- Pollt das Grant einmal pro Sekunde, solange nicht erteilt, sodass das Badge ~1 s nach dem Toggle in den System Settings auf grün flippt — kein Panel-Reload nötig.
-- Jedes Banner hat einen `tccutil reset`-Recovery-Button für den "Toggle ist an, aber der laufende Prozess sieht immer noch denied"-Stale-cdhash-State.
+| Berechtigung | Aktiviert | Banner erscheint wenn fehlend |
+|--------------|----------|------------------------------|
+| **Bedienungshilfen** | Paste, Text-Expander, `freeze` | Bei jedem Paste-Versuch + Expander-Hotkey |
+| **Bildschirmaufnahme** | OCR (`Ctrl+Shift+O`), Screenshot (`Ctrl+Shift+S`) | Wenn OCR oder Screenshot versucht wird |
+| **Automation → Finder** | Finder-Selektion (`Ctrl+Shift+F`), Markdown→PDF (`Ctrl+Shift+M`) | Wenn Hotkey ohne Grant gedrückt wird |
+| **Mikrofon** | BPM-Detektor (`bpm`) | Wenn BPM-Modus aktiviert wird |
+
+Jedes Banner:
+- Bleibt laut (Border + Warn-Icon + primärer `Open System Settings`-Button), wenn fehlend, kollabiert aber per Default zu einer einzelnen Zeile.
+- Pre-checked, bevor der relevante native Call invoked wird. OCR returnt eine `screen.permission_denied`-Sentinel statt still zu failen; ein Tauri-Event öffnet das Popup und zeigt das Banner.
+- Pollt das Grant einmal pro Sekunde, sodass das Badge ~1 Sekunde nach dem System-Settings-Toggle auf grün flippt — kein Reload nötig.
+- Hat einen `tccutil reset`-Recovery-Button für den "Toggle ist an, aber der laufende Prozess sieht immer noch denied"-Stale-cdhash-State.
+
+`scripts/install-macos.sh` signiert jeden Build mit einem stabilen selbstsignierten Zertifikat, sodass Grants Rebuilds überleben. `scripts/grant-permissions-macos.sh` bietet ein geführtes Einmal-Setup für alle vier Berechtigungen. Vollständige Details: [`macos/README.md`](./macos/README.md#macos-permissions).
 
 ### Discoverability (v0.10.7)
 - **Footer-Hints** — `⌃⇧O OCR` + `⌃⇧S Shot` + `⌃⇧C Color` neben dem `⏎ Paste · ↑↓ Navigate · Esc Close`-Strip gerendert, sodass User alle globalen Shortcuts jedes Mal sehen, wenn sie das Popup öffnen.
@@ -405,8 +437,11 @@ Inspector Rust braucht **zwei** unabhängige macOS-TCC-Grants — Accessibility 
 ### `freeze` (v0.28.0)
 - Natives macOS-`CGEventTap` (raw FFI auf `ApplicationServices` + `CoreFoundation`) blockt alle Tastatur- + Maus-Eingaben bis der konfigurierte Unlock-Chord (Default `i + r`) gedrückt wird. Installiert auf dem Main-Run-Loop via `CFRunLoopGetMain()` — Worker-Thread-Varianten haben Events auf Sonoma+ stillschweigend nicht gedroppt.
 
-### `wakelock` (v0.29.0)
-- **`wakelock=1`** (oder `wakelock1`) zum Aktivieren, **`wakelock=0`** zum Deaktivieren. Der Cursor springt alle 60 s 1 px nach rechts und sofort zurück — trickst macOS-Bildschirmschoner-/Display-Sleep-Timer aus, Teams- / Slack- / Discord-"Abwesend"-Detection, App-Level-Idle-UX. Worker nutzt Raw-FFI pro Plattform: macOS `CGEventCreateMouseEvent`, Windows `GetCursorPos` + `SetCursorPos`, Linux X11 `XQueryPointer` + `XWarpPointer` (gecachter `Display`). Wayland: no-op (Protokoll verbietet globale Cursor-Synth).
+### `wakelock` / `caffeine` (v0.29.0 · `on`/`off`-Syntax v0.52.0)
+- **`wakelock on`** hält den Mac wach, **`wakelock off`** stoppt. **`caffeine on`/`off`** ist ein Alias. (Die alte `wakelock=1`/`=0`-Syntax wurde in v0.52.0 entfernt.) Wachhalten pausiert Sleep + Bildschirmsperre, trickst Teams- / Slack- / Discord-"Abwesend"-Detection und Bildschirmschoner-/Lock-Idle-Timer aus. Mechanismus pro Plattform: macOS `caffeinate -disu` (echte IOPM-Assertions); Windows `SetThreadExecutionState` **plus** unsichtbarer `F15`-Tastendruck alle 30 s (setzt den Screensaver-/Lock-Idle-Timer zurück, nicht nur Power-Sleep); Linux X11 Cursor-Jiggle (Wayland: no-op). Beim Umschalten schließt sich das Popup und ein zentrierter **Status-Toast** bestätigt den neuen Zustand.
+
+### `touch` / `mkdir` (v0.53.0, macOS)
+- Mit offenem Finder-Fenster legt **`touch <name>`** eine leere Datei bzw. **`mkdir <name>`** einen Ordner **im aktuellen Ordner dieses Fensters** an (oder auf dem Desktop, wenn kein Fenster offen ist — Finders `insertion location`). Das neue Element wird im Finder selektiert. Braucht den Automation→Finder-TCC-Grant (wie Finder-Selection). Namen werden bereinigt (kein `/`, `.`, `..`).
 
 ### System-Tray + Multi-Monitor
 - **Tray-Menü:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · **Screenshot Region (Ctrl+Shift+S)** *(v0.15.0+)* · **Pick Color (Ctrl+Shift+C)** *(v0.17.0+)* · Pause Capture · ☑/☐ Start with Windows / Start at Login (Checkmark spiegelt State seit v0.14.0) · Clear History · Quit.
@@ -481,8 +516,9 @@ inspector-rust/
 │   └── examples/
 │       └── snippets/        # 5 thematische JSON-Beispiele + eigene README
 ├── scripts/
-│   ├── check.sh             # cargo clippy + tsc + eslint
-│   └── install-macos.sh     # Idempotenter Build + Re-Sign + Install (erhält TCC-Grants über Rebuilds hinweg)
+│   ├── check.sh                      # cargo clippy + tsc + eslint
+│   ├── install-macos.sh              # Idempotenter Build + stabiles-Zertifikat-Re-Sign + Install (erhält TCC-Grants über Rebuilds hinweg)
+│   └── grant-permissions-macos.sh   # Geführtes Einmal-Setup für alle vier macOS-TCC-Berechtigungen
 ├── Cargo.toml               # Rust-Workspace (Members: core/rust-lib, win/src-tauri, macos/src-tauri)
 ├── pnpm-workspace.yaml      # pnpm-Workspace (core/frontend, win, macos)
 └── package.json             # Root-Scripts: dev:{win,macos}, build:{win,macos}, lint, typecheck, format, test, check
@@ -514,11 +550,12 @@ pnpm build:win        # → target/release/bundle/msi/InspectorRust_x.x.x_x64_en
 # macOS
 pnpm dev:macos                      # tauri dev — Live-Reload
 pnpm build:macos                    # → target/release/bundle/{macos/InspectorRust.app, dmg/InspectorRust_x.x.x_<arch>.dmg}
-bash scripts/install-macos.sh       # build + re-sign + install nach /Applications + launch
-bash scripts/install-macos.sh --reset  # …auch tccutil-reset stale Accessibility-Grants (nach First-Run nutzen)
+bash scripts/install-macos.sh             # build + re-sign (stabiles Zertifikat) + install + launch
+bash scripts/install-macos.sh --reset    # …auch tccutil-reset stale TCC-Grants
+bash scripts/grant-permissions-macos.sh  # geführtes Einmal-Setup für alle vier TCC-Berechtigungen
 ```
 
-> Warum der `install-macos.sh`-Helper? Ohne Apple-Developer-ID kriegt jedes frische `pnpm build:macos` einen neuen zufälligen Signing-Identifier, was macOS-TCC dazu bringt, jedes Rebuild als neue App zu behandeln und erneut nach Accessibility zu fragen. Das Script erzwingt einen stabilen ad-hoc Bundle-Identifier, sodass das Grant über Rebuilds hinweg überlebt. Voller Hintergrund: [`macos/README.md` — Accessibility-Permission](./macos/README.md#why-the-dialog-re-appears-after-every-rebuild-and-how-to-stop-that).
+> Warum der `install-macos.sh`-Helper? Ohne Apple-Developer-ID ist jedes frische `pnpm build:macos` ad-hoc-signiert mit einem neuen cdhash, der alle vorherigen TCC-Grants invalidiert. Das Script erstellt einmalig ein stabiles selbstsigniertes Zertifikat und signiert jeden Build damit — TCC koppelt das Grant an die Designated Requirement (Bundle-ID + Zertifikat-Hash), nicht den cdhash, sodass **alle vier Berechtigungs-Grants jeden künftigen Rebuild überleben**. Voller Hintergrund: [`macos/README.md` — macOS-Berechtigungen](./macos/README.md#macos-permissions).
 
 > Jede Plattform muss auf ihrem nativen Host gebaut werden (Windows für MSI, macOS für DMG/`.app`). Cross-Compilation wird nicht unterstützt.
 
@@ -572,10 +609,11 @@ pnpm check            # cargo clippy (Workspace) + tsc --noEmit + eslint
 | **Kein Cloud-Sync** | Kein automatischer Sync oder Multi-Device-Support — aber der [Backup](./docs/backup.md)-Export/Import gibt dir eine portable JSON-Datei, die du manuell zwischen Maschinen bewegen kannst. |
 | **File-Paste-Fallback** | Das Setzen von File-List-Clipboard-Payloads aus Rust wird nicht universell unterstützt; Inspector Rust fällt zurück darauf, die Newline-joined Liste der Pfade als Text zu pasten. |
 | **Expander in Terminals: nimm einen Direct Slot** | Der *Abbreviation*-Expander macht nichts auf einer Terminal-Befehlszeile (Terminal.app, iTerm2, kitty, …) — Terminals exponieren die Input-Zeile nicht via Accessibility, und ein Shell-Prompt hat kein GUI-"vorheriges Wort markieren". Nimm dort einen **Direct hotkey → snippet**-Slot (v0.13.0 — pasted ohne irgendwas zu lesen, funktioniert überall) oder das Popup (`Ctrl+Shift+V` → suchen → Enter). Electron- / Chromium- / Mac-Catalyst-Apps (WhatsApp, Slack, VS Code, …) *werden* vom Abbreviation-Expander seit v0.12.0 unterstützt, via einen AX-select-then-paste-Pfad. |
-| **macOS Accessibility** | Paste-Simulation (`enigo`) und der system-weite Text-Expander brauchen Accessibility-Zugriff. Erteile es einmal in Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen. Falls fehlend, zeigt Inspector Rust ein amber Banner mit einem `Open Settings`-Button beim nächsten Paste-Versuch — und seit v0.12.0 auch beim Drücken des Expander-Hotkeys — statt still zu failen oder den System-Dialog erneut zu feuern (v0.5.1 / v0.12.0). |
-| **macOS Bildschirmaufnahme** | OCR (`Ctrl+Shift+O`) **und** Screenshot-Region (`Ctrl+Shift+S`, v0.15.0+) brauchen beide Bildschirmaufnahme-Zugriff — `screencapture -i` wird Inspector Rust zugeordnet und macOS verweigert es ohne das Grant. Pre-checked via `CGPreflightScreenCaptureAccess`; fehlende Permission öffnet das Popup + zeigt ein amber Banner, das auf den richtigen Privacy-Pane zeigt (v0.11.0). |
-| **macOS unsigned Build** | Release-Builds sind nicht notarized. macOS warnt eventuell "unidentified developer" — Rechtsklick auf die App und **Open** wählen, um Gatekeeper beim ersten Launch zu umgehen. |
-| **macOS Rebuild ⇒ Re-Grant** | `cdhash` ändert sich bei jedem source-affecting Rebuild, was vorherige TCC-Grants invalidiert. `scripts/install-macos.sh` skipt das Re-Signing, wenn der Source-Hash unverändert ist, sodass casual Rebuilds überleben; echte Source-Änderungen brauchen weiterhin Re-Granting. |
+| **macOS Bedienungshilfen** | Paste-Simulation (`enigo`), der system-weite Text-Expander und `freeze` brauchen Accessibility-Zugriff. Einmal in Systemeinstellungen → Datenschutz & Sicherheit → Bedienungshilfen erteilen; danach Inspector Rust einmal neu starten (der Settings-Tab bietet einen Ein-Klick-Neustart). Bei fehlendem Grant erscheint ein amber Banner beim nächsten Paste-Versuch oder Expander-Hotkey-Druck. |
+| **macOS Bildschirmaufnahme** | OCR (`Ctrl+Shift+O`) und Screenshot-Region (`Ctrl+Shift+S`, v0.15.0+) brauchen beide Bildschirmaufnahme-Zugriff — `screencapture -i` wird Inspector Rust zugeordnet und macOS verweigert es ohne das Grant. Pre-checked via `CGPreflightScreenCaptureAccess`; fehlende Permission öffnet das Popup + zeigt ein amber Banner (v0.11.0). Der Eyedropper (`Ctrl+Shift+C`) braucht **keine** Bildschirmaufnahme. |
+| **macOS Automation → Finder** | Finder-Selektion (`Ctrl+Shift+F`) und Markdown→PDF (`Ctrl+Shift+M`) senden Apple Events an Finder. Die erste Nutzung löst den Automation-Prompt aus; Allow klicken. |
+| **macOS unsigned Build** | Release-Builds sind nicht notarisiert. macOS warnt eventuell "unidentified developer" — Rechtsklick auf die App und **Open** wählen, um Gatekeeper beim ersten Launch zu umgehen. |
+| **macOS Rebuild ⇒ Re-Grant (abgemildert)** | Plain Ad-hoc-Builds ändern den `cdhash` bei jedem Rebuild und würden TCC-Grants invalidieren. `scripts/install-macos.sh` signiert mit einem stabilen selbstsignierten Zertifikat — TCC-Grants überleben jeden künftigen Rebuild. Ein Re-Grant ist nur nötig, wenn erstmalig von einem Plain-Build auf das Install-Script umgestellt wird. Vollständige Details: [`macos/README.md`](./macos/README.md#why-grants-survive-every-rebuild--the-stable-self-signed-certificate). |
 | **Windows-OCR-Sprachpakete** | Die Windows-OCR-Engine (`Windows.Media.Ocr`) nutzt die in Einstellungen → Zeit & Sprache → Sprache installierten Sprachpakete. Ist für den auf dem Bildschirm dargestellten Text kein Paket installiert, schlägt die Engine mit einer beschreibenden Fehlermeldung fehl. Das fehlende Paket in den Windows-Einstellungen hinzufügen und erneut versuchen. |
 | **Linux: Wayland-Shortcuts & Tools** | Globale Tauri-Shortcuts erhalten unter GNOME/Wayland oft keine Tastenevents — Inspector Rust registriert beim ersten Start automatisch GNOME/Cinnamon-`gsettings`-Custom-Keybindings (CLI-Flags `--toggle-popup` / `--ocr` / `--screenshot` / `--pick-color`). Region-Capture braucht `grim`+`slurp` (Wayland) bzw. `scrot` (X11), OCR braucht `tesseract` + Sprachpakete. Eyedropper und der In-Place-AX-Expander sind unter Linux noch nicht verfügbar (Clipboard-Paste-Fallback). Details: [`linux/README.md`](./linux/README.md). |
 

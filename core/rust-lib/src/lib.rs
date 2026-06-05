@@ -162,6 +162,13 @@ pub fn run(context: tauri::Context<Wry>) {
                 app.manage(app_index);
             }
 
+            // Apply the persisted popup-size preset so the window opens at
+            // the user's chosen size from the first show (default: medium,
+            // the 700×500 it ships with). Resize is queued on the main
+            // thread; the window is hidden at this point, so the next
+            // show_and_position recentres it with the new dimensions.
+            commands::apply_window_size(&app.handle(), &db_handle);
+
             if let Err(e) = hotkey::register(&app.handle()) {
                 tracing::warn!(
                     "global shortcut registration failed: {e:#} — use tray menu or CLI flags (linux/README.md)"
@@ -393,6 +400,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,
+            commands::get_window_size_preference,
+            commands::set_window_size_preference,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

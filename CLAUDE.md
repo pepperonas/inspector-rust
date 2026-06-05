@@ -118,14 +118,17 @@ Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). T
 
 ### Tabs
 
-`App.tsx` manages `activeTab: "history" | "snippets" | "notes" | "settings"`. Each tab is a separate panel component:
+`App.tsx` manages `activeTab: "history" | "snippets" | "notes" | "features" | "settings"`. Each tab is a separate panel component:
 
 | Tab | Component | Backing data |
 |---|---|---|
 | History | `HistoryList` + `PreviewPanel` | `useClipboardHistory` + `useFuzzySearch` |
 | Snippets | `SnippetsPanel` | `useSnippets` |
 | Notes | `NotesPanel` | `useNotes` |
+| Features | `FeaturesPanel` | read-only catalogue; fetches live shortcuts (`get_popup_hotkey` / `get_expander_config` / `get_direct_slots` / `get_input_lock_chord`) |
 | Settings | `SettingsPanel` | IPC to `settings.rs` + `expander.rs` |
+
+**Features tab** (`FeaturesPanel.tsx`) — a read-only, tabular reference of every function grouped into *Global hotkeys* · *Search-bar commands* · *In-popup & preview actions* · *Hidden games*, each row showing the **currently configured** shortcut/trigger + a short how-to. Configurable hotkeys are fetched live on mount (the panel remounts on each tab switch, so values are current); fixed global hotkeys are literal constants mirroring `hotkey.rs`. Tauri shortcut specs are pretty-printed by `lib/platform.ts::formatHotkey` (`Alt+Digit1` → `⌥1`, `Ctrl+Shift+V` → `⌃⇧V` on macOS).
 
 ### Tauri events
 
@@ -277,6 +280,8 @@ All surface colours are CSS custom properties (`--color-bg`, `--color-surface`, 
 - `data-theme="system"` (or absent) → the `@media (prefers-color-scheme)` query follows the OS.
 
 Persisted in the `settings` table under `appearance.theme`; IPC `get_theme_preference` / `set_theme_preference` (the `normalise_theme` whitelist collapses anything unknown to `"system"`). Applied on App.tsx mount; Settings → Appearance has the three-way picker.
+
+**Popup overlay size** (v0.49.0+) — a second Appearance control: a three-way `Small` / `Medium` / `Large` picker that resizes the `popup` window. Presets in `commands::window_size_dimensions` — small `600×430`, medium `700×500` (the historical `tauri.conf.json` default), large `840×600`. Persisted under `appearance.window_size` (`normalise_window_size` whitelist → `"medium"` on anything unknown); IPC `get_window_size_preference` / `set_window_size_preference`. `set_*` resizes the live window (`set_size` on the main thread); `commands::apply_window_size` re-applies the saved preset at startup from `lib.rs` setup. The next `show_and_position` recentres the window with the new dimensions, so no explicit re-centre is needed.
 
 ### `getshaky` — hidden Pong easter egg (`components/PongGame.tsx`, `lib/pong.ts`, v0.21.0+)
 

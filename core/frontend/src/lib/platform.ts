@@ -15,6 +15,44 @@ export const IS_MAC: boolean =
 export const IS_LINUX: boolean =
   typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent || "");
 
+/**
+ * Pretty-print a stored Tauri/global-shortcut spec — the `<Mod>+<Mod>+<Code>`
+ * strings produced by `eventToShortcut` / persisted by the backend, e.g.
+ * `"Alt+Digit1"`, `"Ctrl+Shift+V"`, `"Meta+KeyB"`. Maps W3C key codes
+ * (`Digit1` → `1`, `KeyB` → `B`, `Backquote` → `` ` ``) and renders modifier
+ * glyphs on macOS. Returns an em-dash for an empty / unset spec.
+ */
+export function formatHotkey(spec: string): string {
+  if (!spec || !spec.trim()) return "—";
+  return spec
+    .split("+")
+    .map((raw) => {
+      const k = raw.trim();
+      const lower = k.toLowerCase();
+      // Modifiers.
+      if (lower === "ctrl" || lower === "control") return IS_MAC ? "⌃" : "Ctrl";
+      if (lower === "shift") return IS_MAC ? "⇧" : "Shift";
+      if (lower === "alt" || lower === "option") return IS_MAC ? "⌥" : "Alt";
+      if (lower === "meta" || lower === "cmd" || lower === "command" || lower === "super")
+        return IS_MAC ? "⌘" : "Win";
+      // Key codes.
+      if (/^digit[0-9]$/.test(lower)) return k.slice(-1);
+      if (/^key[a-z]$/.test(lower)) return k.slice(-1).toUpperCase();
+      if (/^numpad[0-9]$/.test(lower)) return "Num" + k.slice(-1);
+      if (/^f([1-9]|1[0-9]|2[0-4])$/.test(lower)) return k.toUpperCase();
+      if (lower === "backquote") return "`";
+      if (lower === "minus") return "-";
+      if (lower === "equal") return "=";
+      if (lower === "space") return "Space";
+      if (lower === "arrowup") return "↑";
+      if (lower === "arrowdown") return "↓";
+      if (lower === "arrowleft") return "←";
+      if (lower === "arrowright") return "→";
+      return k;
+    })
+    .join(IS_MAC ? "" : "+");
+}
+
 /** "⌘+Shift+O" on macOS, "Ctrl+Shift+O" elsewhere. Used in tooltips
  *  and shortcut tables — keep the input keys human-readable. */
 export function shortcut(...keys: string[]): string {

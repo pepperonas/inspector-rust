@@ -292,6 +292,20 @@ export function setThemePreference(theme: string): Promise<void> {
   return invoke("set_theme_preference", { theme });
 }
 
+/** Popup overlay size — one of `"small"`, `"medium"`, `"large"`. Defaults
+ *  to `"medium"` (the 700×500 the window ships with). Backend:
+ *  `commands::get_window_size_preference`. */
+export function getWindowSizePreference(): Promise<string> {
+  return invoke("get_window_size_preference");
+}
+
+/** Persist the popup size and resize the live window. The backend rejects
+ *  anything that isn't one of the three presets. Backend:
+ *  `commands::set_window_size_preference`. */
+export function setWindowSizePreference(size: string): Promise<void> {
+  return invoke("set_window_size_preference", { size });
+}
+
 export function deleteEntry(id: number): Promise<void> {
   return invoke("delete_entry", { id });
 }

@@ -398,6 +398,81 @@ pub fn set_theme_preference(
     settings::set(&db, KEY_THEME, normalised).map_err(map_err)
 }
 
+// ── Popup overlay size (v0.49.0+) ──────────────────────────────────────
+
+const KEY_WINDOW_SIZE: &str = "appearance.window_size";
+
+/// Normalise a stored / incoming popup-size string to one of the three
+/// valid presets. Anything unrecognised collapses to `"medium"` so a
+/// hand-edited settings DB can never wedge the window.
+fn normalise_window_size(s: &str) -> &'static str {
+    match s {
+        "small" => "small",
+        "large" => "large",
+        _ => "medium",
+    }
+}
+
+/// Logical (point) dimensions for each popup-size preset. `medium` is the
+/// historical 700×500 default the window ships with in `tauri.conf.json`.
+fn window_size_dimensions(size: &str) -> (f64, f64) {
+    match size {
+        "small" => (600.0, 430.0),
+        "large" => (840.0, 600.0),
+        _ => (700.0, 500.0),
+    }
+}
+
+/// Resize the popup window to a preset. The actual mutation is dispatched
+/// to the main thread (macOS requires window changes there). Best-effort —
+/// a missing window is a silent no-op. The next `show_and_position` recentres
+/// the window using the new size, so no explicit re-centre is needed here.
+fn resize_popup(app: &AppHandle, size: &str) {
+    let (w, h) = window_size_dimensions(size);
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(win) = app2.get_webview_window(crate::hotkey::POPUP_LABEL) {
+            let _ = win.set_size(tauri::LogicalSize::new(w, h));
+        }
+    });
+}
+
+/// Apply the persisted popup size at startup. Called from `lib.rs` setup so
+/// the window opens at the user's chosen size from the very first show.
+pub fn apply_window_size(app: &AppHandle, db: &DbHandle) {
+    let size = settings::get_or(db, KEY_WINDOW_SIZE, "medium")
+        .map(|s| normalise_window_size(&s).to_string())
+        .unwrap_or_else(|_| "medium".to_string());
+    resize_popup(app, &size);
+}
+
+/// Read the persisted popup-size preference. One of `"small"`, `"medium"`,
+/// `"large"`. Defaults to `"medium"` on a fresh install.
+#[tauri::command]
+pub fn get_window_size_preference(db: State<'_, DbHandle>) -> Result<String, String> {
+    let raw = settings::get_or(&db, KEY_WINDOW_SIZE, "medium").map_err(map_err)?;
+    Ok(normalise_window_size(&raw).to_string())
+}
+
+/// Persist the popup-size preference and resize the live window. Rejects
+/// anything that isn't one of the three valid presets.
+#[tauri::command]
+pub fn set_window_size_preference(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    size: String,
+) -> Result<(), String> {
+    let normalised = normalise_window_size(&size);
+    if normalised != size {
+        return Err(format!(
+            "invalid window size {size:?} — expected one of small / medium / large",
+        ));
+    }
+    settings::set(&db, KEY_WINDOW_SIZE, normalised).map_err(map_err)?;
+    resize_popup(&app, normalised);
+    Ok(())
+}
+
 /// Force-format paste — bypasses the `paste.plain_text_only` setting and
 /// always uses the entry's original content type. Wired to Shift+Enter
 /// in the popup as a one-shot override for users who normally paste as
@@ -2073,6 +2148,42 @@ mod theme_tests {
                 "normalise_theme({input:?}) returned {out:?} — not in whitelist",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod window_size_tests {
+    use super::{normalise_window_size, window_size_dimensions};
+
+    #[test]
+    fn passes_through_the_three_valid_presets() {
+        assert_eq!(normalise_window_size("small"), "small");
+        assert_eq!(normalise_window_size("medium"), "medium");
+        assert_eq!(normalise_window_size("large"), "large");
+    }
+
+    #[test]
+    fn collapses_unknown_to_medium() {
+        assert_eq!(normalise_window_size("huge"), "medium");
+        assert_eq!(normalise_window_size(""), "medium");
+        assert_eq!(normalise_window_size("SMALL"), "medium"); // case-sensitive
+        assert_eq!(normalise_window_size(" small "), "medium"); // no trimming
+    }
+
+    #[test]
+    fn dimensions_grow_monotonically_with_preset() {
+        let (sw, sh) = window_size_dimensions("small");
+        let (mw, mh) = window_size_dimensions("medium");
+        let (lw, lh) = window_size_dimensions("large");
+        assert!(sw < mw && mw < lw, "widths must increase small < medium < large");
+        assert!(sh < mh && mh < lh, "heights must increase small < medium < large");
+        // Medium stays the historical default the window ships with.
+        assert_eq!((mw, mh), (700.0, 500.0));
+    }
+
+    #[test]
+    fn unknown_dimensions_fall_back_to_medium() {
+        assert_eq!(window_size_dimensions("garbage"), (700.0, 500.0));
     }
 }
 

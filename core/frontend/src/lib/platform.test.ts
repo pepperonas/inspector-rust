@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { shortcut, IS_MAC } from "./platform";
+import { shortcut, formatHotkey, IS_MAC } from "./platform";
 
 // IS_MAC is computed once at module load from navigator.platform.
 // happy-dom defaults to a non-Mac UA → IS_MAC === false in the test env.
@@ -104,5 +104,28 @@ describe("shortcut() — typography stays consistent", () => {
     const out = shortcut("ctrl", "shift", "X");
     expect(typeof out).toBe("string");
     expect(out.length).toBeGreaterThan(0);
+  });
+});
+
+describe("formatHotkey() — Tauri spec → display (non-Mac env)", () => {
+  it("maps modifiers and digit codes", () => {
+    expect(formatHotkey("Ctrl+Shift+V")).toBe("Ctrl+Shift+V");
+    expect(formatHotkey("Alt+Digit1")).toBe("Alt+1");
+  });
+
+  it("maps KeyX, Backquote, arrows, and F-keys", () => {
+    expect(formatHotkey("Meta+KeyB")).toBe("Win+B");
+    expect(formatHotkey("Alt+Backquote")).toBe("Alt+`");
+    expect(formatHotkey("Ctrl+ArrowUp")).toBe("Ctrl+↑");
+    expect(formatHotkey("Ctrl+F5")).toBe("Ctrl+F5");
+  });
+
+  it("returns an em-dash for an empty / blank spec", () => {
+    expect(formatHotkey("")).toBe("—");
+    expect(formatHotkey("   ")).toBe("—");
+  });
+
+  it("passes unknown tokens through verbatim", () => {
+    expect(formatHotkey("Ctrl+Space")).toBe("Ctrl+Space");
   });
 });

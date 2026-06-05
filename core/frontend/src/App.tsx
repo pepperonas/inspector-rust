@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
+import { FeaturesPanel } from "./components/FeaturesPanel";
 import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
 import { NotesPanel } from "./components/NotesPanel";
@@ -83,7 +84,7 @@ import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
 
-type Tab = "history" | "snippets" | "notes" | "settings";
+type Tab = "history" | "snippets" | "notes" | "features" | "settings";
 
 function App() {
   const { entries, refresh: refreshHistory } = useClipboardHistory();
@@ -1590,7 +1591,9 @@ function App() {
                   ? "Snippets"
                   : activeTab === "notes"
                     ? "Notes"
-                    : "Settings"}
+                    : activeTab === "features"
+                      ? "Features"
+                      : "Settings"}
               </span>
             </div>
           )}
@@ -1609,6 +1612,9 @@ function App() {
               void refreshNotes();
             }}>
               Notes
+            </TabButton>
+            <TabButton active={activeTab === "features"} onClick={() => setActiveTab("features")}>
+              Features
             </TabButton>
             <TabButton active={activeTab === "settings"} onClick={() => setActiveTab("settings")}>
               Settings
@@ -1646,6 +1652,8 @@ function App() {
           <SnippetsPanel snippets={snippets} onRefresh={refreshSnippets} />
         ) : activeTab === "notes" ? (
           <NotesPanel notes={notes} categories={noteCategories} onRefresh={refreshNotes} />
+        ) : activeTab === "features" ? (
+          <FeaturesPanel />
         ) : (
           <SettingsPanel
             onBackupImported={async () => {

@@ -211,7 +211,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 | `wakelock=1`/`wakelock1` / `wakelock=0`/`wakelock0` | Keep-awake on / off | `wakelock` |
 | `bruno <€>` | German net-pay calculator | `bruno` |
 | `timer <n>[s/min]` | Countdown timer | `timer` |
-| `pwgen <N>` | Password generator | `lib/pwgen.ts` |
+| `pwgen [N]` | Password generator (bare = default length, runnable so it outranks snippet matches) | `lib/pwgen.ts` |
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
 
@@ -267,7 +267,7 @@ CleanShot-X-style flow layered on `run_screenshot_pipeline`. After capture the t
 
 ### Password generator + text transforms (`lib/pwgen.ts`, `lib/text-transform.ts`)
 
-- **`pwgen <N>`** (frontend-only, `pwgen` `ListEntry`) — four modes: `all` (alnum+symbols), `alnum`, `dict` (CapitalisedConcatenated words from `pwgen-dict.ts` padded with digits), `leet` (dict + leet-subst). CSPRNG via `crypto.getRandomValues` with rejection-sampling to avoid modulo bias; always returns exactly `length` chars.
+- **`pwgen [N]`** (frontend-only, `pwgen` `ListEntry`) — `requiresArg: false`, so a bare `pwgen` is a runnable command that surfaces the generator row (length `DEFAULT_PWGEN_LENGTH`) at the **top**, above any matching snippets; `pwgen 16` overrides the length. Four modes: `all` (alnum+symbols), `alnum`, `dict` (CapitalisedConcatenated words from `pwgen-dict.ts` padded with digits), `leet` (dict + leet-subst). CSPRNG via `crypto.getRandomValues` with rejection-sampling to avoid modulo bias; always returns exactly `length` chars.
 - **`lib/text-transform.ts`** — pure transforms applied to a selected text entry and committed via the `commit_transformed_text` IPC: remove-vowels, upper/lower/title/camel/snake/kebab case, base64 encode/decode, url encode/decode, plain-text. The first nine map to `Cmd/Ctrl+1…9` in `PreviewPanel`.
 
 ### BPM detector (`components/BpmDetector.tsx`, `lib/bpm.ts`, v0.45.x)

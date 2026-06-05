@@ -205,12 +205,18 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "pwgen",
     keyword: "pwgen",
-    syntax: "pwgen <N>",
+    syntax: "pwgen [N]",
     description:
-      "Password generator. e.g. `pwgen 16`. Enter copies; Alt+Enter = alphanumeric only. Dict + leet modes via preview-pane buttons.",
-    requiresArg: true,
+      "Password generator. Bare `pwgen` uses a default length; `pwgen 16` sets it. Enter copies; Alt+Enter = alphanumeric only. Dict + leet modes via preview-pane buttons.",
+    // No required arg — bare `pwgen` immediately surfaces the generator
+    // action (default length) at the top instead of a faint suggestion
+    // that lets matching snippets outrank it.
+    requiresArg: false,
   },
 ];
+
+/** Default password length when `pwgen` is typed without a number. */
+export const DEFAULT_PWGEN_LENGTH = 20;
 
 /** Lookup by exact keyword. O(n=6); a HashMap would be premature. */
 function lookupKeyword(keyword: string): CommandSpec | undefined {

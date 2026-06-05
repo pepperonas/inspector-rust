@@ -149,7 +149,7 @@ export function FeaturesPanel() {
         { name: "Keep awake", trigger: "wakelock=1 / wakelock=0", typed: true, note: "Stops the display/system sleeping." },
         { name: "Net-pay calculator", trigger: "bruno <€>", typed: true, note: "German brutto→netto (Steuerjahr 2025)." },
         { name: "Timer", trigger: "timer <n>[s|min]", typed: true, note: "Notification + sound on expiry." },
-        { name: "Password generator", trigger: "pwgen <N>", typed: true, note: "N-char password; modes in the preview." },
+        { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
         { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export." },
         { name: "TOTP code", trigger: "otp <issuer>", typed: true, note: "e.g. otp ama → live Amazon code, Enter copies." },
         { name: "BPM detector", trigger: "bpm", typed: true, note: "Press Enter — taps your mic, shows live BPM." },

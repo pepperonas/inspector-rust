@@ -26,6 +26,7 @@ import {
   isSpaceInvadersTrigger,
   parseOtpQuery,
   rockTheBoxMode,
+  DEFAULT_PWGEN_LENGTH,
   parseCommand,
   parseKillArg,
   parsePwgenArg,
@@ -584,7 +585,10 @@ function App() {
   const pwgenEntry: ListEntry | null = useMemo(() => {
     const parsed = parseCommand(query);
     if (!parsed || parsed.spec.kind !== "pwgen") return null;
-    const len = parsePwgenArg(parsed.arg);
+    // Bare `pwgen` → default length; an explicit `pwgen 16` overrides it.
+    // An invalid arg (`pwgen abc`) yields no action row.
+    const len =
+      parsed.arg.trim() === "" ? DEFAULT_PWGEN_LENGTH : parsePwgenArg(parsed.arg);
     if (!len) return null;
     return {
       kind: "pwgen",

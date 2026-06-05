@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   COMMANDS,
+  DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
   commandSuggestions,
   isGetShakyTrigger,
@@ -545,5 +546,30 @@ describe("parsePwgenArg", () => {
     expect(parsePwgenArg("abc")).toBeNull();
     expect(parsePwgenArg("")).toBeNull();
     expect(parsePwgenArg("-12")).toBeNull();
+  });
+});
+
+describe("bare pwgen surfaces the action (not a suggestion)", () => {
+  it("parseCommand('pwgen') returns the pwgen spec with an empty arg", () => {
+    // requiresArg is false → bare `pwgen` is a runnable command, so the
+    // generator row ranks above snippet matches instead of a faint hint.
+    const parsed = parseCommand("pwgen");
+    expect(parsed?.spec.kind).toBe("pwgen");
+    expect(parsed?.arg).toBe("");
+  });
+
+  it("does not suggest a bare pwgen (it runs as a command instead)", () => {
+    expect(commandSuggestions("pwgen").some((s) => s.keyword === "pwgen")).toBe(
+      false,
+    );
+    // …but a partial prefix still autocompletes to pwgen.
+    expect(commandSuggestions("pwg").some((s) => s.keyword === "pwgen")).toBe(
+      true,
+    );
+  });
+
+  it("exposes a sane default length", () => {
+    expect(DEFAULT_PWGEN_LENGTH).toBeGreaterThanOrEqual(4);
+    expect(DEFAULT_PWGEN_LENGTH).toBeLessThanOrEqual(128);
   });
 });

@@ -70,7 +70,7 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 3. Register it in the `invoke_handler![]` macro in `core/rust-lib/src/lib.rs`.
 4. Add a typed `invoke("command_name", { ...args })` wrapper in `core/frontend/src/lib/ipc.ts`.
 
-### Database — four tables in one SQLite file
+### Database — five tables in one SQLite file
 
 `DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. File location:
 - Windows: `%APPDATA%\InspectorRust\history.db`
@@ -82,9 +82,12 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 | `entries` | Clipboard history | SHA-256 deduped; capped at 1 000 rows via `prune_locked`; sorted by `last_used_at DESC` |
 | `snippets` | Text expander templates | `abbreviation` + `title` + `body`; index on `abbreviation` |
 | `notes` | Persistent bookmarks | Not pruned; `title` + `category`; any clipboard entry can be saved here |
-| `settings` | Key/value app settings | Simple `key TEXT PK, value TEXT`; used for expander hotkey & enabled flag |
+| `settings` | Key/value app settings | Simple `key TEXT PK, value TEXT`; used for expander hotkey, theme, bruno defaults, input-lock chord, etc. |
+| `totp_entries` | 2FA / TOTP accounts (v0.47.0) | `issuer` + `account` + `secret_enc` + `digits`/`period`/`algorithm`; index on `LOWER(issuer)` |
 
 Rust unit tests use `Connection::open_in_memory()` — no temp files needed.
+
+**Field-level encryption at rest (`crypto.rs`, v0.47.0).** Sensitive columns are AES-256-GCM-encrypted: `entries.content_text`, `entries.content_data`, `snippets.body`, `notes.content_text`, `notes.content_data`, and all TOTP secrets. Timestamps, IDs, content-type tags, hashes, abbreviations, titles, and categories stay plaintext (needed for sort/dedup/index). The key lives in the OS keychain (`keyring` crate; service `io.celox.inspector-rust`, user `history-db-key-v1`) with a `0600` `.dbkey` file fallback in the data dir. Storage format is `"v1:" + base64(12-byte nonce ‖ ciphertext+tag)`. `decrypt` is permissive — any value **not** prefixed `v1:` is treated as legacy plaintext and returned as-is, which is how `migrate_table` lazily upgrades pre-encryption rows. TOTP secrets are decrypted only on-demand for code generation and **never cross the IPC boundary**.
 
 ### Frontend data flow and `ListEntry` union
 
@@ -99,9 +102,17 @@ type ListEntry =
   | { kind: "command";            data: CommandEntryView }        // runnable power command
   | { kind: "command-suggestion"; data: CommandSuggestionView }   // autocomplete hint
   | { kind: "kill-target";        data: KillTargetView }          // process in the kill picker
+  | { kind: "opener";             data: OpenerEntryView }         // German pickup line (hidden)
+  | { kind: "finder-file";        data: FinderFileView }          // current Finder selection
+  | { kind: "bruno";              data: BrunoEntryView }          // net-pay calculator result
+  | { kind: "app";                data: AppEntryView }            // app-launcher hit
+  | { kind: "pwgen";              data: PwgenEntryView }          // generated password
+  | { kind: "bpm";                data: BpmTriggerView }          // BPM-detector launcher row
+  | { kind: "totp-manage";        data: { label: string } }      // "2fa" → TOTP overlay launcher
+  | { kind: "totp";               data: TotpListView }            // "otp <issuer>" autocomplete
 ```
 
-Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips. Two whole-list overrides: in **kill-mode** (`kill` command parsed) the list is replaced entirely by `kill-target` rows; in **game-mode** the whole popup is replaced by a game — `<PongGame>` (`getshaky`) or `<SnakeGame>` (`rockthebox`).
+Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips, with the special rows (opener, bruno, pwgen, app, finder-file, totp) spliced in near the top when their trigger matches. Several **whole-list / whole-popup overrides**: in **kill-mode** (`kill` parsed) the list becomes `kill-target` rows; **game-mode** replaces the whole popup with a game (`<PongGame>` `getshaky`, `<SnakeGame>` `rockthebox`/`rockthabox`, `<SpaceInvadersGame>` `space`); **`2fa`** replaces it with `<TotpOverlay>`; **`bpm`** (Enter) replaces it with `<BpmDetector>`; **`freeze`** starts the input lock.
 
 Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
@@ -118,7 +129,7 @@ Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). T
 
 ### Tauri events
 
-Eleven events total; the table maps each to where it's emitted and what the frontend does with it.
+The table maps each emitted event to where it's emitted and what the frontend does with it (grep `\.emit(` in `core/rust-lib/src` for the authoritative list).
 
 | Rust `app.emit(...)` | Emitted from | Frontend reaction |
 |---|---|---|
@@ -130,9 +141,17 @@ Eleven events total; the table maps each to where it's emitted and what the fron
 | `"open-notes-tab"` | Tray "Manage Notes" | Frontend switches to Notes tab |
 | `"ocr-permission-needed"` | OCR / Screenshot hotkey fails Screen Recording pre-check | Popup opens, Settings tab + amber banner with `Open System Settings` + `Force reset` |
 | `"expander-permission-needed"` | Expander hotkey fails Accessibility pre-check | Popup opens, Settings tab + amber banner (same shape as OCR banner) |
+| `"expander-blocked"` / `"expander-hotkey-forwarded"` | Expander hotkey handler | Diagnostics / toast feedback on a blocked or forwarded expansion |
+| `"finder-automation-needed"` | `Ctrl+Shift+F` Finder read fails the Automation TCC pre-check | Settings tab + amber banner (same shape as OCR), errno -1743 path |
+| `"finder-selection-loaded"` | `get_finder_selection` succeeds | Popup shows the selected files as `finder-file` rows |
 | `"autostart-changed"` (v0.14.0) | Tray "Start at Login" toggle | Settings → Startup checkbox reconciles to the now-effective OS state |
 | `"color-picked"` | `pick_screen_color` worker completes (NSColorSampler / GDI overlay) | `ColorPickerModal` stores the hex; payload is `string \| null` (`null` = cancelled) |
 | `"screenshot-saved"` (v0.19.2) | Screenshot pipeline finishes in save-to-file mode | Frontend toast confirming the file path the PNG was written to |
+| `"screenshot-pending"` | `run_screenshot_pipeline` stashes a capture | Spawns the floating `ScreenshotPreview` window (see Screenshot preview) |
+| `"editor-screenshot-changed"` | Editor opened / pending screenshot swapped | `ScreenshotEditor` reloads the source PNG |
+| `"timer-fired"` / `"timers-changed"` | `timer.rs` worker on expiry / list mutation | Popup banner on fire; footer LED count reconciles |
+| `"wakelock-changed"` | `wakelock_set` | Footer keep-awake indicator toggles |
+| `"bruno-defaults-changed"` | `bruno_set_defaults` | Settings → Bruno section re-reads defaults |
 
 ### Text expander (`expander.rs`)
 
@@ -172,14 +191,26 @@ Triggered by `Ctrl+Shift+C` or the tray's **Pick Color** menu. Reuses `screen_pi
 
 ### Power commands — search-bar palette (`commands.rs`, `lib/commands.ts`, v0.18.0+)
 
-The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. Complete commands surface as a `command` `ListEntry`; partial keywords surface as `command-suggestion` autocomplete rows. Six text/image/translation commands:
+The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. Complete commands surface as a `command` `ListEntry`; partial keywords surface as `command-suggestion` autocomplete rows. The `COMMANDS` catalogue (autocompletable):
 
-- **`tren`/`trde`/`tr <text>`** — build a Google Translate URL and open it via `tauri-plugin-opener`. Pure frontend, no IPC.
-- **`rz <W>x<H>`** — `image_ops::resize_clipboard_image_lanczos`: read clipboard image → Lanczos3 resize → write back. 16 MP cap. IPC `resize_clipboard_image`.
-- **`optim`** — `image_ops::optimize_clipboard_png`: clipboard PNG → `oxipng` (lossless) → `~/Downloads/inspector-rust-optim-<ts>.png`. IPC `optimize_clipboard_image`.
-- **`rmvvls <text>`** — `commands::strip_vowels` (aeiou + AEIOU + ä/ö/ü) → clipboard + history. IPC `remove_vowels_to_clipboard`.
+| Keyword | Action | Backed by |
+|---|---|---|
+| `tren` / `trde` / `tr <text>` | Google Translate EN→DE / DE→EN / →DE; opens URL via `tauri-plugin-opener` | frontend only |
+| `rz <W>x<H>` | Resize clipboard image (Lanczos3, 16 MP cap) | `image_ops`, IPC `resize_clipboard_image` |
+| `optim` | Optimise clipboard PNG → Downloads (`oxipng`, lossless) | `image_ops`, IPC `optimize_clipboard_image` |
+| `rmvvls <text>` | Strip vowels (aeiou + AEIOU + ä/ö/ü) → clipboard | IPC `remove_vowels_to_clipboard` |
+| `kill [-9] [pattern]` | Process kill picker (see System commands) | `system_commands` |
+| `reboot` / `shutdown` / `lock` | System power / lock (macOS) | `system_commands` |
+| `mute` | Toggle system mute (macOS) | IPC `toggle_mute` |
+| `freeze` | Input lock (block keyboard+mouse until unlock chord) | `input_lock` |
+| `wakelock=1`/`wakelock1` / `wakelock=0`/`wakelock0` | Keep-awake on / off | `wakelock` |
+| `bruno <€>` | German net-pay calculator | `bruno` |
+| `timer <n>[s/min]` | Countdown timer | `timer` |
+| `pwgen <N>` | Password generator | `lib/pwgen.ts` |
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
+
+**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `space` (Space Invaders), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
 
 ### System commands (`system_commands.rs`, v0.19.0+)
 
@@ -188,6 +219,55 @@ Four system-level commands, also in the search-bar palette:
 - **`kill [-9] [pattern]`** — `system_commands::list_running_processes` (via the `sysinfo` crate, sorted by memory desc, excludes our own PID) drives a live picker rendered as `kill-target` `ListEntry` rows; App.tsx overrides the whole list in kill-mode. `kill_process_by_pid(pid, force)` sends SIGTERM (or SIGKILL with `-9`). Native `window.confirm` before the kill.
 - **`reboot` / `shutdown`** — `osascript` → `loginwindow` Apple Events (`aevtrrst` / `aevtrsdn`). No sudo. Native `window.confirm` first.
 - **`lock`** — `pmset displaysleepnow`. No confirm (cheap to undo). IPC: `list_processes`, `kill_process`, `system_reboot`, `system_shutdown`, `system_lock`. macOS-only — Windows stubs return "not implemented".
+- **`mute`** — toggles system output mute via `osascript`. IPC `toggle_mute` (`adjust_volume` is the related volume IPC).
+
+### 2FA / TOTP manager (`totp_store.rs`, `totp_import.rs`, `crypto.rs`, v0.47.0)
+
+RFC 6238 authenticator built into the popup. Two entry points: typing **`2fa`** (`is2faTrigger`) replaces the popup body with `<TotpOverlay>` (List / Add / Import-Export tabs); typing **`otp <issuer>`** (`parseOtpQuery`) surfaces matching accounts as `totp` rows with the live 6-digit code — Enter copies it. The List tab refreshes every 1 s via `totp_current_codes_all` and draws a countdown ring.
+
+- Storage is the `totp_entries` table; secrets are `crypto::encrypt`-ed and **never** returned over IPC — only generated codes (`TotpCode { code, seconds_remaining }`) cross the boundary.
+- **Import** (`totp_import.rs`) autodetects format from the first bytes: `otpauth://totp/…` single URI, `otpauth-migration://offline?data=…` (Google Authenticator bulk protobuf), Aegis JSON, 2FAS JSON, or a plaintext file of one `otpauth://` per line. Per-line failures are recorded in `ImportSummary { added, failed }`, never aborting the batch.
+- IPC: `totp_list`, `totp_add`, `totp_delete`, `totp_current_code`, `totp_current_codes_all`, `totp_import`, `totp_export`. Frontend types in `lib/totp.ts` (`matchTotpEntries` is the fuzzy issuer/account ranker).
+
+### Markdown → PDF (`md_to_pdf.rs`, v0.46.0)
+
+Standalone, **no external `mrxdown` CLI**. Triggered by **`Ctrl+Shift+M`** on the current Finder selection. Pipeline: `pulldown-cmark` (CommonMark + GFM tables/footnotes/strikethrough/task-lists) → HTML with embedded GitHub CSS → WKWebView `createPDF` (macOS 11+). Output PDF lands sibling to source (`foo.md` → `foo.pdf`). `convert_files` is synchronous and **must run on the main thread** (WebKit is main-thread-only). `ConvertSummary { converted, skipped, failed, backend_unavailable }`; `backend_unavailable` is `true` on Windows/Linux (no native HTML→PDF backend yet).
+
+### Bruno — German net-pay calculator (`bruno.rs`, `lib/bruno.ts`)
+
+`bruno <€>` in the search bar. The actual tax/social-contributions compute (Steuerjahr 2025) runs in the **frontend** (`lib/bruno.ts`, constants in `TC`) for instant per-keystroke feedback as a `bruno` `ListEntry`; the Rust module only persists per-user defaults (`BrunoDefaults { tax_class, state, children, is_church_member, health_add }`) as individual `bruno.<field>` settings rows. Defaults: single, childless, NRW, TK Zusatzbeitrag 2.45%. IPC `bruno_get_defaults` / `bruno_set_defaults`; Settings → Bruno edits them. Not tax advice — a simplified §32a tariff.
+
+### App launcher (`app_launcher.rs`)
+
+Spotlight-like launcher (macOS). At startup walks `/Applications`, `~/Applications`, `/System/Applications`, `/System/Applications/Utilities` (top-level `*.app`); fuzzy matches surface as `app` rows, Enter does `/usr/bin/open`. Icons are lazy + bounded-LRU-cached (cap 100), rendered per-row via `sips … *.icns → png` → base64. IPC: `list_apps`, `refresh_apps`, `launch_app`, `get_app_icon`.
+
+### Finder selection (`finder_selection.rs`, `frontmost_app.rs`, `osascript_util.rs`)
+
+**`Ctrl+Shift+F`** reads the current Finder selection via `osascript` and shows the files as `finder-file` rows; selected images can be resized (`resize_file`), optimised (`optimize_file`), or cut out. This path needs the **Automation** TCC grant (Privacy → Automation → Finder) — distinct from Accessibility/Screen-Recording. Denial → errno -1743 → sentinel `ERR_AUTOMATION_DENIED` (`"finder.automation_denied"`) → `"finder-automation-needed"` event + amber banner. IPC: `get_finder_selection`, `resize_file`, `optimize_file`, `get_finder_automation_status`, `open_finder_automation_settings`, `force_reset_finder_automation_grant`.
+
+`frontmost_app.rs` best-effort-names the frontmost app (used to name saved screenshots `<App>-YYYYMMDD-HHMMSS.png`); `osascript_util.rs::run_osascript` is the shared spawn-with-watchdog helper (SIGKILL on timeout) so a hung Finder / System Events can't wedge the main-thread hotkey handler.
+
+### Input lock (`input_lock.rs`)
+
+Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock chord (default: hold `i`, press `r`; configurable in Settings → Input Lock). macOS impl is **raw FFI to `CGEventTapCreate` + `CFRunLoop`** installed on the main thread's run loop (the `core-graphics` wrapper didn't actually drop events on Sonoma). Requires Accessibility (shares the expander grant). Safety hatch: `⌥⌘Esc` (Force Quit) always works above the tap. IPC: `get_input_lock_chord`, `set_input_lock_chord`, `start_input_lock`.
+
+### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
+
+- **`timer <n>[s/min]`** — each `start_timer` spawns a worker; on expiry fires a native notification + `afplay Glass.aiff` + a `timer-fired` popup banner. Cancellable per-timer (`AtomicBool` polled ~200 ms). Footer shows the live count (`list_timers`, `timers-changed`). IPC: `start_timer`, `cancel_timer`, `list_timers`.
+- **`wakelock=1` / `wakelock=0`** — keep-awake. macOS spawns `/usr/bin/caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState`; Linux jiggles the cursor (X11 only, no-op on Wayland). IPC: `wakelock_set`, `wakelock_get` (`wakelock-changed` event drives the footer indicator).
+
+### Screenshot preview + editor (`screenshot_preview.rs`, `screenshot_editor.rs`, `ScreenshotPreview.tsx`, `ScreenshotEditor.tsx`)
+
+CleanShot-X-style flow layered on `run_screenshot_pipeline`. After capture the temp PNG (in `~/Library/Caches/InspectorRust/`) is stashed in `PendingScreenshot` state and a small frameless transparent window (`PREVIEW_LABEL`, 340×220) spawns bottom-left of the cursor's monitor — **no side effects until the user acts**: Save (→ Downloads + clipboard + history), Copy, Discard (delete temp), Edit, or Pin (keep current preview when a new shot arrives). The app name (`frontmost_app`) is baked into the saved filename. The **Edit** button opens a separate singleton annotation window (`EDITOR_LABEL`, 900×640) where `ScreenshotEditor.tsx` draws arrows / text / rectangles / highlights / pixelate-blur on a canvas; Save bakes a PNG and writes `<App>-<ts>-edited.png`. IPC: `get_pending_screenshot_path`/`_info`, `set_screenshot_pinned`, `screenshot_preview_save`/`_copy`/`_discard`/`_edit`, `reposition_preview_to_cursor`, `editor_save`, `editor_cancel`.
+
+### Password generator + text transforms (`lib/pwgen.ts`, `lib/text-transform.ts`)
+
+- **`pwgen <N>`** (frontend-only, `pwgen` `ListEntry`) — four modes: `all` (alnum+symbols), `alnum`, `dict` (CapitalisedConcatenated words from `pwgen-dict.ts` padded with digits), `leet` (dict + leet-subst). CSPRNG via `crypto.getRandomValues` with rejection-sampling to avoid modulo bias; always returns exactly `length` chars.
+- **`lib/text-transform.ts`** — pure transforms applied to a selected text entry and committed via the `commit_transformed_text` IPC: remove-vowels, upper/lower/title/camel/snake/kebab case, base64 encode/decode, url encode/decode, plain-text. The first nine map to `Cmd/Ctrl+1…9` in `PreviewPanel`.
+
+### BPM detector (`components/BpmDetector.tsx`, `lib/bpm.ts`, v0.45.x)
+
+Typing **`bpm`** (`isBpmTrigger`, Enter-activated like the games) replaces the popup body with a live mic BPM meter. Audio graph: `mic → highpass 30 Hz → lowpass 100 Hz (Q 1.5) → AnalyserNode` (a 30-100 Hz kick band; no speaker monitoring), 1024-sample frames fed to `BpmAnalyzer` (`lib/bpm.ts`). Detection is energy-onset + inter-onset-interval median clustering, octave-folded into [60,200] BPM with an octave-snap to stop 120↔240 flips; the displayed value is the **mean over a 4 s sliding window**. Pure frontend — no IPC, no Rust module.
 
 ### Appearance / theming (`styles.css`, `lib/theme.ts`, v0.20.0+)
 
@@ -206,14 +286,15 @@ Typing the exact word **`getshaky`** into the search bar (detected by `commands:
 - `components/PongGame.tsx` — the stateful `<canvas>` + `requestAnimationFrame` loop. Three phases: `intro` (~1.3 s shake transformation — `getshakyShake` / `getshakyTitle` CSS keyframes in `styles.css`), `playing`, `over`. Mutable game state lives in a `useRef` so the 60 fps loop never re-renders React; only score + phase changes do. Player paddle: mouse **and** arrow/W-S, both live. Board colours read live from the theme CSS vars.
 - `useKeyboardNav` gained an `enabled` flag — set to `!gameMode` in App.tsx so the popup's nav handler doesn't double-fire Esc / arrows while a game owns the keyboard. **Esc is the only abort** (Space rematches on the game-over screen — not an abort).
 - Entirely client-side: no backend, no IPC, no new Rust module.
+- **Persistence (`lib/game-storage.ts`)** — every game persists a high score and a *suspended run* in `localStorage` under a per-game key (`pong` · `snake-classic` · `snake-wrap` · `space`). Pressing **Esc mid-game writes the full game state**; the next launch loads it (via a `useState` initializer), skips the intro, and **resumes exactly where it left off**. Ending a game (or Esc on the over/intro screen) clears the suspended run and finalises the high score. Pong has no per-match score, so its persisted stat is **career wins**; the two Snake variants keep **separate** high scores + separate suspended runs. All best-effort — a throwing/full `localStorage` degrades to "no saved data".
 
 ### `rockthebox` — hidden Snake easter egg (`components/SnakeGame.tsx`, `lib/snake.ts`, v0.24.0+)
 
 The second hidden game, same shape as `getshaky`. `commands::rockTheBoxMode` detects the trigger word and returns the variant: **`rockthebox`** → `"classic"` (walls kill), **`rockthabox`** → `"wrap"` (the snake reappears on the opposite edge). `App.tsx` maps these to `gameMode` `"snake-classic"` / `"snake-wrap"`, replacing the app-shell with `<SnakeGame wrap={…}>`. Also **not** in `COMMANDS`.
 
 - `lib/snake.ts` — pure, unit-tested grid logic: `step` (move / eat-grow / self collision with the tail-follow nuance; an optional `wrap` arg toggles wall-death vs. modulo-wrap), `spawnFood` (uniform free-cell pick), `tickInterval` (score-driven speed ramp, capped), `initialSnake`, `dirDelta`, `isOpposite`. Grid is `GRID_COLS × GRID_ROWS`.
-- `components/SnakeGame.tsx` — the stateful `<canvas>` loop. Three phases: `intro` (~1.9 s box-assembling flourish — `rockTheBoxRock` / `rockTheBoxTitle` CSS keyframes; `INTRO_MS` must match the keyframe durations), `playing`, `over`. The game advances on a **fixed-timestep wall-clock accumulator** (frame-rate independent). Steered by arrow keys **and** WASD; a buffered `pendingDir` is reversal-checked so the snake can't whip into its own neck. Board colours read live from the theme CSS vars.
-- Entirely client-side: no backend, no IPC, no new Rust module.
+- `components/SnakeGame.tsx` — the stateful `<canvas>` loop. Three phases: `intro` (~1.9 s box-assembling flourish — `rockTheBoxRock` / `rockTheBoxTitle` CSS keyframes; `INTRO_MS` must match the keyframe durations), `playing`, `over`. The game advances on a **fixed-timestep wall-clock accumulator** (frame-rate independent). Steered by arrow keys **and** WASD; a buffered `pendingDir` is reversal-checked so the snake can't whip into its own neck. Board colours read live from the theme CSS vars. **Each variant keeps its own high score + suspended run** (`snake-classic` / `snake-wrap`) — see the persistence note under `getshaky` and `lib/game-storage.ts`.
+- Entirely client-side: no backend, no IPC, no new Rust module (persistence is `localStorage` via `lib/game-storage.ts`).
 
 ### `opener` — hidden German pickup-line easter egg (`lib/openers.ts`, v0.26.0+)
 
@@ -229,7 +310,7 @@ The third hidden trigger, same shape as `getshaky` / `rockthebox`. Typing **`ope
 Typing the exact word **`space`** (`commands::isSpaceInvadersTrigger`) sets `gameMode` to `"space"` and replaces the app-shell with `<SpaceInvadersGame>`. Not in `COMMANDS`. Arrow/A-D to move, Space/W/↑ to fire, Esc to quit (Space rematches on game-over).
 
 - `lib/space-invaders.ts` — formation movement, bullets, collision, scoring (row bonuses).
-- `components/SpaceInvadersGame.tsx` — canvas loop; intro uses `space-invaders-descend` / `space-invaders-title` in `styles.css` (`INTRO_MS` = 1400).
+- `components/SpaceInvadersGame.tsx` — canvas loop; intro uses `space-invaders-descend` / `space-invaders-title` in `styles.css` (`INTRO_MS` = 1400). Persists best score + a suspended run (key `space`) via `lib/game-storage.ts` — Esc resumes; see the persistence note under `getshaky`.
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 
@@ -276,7 +357,7 @@ The Linux port mirrors `win/` and `macos/` — `linux/src-tauri/` is a thin 2-li
 
 ### macOS notes
 
-`macos/src-tauri/Cargo.toml` requires `tauri = { features = ["macos-private-api"] }` for transparent windows. The `entitlements.plist` intentionally **omits** `com.apple.security.automation.apple-events` — `enigo`'s `CGEventPost` is gated by the TCC Accessibility permission (System Settings → Privacy → Accessibility), not that entitlement. The first paste or expander use triggers the Accessibility prompt. After granting, a relaunch is required (macOS caches `AXIsProcessTrusted` per process). The Settings panel detects the just-granted state and offers a one-click relaunch.
+`macos/src-tauri/Cargo.toml` requires `tauri = { features = ["macos-private-api"] }` for transparent windows. `enigo`'s `CGEventPost` (paste/expander) is gated by the TCC **Accessibility** permission (System Settings → Privacy → Accessibility), *not* an entitlement — the first paste or expander use triggers the prompt; after granting, a relaunch is required (macOS caches `AXIsProcessTrusted` per process) and the Settings panel offers a one-click relaunch. The Finder-selection + Markdown→PDF features (v0.46–0.47) additionally need the **Automation** TCC grant for Finder; `com.apple.security.automation.apple-events` + `NSAppleEventsUsageDescription` are injected into the bundle post-build by `scripts/install-macos.sh`. Three independent TCC surfaces are therefore in play and each has its own status/force-reset IPC: Accessibility (paste, expander, input-lock), Screen Recording (`screen_recording.rs` — OCR, screenshot, NOT the eyedropper), and Automation→Finder (`finder_selection.rs`).
 
 ### Backup
 

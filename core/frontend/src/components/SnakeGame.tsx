@@ -13,6 +13,13 @@ import {
   step,
   tickInterval,
 } from "../lib/snake";
+import {
+  clearSavedGame,
+  commitHighScore,
+  loadHighScore,
+  loadSavedGame,
+  saveGame,
+} from "../lib/game-storage";
 
 /**
  * `rockthebox` easter egg — the popup overlay transforms (with a
@@ -356,30 +363,61 @@ interface SnakeState {
   running: boolean;
 }
 
-export function SnakeGame({ onExit, wrap }: Props) {
-  const [phase, setPhase] = useState<Phase>("intro");
-  // Score (food eaten) + session best — React state for the HUD; the
-  // game loop reads the score via a ref so it always sees the freshest
-  // value without re-subscribing.
-  const [score, setScore] = useState(0);
-  const [best, setBest] = useState(0);
-  const scoreRef = useRef(0);
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+/** The slice of an in-progress run that survives an Esc → relaunch. */
+interface SnakeSave {
+  snake: Point[];
+  dir: Direction;
+  pendingDir: Direction;
+  food: Point;
+  score: number;
+}
 
-  // Lazy-initialised once — see SnakeState.
-  const stateRef = useRef<SnakeState>(null!);
-  if (stateRef.current === null) {
-    const snake = initialSnake();
-    stateRef.current = {
-      snake,
-      dir: "right",
-      pendingDir: "right",
-      food: spawnFood(snake) ?? { x: 0, y: 0 },
+/** Seed the mutable game state — resume a suspended run, or deal a fresh
+ *  board. A resumed run starts `running` so the loop advances at once. */
+function makeSnakeState(saved: SnakeSave | null): SnakeState {
+  if (saved) {
+    return {
+      snake: saved.snake,
+      dir: saved.dir,
+      pendingDir: saved.pendingDir,
+      food: saved.food,
       acc: 0,
       lastTs: 0,
-      running: false,
+      running: true,
     };
   }
+  const snake = initialSnake();
+  return {
+    snake,
+    dir: "right",
+    pendingDir: "right",
+    food: spawnFood(snake) ?? { x: 0, y: 0 },
+    acc: 0,
+    lastTs: 0,
+    running: false,
+  };
+}
+
+export function SnakeGame({ onExit, wrap }: Props) {
+  // Separate persistence per variant — `walls` and `wrap` keep their own
+  // high score and their own suspended run.
+  const storageKey = wrap ? "snake-wrap" : "snake-classic";
+
+  // Load any suspended run exactly once (useState initializer) — a resumed
+  // game skips the intro and restores its score.
+  const [saved] = useState(() => loadSavedGame<SnakeSave>(storageKey));
+
+  const [phase, setPhase] = useState<Phase>(saved ? "playing" : "intro");
+  // Score (food eaten) + persisted best — React state for the HUD; the
+  // game loop reads the score via a ref so it always sees the freshest
+  // value without re-subscribing.
+  const [score, setScore] = useState(saved?.score ?? 0);
+  const [best, setBest] = useState(() => loadHighScore(storageKey));
+  const scoreRef = useRef(saved?.score ?? 0);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  // Seeded once — resume the suspended run or deal a fresh board.
+  const stateRef = useRef<SnakeState>(makeSnakeState(saved));
 
   // Reset everything and start a fresh game. Declared before the effects
   // so the keydown handler's Space-rematch path can call it. A rematch
@@ -405,6 +443,20 @@ export function SnakeGame({ onExit, wrap }: Props) {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        // Suspend an in-progress run so a re-trigger resumes it; a
+        // finished / not-yet-started run has nothing worth keeping.
+        const s = stateRef.current;
+        if (phase === "playing") {
+          saveGame<SnakeSave>(storageKey, {
+            snake: s.snake,
+            dir: s.dir,
+            pendingDir: s.pendingDir,
+            food: s.food,
+            score: scoreRef.current,
+          });
+        } else {
+          clearSavedGame(storageKey);
+        }
         onExit();
         return;
       }
@@ -429,7 +481,7 @@ export function SnakeGame({ onExit, wrap }: Props) {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [phase, onExit]);
+  }, [phase, onExit, storageKey]);
 
   // ── Intro animation — runs while phase === "intro". ──────────────────
   useEffect(() => {
@@ -482,14 +534,21 @@ export function SnakeGame({ onExit, wrap }: Props) {
     const s = stateRef.current;
     let raf = 0;
 
+    // End the run: stop the loop, finalise the persisted high score, and
+    // drop the suspended-run blob (the run is over — nothing to resume).
+    const endRun = () => {
+      s.running = false;
+      setBest(commitHighScore(storageKey, scoreRef.current));
+      clearSavedGame(storageKey);
+      setPhase("over");
+    };
+
     const doTick = () => {
       // Commit the buffered direction (already reversal-checked on input).
       if (!isOpposite(s.dir, s.pendingDir)) s.dir = s.pendingDir;
       const res = step(s.snake, s.dir, s.food, GRID_COLS, GRID_ROWS, wrap);
       if (res.dead) {
-        s.running = false;
-        setBest((b) => Math.max(b, scoreRef.current));
-        setPhase("over");
+        endRun();
         return;
       }
       s.snake = res.snake;
@@ -501,9 +560,7 @@ export function SnakeGame({ onExit, wrap }: Props) {
           s.food = next;
         } else {
           // Board full — the snake fills every cell. A perfect game.
-          s.running = false;
-          setBest((b) => Math.max(b, scoreRef.current));
-          setPhase("over");
+          endRun();
         }
       }
     };
@@ -525,7 +582,7 @@ export function SnakeGame({ onExit, wrap }: Props) {
     };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [phase, wrap]);
+  }, [phase, wrap, storageKey]);
 
   return (
     <div

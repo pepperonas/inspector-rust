@@ -25,6 +25,26 @@ import {
   type Alien,
   type Bullet,
 } from "../lib/space-invaders";
+import {
+  clearSavedGame,
+  commitHighScore,
+  loadHighScore,
+  loadSavedGame,
+  saveGame,
+} from "../lib/game-storage";
+
+const STORAGE_KEY = "space";
+
+/** The slice of an in-progress game that survives an Esc → relaunch. */
+interface SpaceSave {
+  aliens: Alien[];
+  bullets: Bullet[];
+  playerX: number;
+  playerY: number;
+  formationDir: 1 | -1;
+  score: number;
+  lives: number;
+}
 
 interface Props {
   onExit: () => void;
@@ -47,28 +67,55 @@ function readThemeColors() {
 }
 
 export function SpaceInvadersGame({ onExit }: Props) {
-  const [phase, setPhase] = useState<Phase>("intro");
+  // Load any suspended game once (useState initializer).
+  const [saved] = useState(() => loadSavedGame<SpaceSave>(STORAGE_KEY));
+
+  const [phase, setPhase] = useState<Phase>(saved ? "playing" : "intro");
   const [playerWon, setPlayerWon] = useState(false);
-  const [score, setScore] = useState(0);
-  const [lives, setLives] = useState(INITIAL_LIVES);
-  const scoreRef = useRef(0);
-  const livesRef = useRef(INITIAL_LIVES);
+  const [score, setScore] = useState(saved?.score ?? 0);
+  const [lives, setLives] = useState(saved?.lives ?? INITIAL_LIVES);
+  const [best, setBest] = useState(() => loadHighScore(STORAGE_KEY));
+  const scoreRef = useRef(saved?.score ?? 0);
+  const livesRef = useRef(saved?.lives ?? INITIAL_LIVES);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef({
-    fieldW: 700,
-    fieldH: 452,
-    playerX: 350,
-    playerY: 400,
-    keys: { left: false, right: false, fire: false },
-    formationDir: 1 as 1 | -1,
-    aliens: [] as Alien[],
-    bullets: [] as Bullet[],
-    lastFireAt: 0,
-    lastAlienShotAt: 0,
-    lastTs: 0,
-    running: false,
-  });
+  // A resumed game seeds its entities from the suspended run; otherwise a
+  // fresh (empty) board the intro/reset fills in.
+  const stateRef = useRef(
+    saved
+      ? {
+          fieldW: 700,
+          fieldH: 452,
+          playerX: saved.playerX,
+          playerY: saved.playerY,
+          keys: { left: false, right: false, fire: false },
+          formationDir: saved.formationDir,
+          aliens: saved.aliens,
+          bullets: saved.bullets,
+          lastFireAt: 0,
+          lastAlienShotAt: 0,
+          lastTs: 0,
+          running: true,
+        }
+      : {
+          fieldW: 700,
+          fieldH: 452,
+          playerX: 350,
+          playerY: 400,
+          keys: { left: false, right: false, fire: false },
+          formationDir: 1 as 1 | -1,
+          aliens: [] as Alien[],
+          bullets: [] as Bullet[],
+          lastFireAt: 0,
+          lastAlienShotAt: 0,
+          lastTs: 0,
+          running: false,
+        },
+  );
+
+  // Tells the play-loop effect to KEEP the restored player position on its
+  // first mount instead of re-centring (fresh games always re-centre).
+  const keepResumedPos = useRef(Boolean(saved));
 
   const resetMatch = () => {
     scoreRef.current = 0;
@@ -90,17 +137,34 @@ export function SpaceInvadersGame({ onExit }: Props) {
   };
 
   useEffect(() => {
+    if (saved) return; // resumed — skip the intro, keep restored entities
     const t = window.setTimeout(() => {
       resetMatch();
     }, INTRO_MS);
     return () => window.clearTimeout(t);
-  }, []);
+  }, [saved]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        // Suspend a live game so a re-trigger resumes it; a finished /
+        // intro game has nothing worth keeping.
+        const s = stateRef.current;
+        if (phase === "playing") {
+          saveGame<SpaceSave>(STORAGE_KEY, {
+            aliens: s.aliens,
+            bullets: s.bullets,
+            playerX: s.playerX,
+            playerY: s.playerY,
+            formationDir: s.formationDir,
+            score: scoreRef.current,
+            lives: livesRef.current,
+          });
+        } else {
+          clearSavedGame(STORAGE_KEY);
+        }
         onExit();
         return;
       }
@@ -145,14 +209,30 @@ export function SpaceInvadersGame({ onExit }: Props) {
     const s = stateRef.current;
     s.fieldW = canvas.width;
     s.fieldH = canvas.height;
-    s.playerX = s.fieldW / 2;
-    s.playerY = s.fieldH - 48;
-    if (s.aliens.length === 0) {
-      s.aliens = createFormation(s.fieldW, 56);
+    if (keepResumedPos.current) {
+      // First mount of a resumed game — the restored player position is
+      // already in real field coords; don't snap it back to centre.
+      keepResumedPos.current = false;
+    } else {
+      s.playerX = s.fieldW / 2;
+      s.playerY = s.fieldH - 48;
+      if (s.aliens.length === 0) {
+        s.aliens = createFormation(s.fieldW, 56);
+      }
     }
 
     const colors = readThemeColors();
     let raf = 0;
+
+    // End the game: stop the loop, record win/loss, finalise the persisted
+    // high score, and drop the suspended-run blob (nothing to resume).
+    const endRun = (won: boolean) => {
+      s.running = false;
+      setPlayerWon(won);
+      setBest(commitHighScore(STORAGE_KEY, scoreRef.current));
+      clearSavedGame(STORAGE_KEY);
+      setPhase("over");
+    };
 
     const drawAlien = (a: Alien) => {
       if (!a.alive) return;
@@ -240,9 +320,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
           setLives(livesRef.current);
           s.bullets = s.bullets.filter((x) => !x.active || x.fromPlayer);
           if (livesRef.current <= 0) {
-            s.running = false;
-            setPlayerWon(false);
-            setPhase("over");
+            endRun(false);
             return;
           }
         }
@@ -251,16 +329,12 @@ export function SpaceInvadersGame({ onExit }: Props) {
       s.bullets = s.bullets.filter((b) => b.active);
 
       if (allDead(s.aliens)) {
-        s.running = false;
-        setPlayerWon(true);
-        setPhase("over");
+        endRun(true);
         return;
       }
 
       if (aliensReachedPlayer(s.aliens, s.playerY)) {
-        s.running = false;
-        setPlayerWon(false);
-        setPhase("over");
+        endRun(false);
         return;
       }
 
@@ -286,8 +360,10 @@ export function SpaceInvadersGame({ onExit }: Props) {
         <span className="font-[var(--font-mono)] text-[12px] font-semibold uppercase tracking-[0.2em] text-[var(--color-accent)]">
           Space
         </span>
-        <span className="font-[var(--font-mono)] text-[18px] font-bold tabular-nums text-[var(--color-fg)]">
-          {score}
+        <span className="font-[var(--font-mono)] text-[18px] font-bold tabular-nums">
+          <span className="text-[var(--color-fg)]">{score}</span>
+          <span className="px-2 text-[var(--color-muted)]">·</span>
+          <span className="text-[12px] text-[var(--color-muted)]">best {best}</span>
         </span>
         <span className="text-[11px] text-[var(--color-muted)]">
           Lives:{" "}
@@ -322,7 +398,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
               {won ? "Earth saved 👾" : "Invaders win"}
             </span>
             <span className="font-[var(--font-mono)] text-[16px] tabular-nums text-[var(--color-fg)]">
-              Score {score}
+              Score {score} &nbsp;·&nbsp; best {best}
             </span>
             <span className="mt-1 text-[12px] text-[var(--color-muted)]">
               <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">

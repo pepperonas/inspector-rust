@@ -17,6 +17,28 @@ import {
   paddleHit,
   serveBall,
 } from "../lib/pong";
+import {
+  clearSavedGame,
+  loadHighScore,
+  loadSavedGame,
+  saveGame,
+  saveHighScore,
+} from "../lib/game-storage";
+
+const STORAGE_KEY = "pong";
+
+/** The slice of an in-progress match that survives an Esc → relaunch. */
+interface PongSave {
+  ballX: number;
+  ballY: number;
+  ballVx: number;
+  ballVy: number;
+  ballSpeed: number;
+  playerY: number;
+  botY: number;
+  playerScore: number;
+  botScore: number;
+}
 
 /**
  * `getshaky` easter egg — the popup overlay transforms (with a shaky
@@ -51,34 +73,65 @@ function readThemeColors() {
 }
 
 export function PongGame({ onExit }: Props) {
-  const [phase, setPhase] = useState<Phase>("intro");
+  // Load any suspended match once (useState initializer).
+  const [saved] = useState(() => loadSavedGame<PongSave>(STORAGE_KEY));
+
+  // A resumed match skips the intro and restores the live score.
+  const [phase, setPhase] = useState<Phase>(saved ? "playing" : "intro");
   // Scores are React state for the HUD; the game loop reads them via a
   // ref so it always sees the freshest value without re-subscribing.
-  const [playerScore, setPlayerScore] = useState(0);
-  const [botScore, setBotScore] = useState(0);
-  const scoreRef = useRef({ player: 0, bot: 0 });
+  const [playerScore, setPlayerScore] = useState(saved?.playerScore ?? 0);
+  const [botScore, setBotScore] = useState(saved?.botScore ?? 0);
+  // Career wins — Pong has no per-match "score" to beat, so the persisted
+  // achievement is how many matches the player has won outright.
+  const [wins, setWins] = useState(() => loadHighScore(STORAGE_KEY));
+  const scoreRef = useRef({
+    player: saved?.playerScore ?? 0,
+    bot: saved?.botScore ?? 0,
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
   // Mutable game state — kept out of React so the 60 fps loop never
-  // triggers a re-render. Only score changes + phase flips do.
-  const stateRef = useRef({
-    fieldW: 700,
-    fieldH: 452,
-    ballX: 350,
-    ballY: 226,
-    ballVx: BALL_BASE_SPEED,
-    ballVy: 0,
-    ballSpeed: BALL_BASE_SPEED,
-    playerY: 226,
-    botY: 226,
-    keys: { up: false, down: false, shift: false },
-    running: false,
-    // 0 → ball is live; > 0 → wall-clock ts at which the next serve fires.
-    serveAt: 0,
-    // Timestamp of the previous frame, for the frame-scale delta.
-    lastTs: 0,
-  });
+  // triggers a re-render. Only score changes + phase flips do. A resumed
+  // match seeds this from the suspended run (pixel coords are
+  // field-relative and the window size is stable between launches, so the
+  // board picks up right where it paused); otherwise it's a fresh board.
+  const stateRef = useRef(
+    saved
+      ? {
+          fieldW: 700,
+          fieldH: 452,
+          ballX: saved.ballX,
+          ballY: saved.ballY,
+          ballVx: saved.ballVx,
+          ballVy: saved.ballVy,
+          ballSpeed: saved.ballSpeed,
+          playerY: saved.playerY,
+          botY: saved.botY,
+          keys: { up: false, down: false, shift: false },
+          running: true,
+          serveAt: 0,
+          lastTs: 0,
+        }
+      : {
+          fieldW: 700,
+          fieldH: 452,
+          ballX: 350,
+          ballY: 226,
+          ballVx: BALL_BASE_SPEED,
+          ballVy: 0,
+          ballSpeed: BALL_BASE_SPEED,
+          playerY: 226,
+          botY: 226,
+          keys: { up: false, down: false, shift: false },
+          running: false,
+          // 0 → ball is live; > 0 → wall-clock ts the next serve fires.
+          serveAt: 0,
+          // Timestamp of the previous frame, for the frame-scale delta.
+          lastTs: 0,
+        },
+  );
 
   // Reset every entity + score and (re)start a match. Declared before
   // the effects so the keydown handler's Space-rematch path can call it.
@@ -102,7 +155,10 @@ export function PongGame({ onExit }: Props) {
   };
 
   // ── Intro phase: a ~1.3 s shaky transformation, then kick off. ──────
+  //    Skipped entirely when resuming a suspended match — the restored
+  //    ball must not be re-served.
   useEffect(() => {
+    if (saved) return;
     const toPlaying = window.setTimeout(() => {
       setPhase("playing");
       const s = stateRef.current;
@@ -115,7 +171,7 @@ export function PongGame({ onExit }: Props) {
       s.running = true;
     }, 1300);
     return () => window.clearTimeout(toPlaying);
-  }, []);
+  }, [saved]);
 
   // ── Esc to quit (the only abort, per spec) + paddle keys. ───────────
   useEffect(() => {
@@ -123,6 +179,24 @@ export function PongGame({ onExit }: Props) {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        // Suspend a live match so a re-trigger resumes it; a finished /
+        // intro match has nothing worth keeping.
+        const s = stateRef.current;
+        if (phase === "playing") {
+          saveGame<PongSave>(STORAGE_KEY, {
+            ballX: s.ballX,
+            ballY: s.ballY,
+            ballVx: s.ballVx,
+            ballVy: s.ballVy,
+            ballSpeed: s.ballSpeed,
+            playerY: s.playerY,
+            botY: s.botY,
+            playerScore: scoreRef.current.player,
+            botScore: scoreRef.current.bot,
+          });
+        } else {
+          clearSavedGame(STORAGE_KEY);
+        }
         onExit();
         return;
       }
@@ -345,6 +419,7 @@ export function PongGame({ onExit }: Props) {
         setBotScore(scoreRef.current.bot);
         if (scoreRef.current.bot >= WIN_SCORE) {
           s.running = false;
+          clearSavedGame(STORAGE_KEY); // match decided — nothing to resume
           setPhase("over");
           return;
         }
@@ -354,6 +429,11 @@ export function PongGame({ onExit }: Props) {
         setPlayerScore(scoreRef.current.player);
         if (scoreRef.current.player >= WIN_SCORE) {
           s.running = false;
+          // Career win — bump the persisted tally and clear the run.
+          const nextWins = loadHighScore(STORAGE_KEY) + 1;
+          saveHighScore(STORAGE_KEY, nextWins);
+          setWins(nextWins);
+          clearSavedGame(STORAGE_KEY);
           setPhase("over");
           return;
         }
@@ -382,6 +462,9 @@ export function PongGame({ onExit }: Props) {
       <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--color-border)] px-4">
         <span className="font-[var(--font-mono)] text-[12px] font-semibold uppercase tracking-[0.2em] text-[var(--color-accent)]">
           Get Shaky
+          <span className="ml-2 text-[var(--color-muted)] normal-case tracking-normal">
+            wins {wins}
+          </span>
         </span>
         <span className="font-[var(--font-mono)] text-[18px] font-bold tabular-nums">
           <span className="text-[var(--color-accent)]">{playerScore}</span>
@@ -441,6 +524,9 @@ export function PongGame({ onExit }: Props) {
             </span>
             <span className="font-[var(--font-mono)] text-[16px] tabular-nums text-[var(--color-fg)]">
               {playerScore} — {botScore}
+            </span>
+            <span className="font-[var(--font-mono)] text-[12px] tabular-nums text-[var(--color-muted)]">
+              career wins {wins}
             </span>
             <span className="mt-1 text-[12px] text-[var(--color-muted)]">
               <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">

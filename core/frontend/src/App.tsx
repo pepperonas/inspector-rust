@@ -34,6 +34,7 @@ import {
   parseTimerArg,
   resizePresetSuggestions,
   translateUrl,
+  type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
@@ -1047,6 +1048,118 @@ function App() {
   const activate = async (i: number, shiftKey = false, altKey = false) => {
     const target = combined[i];
     if (!target) return;
+
+    // Run a parsed power-command by kind. Returns `true` if it handled the
+    // kind — so a fuzzy `command-suggestion` Enter can RUN a complete
+    // command in one keystroke (and otherwise fall back to autocompleting
+    // the input). Shared by the `command` row and `command-suggestion` row.
+    const dispatchCommand = async (
+      commandKind: CommandKind,
+      arg: string,
+    ): Promise<boolean> => {
+      if (
+        commandKind === "translate-en" ||
+        commandKind === "translate-de" ||
+        commandKind === "translate-auto"
+      ) {
+        await openUrl(translateUrl(commandKind, arg));
+        await hidePopup();
+      } else if (commandKind === "resize") {
+        const dims = parseResizeArg(arg);
+        if (!dims) {
+          setPasteError("other");
+          return true;
+        }
+        // In finder-mode, resize each selected image file (writes
+        // <name>-WxH.<ext> next to source). Otherwise fall back to the
+        // clipboard-image pipeline.
+        const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
+        if (finderFiles && finderImages.length > 0) {
+          await Promise.all(
+            finderImages.map((f) =>
+              resizeFile(f.path, dims.width, dims.height).catch((e) => {
+                console.error("resize_file failed", f.path, e);
+                return "";
+              }),
+            ),
+          );
+        } else {
+          await resizeClipboardImage(dims.width, dims.height);
+        }
+        await hidePopup();
+      } else if (commandKind === "optim") {
+        // In finder-mode, optimise each PNG in the selection (writes
+        // <stem>-optim.png next to source). Non-PNGs are skipped — oxipng
+        // is PNG-only. Otherwise fall back to the clipboard-PNG pipeline.
+        const finderPngs =
+          finderFiles?.filter((f) => f.is_image && /\.png$/i.test(f.path)) ?? [];
+        if (finderFiles && finderPngs.length > 0) {
+          await Promise.all(
+            finderPngs.map((f) =>
+              optimizeFile(f.path).catch((e) => {
+                console.error("optimize_file failed", f.path, e);
+                return null;
+              }),
+            ),
+          );
+        } else {
+          await optimizeClipboardImage();
+        }
+        await hidePopup();
+      } else if (commandKind === "rmvvls") {
+        await removeVowelsToClipboard(arg);
+        await hidePopup();
+      } else if (commandKind === "reboot") {
+        // Destructive: native confirmation before firing osascript.
+        if (!window.confirm("Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+          return true;
+        }
+        await systemReboot();
+        await hidePopup();
+      } else if (commandKind === "shutdown") {
+        if (!window.confirm("Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+          return true;
+        }
+        await systemShutdown();
+        await hidePopup();
+      } else if (commandKind === "lock") {
+        // No confirmation: locking is cheap to undo (just type password).
+        await systemLock();
+        await hidePopup();
+      } else if (commandKind === "mute") {
+        // Toggle — no confirmation, trivially reversible.
+        await toggleMute();
+        await hidePopup();
+      } else if (commandKind === "freeze") {
+        // Input lock — backend hides the popup itself, then blocks all
+        // keyboard / mouse input until the unlock chord is pressed.
+        try {
+          await startInputLock();
+        } catch (e) {
+          setPasteError("other");
+          console.error("input lock failed", e);
+        }
+      } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
+        // The backend hides the popup itself, then plays the on-screen
+        // status flourish (status_toast). Calling hidePopup() here would
+        // fire app.hide() on macOS and swallow that toast, so don't.
+        await wakelockSet(commandKind === "wakelock-on");
+      } else if (commandKind === "timer") {
+        const t = parseTimerArg(arg);
+        if (!t) {
+          setPasteError("other");
+          return true;
+        }
+        await startTimer(t.seconds, t.label);
+        await hidePopup();
+      } else {
+        // Not dispatched here (e.g. pwgen has its own preview ListEntry,
+        // kill runs in kill-mode). Let the caller decide what to do.
+        return false;
+      }
+      return true;
+    };
+
     try {
       // bpm trigger — Enter swaps the popup body for the BPM
       // detector overlay (asks for mic permission, starts listening).
@@ -1122,38 +1235,17 @@ function App() {
         }).format(v);
         await pasteText(formatted);
       } else if (target.kind === "command-suggestion") {
-        // If the completion already parses as a complete command
-        // (e.g. `rz 1920x1080` from a resize preset), RUN it directly
-        // on Enter — saves a round-trip through the input field. Use
-        // Tab or → to autocomplete-without-running instead (handled
-        // by the global keydown effect below). Currently the only
-        // kind that takes the runnable path is `resize`; other future
-        // preset kinds would go in this same switch.
+        // Fuzzy/prefix command suggestion. If the completion is already a
+        // complete, runnable command (no-arg commands like wakelock /
+        // freeze / lock, or a resize preset), RUN it directly on Enter —
+        // that's the one-keystroke fuzzy invoke. Tab / → autocompletes
+        // without running (handled by the global keydown effect below).
+        // Anything still needing an argument (or pwgen, which shows a live
+        // preview) yields `false` from dispatchCommand → fill the input.
         const parsed = parseCommand(target.data.completion);
-        if (parsed && parsed.spec.kind === "resize") {
-          const dims = parseResizeArg(parsed.arg);
-          if (!dims) {
-            setPasteError("other");
-            return;
-          }
-          const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
-          if (finderFiles && finderImages.length > 0) {
-            await Promise.all(
-              finderImages.map((f) =>
-                resizeFile(f.path, dims.width, dims.height).catch((e) => {
-                  console.error("resize_file failed", f.path, e);
-                  return "";
-                }),
-              ),
-            );
-          } else {
-            await resizeClipboardImage(dims.width, dims.height);
-          }
-          await hidePopup();
+        if (parsed && (await dispatchCommand(parsed.spec.kind, parsed.arg))) {
           return;
         }
-        // Otherwise: just populate the search bar with the command
-        // prefix so the user can fill in the argument.
         setQuery(target.data.completion);
         requestAnimationFrame(() => {
           searchRef.current?.focus();
@@ -1162,107 +1254,9 @@ function App() {
         });
         return;
       } else if (target.kind === "command") {
-        // Runnable power command. Dispatch by kind.
-        const { commandKind, arg } = target.data;
-        if (commandKind === "translate-en" || commandKind === "translate-de"
-            || commandKind === "translate-auto") {
-          const url = translateUrl(commandKind, arg);
-          await openUrl(url);
-          await hidePopup();
-        } else if (commandKind === "resize") {
-          const dims = parseResizeArg(arg);
-          if (!dims) {
-            setPasteError("other");
-            return;
-          }
-          // In finder-mode, resize each selected image file (writes
-          // <name>-WxH.<ext> next to source). Otherwise fall back to
-          // the existing clipboard-image pipeline.
-          const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
-          if (finderFiles && finderImages.length > 0) {
-            await Promise.all(
-              finderImages.map((f) =>
-                resizeFile(f.path, dims.width, dims.height).catch((e) => {
-                  console.error("resize_file failed", f.path, e);
-                  return "";
-                }),
-              ),
-            );
-          } else {
-            await resizeClipboardImage(dims.width, dims.height);
-          }
-          await hidePopup();
-        } else if (commandKind === "optim") {
-          // In finder-mode, optimise each PNG in the selection (writes
-          // <stem>-optim.png next to source). Non-PNGs are skipped
-          // — oxipng is PNG-only. Otherwise fall back to the existing
-          // clipboard-PNG pipeline that writes to ~/Downloads.
-          const finderPngs =
-            finderFiles?.filter(
-              (f) => f.is_image && /\.png$/i.test(f.path),
-            ) ?? [];
-          if (finderFiles && finderPngs.length > 0) {
-            await Promise.all(
-              finderPngs.map((f) =>
-                optimizeFile(f.path).catch((e) => {
-                  console.error("optimize_file failed", f.path, e);
-                  return null;
-                }),
-              ),
-            );
-          } else {
-            await optimizeClipboardImage();
-          }
-          await hidePopup();
-        } else if (commandKind === "rmvvls") {
-          await removeVowelsToClipboard(arg);
-          await hidePopup();
-        } else if (commandKind === "reboot") {
-          // Destructive: native confirmation before firing osascript.
-          if (!window.confirm("Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
-            return;
-          }
-          await systemReboot();
-          await hidePopup();
-        } else if (commandKind === "shutdown") {
-          if (!window.confirm("Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
-            return;
-          }
-          await systemShutdown();
-          await hidePopup();
-        } else if (commandKind === "lock") {
-          // No confirmation: locking is cheap to undo (just type password).
-          await systemLock();
-          await hidePopup();
-        } else if (commandKind === "mute") {
-          // Toggle — no confirmation, trivially reversible.
-          await toggleMute();
-          await hidePopup();
-        } else if (commandKind === "freeze") {
-          // Input lock — backend hides the popup itself, then blocks
-          // all keyboard / mouse input until the unlock chord is
-          // pressed. The backend rejects empty / unparseable chords +
-          // surfaces a clear error on Wayland.
-          try {
-            await startInputLock();
-          } catch (e) {
-            setPasteError("other");
-            console.error("input lock failed", e);
-          }
-        } else if (commandKind === "wakelock-on" || commandKind === "wakelock-off") {
-          // The backend hides the popup itself, then plays the on-screen
-          // status flourish (status_toast). Calling hidePopup() here would
-          // fire app.hide() on macOS and swallow that toast, so don't.
-          await wakelockSet(commandKind === "wakelock-on");
-        } else if (commandKind === "timer") {
-          const t = parseTimerArg(arg);
-          if (!t) {
-            setPasteError("other");
-            return;
-          }
-          await startTimer(t.seconds, t.label);
-          await hidePopup();
-        }
+        // Runnable power command — dispatch by kind (shared with the
+        // fuzzy command-suggestion path above).
+        await dispatchCommand(target.data.commandKind, target.data.arg);
         return;
       } else if (target.kind === "kill-target") {
         // Destructive: confirm before killing. The dialog shows the

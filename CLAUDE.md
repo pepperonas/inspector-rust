@@ -196,7 +196,7 @@ Triggered by `Ctrl+Shift+C` or the tray's **Pick Color** menu. Reuses `screen_pi
 
 ### Power commands — search-bar palette (`commands.rs`, `lib/commands.ts`, v0.18.0+)
 
-The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. Complete commands surface as a `command` `ListEntry`; partial keywords surface as `command-suggestion` autocomplete rows. The `COMMANDS` catalogue (autocompletable):
+The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. Complete commands surface as a `command` `ListEntry`; partial / **fuzzy** keywords surface as `command-suggestion` autocomplete rows. `commandSuggestions` uses `lib/commands.ts::fuzzyScore` (v0.52.0): exact > prefix (shorter keyword wins) > a **first-char-anchored subsequence** for 3+ char queries (so `wlk`→`wakelock`, `frz`→`freeze`, `pwg`→`pwgen`; 1–2 char queries stay prefix-only to avoid flooding). **Enter on a suggestion whose completion is a complete command runs it in one keystroke** — `App.tsx`'s `activate` shares a `dispatchCommand(kind, arg)` helper between the `command` and `command-suggestion` rows; it returns `false` for kinds it doesn't own (pwgen → has its own preview row, kill → kill-mode), so those fall back to autocompleting the input instead. Tab / → still autocompletes without running. The `COMMANDS` catalogue (fuzzy-matchable):
 
 | Keyword | Action | Backed by |
 |---|---|---|

@@ -137,10 +137,10 @@ describe("commandSuggestions", () => {
     expect(keywords).toContain("trde");
   });
 
-  it("matches only tren for 'tre'", () => {
-    const suggestions = commandSuggestions("tre");
-    const keywords = suggestions.map((s) => s.keyword);
-    expect(keywords).toEqual(["tren"]);
+  it("ranks the prefix match first, then fuzzy matches, for 'tre'", () => {
+    const keywords = commandSuggestions("tre").map((s) => s.keyword);
+    expect(keywords[0]).toBe("tren"); // prefix beats fuzzy
+    expect(keywords).toContain("trde"); // t-r-e is a subsequence of trde
   });
 
   it("matches rmvvls for 'rm'", () => {
@@ -172,6 +172,26 @@ describe("commandSuggestions", () => {
 
   it("returns empty for unknown prefix", () => {
     expect(commandSuggestions("xyz")).toEqual([]);
+  });
+
+  it("fuzzy-matches first-char-anchored subsequences (3+ chars)", () => {
+    // The whole point of the feature: invoke wakelock/freeze/pwgen without
+    // typing them in full.
+    expect(commandSuggestions("wlk").map((s) => s.keyword)).toContain("wakelock=1");
+    expect(commandSuggestions("frz").map((s) => s.keyword)).toContain("freeze");
+    expect(commandSuggestions("pwg").map((s) => s.keyword)).toContain("pwgen");
+    expect(commandSuggestions("tmr").map((s) => s.keyword)).toContain("timer");
+  });
+
+  it("requires the first character to match (no un-anchored fuzz)", () => {
+    // "lk" of wakelock is a subsequence, but without the leading 'w' it
+    // must not surface — keeps fuzzy from matching mid-word noise.
+    expect(commandSuggestions("xlk")).toEqual([]);
+  });
+
+  it("stays prefix-only for 1–2 char queries (no fuzzy flood)", () => {
+    // "tr" must not pull in "timer" via subsequence — only real prefixes.
+    expect(commandSuggestions("tr").map((s) => s.keyword)).not.toContain("timer");
   });
 });
 

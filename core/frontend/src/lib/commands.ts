@@ -259,14 +259,56 @@ export function parseCommand(query: string): ParsedCommand | null {
 }
 
 /**
- * Return commands whose keyword starts with the *first token* of
- * `query` (case-insensitive). Used to render autocomplete suggestions
- * under the search bar.
+ * Fuzzy-match score of `needle` against a command `keyword`. Returns
+ * `null` when there's no match, else a score where **lower is better**.
+ *
+ * Tiers (so prefix matches always rank above loose fuzzy ones):
+ *   - exact keyword            → -10000
+ *   - prefix (`wak` → wakelock`) → -5000 + len  (shorter keyword wins)
+ *   - subsequence (`wlk` → wakelock) → positive: fewer gaps + shorter wins
+ *
+ * The subsequence tier is **first-character-anchored** and only enabled
+ * for needles of 3+ chars, so 1–2 char queries stay conservative
+ * (prefix-only) and a stray short query doesn't flood the list.
+ */
+export function fuzzyScore(keyword: string, needle: string): number | null {
+  if (needle.length === 0) return 0;
+  if (keyword === needle) return -10000;
+  if (keyword.startsWith(needle)) return -5000 + keyword.length;
+  if (needle.length < 3 || keyword[0] !== needle[0]) return null;
+
+  // First char anchored; walk the rest as an ordered subsequence.
+  let k = 1;
+  let prev = 0;
+  let gaps = 0;
+  for (let n = 1; n < needle.length; n++) {
+    const ch = needle[n];
+    let found = -1;
+    while (k < keyword.length) {
+      if (keyword[k] === ch) {
+        found = k;
+        k++;
+        break;
+      }
+      k++;
+    }
+    if (found === -1) return null;
+    gaps += found - prev - 1;
+    prev = found;
+  }
+  return gaps * 3 + keyword.length;
+}
+
+/**
+ * Return commands matching the *first token* of `query` (case-insensitive),
+ * ranked best-first. Used to render autocomplete suggestions under the
+ * search bar. Matching is **fuzzy** (see {@link fuzzyScore}): a prefix like
+ * `wak`, OR a 3+ char first-char-anchored subsequence like `wlk` / `frz` /
+ * `pwg`, surfaces the command so it can be invoked without typing it in full.
  *
  * - Empty input → no suggestions (would clutter the History list).
- * - Exact keyword match → no suggestions (the command itself surfaces
- *   as a ParsedCommand instead).
- * - Partial match → all commands whose keyword starts with the prefix.
+ * - Exact match of a no-arg command → no suggestion (it runs directly via
+ *   the ParsedCommand path; an echo row would be clutter).
  */
 export function commandSuggestions(query: string): CommandSpec[] {
   const trimmed = query.trimStart();
@@ -278,21 +320,17 @@ export function commandSuggestions(query: string): CommandSpec[] {
   // command suggestions either way.
   if (space !== -1) return [];
 
-  const firstToken = trimmed.toLowerCase();
-  if (firstToken.length === 0) return [];
+  const needle = trimmed.toLowerCase();
+  if (needle.length === 0) return [];
 
-  // Prefix match across ALL keywords. Critical for `tr` — `tr` is both
-  // an exact command AND a prefix for `tren`/`trde`. The user typing
-  // "tr" might mean any of the three; surface them all and let them
-  // pick.
-  const matches = COMMANDS.filter(
-    (c) => !c.hidden && c.keyword.startsWith(firstToken),
-  );
-
-  // Suppress no-arg exact matches — the user can run them with Enter
-  // directly via the parseCommand path, and an autocomplete row showing
-  // the same keyword they just typed is pure clutter.
-  return matches.filter((c) => !(c.keyword === firstToken && !c.requiresArg));
+  return COMMANDS.filter((c) => !c.hidden)
+    .map((c) => ({ c, score: fuzzyScore(c.keyword.toLowerCase(), needle) }))
+    .filter((s): s is { c: CommandSpec; score: number } => s.score !== null)
+    .sort((a, b) => a.score - b.score || a.c.keyword.localeCompare(b.c.keyword))
+    .map((s) => s.c)
+    // Suppress a no-arg EXACT match — it runs with Enter via parseCommand,
+    // so an autocomplete row echoing what was just typed is pure clutter.
+    .filter((c) => !(c.keyword === needle && !c.requiresArg));
 }
 
 /** Build the Google Translate URL for a translate command. */

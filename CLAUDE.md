@@ -259,7 +259,7 @@ Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock cho
 ### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
 
 - **`timer <n>[s/min]`** — each `start_timer` spawns a worker; on expiry fires a native notification + `afplay Glass.aiff` + a `timer-fired` popup banner. Cancellable per-timer (`AtomicBool` polled ~200 ms). Footer shows the live count (`list_timers`, `timers-changed`). IPC: `start_timer`, `cancel_timer`, `list_timers`.
-- **`wakelock=1` / `wakelock=0`** — keep-awake. macOS spawns `/usr/bin/caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState`; Linux jiggles the cursor (X11 only, no-op on Wayland). IPC: `wakelock_set`, `wakelock_get` (`wakelock-changed` event drives the footer indicator).
+- **`wakelock=1` / `wakelock=0`** — keep-awake. macOS spawns `/usr/bin/caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState` **plus** a periodic invisible `F15` keypress (v0.50.2 — `SetThreadExecutionState` blocks power-sleep but does NOT reset the screensaver/lock idle timer, so on its own Windows kept *locking* the screen; the F15 nudge every 30 s keeps the screensaver + lock from engaging, the Caffeine/PowerToys-Awake trick); Linux jiggles the cursor (X11 only, no-op on Wayland). IPC: `wakelock_set`, `wakelock_get` (`wakelock-changed` event drives the footer indicator).
 
 ### Screenshot preview + editor (`screenshot_preview.rs`, `screenshot_editor.rs`, `ScreenshotPreview.tsx`, `ScreenshotEditor.tsx`)
 

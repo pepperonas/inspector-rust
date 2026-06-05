@@ -12,9 +12,20 @@
 //! `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
 //! ES_SYSTEM_REQUIRED)` on entry and clears with `ES_CONTINUOUS` on
 //! exit. This is the documented Win32 API for suppressing system +
-//! display sleep, and (unlike `SetCursorPos`-jiggle) survives
-//! group-policy-managed corporate Windows configurations that
-//! disable synthetic-input idle resets.
+//! display *power* sleep.
+//!
+//! **However** (v0.50.1 fix): `SetThreadExecutionState` does **not**
+//! reset the user-input idle timer that drives the **screensaver** and
+//! the **lock screen** — so on its own the machine stopped *sleeping*
+//! but still *locked*, which users reported as "wakelock doesn't work".
+//! The worker therefore *also* injects an invisible `F15` keypress (via
+//! `enigo`, same SendInput path the app already uses for paste) every
+//! `WIN_NUDGE` seconds. F15 is effectively unused by applications, so it
+//! disturbs nothing while counting as user activity that keeps the
+//! screensaver + lock from engaging — the same belt-and-suspenders trick
+//! Caffeine / PowerToys Awake use. `SetThreadExecutionState` still
+//! covers actual power-sleep (and survives group-policy configs that
+//! ignore synthetic input), so the two mechanisms complement each other.
 //!
 //! Pre-0.41.0 both platforms used cursor-jiggle: macOS via
 //! `CGEventPost`, Windows via `SetCursorPos`. macOS hardens its idle
@@ -46,6 +57,12 @@ use std::time::Duration;
 /// so this only matters on Win/Linux.
 #[cfg(not(target_os = "macos"))]
 const TICK: Duration = Duration::from_secs(60);
+
+/// Windows-only: how often to inject the invisible F15 idle-timer nudge.
+/// Kept comfortably below the 1-minute Windows screensaver/lock floor so
+/// a short idle timeout can't slip in between nudges.
+#[cfg(target_os = "windows")]
+const WIN_NUDGE: Duration = Duration::from_secs(30);
 
 /// Tauri-managed singleton. `active` is the public toggle the IPC
 /// reports back; `stop` is a fresh AtomicBool per running worker — on
@@ -229,12 +246,49 @@ fn worker(stop: Arc<AtomicBool>) {
              The OS may sleep / lock as usual."
         );
     }
+    // `SetThreadExecutionState` blocks power-sleep but does NOT reset the
+    // user-input idle timer that drives the screensaver + lock screen.
+    // Nudge an invisible F15 keypress now (so a short idle timeout can't
+    // beat the first interval) and every `WIN_NUDGE` thereafter. See the
+    // module header for the full rationale.
+    nudge_input();
+    let mut waited = Duration::ZERO;
     while !stop.load(Ordering::SeqCst) {
         std::thread::sleep(Duration::from_millis(200));
+        waited += Duration::from_millis(200);
+        if waited >= WIN_NUDGE {
+            nudge_input();
+            // Cheap re-assert in case anything cleared the execution state.
+            let _ = win_power::engage();
+            waited = Duration::ZERO;
+        }
     }
     // Always release — even if engage returned 0, calling disengage
     // with just ES_CONTINUOUS is a no-op so it's safe.
     win_power::disengage();
+}
+
+/// Windows-only: inject an invisible `F15` keypress to reset the OS
+/// input-idle timer (screensaver + lock), via the same `enigo`/SendInput
+/// path the app already uses for paste. F15 is effectively unused by
+/// applications, so it disturbs no focused window and moves no cursor.
+/// Best-effort — a failure is logged at debug and the loop continues.
+#[cfg(target_os = "windows")]
+fn nudge_input() {
+    use enigo::{Direction::Click, Enigo, Key, Keyboard, Settings};
+    // Same flag paste.rs uses: never trigger enigo's permission prompt.
+    let settings = Settings {
+        open_prompt_to_get_permissions: false,
+        ..Settings::default()
+    };
+    match Enigo::new(&settings) {
+        Ok(mut enigo) => {
+            if let Err(e) = enigo.key(Key::F15, Click) {
+                tracing::debug!("wakelock: F15 nudge failed: {e:?}");
+            }
+        }
+        Err(e) => tracing::debug!("wakelock: enigo init for nudge failed: {e:?}"),
+    }
 }
 
 // ── Platform jiggle ────────────────────────────────────────────────────

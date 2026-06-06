@@ -19,6 +19,7 @@ import { tryEvaluate } from "./lib/calc";
 import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
+  isFlappyTrigger,
   isGetShakyTrigger,
   is2faTrigger,
   isBpmTrigger,
@@ -47,6 +48,7 @@ import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
+import { FlappyGame } from "./components/FlappyGame";
 import { BpmDetector } from "./components/BpmDetector";
 import { TotpOverlay } from "./components/TotpOverlay";
 import {
@@ -116,7 +118,7 @@ function App() {
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
   // Exited only with Esc (handled inside the game).
   const [gameMode, setGameMode] = useState<
-    "pong" | "snake-classic" | "snake-wrap" | "space" | null
+    "pong" | "snake-classic" | "snake-wrap" | "space" | "flappy" | null
   >(null);
   // BPM detector overlay state. Separate from `gameMode` because it
   // has different lifecycle semantics: audio teardown, mic
@@ -243,7 +245,11 @@ function App() {
       setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
       return;
     }
-    if (isSpaceInvadersTrigger(query)) setGameMode("space");
+    if (isSpaceInvadersTrigger(query)) {
+      setGameMode("space");
+      return;
+    }
+    if (isFlappyTrigger(query)) setGameMode("flappy");
   }, [query]);
 
   // Inline calculator: when the query parses as a math expression with at
@@ -1629,6 +1635,8 @@ function App() {
             <PongGame onExit={exitGame} />
           ) : gameMode === "space" ? (
             <SpaceInvadersGame onExit={exitGame} />
+          ) : gameMode === "flappy" ? (
+            <FlappyGame onExit={exitGame} />
           ) : (
             <SnakeGame onExit={exitGame} wrap={gameMode === "snake-wrap"} />
           )}

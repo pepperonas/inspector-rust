@@ -29,6 +29,7 @@ Exact match in the popup search field (case-insensitive, no autocomplete):
 | `rockthebox` | Snake — walls kill (`SnakeGame.tsx`, `lib/snake.ts`) |
 | `rockthabox` | Snake — wrap-around edges |
 | `space` | Space Invaders (`SpaceInvadersGame.tsx`, `lib/space-invaders.ts`) |
+| `learningtofly` | Flappy Bird (`FlappyGame.tsx`, `lib/flappy.ts`) |
 
 # Tests
 pnpm test                                     # frontend vitest (all, single run)
@@ -112,7 +113,7 @@ type ListEntry =
   | { kind: "totp";               data: TotpListView }            // "otp <issuer>" autocomplete
 ```
 
-Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips, with the special rows (opener, bruno, pwgen, app, finder-file, totp) spliced in near the top when their trigger matches. Several **whole-list / whole-popup overrides**: in **kill-mode** (`kill` parsed) the list becomes `kill-target` rows; **game-mode** replaces the whole popup with a game (`<PongGame>` `getshaky`, `<SnakeGame>` `rockthebox`/`rockthabox`, `<SpaceInvadersGame>` `space`); **`2fa`** replaces it with `<TotpOverlay>`; **`bpm`** (Enter) replaces it with `<BpmDetector>`; **`freeze`** starts the input lock.
+Assembly order in `App.tsx` (`combined`): runnable command → command suggestions → calc result → color result → snippet matches → fuzzy clips, with the special rows (opener, bruno, pwgen, app, finder-file, totp) spliced in near the top when their trigger matches. Several **whole-list / whole-popup overrides**: in **kill-mode** (`kill` parsed) the list becomes `kill-target` rows; **game-mode** replaces the whole popup with a game (`<PongGame>` `getshaky`, `<SnakeGame>` `rockthebox`/`rockthabox`, `<SpaceInvadersGame>` `space`, `<FlappyGame>` `learningtofly`); **`2fa`** replaces it with `<TotpOverlay>`; **`bpm`** (Enter) replaces it with `<BpmDetector>`; **`freeze`** starts the input lock.
 
 Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
@@ -225,7 +226,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
 
-**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `space` (Space Invaders), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
+**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `space` (Space Invaders), `learningtofly` (Flappy Bird), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
 
 ### System commands (`system_commands.rs`, v0.19.0+)
 
@@ -348,6 +349,13 @@ Typing the exact word **`space`** (`commands::isSpaceInvadersTrigger`) sets `gam
 
 - `lib/space-invaders.ts` — formation movement, bullets, collision, scoring (row bonuses).
 - `components/SpaceInvadersGame.tsx` — canvas loop; intro uses `space-invaders-descend` / `space-invaders-title` in `styles.css` (`INTRO_MS` = 1400). Persists best score + a suspended run (key `space`) via `lib/game-storage.ts` — Esc resumes; see the persistence note under `getshaky`.
+
+### `learningtofly` — hidden Flappy Bird easter egg (`components/FlappyGame.tsx`, `lib/flappy.ts`, v0.69.0+)
+
+Typing the exact word **`learningtofly`** (`commands::isFlappyTrigger`) sets `gameMode` to `"flappy"` and replaces the app-shell with `<FlappyGame>`. Not in `COMMANDS`. **Space / ↑ / W / click (or tap)** flap, **Esc** quits (Space/click rematches on game-over).
+
+- `lib/flappy.ts` — pure, unit-tested physics faithful to the original: fixed-x bird with vertical velocity only; `GRAVITY` per-frame accel, `FLAP_VY` upward impulse, `MAX_FALL_VY` terminal cap; pipe pairs (`PIPE_GAP`) scroll left at `PIPE_SPEED` and spawn at `PIPE_SPACING` with a randomised `gapTop`; **+1 per pipe passed**; death on pipe (circle-vs-rect `hitsPipe`) or ground (`hitsGround`); the ceiling is a clamp (no death). Physics is frozen until the first flap (`started`) and frame-rate-independent via `frameScale`. `step(state, fieldW, fieldH, dt, nextGapTop)` is a pure mutate-and-return; the caller supplies a fresh `randGapTop` each call so it stays deterministic for tests.
+- `components/FlappyGame.tsx` — canvas loop; intro uses `flappy-rise` / `flappy-title` in `styles.css` (`INTRO_MS` = 1500). The bird tilts with its velocity and bobs while idle. Persists best score + a suspended run (key `flappy`, the whole `FlappyState`) via `lib/game-storage.ts` — Esc mid-flight resumes; see the persistence note under `getshaky`. The idle-hint visibility mirrors `game.started` into React state (`flying`) so render never reads the ref.
 
 ### Image tools (`recolor.rs`, `cutout_ml.rs`)
 

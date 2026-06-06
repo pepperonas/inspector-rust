@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.69.0] — 2026-06-06
+
+### Added — Flappy Bird (hidden game, `learningtofly`)
+
+A fifth hidden easter-egg game, in the IR style. Type **`learningtofly`** in
+the search bar. Space / ↑ / W / click to flap, Esc to quit (saving a live run
+to resume next time), Space/click to rematch. Faithful physics (gravity +
+flap impulse, scrolling pipe pairs with a fixed gap, +1 per pipe, death on
+pipe/ground, ceiling clamp), an intro flourish, per-game high score, and the
+bird tilts with its velocity. New `lib/flappy.ts` (pure, 21 unit tests) +
+`components/FlappyGame.tsx`.
+
 ## [0.68.1] — 2026-06-06
 
 ### Fixed — `brightness` / `clean` / `shot*` / `random` showed no runnable row

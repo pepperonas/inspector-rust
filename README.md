@@ -28,7 +28,7 @@
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
   - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
-  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` (create file/folder in the open Finder folder), `timer`, `pwgen`, `rmvvls` (text).
+  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `timer`, `pwgen`, `rmvvls` (text).
   - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
   - 🎮 **Hidden games** — four Easter-egg trigger words. You'll find them.
@@ -308,7 +308,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **System command — `mute`** *(v0.23.0+)* | Search bar | Toggle system mute / unmute (macOS) |
 | **System command — `freeze`** *(v0.28.0+)* | Search bar | Block keyboard + mouse — unlock with the configured chord (default `i + r`) — native CGEventTap, no rdev |
 | **`wakelock on` / `wakelock off`** *(alias `caffeine on/off`, v0.52.0+)* | Search bar | Keep computer awake — pauses sleep + screen lock. macOS `caffeinate`; Windows `SetThreadExecutionState` + invisible F15 nudge; Linux X11 cursor-jiggle. A centred status toast confirms on/off |
-| **`touch <name>` / `mkdir <name>`** *(v0.53.0+, macOS)* | Search bar | Create a file / folder in the frontmost Finder window's folder (or the Desktop). Needs Automation → Finder |
+| **`touch <name>` / `mkdir <name>` / `terminal`** *(v0.53.0+, macOS)* | Search bar | Create a file / folder, or open the terminal (iTerm2 → Terminal.app), in the frontmost Finder window's folder (or the Desktop). Needs Automation → Finder |
 | **Finder selection actions** *(v0.30.0+, macOS)* | `Ctrl+Shift+F` | Popup lists the currently-selected Finder files; type `rz 1200x800` to resize all selected images (writes `<name>-1200x800.<ext>` next to source) or `optim` to oxipng each PNG. Enter on a row opens the file |
 | **Resize-preset autocomplete** *(v0.31.0+)* | Type `rz` or `rz <partial>` | Labelled preset rows (Full HD, HD, XGA, SVGA, …); Enter runs, Tab / → fills into the search bar before running |
 | **`bruno <€>[m|j]`** *(v0.33.0+)* | Search bar — `bruno 60000` (jährlich) or `bruno 5000m` (monatlich) | German Brutto→Netto rechner (Steuerjahr 2025); preview-pane shows full split (KV/PV/RV/AV/ESt/Soli/Kirche/Abgabenquote/Grenzsteuersatz); Enter copies net amount to clipboard. Personal defaults (Steuerklasse, Bundesland, Kinder, Kirche, KV-Zusatz) in Settings → Bruno |
@@ -442,8 +442,8 @@ Each banner:
 ### `wakelock` / `caffeine` (v0.29.0 · `on`/`off` syntax v0.52.0)
 - Type **`wakelock on`** to keep the machine awake, **`wakelock off`** to stop. **`caffeine on`/`off`** is an alias. (The old `wakelock=1`/`=0` syntax was retired in v0.52.0.) Keep-awake pauses sleep + the screen lock, defeating Teams / Slack / Discord "away" detection and screensaver/lock idle timers. Per-platform mechanism: macOS spawns `caffeinate -disu` (real IOPM assertions); Windows uses `SetThreadExecutionState` **plus** an invisible `F15` keypress every 30 s (so the screensaver/lock idle timer is reset, not just power-sleep); Linux X11 jiggles the cursor (Wayland: no-op). Toggling closes the popup and plays a centred **status toast** confirming the new state.
 
-### `touch` / `mkdir` (v0.53.0, macOS)
-- With a Finder window open, type **`touch <name>`** to create an empty file or **`mkdir <name>`** to create a folder **in that window's current folder** (or the Desktop if no window is open — Finder's `insertion location`). The new item is revealed/selected in Finder. Needs the Automation → Finder TCC grant (same as Finder selection). Names are sanitised (no `/`, `.`, `..`) so creation can't escape the target folder.
+### `touch` / `mkdir` / `terminal` (v0.53.0, macOS)
+- With a Finder window open, type **`touch <name>`** to create an empty file, **`mkdir <name>`** to create a folder, or **`terminal`** to open a terminal — all **in that window's current folder** (or the Desktop if no window is open — Finder's `insertion location`). `touch`/`mkdir` reveal/select the new item in Finder; names are sanitised (no `/`, `.`, `..`). `terminal` prefers **iTerm2** if installed, falling back to Terminal.app. All need the Automation → Finder TCC grant (same as Finder selection).
 
 ### System tray + multi-monitor
 - **Tray menu:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · **Screenshot Region (Ctrl+Shift+S)** *(v0.15.0+)* · **Pick Color (Ctrl+Shift+C)** *(v0.17.0+)* · Pause Capture · ☑/☐ Start with Windows / Start at Login (checkmark reflects state since v0.14.0) · Clear History · Quit.

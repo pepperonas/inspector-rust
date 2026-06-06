@@ -148,6 +148,7 @@ export function FeaturesPanel() {
         { name: "Input lock", trigger: "freeze", typed: true, note: `Blocks all input until the unlock chord (${chord.map((k) => k.toUpperCase()).join(" + ") || "i + r"}). ⌥⌘Esc always frees.` },
         { name: "Keep awake", trigger: "wakelock on / off", typed: true, note: "Alias: caffeine on/off. Pauses sleep + screen lock; a status toast confirms." },
         { name: "Create file / folder", trigger: "touch <name> / mkdir <name>", typed: true, note: "In the frontmost Finder window's folder (needs Automation → Finder)." },
+        { name: "Open terminal here", trigger: "terminal", typed: true, note: "iTerm2 / Terminal at the frontmost Finder folder." },
         { name: "Net-pay calculator", trigger: "bruno <€>", typed: true, note: "German brutto→netto (Steuerjahr 2025)." },
         { name: "Timer", trigger: "timer <n>[s|min]", typed: true, note: "Notification + sound on expiry." },
         { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },

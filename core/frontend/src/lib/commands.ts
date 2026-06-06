@@ -39,7 +39,8 @@ export type CommandKind =
   | "timer"
   | "pwgen"
   | "touch"
-  | "mkdir";
+  | "mkdir"
+  | "terminal";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -211,6 +212,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "mkdir <name>",
     description: "Create a new folder in the frontmost Finder window's folder",
     requiresArg: true,
+  },
+  {
+    kind: "terminal",
+    keyword: "terminal",
+    syntax: "terminal",
+    description: "Open the terminal (iTerm2 / Terminal) at the frontmost Finder folder",
+    requiresArg: false,
   },
 ];
 

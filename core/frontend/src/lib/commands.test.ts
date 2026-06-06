@@ -19,8 +19,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 19 commands (15 base + wakelock + caffeine + touch + mkdir)", () => {
-    expect(COMMANDS.length).toBe(19);
+  it("has 20 commands (15 base + wakelock + caffeine + touch + mkdir + terminal)", () => {
+    expect(COMMANDS.length).toBe(20);
   });
 
   it("every keyword is unique", () => {

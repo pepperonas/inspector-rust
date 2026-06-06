@@ -84,7 +84,8 @@ export interface CommandEntryView {
     | "timer"
     | "pwgen"
     | "touch"
-    | "mkdir";
+    | "mkdir"
+    | "terminal";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

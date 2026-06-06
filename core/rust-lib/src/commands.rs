@@ -347,6 +347,7 @@ pub fn wakelock_set(
     app: AppHandle,
     state: State<'_, crate::wakelock::WakelockState>,
     enable: bool,
+    source: Option<String>,
 ) -> bool {
     let new_state = crate::wakelock::set_enabled(state.inner(), enable);
     let _ = app.emit("wakelock-changed", new_state);
@@ -357,15 +358,18 @@ pub fn wakelock_set(
     // that reliably orders a fresh Accessory-app window on-screen; showing
     // it synchronously (or after a window-only hide) left it off-screen.
     crate::hotkey::hide_popup(&app);
+    // Brand the toast by which keyword was used (`caffeine` vs `wakelock`);
+    // both drive the identical animation/behaviour.
+    let label = if source.as_deref() == Some("caffeine") { "Caffeine" } else { "Wakelock" };
     let (title, subtitle) = if new_state {
-        ("Wakelock On", "Sleep & screen lock are paused")
+        (format!("{label} On"), "Sleep & screen lock are paused")
     } else {
-        ("Wakelock Off", "Normal sleep behaviour resumed")
+        (format!("{label} Off"), "Normal sleep behaviour resumed")
     };
     let toast = crate::status_toast::StatusToast {
         kind: "wakelock".into(),
         on: new_state,
-        title: title.into(),
+        title,
         subtitle: subtitle.into(),
     };
     let app2 = app.clone();
@@ -1998,6 +2002,21 @@ pub fn finder_mkdir(name: String) -> Result<String, String> {
     {
         let _ = name;
         Err("mkdir is macOS-only (needs Finder)".into())
+    }
+}
+
+/// `terminal` — open the user's terminal (iTerm2 if installed, else
+/// Terminal.app) at the frontmost Finder window's folder. Returns the
+/// directory. macOS-only.
+#[tauri::command]
+pub fn finder_open_terminal() -> Result<String, String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::finder_selection::open_terminal().map(|p| p.display().to_string())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("terminal is macOS-only (needs Finder)".into())
     }
 }
 

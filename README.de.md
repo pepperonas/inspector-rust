@@ -28,7 +28,7 @@
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` (Datei/Ordner im offenen Finder-Ordner anlegen), `timer`, `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `timer`, `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — vier Easter-Egg-Trigger-Wörter. Du findest sie schon.
@@ -306,7 +306,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **System-Command — `mute`** *(v0.23.0+)* | Suchfeld | System-Stummschaltung an/aus toggeln (macOS) |
 | **System-Command — `freeze`** *(v0.28.0+)* | Suchfeld | Tastatur + Maus blocken — entsperren mit konfiguriertem Chord (Default `i + r`) — natives CGEventTap, kein rdev |
 | **`wakelock on` / `wakelock off`** *(Alias `caffeine on/off`, v0.52.0+)* | Suchfeld | Computer wachhalten — pausiert Sleep + Bildschirmsperre. macOS `caffeinate`; Windows `SetThreadExecutionState` + unsichtbarer F15-Tastendruck; Linux X11 Cursor-Jiggle. Ein zentrierter Status-Toast bestätigt An/Aus |
-| **`touch <name>` / `mkdir <name>`** *(v0.53.0+, macOS)* | Suchfeld | Datei / Ordner im Ordner des vordersten Finder-Fensters anlegen (oder Desktop). Braucht Automation → Finder |
+| **`touch <name>` / `mkdir <name>` / `terminal`** *(v0.53.0+, macOS)* | Suchfeld | Datei / Ordner anlegen oder Terminal (iTerm2 → Terminal.app) öffnen — im Ordner des vordersten Finder-Fensters (oder Desktop). Braucht Automation → Finder |
 | **Finder-Selection-Actions** *(v0.30.0+, macOS)* | `Ctrl+Shift+F` | Popup listet die im Finder selektierten Dateien; `rz 1200x800` tippen skaliert alle Bilder (schreibt `<name>-1200x800.<ext>` neben Quelle), `optim` läuft oxipng auf jedes PNG. Enter auf einer Zeile öffnet die Datei |
 | **Resize-Preset-Autocomplete** *(v0.31.0+)* | `rz` oder `rz <partial>` tippen | Beschriftete Preset-Zeilen (Full HD, HD, XGA, SVGA, …); Enter führt aus, Tab / → füllt ins Suchfeld vor dem Ausführen |
 | **`bruno <€>[m|j]`** *(v0.33.0+)* | Suchfeld — `bruno 60000` (jährlich) oder `bruno 5000m` (monatlich) | Deutscher Brutto→Netto-Rechner (Steuerjahr 2025); Preview-Panel zeigt volle Aufteilung (KV/PV/RV/AV/ESt/Soli/Kirche/Abgabenquote/Grenzsteuersatz); Enter kopiert Netto-Betrag ins Clipboard. Persönliche Defaults (Steuerklasse, Bundesland, Kinder, Kirche, KV-Zusatz) in Settings → Bruno |
@@ -440,8 +440,8 @@ Jedes Banner:
 ### `wakelock` / `caffeine` (v0.29.0 · `on`/`off`-Syntax v0.52.0)
 - **`wakelock on`** hält den Mac wach, **`wakelock off`** stoppt. **`caffeine on`/`off`** ist ein Alias. (Die alte `wakelock=1`/`=0`-Syntax wurde in v0.52.0 entfernt.) Wachhalten pausiert Sleep + Bildschirmsperre, trickst Teams- / Slack- / Discord-"Abwesend"-Detection und Bildschirmschoner-/Lock-Idle-Timer aus. Mechanismus pro Plattform: macOS `caffeinate -disu` (echte IOPM-Assertions); Windows `SetThreadExecutionState` **plus** unsichtbarer `F15`-Tastendruck alle 30 s (setzt den Screensaver-/Lock-Idle-Timer zurück, nicht nur Power-Sleep); Linux X11 Cursor-Jiggle (Wayland: no-op). Beim Umschalten schließt sich das Popup und ein zentrierter **Status-Toast** bestätigt den neuen Zustand.
 
-### `touch` / `mkdir` (v0.53.0, macOS)
-- Mit offenem Finder-Fenster legt **`touch <name>`** eine leere Datei bzw. **`mkdir <name>`** einen Ordner **im aktuellen Ordner dieses Fensters** an (oder auf dem Desktop, wenn kein Fenster offen ist — Finders `insertion location`). Das neue Element wird im Finder selektiert. Braucht den Automation→Finder-TCC-Grant (wie Finder-Selection). Namen werden bereinigt (kein `/`, `.`, `..`).
+### `touch` / `mkdir` / `terminal` (v0.53.0, macOS)
+- Mit offenem Finder-Fenster legt **`touch <name>`** eine leere Datei, **`mkdir <name>`** einen Ordner an, oder **`terminal`** öffnet ein Terminal — jeweils **im aktuellen Ordner dieses Fensters** (oder Desktop, wenn kein Fenster offen ist — Finders `insertion location`). `touch`/`mkdir` selektieren das neue Element im Finder; Namen werden bereinigt (kein `/`, `.`, `..`). `terminal` bevorzugt **iTerm2**, sonst Terminal.app. Alle brauchen den Automation→Finder-TCC-Grant (wie Finder-Selection).
 
 ### System-Tray + Multi-Monitor
 - **Tray-Menü:** Open · Manage Snippets · Manage Notes · **OCR Region (Ctrl+Shift+O)** · **Screenshot Region (Ctrl+Shift+S)** *(v0.15.0+)* · **Pick Color (Ctrl+Shift+C)** *(v0.17.0+)* · Pause Capture · ☑/☐ Start with Windows / Start at Login (Checkmark spiegelt State seit v0.14.0) · Clear History · Quit.

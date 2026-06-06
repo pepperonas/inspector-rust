@@ -151,8 +151,17 @@ export function startInputLock(): Promise<void> {
  *  and immediately back every 60 s — defeats idle-sleep timers and
  *  "away" detection (Teams, Slack, screen savers). Resolves with the
  *  resulting state. */
-export function wakelockSet(enable: boolean): Promise<boolean> {
-  return invoke("wakelock_set", { enable });
+/** Toggle keep-awake. `source` ("wakelock" | "caffeine") only brands the
+ *  on-screen status toast; both behave identically. */
+export function wakelockSet(enable: boolean, source?: string): Promise<boolean> {
+  return invoke("wakelock_set", { enable, source: source ?? "wakelock" });
+}
+
+/** Open the user's terminal (iTerm2 if installed, else Terminal.app) at the
+ *  frontmost Finder window's folder. Returns the directory. macOS-only.
+ *  Backend: `commands::finder_open_terminal`. */
+export function finderOpenTerminal(): Promise<string> {
+  return invoke("finder_open_terminal");
 }
 
 export function wakelockGet(): Promise<boolean> {

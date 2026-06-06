@@ -195,3 +195,30 @@ pub fn create_dir(name: &str) -> Result<PathBuf, String> {
     reveal_in_finder(&path);
     Ok(path)
 }
+
+/// Open a terminal at the front Finder folder. Prefers **iTerm2** (the
+/// user's terminal) if installed, falling back to Terminal.app. Returns
+/// the directory opened.
+#[cfg(target_os = "macos")]
+pub fn open_terminal() -> Result<PathBuf, String> {
+    let dir = front_dir()?;
+    // Try iTerm2 by bundle id first; `open -b` exits non-zero if it isn't
+    // installed, in which case fall back to the built-in Terminal.app.
+    let iterm_ok = std::process::Command::new("/usr/bin/open")
+        .args(["-b", "com.googlecode.iterm2"])
+        .arg(&dir)
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false);
+    if !iterm_ok {
+        let status = std::process::Command::new("/usr/bin/open")
+            .args(["-a", "Terminal"])
+            .arg(&dir)
+            .status()
+            .map_err(|e| format!("open Terminal failed: {e}"))?;
+        if !status.success() {
+            return Err("failed to open a terminal".into());
+        }
+    }
+    Ok(dir)
+}

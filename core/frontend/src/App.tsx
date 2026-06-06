@@ -74,6 +74,7 @@ import {
   optimizeFile,
   finderTouch,
   finderMkdir,
+  finderOpenTerminal,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -381,6 +382,10 @@ function App() {
       case "mkdir":
         label = `Create folder "${arg}" in the open Finder folder`;
         hint = "Created in the frontmost Finder window's directory";
+        break;
+      case "terminal":
+        label = "Open terminal in the open Finder folder";
+        hint = "iTerm2 if installed, else Terminal.app · frontmost Finder directory";
         break;
       case "timer": {
         const t = parseTimerArg(arg);
@@ -1072,6 +1077,7 @@ function App() {
     const dispatchCommand = async (
       commandKind: CommandKind,
       arg: string,
+      keyword?: string,
     ): Promise<boolean> => {
       if (
         commandKind === "translate-en" ||
@@ -1164,7 +1170,9 @@ function App() {
         // The backend hides the popup itself, then plays the on-screen
         // status flourish (status_toast). Calling hidePopup() here would
         // fire app.hide() on macOS and swallow that toast, so don't.
-        await wakelockSet(on);
+        // `source` only brands the toast (Caffeine vs Wakelock).
+        const source = keyword === "caffeine" ? "caffeine" : "wakelock";
+        await wakelockSet(on, source);
       } else if (commandKind === "touch" || commandKind === "mkdir") {
         // Create a file / folder in the frontmost Finder window's folder.
         try {
@@ -1176,6 +1184,17 @@ function App() {
         } catch (e) {
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
+          return true;
+        }
+        await hidePopup();
+      } else if (commandKind === "terminal") {
+        // Open the terminal at the frontmost Finder window's folder.
+        try {
+          const dir = await finderOpenTerminal();
+          console.info("opened terminal at", dir);
+        } catch (e) {
+          setPasteError("other");
+          console.error("terminal failed", e);
           return true;
         }
         await hidePopup();
@@ -1278,7 +1297,7 @@ function App() {
         // Anything still needing an argument (or pwgen, which shows a live
         // preview) yields `false` from dispatchCommand → fill the input.
         const parsed = parseCommand(target.data.completion);
-        if (parsed && (await dispatchCommand(parsed.spec.kind, parsed.arg))) {
+        if (parsed && (await dispatchCommand(parsed.spec.kind, parsed.arg, parsed.spec.keyword))) {
           return;
         }
         setQuery(target.data.completion);
@@ -1290,8 +1309,10 @@ function App() {
         return;
       } else if (target.kind === "command") {
         // Runnable power command — dispatch by kind (shared with the
-        // fuzzy command-suggestion path above).
-        await dispatchCommand(target.data.commandKind, target.data.arg);
+        // fuzzy command-suggestion path above). Pass the typed keyword so
+        // the wakelock toast can brand itself Caffeine vs Wakelock.
+        const kw = target.data.rawInput.trim().split(/\s+/)[0]?.toLowerCase();
+        await dispatchCommand(target.data.commandKind, target.data.arg, kw);
         return;
       } else if (target.kind === "kill-target") {
         // Destructive: confirm before killing. The dialog shows the

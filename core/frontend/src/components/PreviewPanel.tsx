@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { convertFileSrc } from "@tauri-apps/api/core";
 import { Calculator, Check, Copy, Download, Palette, Scissors, Type, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
@@ -520,6 +521,37 @@ export function PreviewPanel({
             ⏎ Enter launches the app (activates the existing instance if
             it's already running)
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "meme") {
+    // Animated preview straight from disk (a GIF plays in an <img>).
+    const src = convertFileSrc(entry.data.path);
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          <span>Meme</span>
+          {entry.data.category && (
+            <>
+              <span>·</span>
+              <span className="text-[var(--color-accent)]">{entry.data.category}</span>
+            </>
+          )}
+        </div>
+        <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+          <img
+            src={src}
+            alt={entry.data.name}
+            className="max-h-full max-w-full object-contain"
+          />
+        </div>
+        <div className="truncate text-center text-[13px] font-semibold">
+          {entry.data.name}
+        </div>
+        <div className="text-center font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          ⏎ Enter copies it to the clipboard
         </div>
       </div>
     );

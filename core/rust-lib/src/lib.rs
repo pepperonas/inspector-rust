@@ -19,6 +19,7 @@ mod expander;
 mod hotkey;
 mod image_ops;
 mod md_to_pdf;
+mod meme;
 mod models;
 mod notes;
 mod ocr;
@@ -436,6 +437,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::cleaner_categories,
             commands::get_cleaner_config,
             commands::set_cleaner_config,
+            commands::list_memes,
+            commands::copy_meme,
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,
             commands::set_monitor_brightness,

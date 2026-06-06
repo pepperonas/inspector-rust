@@ -49,6 +49,7 @@ import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { FlappyGame } from "./components/FlappyGame";
+import { matchMemes, type MemeEntry } from "./lib/meme";
 import { BpmDetector } from "./components/BpmDetector";
 import { TotpOverlay } from "./components/TotpOverlay";
 import {
@@ -88,6 +89,8 @@ import {
   cleanerScan,
   cleanerExecute,
   brightnessOpen,
+  listMemes,
+  copyMeme,
   showStatusToast,
   brunoGetDefaults,
   startTimer,
@@ -333,10 +336,44 @@ function App() {
     );
   }, [isKillMode, killArgs, processSnapshot]);
 
+  // Meme mode — `meme [query]` takes over the list with the meme library,
+  // fuzzy-filtered by the query. The library is fetched once on entering the
+  // mode (a recursive folder scan; cheap but no point per-keystroke). The
+  // selected row previews (animated) on the right; Enter copies the file.
+  const isMemeMode = parsedCommand?.spec.kind === "meme";
+  const memeArg = isMemeMode ? parsedCommand!.arg : "";
+  const [memeLibrary, setMemeLibrary] = useState<MemeEntry[]>([]);
+  useEffect(() => {
+    if (!isMemeMode) {
+      setMemeLibrary([]);
+      return;
+    }
+    let cancelled = false;
+    listMemes()
+      .then((m) => {
+        if (!cancelled) setMemeLibrary(m);
+      })
+      .catch((e) => {
+        console.error("list_memes failed", e);
+        if (!cancelled) setMemeLibrary([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isMemeMode]);
+
+  const memeEntries: ListEntry[] = useMemo(() => {
+    if (!isMemeMode) return [];
+    return matchMemes(memeArg, memeLibrary).map(
+      (m): ListEntry => ({ kind: "meme", data: m }),
+    );
+  }, [isMemeMode, memeArg, memeLibrary]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
-    // kill is rendered via killTargetEntries, not as a single command row.
+    // kill / meme take over the whole list, not a single command row.
     if (parsedCommand.spec.kind === "kill") return null;
+    if (parsedCommand.spec.kind === "meme") return null;
     const { spec, arg } = parsedCommand;
     let label: string;
     let hint: string;
@@ -794,6 +831,8 @@ function App() {
 
   const combined: ListEntry[] = isKillMode
     ? killTargetEntries
+    : isMemeMode
+    ? memeEntries
     : [
         ...(openerEntry ? [openerEntry] : []),
         ...(appEntry ? [appEntry] : []),
@@ -1539,6 +1578,17 @@ function App() {
         // Open the file in the system default app. The popup hides
         // so focus snaps to whichever app takes it (Preview, etc.).
         await openUrl(`file://${target.data.path}`);
+        await hidePopup();
+      } else if (target.kind === "meme") {
+        // Copy the meme file to the clipboard (animation preserved), then
+        // hide so the user can paste it wherever they were.
+        try {
+          await copyMeme(target.data.path);
+        } catch (e) {
+          setPasteError("other");
+          console.error("copy_meme failed", e);
+          return;
+        }
         await hidePopup();
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting

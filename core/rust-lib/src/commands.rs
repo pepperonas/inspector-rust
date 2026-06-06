@@ -5,6 +5,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::auto_expand;
 use crate::backup::{self, BackupImportResult};
 use crate::cleaner;
+use crate::meme;
 use crate::clipboard_watcher::WatcherState;
 use crate::cutout_ml;
 use crate::db::{self, DbHandle};
@@ -2804,4 +2805,20 @@ pub fn brightness_close(app: AppHandle) -> Result<(), String> {
         let _ = win.close();
     }
     Ok(())
+}
+
+// ── Meme picker (v0.70.0) ──────────────────────────────────────────────────────
+
+/// List all memes in the configured library (recursive scan). Cheap enough to
+/// call when the picker opens; the frontend fuzzy-filters the result.
+#[tauri::command]
+pub fn list_memes(db: State<'_, DbHandle>) -> Vec<meme::MemeEntry> {
+    meme::list(&db)
+}
+
+/// Copy a meme file to the clipboard (animation preserved on macOS via a
+/// file-URL on the pasteboard).
+#[tauri::command]
+pub fn copy_meme(path: String) -> Result<(), String> {
+    meme::copy_to_clipboard(&path)
 }

@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.70.0] — 2026-06-06
+
+### Added — Meme picker (`meme`)
+
+Browse a folder of GIFs/images from the search bar: type **`meme`** (then a
+fuzzy query like `meme cat`) to filter the library, the selected meme **plays
+animated** in the preview, and **Enter copies it** to the clipboard (on macOS
+as a file-URL, so pasting into a chat app / Finder keeps the animation). The
+library scans recursively (category sub-folders), default
+`~/My Drive/media/memes`, overridable via the `meme.dir` setting.
+
+**Two build variants:** the meme command is gated by a build flag — the
+default build includes it; `pnpm build:{macos,win,linux}:nomeme`
+(`VITE_IR_MEME=0`) produces a build without the command, where the folder is
+never surfaced.
+
 ## [0.69.0] — 2026-06-06
 
 ### Added — Flappy Bird (hidden game, `learningtofly`)

@@ -25,8 +25,10 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 32 commands (+ shot×4, clean/cleanup, brightness/bri, rnd/random)", () => {
-    expect(COMMANDS.length).toBe(32);
+  it("has 33 commands (+ shot×4, clean/cleanup, brightness/bri, rnd/random, meme)", () => {
+    // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
+    // VITE_IR_MEME unset → enabled → present.
+    expect(COMMANDS.length).toBe(33);
   });
 
   it("every keyword is unique", () => {

@@ -21,6 +21,8 @@
  * don't run anything destructive.
  */
 
+import { MEME_ENABLED } from "./meme";
+
 export type CommandKind =
   | "translate-en"
   | "translate-de"
@@ -49,7 +51,8 @@ export type CommandKind =
   | "shot-last"
   | "clean"
   | "brightness"
-  | "random";
+  | "random"
+  | "meme";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -321,6 +324,19 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     hidden: true,
   },
+  // Meme picker — only present in builds with the feature enabled
+  // (VITE_IR_MEME !== "0"). A "without memes" build omits it entirely.
+  ...(MEME_ENABLED
+    ? [
+        {
+          kind: "meme" as const,
+          keyword: "meme",
+          syntax: "meme [query]",
+          description: "Browse the meme library — fuzzy-filter, preview, Enter copies",
+          requiresArg: false,
+        },
+      ]
+    : []),
 ];
 
 /** Parse the `rnd` / `random` argument into an inclusive `[min, max]`.

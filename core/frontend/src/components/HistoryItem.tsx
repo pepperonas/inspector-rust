@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -44,6 +44,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
       ? <Image size={size} className={cls} />
       : <Files size={size} className={cls} />;
   }
+  if (entry.kind === "meme") return <Laugh size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -82,13 +83,16 @@ export const HistoryItem = memo(function HistoryItem({
   const isTotpManage = entry.kind === "totp-manage";
   const isTotp = entry.kind === "totp";
   const isFinderFile = entry.kind === "finder-file";
+  const isMeme = entry.kind === "meme";
 
   const label =
     isSnippet
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
-      : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
-        ? ""
-        : truncateOneLine(entry.data.content_text || "(empty)", 80);
+      : isMeme && entry.kind === "meme"
+        ? entry.data.name
+        : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
+          ? ""
+          : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
   const right = isSnippet ? (
     <span
@@ -180,6 +184,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Selected in Finder"
     >
       finder
+    </span>
+  ) : isMeme && entry.kind === "meme" ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Meme — ⏎ copies it to the clipboard"
+    >
+      {entry.data.category || "meme"}
     </span>
   ) : isBruno ? (
     <span

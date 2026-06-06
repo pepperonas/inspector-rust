@@ -1,3 +1,5 @@
+import type { MemeEntry } from "./meme";
+
 export type ContentType = "text" | "rtf" | "html" | "image" | "files";
 
 export interface ClipEntry {
@@ -195,7 +197,8 @@ export type ListEntry =
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
   | { kind: "totp-manage"; data: { label: string } }
-  | { kind: "totp"; data: TotpListView };
+  | { kind: "totp"; data: TotpListView }
+  | { kind: "meme"; data: MemeEntry };
 
 /** Single TOTP autocomplete row — shows issuer + account + live
  *  6-digit code with countdown. Activate (Enter) → code is copied to

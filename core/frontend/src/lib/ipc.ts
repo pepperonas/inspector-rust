@@ -973,6 +973,20 @@ export function cleanerCategories(): Promise<CleanerCategory[]> {
   return invoke("cleaner_categories");
 }
 
+// ── Meme picker (v0.70.0) ──────────────────────────────────────────────────
+
+import type { MemeEntry } from "./meme";
+
+/** Scan the configured meme library (recursive). */
+export function listMemes(): Promise<MemeEntry[]> {
+  return invoke("list_memes");
+}
+
+/** Copy a meme file to the clipboard (animation preserved on macOS). */
+export function copyMeme(path: string): Promise<void> {
+  return invoke("copy_meme", { path });
+}
+
 // ── Monitor brightness (v0.62.0) ───────────────────────────────────────────
 
 export interface MonitorInfo {

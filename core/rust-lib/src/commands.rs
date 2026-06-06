@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::auto_expand;
 use crate::backup::{self, BackupImportResult};
 use crate::clipboard_watcher::WatcherState;
 use crate::cutout_ml;
@@ -620,24 +621,35 @@ pub fn find_snippets(
 #[tauri::command]
 pub fn upsert_snippet(
     db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
     id: Option<i64>,
     abbreviation: String,
     title: String,
     body: String,
 ) -> Result<i64, String> {
-    match id {
+    let result = match id {
         None => snippets::create(&db, &abbreviation, &title, &body).map_err(map_err),
         Some(existing_id) => {
             snippets::update(&db, existing_id, &abbreviation, &title, &body)
                 .map_err(map_err)?;
             Ok(existing_id)
         }
+    };
+    if result.is_ok() {
+        auto_expand::rebuild_table(&db, &ae);
     }
+    result
 }
 
 #[tauri::command]
-pub fn delete_snippet(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
-    snippets::delete(&db, id).map_err(map_err)
+pub fn delete_snippet(
+    db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
+    id: i64,
+) -> Result<(), String> {
+    snippets::delete(&db, id).map_err(map_err)?;
+    auto_expand::rebuild_table(&db, &ae);
+    Ok(())
 }
 
 /// Paste a snippet: hide the popup, write body to clipboard, simulate Ctrl+V.
@@ -671,9 +683,12 @@ pub fn paste_snippet(
 #[tauri::command]
 pub fn import_snippets(
     db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
     json: String,
 ) -> Result<ImportResult, String> {
-    snippets::import_from_json(&db, &json).map_err(map_err)
+    let r = snippets::import_from_json(&db, &json).map_err(map_err)?;
+    auto_expand::rebuild_table(&db, &ae);
+    Ok(r)
 }
 
 /// Read a JSON file from disk and import its snippets. Path is supplied by
@@ -681,11 +696,14 @@ pub fn import_snippets(
 #[tauri::command]
 pub fn import_snippets_from_file(
     db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
     path: String,
 ) -> Result<ImportResult, String> {
     let json = std::fs::read_to_string(&path)
         .map_err(|e| format!("read {path}: {e}"))?;
-    snippets::import_from_json(&db, &json).map_err(map_err)
+    let r = snippets::import_from_json(&db, &json).map_err(map_err)?;
+    auto_expand::rebuild_table(&db, &ae);
+    Ok(r)
 }
 
 /// Re-import the bundled default AI-prompt snippets. Existing rows
@@ -693,8 +711,13 @@ pub fn import_snippets_from_file(
 /// distinct abbreviations are untouched. Surfaced via the Snippets-tab
 /// "Restore defaults" button.
 #[tauri::command]
-pub fn restore_default_prompts(db: State<'_, DbHandle>) -> Result<ImportResult, String> {
-    seed::restore_defaults(&db).map_err(map_err)
+pub fn restore_default_prompts(
+    db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
+) -> Result<ImportResult, String> {
+    let r = seed::restore_defaults(&db).map_err(map_err)?;
+    auto_expand::rebuild_table(&db, &ae);
+    Ok(r)
 }
 
 // ── Notes ────────────────────────────────────────────────────────────────────
@@ -864,6 +887,30 @@ pub fn import_backup(
     let json = std::fs::read_to_string(&path)
         .map_err(|e| format!("read {path}: {e}"))?;
     backup::import_json(&db, &json).map_err(map_err)
+}
+
+// ── Passive auto-expansion (aText-style, v0.56.0) ──────────────────────────────
+
+/// Read the passive auto-expansion config from settings (defaults applied).
+#[tauri::command]
+pub fn get_auto_expand_config(
+    db: State<'_, DbHandle>,
+) -> Result<auto_expand::AutoExpandConfig, String> {
+    Ok(auto_expand::load_config(&db))
+}
+
+/// Persist a new auto-expansion config and (re)arm or disarm the passive
+/// key monitor to match. Returns the now-effective config.
+#[tauri::command]
+pub fn set_auto_expand_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    ae: State<'_, auto_expand::AutoExpandState>,
+    config: auto_expand::AutoExpandConfig,
+) -> Result<auto_expand::AutoExpandConfig, String> {
+    auto_expand::save_config(&db, &config).map_err(map_err)?;
+    auto_expand::apply(&app, &db, &ae);
+    Ok(auto_expand::load_config(&db))
 }
 
 // ── Text expander ────────────────────────────────────────────────────────────

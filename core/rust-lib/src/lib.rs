@@ -1,6 +1,7 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod app_launcher;
+mod auto_expand;
 mod backup;
 mod bruno;
 mod cli_dispatch;
@@ -150,6 +151,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(wakelock::WakelockState::default());
             app.manage(timer::TimerRegistry::default());
             app.manage(status_toast::LatestToast::default());
+            app.manage(auto_expand::AutoExpandState::default());
 
             // App-launcher cache. Scan once at startup; the Settings
             // → Apps Refresh button can re-trigger via `refresh_apps`.
@@ -249,6 +251,15 @@ pub fn run(context: tauri::Context<Wry>) {
                 }
             }
 
+            // Passive auto-expansion (aText-style). Loads its config + builds
+            // the abbreviation table; arms the platform key monitor only when
+            // the setting is on (and, on macOS, Accessibility is granted —
+            // otherwise it waits until the user enables it from Settings).
+            {
+                let ae_state = app.state::<auto_expand::AutoExpandState>();
+                auto_expand::apply(&app.handle(), &db_handle, &ae_state);
+            }
+
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),
@@ -332,6 +343,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::import_backup,
             commands::get_expander_config,
             commands::set_expander_config,
+            commands::get_auto_expand_config,
+            commands::set_auto_expand_config,
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,

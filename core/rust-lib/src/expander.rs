@@ -1146,6 +1146,108 @@ fn send_backspaces(count: usize) -> Result<()> {
     Ok(())
 }
 
+/// Type a literal string at the cursor via synthetic key events (no
+/// clipboard). Used by the auto-expansion **undo** path to restore the
+/// originally-typed abbreviation. Short strings only.
+fn type_str(text: &str) -> Result<()> {
+    if text.is_empty() {
+        return Ok(());
+    }
+    let mut e = enigo_lock()?;
+    e.text(text).map_err(|err| anyhow!("type_str: {err:?}"))?;
+    Ok(())
+}
+
+/// Type a single character via a synthetic key event (used to re-emit the
+/// trailing delimiter after an auto-expansion so it isn't swallowed).
+fn type_char(c: char) -> Result<()> {
+    let mut e = enigo_lock()?;
+    e.key(Key::Unicode(c), enigo::Direction::Click)
+        .map_err(|err| anyhow!("type_char: {err:?}"))?;
+    Ok(())
+}
+
+/// Passive auto-expansion injection (the aText-style mode — see
+/// `auto_expand.rs`). Delete `backspaces` characters before the cursor (the
+/// abbreviation, plus the trailing delimiter when one triggered it), paste
+/// the rendered snippet body, honour a `{cursor}` marker, re-emit the
+/// trailing delimiter, then restore the clipboard in the background.
+///
+/// Returns the number of characters actually inserted (rendered body +
+/// re-emitted trailing) so the engine can arm a single-Backspace undo.
+///
+/// **Threading:** synthesizes keystrokes → must run on the main thread on
+/// macOS (TSM asserts), same as the other expander paste paths.
+pub fn auto_expand_inject(
+    db: &DbHandle,
+    snippet_id: i64,
+    backspaces: usize,
+    trailing: Option<char>,
+    watcher: Option<&crate::clipboard_watcher::WatcherState>,
+) -> Result<usize> {
+    let Some(snippet) = snippets::get_by_id(db, snippet_id)? else {
+        tracing::debug!("auto_expand_inject: snippet {snippet_id} gone; no-op");
+        return Ok(0);
+    };
+    let saved = read_clipboard_text();
+    let rendered = render_body(&snippet.body, saved.as_deref());
+    let body = rendered.text;
+
+    // 1) Remove the typed abbreviation (and the already-typed delimiter).
+    send_backspaces(backspaces)?;
+    thread::sleep(Duration::from_millis(20));
+
+    // 2) Paste the body over the now-empty spot.
+    if let Some(w) = watcher {
+        w.mark_self_write(crate::models::ContentType::Text, &body);
+    }
+    write_clipboard_text(&body)?;
+    thread::sleep(Duration::from_millis(50));
+    send_paste()?;
+
+    // 3) Honour {cursor}.
+    let _ = crate::paste::move_cursor_left(rendered.cursor_back);
+
+    // 4) Re-emit the trailing delimiter — but only when the caret is at the
+    //    end (a {cursor} marker would otherwise put the delimiter mid-body).
+    let mut inserted = body.chars().count();
+    if let Some(t) = trailing {
+        if rendered.cursor_back == 0 {
+            type_char(t)?;
+            inserted += 1;
+        }
+    }
+
+    // 5) Background clipboard restore (same pattern as paste_over_selection).
+    if let Some(saved_text) = saved {
+        let watcher_clone = watcher.cloned_handle();
+        let body_owned = body;
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(120));
+            if matches!(read_clipboard_text(), Some(cur) if cur == body_owned) {
+                if let Some(w) = watcher_clone.as_ref() {
+                    w.mark_self_write(crate::models::ContentType::Text, &saved_text);
+                }
+                let _ = write_clipboard_text(&saved_text);
+            }
+        });
+    }
+
+    Ok(inserted)
+}
+
+/// Undo a passive auto-expansion: delete the `delete_chars` of inserted text
+/// and type `restore_text` (the abbreviation + trailing delimiter) back. The
+/// triggering Backspace is consumed by the monitor, so this performs the
+/// whole undo itself. No clipboard touch (the restore text is short and
+/// typed directly). Main-thread on macOS.
+pub fn auto_undo_inject(delete_chars: usize, restore_text: &str) -> Result<()> {
+    send_backspaces(delete_chars)?;
+    thread::sleep(Duration::from_millis(20));
+    type_str(restore_text)?;
+    Ok(())
+}
+
 fn send_modified_letter(letter: char) -> Result<()> {
     let mut e = enigo_lock()?;
     let m = cmd_modifier();

@@ -569,6 +569,36 @@ export function triggerExpandAtCursor(): Promise<void> {
   return invoke("trigger_expand_at_cursor");
 }
 
+// ── Passive auto-expansion (aText-style, v0.56.0) ──────────────────────────────
+
+export type AutoExpandTrigger = "delimiter" | "immediate";
+
+export interface AutoExpandConfig {
+  /** Master on/off for the passive keystroke monitor. */
+  enabled: boolean;
+  /** When a complete abbreviation expands: after a delimiter (default) or
+   *  the instant it's typed. */
+  trigger: AutoExpandTrigger;
+  /** Match abbreviations case-sensitively (default false). */
+  match_case: boolean;
+  /** Let an abbreviation fire even when glued to a longer word (default false). */
+  expand_inside_words: boolean;
+  /** A single Backspace right after an expansion restores the abbreviation. */
+  undo_enabled: boolean;
+}
+
+export function getAutoExpandConfig(): Promise<AutoExpandConfig> {
+  return invoke("get_auto_expand_config");
+}
+
+/** Persist a new auto-expansion config and (re)arm/disarm the passive
+ *  monitor. Returns the now-effective config. */
+export function setAutoExpandConfig(
+  config: AutoExpandConfig,
+): Promise<AutoExpandConfig> {
+  return invoke("set_auto_expand_config", { config });
+}
+
 // ── TOTP / 2FA (v0.47.0+) ──────────────────────────────────────────────
 
 import type { TotpCode, TotpEntry } from "./totp";

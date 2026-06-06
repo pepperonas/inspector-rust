@@ -4,6 +4,33 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.56.0] — 2026-06-06
+
+### Added — Passive auto-expansion (aText-style)
+
+A fourth text-expansion mode that needs **no hotkey**: a system-wide
+keystroke monitor expands snippet abbreviations automatically as you
+type, in any app — the way aText / TextExpander / Espanso work.
+
+- **macOS** uses an active `CGEventTap` on the main run loop (the same
+  raw-FFI pattern as the input-lock feature); **Windows** a
+  `SetWindowsHookEx(WH_KEYBOARD_LL)` low-level keyboard hook (compiled
+  cross-platform; Windows runtime still to be verified on real hardware).
+  Linux stays on the clipboard-paste fallback (no rootless Wayland tap).
+- **Trigger options:** expand after a delimiter (space / punctuation —
+  the default, avoids accidental expansion) or *immediately* once the
+  abbreviation is fully typed. Plus match-case, "expand inside words",
+  and single-Backspace **undo** (restores the abbreviation).
+- **Safe by design:** never expands in password / secure fields, ignores
+  its own synthetic keystrokes, and clears its buffer on focus change,
+  click and navigation keys. Dynamic placeholders (`{date}`,
+  `{clipboard}`, `{cursor}`) work in this mode too.
+- New module `auto_expand.rs` with a fully unit-tested pure core
+  (ring-buffer matcher + trigger state machine); settings under
+  `expander.auto_expand_*`; IPC `get/set_auto_expand_config`; a new
+  "Auto-Expansion (aText-Stil)" section in Settings. The three existing
+  expander modes are unchanged.
+
 ## [0.47.0] — 2026-05-30
 
 ### Added — 2FA / TOTP manager + `otp <issuer>` autocomplete

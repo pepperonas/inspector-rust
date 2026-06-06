@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
 import { Gamepad2, Keyboard, MousePointerClick, Terminal } from "lucide-react";
 import {
+  getAutoExpandConfig,
   getDirectSlots,
   getExpanderConfig,
   getInputLockChord,
   getPopupHotkey,
+  type AutoExpandConfig,
   type DirectSlot,
 } from "../lib/ipc";
 import { IS_MAC, formatHotkey } from "../lib/platform";
@@ -50,22 +52,25 @@ export function FeaturesPanel() {
   });
   const [slots, setSlots] = useState<DirectSlot[]>([]);
   const [chord, setChord] = useState<string[]>(["i", "r"]);
+  const [autoExpand, setAutoExpand] = useState<AutoExpandConfig | null>(null);
 
   useEffect(() => {
     let alive = true;
     void (async () => {
       try {
-        const [p, e, s, c] = await Promise.all([
+        const [p, e, s, c, ae] = await Promise.all([
           getPopupHotkey(),
           getExpanderConfig(),
           getDirectSlots(),
           getInputLockChord(),
+          getAutoExpandConfig(),
         ]);
         if (!alive) return;
         setPopupHotkey(p);
         setExpander({ enabled: e.enabled, hotkey: e.hotkey });
         setSlots(s);
         setChord(c);
+        setAutoExpand(ae);
       } catch {
         /* leave defaults — backend unreachable (e.g. browser-only test). */
       }
@@ -117,6 +122,13 @@ export function FeaturesPanel() {
           note: expander.enabled
             ? "Type an abbreviation in any field, press the hotkey → it expands in place."
             : "Disabled — enable it in Settings. Then type an abbreviation and press the hotkey.",
+        },
+        {
+          name: "Auto-Expansion (aText-Stil)",
+          trigger: "automatic",
+          note: autoExpand?.enabled
+            ? `On — snippets expand while you type (${autoExpand.trigger === "immediate" ? "immediate" : "after a delimiter"}), no hotkey. Configure in Settings.`
+            : "Off — enable in Settings to expand snippets automatically as you type, in any app.",
         },
         ...(slots.length
           ? slots.map((s) => ({

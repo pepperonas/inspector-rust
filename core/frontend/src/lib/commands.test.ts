@@ -16,13 +16,14 @@ import {
   parsePwgenArg,
   parseShotDelay,
   parseTimerArg,
+  formatBytes,
   resizePresetSuggestions,
   translateUrl,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 26 commands (+ wakelock/caffeine, touch/mkdir/terminal, alarm, md2pdf, shot×4)", () => {
-    expect(COMMANDS.length).toBe(26);
+  it("has 28 commands (+ shot×4, clean/cleanup)", () => {
+    expect(COMMANDS.length).toBe(28);
   });
 
   it("every keyword is unique", () => {
@@ -526,6 +527,24 @@ describe("parseCommand — screenshot modes", () => {
     expect(parseCommand("shotfull")?.spec.kind).toBe("shot-full");
     expect(parseCommand("shotwin")?.spec.kind).toBe("shot-window");
     expect(parseCommand("shotlast")?.spec.kind).toBe("shot-last");
+  });
+});
+
+describe("parseCommand — clean", () => {
+  it("parses clean and the cleanup alias to the clean kind", () => {
+    expect(parseCommand("clean")?.spec.kind).toBe("clean");
+    expect(parseCommand("cleanup")?.spec.kind).toBe("clean");
+  });
+});
+
+describe("formatBytes", () => {
+  it("formats across units", () => {
+    expect(formatBytes(0)).toBe("0 B");
+    expect(formatBytes(512)).toBe("512 B");
+    expect(formatBytes(1536)).toBe("1.5 KB");
+    expect(formatBytes(5 * 1024 * 1024)).toBe("5.0 MB");
+    expect(formatBytes(20 * 1024 * 1024)).toBe("20 MB");
+    expect(formatBytes(3 * 1024 * 1024 * 1024)).toBe("3.0 GB");
   });
 });
 

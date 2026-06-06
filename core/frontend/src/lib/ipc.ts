@@ -908,6 +908,58 @@ export function closePin(label: string): Promise<void> {
   return invoke("close_pin", { label });
 }
 
+// ── Cleaning workflow (v0.60.0) ────────────────────────────────────────────
+
+export type CleanerLevel = "safe" | "standard" | "aggressive";
+
+export interface CleanItem {
+  path: string;
+  size: number;
+  category: string;
+}
+export interface CleanPlan {
+  items: CleanItem[];
+  total_bytes: number;
+  /** [key, label, bytes] per scanned category. */
+  categories: [string, string, number][];
+}
+export interface CleanResult {
+  deleted: number;
+  freed_bytes: number;
+  errors: string[];
+}
+export interface CleanerConfig {
+  level: CleanerLevel;
+  min_age_days: number;
+  /** category key → enabled override. */
+  categories: Record<string, boolean>;
+}
+export interface CleanerCategory {
+  key: string;
+  label: string;
+  level: CleanerLevel;
+  roots: string[];
+  default_enabled: boolean;
+}
+
+/** Read-only dry-run: what would be deleted + how much. Deletes nothing. */
+export function cleanerScan(): Promise<CleanPlan> {
+  return invoke("cleaner_scan");
+}
+/** Delete the files in `plan` (re-validated against the allowlist). */
+export function cleanerExecute(plan: CleanPlan): Promise<CleanResult> {
+  return invoke("cleaner_execute", { plan });
+}
+export function getCleanerConfig(): Promise<CleanerConfig> {
+  return invoke("get_cleaner_config");
+}
+export function setCleanerConfig(config: CleanerConfig): Promise<CleanerConfig> {
+  return invoke("set_cleaner_config", { config });
+}
+export function cleanerCategories(): Promise<CleanerCategory[]> {
+  return invoke("cleaner_categories");
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

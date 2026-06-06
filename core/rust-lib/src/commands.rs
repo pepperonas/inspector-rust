@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auto_expand;
 use crate::backup::{self, BackupImportResult};
+use crate::cleaner;
 use crate::clipboard_watcher::WatcherState;
 use crate::cutout_ml;
 use crate::db::{self, DbHandle};
@@ -2675,4 +2676,49 @@ pub fn linux_apply_desktop_shortcuts(
 #[tauri::command]
 pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String> {
     desktop_shortcuts::web_hotkey_to_gsettings(&shortcut)
+}
+
+// ── Cleaning workflow (v0.60.0) ────────────────────────────────────────────────
+
+/// Read-only dry-run scan for the current cleaner config. Returns the plan
+/// (paths + sizes + per-category totals) so the frontend can show a preview.
+/// Deletes nothing.
+#[tauri::command]
+pub fn cleaner_scan(db: State<'_, DbHandle>) -> Result<cleaner::CleanPlan, String> {
+    let cfg = cleaner::load_config(&db);
+    Ok(cleaner::scan(&cfg))
+}
+
+/// Execute a previously-scanned plan. Re-validates every path against the
+/// current config's allowlist (containment + non-symlink) before deleting, so
+/// a stale or tampered plan can't escape the cache roots. Returns counts +
+/// freed bytes + per-path errors (never aborts the batch).
+#[tauri::command]
+pub fn cleaner_execute(
+    db: State<'_, DbHandle>,
+    plan: cleaner::CleanPlan,
+) -> Result<cleaner::CleanResult, String> {
+    let cfg = cleaner::load_config(&db);
+    Ok(cleaner::execute(&cfg, &plan))
+}
+
+#[tauri::command]
+pub fn get_cleaner_config(db: State<'_, DbHandle>) -> Result<cleaner::CleanerConfig, String> {
+    Ok(cleaner::load_config(&db))
+}
+
+/// The full category catalogue for this OS (key + label + level +
+/// default_enabled) so Settings can render per-category checkboxes.
+#[tauri::command]
+pub fn cleaner_categories() -> Vec<cleaner::Category> {
+    cleaner::categories()
+}
+
+#[tauri::command]
+pub fn set_cleaner_config(
+    db: State<'_, DbHandle>,
+    config: cleaner::CleanerConfig,
+) -> Result<cleaner::CleanerConfig, String> {
+    cleaner::save_config(&db, &config).map_err(map_err)?;
+    Ok(cleaner::load_config(&db))
 }

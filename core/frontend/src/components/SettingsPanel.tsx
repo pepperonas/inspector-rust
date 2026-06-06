@@ -19,6 +19,7 @@ import {
   Power,
   Sun,
   SunMoon,
+  Trash2,
   Upload,
   Wand2,
   Zap,
@@ -38,6 +39,8 @@ import {
   type BrunoDefaults,
   getAutoExpandConfig,
   getAutostartEnabled,
+  getCleanerConfig,
+  cleanerCategories,
   getDirectSlots,
   getExpanderConfig,
   getInputLockChord,
@@ -56,6 +59,7 @@ import {
   relaunchApp,
   saveBackupToFile,
   setAutoExpandConfig,
+  setCleanerConfig,
   setAutostartEnabled,
   setDirectSlots,
   setExpanderConfig,
@@ -68,6 +72,9 @@ import {
   setThemePreference,
   setWindowSizePreference,
   type AutoExpandConfig,
+  type CleanerCategory,
+  type CleanerConfig,
+  type CleanerLevel,
   type DiagnoseResult,
   type DirectSlot,
   type ExpanderConfig,
@@ -110,6 +117,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   // Passive auto-expansion (aText-style, v0.56.0). Null until loaded.
   const [aeCfg, setAeCfg] = useState<AutoExpandConfig | null>(null);
   const [aeSaving, setAeSaving] = useState(false);
+  // Cleaning workflow (v0.60.0).
+  const [cleanCfg, setCleanCfg] = useState<CleanerConfig | null>(null);
+  const [cleanCats, setCleanCats] = useState<CleanerCategory[]>([]);
   // Independent of Accessibility: macOS gates `screencapture -i`
   // (the OCR region picker) behind the Screen Recording TCC policy.
   // Granting Accessibility doesn't unlock this — they're separate
@@ -542,10 +552,30 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         if (alive) setAeCfg(c);
       })
       .catch((e) => setStatus({ kind: "err", message: String(e) }));
+    Promise.all([getCleanerConfig(), cleanerCategories()])
+      .then(([c, cats]) => {
+        if (!alive) return;
+        setCleanCfg(c);
+        setCleanCats(cats);
+      })
+      .catch((e) => setStatus({ kind: "err", message: String(e) }));
     return () => {
       alive = false;
     };
   }, []);
+
+  // Persist + apply a cleaner config change (optimistic + reconcile).
+  const updateCleaner = async (patch: Partial<CleanerConfig>) => {
+    if (!cleanCfg) return;
+    const next = { ...cleanCfg, ...patch };
+    setCleanCfg(next);
+    try {
+      const applied = await setCleanerConfig(next);
+      setCleanCfg(applied);
+    } catch (e) {
+      setStatus({ kind: "err", message: String(e) });
+    }
+  };
 
   // Persist + apply an auto-expansion config change. Optimistically updates
   // local state, then reconciles with whatever the backend reports back.
@@ -1675,6 +1705,109 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             subtitle="Global shortcuts fire from anywhere on your system. Popup shortcuts only fire while Inspector Rust's popup is visible."
           >
             <ShortcutsTable />
+          </Section>
+        </div>
+
+        {/* Cleaning workflow (v0.60.0) */}
+        <div className="mt-6">
+          <Section
+            icon={<Trash2 size={16} className="text-[var(--color-accent)]" />}
+            title="Cleaning"
+            subtitle="Delete cache / log / temp files inside known-safe folders. Type `clean` in the search bar — it always shows a preview and deletes only after you confirm."
+          >
+            {cleanCfg === null ? (
+              <p className="text-[12px] text-[var(--color-muted)]">Lade…</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {/* Level picker */}
+                <div>
+                  <div className="text-[11px] text-[var(--color-muted)]">Umfang</div>
+                  <div className="mt-1 flex gap-2">
+                    {(["safe", "standard", "aggressive"] as CleanerLevel[]).map((lv) => (
+                      <button
+                        key={lv}
+                        onClick={() => void updateCleaner({ level: lv })}
+                        className={`flex-1 rounded border px-3 py-1.5 text-[11px] capitalize ${
+                          cleanCfg.level === lv
+                            ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                            : "border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]"
+                        }`}
+                      >
+                        {lv === "safe" ? "Safe" : lv === "standard" ? "Standard" : "Aggressive"}
+                      </button>
+                    ))}
+                  </div>
+                  {cleanCfg.level === "aggressive" && (
+                    <div className="mt-2 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
+                      <AlertTriangle size={13} className="shrink-0 text-amber-500" />
+                      <span>
+                        Aggressive löscht auch globale Dev-Tool-Caches (npm/pnpm/Gradle/Cargo) — diese müssen danach neu geladen werden.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Min age */}
+                <label className="flex items-center justify-between gap-3 text-[12px]">
+                  <span>
+                    Nur Dateien älter als
+                    <span className="block text-[11px] text-[var(--color-muted)]">
+                      Tage seit letzter Änderung.
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min={0}
+                    max={3650}
+                    value={cleanCfg.min_age_days}
+                    onChange={(e) =>
+                      void updateCleaner({
+                        min_age_days: Math.max(0, parseInt(e.target.value, 10) || 0),
+                      })
+                    }
+                    className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-right text-[12px]"
+                  />
+                </label>
+
+                {/* Category checkboxes for the current level */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="text-[11px] text-[var(--color-muted)]">Kategorien</div>
+                  {cleanCats
+                    .filter((c) => {
+                      const rank = (l: CleanerLevel) =>
+                        l === "safe" ? 0 : l === "standard" ? 1 : 2;
+                      return rank(c.level) <= rank(cleanCfg.level);
+                    })
+                    .map((c) => {
+                      const enabled = cleanCfg.categories[c.key] ?? c.default_enabled;
+                      return (
+                        <label
+                          key={c.key}
+                          className="flex items-center justify-between gap-3 text-[12px]"
+                        >
+                          <span>{c.label}</span>
+                          <input
+                            type="checkbox"
+                            checked={enabled}
+                            onChange={(e) =>
+                              void updateCleaner({
+                                categories: {
+                                  ...cleanCfg.categories,
+                                  [c.key]: e.target.checked,
+                                },
+                              })
+                            }
+                            className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
+                          />
+                        </label>
+                      );
+                    })}
+                </div>
+                <p className="text-[11px] text-[var(--color-muted)]">
+                  Es werden ausschließlich Dateien innerhalb fest definierter Cache-/Log-/Temp-Ordner gelöscht — niemals Dokumente, Desktop o. Ä. Symlinks werden nie verfolgt.
+                </p>
+              </div>
+            )}
           </Section>
         </div>
 

@@ -5,6 +5,7 @@ mod auto_expand;
 mod backup;
 mod bruno;
 mod cli_dispatch;
+mod cleaner;
 mod clipboard_watcher;
 mod commands;
 mod crypto;
@@ -430,6 +431,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_window_size_preference,
             commands::get_status_toast,
             commands::hide_status_toast,
+            commands::cleaner_scan,
+            commands::cleaner_execute,
+            commands::cleaner_categories,
+            commands::get_cleaner_config,
+            commands::set_cleaner_config,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

@@ -35,6 +35,7 @@ import {
   parseAlarmArg,
   parseShotDelay,
   parseWakelockArg,
+  formatBytes,
   resizePresetSuggestions,
   translateUrl,
   type CommandKind,
@@ -80,6 +81,8 @@ import {
   mdToPdfRun,
   screenshotCapture,
   screenshotRepeatLast,
+  cleanerScan,
+  cleanerExecute,
   showStatusToast,
   brunoGetDefaults,
   startTimer,
@@ -1276,6 +1279,34 @@ function App() {
           return true;
         }
         // Backend hides the popup; region mode also drives its own UI.
+      } else if (commandKind === "clean") {
+        // Always preview first (dry-run scan), confirm, THEN delete.
+        try {
+          const plan = await cleanerScan();
+          if (plan.items.length === 0) {
+            await showStatusToast("clean", true, "Nothing to clean", "All tidy");
+            return true;
+          }
+          const top = plan.categories
+            .filter((c) => c[2] > 0)
+            .map((c) => `• ${c[1]}: ${formatBytes(c[2])}`)
+            .join("\n");
+          const ok = window.confirm(
+            `Delete ${plan.items.length} file(s) and free ${formatBytes(plan.total_bytes)}?\n\n${top}\n\nOnly cache/log/temp files inside known safe folders are touched. This cannot be undone.`,
+          );
+          if (!ok) return true;
+          const res = await cleanerExecute(plan);
+          await showStatusToast(
+            "clean",
+            true,
+            "Cleaned",
+            `${formatBytes(res.freed_bytes)} freed${res.errors.length ? ` · ${res.errors.length} skipped` : ""}`,
+          );
+        } catch (e) {
+          setPasteError("other");
+          console.error("clean failed", e);
+          return true;
+        }
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
         // kill runs in kill-mode). Let the caller decide what to do.

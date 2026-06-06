@@ -46,7 +46,8 @@ export type CommandKind =
   | "shot-region"
   | "shot-full"
   | "shot-window"
-  | "shot-last";
+  | "shot-last"
+  | "clean";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -273,7 +274,35 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Repeat the last screenshot mode",
     requiresArg: false,
   },
+  {
+    kind: "clean",
+    keyword: "clean",
+    syntax: "clean",
+    description: "Clean caches/logs — shows a preview first, deletes only after you confirm",
+    requiresArg: false,
+  },
+  {
+    kind: "clean",
+    keyword: "cleanup",
+    syntax: "cleanup",
+    description: "Alias for clean",
+    requiresArg: false,
+    hidden: true,
+  },
 ];
+
+/** Format a byte count as a short human string (e.g. 1.2 MB). */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ["KB", "MB", "GB", "TB"];
+  let v = bytes / 1024;
+  let i = 0;
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024;
+    i++;
+  }
+  return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
 
 /** Parse an optional self-timer seconds argument for the screenshot
  *  commands. Empty / non-numeric → 0 (no delay). Capped at 60. */

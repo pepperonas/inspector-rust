@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlarmClock, Coffee, Moon, Timer } from "lucide-react";
+import { AlarmClock, Coffee, Moon, Sparkles, Timer } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getStatusToast,
@@ -55,15 +55,18 @@ export function StatusToast() {
   if (!payload) return <div className="h-screen w-screen bg-transparent" />;
 
   const on = payload.on;
-  // Icon by kind: wakelock toggles Coffee/Moon; timer/alarm use clocks.
+  // Icon by kind: wakelock toggles Coffee/Moon; timer/alarm use clocks;
+  // clean uses sparkles.
   const Icon =
     payload.kind === "timer"
       ? Timer
       : payload.kind === "alarm"
         ? AlarmClock
-        : on
-          ? Coffee
-          : Moon;
+        : payload.kind === "clean"
+          ? Sparkles
+          : on
+            ? Coffee
+            : Moon;
   // Accent for everything except an explicit "off" state (muted).
   const accent =
     payload.kind === "wakelock" && !on

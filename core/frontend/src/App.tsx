@@ -439,6 +439,44 @@ function App() {
           : "Markdown → PDF (file-manager selection)";
         hint = "Same as Ctrl+Shift+M · PDF lands next to the source";
         break;
+      case "shot-region": {
+        const delay = parseShotDelay(arg);
+        label = delay > 0 ? `Screenshot a region in ${delay}s` : "Screenshot a region";
+        hint = "Drag a marquee → floating preview (save / edit / pin)";
+        break;
+      }
+      case "shot-full": {
+        const delay = parseShotDelay(arg);
+        label = delay > 0 ? `Screenshot the whole screen in ${delay}s` : "Screenshot the whole screen";
+        hint = "Full screen → floating preview";
+        break;
+      }
+      case "shot-window": {
+        const delay = parseShotDelay(arg);
+        label = delay > 0 ? `Screenshot the active window in ${delay}s` : "Screenshot the active window";
+        hint = "Active window → floating preview";
+        break;
+      }
+      case "shot-last":
+        label = "Repeat the last screenshot mode";
+        hint = "Re-runs whichever capture mode you used last";
+        break;
+      case "clean":
+        label = "Clean caches / logs / temp files";
+        hint = "Shows a preview first; deletes only after you confirm";
+        break;
+      case "brightness":
+        label = "Adjust monitor brightness";
+        hint = "Opens a slider per DDC monitor (external displays)";
+        break;
+      case "random": {
+        const r = parseRandomArg(arg);
+        label = r
+          ? `Roll a random number · ${r.min}–${r.max}`
+          : `random: invalid arg ("${arg}") — use a number, or two numbers`;
+        hint = r ? "Shown big on screen (CSPRNG)" : "e.g. rnd · rnd 100 · rnd 5 500";
+        break;
+      }
       case "pwgen": {
         // Pwgen is rendered as its own ListEntry kind further down
         // (with `mode` + `password` baked in). Return null here so we

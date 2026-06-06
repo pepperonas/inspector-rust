@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.68.1] — 2026-06-06
+
+### Fixed — `brightness` / `clean` / `shot*` / `random` showed no runnable row
+
+The command-row builder (`App.tsx` `commandEntry`) was missing `case`s for the
+screenshot, clean, brightness and random commands, so typing the full keyword
+fell through to `default: return null` — no action row appeared and the command
+could only be triggered while a fuzzy autocomplete suggestion was still showing.
+Added the missing cases (+ the matching `CommandEntryView` kinds) so these
+commands surface a runnable row like every other command.
+
 ## [0.68.0] — 2026-06-06
 
 ### Added — `rnd` / `random` command

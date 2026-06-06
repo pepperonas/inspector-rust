@@ -87,7 +87,14 @@ export interface CommandEntryView {
     | "mkdir"
     | "terminal"
     | "alarm"
-    | "md2pdf";
+    | "md2pdf"
+    | "shot-region"
+    | "shot-full"
+    | "shot-window"
+    | "shot-last"
+    | "clean"
+    | "brightness"
+    | "random";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

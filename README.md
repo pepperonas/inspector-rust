@@ -17,9 +17,11 @@
 
   - 📋 **Clipboard history** — text, RTF, HTML, PNG, file lists; 1 000 entries deduped via SHA-256; fuzzy-search-as-you-type.
   - 🧮 **Inline calculator** (`2+2`, `sqrt(144)`, hex/bit-ops) and **colour converter** (`#hex` / `rgb()` / `hsl()` in any direction).
-  - 🎯 **Text expander — 3 modes**: in-popup search · system-wide hotkey (AX/UIA in-place replace + Electron fallback) · direct hotkey → snippet slots (works even in terminals). **Dynamic placeholders** expand at paste time: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (caret position), `{{`/`}}` for literal braces.
+  - 🎯 **Text expander — 4 modes**: passive **auto-expansion** (aText-style — expands as you type, no hotkey) · in-popup search · system-wide hotkey (AX/UIA in-place replace + Electron fallback) · direct hotkey → snippet slots (works even in terminals). **Dynamic placeholders** expand at paste time: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (caret position), `{{`/`}}` for literal braces.
   - 🔍 **Screen-region OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade text recognition into clipboard.
-  - 📸 **Region screenshot** (`Ctrl+Shift+S`) + **CleanShot-X-style preview HUD** + **annotation editor** (arrows / text / rect / highlight / blur). Filenames include the source app name.
+  - 📸 **Screenshots — CleanShot-X-style**: region (`Ctrl+Shift+S`) · full-screen · active-window · self-timer · repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); floating preview HUD; **annotation editor** (arrow / line / text / rect / ellipse / highlight / blur / redact / numbered step badges); **pin to screen** (float a capture as its own always-on-top window). Filenames include the source app name.
+  - 💡 **Monitor brightness** (`brightness` / `bri`) — slider per DDC-capable monitor (incl. secondary/external) + an "all" master; Lunar / TwinkleTray style over DDC/CI.
+  - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. Dry-run preview + confirm; strict allowlist, symlinks never followed; Safe/Standard/Aggressive levels.
   - 🎨 **Color picker** (`Ctrl+Shift+C`) — `NSColorSampler` loupe / GDI overlay / hex straight to clipboard.
   - 📁 **Finder selection actions** (`Ctrl+Shift+F`, macOS) — multi-file batch resize / optim / cut-out / open on whatever you have selected in Finder.
   - 📄 **Markdown → PDF** (`Ctrl+Shift+M`, macOS) — converts the `.md` files currently selected in Finder to PDF in-process; no CLI tools required.
@@ -28,14 +30,14 @@
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
   - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
-  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
+  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `clean` (free disk), `brightness` / `bri` (monitor brightness), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
   - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
   - 🎮 **Hidden games** — four Easter-egg trigger words. You'll find them.
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · packaged as **~5 MB MSI** / **~5 MB DMG**. **253 Rust + 401 frontend tests.** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **345 Rust + 494 frontend tests.** MIT-licensed.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>
@@ -45,7 +47,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.52.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.62.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -132,7 +134,7 @@
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
   [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
-  [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-3-blueviolet?style=flat-square)](./docs/text-expander.md)
+  [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-4-blueviolet?style=flat-square)](./docs/text-expander.md)
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
 
   <!-- ── Standards / conventions ─────────────────────────────── -->
@@ -420,11 +422,12 @@ Each banner:
 - **Settings → Keyboard shortcuts** — three-group cheat sheet (Global / Popup nav / Image actions) covering every shortcut the app binds. Modifier glyphs (`⌘` vs `Ctrl`, `⇧` vs `Shift`, `⌥` vs `Alt`) adapt to the running OS via the `IS_MAC` helper in [`core/frontend/src/lib/platform.ts`](./core/frontend/src/lib/platform.ts).
 - **About dialog** — Settings → About opens a modal with version, license, year, target audience, and a tabular tech-stack overview.
 
-### Screenshot preview HUD + editor (v0.32.0)
-- **CleanShot-X-style HUD** — after `Ctrl+Shift+S`, the captured PNG floats as the background of a small dark card with six controls overlayed: **X** (top-left, discard), **Pin** (top-right, keep preview across next screenshot), **Copy** + **Save** (centre pills), **Pencil** (open editor), **Cloud** (placeholder — coming soon).
-- **App-name baked into filename** — `osascript` reads the frontmost app *before* the region picker fires; saved file becomes `Safari-20260524-153012.png`. Alphabetical sort in Finder groups by app. Edited variants use `-edited` suffix.
-- **Annotation editor** — Pencil opens a separate Tauri window with five tools: **Arrow / Text / Rect / Highlight / Blur** (mosaic pixelation, samples from the source so undo is non-destructive). 4 colour presets, 2–16 px stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` save, `Esc` cancel, single-key tool switches (`A`/`T`/`R`/`H`/`B`). Canvas is sized to the screenshot's natural pixel dimensions, so the saved PNG is full-resolution.
-- **Pin behaviour** — while pinned, the next screenshot still writes to clipboard + history but doesn't replace the on-screen preview. Useful for batch capture-and-annotate workflows.
+### Screenshots — capture modes, preview HUD, editor, pin (v0.32.0 → v0.59.0)
+- **Capture modes** — region (`Ctrl+Shift+S` / `shot [n]`), full-screen (`shotfull`), active window (`shotwin`), and repeat-last (`shotlast`). `shot 3` adds a 3-second self-timer. All modes feed the same preview HUD. macOS uses `screencapture`, Windows a GDI blit, Linux `grim`/`scrot`.
+- **CleanShot-X-style HUD** — the captured PNG floats as the background of a small dark card with: **X** (discard), **Pin** (keep preview across next screenshot), **Copy** + **Save** + **Pin to screen** (centre pills), **Pencil** (open editor).
+- **App-name baked into filename** — the frontmost app is read *before* the region picker fires; saved file becomes `Safari-20260524-153012.png`. Edited variants use `-edited`.
+- **Annotation editor** — Pencil opens a separate Tauri window with nine tools: **Arrow / Line / Text / Rectangle / Ellipse / Highlight / Blur** (mosaic, samples the source so undo is non-destructive) **/ Redact** (opaque block) **/ Step** (auto-numbered badges). 4 colour presets, 2–16 px stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` save, `Esc` cancel, single-key tool switches (`A`/`L`/`T`/`R`/`E`/`H`/`B`/`X`/`N`). Full-resolution canvas. Geometry lives in a pure, unit-tested module.
+- **Pin to screen** — float a capture as its own persistent, draggable, always-on-top window; multiple pins coexist, close per pin. (Distinct from the HUD's **Pin** toggle, which only keeps the preview across the next shot.)
 
 ### Finder selection actions (v0.30.0, macOS)
 - **`Ctrl+Shift+F`** — `osascript` reads the current Finder selection (with TCC Automation → Finder grant, prompted on first use). The popup opens with the selected files listed at top, each with a `finder` chip.

@@ -26,8 +26,9 @@ export function AboutContent({ version }: Props) {
         </div>
         <div className="mt-0.5 text-[11px] leading-snug text-[var(--color-muted)]">
           Clipboard productivity toolkit for power users — searchable history,
-          snippets, calculator, color picker + eyedropper, image tools,
-          screen-region OCR + screenshot.
+          snippets with auto-expansion, calculator, color picker + eyedropper,
+          image tools, OCR + screenshots (capture modes, annotate, pin),
+          cleaning, and monitor brightness.
         </div>
       </div>
 
@@ -47,9 +48,11 @@ export function AboutContent({ version }: Props) {
           Workflow optimization
         </div>
         One hotkey, no mouse. Search clipboard history fuzzy, expand snippets
-        system-wide, calculate inline, sample colors, recolor and cut out
-        images — without leaving the keyboard. Local SQLite, AES-256 encrypted
-        at rest, no telemetry, no cloud.
+        system-wide (passive auto-expansion or a hotkey), calculate inline,
+        sample colors, recolor and cut out images, capture &amp; annotate
+        screenshots, free up disk space, dim your monitors — without leaving
+        the keyboard. Local SQLite, AES-256 encrypted at rest, no telemetry,
+        no cloud.
       </div>
 
       {/* Tech-stack mini table */}
@@ -64,6 +67,7 @@ export function AboutContent({ version }: Props) {
             <Tech label="Storage" value="SQLite · AES-256-GCM · OS keychain" />
             <Tech label="Frontend" value="React 19 · TypeScript 5 · Vite 7 · Tailwind v4" />
             <Tech label="Image" value="image 0.25 · ort (ONNX) · Apple Vision" />
+            <Tech label="Displays" value="ddc-hi (DDC/CI brightness)" />
             <Tech label="Formats" value="PNG · JPEG · WebP · GIF · BMP" />
           </tbody>
         </table>

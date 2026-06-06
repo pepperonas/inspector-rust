@@ -17,9 +17,11 @@
 
   - 📋 **Clipboard-History** — Text, RTF, HTML, PNG, Datei-Listen; 1 000 Einträge per SHA-256 dedupliziert; Fuzzy-Suche while-you-type.
   - 🧮 **Inline-Rechner** (`2+2`, `sqrt(144)`, Hex/Bit-Ops) und **Farb-Konverter** (`#hex` / `rgb()` / `hsl()` in jede Richtung).
-  - 🎯 **Text-Expander — 3 Modi**: In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals). **Dynamische Platzhalter** beim Einfügen: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (Cursor-Position), `{{`/`}}` für literale Klammern.
+  - 🎯 **Text-Expander — 4 Modi**: passive **Auto-Expansion** (aText-Stil — expandiert beim Tippen, ohne Hotkey) · In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals). **Dynamische Platzhalter** beim Einfügen: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (Cursor-Position), `{{`/`}}` für literale Klammern.
   - 🔍 **Bildschirm-Region-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade Texterkennung ins Clipboard.
-  - 📸 **Region-Screenshot** (`Ctrl+Shift+S`) + **CleanShot-X-Style Vorschau-HUD** + **Annotations-Editor** (Pfeil / Text / Rect / Highlight / Blur). Dateinamen enthalten den Quell-App-Namen.
+  - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Self-Timer · Repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rect / Ellipse / Highlight / Blur / Redact / nummerierte Step-Badges); **Pin to screen** (Screenshot als eigenes Always-on-top-Fenster anheften). Dateinamen enthalten den Quell-App-Namen.
+  - 💡 **Monitor-Helligkeit** (`brightness` / `bri`) — Slider pro DDC-fähigem Monitor (inkl. sekundärer/externer) + „alle"-Master; Lunar / TwinkleTray-Stil über DDC/CI.
+  - 🧹 **Cleaning** (`clean`) — Speicher freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannten sicheren Ordnern. Dry-Run-Vorschau + Bestätigung; strikte Allowlist, Symlinks werden nie verfolgt; Stufen Safe/Standard/Aggressive.
   - 🎨 **Color Picker** (`Ctrl+Shift+C`) — `NSColorSampler`-Lupe / GDI-Overlay / Hex direkt ins Clipboard.
   - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Cut-Out / Open auf was auch immer du im Finder selektiert hast.
   - 📄 **Markdown → PDF** (`Ctrl+Shift+M`, macOS) — konvertiert die im Finder ausgewählten `.md`-Dateien in-process zu PDF; keine externen CLI-Tools nötig.
@@ -28,14 +30,14 @@
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — vier Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · gepackt als **~5 MB MSI** / **~5 MB DMG**. **253 Rust + 401 Frontend-Tests.** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **345 Rust + 494 Frontend-Tests.** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
@@ -45,7 +47,7 @@
   </p>
 
   <!-- ── Status / release ─────────────────────────────────────── -->
-  [![Version](https://img.shields.io/badge/version-0.52.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
+  [![Version](https://img.shields.io/badge/version-0.62.0-blue?style=flat-square)](https://github.com/pepperonas/inspector-rust/releases)
   [![License: MIT](https://img.shields.io/badge/license-MIT-green?style=flat-square)](./LICENSE)
   [![CI](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/ci.yml?branch=main&style=flat-square&label=CI)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![Release](https://img.shields.io/github/actions/workflow/status/pepperonas/inspector-rust/release.yml?branch=main&style=flat-square&label=release)](https://github.com/pepperonas/inspector-rust/actions/workflows/release.yml)
@@ -132,7 +134,7 @@
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
   [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
-  [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-3-blueviolet?style=flat-square)](./docs/text-expander.md)
+  [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-4-blueviolet?style=flat-square)](./docs/text-expander.md)
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
 
   <!-- ── Standards / conventions ─────────────────────────────── -->

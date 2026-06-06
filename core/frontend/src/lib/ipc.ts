@@ -889,6 +889,25 @@ export function screenshotRepeatLast(): Promise<ScreenshotResult> {
   return invoke("screenshot_repeat_last");
 }
 
+// ── Pin to screen (v0.59.0) ────────────────────────────────────────────────
+
+/** Pin the current pending screenshot as a floating always-on-top window.
+ *  Returns the new pin window's label. Multiple pins may coexist. */
+export function pinCurrentScreenshot(): Promise<string> {
+  return invoke("pin_current_screenshot");
+}
+
+/** Resolve the PNG path for a pin label (the pin window calls this with its
+ *  own window.label). */
+export function getPinImage(label: string): Promise<string | null> {
+  return invoke("get_pin_image", { label });
+}
+
+/** Close a pin window + delete its cached PNG. */
+export function closePin(label: string): Promise<void> {
+  return invoke("close_pin", { label });
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

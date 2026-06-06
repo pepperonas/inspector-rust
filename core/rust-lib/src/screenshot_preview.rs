@@ -494,6 +494,97 @@ fn close_preview(app: &AppHandle) {
     }
 }
 
+// ── Pin to screen (v0.59.0) ─────────────────────────────────────────────────
+//
+// CleanShot-X-style "pin": float the captured image on top of everything as
+// its own persistent, draggable window, independent of the popup. Multiple
+// pins can coexist (unique labels `screenshot-pin-<seq>`). Each pin keeps its
+// own copy of the PNG in the cache so discarding the original preview / taking
+// a new shot doesn't affect existing pins.
+
+/// Label prefix for pin windows. The capability files allow `screenshot-pin-*`.
+pub const PIN_LABEL_PREFIX: &str = "screenshot-pin-";
+
+/// label → on-disk PNG path for every live pin. A process-wide registry so the
+/// pin window can resolve its own image via `get_pin_image(label)`.
+fn pin_registry() -> &'static parking_lot::Mutex<std::collections::HashMap<String, PathBuf>> {
+    use std::sync::OnceLock;
+    static R: OnceLock<parking_lot::Mutex<std::collections::HashMap<String, PathBuf>>> =
+        OnceLock::new();
+    R.get_or_init(|| parking_lot::Mutex::new(std::collections::HashMap::new()))
+}
+
+fn next_pin_seq() -> u64 {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(1);
+    SEQ.fetch_add(1, Ordering::SeqCst)
+}
+
+/// Pin the *current* pending screenshot as a new floating window. Copies the
+/// PNG so the pin survives the original being discarded / replaced. Returns
+/// the new pin's window label.
+#[tauri::command]
+pub fn pin_current_screenshot(
+    app: AppHandle,
+    state: State<'_, PendingScreenshot>,
+) -> Result<String, String> {
+    let src = state
+        .current
+        .lock()
+        .as_ref()
+        .map(|p| p.path.clone())
+        .ok_or_else(|| "no pending screenshot to pin".to_string())?;
+
+    let cache = dirs::cache_dir()
+        .map(|d| d.join("InspectorRust"))
+        .ok_or_else(|| "no cache dir".to_string())?;
+    std::fs::create_dir_all(&cache).map_err(|e| format!("create cache dir: {e}"))?;
+
+    let seq = next_pin_seq();
+    let label = format!("{PIN_LABEL_PREFIX}{seq}");
+    let pin_path = cache.join(format!("pin-{seq}.png"));
+    std::fs::copy(&src, &pin_path).map_err(|e| format!("copy pin image: {e}"))?;
+    pin_registry().lock().insert(label.clone(), pin_path);
+
+    let win = WebviewWindowBuilder::new(&app, &label, WebviewUrl::App("index.html".into()))
+        .title("Pinned screenshot")
+        .inner_size(420.0, 320.0)
+        .min_inner_size(120.0, 90.0)
+        .resizable(true)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(true)
+        .build()
+        .map_err(|e| format!("build pin window: {e}"))?;
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(label)
+}
+
+/// Resolve the PNG path for a given pin label (the pin window calls this with
+/// its own `window.label`). Returns the absolute path as a string.
+#[tauri::command]
+pub fn get_pin_image(label: String) -> Option<String> {
+    pin_registry()
+        .lock()
+        .get(&label)
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+/// Close a pin window and delete its cached PNG copy.
+#[tauri::command]
+pub fn close_pin(app: AppHandle, label: String) -> Result<(), String> {
+    if let Some(path) = pin_registry().lock().remove(&label) {
+        let _ = std::fs::remove_file(path);
+    }
+    if let Some(win) = app.get_webview_window(&label) {
+        let _ = win.close();
+    }
+    Ok(())
+}
+
 /// Cross-platform "open this file with the OS default app" — used by
 /// the Edit action to hand the PNG to Preview.app / Photos / whatever
 /// the user has registered for `.png`.

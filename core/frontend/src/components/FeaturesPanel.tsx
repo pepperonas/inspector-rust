@@ -181,6 +181,8 @@ export function FeaturesPanel() {
         { name: "Paste selected entry", trigger: formatHotkey("Enter") },
         { name: "Navigate / close", trigger: "↑ ↓ · Esc", note: "Arrow keys move the selection; Esc hides the popup." },
         { name: "Cut out background", trigger: formatHotkey(`${MOD}+KeyB`), note: "On an image entry in the preview — U²-Net subject cut-out → Downloads." },
+        { name: "Screenshot annotate", trigger: "preview → Edit", note: "Arrow/line/text/rect/ellipse/highlight/blur/redact/step-badge on a canvas." },
+        { name: "Pin screenshot to screen", trigger: "preview → Pin to screen", note: "Float the capture as an always-on-top window; multiple pins; close per pin." },
         { name: "Text transforms", trigger: formatHotkey(`${MOD}+1`) + "…" + formatHotkey(`${MOD}+9`), note: "On a text entry — UPPER / lower / camel / snake / base64 / url-encode …" },
         { name: "Recolor", trigger: "preview toolbar", note: "Shown for logos / silhouettes (low-chroma images)." },
         { name: "Save entry as note", trigger: "list action", note: "Bookmark any clipboard entry into the Notes tab." },

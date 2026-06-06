@@ -4,6 +4,7 @@ import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import App from "./App";
 import { ScreenshotPreview } from "./components/ScreenshotPreview";
 import { ScreenshotEditor } from "./components/ScreenshotEditor";
+import { ScreenshotPin } from "./components/ScreenshotPin";
 import { StatusToast } from "./components/StatusToast";
 import "./styles.css";
 
@@ -22,6 +23,7 @@ function Mount() {
   if (label === "screenshot-preview") return <ScreenshotPreview />;
   if (label === "screenshot-editor") return <ScreenshotEditor />;
   if (label === "status-toast") return <StatusToast />;
+  if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
   return <App />;
 }
 

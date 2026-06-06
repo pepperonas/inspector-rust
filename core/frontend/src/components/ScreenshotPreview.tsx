@@ -10,6 +10,7 @@ import {
   screenshotPreviewEdit,
   screenshotPreviewSave,
   setScreenshotPinned,
+  pinCurrentScreenshot,
   type PendingScreenshotInfo,
 } from "../lib/ipc";
 
@@ -119,6 +120,13 @@ export function ScreenshotPreview() {
   const onEdit = () => {
     void screenshotPreviewEdit().catch(() => undefined);
   };
+  const onPinToScreen = () => {
+    // Float the capture as its own persistent window, then close this
+    // preview (the pin keeps its own copy of the PNG).
+    void pinCurrentScreenshot()
+      .then(() => screenshotPreviewDiscard())
+      .catch(() => undefined);
+  };
   const onTogglePin = () => {
     const next = !pinned;
     setPinned(next); // optimistic — backend confirms on next render
@@ -190,6 +198,14 @@ export function ScreenshotPreview() {
           >
             <span className="flex items-center gap-1.5">
               <Save size={13} /> Save
+            </span>
+          </PillButton>
+          <PillButton
+            onClick={onPinToScreen}
+            title="Pin to screen — float this image on top until you close it"
+          >
+            <span className="flex items-center gap-1.5">
+              <Pin size={13} /> Pin to screen
             </span>
           </PillButton>
         </div>

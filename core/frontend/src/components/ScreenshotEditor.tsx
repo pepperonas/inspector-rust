@@ -5,6 +5,7 @@ import {
   ArrowUpRight,
   Check,
   Circle,
+  Copy,
   Droplets,
   Hash,
   Highlighter,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   editorCancel,
+  editorCopy,
   editorSave,
   getPendingScreenshotInfo,
 } from "../lib/ipc";
@@ -101,6 +103,7 @@ export function ScreenshotEditor() {
   } | null>(null);
 
   const [saving, setSaving] = useState(false);
+  const [copied, setCopied] = useState(false);
 
   // ── Load the pending screenshot on mount ─────────────────────────
   const loadImage = useCallback(async () => {
@@ -194,6 +197,19 @@ export function ScreenshotEditor() {
   const cancel = useCallback(() => {
     void editorCancel().catch(() => undefined);
   }, []);
+  /** Copy the edited canvas to the clipboard (Cmd/Ctrl+C) — stay in the
+   *  editor. Briefly flips the toolbar's "Copy" affordance to "Copied". */
+  const copy = useCallback(async () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    try {
+      await editorCopy(canvas.toDataURL("image/png"));
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1200);
+    } catch (e) {
+      console.error("editor copy failed", e);
+    }
+  }, []);
 
   // ── Hotkeys ──────────────────────────────────────────────────────
   useEffect(() => {
@@ -211,6 +227,10 @@ export function ScreenshotEditor() {
       } else if (mod && e.key.toLowerCase() === "s") {
         e.preventDefault();
         void save();
+      } else if (mod && e.key.toLowerCase() === "c") {
+        // Copy the edited screenshot to the clipboard, stay in the editor.
+        e.preventDefault();
+        void copy();
       } else if (e.key === "Escape") {
         e.preventDefault();
         cancel();
@@ -230,7 +250,7 @@ export function ScreenshotEditor() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [undo, redo, save, cancel, textInput]);
+  }, [undo, redo, save, copy, cancel, textInput]);
 
   // ── Mouse helpers ────────────────────────────────────────────────
   const toCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -371,6 +391,15 @@ export function ScreenshotEditor() {
           >
             <span className="flex items-center gap-1">
               <X size={12} /> Cancel
+            </span>
+          </button>
+          <button
+            onClick={() => void copy()}
+            title="Copy edited image to clipboard (⌘C)"
+            className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-bg)]"
+          >
+            <span className="flex items-center gap-1">
+              <Copy size={12} /> {copied ? "Copied" : "Copy (⌘C)"}
             </span>
           </button>
           <button
@@ -725,40 +754,54 @@ function drawStep(
   ctx.restore();
 }
 
-/** Line + filled arrowhead at (x2, y2). Arrowhead size scales with
- *  stroke width (capped) so a thick arrow has a visible head. */
+/** A sleek arrow: rounded shaft into a **concave-back** arrowhead (the
+ *  back edges cave inward toward the tip, the polished CleanShot-style
+ *  look rather than a plain flat triangle). Head scales with stroke width
+ *  but is capped so it stays proportional, and the shaft stops at the
+ *  head's notch so the two flow into one another with no overshoot. */
 function drawArrow(ctx: CanvasRenderingContext2D, a: ArrowAnnotation) {
   const dx = a.x2 - a.x1;
   const dy = a.y2 - a.y1;
   const len = Math.hypot(dx, dy);
   if (len < 1) return;
-  const headLen = Math.min(24, Math.max(10, a.width * 3));
   const angle = Math.atan2(dy, dx);
+  const ux = Math.cos(angle);
+  const uy = Math.sin(angle);
+
+  // Head length scales with stroke width, capped, and never longer than
+  // the arrow itself (short drags still look right).
+  const headLen = Math.min(len * 0.9, Math.min(48, Math.max(16, a.width * 4.5)));
+  const barb = Math.PI / 6; // 30° half-angle
+  const notch = headLen * 0.62; // back-center pulled toward the tip → concave
+
+  const tipX = a.x2;
+  const tipY = a.y2;
+  const lx = tipX - headLen * Math.cos(angle - barb);
+  const ly = tipY - headLen * Math.sin(angle - barb);
+  const rx = tipX - headLen * Math.cos(angle + barb);
+  const ry = tipY - headLen * Math.sin(angle + barb);
+  const nx = tipX - ux * notch;
+  const ny = tipY - uy * notch;
 
   ctx.save();
   ctx.strokeStyle = a.color;
   ctx.fillStyle = a.color;
   ctx.lineWidth = a.width;
   ctx.lineCap = "round";
+  ctx.lineJoin = "round";
 
-  // Shaft — stop short of the arrowhead tip so the line doesn't
-  // overshoot the filled triangle.
+  // Shaft — flows into the head's notch (not the bare tip).
   ctx.beginPath();
   ctx.moveTo(a.x1, a.y1);
-  ctx.lineTo(a.x2 - Math.cos(angle) * headLen * 0.5, a.y2 - Math.sin(angle) * headLen * 0.5);
+  ctx.lineTo(nx, ny);
   ctx.stroke();
 
-  // Filled triangle head.
+  // Concave arrowhead: tip → left barb → notch → right barb.
   ctx.beginPath();
-  ctx.moveTo(a.x2, a.y2);
-  ctx.lineTo(
-    a.x2 - headLen * Math.cos(angle - Math.PI / 7),
-    a.y2 - headLen * Math.sin(angle - Math.PI / 7),
-  );
-  ctx.lineTo(
-    a.x2 - headLen * Math.cos(angle + Math.PI / 7),
-    a.y2 - headLen * Math.sin(angle + Math.PI / 7),
-  );
+  ctx.moveTo(tipX, tipY);
+  ctx.lineTo(lx, ly);
+  ctx.lineTo(nx, ny);
+  ctx.lineTo(rx, ry);
   ctx.closePath();
   ctx.fill();
   ctx.restore();

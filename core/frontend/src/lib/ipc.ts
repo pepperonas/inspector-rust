@@ -109,6 +109,13 @@ export function editorSave(pngB64: string): Promise<string> {
   return invoke("editor_save", { pngB64 });
 }
 
+/** Copy the *edited* canvas (base64 PNG) straight to the clipboard —
+ *  no file, no window close. Bound to Cmd/Ctrl+C in the editor.
+ *  Returns the PNG byte size. */
+export function editorCopy(pngB64: string): Promise<number> {
+  return invoke("editor_copy", { pngB64 });
+}
+
 /** Cancel: close the editor, re-show the preview with the original
  *  (unedited) capture. */
 export function editorCancel(): Promise<void> {

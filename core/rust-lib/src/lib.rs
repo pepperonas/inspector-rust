@@ -391,6 +391,7 @@ pub fn run(context: tauri::Context<Wry>) {
             screenshot_preview::get_pin_image,
             screenshot_preview::close_pin,
             screenshot_editor::editor_save,
+            screenshot_editor::editor_copy,
             screenshot_editor::editor_cancel,
             commands::eyedropper_to_clipboard,
             commands::resize_clipboard_image,

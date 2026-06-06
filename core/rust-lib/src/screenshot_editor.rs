@@ -141,6 +141,30 @@ pub fn editor_save(
     Ok(dest.to_string_lossy().into_owned())
 }
 
+/// Copy the *edited* canvas (base64 PNG from `toDataURL`) straight to the
+/// clipboard — no file, no history mutation beyond the clip, no window close.
+/// Bound to Cmd/Ctrl+C in the editor so the user can grab the annotated image
+/// and keep editing. Returns the PNG byte size for a toast.
+#[tauri::command]
+pub fn editor_copy(app: AppHandle, png_b64: String) -> Result<usize, String> {
+    use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
+
+    let b64 = png_b64
+        .strip_prefix("data:image/png;base64,")
+        .unwrap_or(&png_b64);
+    let bytes = B64
+        .decode(b64)
+        .map_err(|e| format!("decode editor PNG: {e}"))?;
+
+    if let Some(watcher) = app.try_state::<crate::clipboard_watcher::WatcherState>() {
+        watcher.mark_self_write(crate::models::ContentType::Image, &B64.encode(&bytes));
+    }
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard init: {e:?}"))?;
+    let img = RustImageData::from_bytes(&bytes).map_err(|e| format!("decode png: {e:?}"))?;
+    ctx.set_image(img).map_err(|e| format!("set_image: {e:?}"))?;
+    Ok(bytes.len())
+}
+
 /// Cancel — close the editor without saving. The pending entry is
 /// untouched, so the preview can re-open showing the original capture.
 #[tauri::command]

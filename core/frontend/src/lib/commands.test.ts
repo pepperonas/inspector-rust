@@ -4,6 +4,7 @@ import {
   DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
   commandSuggestions,
+  fuzzyScore,
   parseAlarmArg,
   parseWakelockArg,
   isGetShakyTrigger,
@@ -123,6 +124,65 @@ describe("parseCommand", () => {
   it("preserves internal spaces in args", () => {
     const r = parseCommand("tren the quick brown fox");
     expect(r?.arg).toBe("the quick brown fox");
+  });
+});
+
+describe("fuzzyScore", () => {
+  it("scores an empty needle as 0", () => {
+    expect(fuzzyScore("wakelock", "")).toBe(0);
+  });
+
+  it("scores an exact match best (most negative)", () => {
+    expect(fuzzyScore("freeze", "freeze")).toBe(-10000);
+  });
+
+  it("scores a prefix below (better than) a subsequence, longer keyword slightly worse", () => {
+    const shortPrefix = fuzzyScore("lock", "lo")!; // -5000 + 4
+    const longPrefix = fuzzyScore("shutdown", "sh")!; // -5000 + 8
+    expect(shortPrefix).toBe(-4996);
+    expect(longPrefix).toBe(-4992);
+    // Both are prefixes → both far below any subsequence score.
+    expect(shortPrefix).toBeLessThan(0);
+    expect(longPrefix).toBeLessThan(0);
+    // Shorter keyword wins (lower score).
+    expect(shortPrefix).toBeLessThan(longPrefix);
+  });
+
+  it("returns null for a 1–2 char non-prefix (stays conservative)", () => {
+    // "lk" is not a prefix of wakelock and is < 3 chars → no fuzzy match.
+    expect(fuzzyScore("wakelock", "lk")).toBeNull();
+  });
+
+  it("matches a 3+ char first-char-anchored subsequence with a positive score", () => {
+    // wlk → w(akelo... no, anchored at w then l, k) → positive.
+    const s = fuzzyScore("wakelock", "wlk");
+    expect(s).not.toBeNull();
+    expect(s!).toBeGreaterThan(0);
+  });
+
+  it("requires the first character to match for the subsequence tier", () => {
+    // 'a' anchors nothing in wakelock's first char 'w' → null.
+    expect(fuzzyScore("wakelock", "alk")).toBeNull();
+  });
+
+  it("returns null when a needle char can't be found in order", () => {
+    // 'q' never appears → no subsequence.
+    expect(fuzzyScore("wakelock", "wqk")).toBeNull();
+  });
+
+  it("treats a leading substring as a prefix, not a subsequence", () => {
+    // "pwg" IS a prefix of "pwgen" → prefix branch (-5000 + 5), not fuzzy.
+    expect(fuzzyScore("pwgen", "pwg")).toBe(-4995);
+  });
+
+  it("computes a true subsequence as gaps*3 + keyword.length", () => {
+    // pgn → pwgen: p(0) g(2, gap1) n(4, gap1) → gaps=2 → 2*3 + 5 = 11.
+    expect(fuzzyScore("pwgen", "pgn")).toBe(11);
+  });
+
+  it("penalises gaps in the subsequence", () => {
+    // frz → freeze: f(0) r(1, gap0) z(4, gap 4-1-1=2) → 2*3 + 6 = 12.
+    expect(fuzzyScore("freeze", "frz")).toBe(12);
   });
 });
 

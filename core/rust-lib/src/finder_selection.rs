@@ -222,3 +222,49 @@ pub fn open_terminal() -> Result<PathBuf, String> {
     }
     Ok(dir)
 }
+
+#[cfg(all(test, target_os = "macos"))]
+mod tests {
+    use super::sanitize_name;
+
+    #[test]
+    fn accepts_plain_names_and_trims() {
+        assert_eq!(sanitize_name("notes.txt").unwrap(), "notes.txt");
+        assert_eq!(sanitize_name("  spaced.md  ").unwrap(), "spaced.md");
+        assert_eq!(sanitize_name("My Folder").unwrap(), "My Folder");
+        // A dot inside the name (not the whole name) is fine.
+        assert_eq!(sanitize_name("archive.tar.gz").unwrap(), "archive.tar.gz");
+        // Leading dot (hidden file) is allowed — it's not "." or "..".
+        assert_eq!(sanitize_name(".gitignore").unwrap(), ".gitignore");
+        // Unicode is fine.
+        assert_eq!(sanitize_name("Über.txt").unwrap(), "Über.txt");
+    }
+
+    #[test]
+    fn rejects_empty_or_whitespace() {
+        assert!(sanitize_name("").is_err());
+        assert!(sanitize_name("   ").is_err());
+        assert!(sanitize_name("\t").is_err());
+    }
+
+    #[test]
+    fn rejects_path_separators_so_creation_cant_escape_the_folder() {
+        assert!(sanitize_name("a/b").is_err());
+        assert!(sanitize_name("/etc/passwd").is_err());
+        assert!(sanitize_name("../secret").is_err());
+        assert!(sanitize_name("sub/dir/file").is_err());
+    }
+
+    #[test]
+    fn rejects_dot_and_dotdot() {
+        assert!(sanitize_name(".").is_err());
+        assert!(sanitize_name("..").is_err());
+        // After trimming too.
+        assert!(sanitize_name("  ..  ").is_err());
+    }
+
+    #[test]
+    fn rejects_nul_byte() {
+        assert!(sanitize_name("evil\0name").is_err());
+    }
+}

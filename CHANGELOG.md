@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.66.1] — 2026-06-06
+
+### Tests
+
+Added 34 unit tests (843 → 877 total): `matchTotpEntries` fuzzy ranker (TS),
+`fuzzyScore` command ranking (TS), `finder_selection::sanitize_name`
+path-escape rejection (Rust), `brightness` percent↔VCP monotonicity +
+round-trip bounds (Rust), and the editor window-size string parser (Rust).
+
 ## [0.66.0] — 2026-06-06
 
 ### Fixed — Screenshot editor: adding text

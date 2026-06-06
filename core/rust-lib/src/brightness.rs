@@ -197,4 +197,51 @@ mod tests {
             assert_eq!(raw_to_percent(raw, 100), p);
         }
     }
+
+    #[test]
+    fn percent_to_raw_is_monotonic_non_decreasing() {
+        for max in [100u16, 255, 1000] {
+            let mut prev = 0u16;
+            for p in 0..=100u8 {
+                let raw = percent_to_raw(p, max);
+                assert!(raw >= prev, "p={p} max={max}: {raw} < {prev}");
+                assert!(raw <= max, "p={p} raw {raw} exceeds max {max}");
+                prev = raw;
+            }
+        }
+    }
+
+    #[test]
+    fn raw_to_percent_is_monotonic_non_decreasing() {
+        let max = 255u16;
+        let mut prev = 0u8;
+        for raw in 0..=max {
+            let pct = raw_to_percent(raw, max);
+            assert!(pct >= prev, "raw={raw}: {pct} < {prev}");
+            assert!(pct <= 100);
+            prev = pct;
+        }
+    }
+
+    #[test]
+    fn round_trip_is_within_one_percent_for_max_255() {
+        // max=255 can't represent every percent exactly, but the round trip
+        // must land within ±1%.
+        for p in 0..=100u8 {
+            let back = raw_to_percent(percent_to_raw(p, 255), 255);
+            assert!(
+                (i16::from(back) - i16::from(p)).abs() <= 1,
+                "p={p} round-tripped to {back}"
+            );
+        }
+    }
+
+    #[test]
+    fn handles_max_one_endpoints() {
+        // A monitor reporting a 0..=1 range (degenerate but valid).
+        assert_eq!(percent_to_raw(0, 1), 0);
+        assert_eq!(percent_to_raw(100, 1), 1);
+        assert_eq!(percent_to_raw(49, 1), 0); // 0.49 → 0
+        assert_eq!(percent_to_raw(50, 1), 1); // 0.50 → 1 (rounds up)
+    }
 }

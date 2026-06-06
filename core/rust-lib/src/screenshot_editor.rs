@@ -32,8 +32,21 @@ const EDITOR_MIN_H: f64 = 480.0;
 /// (logical pixels), so it's restored on the next open (v0.66.0).
 const KEY_EDITOR_SIZE: &str = "screenshot.editor_size";
 
+/// Parse a `"WIDTHxHEIGHT"` size string into `(w, h)`. Pure + unit-tested.
+/// Returns `None` for anything malformed.
+fn parse_size(s: &str) -> Option<(f64, f64)> {
+    let (w, h) = s.split_once('x')?;
+    let w = w.trim().parse::<f64>().ok()?;
+    let h = h.trim().parse::<f64>().ok()?;
+    if w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0 {
+        Some((w, h))
+    } else {
+        None
+    }
+}
+
 /// Read the saved editor size from settings, clamped to the minimum.
-/// Falls back to the default when unset / unparsable.
+/// Falls back to the default when unset / unparsable / below the minimum.
 fn saved_editor_size(app: &AppHandle) -> (f64, f64) {
     let Some(db) = app.try_state::<crate::db::DbHandle>() else {
         return (EDITOR_W, EDITOR_H);
@@ -41,10 +54,7 @@ fn saved_editor_size(app: &AppHandle) -> (f64, f64) {
     let parsed = crate::settings::get(&db, KEY_EDITOR_SIZE)
         .ok()
         .flatten()
-        .and_then(|s| {
-            let (w, h) = s.split_once('x')?;
-            Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?))
-        });
+        .and_then(|s| parse_size(&s));
     match parsed {
         Some((w, h)) if w >= EDITOR_MIN_W && h >= EDITOR_MIN_H => (w, h),
         _ => (EDITOR_W, EDITOR_H),
@@ -217,4 +227,38 @@ pub fn editor_cancel(app: AppHandle) -> Result<(), String> {
         let _ = win.show();
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_size;
+
+    #[test]
+    fn parses_valid_size_strings() {
+        assert_eq!(parse_size("900x640"), Some((900.0, 640.0)));
+        assert_eq!(parse_size("1280x720"), Some((1280.0, 720.0)));
+        // Whitespace around the components is tolerated.
+        assert_eq!(parse_size(" 800 x 600 "), Some((800.0, 600.0)));
+        // Fractional (logical px after scale division) is fine.
+        assert_eq!(parse_size("960.5x540.25"), Some((960.5, 540.25)));
+    }
+
+    #[test]
+    fn rejects_malformed_strings() {
+        assert_eq!(parse_size(""), None);
+        assert_eq!(parse_size("900"), None); // no separator
+        assert_eq!(parse_size("900x"), None); // missing height
+        assert_eq!(parse_size("x640"), None); // missing width
+        assert_eq!(parse_size("axb"), None); // non-numeric
+        assert_eq!(parse_size("900*640"), None); // wrong separator
+    }
+
+    #[test]
+    fn rejects_non_positive_and_non_finite() {
+        assert_eq!(parse_size("0x640"), None);
+        assert_eq!(parse_size("900x0"), None);
+        assert_eq!(parse_size("-900x640"), None);
+        assert_eq!(parse_size("infx640"), None);
+        assert_eq!(parse_size("NaNxNaN"), None);
+    }
 }

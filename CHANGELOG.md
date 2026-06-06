@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.62.0] — 2026-06-06
+
+### Added — Monitor brightness (`brightness` / `bri`)
+
+Adjust the brightness of every DDC/CI-capable monitor — including
+secondary/external ones — from a slider overlay (one per monitor + an
+"all" master), Lunar / TwinkleTray style. Uses VCP feature `0x10` via
+`ddc-hi` on macOS / Windows / Linux. Pure percent↔VCP mapping unit-tested;
+DDC writes debounced. Internal laptop panels (no DDC) are a follow-up.
+
 ## [0.61.0] — 2026-06-06
 
 ### Added — Windows parity (first tranche)

@@ -22,8 +22,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 28 commands (+ shot×4, clean/cleanup)", () => {
-    expect(COMMANDS.length).toBe(28);
+  it("has 30 commands (+ shot×4, clean/cleanup, brightness/bri)", () => {
+    expect(COMMANDS.length).toBe(30);
   });
 
   it("every keyword is unique", () => {
@@ -534,6 +534,13 @@ describe("parseCommand — clean", () => {
   it("parses clean and the cleanup alias to the clean kind", () => {
     expect(parseCommand("clean")?.spec.kind).toBe("clean");
     expect(parseCommand("cleanup")?.spec.kind).toBe("clean");
+  });
+});
+
+describe("parseCommand — brightness", () => {
+  it("parses brightness and the bri alias to the brightness kind", () => {
+    expect(parseCommand("brightness")?.spec.kind).toBe("brightness");
+    expect(parseCommand("bri")?.spec.kind).toBe("brightness");
   });
 });
 

@@ -83,6 +83,7 @@ import {
   screenshotRepeatLast,
   cleanerScan,
   cleanerExecute,
+  brightnessOpen,
   showStatusToast,
   brunoGetDefaults,
   startTimer,
@@ -1279,6 +1280,15 @@ function App() {
           return true;
         }
         // Backend hides the popup; region mode also drives its own UI.
+      } else if (commandKind === "brightness") {
+        // Backend hides the popup + shows the slider overlay window.
+        try {
+          await brightnessOpen();
+        } catch (e) {
+          setPasteError("other");
+          console.error("brightness failed", e);
+          return true;
+        }
       } else if (commandKind === "clean") {
         // Always preview first (dry-run scan), confirm, THEN delete.
         try {

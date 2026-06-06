@@ -47,7 +47,8 @@ export type CommandKind =
   | "shot-full"
   | "shot-window"
   | "shot-last"
-  | "clean";
+  | "clean"
+  | "brightness";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -286,6 +287,21 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "cleanup",
     syntax: "cleanup",
     description: "Alias for clean",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "brightness",
+    keyword: "brightness",
+    syntax: "brightness",
+    description: "Adjust monitor brightness — opens a slider per (DDC) monitor",
+    requiresArg: false,
+  },
+  {
+    kind: "brightness",
+    keyword: "bri",
+    syntax: "bri",
+    description: "Alias for brightness",
     requiresArg: false,
     hidden: true,
   },

@@ -61,7 +61,7 @@ version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -624,7 +624,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -855,6 +855,72 @@ dependencies = [
 ]
 
 [[package]]
+name = "ddc"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ba69f2c53e320fc4abad17cb02bbbf04d1a36f18e9907f347589ec5991b3c6c5"
+dependencies = [
+ "mccs",
+]
+
+[[package]]
+name = "ddc-hi"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c6747b17c926a2aa34739b30f1a6cc726e3a7baf0e2f69a4c03a95cf5de94de"
+dependencies = [
+ "anyhow",
+ "ddc",
+ "ddc-i2c",
+ "ddc-macos",
+ "ddc-winapi",
+ "edid",
+ "log",
+ "mccs",
+ "mccs-caps",
+ "mccs-db",
+ "nvapi",
+]
+
+[[package]]
+name = "ddc-i2c"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1ef18fac9fd5c11d0c7b85a80887b01f7361b49edb2b4627243928b90ce2691b"
+dependencies = [
+ "ddc",
+ "i2c",
+ "i2c-linux",
+ "resize-slice",
+]
+
+[[package]]
+name = "ddc-macos"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "28aca22e30b33daf41a5d269a19b00588adf5242ed5525d3818195de17a534dc"
+dependencies = [
+ "core-foundation",
+ "core-foundation-sys",
+ "core-graphics 0.24.0",
+ "ddc",
+ "io-kit-sys",
+ "mach2",
+ "thiserror 1.0.69",
+]
+
+[[package]]
+name = "ddc-winapi"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5b65693556bdf54c77e0c82db4951686e4f030e7eb1c643d1bc781de2a4bce35"
+dependencies = [
+ "ddc",
+ "widestring",
+ "winapi",
+]
+
+[[package]]
 name = "der"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1059,6 +1125,12 @@ dependencies = [
 
 [[package]]
 name = "dtoa"
+version = "0.4.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56899898ce76aaf4a0f24d914c97ea6ed976d42fec6ad33fcbb0a1103e07b2b0"
+
+[[package]]
+name = "dtoa"
 version = "1.0.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4c3cf4824e2d5f025c7b531afcb2325364084a16806f6d47fbc1f5fbd9960590"
@@ -1069,7 +1141,7 @@ version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cd1511a7b6a56299bd043a9c167a6d2bfb37bf84a6dfceaba651168adfb43c87"
 dependencies = [
- "dtoa",
+ "dtoa 1.0.11",
 ]
 
 [[package]]
@@ -1085,13 +1157,22 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d0881ea181b1df73ff77ffaaf9c7544ecc11e82fba9b5f27b262a3c73a332555"
 
 [[package]]
+name = "edid"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24ce75530893d834dcfe3bb67ce0e7dec489484e7cb4423ca31618af4bab24fe"
+dependencies = [
+ "nom 3.2.1",
+]
+
+[[package]]
 name = "embed-resource"
 version = "3.0.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63a1d0de4f2249aa0ff5884d7080814f446bb241a559af6c170a41e878ed2d45"
 dependencies = [
  "cc",
- "memchr",
+ "memchr 2.8.0",
  "rustc_version",
  "toml 0.9.12+spec-1.1.0",
  "vswhom",
@@ -1447,7 +1528,7 @@ dependencies = [
  "futures-macro",
  "futures-sink",
  "futures-task",
- "memchr",
+ "memchr 2.8.0",
  "pin-project-lite",
  "slab",
 ]
@@ -1696,7 +1777,7 @@ dependencies = [
  "glib-sys",
  "gobject-sys",
  "libc",
- "memchr",
+ "memchr 2.8.0",
  "once_cell",
  "smallvec",
  "thiserror 1.0.69",
@@ -2013,6 +2094,39 @@ dependencies = [
 ]
 
 [[package]]
+name = "i2c"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "60c7b7bdd7b3a985fdcf94a0d7d98e7a47fde8b7f22fb55ce1a91cc104a2ce9a"
+dependencies = [
+ "bitflags 1.3.2",
+]
+
+[[package]]
+name = "i2c-linux"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c0268a871aaa071221d6c2875ebedcf64710e59b0d87c68c8faf5e98b87dd2a4"
+dependencies = [
+ "bitflags 1.3.2",
+ "i2c",
+ "i2c-linux-sys",
+ "resize-slice",
+ "udev",
+]
+
+[[package]]
+name = "i2c-linux-sys"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "55cd060ed0016621d3da4ed3a23b0158084de90d1f3a8e59f3d391aacd3bbcf8"
+dependencies = [
+ "bitflags 1.3.2",
+ "byteorder",
+ "libc",
+]
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2241,6 +2355,7 @@ dependencies = [
  "block2 0.6.2",
  "chrono",
  "clipboard-rs",
+ "ddc-hi",
  "dirs 5.0.1",
  "enigo",
  "image",
@@ -2313,6 +2428,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-kit-sys"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "617ee6cf8e3f66f3b4ea67a4058564628cde41901316e19f559e14c7c72c5e7b"
+dependencies = [
+ "core-foundation-sys",
+ "mach2",
+]
+
+[[package]]
 name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2324,7 +2449,7 @@ version = "0.7.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25e659a4bb38e810ebc252e53b5814ff908a8c58c2a9ce2fae1bbec24cbf4e20"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
  "serde",
 ]
 
@@ -2578,6 +2703,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "libudev-sys"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3c8469b4a23b962c1396b9b451dda50ef5b283e8dd309d69033475fa9b334324"
+dependencies = [
+ "libc",
+ "pkg-config",
+]
+
+[[package]]
+name = "linked-hash-map"
+version = "0.5.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0717cef1bc8b636c6e1c1bbdefc09e6322da8a9321966e8928ef80d20f7f770f"
+
+[[package]]
 name = "linux-raw-sys"
 version = "0.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2615,6 +2756,15 @@ name = "mac"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c41e0c4fef86961ac6d6f8a82609f55f31b05e4fce149ac5710e439df7619ba4"
+
+[[package]]
+name = "mach2"
+version = "0.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d640282b302c0bb0a2a8e0233ead9035e3bed871f0b7e81fe4a1ec829765db44"
+dependencies = [
+ "libc",
+]
 
 [[package]]
 name = "markup5ever"
@@ -2675,6 +2825,47 @@ checksum = "a06de3016e9fae57a36fd14dba131fccf49f74b40b7fbdb472f96e361ec71a08"
 dependencies = [
  "autocfg",
  "rawpointer",
+]
+
+[[package]]
+name = "mccs"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6090d6b3ded42fed158b660a6b9cdaa1924f3eef6c6598e82a9ca9b70a1988cd"
+dependencies = [
+ "void",
+]
+
+[[package]]
+name = "mccs-caps"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8eb961d01a3bb07969cfa276be2ab88c31d0fefa77a872696832732d6e9ec094"
+dependencies = [
+ "mccs",
+ "nom 3.2.1",
+]
+
+[[package]]
+name = "mccs-db"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3cdaa8fe19a1a1918becc1b8cbbbdc1058bc71411dff4de0a6ec6b5269f49d38"
+dependencies = [
+ "mccs",
+ "nom 3.2.1",
+ "serde",
+ "serde_derive",
+ "serde_yaml",
+]
+
+[[package]]
+name = "memchr"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "148fab2e51b4f1cfc66da2a7c32981d1d3c083a803978268bb11fe4b86925e7a"
+dependencies = [
+ "libc",
 ]
 
 [[package]]
@@ -2835,11 +3026,20 @@ checksum = "72ef4a56884ca558e5ddb05a1d1e7e1bfd9a68d9ed024c21704cc98872dae1bb"
 
 [[package]]
 name = "nom"
+version = "3.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "05aec50c70fd288702bcd93284a8444607f3292dbdf2a30de5ea5dcdbe72287b"
+dependencies = [
+ "memchr 1.0.2",
+]
+
+[[package]]
+name = "nom"
 version = "8.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df9761775871bdef83bee530e60050f7e54b1105350d6884eb0fb4f46c2f9405"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -2913,6 +3113,28 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "nvapi"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c63de8cd8362e2c38d1a48dea6ae68e6293a8d8d22a52180d0f8dcc779b3158"
+dependencies = [
+ "i2c",
+ "log",
+ "nvapi-sys",
+ "void",
+]
+
+[[package]]
+name = "nvapi-sys"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b29e9a9393c69ee856bfcf5f76ed1ef32d2c0dd6f58558fd43334278fc1e7ea7"
+dependencies = [
+ "bitflags 1.3.2",
+ "winapi",
 ]
 
 [[package]]
@@ -3820,7 +4042,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "76979bea66e7875e7509c4ec5300112b316af87fa7a252ca91c448b32dfe3993"
 dependencies = [
  "bitflags 2.11.1",
- "memchr",
+ "memchr 2.8.0",
  "pulldown-cmark-escape",
  "unicase",
 ]
@@ -3849,7 +4071,7 @@ version = "0.38.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b66c2058c55a409d601666cffe35f04333cf1013010882cec174a7467cd4e21c"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -3858,7 +4080,7 @@ version = "0.39.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "958f21e8e7ceb5a1aa7fa87fab28e7c75976e0bfe7e23ff069e0a260f894067d"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -4039,7 +4261,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e10754a14b9137dd7b1e3e5b0493cc9171fdd105e0ab477f51b72e7f3ac0e276"
 dependencies = [
  "aho-corasick",
- "memchr",
+ "memchr 2.8.0",
  "regex-automata",
  "regex-syntax",
 ]
@@ -4051,7 +4273,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e1dd4122fc1595e8162618945476892eefca7b88c52820e74af6262213cae8f"
 dependencies = [
  "aho-corasick",
- "memchr",
+ "memchr 2.8.0",
  "regex-syntax",
 ]
 
@@ -4093,6 +4315,15 @@ dependencies = [
  "wasm-bindgen-futures",
  "wasm-streams",
  "web-sys",
+]
+
+[[package]]
+name = "resize-slice"
+version = "0.1.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8a3cb2f74a9891e76958b9e0ccd269a25b466c3ae3bb3efd71db157248308c4a"
+dependencies = [
+ "uninitialized",
 ]
 
 [[package]]
@@ -4390,7 +4621,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "83fc039473c5595ace860d8c4fafa220ff474b3fc6bfdb4293327f1a37e94d86"
 dependencies = [
  "itoa",
- "memchr",
+ "memchr 2.8.0",
  "serde",
  "serde_core",
  "zmij",
@@ -4454,6 +4685,18 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
+]
+
+[[package]]
+name = "serde_yaml"
+version = "0.7.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ef8099d3df28273c99a1728190c7a9f19d444c941044f64adf986bee7ec53051"
+dependencies = [
+ "dtoa 0.4.8",
+ "linked-hash-map",
+ "serde",
+ "yaml-rust",
 ]
 
 [[package]]
@@ -4771,7 +5014,7 @@ checksum = "4c33cd241af0f2e9e3b5c32163b873b29956890b5342e6745b917ce9d490f4af"
 dependencies = [
  "core-foundation-sys",
  "libc",
- "memchr",
+ "memchr 2.8.0",
  "ntapi",
  "windows 0.57.0",
 ]
@@ -5175,7 +5418,7 @@ dependencies = [
  "json-patch",
  "kuchikiki",
  "log",
- "memchr",
+ "memchr 2.8.0",
  "phf 0.11.3",
  "proc-macro2",
  "quote",
@@ -5623,8 +5866,8 @@ version = "3.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8765b90061cba6c22b5831f675da109ae5561588290f9fa2317adab2714d5a6"
 dependencies = [
- "memchr",
- "nom",
+ "memchr 2.8.0",
+ "nom 8.0.0",
  "petgraph",
 ]
 
@@ -5645,6 +5888,16 @@ name = "typenum"
 version = "1.20.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "40ce102ab67701b8526c123c1bab5cbe42d7040ccfd0f64af1a385808d2f43de"
+
+[[package]]
+name = "udev"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "47504d1a49b2ea1b133e7ddd1d9f0a83cf03feb9b440c2c470d06db4589cf301"
+dependencies = [
+ "libc",
+ "libudev-sys",
+]
 
 [[package]]
 name = "uds_windows"
@@ -5721,6 +5974,12 @@ name = "unicode-xid"
 version = "0.2.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ebc1c04c71510c7f702b52b7c350734c9ff1295c464a03335b00bb84fc54f853"
+
+[[package]]
+name = "uninitialized"
+version = "0.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74c1aa4511c38276c548406f0b1f5f8b793f000cfb51e18f278a102abd057e81"
 
 [[package]]
 name = "universal-hash"
@@ -5840,6 +6099,12 @@ name = "version_check"
 version = "0.9.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
+
+[[package]]
+name = "void"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
 name = "vswhom"
@@ -6198,6 +6463,12 @@ name = "weezl"
 version = "0.1.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
+
+[[package]]
+name = "widestring"
+version = "1.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "72069c3113ab32ab29e5584db3c6ec55d416895e60715417b5b883a357c3e471"
 
 [[package]]
 name = "winapi"
@@ -6865,7 +7136,7 @@ version = "0.5.40"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f593a95398737aeed53e489c785df13f3618e41dbcd6718c6addbf1395aa6876"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -6874,7 +7145,7 @@ version = "0.7.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "df79d97927682d2fd8adb29682d1140b343be4ac0f08fd68b7765d9c059d3945"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -6883,7 +7154,7 @@ version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee1708bef14716a11bae175f579062d4554d95be2c6829f518df847b7b3fdd0"
 dependencies = [
- "memchr",
+ "memchr 2.8.0",
 ]
 
 [[package]]
@@ -7130,6 +7401,15 @@ name = "xkeysym"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b9cc00251562a284751c9973bace760d86c0276c471b4be569fe6b068ee97a56"
+
+[[package]]
+name = "yaml-rust"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "56c1936c4cc7a1c9ab21a1ebb602eb942ba868cbd44a99cb7cdc5892335e1c85"
+dependencies = [
+ "linked-hash-map",
+]
 
 [[package]]
 name = "yoke"

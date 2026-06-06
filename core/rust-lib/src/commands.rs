@@ -2722,3 +2722,69 @@ pub fn set_cleaner_config(
     cleaner::save_config(&db, &config).map_err(map_err)?;
     Ok(cleaner::load_config(&db))
 }
+
+// ── Monitor brightness (v0.62.0) ───────────────────────────────────────────────
+
+/// Enumerate DDC-capable monitors with their current brightness. Slow (probes
+/// each display) — the overlay calls it once on open.
+#[tauri::command]
+pub fn list_brightness_monitors() -> Vec<crate::brightness::MonitorInfo> {
+    crate::brightness::enumerate()
+}
+
+#[tauri::command]
+pub fn get_monitor_brightness(id: u32) -> Result<u8, String> {
+    crate::brightness::get(id)
+}
+
+/// Set monitor `id` to `percent` (0–100). The frontend debounces during a
+/// slider drag so we don't flood the (sometimes slow) DDC bus.
+#[tauri::command]
+pub fn set_monitor_brightness(id: u32, percent: u8) -> Result<(), String> {
+    crate::brightness::set(id, percent)
+}
+
+/// Window label for the brightness slider overlay.
+pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
+
+/// Open the brightness overlay: hide the popup, then build/show a small
+/// interactive (focusable, NOT click-through) always-on-top window centred on
+/// screen with one slider per monitor.
+#[tauri::command]
+pub fn brightness_open(app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    hotkey::hide_popup(&app);
+    let win = if let Some(existing) = app.get_webview_window(BRIGHTNESS_OVERLAY_LABEL) {
+        existing
+    } else {
+        WebviewWindowBuilder::new(
+            &app,
+            BRIGHTNESS_OVERLAY_LABEL,
+            WebviewUrl::App("index.html".into()),
+        )
+        .title("Brightness")
+        .inner_size(380.0, 360.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("build brightness overlay: {e}"))?
+    };
+    let _ = win.center();
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+/// Close the brightness overlay (called by its own close button / Esc).
+#[tauri::command]
+pub fn brightness_close(app: AppHandle) -> Result<(), String> {
+    if let Some(win) = app.get_webview_window(BRIGHTNESS_OVERLAY_LABEL) {
+        let _ = win.close();
+    }
+    Ok(())
+}

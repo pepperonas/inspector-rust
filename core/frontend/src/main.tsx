@@ -6,6 +6,7 @@ import { ScreenshotPreview } from "./components/ScreenshotPreview";
 import { ScreenshotEditor } from "./components/ScreenshotEditor";
 import { ScreenshotPin } from "./components/ScreenshotPin";
 import { StatusToast } from "./components/StatusToast";
+import { BrightnessOverlay } from "./components/BrightnessOverlay";
 import "./styles.css";
 
 // Inspector Rust runs in three Tauri windows depending on what the
@@ -23,6 +24,7 @@ function Mount() {
   if (label === "screenshot-preview") return <ScreenshotPreview />;
   if (label === "screenshot-editor") return <ScreenshotEditor />;
   if (label === "status-toast") return <StatusToast />;
+  if (label === "brightness-overlay") return <BrightnessOverlay />;
   if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
   return <App />;
 }

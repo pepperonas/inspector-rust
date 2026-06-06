@@ -960,6 +960,35 @@ export function cleanerCategories(): Promise<CleanerCategory[]> {
   return invoke("cleaner_categories");
 }
 
+// ── Monitor brightness (v0.62.0) ───────────────────────────────────────────
+
+export interface MonitorInfo {
+  id: number;
+  name: string;
+  /** 0–100, current. */
+  brightness: number;
+  /** Whether the monitor answered DDC (slider usable). */
+  supports_ddc: boolean;
+}
+
+/** Enumerate DDC monitors + current brightness (slow; call once on open). */
+export function listBrightnessMonitors(): Promise<MonitorInfo[]> {
+  return invoke("list_brightness_monitors");
+}
+export function getMonitorBrightness(id: number): Promise<number> {
+  return invoke("get_monitor_brightness", { id });
+}
+export function setMonitorBrightness(id: number, percent: number): Promise<void> {
+  return invoke("set_monitor_brightness", { id, percent });
+}
+/** Hide the popup + open the brightness slider overlay window. */
+export function brightnessOpen(): Promise<void> {
+  return invoke("brightness_open");
+}
+export function brightnessClose(): Promise<void> {
+  return invoke("brightness_close");
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

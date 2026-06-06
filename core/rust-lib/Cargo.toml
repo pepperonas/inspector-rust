@@ -46,6 +46,12 @@ pulldown-cmark = { version = "0.10", default-features = false, features = ["html
 # `2fa` overlay / `otp <issuer>` autocomplete (v0.47.0+).
 # ~30 KB binary impact, MIT, well-maintained.
 totp-rs = "5.7"
+# DDC/CI monitor control for the brightness feature (v0.62.0). `ddc-hi`
+# wraps the per-OS DDC backends (ddc-macos / ddc-winapi / ddc-i2c) behind
+# one API; brightness is VCP feature 0x10 — the same mechanism Lunar
+# (external displays) and TwinkleTray use. External/secondary monitors
+# for now; internal laptop panels (DisplayServices/WMI) are a follow-up.
+ddc-hi = "0.4"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

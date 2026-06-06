@@ -3,6 +3,7 @@
 mod app_launcher;
 mod auto_expand;
 mod backup;
+mod brightness;
 mod bruno;
 mod cli_dispatch;
 mod cleaner;
@@ -436,6 +437,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::cleaner_categories,
             commands::get_cleaner_config,
             commands::set_cleaner_config,
+            commands::list_brightness_monitors,
+            commands::get_monitor_brightness,
+            commands::set_monitor_brightness,
+            commands::brightness_open,
+            commands::brightness_close,
             commands::get_screen_recording_status,
             commands::request_screen_recording_grant,
             commands::open_screen_recording_settings,

@@ -36,6 +36,52 @@ pub fn capture() -> Result<Vec<u8>> {
     capture_impl()
 }
 
+/// Capture the whole (primary / virtual) screen, no interaction. macOS:
+/// `screencapture -x`; Windows: GDI full-screen blit; Linux: `grim`/`scrot`.
+pub fn capture_fullscreen() -> Result<Vec<u8>> {
+    capture_fullscreen_impl()
+}
+
+/// Capture the currently-active window. macOS: `screencapture -w`
+/// (click a window — Apple's own window picker); Windows: blit the
+/// foreground window's rect; Linux: falls back to full-screen.
+pub fn capture_window() -> Result<Vec<u8>> {
+    capture_window_impl()
+}
+
+/// Capture mode, persisted as a string so "repeat last" can replay it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CaptureMode {
+    Region,
+    Fullscreen,
+    Window,
+}
+
+impl CaptureMode {
+    pub fn from_str_loose(s: &str) -> CaptureMode {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "fullscreen" | "full" => CaptureMode::Fullscreen,
+            "window" | "win" => CaptureMode::Window,
+            _ => CaptureMode::Region,
+        }
+    }
+    pub fn as_str(self) -> &'static str {
+        match self {
+            CaptureMode::Region => "region",
+            CaptureMode::Fullscreen => "fullscreen",
+            CaptureMode::Window => "window",
+        }
+    }
+    /// Run the capture for this mode.
+    pub fn capture(self) -> Result<Vec<u8>> {
+        match self {
+            CaptureMode::Region => capture(),
+            CaptureMode::Fullscreen => capture_fullscreen(),
+            CaptureMode::Window => capture_window(),
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn capture_impl() -> Result<Vec<u8>> {
     use chrono::Utc;
@@ -78,9 +124,65 @@ fn capture_impl() -> Result<Vec<u8>> {
     Ok(bytes)
 }
 
+/// Shared macOS `screencapture` → temp file → bytes helper for the
+/// non-interactive modes (fullscreen / window). `extra_args` selects the
+/// mode (`-w` for window, none for fullscreen). A missing / empty output
+/// file is treated as `Cancelled` (the user pressed Esc in `-w` mode).
+#[cfg(target_os = "macos")]
+fn screencapture_png(extra_args: &[&str]) -> Result<Vec<u8>> {
+    use chrono::Utc;
+    use std::process::Command;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "inspector-rust-shot-{}.png",
+        Utc::now().timestamp_millis()
+    ));
+    let mut cmd = Command::new("/usr/sbin/screencapture");
+    cmd.args(["-x", "-t", "png"]);
+    cmd.args(extra_args);
+    cmd.arg(&tmp);
+    let status = cmd.status().context("spawn /usr/sbin/screencapture")?;
+    if !status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!("screencapture exited with status {:?}", status.code());
+    }
+    if !tmp.exists() {
+        return Err(Cancelled.into());
+    }
+    let bytes = std::fs::read(&tmp).context("read captured png")?;
+    let _ = std::fs::remove_file(&tmp);
+    if bytes.is_empty() {
+        return Err(Cancelled.into());
+    }
+    Ok(bytes)
+}
+
+#[cfg(target_os = "macos")]
+fn capture_fullscreen_impl() -> Result<Vec<u8>> {
+    // No -i, no -w → captures the main display.
+    screencapture_png(&[])
+}
+
+#[cfg(target_os = "macos")]
+fn capture_window_impl() -> Result<Vec<u8>> {
+    // -w → Apple's interactive window picker (click a window). -o omits the
+    // window shadow so the PNG is the window content only.
+    screencapture_png(&["-w", "-o"])
+}
+
 #[cfg(target_os = "windows")]
 fn capture_impl() -> Result<Vec<u8>> {
     unsafe { win_impl::capture() }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_fullscreen_impl() -> Result<Vec<u8>> {
+    unsafe { win_impl::capture_fullscreen() }
+}
+
+#[cfg(target_os = "windows")]
+fn capture_window_impl() -> Result<Vec<u8>> {
+    unsafe { win_impl::capture_window() }
 }
 
 /// Windows GDI fullscreen overlay region picker.
@@ -207,6 +309,43 @@ mod win_impl {
         DeleteDC(mem_dc);
         S.with(|s| *s.borrow_mut() = None);
 
+        png
+    }
+
+    /// Full virtual-screen capture (no overlay, no interaction).
+    pub unsafe fn capture_fullscreen() -> Result<Vec<u8>> {
+        let vx = GetSystemMetrics(SM_XVIRTUALSCREEN);
+        let vy = GetSystemMetrics(SM_YVIRTUALSCREEN);
+        let vw = GetSystemMetrics(SM_CXVIRTUALSCREEN);
+        let vh = GetSystemMetrics(SM_CYVIRTUALSCREEN);
+        if vw <= 0 || vh <= 0 {
+            anyhow::bail!("invalid virtual screen size {vw}x{vh}");
+        }
+        let desk_dc = GetDC(None);
+        let png = extract_png(desk_dc, vx, vy, vw, vh);
+        ReleaseDC(None, desk_dc);
+        png
+    }
+
+    /// Capture the foreground window's on-screen rectangle.
+    pub unsafe fn capture_window() -> Result<Vec<u8>> {
+        use windows::Win32::Foundation::RECT;
+        use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect};
+
+        let hwnd = GetForegroundWindow();
+        if hwnd.0.is_null() {
+            anyhow::bail!("no foreground window");
+        }
+        let mut r = RECT::default();
+        GetWindowRect(hwnd, &mut r).map_err(|e| anyhow::anyhow!("GetWindowRect: {e}"))?;
+        let w = (r.right - r.left).max(0);
+        let h = (r.bottom - r.top).max(0);
+        if w == 0 || h == 0 {
+            anyhow::bail!("foreground window has zero size");
+        }
+        let desk_dc = GetDC(None);
+        let png = extract_png(desk_dc, r.left, r.top, w, h);
+        ReleaseDC(None, desk_dc);
         png
     }
 
@@ -456,8 +595,84 @@ fn which_exists(cmd: &str) -> bool {
         .unwrap_or(false)
 }
 
+/// Linux full-screen grab: `grim` (Wayland) or `scrot` (X11), no selection.
+#[cfg(target_os = "linux")]
+fn capture_fullscreen_impl() -> Result<Vec<u8>> {
+    use anyhow::Context;
+    use chrono::Utc;
+    use std::process::Command;
+
+    let tmp = std::env::temp_dir().join(format!(
+        "inspector-rust-shot-{}.png",
+        Utc::now().timestamp_millis()
+    ));
+    let wayland = std::env::var_os("WAYLAND_DISPLAY").is_some() && which_exists("grim");
+    let status = if wayland {
+        Command::new("grim").arg(&tmp).status().context("spawn grim")?
+    } else if which_exists("scrot") {
+        Command::new("scrot").arg(&tmp).status().context("spawn scrot")?
+    } else {
+        anyhow::bail!(
+            "full-screen capture needs scrot (X11) or grim (Wayland). \
+             Install: sudo apt install scrot  or  sudo apt install grim"
+        );
+    };
+    if !status.success() {
+        let _ = std::fs::remove_file(&tmp);
+        anyhow::bail!("screenshot tool exited with status {:?}", status.code());
+    }
+    if !tmp.exists() {
+        return Err(Cancelled.into());
+    }
+    let bytes = std::fs::read(&tmp).context("read captured png")?;
+    let _ = std::fs::remove_file(&tmp);
+    if bytes.is_empty() {
+        return Err(Cancelled.into());
+    }
+    Ok(bytes)
+}
+
+/// Linux active-window capture isn't reliably available cross-compositor;
+/// fall back to full-screen (documented best-effort).
+#[cfg(target_os = "linux")]
+fn capture_window_impl() -> Result<Vec<u8>> {
+    capture_fullscreen_impl()
+}
+
 // Other Unix targets (not Linux / macOS / Windows).
 #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn capture_impl() -> Result<Vec<u8>> {
     anyhow::bail!("region capture is not implemented on this platform")
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn capture_fullscreen_impl() -> Result<Vec<u8>> {
+    anyhow::bail!("full-screen capture is not implemented on this platform")
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn capture_window_impl() -> Result<Vec<u8>> {
+    anyhow::bail!("window capture is not implemented on this platform")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn capture_mode_parses_loosely() {
+        assert_eq!(CaptureMode::from_str_loose("fullscreen"), CaptureMode::Fullscreen);
+        assert_eq!(CaptureMode::from_str_loose("FULL"), CaptureMode::Fullscreen);
+        assert_eq!(CaptureMode::from_str_loose("window"), CaptureMode::Window);
+        assert_eq!(CaptureMode::from_str_loose("win"), CaptureMode::Window);
+        assert_eq!(CaptureMode::from_str_loose("region"), CaptureMode::Region);
+        assert_eq!(CaptureMode::from_str_loose("anything"), CaptureMode::Region);
+    }
+
+    #[test]
+    fn capture_mode_round_trips_as_str() {
+        for m in [CaptureMode::Region, CaptureMode::Fullscreen, CaptureMode::Window] {
+            assert_eq!(CaptureMode::from_str_loose(m.as_str()), m);
+        }
+    }
 }

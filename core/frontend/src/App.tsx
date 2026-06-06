@@ -33,6 +33,7 @@ import {
   parseResizeArg,
   parseTimerArg,
   parseAlarmArg,
+  parseShotDelay,
   parseWakelockArg,
   resizePresetSuggestions,
   translateUrl,
@@ -77,6 +78,8 @@ import {
   finderMkdir,
   finderOpenTerminal,
   mdToPdfRun,
+  screenshotCapture,
+  screenshotRepeatLast,
   showStatusToast,
   brunoGetDefaults,
   startTimer,
@@ -1246,6 +1249,33 @@ function App() {
           return true;
         }
         await hidePopup();
+      } else if (
+        commandKind === "shot-region" ||
+        commandKind === "shot-full" ||
+        commandKind === "shot-window" ||
+        commandKind === "shot-last"
+      ) {
+        // Screenshot capture modes (v0.57.0). The backend hides the popup +
+        // runs the same staging → clipboard → floating-preview flow.
+        const delay = parseShotDelay(arg);
+        try {
+          if (commandKind === "shot-last") {
+            await screenshotRepeatLast();
+          } else {
+            const mode =
+              commandKind === "shot-full"
+                ? "fullscreen"
+                : commandKind === "shot-window"
+                  ? "window"
+                  : "region";
+            await screenshotCapture(mode, delay);
+          }
+        } catch (e) {
+          setPasteError("other");
+          console.error("screenshot failed", e);
+          return true;
+        }
+        // Backend hides the popup; region mode also drives its own UI.
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
         // kill runs in kill-mode). Let the caller decide what to do.

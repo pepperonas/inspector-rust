@@ -42,7 +42,11 @@ export type CommandKind =
   | "mkdir"
   | "terminal"
   | "alarm"
-  | "md2pdf";
+  | "md2pdf"
+  | "shot-region"
+  | "shot-full"
+  | "shot-window"
+  | "shot-last";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -240,7 +244,43 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Convert Markdown → PDF (same as Ctrl+Shift+M). Bare = file-manager selection; or `md2pdf <path>`",
     requiresArg: false,
   },
+  {
+    kind: "shot-region",
+    keyword: "shot",
+    syntax: "shot [seconds]",
+    description:
+      "Screenshot a region (same as Ctrl+Shift+S). Optional self-timer, e.g. `shot 3`",
+    requiresArg: false,
+  },
+  {
+    kind: "shot-full",
+    keyword: "shotfull",
+    syntax: "shotfull [seconds]",
+    description: "Screenshot the whole screen (optional self-timer)",
+    requiresArg: false,
+  },
+  {
+    kind: "shot-window",
+    keyword: "shotwin",
+    syntax: "shotwin [seconds]",
+    description: "Screenshot the active window (optional self-timer)",
+    requiresArg: false,
+  },
+  {
+    kind: "shot-last",
+    keyword: "shotlast",
+    syntax: "shotlast",
+    description: "Repeat the last screenshot mode",
+    requiresArg: false,
+  },
 ];
+
+/** Parse an optional self-timer seconds argument for the screenshot
+ *  commands. Empty / non-numeric → 0 (no delay). Capped at 60. */
+export function parseShotDelay(arg: string): number {
+  const n = parseInt(arg.trim(), 10);
+  return Number.isFinite(n) && n > 0 ? Math.min(n, 60) : 0;
+}
 
 /** Default password length when `pwgen` is typed without a number. */
 export const DEFAULT_PWGEN_LENGTH = 20;

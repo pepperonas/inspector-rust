@@ -14,14 +14,15 @@ import {
   parseKillArg,
   parseResizeArg,
   parsePwgenArg,
+  parseShotDelay,
   parseTimerArg,
   resizePresetSuggestions,
   translateUrl,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 22 commands (+ wakelock/caffeine, touch/mkdir/terminal, alarm, md2pdf)", () => {
-    expect(COMMANDS.length).toBe(22);
+  it("has 26 commands (+ wakelock/caffeine, touch/mkdir/terminal, alarm, md2pdf, shot×4)", () => {
+    expect(COMMANDS.length).toBe(26);
   });
 
   it("every keyword is unique", () => {
@@ -501,6 +502,30 @@ describe("resizePresetSuggestions", () => {
       expect(parsed?.spec.kind).toBe("resize");
       expect(parseResizeArg(parsed!.arg)).not.toBeNull();
     }
+  });
+});
+
+describe("parseShotDelay", () => {
+  it("returns 0 for empty / non-numeric / non-positive", () => {
+    expect(parseShotDelay("")).toBe(0);
+    expect(parseShotDelay("abc")).toBe(0);
+    expect(parseShotDelay("0")).toBe(0);
+    expect(parseShotDelay("-3")).toBe(0);
+  });
+  it("parses positive seconds, capped at 60", () => {
+    expect(parseShotDelay("3")).toBe(3);
+    expect(parseShotDelay(" 10 ")).toBe(10);
+    expect(parseShotDelay("999")).toBe(60);
+  });
+});
+
+describe("parseCommand — screenshot modes", () => {
+  it("parses shot / shotfull / shotwin / shotlast", () => {
+    expect(parseCommand("shot")?.spec.kind).toBe("shot-region");
+    expect(parseCommand("shot 3")?.spec.kind).toBe("shot-region");
+    expect(parseCommand("shotfull")?.spec.kind).toBe("shot-full");
+    expect(parseCommand("shotwin")?.spec.kind).toBe("shot-window");
+    expect(parseCommand("shotlast")?.spec.kind).toBe("shot-last");
   });
 });
 

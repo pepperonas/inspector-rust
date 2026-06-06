@@ -1771,6 +1771,18 @@ pub struct ScreenshotResult {
 /// global shortcut handler. Blocks for the duration of the
 /// screencapture (user-driven) — always invoke from a worker thread.
 pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, String> {
+    run_capture_pipeline(app, region_picker::CaptureMode::Region, 0)
+}
+
+/// Generalised screenshot pipeline (v0.57.0): capture via `mode` after an
+/// optional `delay_seconds` self-timer, then the same staging → clipboard →
+/// floating-preview flow as the region path. `run_screenshot_pipeline` is the
+/// region/no-delay shorthand used by the tray + `Ctrl+Shift+S`.
+pub fn run_capture_pipeline(
+    app: &AppHandle,
+    mode: region_picker::CaptureMode,
+    delay_seconds: u32,
+) -> Result<ScreenshotResult, String> {
     if !screen_recording::screen_recording_granted() {
         return Err(ERR_NO_SCREEN_RECORDING.to_string());
     }
@@ -1783,13 +1795,19 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
 
     hotkey::hide_popup(app);
 
-    let png_bytes = match region_picker::capture() {
+    // Self-timer: wait before capturing so the user can set up the shot.
+    // Capped at 60 s defensively. The popup is already hidden.
+    if delay_seconds > 0 {
+        std::thread::sleep(std::time::Duration::from_secs(delay_seconds.min(60) as u64));
+    }
+
+    let png_bytes = match mode.capture() {
         Ok(b) => b,
         Err(e) => {
             if e.downcast_ref::<region_picker::Cancelled>().is_some() {
                 return Ok(ScreenshotResult { cancelled: true, bytes: 0 });
             }
-            return Err(format!("region capture failed: {e:#}"));
+            return Err(format!("{} capture failed: {e:#}", mode.as_str()));
         }
     };
 
@@ -1885,6 +1903,36 @@ pub fn run_screenshot_pipeline(app: &AppHandle) -> Result<ScreenshotResult, Stri
 #[tauri::command]
 pub fn screenshot_region(app: AppHandle) -> Result<ScreenshotResult, String> {
     run_screenshot_pipeline(&app)
+}
+
+/// Settings key: the last capture mode used (for `screenshot_repeat_last`).
+const KEY_SHOT_LAST_MODE: &str = "screenshot.last_mode";
+
+/// Capture in a specific `mode` ("region" | "fullscreen" | "window") with an
+/// optional self-timer `delay_seconds`. Remembers the mode so
+/// `screenshot_repeat_last` can replay it. (v0.57.0)
+#[tauri::command]
+pub fn screenshot_capture(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    mode: String,
+    delay_seconds: Option<u32>,
+) -> Result<ScreenshotResult, String> {
+    let m = region_picker::CaptureMode::from_str_loose(&mode);
+    let _ = settings::set(&db, KEY_SHOT_LAST_MODE, m.as_str());
+    run_capture_pipeline(&app, m, delay_seconds.unwrap_or(0))
+}
+
+/// Repeat the last capture mode (defaults to region if none stored). (v0.57.0)
+#[tauri::command]
+pub fn screenshot_repeat_last(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+) -> Result<ScreenshotResult, String> {
+    let stored = settings::get_or(&db, KEY_SHOT_LAST_MODE, "region")
+        .unwrap_or_else(|_| "region".to_string());
+    let m = region_picker::CaptureMode::from_str_loose(&stored);
+    run_capture_pipeline(&app, m, 0)
 }
 
 /// Run the eyedropper pipeline: hide popup → fire screen color picker

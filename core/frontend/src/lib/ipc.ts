@@ -874,6 +874,21 @@ export function screenshotRegion(): Promise<ScreenshotResult> {
   return invoke("screenshot_region");
 }
 
+/** Capture in a specific mode with an optional self-timer (v0.57.0).
+ *  mode = "region" | "fullscreen" | "window". Same staging/preview flow
+ *  as `screenshotRegion`. Remembers the mode for `screenshotRepeatLast`. */
+export function screenshotCapture(
+  mode: "region" | "fullscreen" | "window",
+  delaySeconds = 0,
+): Promise<ScreenshotResult> {
+  return invoke("screenshot_capture", { mode, delaySeconds });
+}
+
+/** Repeat the last capture mode (defaults to region). (v0.57.0) */
+export function screenshotRepeatLast(): Promise<ScreenshotResult> {
+  return invoke("screenshot_repeat_last");
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

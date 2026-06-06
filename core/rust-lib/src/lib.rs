@@ -375,6 +375,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::save_image_entry_to_downloads,
             commands::ocr_region,
             commands::screenshot_region,
+            commands::screenshot_capture,
+            commands::screenshot_repeat_last,
             screenshot_preview::get_pending_screenshot_path,
             screenshot_preview::get_pending_screenshot_info,
             screenshot_preview::set_screenshot_pinned,

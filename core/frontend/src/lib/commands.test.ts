@@ -4,6 +4,7 @@ import {
   DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
   commandSuggestions,
+  parseAlarmArg,
   parseWakelockArg,
   isGetShakyTrigger,
   isOpenerTrigger,
@@ -19,8 +20,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 20 commands (15 base + wakelock + caffeine + touch + mkdir + terminal)", () => {
-    expect(COMMANDS.length).toBe(20);
+  it("has 22 commands (+ wakelock/caffeine, touch/mkdir/terminal, alarm, md2pdf)", () => {
+    expect(COMMANDS.length).toBe(22);
   });
 
   it("every keyword is unique", () => {
@@ -573,6 +574,38 @@ describe("parsePwgenArg", () => {
     expect(parsePwgenArg("abc")).toBeNull();
     expect(parsePwgenArg("")).toBeNull();
     expect(parsePwgenArg("-12")).toBeNull();
+  });
+});
+
+describe("parseAlarmArg", () => {
+  // Fixed "now": 2026-06-06 10:00:00 local.
+  const now = new Date(2026, 5, 6, 10, 0, 0, 0);
+
+  it("schedules a later time today", () => {
+    const a = parseAlarmArg("15:15", now)!;
+    expect(a.label).toBe("15:15");
+    expect(a.seconds).toBe((5 * 60 + 15) * 60); // 5h15m → seconds
+  });
+
+  it("rolls a passed time to tomorrow", () => {
+    const a = parseAlarmArg("3:00", now)!;
+    expect(a.label).toBe("3:00");
+    // 3:00 already passed today → next is tomorrow 03:00 = 17h away.
+    expect(a.seconds).toBe(17 * 3600);
+  });
+
+  it("accepts a bare hour (→ :00)", () => {
+    const a = parseAlarmArg("11", now)!;
+    expect(a.label).toBe("11:00");
+    expect(a.seconds).toBe(3600);
+  });
+
+  it("rejects out-of-range and malformed times", () => {
+    expect(parseAlarmArg("24:00", now)).toBeNull();
+    expect(parseAlarmArg("12:60", now)).toBeNull();
+    expect(parseAlarmArg("abc", now)).toBeNull();
+    expect(parseAlarmArg("", now)).toBeNull();
+    expect(parseAlarmArg("3:5", now)).toBeNull(); // minutes must be 2 digits
   });
 });
 

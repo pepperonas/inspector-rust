@@ -32,6 +32,7 @@ import {
   parsePwgenArg,
   parseResizeArg,
   parseTimerArg,
+  parseAlarmArg,
   parseWakelockArg,
   resizePresetSuggestions,
   translateUrl,
@@ -75,6 +76,8 @@ import {
   finderTouch,
   finderMkdir,
   finderOpenTerminal,
+  mdToPdfRun,
+  showStatusToast,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -398,6 +401,23 @@ function App() {
         }
         break;
       }
+      case "alarm": {
+        const a = parseAlarmArg(arg);
+        if (!a) {
+          label = `Alarm: invalid time ("${arg}") — use HH:MM, e.g. 3:00 or 15:15`;
+          hint = "24-hour clock · fires at the next occurrence";
+        } else {
+          label = `Set alarm · ${a.label}`;
+          hint = "Fires at the next occurrence (today or tomorrow)";
+        }
+        break;
+      }
+      case "md2pdf":
+        label = arg
+          ? `Markdown → PDF: "${arg}"`
+          : "Markdown → PDF (file-manager selection)";
+        hint = "Same as Ctrl+Shift+M · PDF lands next to the source";
+        break;
       case "pwgen": {
         // Pwgen is rendered as its own ListEntry kind further down
         // (with `mode` + `password` baked in). Return null here so we
@@ -1205,6 +1225,26 @@ function App() {
           return true;
         }
         await startTimer(t.seconds, t.label);
+        // showStatusToast hides the popup + plays the flourish (don't also
+        // call hidePopup — that would swallow the toast on macOS).
+        await showStatusToast("timer", true, "Timer set", t.label);
+      } else if (commandKind === "alarm") {
+        const a = parseAlarmArg(arg);
+        if (!a) {
+          setPasteError("other");
+          return true;
+        }
+        await startTimer(a.seconds, `Alarm ${a.label}`);
+        await showStatusToast("alarm", true, "Alarm set", a.label);
+      } else if (commandKind === "md2pdf") {
+        // Same action as Ctrl+Shift+M; arg = optional path (else selection).
+        try {
+          await mdToPdfRun(arg || undefined);
+        } catch (e) {
+          setPasteError("other");
+          console.error("md2pdf failed", e);
+          return true;
+        }
         await hidePopup();
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,

@@ -40,7 +40,9 @@ export type CommandKind =
   | "pwgen"
   | "touch"
   | "mkdir"
-  | "terminal";
+  | "terminal"
+  | "alarm"
+  | "md2pdf";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -186,6 +188,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
     requiresArg: true,
   },
+  // ── Alarm (absolute clock time) ───────────────────────────────────
+  {
+    kind: "alarm",
+    keyword: "alarm",
+    syntax: "alarm <HH:MM>",
+    description:
+      "Alarm at a clock time (next occurrence). e.g. `alarm 3:00` (3 AM) · `alarm 15:15`",
+    requiresArg: true,
+  },
   // ── Password generator ────────────────────────────────────────────
   {
     kind: "pwgen",
@@ -218,6 +229,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "terminal",
     syntax: "terminal",
     description: "Open the terminal (iTerm2 / Terminal) at the frontmost Finder folder",
+    requiresArg: false,
+  },
+  // ── Markdown → PDF ─────────────────────────────────────────────────
+  {
+    kind: "md2pdf",
+    keyword: "md2pdf",
+    syntax: "md2pdf [path]",
+    description:
+      "Convert Markdown → PDF (same as Ctrl+Shift+M). Bare = file-manager selection; or `md2pdf <path>`",
     requiresArg: false,
   },
 ];
@@ -609,6 +629,30 @@ export function parseTimerArg(arg: string): TimerSpec | null {
   const numText = Number.isInteger(n) ? String(n) : String(n);
   const label = `${numText} ${labelUnit}`;
   return { seconds, label };
+}
+
+/**
+ * Parse an `alarm <HH:MM>` argument into seconds-until-fire + a clock
+ * label. 24-hour clock; fires at the NEXT occurrence (today if still in
+ * the future, otherwise tomorrow). Accepts `H:MM` / `HH:MM`, and a bare
+ * `H`/`HH` (→ `:00`). `now` is injectable for deterministic tests.
+ */
+export function parseAlarmArg(arg: string, now: Date = new Date()): TimerSpec | null {
+  const m = arg.trim().match(/^(\d{1,2})(?::(\d{2}))?$/);
+  if (!m) return null;
+  const hh = parseInt(m[1], 10);
+  const mm = m[2] != null ? parseInt(m[2], 10) : 0;
+  if (hh > 23 || mm > 59) return null;
+
+  const target = new Date(now);
+  target.setHours(hh, mm, 0, 0);
+  // Already passed today → the next occurrence is tomorrow.
+  if (target.getTime() <= now.getTime()) {
+    target.setDate(target.getDate() + 1);
+  }
+  const seconds = Math.round((target.getTime() - now.getTime()) / 1000);
+  if (seconds < 1) return null;
+  return { seconds, label: `${hh}:${String(mm).padStart(2, "0")}` };
 }
 
 /** Parse `pwgen <N>` length argument. Returns the integer length

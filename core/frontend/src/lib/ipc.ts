@@ -164,6 +164,25 @@ export function finderOpenTerminal(): Promise<string> {
   return invoke("finder_open_terminal");
 }
 
+/** Markdown → PDF (same action as Ctrl+Shift+M). With `path`, converts that
+ *  file; bare, converts the file-manager selection (macOS). Fire-and-forget:
+ *  resolves once the conversion has been kicked off; the result surfaces via
+ *  a system notification. Backend: `commands::md_to_pdf_run`. */
+export function mdToPdfRun(path?: string): Promise<void> {
+  return invoke("md_to_pdf_run", { path: path ?? null });
+}
+
+/** Show an on-screen status toast (hide popup + animated flourish). Used for
+ *  timer / alarm confirmations. Backend: `commands::show_status_toast`. */
+export function showStatusToast(
+  kind: string,
+  on: boolean,
+  title: string,
+  subtitle: string,
+): Promise<void> {
+  return invoke("show_status_toast", { kind, on, title, subtitle });
+}
+
 export function wakelockGet(): Promise<boolean> {
   return invoke("wakelock_get");
 }

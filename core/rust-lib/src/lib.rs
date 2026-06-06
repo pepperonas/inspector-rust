@@ -400,6 +400,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::finder_touch,
             commands::finder_mkdir,
             commands::finder_open_terminal,
+            commands::md_to_pdf_run,
+            commands::show_status_toast,
             commands::get_finder_automation_status,
             commands::open_finder_automation_settings,
             commands::force_reset_finder_automation_grant,

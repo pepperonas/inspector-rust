@@ -85,7 +85,9 @@ export interface CommandEntryView {
     | "pwgen"
     | "touch"
     | "mkdir"
-    | "terminal";
+    | "terminal"
+    | "alarm"
+    | "md2pdf";
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

@@ -357,7 +357,6 @@ pub fn wakelock_set(
     // settled mirrors the screenshot-preview flow, which is the one path
     // that reliably orders a fresh Accessory-app window on-screen; showing
     // it synchronously (or after a window-only hide) left it off-screen.
-    crate::hotkey::hide_popup(&app);
     // Brand the toast by which keyword was used (`caffeine` vs `wakelock`);
     // both drive the identical animation/behaviour.
     let label = if source.as_deref() == Some("caffeine") { "Caffeine" } else { "Wakelock" };
@@ -366,26 +365,32 @@ pub fn wakelock_set(
     } else {
         (format!("{label} Off"), "Normal sleep behaviour resumed")
     };
-    let toast = crate::status_toast::StatusToast {
-        kind: "wakelock".into(),
-        on: new_state,
-        title,
-        subtitle: subtitle.into(),
-    };
-    let app2 = app.clone();
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(90));
-        let app3 = app2.clone();
-        let _ = app2.run_on_main_thread(move || {
-            crate::status_toast::show(&app3, toast);
-        });
-    });
+    crate::status_toast::announce(
+        &app,
+        crate::status_toast::StatusToast {
+            kind: "wakelock".into(),
+            on: new_state,
+            title,
+            subtitle: subtitle.into(),
+        },
+    );
     new_state
 }
 
 #[tauri::command]
 pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> bool {
     crate::wakelock::is_enabled(state.inner())
+}
+
+/// Show an on-screen status toast (hide popup + animated flourish). Used
+/// by the frontend for timer / alarm confirmations (wakelock fires its
+/// own via `wakelock_set`).
+#[tauri::command]
+pub fn show_status_toast(app: AppHandle, kind: String, on: bool, title: String, subtitle: String) {
+    crate::status_toast::announce(
+        &app,
+        crate::status_toast::StatusToast { kind, on, title, subtitle },
+    );
 }
 
 /// Pull the most recent status-toast payload (the toast window reads this
@@ -2018,6 +2023,59 @@ pub fn finder_open_terminal() -> Result<String, String> {
     {
         Err("terminal is macOS-only (needs Finder)".into())
     }
+}
+
+/// `md2pdf [path]` — Markdown → PDF, the same action as the Ctrl+Shift+M
+/// hotkey but invokable from the search bar. With `path` it converts that
+/// file; bare, it converts the file-manager selection. Spawns a worker so
+/// the command returns immediately (macOS WKWebView rendering needs the
+/// main thread, dispatched from the worker; Windows uses Edge headless on
+/// the worker). Result is surfaced via the same notification as the hotkey.
+#[tauri::command]
+pub fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String> {
+    // Resolve the target paths up front so a bad/empty selection errors
+    // synchronously (the frontend can show it) before we spawn.
+    let arg_path = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
+    let paths: Vec<std::path::PathBuf> = if let Some(p) = arg_path {
+        vec![std::path::PathBuf::from(p)]
+    } else {
+        #[cfg(target_os = "macos")]
+        {
+            crate::finder_selection::read()?
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            return Err("md2pdf: pass a file path (selection reading is macOS-only for now)".into());
+        }
+    };
+    if paths.is_empty() {
+        return Err("md2pdf: nothing selected (and no path given)".into());
+    }
+
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        // macOS: WKWebView render must run on the main thread; bounce
+        // through a oneshot channel. Other platforms convert in-thread.
+        #[cfg(target_os = "macos")]
+        let summary = {
+            let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
+            let _ = app2.run_on_main_thread(move || {
+                let _ = tx.send(crate::md_to_pdf::convert_files(&paths));
+            });
+            rx.recv().unwrap_or_default()
+        };
+        #[cfg(not(target_os = "macos"))]
+        let summary = crate::md_to_pdf::convert_files(&paths);
+
+        tracing::info!(
+            "md2pdf: {} converted, {} skipped, {} failed",
+            summary.converted.len(),
+            summary.skipped.len(),
+            summary.failed.len()
+        );
+        crate::md_to_pdf::notify(&summary);
+    });
+    Ok(())
 }
 
 /// Runs the hotkey-driven Finder-selection pipeline: read the

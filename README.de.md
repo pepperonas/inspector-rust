@@ -28,7 +28,7 @@
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `timer`, `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — vier Easter-Egg-Trigger-Wörter. Du findest sie schon.
@@ -317,7 +317,9 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Markdown → PDF** *(v0.46.0+, macOS)* | `Ctrl+Shift+M` mit im Finder ausgewählten `.md`-Dateien | Automation → Finder |
 | **2FA / TOTP-Manager** *(v0.47.0+)* | `2fa` im Suchfeld tippen → Enter öffnet TOTP-Tresor | core |
 | **OTP-Autocomplete** *(v0.47.0+)* | `otp <Aussteller>` tippen → lebendiger 30-Sekunden-Countdown + Enter kopiert aktuellen Code | core |
-| **Timer** | `timer 12` (12 min) · `timer 30s` · `timer 2h` tippen → Countdown + visueller/akustischer Alarm | core |
+| **Timer** | `timer 12` (12 min) · `timer 30s` · `timer 2h` tippen → Countdown + visuelle/akustische Benachrichtigung; Status-Toast beim Setzen | core |
+| **Alarm** *(v0.55.0+)* | `alarm 3:00` / `alarm 15:15` tippen → löst zur Uhrzeit aus (nächstes Vorkommen) | core |
+| **Markdown → PDF Command** *(v0.55.0+)* | `md2pdf` (Dateimanager-Auswahl) oder `md2pdf <pfad>` → wie `Ctrl+Shift+M`. macOS + Windows (Windows: Pfad angeben; Edge headless) | macOS / Windows |
 | **Passwort-Generator** | `pwgen` oder `pwgen 16` tippen → Enter kopiert; Alt+Enter = nur alphanumerisch; Dict- + Leet-Modi im Preview-Panel | core |
 | **BPM-Detektor** | `bpm` tippen → Enter startet Live-Takterkennung via Mikrofon | Mikrofon *(macOS)* |
 | **Features-Tab** | History · Snippets · Notes · **Features** · Settings Tabs; Features-Tab listet alle Shortcuts und Fähigkeiten mit Live-Hotkey-Anzeige | core |

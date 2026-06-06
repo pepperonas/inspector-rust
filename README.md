@@ -28,7 +28,7 @@
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
   - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
-  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `timer`, `pwgen`, `rmvvls` (text).
+  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
   - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
   - 🎮 **Hidden games** — four Easter-egg trigger words. You'll find them.
@@ -319,7 +319,9 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Markdown → PDF** *(v0.46.0+, macOS)* | `Ctrl+Shift+M` with `.md` files selected in Finder | Automation → Finder |
 | **2FA / TOTP manager** *(v0.47.0+)* | Type `2fa` in the search bar → Enter opens TOTP vault | core |
 | **OTP autocomplete** *(v0.47.0+)* | Type `otp <issuer>` → live 30-second countdown + Enter copies current code | core |
-| **Timer** | Type `timer 12` (12 min) · `timer 30s` · `timer 2h` → countdown + visual/audio notification | core |
+| **Timer** | Type `timer 12` (12 min) · `timer 30s` · `timer 2h` → countdown + visual/audio notification; status toast on set | core |
+| **Alarm** *(v0.55.0+)* | Type `alarm 3:00` / `alarm 15:15` → fires at that clock time (next occurrence) | core |
+| **Markdown → PDF command** *(v0.55.0+)* | Type `md2pdf` (file-manager selection) or `md2pdf <path>` → same as `Ctrl+Shift+M`. macOS + Windows (Windows: pass a path; Edge headless) | macOS / Windows |
 | **Password generator** | Type `pwgen` or `pwgen 16` → Enter copies; Alt+Enter = alphanumeric only; dict + leet modes in preview pane | core |
 | **BPM detector** | Type `bpm` → Enter starts live beat detection via microphone | Microphone *(macOS)* |
 | **Features tab** | History · Snippets · Notes · **Features** · Settings tabs; Features tab lists all shortcuts and capabilities with live hotkey display | core |

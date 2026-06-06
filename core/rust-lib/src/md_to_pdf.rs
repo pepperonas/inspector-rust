@@ -252,7 +252,15 @@ fn backend_available() -> bool {
     true
 }
 
-#[cfg(not(target_os = "macos"))]
+// Windows: render via Microsoft Edge headless (`--print-to-pdf`). Edge
+// ships with the WebView2 runtime present on all Win10/11.
+#[cfg(target_os = "windows")]
+fn backend_available() -> bool {
+    true
+}
+
+// Linux + everything else: no HTML→PDF backend yet.
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn backend_available() -> bool {
     false
 }
@@ -262,9 +270,67 @@ fn write_pdf(html: &str, output: &Path) -> Result<(), String> {
     macos::render_html_to_pdf(html, output)
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "windows")]
+fn write_pdf(html: &str, output: &Path) -> Result<(), String> {
+    windows_edge::render_html_to_pdf(html, output)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
 fn write_pdf(_html: &str, _output: &Path) -> Result<(), String> {
     Err("PDF-Rendering noch nicht implementiert auf dieser Platform".into())
+}
+
+/// HTML → PDF on Windows via Edge headless. Writes the self-contained
+/// HTML to a temp file, runs `msedge --headless=new --print-to-pdf`, then
+/// removes the temp file. Pure process-spawn (no COM / WebView2 SDK) so
+/// it compiles cross-platform; **runtime untested on this build host
+/// (macOS) — verify on a real Windows box.**
+#[cfg(target_os = "windows")]
+mod windows_edge {
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    pub fn render_html_to_pdf(html: &str, output: &Path) -> Result<(), String> {
+        let mut tmp = std::env::temp_dir();
+        let stem = output.file_stem().and_then(|s| s.to_str()).unwrap_or("md");
+        // pid + stem keeps it unique enough for a one-shot conversion
+        // without pulling in a rand/uuid dependency.
+        tmp.push(format!("inspector-rust-md-{stem}-{}.html", std::process::id()));
+        std::fs::write(&tmp, html).map_err(|e| format!("temp HTML write failed: {e}"))?;
+
+        let edge = find_msedge();
+        let result = Command::new(&edge)
+            .arg("--headless=new")
+            .arg("--disable-gpu")
+            .arg("--no-pdf-header-footer")
+            .arg(format!("--print-to-pdf={}", output.display()))
+            .arg(tmp.display().to_string())
+            .status();
+        let _ = std::fs::remove_file(&tmp);
+
+        match result {
+            Ok(s) if s.success() && output.exists() => Ok(()),
+            Ok(s) => Err(format!("msedge exited with {s} and produced no PDF")),
+            Err(e) => Err(format!(
+                "failed to run Microsoft Edge ({}): {e}",
+                edge.display()
+            )),
+        }
+    }
+
+    fn find_msedge() -> PathBuf {
+        for c in [
+            r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe",
+            r"C:\Program Files\Microsoft\Edge\Application\msedge.exe",
+        ] {
+            let p = PathBuf::from(c);
+            if p.exists() {
+                return p;
+            }
+        }
+        // Last resort: rely on PATH.
+        PathBuf::from("msedge.exe")
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -558,7 +624,7 @@ pub fn build_notification_message(summary: &ConvertSummary) -> String {
         return "Keine Dateien selektiert".to_string();
     }
     if summary.backend_unavailable {
-        return "Markdown → PDF: macOS-only in v0.46.0 (Win + Linux folgen)".to_string();
+        return "Markdown → PDF wird auf dieser Platform noch nicht unterstützt (Linux folgt)".to_string();
     }
     if summary.converted.is_empty() && summary.failed.is_empty() {
         return format!(
@@ -731,7 +797,7 @@ mod tests {
             ..Default::default()
         };
         let msg = build_notification_message(&s);
-        assert!(msg.contains("macOS-only"));
+        assert!(msg.contains("noch nicht unterstützt"));
         assert!(!msg.contains("fehlgeschlagen"));
     }
 }

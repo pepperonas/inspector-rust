@@ -27,11 +27,13 @@ export function Footer({ index, total, version, wakelockActive, activeTimerCount
   const screenshotKey = IS_MAC ? "⌃⇧S" : "Ctrl+⇧+S";
   const colorKey = IS_MAC ? "⌃⇧C" : "Ctrl+⇧+C";
   return (
-    <div className="flex h-8 items-center justify-between gap-3 overflow-hidden border-t border-[var(--color-border)] px-4 text-[11px] text-[var(--color-muted)]">
-      {/* `shrink-0` + `whitespace-nowrap` so a cramped footer clips at
-          the edge instead of wrapping items onto a second line and
-          overflowing the fixed `h-8` height. */}
-      <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
+    // `min-h-8` (not fixed `h-8`) + `flex-wrap` so a cramped footer — e.g.
+    // Windows, where `Ctrl+⇧+O` hints are wider than the macOS glyphs —
+    // wraps onto a second line instead of clipping. Nothing is ever cut
+    // off; the row just grows a little taller when it has to. The credit
+    // (♥ Martin Pfeffer) moved to the inline About to keep this lean.
+    <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {wakelockActive && <WakelockLed />}
         {activeTimerCount != null && activeTimerCount > 0 && (
           <TimerBadge count={activeTimerCount} />
@@ -43,12 +45,7 @@ export function Footer({ index, total, version, wakelockActive, activeTimerCount
         <Hint k={screenshotKey} label="Shot" />
         <Hint k={colorKey} label="Color" />
       </div>
-      <div className="flex shrink-0 items-center gap-3 whitespace-nowrap">
-        {/* Shortened from "made with ♥ by Martin Pfeffer" — the full
-            credit lives in the title tooltip + the About dialog. */}
-        <span title="Made with ♥ by Martin Pfeffer">
-          <span className="text-red-400">♥</span> Martin Pfeffer
-        </span>
+      <div className="flex shrink-0 items-center gap-3">
         {version && (
           <span title="Inspector Rust version" className="font-[var(--font-mono)]">
             v{version}

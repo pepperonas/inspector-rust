@@ -103,6 +103,24 @@ pub fn show(app: &AppHandle, toast: StatusToast) {
     let _ = win.set_focus();
 }
 
+/// Close the popup and announce `toast` on-screen — the shared flow used
+/// by wakelock, timer, alarm, …: hide the popup the normal way (on macOS
+/// that also `app.hide()`s so focus returns to the prior app), then show
+/// the toast a beat LATER on the main thread. The delay lets the app-hide
+/// settle so the fresh Accessory-app window reliably orders on-screen
+/// (mirrors the screenshot-preview flow).
+pub fn announce(app: &AppHandle, toast: StatusToast) {
+    crate::hotkey::hide_popup(app);
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(90));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            show(&app3, toast);
+        });
+    });
+}
+
 /// Hide (not close) the toast window so the next toast re-shows instantly.
 /// On macOS this also fires `app.hide()` to return key focus to whatever
 /// app was frontmost before the popup opened — deferred to here (rather

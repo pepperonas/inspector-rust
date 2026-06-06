@@ -9,11 +9,13 @@ import {
 
 /**
  * Brightness slider overlay (the `brightness-overlay` window — routed in
- * `main.tsx`). One slider per DDC-capable monitor (incl. secondary/external),
- * plus an "all" master. Lunar / TwinkleTray style. Opened by the `brightness`
- * (alias `bri`) command, which hides the popup and shows this window.
+ * `main.tsx`). One slider per controllable monitor (incl. the built-in panel
+ * and external/adapter-connected displays), plus an "all" master. Lunar /
+ * TwinkleTray style. Opened by the `brightness` (alias `bri`) command, which
+ * hides the popup and shows this window.
  *
- * DDC writes can be slow / rate-limited, so slider input is debounced: while
+ * macOS + Windows dim in software (gamma table) so every display is
+ * controllable; Linux uses hardware DDC/CI. Writes are debounced: while
  * dragging we update the local value immediately but only push the *latest*
  * value to the monitor ~80 ms after the last change.
  */
@@ -88,8 +90,7 @@ export function BrightnessOverlay() {
         <p className="text-[12px] text-[var(--color-muted)]">Probing monitors…</p>
       ) : ddc.length === 0 ? (
         <p className="text-[12px] text-[var(--color-muted)]">
-          No DDC-capable monitors found. External monitors are controlled over
-          DDC/CI — built-in laptop panels aren&apos;t supported yet.
+          No controllable monitors found.
         </p>
       ) : (
         <div className="flex flex-col gap-3 overflow-y-auto">
@@ -113,10 +114,13 @@ export function BrightnessOverlay() {
           ))}
           {(monitors.length - ddc.length) > 0 && (
             <p className="text-[11px] text-[var(--color-muted)]">
-              {monitors.length - ddc.length} monitor(s) didn&apos;t answer DDC and
+              {monitors.length - ddc.length} monitor(s) didn&apos;t answer and
               are hidden.
             </p>
           )}
+          <p className="text-[10px] text-[var(--color-muted)]">
+            Software dimming — adjusts emitted light, not the backlight.
+          </p>
         </div>
       )}
     </div>
@@ -147,7 +151,7 @@ function Slider({
       </span>
       <input
         type="range"
-        min={0}
+        min={10}
         max={100}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value, 10))}

@@ -4,6 +4,53 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.72.0] — 2026-06-07
+
+### Fixed — Custom commands always win the top slot
+
+Typing a command keyword that also happens to be an app name (e.g. `terminal`,
+which fuzzy-matches Terminal.app) used to surface the **app-launcher** hit above
+the custom command, so Enter launched the app instead of running the command —
+that's why `terminal` opened Terminal.app in the home directory instead of the
+custom "open a terminal at the Finder folder" command. A complete custom command
+(`commandEntry`) is now spliced to the very top of the result list, above every
+app/opener/special row.
+
+### Added — Reddish highlight for custom-command rows
+
+Command and command-suggestion rows (`terminal`, `freeze`, `wakelock`, `tren`,
+`kill`, …) now render with a reddish (`rose`) accent — chip, icon, and row
+background (selected = solid rose) — so it's immediately obvious you're about to
+trigger a command rather than paste a clip or launch an app.
+
+### Changed — Monitor brightness: software dimming on macOS + Windows
+
+The brightness feature (`brightness` / `bri`) was rewritten after confirming on
+real hardware that pure DDC/CI doesn't work on Apple Silicon — an external
+monitor through a DP/HDMI adapter returned `invalid DDC/CI length` for every
+read and writes silently no-op'd.
+
+- **macOS** now dims in **software via the CoreGraphics gamma table**
+  (`CGSetDisplayTransferByFormula`). This works on **every** display — the
+  built-in Liquid Retina panel *and* external/adapter-connected monitors — with
+  no DDC and no extra permission. (Previously: DDC-only, external-only, and
+  broken on Apple Silicon.)
+- **Windows 11** gets the same software-dimming approach via
+  `SetDeviceGammaRamp`, covering built-in + external monitors uniformly.
+  (Runtime-unverified; written compile-clean against the `windows` 0.61 GDI
+  bindings and validated with a Windows-target `cargo check`.)
+- **Linux** keeps hardware DDC/CI (`ddc-hi`).
+
+A `MIN_PERCENT=10` safety floor means the screen can never dim to unrecoverable
+black; the overlay slider min is 10. Note: software dimming reduces emitted
+light, not the backlight — it can only go darker than native, never brighter.
+
+### Tests
+
+20 new unit tests: `percent_to_gamma_fraction` + `gamma_ramp_entry` (Rust),
+`sh_squote`/`osa_escape` quoting helpers, and custom-command priority
+preconditions (frontend). 380 Rust + 568 frontend tests pass.
+
 ## [0.71.1] — 2026-06-06
 
 ### Fixed — `terminal` opens in the Finder folder

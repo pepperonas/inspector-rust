@@ -834,6 +834,12 @@ function App() {
     : isMemeMode
     ? memeEntries
     : [
+        // A complete custom command (terminal, freeze, wakelock, kill, …)
+        // ALWAYS wins the top slot — otherwise an app-launcher hit with the
+        // same name (e.g. typing `terminal` also fuzzy-matches Terminal.app)
+        // would outrank it and Enter would launch the app instead of running
+        // the command. Custom commands have the highest priority.
+        ...(commandEntry ? [commandEntry] : []),
         ...(openerEntry ? [openerEntry] : []),
         ...(appEntry ? [appEntry] : []),
         ...(brunoEntry ? [brunoEntry] : []),
@@ -841,7 +847,6 @@ function App() {
         ...(bpmEntry ? [bpmEntry] : []),
         ...(totpManageEntry ? [totpManageEntry] : []),
         ...totpAutocompleteEntries,
-        ...(commandEntry ? [commandEntry] : []),
         ...suggestionEntries,
         ...resizePresetEntries,
         ...finderFileEntries,

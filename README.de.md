@@ -20,7 +20,7 @@
   - 🎯 **Text-Expander — 4 Modi**: passive **Auto-Expansion** (aText-Stil — expandiert beim Tippen, ohne Hotkey) · In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals). **Dynamische Platzhalter** beim Einfügen: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (Cursor-Position), `{{`/`}}` für literale Klammern.
   - 🔍 **Bildschirm-Region-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade Texterkennung ins Clipboard.
   - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Self-Timer · Repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rect / Ellipse / Highlight / Blur / Redact / nummerierte Step-Badges); **Pin to screen** (Screenshot als eigenes Always-on-top-Fenster anheften). Dateinamen enthalten den Quell-App-Namen.
-  - 💡 **Monitor-Helligkeit** (`brightness` / `bri`) — Slider pro DDC-fähigem Monitor (inkl. sekundärer/externer) + „alle"-Master; Lunar / TwinkleTray-Stil über DDC/CI.
+  - 💡 **Monitor-Helligkeit** (`brightness` / `bri`) — Slider pro Display (eingebaut *und* extern) + „alle"-Master; Lunar / TwinkleTray-Stil. Software-Dimming (Gamma) auf macOS + Windows, Hardware-DDC/CI auf Linux.
   - 🧹 **Cleaning** (`clean`) — Speicher freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannten sicheren Ordnern. Dry-Run-Vorschau + Bestätigung; strikte Allowlist, Symlinks werden nie verfolgt; Stufen Safe/Standard/Aggressive.
   - 🎨 **Color Picker** (`Ctrl+Shift+C`) — `NSColorSampler`-Lupe / GDI-Overlay / Hex direkt ins Clipboard.
   - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Cut-Out / Open auf was auch immer du im Finder selektiert hast.
@@ -37,7 +37,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **928 Unit-Tests (369 Rust + 559 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **948 Unit-Tests (380 Rust + 568 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>

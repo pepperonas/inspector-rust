@@ -74,6 +74,10 @@ export const HistoryItem = memo(function HistoryItem({
   const isColor = entry.kind === "color";
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
+  // Custom commands (terminal, freeze, wakelock, tren, …) get a reddish
+  // treatment so the user immediately sees they're about to trigger a
+  // command rather than paste a clip / launch an app.
+  const isCustomCommand = isCommand || isSuggestion;
   const isKillTarget = entry.kind === "kill-target";
   const isOpener = entry.kind === "opener";
   const isBruno = entry.kind === "bruno";
@@ -132,8 +136,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
     >
       cmd
@@ -143,8 +147,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-muted)]/15 text-[var(--color-muted)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
     >
       hint
@@ -316,15 +320,23 @@ export const HistoryItem = memo(function HistoryItem({
       onDoubleClick={onDoubleClick}
       className={
         "group flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] " +
-        (selected
-          ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-          : "hover:bg-[var(--color-surface)]")
+        (isCustomCommand
+          ? selected
+            ? "bg-rose-600 text-white"
+            : "bg-rose-500/10 hover:bg-rose-500/20"
+          : selected
+            ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+            : "hover:bg-[var(--color-surface)]")
       }
     >
       <span
         className={
           "shrink-0 " +
-          (selected ? "text-white/80" : "text-[var(--color-muted)]")
+          (selected
+            ? "text-white/80"
+            : isCustomCommand
+              ? "text-rose-500"
+              : "text-[var(--color-muted)]")
         }
       >
         <TypeIcon entry={entry} />

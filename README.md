@@ -20,7 +20,7 @@
   - 🎯 **Text expander — 4 modes**: passive **auto-expansion** (aText-style — expands as you type, no hotkey) · in-popup search · system-wide hotkey (AX/UIA in-place replace + Electron fallback) · direct hotkey → snippet slots (works even in terminals). **Dynamic placeholders** expand at paste time: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (caret position), `{{`/`}}` for literal braces.
   - 🔍 **Screen-region OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade text recognition into clipboard.
   - 📸 **Screenshots — CleanShot-X-style**: region (`Ctrl+Shift+S`) · full-screen · active-window · self-timer · repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); floating preview HUD; **annotation editor** (arrow / line / text / rect / ellipse / highlight / blur / redact / numbered step badges); **pin to screen** (float a capture as its own always-on-top window). Filenames include the source app name.
-  - 💡 **Monitor brightness** (`brightness` / `bri`) — slider per DDC-capable monitor (incl. secondary/external) + an "all" master; Lunar / TwinkleTray style over DDC/CI.
+  - 💡 **Monitor brightness** (`brightness` / `bri`) — slider per display (built-in *and* external) + an "all" master; Lunar / TwinkleTray style. Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux.
   - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. Dry-run preview + confirm; strict allowlist, symlinks never followed; Safe/Standard/Aggressive levels.
   - 🎨 **Color picker** (`Ctrl+Shift+C`) — `NSColorSampler` loupe / GDI overlay / hex straight to clipboard.
   - 📁 **Finder selection actions** (`Ctrl+Shift+F`, macOS) — multi-file batch resize / optim / cut-out / open on whatever you have selected in Finder.
@@ -37,7 +37,7 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **928 unit tests (369 Rust + 559 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **948 unit tests (380 Rust + 568 frontend).** MIT-licensed.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>

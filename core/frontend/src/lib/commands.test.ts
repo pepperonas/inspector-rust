@@ -131,6 +131,38 @@ describe("parseCommand", () => {
   });
 });
 
+describe("custom-command priority preconditions", () => {
+  // App.tsx ranks a *complete* command (commandEntry) above an app-launcher
+  // hit so typing `terminal` runs the command instead of launching
+  // Terminal.app. That hinges on these bare keywords parsing as complete,
+  // arg-less commands.
+  it.each([
+    ["terminal", "terminal"],
+    ["freeze", "freeze"],
+    ["lock", "lock"],
+    ["mute", "mute"],
+    ["reboot", "reboot"],
+    ["shutdown", "shutdown"],
+    ["brightness", "brightness"],
+    ["bri", "brightness"],
+  ])("`%s` parses as the complete %s command (no arg needed)", (input, kind) => {
+    const r = parseCommand(input);
+    expect(r).not.toBeNull();
+    expect(r?.spec.kind).toBe(kind);
+    expect(r?.spec.requiresArg).toBe(false);
+  });
+
+  it("these arg-less commands are not flagged requiresArg in the catalogue", () => {
+    const argless = COMMANDS.filter((c) =>
+      ["terminal", "freeze", "lock", "mute", "reboot", "shutdown", "brightness", "bri"].includes(
+        c.keyword,
+      ),
+    );
+    expect(argless.length).toBe(8);
+    expect(argless.every((c) => !c.requiresArg)).toBe(true);
+  });
+});
+
 describe("fuzzyScore", () => {
   it("scores an empty needle as 0", () => {
     expect(fuzzyScore("wakelock", "")).toBe(0);

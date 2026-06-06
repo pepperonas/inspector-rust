@@ -487,6 +487,14 @@ pub fn register_expander(
             let app_in_closure = app.clone();
             let app_for_err = app.clone();
             let _ = app.run_on_main_thread(move || {
+                // Preferred path (v0.64.0): expand the abbreviation the user
+                // just typed, read from the passive keystroke buffer. Works in
+                // *any* app — including terminals — because it never reads the
+                // focused field. Falls through to the legacy AX/UIA read path
+                // when the monitor isn't tracking or the buffer didn't match.
+                if crate::auto_expand::try_hotkey_expand() {
+                    return;
+                }
                 if let Some(db) = app_in_closure.try_state::<DbHandle>() {
                     let watcher = app_in_closure.try_state::<crate::clipboard_watcher::WatcherState>();
                     match expander::expand_at_cursor(&db, watcher.as_deref()) {

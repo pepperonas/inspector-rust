@@ -420,35 +420,50 @@ impl AutoExpander {
 
     /// Feed one decoded key event. Returns the action the executor should
     /// perform. Pure: no clipboard, no time, no FFI.
+    ///
+    /// The type buffer is maintained **regardless** of `cfg.enabled` so the
+    /// on-demand hotkey path ([`match_buffer_now`]) always has the typed word
+    /// available, even when *automatic* expansion (delimiter / immediate) is
+    /// switched off. Auto-expansion actions only fire when `cfg.enabled`.
     pub fn feed(&mut self, ev: KeyEvent) -> ExpandAction {
-        if !self.cfg.enabled {
-            return ExpandAction::None;
-        }
         match ev {
             KeyEvent::Reset => {
                 self.buf.clear();
                 self.last = None;
+                self.pending_restore = None;
                 ExpandAction::None
             }
             KeyEvent::Backspace => {
-                // Undo wins if a fresh expansion is pending.
-                if let Some(l) = self.take_fresh_undo() {
-                    self.reset();
-                    return ExpandAction::Undo {
-                        delete_chars: l.inserted_chars,
-                        restore_text: l.restore_text,
-                    };
+                // Undo wins if a fresh expansion is pending (auto-mode only).
+                if self.cfg.enabled && self.cfg.undo_enabled {
+                    if let Some(l) = self.take_fresh_undo() {
+                        self.reset();
+                        return ExpandAction::Undo {
+                            delete_chars: l.inserted_chars,
+                            restore_text: l.restore_text,
+                        };
+                    }
                 }
                 self.buf.pop();
                 ExpandAction::None
             }
             KeyEvent::Char(c) => {
-                self.age_undo();
+                if self.cfg.enabled {
+                    self.age_undo();
+                }
                 if is_delimiter(c) {
-                    self.handle_delimiter(c)
+                    // A delimiter ends the current word: in delimiter auto-mode
+                    // it may trigger an expansion; either way the buffer clears.
+                    let action = if self.cfg.enabled && self.cfg.trigger == Trigger::Delimiter {
+                        self.try_match(Some(c))
+                    } else {
+                        ExpandAction::None
+                    };
+                    self.buf.clear();
+                    action
                 } else {
                     self.push(c);
-                    if self.cfg.trigger == Trigger::Immediate {
+                    if self.cfg.enabled && self.cfg.trigger == Trigger::Immediate {
                         self.try_match(None)
                     } else {
                         ExpandAction::None
@@ -458,17 +473,14 @@ impl AutoExpander {
         }
     }
 
-    fn handle_delimiter(&mut self, delim: char) -> ExpandAction {
-        // In delimiter mode, the abbreviation candidate is the current buffer
-        // *before* the delimiter. Match, then reset the buffer (the delimiter
-        // ends the word either way).
-        let action = if self.cfg.trigger == Trigger::Delimiter {
-            self.try_match(Some(delim))
-        } else {
-            ExpandAction::None
-        };
-        self.buf.clear();
-        action
+    /// On-demand match for the abbreviation **hotkey** (e.g. `Alt+1`): find the
+    /// longest abbreviation that is a suffix of the buffer the user just typed,
+    /// ignoring the auto-expansion trigger mode. Returns an `Expand` action
+    /// (no trailing delimiter — the hotkey, not a delimiter, triggered it) or
+    /// `None`. Because the buffer is tracked from observed keystrokes, this
+    /// works **everywhere — including terminals** (it never reads the field).
+    pub fn match_buffer_now(&mut self) -> ExpandAction {
+        self.try_match(None)
     }
 
     /// Attempt a suffix match on the current buffer. `trailing` is the
@@ -709,6 +721,59 @@ fn pre_inject_ok() -> bool {
     )
 }
 
+/// On-demand expansion for the abbreviation **hotkey** (`Alt+1`), backed by
+/// the keystroke buffer. Returns `true` if it expanded the word the user just
+/// typed; `false` if the monitor isn't tracking, no abbreviation matched, or a
+/// safety gate blocked it — in which case the caller falls back to the legacy
+/// AX/UIA read path. Works in any app (incl. terminals) because it never reads
+/// the focused field.
+///
+/// Must run on the main thread on macOS (synthesizes keystrokes via enigo);
+/// the expander hotkey handler already dispatches onto the main thread.
+pub fn try_hotkey_expand() -> bool {
+    if INJECTING.load(Ordering::SeqCst) {
+        return false;
+    }
+    let Some(rt) = RT.get() else {
+        return false;
+    };
+    if !RUNNING.load(Ordering::SeqCst) {
+        return false; // monitor not tracking → no buffer to expand from
+    }
+    let action = rt.engine.lock().match_buffer_now();
+    let ExpandAction::Expand {
+        snippet_id,
+        backspaces,
+        trailing,
+    } = action
+    else {
+        return false;
+    };
+    if !pre_inject_ok() {
+        // A password field / our own popup etc. — don't expand here; let the
+        // caller decide (the AX path applies its own, identical guards).
+        rt.engine.lock().reset();
+        return false;
+    }
+    INJECTING.store(true, Ordering::SeqCst);
+    let watcher = rt.app.try_state::<crate::clipboard_watcher::WatcherState>();
+    let result =
+        crate::expander::auto_expand_inject(&rt.db, snippet_id, backspaces, trailing, watcher.as_deref());
+    match result {
+        Ok(inserted) => {
+            rt.engine.lock().note_expanded(inserted);
+            clear_injecting_after_grace();
+            true
+        }
+        Err(e) => {
+            tracing::warn!("auto_expand: hotkey expansion failed: {e:#}");
+            rt.engine.lock().reset();
+            INJECTING.store(false, Ordering::SeqCst);
+            false
+        }
+    }
+}
+
 /// (Re)load config + abbreviation table from the DB into the engine. Safe to
 /// call whenever snippets or the config change.
 pub fn refresh(db: &DbHandle, state: &AutoExpandState) {
@@ -739,8 +804,16 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &AutoExpandState) {
     });
     refresh(db, state);
 
-    let enabled = state.engine.lock().config().enabled;
-    if enabled {
+    // Arm the keystroke monitor when EITHER automatic auto-expansion is on OR
+    // the abbreviation hotkey is enabled. In the hotkey-only case the engine's
+    // `cfg.enabled` is false, so the monitor merely *tracks* keystrokes (no
+    // automatic expansion) — that buffer is what `try_hotkey_expand` uses so
+    // the hotkey works everywhere, including terminals.
+    let auto_enabled = state.engine.lock().config().enabled;
+    let hotkey_enabled =
+        crate::settings::get_bool(db, crate::expander::KEY_ENABLED, false).unwrap_or(false);
+    let want_monitor = auto_enabled || hotkey_enabled;
+    if want_monitor {
         // On macOS we need Accessibility to read/write keystrokes; without it
         // installing the tap is pointless. Mirror the expander's behaviour:
         // skip silently (the Settings banner surfaces the permission need).
@@ -1276,7 +1349,7 @@ mod tests {
     }
 
     #[test]
-    fn disabled_engine_never_expands() {
+    fn disabled_engine_never_auto_expands() {
         let cfg = AutoExpandConfig {
             enabled: false,
             trigger: Trigger::Immediate,
@@ -1286,6 +1359,72 @@ mod tests {
         for c in "mfg".chars() {
             assert_eq!(e.feed(KeyEvent::Char(c)), ExpandAction::None);
         }
+    }
+
+    #[test]
+    fn buffer_tracks_even_when_disabled_so_hotkey_can_expand() {
+        // The abbreviation-hotkey path relies on the buffer being maintained
+        // even when automatic expansion is off. Type the word, then the
+        // on-demand match (what Alt+1 calls) finds it regardless of trigger.
+        let cfg = AutoExpandConfig {
+            enabled: false,
+            trigger: Trigger::Delimiter,
+            ..Default::default()
+        };
+        let mut e = AutoExpander::new(table(), cfg);
+        for c in "mfg".chars() {
+            assert_eq!(e.feed(KeyEvent::Char(c)), ExpandAction::None);
+        }
+        assert_eq!(
+            e.match_buffer_now(),
+            ExpandAction::Expand {
+                snippet_id: 1,
+                backspaces: 3, // abbreviation only — no trailing delimiter
+                trailing: None,
+            }
+        );
+    }
+
+    #[test]
+    fn match_buffer_now_ignores_trigger_and_needs_no_delimiter() {
+        // Even in delimiter auto-mode, the hotkey expands mid-word (no space).
+        let mut e = engine(Trigger::Delimiter);
+        for c in "addr".chars() {
+            assert_eq!(e.feed(KeyEvent::Char(c)), ExpandAction::None);
+        }
+        match e.match_buffer_now() {
+            ExpandAction::Expand { snippet_id, backspaces, trailing } => {
+                assert_eq!(snippet_id, 2);
+                assert_eq!(backspaces, 4);
+                assert_eq!(trailing, None);
+            }
+            other => panic!("expected expand, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn match_buffer_now_returns_none_without_a_match() {
+        let mut e = engine(Trigger::Delimiter);
+        for c in "zzz".chars() {
+            e.feed(KeyEvent::Char(c));
+        }
+        assert_eq!(e.match_buffer_now(), ExpandAction::None);
+    }
+
+    #[test]
+    fn delimiter_clears_buffer_even_when_disabled() {
+        // So the hotkey expands the *current* word, not one before a space.
+        let cfg = AutoExpandConfig {
+            enabled: false,
+            trigger: Trigger::Delimiter,
+            ..Default::default()
+        };
+        let mut e = AutoExpander::new(table(), cfg);
+        for c in "mfg ".chars() {
+            e.feed(KeyEvent::Char(c));
+        }
+        // After the space the buffer is empty → no stale match.
+        assert_eq!(e.match_buffer_now(), ExpandAction::None);
     }
 
     #[test]

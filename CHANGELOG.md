@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.64.0] — 2026-06-06
+
+### Changed — Abbreviation hotkey (`Alt+1`) now works everywhere, incl. terminals
+
+When the abbreviation expander is enabled, a passive keystroke tracker
+remembers the word you just typed, so the hotkey expands it from that
+buffer (blind-Backspace + paste) **without reading the focused field** —
+so it now works in terminals (iTerm2, Terminal.app, …) too. The AX/UIA
+in-place paths remain as a fallback. The passive monitor is armed when
+either the hotkey **or** automatic auto-expansion is on.
+
+## [0.63.0] — 2026-06-06
+
+### Added — Screenshot editor: copy + nicer arrows
+
+- **Cmd/Ctrl+C** copies the *edited* screenshot to the clipboard (toolbar
+  "Copy" button too), staying in the editor.
+- Arrows redrawn with a concave-back head + round joins (CleanShot look).
+
+## [0.62.1] — 2026-06-06
+
+### Fixed
+
+- Footer keep-awake LED now reconciles on every popup open, so `caffeine on`
+  (and `wakelock on`) reliably show the status.
+
 ## [0.62.0] — 2026-06-06
 
 ### Added — Monitor brightness (`brightness` / `bri`)

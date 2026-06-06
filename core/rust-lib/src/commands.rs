@@ -1254,6 +1254,7 @@ pub fn set_expander_config(
     app: AppHandle,
     db: State<'_, DbHandle>,
     state: State<'_, ExpanderShortcutState>,
+    ae: State<'_, auto_expand::AutoExpandState>,
     enabled: bool,
     hotkey: String,
 ) -> Result<ExpanderConfig, String> {
@@ -1268,6 +1269,11 @@ pub fn set_expander_config(
         if enabled { "true" } else { "false" },
     )
     .map_err(map_err)?;
+
+    // Arm/disarm the passive keystroke monitor: enabling the abbreviation
+    // hotkey makes it track keystrokes so `Alt+1` can expand the typed word
+    // from the buffer (reliable everywhere, incl. terminals).
+    auto_expand::apply(&app, &db, &ae);
 
     Ok(ExpanderConfig {
         enabled,

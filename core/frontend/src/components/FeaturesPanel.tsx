@@ -120,8 +120,8 @@ export function FeaturesPanel() {
           name: "Abbreviation expander",
           trigger: formatHotkey(expander.hotkey),
           note: expander.enabled
-            ? "Type an abbreviation in any field, press the hotkey → it expands in place."
-            : "Disabled — enable it in Settings. Then type an abbreviation and press the hotkey.",
+            ? "Type an abbreviation anywhere (incl. terminals), press the hotkey → it expands. Backed by the keystroke buffer."
+            : "Disabled — enable it in Settings. Then type an abbreviation and press the hotkey (works everywhere, incl. terminals).",
         },
         {
           name: "Auto-Expansion (aText-Stil)",

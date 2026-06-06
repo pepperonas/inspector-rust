@@ -903,6 +903,14 @@ function App() {
     setActiveTab("history");
     setQuery("");
     setSelected(0);
+    // Reconcile the footer keep-awake LED to the true state on every open.
+    // `wakelock on` / `caffeine on` hide the popup before the footer can
+    // observe the `wakelock-changed` event, so re-fetch here — guarantees
+    // the status shows next time the popup opens, regardless of the keyword
+    // used (or an external change). Same robustness as the timer count.
+    void wakelockGet()
+      .then((v) => setWakelockActive(v))
+      .catch(() => undefined);
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();

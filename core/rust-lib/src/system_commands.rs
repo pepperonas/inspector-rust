@@ -14,10 +14,13 @@
 //!   triggers the lock screen if "Require password immediately after
 //!   sleep" is set).
 //!
-//! Windows: every function below stubs to `Err("not implemented on
-//! this platform")` so the workspace compiles cross-platform. The
-//! Windows path (`ExitWindowsEx`, `LockWorkStation`, `TerminateProcess`)
-//! is a follow-up — same strategy as OCR/Screenshot.
+//! Windows parity (v0.61.0): `system_reboot`/`system_shutdown` shell out
+//! to `shutdown /r|/s /t 0`, `system_lock` to `rundll32 user32.dll,
+//! LockWorkStation`, and volume/mute synthesize the multimedia VK keys
+//! (`VK_VOLUME_UP/DOWN/MUTE` via `keybd_event`). `kill` already had a
+//! Windows path (`TerminateProcess`). These Windows paths are written
+//! compile-clean but **runtime-unverified** on real hardware. Linux/other
+//! still return a clean "not implemented" error.
 
 #[cfg(any(target_os = "macos", target_os = "windows"))]
 use anyhow::Context;
@@ -160,7 +163,20 @@ pub fn system_reboot() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("osascript reboot returned non-zero exit"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // `shutdown /r /t 0` — graceful restart, apps get the standard
+        // "close to continue" prompt. No elevation needed for the current
+        // interactive session. (Runtime-unverified on a real Windows box.)
+        std::process::Command::new("shutdown")
+            .args(["/r", "/t", "0"])
+            .status()
+            .context("shutdown /r launch failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("shutdown /r returned non-zero exit"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         Err(anyhow!("system_reboot not implemented on this platform"))
     }
@@ -180,7 +196,17 @@ pub fn system_shutdown() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("osascript shutdown returned non-zero exit"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("shutdown")
+            .args(["/s", "/t", "0"])
+            .status()
+            .context("shutdown /s launch failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("shutdown /s returned non-zero exit"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         Err(anyhow!("system_shutdown not implemented on this platform"))
     }
@@ -200,7 +226,19 @@ pub fn system_lock() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("pmset displaysleepnow returned non-zero exit"))
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // The canonical Windows lock entry point. `rundll32` is the
+        // documented way to invoke it from a process.
+        std::process::Command::new("rundll32.exe")
+            .args(["user32.dll,LockWorkStation"])
+            .status()
+            .context("LockWorkStation launch failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("LockWorkStation returned non-zero exit"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         Err(anyhow!("system_lock not implemented on this platform"))
     }
@@ -253,7 +291,22 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
         // doesn't stack 300 ms latencies.
         Ok(0)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // Synthesize the multimedia volume keys. Each press steps ~2%, so
+        // emit roughly `delta/2` presses (min 1). Runtime-unverified.
+        let presses = ((delta.abs() + 1) / 2).max(1);
+        let vk = if delta >= 0 {
+            win_vol::VK_VOLUME_UP
+        } else {
+            win_vol::VK_VOLUME_DOWN
+        };
+        for _ in 0..presses {
+            win_vol::tap(vk);
+        }
+        Ok(0)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = delta;
         Err(anyhow!("adjust_system_volume not implemented on this platform"))
@@ -288,9 +341,37 @@ pub fn toggle_system_mute() -> Result<bool> {
             .ok_or_else(|| anyhow!("osascript mute set returned non-zero exit"))?;
         Ok(next)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // Synthesize the mute multimedia key. We can't cheaply read the
+        // resulting state back, so report `true` (best-effort — the frontend
+        // ignores the value for the `mute` command). Runtime-unverified.
+        win_vol::tap(win_vol::VK_VOLUME_MUTE);
+        Ok(true)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         Err(anyhow!("toggle_system_mute not implemented on this platform"))
+    }
+}
+
+/// Windows multimedia-key synthesis for volume / mute (v0.61.0).
+#[cfg(target_os = "windows")]
+mod win_vol {
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        keybd_event, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP,
+    };
+
+    pub const VK_VOLUME_MUTE: u8 = 0xAD;
+    pub const VK_VOLUME_DOWN: u8 = 0xAE;
+    pub const VK_VOLUME_UP: u8 = 0xAF;
+
+    /// Press + release a virtual key.
+    pub fn tap(vk: u8) {
+        unsafe {
+            keybd_event(vk, 0, KEYBD_EVENT_FLAGS(0), 0);
+            keybd_event(vk, 0, KEYEVENTF_KEYUP, 0);
+        }
     }
 }
 

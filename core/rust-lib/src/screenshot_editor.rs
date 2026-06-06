@@ -21,11 +21,49 @@ use crate::screenshot_preview::{Pending, PendingScreenshot, PREVIEW_LABEL};
 /// editor just re-focuses the existing window.
 pub const EDITOR_LABEL: &str = "screenshot-editor";
 
-/// Editor window dimensions. Large enough to comfortably edit a
-/// region-screenshot at 1× — the canvas inside auto-scales the source
-/// PNG to fit while preserving aspect ratio.
+/// Default editor window dimensions (used the first time, before the user
+/// has resized it). The canvas inside auto-scales the source PNG to fit.
 const EDITOR_W: f64 = 900.0;
 const EDITOR_H: f64 = 640.0;
+const EDITOR_MIN_W: f64 = 640.0;
+const EDITOR_MIN_H: f64 = 480.0;
+
+/// Settings key: the last editor window size, stored as `"WIDTHxHEIGHT"`
+/// (logical pixels), so it's restored on the next open (v0.66.0).
+const KEY_EDITOR_SIZE: &str = "screenshot.editor_size";
+
+/// Read the saved editor size from settings, clamped to the minimum.
+/// Falls back to the default when unset / unparsable.
+fn saved_editor_size(app: &AppHandle) -> (f64, f64) {
+    let Some(db) = app.try_state::<crate::db::DbHandle>() else {
+        return (EDITOR_W, EDITOR_H);
+    };
+    let parsed = crate::settings::get(&db, KEY_EDITOR_SIZE)
+        .ok()
+        .flatten()
+        .and_then(|s| {
+            let (w, h) = s.split_once('x')?;
+            Some((w.trim().parse::<f64>().ok()?, h.trim().parse::<f64>().ok()?))
+        });
+    match parsed {
+        Some((w, h)) if w >= EDITOR_MIN_W && h >= EDITOR_MIN_H => (w, h),
+        _ => (EDITOR_W, EDITOR_H),
+    }
+}
+
+/// Persist the editor window size (logical px). Called from the editor's
+/// resize listener (debounced) so the next open restores it.
+#[tauri::command]
+pub fn set_editor_size(
+    db: tauri::State<'_, crate::db::DbHandle>,
+    width: f64,
+    height: f64,
+) -> Result<(), String> {
+    let w = width.round().max(EDITOR_MIN_W) as i64;
+    let h = height.round().max(EDITOR_MIN_H) as i64;
+    crate::settings::set(&db, KEY_EDITOR_SIZE, &format!("{w}x{h}"))
+        .map_err(|e| e.to_string())
+}
 
 /// Open (or refocus) the editor window. The React side picks the
 /// current pending screenshot via the existing IPCs.
@@ -39,10 +77,11 @@ pub fn open_editor(app: &AppHandle) -> Result<()> {
         return Ok(());
     }
 
+    let (w, h) = saved_editor_size(app);
     WebviewWindowBuilder::new(app, EDITOR_LABEL, WebviewUrl::App("index.html".into()))
         .title("Edit screenshot")
-        .inner_size(EDITOR_W, EDITOR_H)
-        .min_inner_size(640.0, 480.0)
+        .inner_size(w, h)
+        .min_inner_size(EDITOR_MIN_W, EDITOR_MIN_H)
         .resizable(true)
         .decorations(true)
         .visible(true)

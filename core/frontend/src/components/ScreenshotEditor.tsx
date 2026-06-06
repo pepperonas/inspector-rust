@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
   ArrowUpRight,
   Check,
@@ -22,6 +23,7 @@ import {
   editorCopy,
   editorSave,
   getPendingScreenshotInfo,
+  setEditorSize,
 } from "../lib/ipc";
 import {
   COLOR_PRESETS,
@@ -252,6 +254,34 @@ export function ScreenshotEditor() {
     return () => window.removeEventListener("keydown", onKey);
   }, [undo, redo, save, copy, cancel, textInput]);
 
+  // Persist the editor window size (debounced) so the next open restores it.
+  useEffect(() => {
+    const win = getCurrentWebviewWindow();
+    let timer: number | undefined;
+    let unlisten: UnlistenFn | undefined;
+    void win
+      .onResized(({ payload }) => {
+        if (timer) window.clearTimeout(timer);
+        timer = window.setTimeout(() => {
+          void (async () => {
+            // onResized gives a physical size; store logical px so the
+            // builder's inner_size restores the same visual size.
+            const sf = await win.scaleFactor().catch(() => 1);
+            void setEditorSize(payload.width / sf, payload.height / sf).catch(
+              () => undefined,
+            );
+          })();
+        }, 400);
+      })
+      .then((u) => {
+        unlisten = u;
+      });
+    return () => {
+      if (timer) window.clearTimeout(timer);
+      unlisten?.();
+    };
+  }, []);
+
   // ── Mouse helpers ────────────────────────────────────────────────
   const toCanvasCoords = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
@@ -267,11 +297,19 @@ export function ScreenshotEditor() {
 
   const onCanvasMouseDown = (e: React.MouseEvent<HTMLCanvasElement>) => {
     const p = toCanvasCoords(e);
-    // v0.37.1 — if a text input is open, commit it first (was: return
-    // early and require a second click). The blur handler also runs
-    // when the canvas takes focus, but blur is async wrt the click;
-    // committing here keeps single-click semantics consistent with
-    // native macOS apps (TextEdit, Pages, etc.).
+    // v0.66.0 — when a text input is open, suppress the default focus
+    // shift this click would cause. In WKWebView `mousedown` fires
+    // *before* the input's `blur`, so without this the blur handler would
+    // run after we've already committed + opened the next input here and
+    // would wrongly close that fresh input (text-adding felt broken —
+    // you couldn't place a second text by clicking). preventDefault keeps
+    // focus on the overlay input so no stray blur fires; we commit and
+    // re-open here ourselves. (Toolbar/button clicks still blur → commit.)
+    if (textInput) {
+      e.preventDefault();
+    }
+    // If a text input is open, commit it first (single-click semantics,
+    // consistent with native macOS apps — TextEdit, Pages, etc.).
     if (textInput) {
       const v = textInput.value.trim();
       if (v.length > 0) {

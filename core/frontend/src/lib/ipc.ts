@@ -116,6 +116,12 @@ export function editorCopy(pngB64: string): Promise<number> {
   return invoke("editor_copy", { pngB64 });
 }
 
+/** Persist the editor window size (logical px) so the next open restores
+ *  it. Called from the editor's debounced resize listener. (v0.66.0) */
+export function setEditorSize(width: number, height: number): Promise<void> {
+  return invoke("set_editor_size", { width, height });
+}
+
 /** Cancel: close the editor, re-show the preview with the original
  *  (unedited) capture. */
 export function editorCancel(): Promise<void> {

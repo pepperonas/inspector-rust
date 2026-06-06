@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.66.0] — 2026-06-06
+
+### Fixed — Screenshot editor: adding text
+
+Placing a second text by clicking no longer closes the fresh input. In
+WKWebView `mousedown` fires before the old input's `blur`; the click on
+the canvas now suppresses that stray blur (`preventDefault`) so consecutive
+text placement works.
+
+### Added — Screenshot editor remembers its window size
+
+The editor window's size is saved (debounced, `screenshot.editor_size`) and
+restored on the next open.
+
+## [0.65.0] — 2026-06-06
+
+### Added — Edit the generated password (`pwgen`)
+
+The pwgen preview shows the password in an editable field — type to tweak,
+Enter copies, Esc done. Edits are keyed to the current generation so a
+reroll / mode-switch / length-change discards a stale edit.
+
 ## [0.64.0] — 2026-06-06
 
 ### Changed — Abbreviation hotkey (`Alt+1`) now works everywhere, incl. terminals

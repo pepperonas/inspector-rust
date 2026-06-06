@@ -199,26 +199,71 @@ pub fn create_dir(name: &str) -> Result<PathBuf, String> {
 /// Open a terminal at the front Finder folder. Prefers **iTerm2** (the
 /// user's terminal) if installed, falling back to Terminal.app. Returns
 /// the directory opened.
+/// Wrap `s` in POSIX single quotes for safe use in a shell `cd` (handles
+/// spaces, `$`, etc.; embedded `'` becomes `'\''`). Pure + unit-tested.
+#[cfg(any(target_os = "macos", test))]
+pub fn sh_squote(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// Escape a string for embedding inside an AppleScript double-quoted literal
+/// (`"\""` and `"\\"`). Pure + unit-tested.
+#[cfg(any(target_os = "macos", test))]
+pub fn osa_escape(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+#[cfg(target_os = "macos")]
+fn iterm_installed() -> bool {
+    if std::path::Path::new("/Applications/iTerm.app").exists() {
+        return true;
+    }
+    dirs::home_dir()
+        .map(|h| h.join("Applications/iTerm.app").exists())
+        .unwrap_or(false)
+}
+
 #[cfg(target_os = "macos")]
 pub fn open_terminal() -> Result<PathBuf, String> {
+    use std::process::Command;
     let dir = front_dir()?;
-    // Try iTerm2 by bundle id first; `open -b` exits non-zero if it isn't
-    // installed, in which case fall back to the built-in Terminal.app.
-    let iterm_ok = std::process::Command::new("/usr/bin/open")
-        .args(["-b", "com.googlecode.iterm2"])
+    let dir_str = dir.to_string_lossy().to_string();
+
+    // iTerm2 first, if installed. `open -b … <dir>` opens iTerm but does NOT
+    // cd into the folder, so drive it with AppleScript: a new window + an
+    // explicit `cd '<dir>'`. (Terminal.app, by contrast, honours the folder
+    // arg to `open -a` directly.)
+    if iterm_installed() {
+        let cd_cmd = format!("cd {}", sh_squote(&dir_str));
+        let script = format!(
+            "tell application \"iTerm\"\n\
+                 activate\n\
+                 create window with default profile\n\
+                 tell current session of current window to write text \"{}\"\n\
+             end tell",
+            osa_escape(&cd_cmd)
+        );
+        let ok = Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(&script)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return Ok(dir);
+        }
+        // fall through to Terminal.app on any iTerm failure
+    }
+
+    // Terminal.app — `open -a Terminal <dir>` opens a new window already at
+    // the directory.
+    let status = Command::new("/usr/bin/open")
+        .args(["-a", "Terminal"])
         .arg(&dir)
         .status()
-        .map(|s| s.success())
-        .unwrap_or(false);
-    if !iterm_ok {
-        let status = std::process::Command::new("/usr/bin/open")
-            .args(["-a", "Terminal"])
-            .arg(&dir)
-            .status()
-            .map_err(|e| format!("open Terminal failed: {e}"))?;
-        if !status.success() {
-            return Err("failed to open a terminal".into());
-        }
+        .map_err(|e| format!("open Terminal failed: {e}"))?;
+    if !status.success() {
+        return Err("failed to open a terminal".into());
     }
     Ok(dir)
 }
@@ -266,5 +311,28 @@ mod tests {
     #[test]
     fn rejects_nul_byte() {
         assert!(sanitize_name("evil\0name").is_err());
+    }
+}
+
+#[cfg(test)]
+mod quote_tests {
+    use super::{osa_escape, sh_squote};
+
+    #[test]
+    fn sh_squote_wraps_and_escapes() {
+        assert_eq!(sh_squote("/Users/martin"), "'/Users/martin'");
+        // Spaces are handled by the surrounding quotes (Google Drive case).
+        assert_eq!(sh_squote("/Users/martin/My Drive"), "'/Users/martin/My Drive'");
+        // An embedded single quote → '\'' so the shell sees a literal '.
+        assert_eq!(sh_squote("a'b"), "'a'\\''b'");
+    }
+
+    #[test]
+    fn osa_escape_escapes_backslash_and_quote() {
+        assert_eq!(osa_escape("cd '/x'"), "cd '/x'");
+        assert_eq!(osa_escape(r#"a"b"#), "a\\\"b");
+        assert_eq!(osa_escape(r"a\b"), "a\\\\b");
+        // Order matters: backslash first, then quote.
+        assert_eq!(osa_escape(r#"\""#), "\\\\\\\"");
     }
 }

@@ -4,6 +4,27 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.71.1] — 2026-06-06
+
+### Fixed — `terminal` opens in the Finder folder
+
+The `terminal` command now opens the terminal **in** the frontmost Finder
+window's folder. Previously iTerm2 was launched but landed in the home
+directory (`open -b … <dir>` doesn't `cd`). It is now driven via AppleScript
+(`tell application "iTerm" … write text "cd <dir>"`) when iTerm2 is installed,
+falling back to `open -a Terminal <dir>` (Terminal.app honours the folder arg).
+New pure helpers `sh_squote` (POSIX single-quote) and `osa_escape` (AppleScript
+string escaping) are unit-tested.
+
+## [0.71.0] — 2026-06-06
+
+### Changed — Paused games wait for a keypress before resuming
+
+When a suspended game (Pong, Snake, Space Invaders, Flappy) is reopened, the
+loop now stays frozen on a **"▸ Resumed — press a key to continue"** overlay
+until the first keydown/click, so the player isn't dropped straight back into
+live action.
+
 ## [0.70.0] — 2026-06-06
 
 ### Added — Meme picker (`meme`)

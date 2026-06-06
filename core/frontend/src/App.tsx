@@ -186,6 +186,18 @@ function App() {
   // mode-switch and on Enter (for explicit re-rolls).
   const [pwgenMode, setPwgenMode] = useState<PwgenMode>("all");
   const [pwgenSeed, setPwgenSeed] = useState(0);
+  // User-edited password (v0.65.0). Keyed by the generation it belongs to
+  // (seed/query/mode) so any regenerate / mode-switch / length-change
+  // automatically discards a stale edit — no manual clearing needed.
+  const [pwgenEdit, setPwgenEdit] = useState<{
+    seed: number;
+    query: string;
+    mode: PwgenMode;
+    value: string;
+  } | null>(null);
+  // True while the password field has focus — disables the global keyboard
+  // nav so typing edits the password instead of moving the selection.
+  const [pwgenEditing, setPwgenEditing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -639,18 +651,28 @@ function App() {
     const len =
       parsed.arg.trim() === "" ? DEFAULT_PWGEN_LENGTH : parsePwgenArg(parsed.arg);
     if (!len) return null;
+    const generated = generatePassword(pwgenMode, len);
+    // Use the user's edited value iff it belongs to THIS generation
+    // (same seed/query/mode); otherwise a fresh random. Stale edits
+    // (after a reroll / mode-switch / length-change) are ignored.
+    const edited =
+      pwgenEdit &&
+      pwgenEdit.seed === pwgenSeed &&
+      pwgenEdit.query === query &&
+      pwgenEdit.mode === pwgenMode
+        ? pwgenEdit.value
+        : null;
     return {
       kind: "pwgen",
       data: {
         length: len,
         mode: pwgenMode,
-        password: generatePassword(pwgenMode, len),
+        password: edited ?? generated,
       },
     };
     // Seed dep so explicit re-rolls (Enter) regenerate even when
-    // query + mode are unchanged.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, pwgenMode, pwgenSeed]);
+    // query + mode are unchanged; pwgenEdit dep folds in user edits.
+  }, [query, pwgenMode, pwgenSeed, pwgenEdit]);
 
   // bpm trigger — exact `bpm` (whitespace + case tolerant) surfaces
   // a "Detect BPM" row at the top. Enter activates → bpmMode = true →
@@ -1525,7 +1547,7 @@ function App() {
     // In game mode the game owns the keyboard — disable the popup nav
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
-    enabled: !gameMode && !bpmMode && !totpMode,
+    enabled: !gameMode && !bpmMode && !totpMode && !pwgenEditing,
   });
 
   const current = combined[selected] ?? null;
@@ -1820,6 +1842,18 @@ function App() {
                   setPwgenSeed((s) => s + 1);
                 }}
                 onPwgenReroll={() => setPwgenSeed((s) => s + 1)}
+                onPwgenEdit={(value) =>
+                  setPwgenEdit({ seed: pwgenSeed, query, mode: pwgenMode, value })
+                }
+                onPwgenEditingChange={setPwgenEditing}
+                onPwgenCommit={async () => {
+                  if (current?.kind !== "pwgen") return;
+                  const { writeText } = await import(
+                    "@tauri-apps/plugin-clipboard-manager"
+                  );
+                  await writeText(current.data.password);
+                  await hidePopup();
+                }}
               />
             </div>
           </div>

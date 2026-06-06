@@ -27,9 +27,24 @@ interface Props {
   /** Bump to force a fresh password generation without changing mode
    *  (the "regenerate" button calls this). */
   onPwgenReroll?: () => void;
+  /** The user edited the generated password in the field (v0.65.0). */
+  onPwgenEdit?: (value: string) => void;
+  /** The password field gained / lost focus — App disables the global
+   *  keyboard nav while it's focused so typing edits the password. */
+  onPwgenEditingChange?: (editing: boolean) => void;
+  /** Enter in the password field — copy the (possibly edited) password. */
+  onPwgenCommit?: () => void;
 }
 
-export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenReroll }: Props) {
+export function PreviewPanel({
+  entry,
+  pwgenMode,
+  onPwgenModeChange,
+  onPwgenReroll,
+  onPwgenEdit,
+  onPwgenEditingChange,
+  onPwgenCommit,
+}: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
     try {
@@ -408,10 +423,33 @@ export function PreviewPanel({ entry, pwgenMode, onPwgenModeChange, onPwgenRerol
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           Password · {d.length} chars · CSPRNG
         </div>
-        {/* The password itself — large, mono, easy to eyeball-check. */}
-        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
-          <div className="break-all font-[var(--font-mono)] text-[16px] font-semibold leading-snug">
-            {d.password}
+        {/* The password itself — large, mono, and editable. Type to tweak
+            it; Enter copies the edited value, Esc blurs back. */}
+        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-3">
+          <input
+            type="text"
+            value={d.password}
+            spellCheck={false}
+            autoComplete="off"
+            autoCapitalize="off"
+            autoCorrect="off"
+            aria-label="Generated password (editable)"
+            onChange={(e) => onPwgenEdit?.(e.target.value)}
+            onFocus={() => onPwgenEditingChange?.(true)}
+            onBlur={() => onPwgenEditingChange?.(false)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                onPwgenCommit?.();
+              } else if (e.key === "Escape") {
+                e.preventDefault();
+                (e.target as HTMLInputElement).blur();
+              }
+            }}
+            className="w-full break-all border-0 bg-transparent p-1 font-[var(--font-mono)] text-[16px] font-semibold leading-snug text-[var(--color-fg)] outline-none focus:ring-1 focus:ring-[var(--color-accent)]/50"
+          />
+          <div className="mt-0.5 px-1 text-[10px] text-[var(--color-muted)]">
+            Editable — type to tweak · Enter copies · Esc done
           </div>
         </div>
         {/* Mode picker — radio style, currently-active highlighted.

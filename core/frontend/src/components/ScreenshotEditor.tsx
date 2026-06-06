@@ -4,10 +4,14 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import {
   ArrowUpRight,
   Check,
+  Circle,
   Droplets,
+  Hash,
   Highlighter,
+  Minus,
   Redo2,
   Square,
+  SquareSlash,
   Type,
   Undo2,
   X,
@@ -17,17 +21,33 @@ import {
   editorSave,
   getPendingScreenshotInfo,
 } from "../lib/ipc";
+import {
+  COLOR_PRESETS,
+  makeDragAnnotation,
+  nextStepNumber,
+  type Annotation,
+  type ArrowAnnotation,
+  type BlurAnnotation,
+  type Tool,
+} from "../lib/editor-geometry";
 
 /**
  * Screenshot annotation editor (mounted in the `screenshot-editor`
  * Tauri window). Loads the currently-pending screenshot, renders it
- * onto a canvas, and lets the user layer five annotation types on top:
+ * onto a canvas, and lets the user layer annotation types on top:
  *
  *   • Arrow      — line + filled arrowhead.
+ *   • Line       — plain straight line.
  *   • Text       — click position, type, Enter commits.
  *   • Rectangle  — empty-outline box.
+ *   • Ellipse    — empty-outline ellipse.
  *   • Highlight  — translucent yellow box (CleanShot-style marker).
  *   • Blur       — pixelate the underlying pixels (mosaic, no deps).
+ *   • Redact     — opaque black block (fully hides content).
+ *   • Step       — click-placed numbered badge (auto-incrementing).
+ *
+ * Geometry + the annotation data model live in `lib/editor-geometry.ts`
+ * (pure, unit-tested); this component owns the canvas drawing.
  *
  * Save bakes the canvas to PNG and ships it to the backend, which
  * writes it to ~/Downloads with the captured app-name + `-edited`
@@ -43,56 +63,6 @@ import {
  * so the saved PNG is full-resolution. CSS scales it down to fit the
  * viewport. Mouse coords are converted via `canvas.width / rect.width`.
  */
-
-type Tool = "arrow" | "text" | "rect" | "highlight" | "blur";
-
-type AnnotationCommon = { color: string; width: number };
-type ArrowAnnotation = AnnotationCommon & {
-  type: "arrow";
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-};
-type RectAnnotation = AnnotationCommon & {
-  type: "rect";
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-};
-type HighlightAnnotation = {
-  type: "highlight";
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  color: string;
-};
-type BlurAnnotation = {
-  type: "blur";
-  x: number;
-  y: number;
-  w: number;
-  h: number;
-  blockSize: number;
-};
-type TextAnnotation = {
-  type: "text";
-  x: number;
-  y: number;
-  text: string;
-  color: string;
-  size: number;
-};
-type Annotation =
-  | ArrowAnnotation
-  | RectAnnotation
-  | HighlightAnnotation
-  | BlurAnnotation
-  | TextAnnotation;
-
-const COLOR_PRESETS = ["#ef4444", "#facc15", "#ffffff", "#000000"] as const;
 
 export function ScreenshotEditor() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -178,8 +148,8 @@ export function ScreenshotEditor() {
       drawAnnotation(ctx, a, img);
     }
 
-    // Preview of an in-progress drag (arrow / rect / highlight / blur).
-    if (dragStart && dragCurrent && tool !== "text") {
+    // Preview of an in-progress drag (drag-based tools only).
+    if (dragStart && dragCurrent && tool !== "text" && tool !== "step") {
       const preview = makeDragAnnotation(
         tool,
         dragStart,
@@ -248,10 +218,14 @@ export function ScreenshotEditor() {
         // Single-key tool shortcuts. Match CleanShot-X reasonably.
         const key = e.key.toLowerCase();
         if (key === "a") setTool("arrow");
+        else if (key === "l") setTool("line");
         else if (key === "t") setTool("text");
         else if (key === "r") setTool("rect");
+        else if (key === "e") setTool("ellipse");
         else if (key === "h") setTool("highlight");
         else if (key === "b") setTool("blur");
+        else if (key === "x") setTool("redact");
+        else if (key === "n") setTool("step");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -310,6 +284,22 @@ export function ScreenshotEditor() {
     if (tool === "text") {
       // Click-to-place text input — no existing input to dismiss.
       setTextInput({ x: p.x, y: p.y, value: "" });
+      return;
+    }
+    if (tool === "step") {
+      // Click-to-place numbered badge; number auto-increments.
+      setAnnotations((cur) => [
+        ...cur,
+        {
+          type: "step",
+          x: p.x,
+          y: p.y,
+          number: nextStepNumber(cur),
+          color,
+          size: Math.max(14, strokeWidth * 4),
+        },
+      ]);
+      setRedoStack([]);
       return;
     }
     setDragStart(p);
@@ -451,6 +441,39 @@ export function ScreenshotEditor() {
 
 // ── Toolbar component ───────────────────────────────────────────────
 
+/** A single tool button. Module-level (not defined during render) so it's
+ *  a stable component identity. */
+function ToolBtn({
+  t,
+  icon,
+  label,
+  shortcut,
+  active,
+  onSelect,
+}: {
+  t: Tool;
+  icon: React.ReactNode;
+  label: string;
+  shortcut: string;
+  active: Tool;
+  onSelect: (t: Tool) => void;
+}) {
+  return (
+    <button
+      onClick={() => onSelect(t)}
+      title={`${label} (${shortcut})`}
+      className={
+        "flex h-10 w-10 items-center justify-center rounded-md border transition-colors " +
+        (active === t
+          ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+          : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
+      }
+    >
+      {icon}
+    </button>
+  );
+}
+
 function Toolbar({
   tool,
   setTool,
@@ -466,43 +489,17 @@ function Toolbar({
   strokeWidth: number;
   setStrokeWidth: (n: number) => void;
 }) {
-  const Btn = ({
-    t,
-    icon,
-    label,
-    shortcut,
-  }: {
-    t: Tool;
-    icon: React.ReactNode;
-    label: string;
-    shortcut: string;
-  }) => (
-    <button
-      onClick={() => setTool(t)}
-      title={`${label} (${shortcut})`}
-      className={
-        "flex h-10 w-10 items-center justify-center rounded-md border transition-colors " +
-        (tool === t
-          ? "border-[var(--color-accent)] bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
-          : "border-[var(--color-border)] hover:bg-[var(--color-bg)]")
-      }
-    >
-      {icon}
-    </button>
-  );
-
   return (
     <div className="flex w-14 shrink-0 flex-col items-center gap-1.5 border-r border-[var(--color-border)] bg-[var(--color-surface)] p-2">
-      <Btn t="arrow" icon={<ArrowUpRight size={16} />} label="Arrow" shortcut="A" />
-      <Btn t="text" icon={<Type size={16} />} label="Text" shortcut="T" />
-      <Btn t="rect" icon={<Square size={16} />} label="Rectangle" shortcut="R" />
-      <Btn
-        t="highlight"
-        icon={<Highlighter size={16} />}
-        label="Highlight"
-        shortcut="H"
-      />
-      <Btn t="blur" icon={<Droplets size={16} />} label="Blur" shortcut="B" />
+      <ToolBtn t="arrow" icon={<ArrowUpRight size={16} />} label="Arrow" shortcut="A" active={tool} onSelect={setTool} />
+      <ToolBtn t="line" icon={<Minus size={16} />} label="Line" shortcut="L" active={tool} onSelect={setTool} />
+      <ToolBtn t="text" icon={<Type size={16} />} label="Text" shortcut="T" active={tool} onSelect={setTool} />
+      <ToolBtn t="rect" icon={<Square size={16} />} label="Rectangle" shortcut="R" active={tool} onSelect={setTool} />
+      <ToolBtn t="ellipse" icon={<Circle size={16} />} label="Ellipse" shortcut="E" active={tool} onSelect={setTool} />
+      <ToolBtn t="highlight" icon={<Highlighter size={16} />} label="Highlight" shortcut="H" active={tool} onSelect={setTool} />
+      <ToolBtn t="blur" icon={<Droplets size={16} />} label="Blur" shortcut="B" active={tool} onSelect={setTool} />
+      <ToolBtn t="redact" icon={<SquareSlash size={16} />} label="Redact" shortcut="X" active={tool} onSelect={setTool} />
+      <ToolBtn t="step" icon={<Hash size={16} />} label="Step badge" shortcut="N" active={tool} onSelect={setTool} />
 
       <div className="mt-3 flex flex-col items-center gap-1.5">
         {COLOR_PRESETS.map((c) => (
@@ -636,53 +633,6 @@ function TextInputOverlay({
 
 // ── Drawing helpers ────────────────────────────────────────────────
 
-function makeDragAnnotation(
-  tool: Tool,
-  start: { x: number; y: number },
-  end: { x: number; y: number },
-  color: string,
-  width: number,
-): Annotation | null {
-  if (tool === "arrow") {
-    return { type: "arrow", x1: start.x, y1: start.y, x2: end.x, y2: end.y, color, width };
-  }
-  if (tool === "rect") {
-    return {
-      type: "rect",
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      w: Math.abs(end.x - start.x),
-      h: Math.abs(end.y - start.y),
-      color,
-      width,
-    };
-  }
-  if (tool === "highlight") {
-    return {
-      type: "highlight",
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      w: Math.abs(end.x - start.x),
-      h: Math.abs(end.y - start.y),
-      color: "#facc15", // highlight is always yellow — like a marker
-    };
-  }
-  if (tool === "blur") {
-    // Block size scales with stroke width — fatter "brush" → coarser
-    // mosaic. Min 6px so it actually looks blurred.
-    const block = Math.max(6, width * 3);
-    return {
-      type: "blur",
-      x: Math.min(start.x, end.x),
-      y: Math.min(start.y, end.y),
-      w: Math.abs(end.x - start.x),
-      h: Math.abs(end.y - start.y),
-      blockSize: block,
-    };
-  }
-  return null;
-}
-
 function drawAnnotation(
   ctx: CanvasRenderingContext2D,
   a: Annotation,
@@ -692,10 +642,38 @@ function drawAnnotation(
     case "arrow":
       drawArrow(ctx, a);
       break;
+    case "line":
+      ctx.save();
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = a.width;
+      ctx.lineCap = "round";
+      ctx.beginPath();
+      ctx.moveTo(a.x1, a.y1);
+      ctx.lineTo(a.x2, a.y2);
+      ctx.stroke();
+      ctx.restore();
+      break;
     case "rect":
       ctx.strokeStyle = a.color;
       ctx.lineWidth = a.width;
       ctx.strokeRect(a.x, a.y, a.w, a.h);
+      break;
+    case "ellipse":
+      ctx.save();
+      ctx.strokeStyle = a.color;
+      ctx.lineWidth = a.width;
+      ctx.beginPath();
+      ctx.ellipse(
+        a.x + a.w / 2,
+        a.y + a.h / 2,
+        Math.abs(a.w / 2),
+        Math.abs(a.h / 2),
+        0,
+        0,
+        Math.PI * 2,
+      );
+      ctx.stroke();
+      ctx.restore();
       break;
     case "highlight":
       ctx.save();
@@ -707,6 +685,16 @@ function drawAnnotation(
     case "blur":
       drawBlur(ctx, a, source);
       break;
+    case "redact":
+      // Opaque black block — fully hides the content (vs. blur's mosaic).
+      ctx.save();
+      ctx.fillStyle = "#000000";
+      ctx.fillRect(a.x, a.y, a.w, a.h);
+      ctx.restore();
+      break;
+    case "step":
+      drawStep(ctx, a);
+      break;
     case "text":
       ctx.save();
       ctx.fillStyle = a.color;
@@ -716,6 +704,25 @@ function drawAnnotation(
       ctx.restore();
       break;
   }
+}
+
+/** Numbered badge: filled circle + centred white number. */
+function drawStep(
+  ctx: CanvasRenderingContext2D,
+  a: { x: number; y: number; number: number; color: string; size: number },
+) {
+  const r = a.size;
+  ctx.save();
+  ctx.fillStyle = a.color;
+  ctx.beginPath();
+  ctx.arc(a.x, a.y, r, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#ffffff";
+  ctx.font = `bold ${Math.round(r * 1.1)}px var(--font-sans, sans-serif)`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(String(a.number), a.x, a.y + 1);
+  ctx.restore();
 }
 
 /** Line + filled arrowhead at (x2, y2). Arrowhead size scales with

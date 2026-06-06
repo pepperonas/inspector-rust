@@ -12,7 +12,7 @@ Ready-to-import JSON files. Each one is a stand-alone, valid input for the **Sni
 
 ## How to use
 
-1. Open Inspector Rust (`Ctrl+Shift+V`).
+1. Open Inspector Rust (`Ctrl+Space`).
 2. **Snippets** tab → **Import**.
 3. Select one of the files above.
 4. The status row shows e.g. `Imported 8` and the new entries appear in the list.

@@ -4,7 +4,7 @@ Inspector Rust can bulk-import snippets from a JSON file. This is the fastest wa
 
 ## How to import
 
-1. Open the popup with `Ctrl+Shift+V`.
+1. Open the popup with `Ctrl+Space`.
 2. Click the **Snippets** tab in the upper-right of the header.
 3. Click **Import** (top-right of the snippet list).
 4. The native file picker opens (NSOpenPanel on macOS, OpenFileDialog on Windows). Select a `.json` file.
@@ -81,7 +81,7 @@ Several themed examples live under [`docs/examples/snippets/`](./examples/snippe
 
 **Try it:**
 
-1. Open Inspector Rust (`Ctrl+Shift+V`)
+1. Open Inspector Rust (`Ctrl+Space`)
 2. **Snippets** tab → **Import**
 3. Select e.g. [`docs/examples/snippets/getting-started.json`](./examples/snippets/getting-started.json) — three new entries (`addr`, `email`, `mfg`) appear in the list.
 

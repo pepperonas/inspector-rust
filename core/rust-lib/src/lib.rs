@@ -183,16 +183,13 @@ pub fn run(context: tauri::Context<Wry>) {
             }
 
             // Popup hotkey — read user-configured string from settings,
-            // fall back to default (Ctrl+Shift+V). Separate from
+            // fall back to default (Ctrl+Space). Separate from
             // `hotkey::register` because it's user-configurable + needs
-            // re-registration at runtime from the settings panel.
+            // re-registration at runtime from the settings panel. A one-time
+            // migration bumps the pre-0.67 `Ctrl+Shift+V` default to
+            // `Ctrl+Space` for un-customised installs (idempotent).
             {
-                let stored = settings::get_or(
-                    &db_handle,
-                    hotkey::KEY_POPUP_HOTKEY,
-                    hotkey::DEFAULT_POPUP_HOTKEY,
-                )
-                .unwrap_or_else(|_| hotkey::DEFAULT_POPUP_HOTKEY.to_string());
+                let stored = hotkey::migrate_legacy_popup_default(&db_handle);
                 let popup_state = app.state::<hotkey::PopupShortcutState>();
                 if let Err(e) = hotkey::register_popup(&app.handle(), &popup_state, &stored) {
                     tracing::warn!(
@@ -460,7 +457,7 @@ pub fn run(context: tauri::Context<Wry>) {
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
-    let open_item = MenuItemBuilder::with_id("open", "Open (Ctrl+Shift+V)").build(app)?;
+    let open_item = MenuItemBuilder::with_id("open", "Open (Ctrl+Space)").build(app)?;
     let snippets_item = MenuItemBuilder::with_id("snippets", "Manage Snippets").build(app)?;
     let notes_item = MenuItemBuilder::with_id("notes", "Manage Notes").build(app)?;
     // Both global shortcuts use literal Control on every OS since

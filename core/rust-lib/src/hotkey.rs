@@ -78,18 +78,53 @@ fn popup_is_visible(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
-/// Default popup-show hotkey: `Ctrl+Shift+V` on every platform. The
-/// literal Control (not Cmd on macOS) was the original choice — Cmd+V
-/// is universally taken by paste, so Cmd+Shift+V would collide with
-/// "paste without formatting" in many apps. Settings can override this
-/// to anything `parse_shortcut` accepts (e.g. `Cmd+Space`,
-/// `Alt+Space`, `F19`, …).
-pub const DEFAULT_POPUP_HOTKEY: &str = "Ctrl+Shift+KeyV";
+/// Default popup-show hotkey: `Ctrl+Space` on every platform. Literal
+/// Control (not Cmd) is deliberate — Cmd+Space is macOS Spotlight.
+/// Settings can override this to anything `parse_shortcut` accepts
+/// (e.g. `Ctrl+Shift+V`, `Alt+Space`, `F19`, …).
+///
+/// Note (macOS): `Ctrl+Space` is also macOS's default "select previous
+/// input source" shortcut. If the popup doesn't open, free that up in
+/// System Settings → Keyboard → Keyboard Shortcuts → Input Sources (or
+/// pick a different hotkey in Settings).
+pub const DEFAULT_POPUP_HOTKEY: &str = "Ctrl+Space";
+
+/// The pre-0.67 default, kept only so [`migrate_legacy_popup_default`] can
+/// recognise an un-customised old install and bump it to `Ctrl+Space`.
+pub const LEGACY_POPUP_HOTKEY: &str = "Ctrl+Shift+KeyV";
 
 /// Settings key for the user-configured popup hotkey. Stored as the
 /// same `Modifier+...+Code` string format that `parse_shortcut`
 /// accepts. Absent → default applies.
 pub const KEY_POPUP_HOTKEY: &str = "popup.hotkey";
+
+/// One-shot flag: set once the legacy `Ctrl+Shift+V` popup default has
+/// been migrated to [`DEFAULT_POPUP_HOTKEY`]. Idempotent; never clobbers a
+/// value the user deliberately set.
+pub const KEY_POPUP_HOTKEY_MIGRATED: &str = "popup.hotkey_migrated_v0_67";
+
+/// If the stored popup hotkey is still the pre-0.67 default `Ctrl+Shift+V`
+/// (i.e. the user never customised it), rewrite it to the new
+/// [`DEFAULT_POPUP_HOTKEY`] (`Ctrl+Space`). A migration flag makes this
+/// run once and prevents clobbering a value the user re-picks later.
+/// Returns the hotkey string that should be used from here on.
+pub fn migrate_legacy_popup_default(db: &crate::db::DbHandle) -> String {
+    use crate::settings;
+    let stored = settings::get_or(db, KEY_POPUP_HOTKEY, DEFAULT_POPUP_HOTKEY)
+        .unwrap_or_else(|_| DEFAULT_POPUP_HOTKEY.to_string());
+    if settings::get_bool(db, KEY_POPUP_HOTKEY_MIGRATED, false).unwrap_or(false) {
+        return stored;
+    }
+    let upgraded = if stored == LEGACY_POPUP_HOTKEY {
+        let _ = settings::set(db, KEY_POPUP_HOTKEY, DEFAULT_POPUP_HOTKEY);
+        tracing::info!("migrated popup hotkey {LEGACY_POPUP_HOTKEY} → {DEFAULT_POPUP_HOTKEY}");
+        DEFAULT_POPUP_HOTKEY.to_string()
+    } else {
+        stored
+    };
+    let _ = settings::set(db, KEY_POPUP_HOTKEY_MIGRATED, "true");
+    upgraded
+}
 
 /// Holds the currently-registered expander shortcut (if any), so we can
 /// unregister it cleanly when the user changes it from the settings panel.
@@ -111,7 +146,7 @@ pub struct PopupShortcutState {
 
 /// Register the popup-show hotkey from a string. If a previous popup
 /// shortcut was registered, it is unregistered first. Default is
-/// `Ctrl+Shift+V` on every platform (see `DEFAULT_POPUP_HOTKEY`).
+/// `Ctrl+Space` on every platform (see `DEFAULT_POPUP_HOTKEY`).
 ///
 /// Validates that the new hotkey doesn't collide with the hard-coded
 /// global shortcuts (`Ctrl+Shift+O` OCR, `Ctrl+Shift+S` screenshot,
@@ -558,7 +593,7 @@ pub fn register_direct_slots(
     }
 
     // 2) Parse + validate against the reserved shortcuts and each other.
-    let popup = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyV);
+    let popup = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
     let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
     let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
@@ -842,6 +877,57 @@ mod tests {
         let l = parse_shortcut("KeyL").unwrap();
         let one = parse_shortcut("Digit1").unwrap();
         assert_ne!(l, one);
+    }
+
+    #[test]
+    fn default_popup_hotkey_is_ctrl_space_and_parses() {
+        assert_eq!(DEFAULT_POPUP_HOTKEY, "Ctrl+Space");
+        let sc = parse_shortcut(DEFAULT_POPUP_HOTKEY).expect("default popup hotkey must parse");
+        assert_eq!(sc, Shortcut::new(Some(Modifiers::CONTROL), Code::Space));
+    }
+
+    fn mem_db() -> crate::db::DbHandle {
+        use parking_lot::Mutex;
+        use rusqlite::Connection;
+        use std::sync::Arc;
+        let db = Arc::new(Mutex::new(Connection::open_in_memory().unwrap()));
+        crate::settings::init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn migrate_popup_default_upgrades_untouched_install() {
+        use crate::settings;
+        let db = mem_db();
+        // Un-customised old install: stored value is the legacy default.
+        settings::set(&db, KEY_POPUP_HOTKEY, LEGACY_POPUP_HOTKEY).unwrap();
+        assert_eq!(migrate_legacy_popup_default(&db), DEFAULT_POPUP_HOTKEY);
+        assert_eq!(
+            settings::get(&db, KEY_POPUP_HOTKEY).unwrap().as_deref(),
+            Some(DEFAULT_POPUP_HOTKEY)
+        );
+        // Idempotent — and won't clobber a value re-picked afterwards.
+        settings::set(&db, KEY_POPUP_HOTKEY, LEGACY_POPUP_HOTKEY).unwrap();
+        assert_eq!(migrate_legacy_popup_default(&db), LEGACY_POPUP_HOTKEY);
+    }
+
+    #[test]
+    fn migrate_popup_default_leaves_custom_hotkey_alone() {
+        use crate::settings;
+        let db = mem_db();
+        settings::set(&db, KEY_POPUP_HOTKEY, "Cmd+KeyJ").unwrap();
+        assert_eq!(migrate_legacy_popup_default(&db), "Cmd+KeyJ");
+        assert_eq!(
+            settings::get(&db, KEY_POPUP_HOTKEY).unwrap().as_deref(),
+            Some("Cmd+KeyJ")
+        );
+    }
+
+    #[test]
+    fn migrate_popup_default_on_fresh_install_returns_new_default() {
+        // Nothing stored → returns the new default, doesn't write the legacy.
+        let db = mem_db();
+        assert_eq!(migrate_legacy_popup_default(&db), DEFAULT_POPUP_HOTKEY);
     }
 }
 

@@ -92,7 +92,7 @@ Each row links you to its full source body in [`ai_prompts.json`](../core/rust-l
 Three ways to put a default prompt to work:
 
 ### 1. Search field activation
-Open the popup (`Ctrl+Shift+V`), type `aiplan`, press Enter. The full prompt body lands in the previously focused app.
+Open the popup (`Ctrl+Space`), type `aiplan`, press Enter. The full prompt body lands in the previously focused app.
 
 ### 2. Snippet expander hotkey (Settings → Text expander)
 With the expander enabled, type `aiplan` directly in any text field — right after your own prompt text — press your configured hotkey (default `Alt+1`), and the abbreviation gets replaced in place with the full structured instruction.

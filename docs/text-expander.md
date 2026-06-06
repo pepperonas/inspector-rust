@@ -9,7 +9,7 @@ Default abbreviation hotkey changed from `Alt+Backquote` to `Alt+1` in **v0.12.0
 
 ## Quick start
 
-1. Open the popup (`Ctrl+Shift+V`) → **Settings** tab.
+1. Open the popup (`Ctrl+Space`) → **Settings** tab.
 2. Toggle **Enable** on.
 3. Keep the default hotkey `Alt+1`, click one of the `Alt+1` / `Alt+2` / `Alt+3` presets, or click the hotkey field and record your own combination.
 4. Click **Save & re-register**.
@@ -84,7 +84,7 @@ On press, Inspector Rust (on the main thread, because `enigo`'s `Cmd+V` touches 
 
 ### Validation & edge cases
 
-- A slot's hotkey **may not collide** with the popup hotkey (`Ctrl+Shift+V`), the OCR hotkey (`Ctrl+Shift+O` — literal Control on every OS since v0.14.1), the abbreviation expander hotkey, or another slot — `set_direct_slots` rejects the whole batch with a descriptive error and doesn't persist anything (so the previously-registered slots stay live).
+- A slot's hotkey **may not collide** with the popup hotkey (`Ctrl+Space`), the OCR hotkey (`Ctrl+Shift+O` — literal Control on every OS since v0.14.1), the abbreviation expander hotkey, or another slot — `set_direct_slots` rejects the whole batch with a descriptive error and doesn't persist anything (so the previously-registered slots stay live).
 - If the bound snippet is **deleted**, the slot becomes dangling: pressing the hotkey does nothing (logged), and the Settings row shows `⚠ snippet deleted — pick another` so you can rebind or remove it.
 - Long bodies (the bundled AI prompts, say) are fine — it pastes, it doesn't type.
 - macOS without Accessibility → same UX as the abbreviation expander: the popup opens, switches to Settings, and an amber banner points you at the grant.
@@ -157,7 +157,7 @@ Inspector Rust is Windows-first; the Wayland gap is intentionally tolerated. If 
 
 The expander is a **trigger-based macro**, not a deeply integrated input-method. There are situations where it falls short:
 
-- **Terminal command lines — the *abbreviation* expander doesn't work there.** Terminal.app, iTerm2, kitty, Alacritty, WezTerm, gnome-terminal: pressing the abbreviation hotkey does **nothing**. Terminals don't expose the input line through accessibility (Path 1/1b can't see it), and a shell prompt has no GUI-style "select previous word" — `Cmd/Ctrl+Shift+←` either does nothing on the input line or selects *screen* text, so Path 2's select+copy+paste grabs the wrong region or comes back empty. There's no clean fix for the *abbreviation* model short of per-shell readline integration, which is out of scope. **Use a [Direct hotkey → snippet](#direct-hotkey--snippet) slot** for terminals (it pastes without reading anything, so it works there), or popup paste (`Ctrl+Shift+V` → search → Enter).
+- **Terminal command lines — the *abbreviation* expander doesn't work there.** Terminal.app, iTerm2, kitty, Alacritty, WezTerm, gnome-terminal: pressing the abbreviation hotkey does **nothing**. Terminals don't expose the input line through accessibility (Path 1/1b can't see it), and a shell prompt has no GUI-style "select previous word" — `Cmd/Ctrl+Shift+←` either does nothing on the input line or selects *screen* text, so Path 2's select+copy+paste grabs the wrong region or comes back empty. There's no clean fix for the *abbreviation* model short of per-shell readline integration, which is out of scope. **Use a [Direct hotkey → snippet](#direct-hotkey--snippet) slot** for terminals (it pastes without reading anything, so it works there), or popup paste (`Ctrl+Space` → search → Enter).
 - **Electron / Chromium / Mac-Catalyst apps** (WhatsApp Desktop, Slack, Discord, VS Code, …) — *supported* since v0.12.0, but via Path 1b: the AX `AXSelectedText` set is a no-op there, so Inspector Rust selects the abbreviation via AX and pastes the body over it (brief clipboard touch, saved & restored). If you ever see the abbreviation get *highlighted but not replaced*, that's the verify step working and the paste failing — usually a timing fluke; press the hotkey again.
 - **Password fields** in many browsers and apps refuse synthetic paste — the abbreviation gets selected (visible) but the body never lands. Workaround: not appropriate to use the expander in password fields anyway. Use the popup.
 - **Image / files snippets are not supported** by the expander. The orchestration is text-only on purpose: the previous-word selection is a single text run, and replacing it with an image / file-list payload doesn't make sense in most editors. Use the popup for those.

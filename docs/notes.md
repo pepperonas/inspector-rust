@@ -10,7 +10,7 @@ There are three ways to create a note:
 
 ### 1. From a clipboard entry (the common case)
 
-1. Open the popup (`Ctrl+Shift+V`).
+1. Open the popup (`Ctrl+Space`).
 2. Hover over any **History** row.
 3. A bookmark icon appears next to the timestamp on the right — click it.
 

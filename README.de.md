@@ -11,7 +11,7 @@
 
   > **Keyboard-first Clipboard-Hyper-Toolkit — nativ auf macOS, Windows 11, Linux. Kein Electron, keine Cloud, keine Telemetrie.**
 
-  Drück **`Ctrl+Shift+V`** irgendwo → rahmenloses Popup über dem aktiven Monitor → fuzzy-Suche durch 1 000 deduplizierte Clipboard-Einträge → Enter pastet zurück in die zuvor fokussierte App. Ganzer Loop unter 200 ms, unter 50 MB RAM, AES-256-GCM-verschlüsselt at-rest mit Keys im OS-Keychain. **Gebaut für die Art Mensch, die schon Muskelgedächtnis für drei Clipboard-Manager hat und von allen genervt ist.**
+  Drück **`Ctrl+Space`** irgendwo → rahmenloses Popup über dem aktiven Monitor → fuzzy-Suche durch 1 000 deduplizierte Clipboard-Einträge → Enter pastet zurück in die zuvor fokussierte App. Ganzer Loop unter 200 ms, unter 50 MB RAM, AES-256-GCM-verschlüsselt at-rest mit Keys im OS-Keychain. **Gebaut für die Art Mensch, die schon Muskelgedächtnis für drei Clipboard-Manager hat und von allen genervt ist.**
 
   ### ✨ Was es kann (in kurz)
 
@@ -37,7 +37,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **877 Unit-Tests (361 Rust + 516 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · DDC/CI via `ddc-hi`. **881 Unit-Tests (365 Rust + 516 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
@@ -56,7 +56,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-877%20(361%20Rust%20%2B%20516%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-881%20(365%20Rust%20%2B%20516%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
 
@@ -170,7 +170,7 @@
   [![Free forever](https://img.shields.io/badge/free-forever-brightgreen?style=flat-square)](./LICENSE)
   [![Made in Germany](https://img.shields.io/badge/made%20in-Germany-FFCE00?style=flat-square)](#)
 
-  Drück `Ctrl+Shift+V` → suchen → einfügen. Inspiriert von Alfreds Clipboard-Viewer auf macOS, eingedampft auf ein Tool, das du auf jeder Maschine behalten kannst.
+  Drück `Ctrl+Space` → suchen → einfügen. Inspiriert von Alfreds Clipboard-Viewer auf macOS, eingedampft auf ein Tool, das du auf jeder Maschine behalten kannst.
 </div>
 
 ---
@@ -214,7 +214,7 @@ Die gesamte App-Logik lebt in [`core/`](./core) — ein einzelnes Frontend (`cor
 
 ## Workflow
 
-Inspector Rust ist für *einen* Workflow gebaut: **`Ctrl+Shift+V` → tippen → Enter**. Der Hotkey öffnet ein rahmenloses Popup über dem aktiven Monitor; was du tippst, wird fuzzy durchsucht über Clipboard-History, Snippets, Calc-Ergebnisse und Farbwerte; Enter fügt den Top-Match in die zuvor fokussierte App ein. Keine Maus, keine Menü-Bäume, keine Per-App-Integrationen.
+Inspector Rust ist für *einen* Workflow gebaut: **`Ctrl+Space` → tippen → Enter**. Der Hotkey öffnet ein rahmenloses Popup über dem aktiven Monitor; was du tippst, wird fuzzy durchsucht über Clipboard-History, Snippets, Calc-Ergebnisse und Farbwerte; Enter fügt den Top-Match in die zuvor fokussierte App ein. Keine Maus, keine Menü-Bäume, keine Per-App-Integrationen.
 
 Drei weitere globale Shortcuts feuern von überall — Inspector Rusts Fenster muss nicht offen oder fokussiert sein:
 
@@ -236,7 +236,7 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
 
 | Shortcut | Aktion | Benötigt (macOS) |
 |----------|--------|------------------|
-| `Ctrl+Shift+V` | Popup auf dem aktiven Monitor öffnen | — |
+| `Ctrl+Space` | Popup auf dem aktiven Monitor öffnen | — |
 | `Ctrl+Shift+O` | Bildschirm-Region-**OCR** → Text auf Clipboard + History | Bildschirmaufnahme |
 | `Ctrl+Shift+S` *(v0.15.0+)* | Bildschirm-Region-**Screenshot** → PNG auf Clipboard + History (kein OCR); **`S`** während Overlay → als Datei speichern (grüner Rahmen) *(v0.19.2+)* | Bildschirmaufnahme *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → Hex (`#RRGGBB`) auf Clipboard + History | — |
@@ -263,7 +263,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 
 | Feature | Wo triggern | Doku |
 |---------|-------------|------|
-| Clipboard-History (Text/RTF/HTML/PNG/Files, 1 000 Einträge, dedupliziert) | `Ctrl+Shift+V` → suchen | core |
+| Clipboard-History (Text/RTF/HTML/PNG/Files, 1 000 Einträge, dedupliziert) | `Ctrl+Space` → suchen | core |
 | Fuzzy-Suche (`fuse.js`, Threshold 0.4) | Im Suchfeld tippen | core |
 | **Inline-Taschenrechner** | Ausdruck im Suchfeld tippen (`2+2`, `sqrt(9)`, `sin(pi/2)`, `0xff << 4`, …) | core |
 | **Farb-Konverter** | `#RRGGBB` / `rgb(…)` / `hsl(…)` im Suchfeld tippen → Swatch + alle Formate | [colors.md](./docs/colors.md) |
@@ -331,7 +331,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 ## Features
 
 ### Clipboard-Core
-- **Globaler Hotkey** `Ctrl+Shift+V` öffnet das Popup zentriert auf dem Monitor mit dem Cursor.
+- **Globaler Hotkey** `Ctrl+Space` öffnet das Popup zentriert auf dem Monitor mit dem Cursor.
 - **Erfasst** Text, RTF, HTML, Bilder (PNG, ≤ 5 MB), und Datei-Listen via OS-nativen Clipboard-Events (kein Polling). Image-vor-Files-Priorität auf macOS, sodass Finder-Image-Copies als Bitmaps landen, nicht als Pfade.
 - **Fuzzy-Suche** (`fuse.js`, Threshold 0.4) rankt Matches während du tippst. Virtualisierte Liste, per-Content-Type Preview-Panel.
 - **Auto-Paste** — Enter pasted via `enigo`-simuliertem `Ctrl+V` / `Cmd+V` in die zuvor fokussierte App. Shift+Enter überschreibt das Plain-Text-Setting und pasted mit Originalformatierung.
@@ -483,7 +483,7 @@ inspector-rust/
 │           ├── expander.rs           # Trigger-basierter Text-Expander (AX/UIA primary, Clipboard-Fallback)
 │           ├── text_field/           # FieldAccess-Trait + macOS-AX + Windows-UIA-Implementierungen
 │           ├── paste.rs              # write_to_clipboard + enigo-Paste-Shortcut
-│           ├── hotkey.rs             # Global Ctrl+Shift+V + Ctrl+Shift+O + Ctrl+Shift+S + Ctrl+Shift+C + Expander-Hotkey + Direct Slots
+│           ├── hotkey.rs             # Global Ctrl+Space + Ctrl+Shift+O + Ctrl+Shift+S + Ctrl+Shift+C + Expander-Hotkey + Direct Slots
 │           ├── clipboard_watcher.rs  # Event-getriebene Capture, RTF-Stripping (Image > Files-Priorität)
 │           ├── recolor.rs            # Image-Tint (Lerp Target ↔ Weiß nach Per-Pixel-Luminanz)
 │           ├── cutout.rs             # Legacy Chroma-Key-Cutout (als Fast-Path-Option behalten)
@@ -565,7 +565,7 @@ bash scripts/grant-permissions-macos.sh  # geführtes Einmal-Setup für alle vie
 
 ### Snippet-Import
 
-In Inspector Rust: Popup öffnen (`Ctrl+Shift+V`) → **Snippets**-Tab → **Import** → eine `.json`-Datei auswählen. Der native File-Picker öffnet (NSOpenPanel auf macOS, OpenFileDialog auf Windows); existierende Abbreviations werden in-place upsert, sodass Re-Import derselben Datei idempotent ist.
+In Inspector Rust: Popup öffnen (`Ctrl+Space`) → **Snippets**-Tab → **Import** → eine `.json`-Datei auswählen. Der native File-Picker öffnet (NSOpenPanel auf macOS, OpenFileDialog auf Windows); existierende Abbreviations werden in-place upsert, sodass Re-Import derselben Datei idempotent ist.
 
 **Ready-to-import-Samples** in [`docs/examples/snippets/`](./docs/examples/snippets/):
 

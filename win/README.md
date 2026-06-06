@@ -26,7 +26,7 @@ The `.msi` lands at:
 win/src-tauri/target/release/bundle/msi/InspectorRust_<version>_x64_en-US.msi
 ```
 
-Double-click to install. Inspector Rust launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Shift+V`.
+Double-click to install. Inspector Rust launches into the system tray — there's no Start-menu shortcut that opens a window; the UI is summoned with `Ctrl+Space`.
 
 ## Usage
 
@@ -44,7 +44,7 @@ Double-click to install. Inspector Rust launches into the system tray — there'
 
 ### System tray menu
 
-- **Open (Ctrl+Shift+V)** — show the popup
+- **Open (Ctrl+Space)** — show the popup
 - **Manage Snippets** — open the popup directly on the Snippets tab
 - **Manage Notes** — open the popup directly on the Notes tab
 - **OCR Region (Ctrl+Shift+O)** — drag a marquee → recognised text on the clipboard
@@ -93,5 +93,5 @@ win/
 
 - **`cargo: command not found`** — install Rust via rustup, then restart the shell.
 - **`wix: toolset not found`** during `build:win` — install [WiX v3](https://wixtoolset.org/) and ensure it's on your `PATH`.
-- **Global hotkey doesn't fire** — another app may already hold `Ctrl+Shift+V`. Close Windows' built-in clipboard history (Win+V) or any third-party clipboard manager, then restart Inspector Rust.
+- **Global hotkey doesn't fire** — another app may already hold `Ctrl+Space`. Close Windows' built-in clipboard history (Win+V) or any third-party clipboard manager, then restart Inspector Rust.
 - **Paste inserts nothing** — some apps (elevated processes, some Electron apps) reject simulated keystrokes. Copy manually from the preview pane as a workaround.

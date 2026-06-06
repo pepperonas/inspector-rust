@@ -90,10 +90,10 @@ mod imp {
             name: "Inspector Rust — Open",
             arg: "--toggle-popup",
             binding_candidates: &[
+                "<Control>space",
                 "<Control><Shift>v",
                 "<Control><Alt>v",
                 "<Super><Shift>v",
-                "<Control><Shift>Insert",
             ],
         },
         ShortcutSpec {

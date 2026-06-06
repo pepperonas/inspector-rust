@@ -171,7 +171,7 @@ The Settings tab polls each grant once per second while the popup is open, so th
 
 | Action | Keys |
 |--------|------|
-| Open popup | `Ctrl+Shift+V` |
+| Open popup | `Ctrl+Space` |
 | Screen-region OCR (drag a marquee) | `Ctrl+Shift+O` |
 | Screen-region screenshot (no OCR) | `Ctrl+Shift+S` |
 | Color eyedropper (hex → clipboard) | `Ctrl+Shift+C` |
@@ -187,7 +187,7 @@ Inspector Rust runs as a **menu-bar background app** — there is no Dock icon. 
 
 ### Tray menu
 
-- **Open (Ctrl+Shift+V)** — show the popup
+- **Open (Ctrl+Space)** — show the popup
 - **Manage Snippets** — open the popup directly on the Snippets tab
 - **Manage Notes** — open the popup directly on the Notes tab
 - **OCR Region (⌃⇧O)** — drag a marquee → recognised text on the clipboard (literal Control, not Cmd — v0.14.1+)
@@ -228,7 +228,7 @@ The popup opens on the monitor that contains the mouse cursor at hotkey time. Th
 
 ## Troubleshooting
 
-- **App opens, hotkey does nothing.** Another app may already hold `Ctrl+Shift+V` (some launchers, IDEs). Close suspected conflicts and relaunch.
+- **App opens, hotkey does nothing.** macOS itself binds `Ctrl+Space` to "Select the previous input source" by default — free it up under System Settings → Keyboard → Keyboard Shortcuts → Input Sources, or another app (launcher, IDE) may hold it. Alternatively pick a different popup hotkey in Inspector Rust → Settings, then relaunch.
 - **Popup opens but `Enter` does not paste.** Accessibility permission is missing or stale — see "macOS permissions" above. After granting, quit and relaunch Inspector Rust (or click the one-click relaunch button in Settings).
 - **`failed to bundle project … bundle_dmg.sh` during `pnpm build:macos`.** The DMG step occasionally fails on busy disks (FileVault background indexing, Time Machine snapshot, etc.). The `.app` itself is already built — install it directly with `cp -R target/release/bundle/macos/InspectorRust.app /Applications/`. Or rebuild only the `.app` with `pnpm tauri build --bundles app`.
 - **Tray icon missing after launch.** macOS sometimes hides menu-bar icons when there is no room. Click and drag in the menu bar with `Cmd` held, or use [Bartender](https://www.macbartender.com/) / [Hidden Bar](https://github.com/dwarvesf/hidden) to pin it.

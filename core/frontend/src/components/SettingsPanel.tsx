@@ -1422,7 +1422,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             </div>
 
             <p className="mt-3 text-[11px] leading-snug text-[var(--color-muted)]">
-              Pick a hotkey that doesn&apos;t clash with your text-expander hotkey, <kbd className="rounded border border-[var(--color-border)] px-1">Ctrl+Shift+V</kbd>, or <kbd className="rounded border border-[var(--color-border)] px-1">{IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O"}</kbd> — the backend rejects collisions. Long bodies are fine (it pastes, doesn&apos;t type). The clipboard is restored afterward.
+              Pick a hotkey that doesn&apos;t clash with your text-expander hotkey, <kbd className="rounded border border-[var(--color-border)] px-1">{IS_MAC ? "⌃Space" : "Ctrl+Space"}</kbd>, or <kbd className="rounded border border-[var(--color-border)] px-1">{IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O"}</kbd> — the backend rejects collisions. Long bodies are fine (it pastes, doesn&apos;t type). The clipboard is restored afterward.
             </p>
           </Section>
         </div>
@@ -2212,20 +2212,21 @@ function PopupHotkeySection() {
   // presets all carry at least one regular key.
   const PRESETS: ReadonlyArray<{ label: string; value: string }> = IS_MAC
     ? [
-        { label: "⌃⇧V (default)", value: "Ctrl+Shift+KeyV" },
-        { label: "⌘⇧V", value: "Cmd+Shift+KeyV" },
+        { label: "⌃Space (default)", value: "Ctrl+Space" },
+        { label: "⌃⇧V", value: "Ctrl+Shift+KeyV" },
         { label: "⌘⇧Space", value: "Cmd+Shift+Space" },
         { label: "⌘J", value: "Cmd+KeyJ" },
       ]
     : IS_LINUX
       ? [
-          { label: "Ctrl+Shift+V (default)", value: "Ctrl+Shift+KeyV" },
-          { label: "Super+V", value: "Super+KeyV" },
+          { label: "Ctrl+Space (default)", value: "Ctrl+Space" },
+          { label: "Ctrl+Shift+V", value: "Ctrl+Shift+KeyV" },
           { label: "Super+Space", value: "Super+Space" },
           { label: "Alt+Space", value: "Alt+Space" },
         ]
       : [
-          { label: "Ctrl+Shift+V (default)", value: "Ctrl+Shift+KeyV" },
+          { label: "Ctrl+Space (default)", value: "Ctrl+Space" },
+          { label: "Ctrl+Shift+V", value: "Ctrl+Shift+KeyV" },
           { label: "Win+Shift+V", value: "Win+Shift+KeyV" },
           { label: "Alt+Space", value: "Alt+Space" },
         ];

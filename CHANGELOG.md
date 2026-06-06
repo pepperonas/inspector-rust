@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.67.0] — 2026-06-06
+
+### Changed — Default popup hotkey is now `Ctrl+Space`
+
+The popup-open shortcut default changed from `Ctrl+Shift+V` to **`Ctrl+Space`**
+(everywhere: code default, tray, Settings presets, CLI/Linux shortcuts, docs).
+A one-time migration bumps un-customised installs automatically; a custom
+hotkey is left untouched. You can still change it in Settings → Popup hotkey.
+Note (macOS): `Ctrl+Space` is also the system "previous input source"
+shortcut — free it up in System Settings or pick another hotkey if it doesn't
+open. (+4 tests: 877 → 881.)
+
 ## [0.66.1] — 2026-06-06
 
 ### Tests

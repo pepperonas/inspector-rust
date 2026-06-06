@@ -9,7 +9,7 @@ From the repository root:
 ```bash
 bash scripts/install-linux.sh   # apt deps + Node 20 + pnpm + Rust stable
 source "$HOME/.cargo/env"       # if rustup was installed by the script
-pnpm dev:linux                  # development (tray + Ctrl+Shift+V popup)
+pnpm dev:linux                  # development (tray + Ctrl+Space popup)
 pnpm build:linux                # release .deb + AppImage (AppImage may fail locally)
 pnpm build:linux:deb            # .deb only — recommended on Ubuntu (exit 0)
 ```
@@ -41,7 +41,7 @@ AppImage troubleshooting: `sudo apt install libfuse2`, then rebuild. In Cursor�
 
 | Feature | Status |
 | -------- | ------ |
-| Clipboard history (`Ctrl+Shift+V`) | Yes |
+| Clipboard history (`Ctrl+Space`) | Yes |
 | Snippets, notes, backup, calculator, colors | Yes |
 | AES-256 DB encryption + Secret Service keyring | Yes (keyfile fallback) |
 | Global shortcuts + system tray | Yes (X11; Wayland may need compositor support) |
@@ -79,7 +79,7 @@ sudo apt-get install -y grim slurp
 
 | Action | Shortcut | What happens |
 |--------|----------|----------------|
-| Open popup | `Ctrl+Shift+V` | `inspector-rust --toggle-popup` |
+| Open popup | `Ctrl+Space` | `inspector-rust --toggle-popup` |
 | OCR region | `Ctrl+Shift+O` | `inspector-rust --ocr` |
 | Screenshot region | `Ctrl+Shift+S` | `inspector-rust --screenshot` |
 | Pick color | `Ctrl+Shift+C` | `inspector-rust --pick-color` |
@@ -90,7 +90,7 @@ Check under **Settings → Keyboard → Custom Shortcuts** (entries named “Ins
 
 1. Scans existing **custom shortcuts** and **GNOME Terminal** copy/paste bindings via `gsettings`.
 2. Moves Terminal off **Ctrl+Shift+C/V** to **Ctrl+C/V** when that would clash with Inspector’s color/popup shortcuts.
-3. Picks the first free binding per action (defaults: Ctrl+Shift+V/O/S/C; fallbacks e.g. Ctrl+Alt+… if occupied).
+3. Picks the first free binding per action (defaults: Ctrl+Space for the popup, Ctrl+Shift+O/S/C for OCR/screenshot/colour; fallbacks e.g. Ctrl+Alt+… if occupied).
 
 No manual `ubuntu-terminal-copy-paste-ctrl-cv.sh` required.
 
@@ -118,7 +118,7 @@ bash scripts/install-linux.sh    # runs --setup-shortcuts when the binary is on 
 | `cargo` / edition errors | `rustup default stable` (need Rust ≥ 1.77) |
 | Region capture fails | Install `scrot` (X11) or `grim`+`slurp` (Wayland) |
 | OCR shortcut errors | `sudo apt install tesseract-ocr tesseract-ocr-eng` (optional German: `tesseract-ocr-deu`) |
-| `Ctrl+Shift+V` does nothing (Wayland) | Restart app once (auto gsettings), or run `bash scripts/install-desktop-shortcuts.sh` after build |
+| `Ctrl+Space` does nothing (Wayland) | Restart app once (auto gsettings), or run `bash scripts/install-desktop-shortcuts.sh` after build |
 | Conflict with copy/paste (`Ctrl+Shift+C/V`) | Automatic on install/first start; or Settings → Linux desktop shortcuts → **Auto-resolve all** |
 | Tray icon missing | `libayatana-appindicator3-dev` + log out/in |
 

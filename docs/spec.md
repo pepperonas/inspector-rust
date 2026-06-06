@@ -47,7 +47,7 @@ base64 = "0.22"
 ## Features (scope)
 
 ### Core
-1. **Global hotkey** `Ctrl+Shift+V` opens a centered popup window (600x500, frameless, transparent, always-on-top, `skip_taskbar`, `resizable: false`).
+1. **Global hotkey** `Ctrl+Space` opens a centered popup window (600x500, frameless, transparent, always-on-top, `skip_taskbar`, `resizable: false`).
 2. **Clipboard watcher** runs in a background thread, captures every change:
    - Text (plain)
    - RTF
@@ -85,7 +85,7 @@ base64 = "0.22"
 - `↑` / `↓` navigate list, `Enter` pastes selected, `Esc` or window blur closes popup.
 - Clicking outside popup closes it (`on_focus_change`).
 - **Do NOT show main window on app launch** — only tray icon.
-- System tray menu: "Open (Ctrl+Shift+V)" • "Clear History" (with confirm) • "Pause Capture" (toggle) • "Start with Windows" (toggle via `tauri-plugin-autostart`) • "Quit".
+- System tray menu: "Open (Ctrl+Space)" • "Clear History" (with confirm) • "Pause Capture" (toggle) • "Start with Windows" (toggle via `tauri-plugin-autostart`) • "Quit".
 
 ### UI Design
 Inspired by Alfred but clean, minimal, modern. Dark theme default with light-mode support (follows system).
@@ -219,7 +219,7 @@ get_capture_state() -> bool
 1. Scaffold project + install all deps.
 2. Rust: `db.rs` — SQLite init, CRUD, dedupe logic, prune to 1000.
 3. Rust: `clipboard_watcher.rs` — spawn thread with `clipboard-rs` `ClipboardHandler`, on change capture all formats, hash, insert via db.
-4. Rust: `hotkey.rs` — register Ctrl+Shift+V, on trigger show + focus popup window (move to cursor's monitor).
+4. Rust: `hotkey.rs` — register Ctrl+Space, on trigger show + focus popup window (move to cursor's monitor).
 5. Rust: `paste.rs` — write entry to clipboard, 50ms sleep, `enigo` `Ctrl+V`.
 6. Rust: `commands.rs` — wire all IPC commands.
 7. Rust: `main.rs` — build tray menu, hide popup on blur, register all plugins.
@@ -242,7 +242,7 @@ get_capture_state() -> bool
 
 ## Definition of Done
 
-- `pnpm tauri dev` runs, tray icon visible, Ctrl+Shift+V opens popup.
+- `pnpm tauri dev` runs, tray icon visible, Ctrl+Space opens popup.
 - Copying text/image/file/HTML in any app appears in history within 200ms.
 - Search filters live as I type.
 - Enter on selected entry pastes into previous focused app.

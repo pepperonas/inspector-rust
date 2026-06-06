@@ -45,7 +45,7 @@ interface Section {
 const MOD = IS_MAC ? "Meta" : "Ctrl"; // Cmd on macOS, Ctrl elsewhere
 
 export function FeaturesPanel() {
-  const [popupHotkey, setPopupHotkey] = useState("Ctrl+Shift+V");
+  const [popupHotkey, setPopupHotkey] = useState("Ctrl+Space");
   const [expander, setExpander] = useState<{ enabled: boolean; hotkey: string }>({
     enabled: false,
     hotkey: "Alt+Digit1",

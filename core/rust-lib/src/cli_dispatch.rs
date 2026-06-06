@@ -57,7 +57,7 @@ pub fn print_help() {
     eprintln!(
         "Inspector Rust CLI actions (for GNOME/KDE custom shortcuts under Wayland):\n\
          \n\
-           --toggle-popup   Open/close clipboard popup (Ctrl+Shift+V)\n\
+           --toggle-popup   Open/close clipboard popup (Ctrl+Space)\n\
            --ocr            OCR a screen region (Ctrl+Shift+O)\n\
            --screenshot     Capture region to clipboard (Ctrl+Shift+S)\n\
            --pick-color     Pick pixel color to clipboard (Ctrl+Shift+C)\n\
@@ -124,7 +124,7 @@ pub fn log_wayland_shortcut_hint() {
         return;
     }
     tracing::info!(
-        "Wayland: if Ctrl+Shift+V/O/S/C do not work, GNOME/Cinnamon shortcuts are registered \
+        "Wayland: if Ctrl+Space / Ctrl+Shift+O/S/C do not work, GNOME/Cinnamon shortcuts are registered \
          automatically on first start (see Settings → Keyboard → Custom Shortcuts)."
     );
 }

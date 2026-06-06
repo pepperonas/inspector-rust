@@ -10,7 +10,7 @@ Backup was introduced in **v0.2.6**. Moved to the **Settings** tab and gained pe
 
 ## How to export
 
-1. Open the popup (`Ctrl+Shift+V`).
+1. Open the popup (`Ctrl+Space`).
 2. Click the **Settings** tab → **Backup & restore** section.
 3. Tick which sections to include — *Clipboard history*, *Snippets*, *Notes*. All three are checked by default; uncheck any you don't want in the file.
 4. Click **Export…**. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `inspector-rust-backup-<ISO timestamp>.json`. Pick a location and confirm.

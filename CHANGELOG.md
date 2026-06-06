@@ -4,6 +4,46 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.61.0] — 2026-06-06
+
+### Added — Windows parity (first tranche)
+
+- System `reboot` / `shutdown` / `lock` and `mute` / volume now work on
+  Windows (`shutdown` CLI, `rundll32 LockWorkStation`, multimedia VK keys).
+  IPC contracts unchanged. Compile-clean; runtime-unverified on real hardware.
+- `docs/reports/WINDOWS_PARITY.md` audit (feature matrix + remaining gaps).
+
+## [0.60.0] — 2026-06-06
+
+### Added — Cleaning workflow (`clean`)
+
+Delete cache/log/temp files with hard safety rails: strict per-OS allowlist,
+canonicalise + containment check before every delete, symlinks never followed,
+dry-run preview → confirm → re-validated execute. Conservative opt-in levels
+(Safe/Standard/Aggressive) + age filter. Settings UI + 14 safety unit tests.
+
+## [0.59.0] — 2026-06-06
+
+### Added — Screenshot pin-to-screen
+
+Float a capture as its own persistent, draggable, always-on-top window
+(multiple pins coexist; close per pin).
+
+## [0.58.0] — 2026-06-06
+
+### Added — Screenshot editor parity
+
+New annotation tools: line, ellipse, redact (opaque block), and
+auto-numbered step badges. Geometry extracted to a unit-tested pure module.
+
+## [0.57.0] — 2026-06-06
+
+### Added — Screenshot capture modes
+
+Full-screen and active-window capture, a self-timer, and repeat-last — all
+feeding the same floating preview. Search commands `shot [n]` / `shotfull` /
+`shotwin` / `shotlast`.
+
 ## [0.56.0] — 2026-06-06
 
 ### Added — Passive auto-expansion (aText-style)

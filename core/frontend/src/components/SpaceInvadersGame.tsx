@@ -77,6 +77,14 @@ export function SpaceInvadersGame({ onExit }: Props) {
   const [best, setBest] = useState(() => loadHighScore(STORAGE_KEY));
   const scoreRef = useRef(saved?.score ?? 0);
   const livesRef = useRef(saved?.lives ?? INITIAL_LIVES);
+  // Resume gate: a resumed run starts frozen until the player presses a key,
+  // so the loop doesn't advance before they're ready. Fresh games aren't gated.
+  const [resumeGate, setResumeGate] = useState(Boolean(saved));
+  const resumeGateRef = useRef(Boolean(saved));
+  const liftGate = () => {
+    resumeGateRef.current = false;
+    setResumeGate(false);
+  };
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // A resumed game seeds its entities from the suspended run; otherwise a
@@ -133,6 +141,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
     s.lastAlienShotAt = 0;
     s.lastTs = 0;
     s.running = true;
+    liftGate(); // a fresh match runs immediately
     setPhase("playing");
   };
 
@@ -142,6 +151,8 @@ export function SpaceInvadersGame({ onExit }: Props) {
       resetMatch();
     }, INTRO_MS);
     return () => window.clearTimeout(t);
+    // resetMatch intentionally omitted — the intro runs once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved]);
 
   useEffect(() => {
@@ -173,6 +184,12 @@ export function SpaceInvadersGame({ onExit }: Props) {
         resetMatch();
         return;
       }
+      // First key on a resumed run just un-freezes (doesn't also move/fire).
+      if (phase === "playing" && resumeGateRef.current) {
+        e.preventDefault();
+        liftGate();
+        return;
+      }
       const s = stateRef.current;
       if (e.key === "ArrowLeft" || e.key === "a" || e.key === "A") s.keys.left = true;
       if (e.key === "ArrowRight" || e.key === "d" || e.key === "D") s.keys.right = true;
@@ -194,6 +211,9 @@ export function SpaceInvadersGame({ onExit }: Props) {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
     };
+    // resetMatch / liftGate intentionally not deps (handler re-subscription
+    // churn); the handler reads current phase via the dep + refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, onExit]);
 
   useEffect(() => {
@@ -269,6 +289,13 @@ export function SpaceInvadersGame({ onExit }: Props) {
     };
 
     const step = (ts: number) => {
+      // Frozen behind the resume gate: render the held frame, don't advance.
+      if (resumeGateRef.current) {
+        s.lastTs = ts;
+        render();
+        if (s.running) raf = requestAnimationFrame(step);
+        return;
+      }
       const dt = s.lastTs === 0 ? 1 : frameScale(ts - s.lastTs);
       s.lastTs = ts;
 
@@ -383,6 +410,14 @@ export function SpaceInvadersGame({ onExit }: Props) {
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="space-invaders-title font-[var(--font-mono)] text-[44px] font-black uppercase tracking-[0.35em] text-[var(--color-accent)]">
               SPACE
+            </span>
+          </div>
+        )}
+
+        {phase === "playing" && resumeGate && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/85 px-4 py-1.5 text-[13px] text-[var(--color-fg)] backdrop-blur-sm">
+              ▸ Resumed — press a key to continue
             </span>
           </div>
         )}

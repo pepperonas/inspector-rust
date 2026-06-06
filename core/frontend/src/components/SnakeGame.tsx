@@ -415,6 +415,15 @@ export function SnakeGame({ onExit, wrap }: Props) {
   const [best, setBest] = useState(() => loadHighScore(storageKey));
   const scoreRef = useRef(saved?.score ?? 0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Resume gate: a resumed run starts frozen until the player presses a key,
+  // so the snake doesn't keep moving before they're ready. Fresh games / a
+  // rematch aren't gated.
+  const [resumeGate, setResumeGate] = useState(Boolean(saved));
+  const resumeGateRef = useRef(Boolean(saved));
+  const liftGate = () => {
+    resumeGateRef.current = false;
+    setResumeGate(false);
+  };
 
   // Seeded once — resume the suspended run or deal a fresh board.
   const stateRef = useRef<SnakeState>(makeSnakeState(saved));
@@ -434,6 +443,7 @@ export function SnakeGame({ onExit, wrap }: Props) {
     s.running = true;
     scoreRef.current = 0;
     setScore(0);
+    liftGate(); // a fresh match runs immediately
     setPhase("playing");
   };
 
@@ -465,6 +475,12 @@ export function SnakeGame({ onExit, wrap }: Props) {
         restart();
         return;
       }
+      // First key on a resumed run just un-freezes (doesn't also steer).
+      if (phase === "playing" && resumeGateRef.current) {
+        e.preventDefault();
+        liftGate();
+        return;
+      }
       if (phase !== "playing") return;
       let nd: Direction | null = null;
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") nd = "up";
@@ -481,6 +497,9 @@ export function SnakeGame({ onExit, wrap }: Props) {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
+    // restart / liftGate intentionally not deps (handler re-subscription
+    // churn); the handler reads current phase via the dep + refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, onExit, storageKey]);
 
   // ── Intro animation — runs while phase === "intro". ──────────────────
@@ -568,6 +587,14 @@ export function SnakeGame({ onExit, wrap }: Props) {
     // Fixed-timestep ticks driven off a wall-clock accumulator, so the
     // snake advances at the same real speed on any display refresh rate.
     const loop = (ts: number) => {
+      // Frozen behind the resume gate: render the held board, don't tick.
+      if (resumeGateRef.current) {
+        s.lastTs = ts;
+        s.acc = 0;
+        renderGame(ctx, canvas, geom, colors, s.snake, s.dir, s.food, ts);
+        if (s.running) raf = requestAnimationFrame(loop);
+        return;
+      }
       if (s.lastTs === 0) s.lastTs = ts;
       let dt = ts - s.lastTs;
       s.lastTs = ts;
@@ -634,6 +661,15 @@ export function SnakeGame({ onExit, wrap }: Props) {
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="rockthebox-title font-[var(--font-mono)] text-[40px] font-black uppercase tracking-tight text-[var(--color-accent)] [text-shadow:0_0_28px_var(--color-accent)]">
               Rock the Box
+            </span>
+          </div>
+        )}
+
+        {/* Resume gate — frozen until the player presses a key. */}
+        {phase === "playing" && resumeGate && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/85 px-4 py-1.5 text-[13px] text-[var(--color-fg)] backdrop-blur-sm">
+              ▸ Resumed — press a key to continue
             </span>
           </div>
         )}

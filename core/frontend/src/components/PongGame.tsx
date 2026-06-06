@@ -89,6 +89,15 @@ export function PongGame({ onExit }: Props) {
     player: saved?.playerScore ?? 0,
     bot: saved?.botScore ?? 0,
   });
+  // Resume gate: a resumed match starts frozen until the player presses a key
+  // or clicks, so the ball doesn't move before they're ready. Fresh matches /
+  // a rematch aren't gated.
+  const [resumeGate, setResumeGate] = useState(Boolean(saved));
+  const resumeGateRef = useRef(Boolean(saved));
+  const liftGate = () => {
+    resumeGateRef.current = false;
+    setResumeGate(false);
+  };
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -151,6 +160,7 @@ export function PongGame({ onExit }: Props) {
     s.serveAt = 0;
     s.lastTs = 0;
     s.running = true;
+    liftGate(); // a fresh match runs immediately
     setPhase("playing");
   };
 
@@ -206,6 +216,12 @@ export function PongGame({ onExit }: Props) {
         restart();
         return;
       }
+      // First key on a resumed match just un-freezes (doesn't also move).
+      if (phase === "playing" && resumeGateRef.current) {
+        e.preventDefault();
+        liftGate();
+        return;
+      }
       const s = stateRef.current;
       if (e.key === "ArrowUp" || e.key === "w" || e.key === "W") s.keys.up = true;
       if (e.key === "ArrowDown" || e.key === "s" || e.key === "S") s.keys.down = true;
@@ -223,6 +239,9 @@ export function PongGame({ onExit }: Props) {
       window.removeEventListener("keydown", onKeyDown, true);
       window.removeEventListener("keyup", onKeyUp, true);
     };
+    // restart / liftGate intentionally not deps (handler re-subscription
+    // churn); the handler reads current phase via the dep + refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, onExit]);
 
   // ── Mouse control — moving the cursor sets the player paddle Y.
@@ -252,8 +271,16 @@ export function PongGame({ onExit }: Props) {
       const logicalY = ((e.clientY - rect.top) / rect.height) * s.fieldH;
       s.playerY = clamp(logicalY, PADDLE_H / 2, s.fieldH - PADDLE_H / 2);
     };
+    // A click also lifts the resume gate (Pong is mouse-first).
+    const onDown = () => {
+      if (resumeGateRef.current) liftGate();
+    };
     window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
+    window.addEventListener("mousedown", onDown);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mousedown", onDown);
+    };
   }, []);
 
   // ── The game loop — runs while phase === "playing". ─────────────────
@@ -321,6 +348,13 @@ export function PongGame({ onExit }: Props) {
     };
 
     const step = (ts: number) => {
+      // Frozen behind the resume gate: render the held frame, don't advance.
+      if (resumeGateRef.current) {
+        s.lastTs = ts;
+        render();
+        if (s.running) raf = requestAnimationFrame(step);
+        return;
+      }
       // ── Frame-scale: normalise movement to a 60 fps wall-clock step ─
       const dt = s.lastTs === 0 ? 1 : frameScale(ts - s.lastTs);
       s.lastTs = ts;
@@ -499,7 +533,7 @@ export function PongGame({ onExit }: Props) {
         <canvas
           ref={canvasRef}
           className="h-full w-full"
-          style={phase === "playing" ? { cursor: "none" } : undefined}
+          style={phase === "playing" && !resumeGate ? { cursor: "none" } : undefined}
         />
 
         {/* Intro overlay — the shaky transformation flourish. */}
@@ -507,6 +541,15 @@ export function PongGame({ onExit }: Props) {
           <div className="absolute inset-0 flex items-center justify-center">
             <span className="getshaky-title font-[var(--font-mono)] text-[44px] font-black uppercase tracking-tight text-[var(--color-accent)]">
               GET SHAKY
+            </span>
+          </div>
+        )}
+
+        {/* Resume gate — frozen until the player presses a key / clicks. */}
+        {phase === "playing" && resumeGate && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/85 px-4 py-1.5 text-[13px] text-[var(--color-fg)] backdrop-blur-sm">
+              ▸ Resumed — press a key or click to continue
             </span>
           </div>
         )}

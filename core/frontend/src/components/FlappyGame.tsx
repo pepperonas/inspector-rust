@@ -55,6 +55,15 @@ export function FlappyGame({ onExit }: Props) {
   // drives the "click to fly" idle hint.
   const [flying, setFlying] = useState(saved?.started ?? false);
   const scoreRef = useRef(saved?.score ?? 0);
+  // Resume gate: a resumed run starts frozen until the player presses a key /
+  // clicks, so the loop doesn't advance before they're ready (and they don't
+  // instantly fly into a pipe). Fresh games aren't gated.
+  const [resumeGate, setResumeGate] = useState(Boolean(saved));
+  const resumeGateRef = useRef(Boolean(saved));
+  const liftGate = () => {
+    resumeGateRef.current = false;
+    setResumeGate(false);
+  };
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef({
@@ -76,6 +85,7 @@ export function FlappyGame({ onExit }: Props) {
     scoreRef.current = 0;
     setScore(0);
     setFlying(false);
+    liftGate(); // a fresh match runs immediately
     setPhase("playing");
   };
 
@@ -84,6 +94,8 @@ export function FlappyGame({ onExit }: Props) {
     if (saved) return;
     const t = window.setTimeout(resetMatch, INTRO_MS);
     return () => window.clearTimeout(t);
+    // resetMatch is intentionally not a dep — the intro runs once per mount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [saved]);
 
   // Keyboard: Esc quits (saving a live run), flap keys, Space rematches.
@@ -111,6 +123,13 @@ export function FlappyGame({ onExit }: Props) {
         resetMatch();
         return;
       }
+      // First key on a resumed run just un-freezes — it doesn't also flap,
+      // so the player keeps their position before taking control.
+      if (phase === "playing" && resumeGateRef.current) {
+        e.preventDefault();
+        liftGate();
+        return;
+      }
       if (
         e.key === " " ||
         e.code === "Space" ||
@@ -124,6 +143,9 @@ export function FlappyGame({ onExit }: Props) {
     };
     window.addEventListener("keydown", onKeyDown, true);
     return () => window.removeEventListener("keydown", onKeyDown, true);
+    // resetMatch / liftGate are intentionally not deps (stable enough for the
+    // handler; re-subscribing on their identity would be churn).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase, onExit]);
 
   // Render + physics loop.
@@ -215,6 +237,15 @@ export function FlappyGame({ onExit }: Props) {
     };
 
     const loop = (ts: number) => {
+      // Frozen while the resume gate is up: keep rendering the held frame but
+      // don't advance physics, and keep lastTs current so there's no dt jump
+      // when the player un-freezes.
+      if (resumeGateRef.current) {
+        s.lastTs = ts;
+        render(ts);
+        raf = requestAnimationFrame(loop);
+        return;
+      }
       const dt = s.lastTs === 0 ? 1 : frameScale(ts - s.lastTs);
       s.lastTs = ts;
 
@@ -240,6 +271,10 @@ export function FlappyGame({ onExit }: Props) {
 
   const onPointerDown = () => {
     if (phase === "playing") {
+      if (resumeGateRef.current) {
+        liftGate(); // first click just resumes
+        return;
+      }
       flap(stateRef.current.game);
       setFlying(true);
     } else if (phase === "over") {
@@ -247,7 +282,7 @@ export function FlappyGame({ onExit }: Props) {
     }
   };
 
-  const idleHint = phase === "playing" && !flying;
+  const idleHint = phase === "playing" && !resumeGate && !flying;
 
   return (
     <div
@@ -292,6 +327,14 @@ export function FlappyGame({ onExit }: Props) {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-1.5 text-[13px] text-[var(--color-muted)] backdrop-blur-sm">
               Click or press Space to fly
+            </span>
+          </div>
+        )}
+
+        {phase === "playing" && resumeGate && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+            <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/85 px-4 py-1.5 text-[13px] text-[var(--color-fg)] backdrop-blur-sm">
+              ▸ Resumed — press a key or click to continue
             </span>
           </div>
         )}

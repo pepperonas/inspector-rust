@@ -15,6 +15,8 @@ import {
   parseKillArg,
   parseResizeArg,
   parsePwgenArg,
+  parseRandomArg,
+  randomInt,
   parseShotDelay,
   parseTimerArg,
   formatBytes,
@@ -23,8 +25,8 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 30 commands (+ shot×4, clean/cleanup, brightness/bri)", () => {
-    expect(COMMANDS.length).toBe(30);
+  it("has 32 commands (+ shot×4, clean/cleanup, brightness/bri, rnd/random)", () => {
+    expect(COMMANDS.length).toBe(32);
   });
 
   it("every keyword is unique", () => {
@@ -587,6 +589,68 @@ describe("parseCommand — screenshot modes", () => {
     expect(parseCommand("shotfull")?.spec.kind).toBe("shot-full");
     expect(parseCommand("shotwin")?.spec.kind).toBe("shot-window");
     expect(parseCommand("shotlast")?.spec.kind).toBe("shot-last");
+  });
+});
+
+describe("parseRandomArg", () => {
+  it("defaults to a die (1–6) for an empty arg", () => {
+    expect(parseRandomArg("")).toEqual({ min: 1, max: 6 });
+    expect(parseRandomArg("   ")).toEqual({ min: 1, max: 6 });
+  });
+  it("one number means 1..N", () => {
+    expect(parseRandomArg("100")).toEqual({ min: 1, max: 100 });
+    expect(parseRandomArg(" 20 ")).toEqual({ min: 1, max: 20 });
+  });
+  it("two numbers mean min..max", () => {
+    expect(parseRandomArg("5 500")).toEqual({ min: 5, max: 500 });
+    expect(parseRandomArg("10   12")).toEqual({ min: 10, max: 12 });
+  });
+  it("swaps when min > max", () => {
+    expect(parseRandomArg("500 5")).toEqual({ min: 5, max: 500 });
+  });
+  it("supports negative bounds", () => {
+    expect(parseRandomArg("-5 5")).toEqual({ min: -5, max: 5 });
+  });
+  it("rejects non-integers and 3+ numbers", () => {
+    expect(parseRandomArg("abc")).toBeNull();
+    expect(parseRandomArg("5x")).toBeNull();
+    expect(parseRandomArg("1.5")).toBeNull();
+    expect(parseRandomArg("1 2 3")).toBeNull();
+  });
+});
+
+describe("randomInt", () => {
+  it("always lands inside the inclusive range", () => {
+    for (let i = 0; i < 2000; i++) {
+      const n = randomInt(1, 6);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(6);
+      expect(Number.isInteger(n)).toBe(true);
+    }
+  });
+  it("covers both endpoints over many rolls", () => {
+    const seen = new Set<number>();
+    for (let i = 0; i < 2000; i++) seen.add(randomInt(1, 6));
+    expect(seen.has(1)).toBe(true);
+    expect(seen.has(6)).toBe(true);
+  });
+  it("returns the single value for a degenerate range", () => {
+    expect(randomInt(7, 7)).toBe(7);
+  });
+  it("handles a wide range within bounds", () => {
+    for (let i = 0; i < 500; i++) {
+      const n = randomInt(5, 500);
+      expect(n).toBeGreaterThanOrEqual(5);
+      expect(n).toBeLessThanOrEqual(500);
+    }
+  });
+});
+
+describe("parseCommand — random", () => {
+  it("parses rnd and the random alias to the random kind", () => {
+    expect(parseCommand("rnd")?.spec.kind).toBe("random");
+    expect(parseCommand("rnd 100")?.spec.kind).toBe("random");
+    expect(parseCommand("random 5 500")?.spec.kind).toBe("random");
   });
 });
 

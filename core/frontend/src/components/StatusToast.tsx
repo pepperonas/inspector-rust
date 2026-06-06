@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlarmClock, Coffee, Moon, Sparkles, Timer } from "lucide-react";
+import { AlarmClock, Coffee, Dices, Moon, Sparkles, Timer } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getStatusToast,
@@ -18,8 +18,10 @@ import {
  * CSS animation, and (re)arms the auto-dismiss timer.
  */
 
-/** Must match the `statusToastPop` keyframe duration in styles.css. */
+/** Base hold (must cover the `statusToastPop` keyframe in styles.css). */
 const HOLD_MS = 1600;
+/** The random-number toast lingers longer so the result is easy to read. */
+const HOLD_MS_RANDOM = 3600;
 
 export function StatusToast() {
   const [payload, setPayload] = useState<Payload | null>(null);
@@ -45,12 +47,14 @@ export function StatusToast() {
   }, []);
 
   // Auto-dismiss once the animation has played. A fresh toast (animKey
-  // bump) resets the timer so rapid toggles aren't cut short.
+  // bump) resets the timer so rapid toggles aren't cut short. The random
+  // toast lingers longer so the rolled number is easy to read.
   useEffect(() => {
     if (animKey === 0) return;
-    const t = window.setTimeout(() => void hideStatusToast(), HOLD_MS);
+    const hold = payload?.kind === "random" ? HOLD_MS_RANDOM : HOLD_MS;
+    const t = window.setTimeout(() => void hideStatusToast(), hold);
     return () => window.clearTimeout(t);
-  }, [animKey]);
+  }, [animKey, payload?.kind]);
 
   if (!payload) return <div className="h-screen w-screen bg-transparent" />;
 
@@ -64,9 +68,13 @@ export function StatusToast() {
         ? AlarmClock
         : payload.kind === "clean"
           ? Sparkles
-          : on
-            ? Coffee
-            : Moon;
+          : payload.kind === "random"
+            ? Dices
+            : on
+              ? Coffee
+              : Moon;
+  // The random toast shows the rolled number — make it big and prominent.
+  const isRandom = payload.kind === "random";
   // Accent for everything except an explicit "off" state (muted).
   const accent =
     payload.kind === "wakelock" && !on
@@ -98,7 +106,10 @@ export function StatusToast() {
         </div>
         <div className="text-center">
           <div
-            className="font-[var(--font-mono)] text-[22px] font-black uppercase tracking-[0.12em]"
+            className={
+              "font-[var(--font-mono)] font-black uppercase " +
+              (isRandom ? "text-[52px] leading-none tracking-tight" : "text-[22px] tracking-[0.12em]")
+            }
             style={{ color: accent, textShadow: `0 0 26px ${accent}` }}
           >
             {payload.title}

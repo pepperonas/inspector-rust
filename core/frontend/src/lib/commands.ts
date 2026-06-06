@@ -48,7 +48,8 @@ export type CommandKind =
   | "shot-window"
   | "shot-last"
   | "clean"
-  | "brightness";
+  | "brightness"
+  | "random";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -305,7 +306,66 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     hidden: true,
   },
+  {
+    kind: "random",
+    keyword: "rnd",
+    syntax: "rnd [max] | rnd [min] [max]",
+    description: "Roll a random number (default 1–6); `rnd 100` = 1–100, `rnd 5 500` = 5–500",
+    requiresArg: false,
+  },
+  {
+    kind: "random",
+    keyword: "random",
+    syntax: "random [max] | random [min] [max]",
+    description: "Alias for rnd",
+    requiresArg: false,
+    hidden: true,
+  },
 ];
+
+/** Parse the `rnd` / `random` argument into an inclusive `[min, max]`.
+ *  - empty            → 1–6 (a die)
+ *  - one number `N`   → 1–N
+ *  - two numbers `A B`→ A–B (swapped if A > B)
+ *  Returns `null` for anything non-integer or more than two numbers. */
+export function parseRandomArg(arg: string): { min: number; max: number } | null {
+  const t = arg.trim();
+  if (t === "") return { min: 1, max: 6 };
+  const parts = t.split(/\s+/);
+  if (parts.length > 2) return null;
+  if (!parts.every((p) => /^-?\d+$/.test(p))) return null;
+  const nums = parts.map((p) => parseInt(p, 10));
+  let min: number;
+  let max: number;
+  if (nums.length === 1) {
+    min = 1;
+    max = nums[0];
+  } else {
+    min = nums[0];
+    max = nums[1];
+  }
+  if (min > max) [min, max] = [max, min];
+  return { min, max };
+}
+
+/** Uniform random integer in the inclusive range `[min, max]`, using the
+ *  CSPRNG with rejection sampling to avoid modulo bias (same approach as
+ *  the password generator). */
+export function randomInt(min: number, max: number): number {
+  const lo = Math.min(min, max);
+  const hi = Math.max(min, max);
+  const range = hi - lo + 1;
+  if (range <= 1) return lo;
+  const buf = new Uint32Array(1);
+  // Largest multiple of `range` that fits in u32 — reject above it.
+  const limit = Math.floor(0x1_0000_0000 / range) * range;
+  let x: number;
+  do {
+    crypto.getRandomValues(buf);
+    x = buf[0];
+  } while (x >= limit);
+  return lo + (x % range);
+}
 
 /** Format a byte count as a short human string (e.g. 1.2 MB). */
 export function formatBytes(bytes: number): string {

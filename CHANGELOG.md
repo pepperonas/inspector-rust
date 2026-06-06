@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.68.0] — 2026-06-06
+
+### Added — `rnd` / `random` command
+
+Roll a random number, shown big in the on-screen toast (which lingers a bit
+longer for this one). `rnd` = 1–6, `rnd 100` = 1–100, `rnd 5 500` = 5–500
+(bounds swap if reversed). CSPRNG with rejection sampling, no modulo bias.
+
+### Fixed — brightness overlay didn't open
+
+`brightness` called `hide_popup`, which on macOS does `app.hide()` — that
+deactivated the whole app, so the freshly-shown overlay never came to the
+front (triggering the command appeared to do nothing). Now it hides only the
+popup window and always rebuilds a fresh overlay (so monitors are re-probed
+each open). External DDC monitors only; the built-in MacBook panel still
+reports "no DDC-capable monitors".
+
 ## [0.67.0] — 2026-06-06
 
 ### Changed — Default popup hotkey is now `Ctrl+Space`

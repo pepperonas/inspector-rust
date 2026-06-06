@@ -34,6 +34,8 @@ import {
   parseTimerArg,
   parseAlarmArg,
   parseShotDelay,
+  parseRandomArg,
+  randomInt,
   parseWakelockArg,
   formatBytes,
   resizePresetSuggestions,
@@ -1328,6 +1330,17 @@ function App() {
           console.error("brightness failed", e);
           return true;
         }
+      } else if (commandKind === "random") {
+        // Roll a random number and show it in the (longer-lasting) toast.
+        const r = parseRandomArg(arg);
+        if (!r) {
+          setPasteError("other");
+          return true;
+        }
+        const n = randomInt(r.min, r.max);
+        // showStatusToast hides the popup + plays the flourish (don't also
+        // call hidePopup — that would swallow the toast on macOS).
+        await showStatusToast("random", true, String(n), `${r.min}–${r.max}`);
       } else if (commandKind === "clean") {
         // Always preview first (dry-run scan), confirm, THEN delete.
         try {

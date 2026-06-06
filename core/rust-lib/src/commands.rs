@@ -2753,34 +2753,45 @@ pub fn set_monitor_brightness(id: u32, percent: u8) -> Result<(), String> {
 /// Window label for the brightness slider overlay.
 pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
 
-/// Open the brightness overlay: hide the popup, then build/show a small
-/// interactive (focusable, NOT click-through) always-on-top window centred on
-/// screen with one slider per monitor.
+/// Open the brightness overlay: hide the popup *window*, then build/show a
+/// small interactive (focusable, NOT click-through) always-on-top window
+/// centred on screen with one slider per monitor.
 #[tauri::command]
 pub fn brightness_open(app: AppHandle) -> Result<(), String> {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
-    hotkey::hide_popup(&app);
-    let win = if let Some(existing) = app.get_webview_window(BRIGHTNESS_OVERLAY_LABEL) {
-        existing
-    } else {
-        WebviewWindowBuilder::new(
-            &app,
-            BRIGHTNESS_OVERLAY_LABEL,
-            WebviewUrl::App("index.html".into()),
-        )
-        .title("Brightness")
-        .inner_size(380.0, 360.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(true)
-        .visible(false)
-        .build()
-        .map_err(|e| format!("build brightness overlay: {e}"))?
-    };
-    let _ = win.center();
+    // Hide only the popup *window* — deliberately NOT `hotkey::hide_popup`,
+    // which on macOS calls `app.hide()`. Hiding the whole app deactivates it,
+    // and the freshly-shown overlay then never comes to the front / can't take
+    // key focus (the bug: triggering `brightness` did "nothing"). The overlay
+    // is interactive and needs focus, so keep the app active and just hide the
+    // popup window. We still emit `popup-hidden` so the popup resets its state.
+    if let Some(popup) = app.get_webview_window(hotkey::POPUP_LABEL) {
+        let _ = popup.hide();
+    }
+    let _ = app.emit("popup-hidden", ());
+    // Always build a FRESH overlay (close any leftover one first) so the
+    // monitor list is re-enumerated on every open — a reused window keeps its
+    // stale React state and wouldn't re-probe DDC.
+    if let Some(existing) = app.get_webview_window(BRIGHTNESS_OVERLAY_LABEL) {
+        let _ = existing.close();
+    }
+    let win = WebviewWindowBuilder::new(
+        &app,
+        BRIGHTNESS_OVERLAY_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Brightness")
+    .inner_size(380.0, 360.0)
+    .resizable(false)
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .shadow(true)
+    .visible(false)
+    .center()
+    .build()
+    .map_err(|e| format!("build brightness overlay: {e}"))?;
     let _ = win.show();
     let _ = win.set_focus();
     Ok(())

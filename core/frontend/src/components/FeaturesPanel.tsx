@@ -168,6 +168,7 @@ export function FeaturesPanel() {
         { name: "Screenshot (modes)", trigger: "shot [n] · shotfull · shotwin · shotlast", typed: true, note: "Region (opt. self-timer n) · full screen · active window · repeat last → same floating preview." },
         { name: "Clean caches/logs", trigger: "clean", typed: true, note: "Dry-run preview + confirm before deleting. Level/categories in Settings. Allowlist-only, no symlinks." },
         { name: "Monitor brightness", trigger: "brightness · bri", typed: true, note: "Slider per DDC monitor (incl. secondary) + 'all'. External monitors via DDC/CI." },
+        { name: "Random number", trigger: "rnd · random [max] [min max]", typed: true, note: "Rolls a number (default 1–6; `rnd 100` = 1–100, `rnd 5 500` = 5–500), shown big on screen." },
         { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
         { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export." },
         { name: "TOTP code", trigger: "otp <issuer>", typed: true, note: "e.g. otp ama → live Amazon code, Enter copies." },

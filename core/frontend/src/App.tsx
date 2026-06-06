@@ -1061,11 +1061,20 @@ function App() {
     };
   }, []);
 
-  // Clear finder-mode on popup-hidden so the next normal Ctrl+Shift+V
-  // open doesn't still show stale finder rows.
+  // Reset transient UI on popup-hidden — i.e. *while the window is hidden*,
+  // not on the next show. The popup window is hidden, not destroyed, so its
+  // React state survives between sessions; resetting on show meant the stale
+  // query / tab / selection painted for one frame before the reset applied
+  // (a visible flash). Doing it here means the window is already clean when
+  // it next becomes visible. (The window-shown handler still re-focuses the
+  // search bar + reconciles the wakelock LED.)
   useTauriEvent("popup-hidden", () => {
     setFinderFiles(null);
     setFinderAutomationDenied(false);
+    setActiveTab("history");
+    setQuery("");
+    setSelected(0);
+    setPwgenEditing(false);
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

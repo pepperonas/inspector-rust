@@ -117,6 +117,8 @@ Assembly order in `App.tsx` (`combined`): **runnable command first, then command
 
 Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. The inline **converter** (`lib/convert.ts`, v0.76.0) runs `tryConvert(query)` and surfaces a `calc` row too: unit conversions (`5 km in mi`, `72 f to c`, `2 gb in mb` — length/mass/data/time/speed factor tables + special-cased temperature), number-base (`0xff in dec`, `255 in hex`, `0b1010 in dec`), and epoch→ISO (`1717000000 as date`). It's only consulted when the calculator didn't match (mutually exclusive). Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
+**Smart preview actions (`lib/smart-actions.ts`, v0.76.0).** `detectSmartActions(text)` (pure + unit-tested) inspects the selected text clip and `PreviewPanel`'s `SmartActionsBar` renders one-tap buttons: a URL/bare-domain → **Open link**, an email → **Compose email** (`mailto:`), a phone number → **Call** (`tel:`), `lat,lng` → **Open in Maps**, plus a **Make QR** for any short single-line value (encodes via `lib/qr.ts` + the `qr_copy_png` IPC). Opens go through `tauri-plugin-opener`.
+
 ### Tabs
 
 `App.tsx` manages `activeTab: "history" | "snippets" | "notes" | "features" | "settings"`. Each tab is a separate panel component:

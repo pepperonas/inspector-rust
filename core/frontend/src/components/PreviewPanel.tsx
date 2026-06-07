@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
-import { Calculator, Check, Copy, Download, Palette, Scissors, Type, Wand2, Zap } from "lucide-react";
+import {
+  Calculator, Check, Copy, Download, ExternalLink, Mail, MapPin, Palette,
+  Phone, QrCode, Scissors, Type, Wand2, Zap,
+} from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import type { ListEntry } from "../lib/types";
+import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
+import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
 import { IS_MAC } from "../lib/platform";
@@ -13,6 +19,7 @@ import {
   cutOutImageEntry,
   cutOutImageFile,
   imageChromaticity,
+  qrCopyPng,
   recolorImageEntry,
   saveImageEntryToDownloads,
 } from "../lib/ipc";
@@ -741,7 +748,51 @@ export function PreviewPanel({
       <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
         {clip.content_data}
       </pre>
+      <SmartActionsBar text={clip.content_text} />
       <TransformBar text={clip.content_text} />
+    </div>
+  );
+}
+
+const SMART_ICON: Record<SmartActionKind, typeof ExternalLink> = {
+  "open-url": ExternalLink,
+  email: Mail,
+  call: Phone,
+  maps: MapPin,
+  qr: QrCode,
+};
+
+/** Row of one-tap actions detected from a text clip (open link, compose email,
+ *  call, open Maps, make QR). Only renders when something is detected. */
+function SmartActionsBar({ text }: { text: string }) {
+  const actions = useMemo(() => detectSmartActions(text), [text]);
+  if (actions.length === 0) return null;
+  const run = (kind: SmartActionKind, href: string) => {
+    if (kind === "qr") {
+      try {
+        void qrCopyPng(qrPngBase64(href), href.length > 48 ? `${href.slice(0, 48)}…` : href);
+      } catch {
+        /* unencodable — ignore */
+      }
+      return;
+    }
+    void openUrl(href).catch(() => {});
+  };
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5">
+      {actions.map((a) => {
+        const Icon = SMART_ICON[a.kind];
+        return (
+          <button
+            key={`${a.kind}-${a.href}`}
+            onClick={() => run(a.kind, a.href)}
+            className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-fg)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          >
+            <Icon size={12} />
+            {a.label}
+          </button>
+        );
+      })}
     </div>
   );
 }

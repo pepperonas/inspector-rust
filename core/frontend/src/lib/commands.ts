@@ -222,8 +222,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "kill",
     keyword: "kill",
-    syntax: "kill [-9] [pattern]",
-    description: "Kill a process — live picker (e.g. kill slack, kill -9 …)",
+    syntax: "kill [-9] [pattern | pid]",
+    description: "Kill a process — live picker by name or PID (e.g. kill slack, kill 1234, kill -9 …)",
     // requiresArg = false → empty `kill` is valid; the UI opens the
     // process picker showing all processes for selection.
     requiresArg: false,

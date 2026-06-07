@@ -334,12 +334,25 @@ function App() {
   const killTargetEntries: ListEntry[] = useMemo(() => {
     if (!isKillMode || !killArgs) return [];
     const pattern = killArgs.pattern.toLowerCase();
+    // A pure-number arg is treated as a PID: `kill 1234` surfaces exactly that
+    // process (still shown with its name + the confirm dialog before killing).
+    const pidQuery = /^\d+$/.test(killArgs.pattern.trim())
+      ? Number(killArgs.pattern.trim())
+      : null;
     const filtered = pattern
-      ? processSnapshot.filter(
-          (p) =>
-            p.name.toLowerCase().includes(pattern) ||
-            p.exe.toLowerCase().includes(pattern),
-        )
+      ? processSnapshot
+          .filter(
+            (p) =>
+              (pidQuery !== null && p.pid === pidQuery) ||
+              p.name.toLowerCase().includes(pattern) ||
+              p.exe.toLowerCase().includes(pattern),
+          )
+          // Exact PID match floats to the top so Enter targets it immediately.
+          .sort((a, b) =>
+            pidQuery === null
+              ? 0
+              : Number(b.pid === pidQuery) - Number(a.pid === pidQuery),
+          )
       : processSnapshot;
     // Cap at 50 visible — anything more is noise; the user should
     // refine the pattern.

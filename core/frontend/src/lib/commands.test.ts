@@ -572,6 +572,13 @@ describe("parseKillArg", () => {
     // `-9foo` is a literal name beginning with `-`, not `-9 foo`.
     expect(parseKillArg("-9foo")).toEqual({ force: false, pattern: "-9foo" });
   });
+
+  it("carries a numeric PID through as the pattern (kill 1234, kill -9 1234)", () => {
+    // The PID is matched against the process list in App.tsx; the parser just
+    // hands the digits through unchanged.
+    expect(parseKillArg("1234")).toEqual({ force: false, pattern: "1234" });
+    expect(parseKillArg("-9 1234")).toEqual({ force: true, pattern: "1234" });
+  });
 });
 
 describe("isGetShakyTrigger — hidden Pong easter egg", () => {

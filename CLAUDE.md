@@ -238,7 +238,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 
 Four system-level commands, also in the search-bar palette:
 
-- **`kill [-9] [pattern]`** — `system_commands::list_running_processes` (via the `sysinfo` crate, sorted by memory desc, excludes our own PID) drives a live picker rendered as `kill-target` `ListEntry` rows; App.tsx overrides the whole list in kill-mode. `kill_process_by_pid(pid, force)` sends SIGTERM (or SIGKILL with `-9`). Native `window.confirm` before the kill.
+- **`kill [-9] [pattern | pid]`** — `system_commands::list_running_processes` (via the `sysinfo` crate, sorted by memory desc, excludes our own PID) drives a live picker rendered as `kill-target` `ListEntry` rows; App.tsx overrides the whole list in kill-mode. The arg filters by **name/exe substring** *or*, when it's all digits, by **exact PID** (`kill 1234` surfaces that process, floated to the top, still shown with its name). `kill_process_by_pid(pid, force)` sends SIGTERM (or SIGKILL with `-9`). Native `window.confirm` before the kill.
 - **`reboot` / `shutdown`** — `osascript` → `loginwindow` Apple Events (`aevtrrst` / `aevtrsdn`). No sudo. Native `window.confirm` first.
 - **`lock`** — `pmset displaysleepnow`. No confirm (cheap to undo). IPC: `list_processes`, `kill_process`, `system_reboot`, `system_shutdown`, `system_lock`. macOS-only — Windows stubs return "not implemented".
 - **`mute`** — toggles system output mute via `osascript`. IPC `toggle_mute` (`adjust_volume` is the related volume IPC).

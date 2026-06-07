@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.77.0] — 2026-06-08
+
+### Added — `kill` by PID
+
+`kill <pid>` now targets a process by its exact PID (e.g. `kill 1234`,
+`kill -9 1234`), in addition to the existing name/exe substring match. The
+matched process floats to the top of the picker and is still shown with its
+name + the confirm dialog before being killed.
+
 ## [0.76.1] — 2026-06-07
 
 ### Fixed — Features-tab search bar overlapped content while scrolling

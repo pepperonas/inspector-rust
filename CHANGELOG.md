@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.76.1] — 2026-06-07
+
+### Fixed — Features-tab search bar overlapped content while scrolling
+
+The new search bar was a `sticky` element inside the scrolling list, so content
+scrolled visibly behind it. It's now a separate fixed header above the scroll
+area (with a divider), so it can never overlap the content.
+
 ## [0.76.0] — 2026-06-07
 
 A big "Swiss-Army-knife" feature drop — all of **Tier 1** from the feature

@@ -222,9 +222,11 @@ export function FeaturesPanel() {
     : sections;
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col overflow-auto p-6">
-      <div className="mx-auto w-full max-w-3xl space-y-7">
-        <div className="sticky top-0 z-10 -mx-6 -mt-6 mb-1 bg-[var(--color-bg)] px-6 pb-3 pt-6">
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* Fixed search header — kept OUT of the scroll area so it can never
+          overlap content while scrolling. */}
+      <div className="border-b border-[var(--color-border)] px-6 pb-3 pt-6">
+        <div className="mx-auto w-full max-w-3xl">
           <div className="relative">
             <Search
               size={14}
@@ -238,6 +240,11 @@ export function FeaturesPanel() {
             />
           </div>
         </div>
+      </div>
+
+      {/* Scrolling content */}
+      <div className="min-h-0 flex-1 overflow-auto px-6 py-6">
+        <div className="mx-auto w-full max-w-3xl space-y-7">
         {filteredSections.length === 0 && (
           <p className="text-center text-[12px] text-[var(--color-muted)]">
             No features match “{query}”.
@@ -287,6 +294,7 @@ export function FeaturesPanel() {
         <p className="pb-2 text-center text-[10px] text-[var(--color-muted)]">
           Configurable shortcuts (popup, expander, snippet slots) are set in the Settings tab.
         </p>
+        </div>
       </div>
     </div>
   );

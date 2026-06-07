@@ -1613,6 +1613,45 @@ pub fn recolor_image_entry(
     Ok(new_id)
 }
 
+/// Copy a frontend-rendered PNG (base64) to the clipboard + history. Used by
+/// the `qr` command, which renders the QR to a canvas and hands the PNG here.
+#[tauri::command]
+pub fn qr_copy_png(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    watcher: State<'_, WatcherState>,
+    png_b64: String,
+    label: String,
+) -> Result<i64, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+
+    let bytes = B64
+        .decode(png_b64.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    // Arm the watcher to skip the round-trip, then put the image on the
+    // clipboard via the shared helper.
+    watcher.mark_self_write(crate::models::ContentType::Image, &png_b64);
+    crate::image_ops::write_clipboard_png(&bytes).map_err(map_err)?;
+
+    let summary = if label.trim().is_empty() {
+        format!("[qr · {} B]", bytes.len())
+    } else {
+        format!("[qr · {}]", label.trim())
+    };
+    let new_id = db::upsert_clip(
+        &db,
+        &crate::models::NewClip {
+            content_type: crate::models::ContentType::Image,
+            content_text: summary,
+            content_data: png_b64,
+            byte_size: bytes.len() as i64,
+        },
+    )
+    .map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
+    Ok(new_id)
+}
+
 /// Sample-based "is this image mostly grayscale?" probe. Returned value
 /// is in [0, 1] — frontend treats anything below ~0.1 as "looks
 /// monochrome, recolor button worth showing".

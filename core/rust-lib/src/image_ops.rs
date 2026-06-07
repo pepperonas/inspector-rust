@@ -267,7 +267,7 @@ fn read_clipboard_png() -> Result<Vec<u8>> {
     Ok(png.get_bytes().to_vec())
 }
 
-fn write_clipboard_png(bytes: &[u8]) -> Result<()> {
+pub fn write_clipboard_png(bytes: &[u8]) -> Result<()> {
     let ctx = ClipboardContext::new()
         .map_err(|e| anyhow!("clipboard ctx init failed: {e:?}"))?;
     let img = RustImageData::from_bytes(bytes)

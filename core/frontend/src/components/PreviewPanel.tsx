@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
+import { drawQr } from "../lib/qr";
 import { Calculator, Check, Copy, Download, Palette, Scissors, Type, Wand2, Zap } from "lucide-react";
 import type { ListEntry } from "../lib/types";
 import { formatBytes } from "../lib/format";
@@ -157,8 +158,9 @@ export function PreviewPanel({
 
   // ── Command preview (power-command palette) ───────────────────────────────
   if (entry.kind === "command") {
+    const isQr = entry.data.commandKind === "qr" && entry.data.arg.trim().length > 0;
     return (
-      <div className="flex h-full flex-col gap-3 p-4">
+      <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           Power command
         </div>
@@ -168,9 +170,10 @@ export function PreviewPanel({
             {entry.data.hint}
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-            ⏎ Enter to run
+            ⏎ Enter to {isQr ? "copy the QR PNG" : "run"}
           </div>
         </div>
+        {isQr && <QrPreview text={entry.data.arg} />}
       </div>
     );
   }
@@ -1156,6 +1159,30 @@ function TransformBar({ text }: { text: string }) {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/** Canvas QR preview for the `qr <text>` command. Always renders black-on-white
+ *  so the code scans regardless of the app theme. */
+function QrPreview({ text }: { text: string }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const canvas = ref.current;
+    if (!canvas) return;
+    try {
+      drawQr(canvas, text, 6, 4, "#000000", "#ffffff");
+    } catch {
+      // empty / unencodable text — leave the canvas blank.
+    }
+  }, [text]);
+  return (
+    <div className="flex flex-1 items-center justify-center">
+      <canvas
+        ref={ref}
+        className="max-h-full max-w-full rounded-lg border border-[var(--color-border)] bg-white"
+        aria-label="QR code preview"
+      />
     </div>
   );
 }

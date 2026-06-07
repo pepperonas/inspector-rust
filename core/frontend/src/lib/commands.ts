@@ -66,7 +66,8 @@ export type CommandKind =
   | "slug"
   | "hash"
   | "json"
-  | "jwt";
+  | "jwt"
+  | "qr";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -472,6 +473,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "jwt",
     description: "Decode the JWT on your clipboard (header + payload) → clipboard",
     requiresArg: false,
+  },
+  {
+    kind: "qr",
+    keyword: "qr",
+    syntax: "qr <text>",
+    description: "Generate a QR code — preview it, Enter copies the PNG to clipboard",
+    requiresArg: true,
   },
   ...SEARCH_BANG_COMMANDS,
 ];

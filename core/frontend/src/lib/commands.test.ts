@@ -28,10 +28,10 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 53 commands (+5 dev-tools, +9 web-search bangs in v0.76.0)", () => {
+  it("has 54 commands (+5 dev-tools, +9 web-search bangs, +qr in v0.76.0)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(53);
+    expect(COMMANDS.length).toBe(54);
   });
 
   it("every keyword is unique", () => {

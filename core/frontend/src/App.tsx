@@ -51,6 +51,7 @@ import {
   type ParsedCommand,
 } from "./lib/commands";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
+import { qrPngBase64 } from "./lib/qr";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
@@ -96,6 +97,7 @@ import {
   cleanerExecute,
   listMemes,
   copyMeme,
+  qrCopyPng,
   showStatusToast,
   brunoGetDefaults,
   startTimer,
@@ -448,6 +450,10 @@ function App() {
       case "jwt":
         label = "Decode clipboard JWT → clipboard";
         hint = "Base64url-decodes the header + payload (no signature check)";
+        break;
+      case "qr":
+        label = `QR code: "${arg}"`;
+        hint = "Preview on the right · Enter copies the PNG to the clipboard";
         break;
       case "resize": {
         const dims = parseResizeArg(arg);
@@ -1344,6 +1350,18 @@ function App() {
         } catch (e) {
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
+          return true;
+        }
+      } else if (commandKind === "qr") {
+        // Render the QR to a PNG and copy it to the clipboard (+ history).
+        try {
+          const png = qrPngBase64(arg);
+          const label = arg.length > 48 ? `${arg.slice(0, 48)}…` : arg;
+          await qrCopyPng(png, label);
+          await hidePopup();
+        } catch (e) {
+          setPasteError("other");
+          console.error("qr failed", e);
           return true;
         }
       } else if (commandKind === "resize") {

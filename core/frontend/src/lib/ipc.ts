@@ -812,6 +812,12 @@ export function recolorImageEntry(id: number, hex: string): Promise<number> {
   return invoke("recolor_image_entry", { id, hex });
 }
 
+/** Copy a frontend-rendered PNG (base64, no data: prefix) to the clipboard +
+ *  history. Used by the `qr` command. Returns the new history row id. */
+export function qrCopyPng(pngB64: string, label: string): Promise<number> {
+  return invoke("qr_copy_png", { pngB64, label });
+}
+
 /** Returns max chromaticity (0..1) from a sample of opaque pixels in an
  *  image entry. ~0 means grayscale silhouette → tint will look clean.
  *  ~0.5+ means a saturated photo → tint will look weird. */

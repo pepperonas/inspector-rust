@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.75.0] — 2026-06-07
+
+### Added — Six more translate commands (German ↔ Italian / Spanish / Polish)
+
+`trde2it` · `trit2de` · `trde2sp` · `trsp2de` · `trde2pl` · `trpl2de` open
+Google Translate for German↔Italian, German↔Spanish, and German↔Polish (same as
+the existing `tren` / `trde` / `tr`). All translate commands are now data-driven
+from a single `TRANSLATE_LANGS` table, so a new language pair is one map entry +
+one catalogue row.
+
+### Tests
+
+25 new unit tests: the six new translate commands + `TRANSLATE_LANGS`/
+`isTranslateKind` integrity, keyword-prefix collision guards, command-catalogue
+guardrails, and the **RFC 6238 TOTP reference vectors** (SHA1/SHA256/SHA512) via
+a new time-injectable `totp_store::generate_at`. 386 Rust + 588 frontend pass.
+
 ## [0.74.0] — 2026-06-07
 
 ### Added — Space Invaders is back, as `spacer`

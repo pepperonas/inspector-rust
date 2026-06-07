@@ -30,14 +30,14 @@
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` (übersetzen), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — fünf Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **949 Unit-Tests (381 Rust + 568 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **974 Unit-Tests (386 Rust + 588 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>

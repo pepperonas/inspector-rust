@@ -207,7 +207,8 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 
 | Keyword | Action | Backed by |
 |---|---|---|
-| `tren` / `trde` / `tr <text>` | Google Translate EN→DE / DE→EN / →DE; opens URL via `tauri-plugin-opener` | frontend only |
+| `tren` / `trde` / `tr <text>` | Google Translate EN→DE / DE→EN / auto→DE; opens URL via `tauri-plugin-opener` | frontend only |
+| `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (v0.75.0) | German↔Italian / German↔Spanish (`sp`→`es`) / German↔Polish Google Translate. All translate commands are data-driven from `TRANSLATE_LANGS` (`{sl,tl,target}` per `CommandKind`) — `translateUrl` + the row label/hint + `isTranslateKind` all read it, so a new pair is one map entry + one `COMMANDS` row | frontend only |
 | `rz <W>x<H>` | Resize clipboard image (Lanczos3, 16 MP cap) | `image_ops`, IPC `resize_clipboard_image` |
 | `optim` | Optimise clipboard PNG → Downloads (`oxipng`, lossless) | `image_ops`, IPC `optimize_clipboard_image` |
 | `rmvvls <text>` | Strip vowels (aeiou + AEIOU + ä/ö/ü) → clipboard | IPC `remove_vowels_to_clipboard` |

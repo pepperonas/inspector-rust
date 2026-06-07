@@ -22,13 +22,15 @@ import {
   formatBytes,
   resizePresetSuggestions,
   translateUrl,
+  isTranslateKind,
+  TRANSLATE_LANGS,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 33 commands (+ shot×4, clean/cleanup, brightness/bri, rnd/random, meme)", () => {
+  it("has 39 commands (+6 language-pair translate commands in v0.75.0)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(33);
+    expect(COMMANDS.length).toBe(39);
   });
 
   it("every keyword is unique", () => {
@@ -54,6 +56,33 @@ describe("COMMANDS catalogue", () => {
       expect(c.syntax.length).toBeGreaterThan(0);
     }
   });
+
+  it("every syntax starts with its own keyword", () => {
+    for (const c of COMMANDS) {
+      expect(c.syntax.startsWith(c.keyword)).toBe(true);
+    }
+  });
+
+  it("a requiresArg command always advertises the arg in its syntax", () => {
+    // The autocomplete trailing-space rule keys off `syntax !== keyword`, so a
+    // command that needs an argument must show one (e.g. `tren <text>`).
+    for (const c of COMMANDS) {
+      if (c.requiresArg) {
+        expect(c.syntax.trim()).not.toBe(c.keyword);
+        expect(c.syntax.length).toBeGreaterThan(c.keyword.length);
+      }
+    }
+  });
+
+  it("all six new language-pair translate commands are present + require an arg", () => {
+    const langKeywords = ["trde2it", "trit2de", "trde2sp", "trsp2de", "trde2pl", "trpl2de"];
+    for (const kw of langKeywords) {
+      const spec = COMMANDS.find((c) => c.keyword === kw);
+      expect(spec, `missing command ${kw}`).toBeDefined();
+      expect(spec?.requiresArg).toBe(true);
+      expect(spec?.kind.startsWith("translate-")).toBe(true);
+    }
+  });
 });
 
 describe("parseCommand", () => {
@@ -61,6 +90,15 @@ describe("parseCommand", () => {
     const r = parseCommand("tren hello world");
     expect(r?.spec.kind).toBe("translate-en");
     expect(r?.arg).toBe("hello world");
+  });
+
+  it("matches the exact keyword, never a longer one that shares the prefix", () => {
+    // `trde` must resolve to translate-de, NOT translate-de-it/es/pl whose
+    // keywords (trde2it, …) start with the same letters.
+    expect(parseCommand("trde hallo")?.spec.kind).toBe("translate-de");
+    expect(parseCommand("tr hallo")?.spec.kind).toBe("translate-auto");
+    expect(parseCommand("trde2it hallo")?.spec.kind).toBe("translate-de-it");
+    expect(parseCommand("trde2 hallo")).toBeNull(); // not a real keyword
   });
 
   it("parses trde with text argument", () => {
@@ -234,6 +272,18 @@ describe("commandSuggestions", () => {
     expect(keywords).toContain("tr");
     expect(keywords).toContain("tren");
     expect(keywords).toContain("trde");
+    // The new language-pair commands also surface under the `tr` prefix.
+    expect(keywords).toContain("trde2it");
+    expect(keywords).toContain("trsp2de");
+  });
+
+  it("surfaces the German-source pairs for the 'trde2' prefix", () => {
+    const keywords = commandSuggestions("trde2").map((s) => s.keyword);
+    expect(keywords).toContain("trde2it");
+    expect(keywords).toContain("trde2sp");
+    expect(keywords).toContain("trde2pl");
+    // German→English (`trde`) is NOT a `trde2`-prefix match.
+    expect(keywords).not.toContain("trde");
   });
 
   it("ranks the prefix match first, then fuzzy matches, for 'tre'", () => {
@@ -337,6 +387,62 @@ describe("translateUrl", () => {
   it("throws on non-translation kind", () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     expect(() => translateUrl("optim" as any, "x")).toThrow();
+  });
+});
+
+describe("translate language-pair commands (v0.75.0)", () => {
+  // keyword → [sl, tl] expected on the Google Translate URL.
+  const PAIRS: Array<[string, string, string]> = [
+    ["trde2it", "de", "it"],
+    ["trit2de", "it", "de"],
+    ["trde2sp", "de", "es"], // keyword spells "sp", Google code is "es"
+    ["trsp2de", "es", "de"],
+    ["trde2pl", "de", "pl"],
+    ["trpl2de", "pl", "de"],
+  ];
+
+  it.each(PAIRS)("`%s` parses + builds an sl=%s/tl=%s URL", (kw, sl, tl) => {
+    const parsed = parseCommand(`${kw} hallo welt`);
+    expect(parsed).not.toBeNull();
+    expect(parsed?.arg).toBe("hallo welt");
+    const url = translateUrl(parsed!.spec.kind, parsed!.arg);
+    expect(url).toContain(`sl=${sl}`);
+    expect(url).toContain(`tl=${tl}`);
+    expect(url).toContain("text=hallo%20welt");
+    expect(url.startsWith("https://translate.google.com/")).toBe(true);
+  });
+
+  it.each(PAIRS)("`%s` requires an argument", (kw) => {
+    const spec = COMMANDS.find((c) => c.keyword === kw);
+    expect(spec?.requiresArg).toBe(true);
+    expect(parseCommand(kw)).toBeNull(); // bare keyword, no text → null
+  });
+
+  it("every command in TRANSLATE_LANGS is in COMMANDS and vice-versa", () => {
+    const translateKeywords = COMMANDS.filter((c) =>
+      isTranslateKind(c.kind),
+    ).map((c) => c.kind);
+    const mapKinds = Object.keys(TRANSLATE_LANGS);
+    expect(translateKeywords.sort()).toEqual(mapKinds.sort());
+    // 3 original + 6 new = 9 translate commands.
+    expect(mapKinds.length).toBe(9);
+  });
+
+  it("isTranslateKind is true for every translate kind, false otherwise", () => {
+    for (const kind of Object.keys(TRANSLATE_LANGS)) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      expect(isTranslateKind(kind as any)).toBe(true);
+    }
+    expect(isTranslateKind("optim")).toBe(false);
+    expect(isTranslateKind("pwgen")).toBe(false);
+    expect(isTranslateKind("brightness")).toBe(false);
+  });
+
+  it("the Spanish pair uses the `es` code despite the `sp` keyword", () => {
+    expect(TRANSLATE_LANGS["translate-de-es"]?.tl).toBe("es");
+    expect(TRANSLATE_LANGS["translate-es-de"]?.sl).toBe("es");
+    expect(COMMANDS.some((c) => c.keyword === "trde2sp")).toBe(true);
+    expect(COMMANDS.some((c) => c.keyword === "trde2es")).toBe(false);
   });
 });
 

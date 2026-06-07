@@ -10,6 +10,8 @@
  *   tren <text>    → translate <text> EN → DE  (open Google Translate)
  *   trde <text>    → translate <text> DE → EN  (open Google Translate)
  *   tr <text>      → translate <text> auto → DE
+ *   trde2it/trit2de, trde2sp/trsp2de, trde2pl/trpl2de
+ *                  → German ↔ Italian / Spanish / Polish (Google Translate)
  *   rz <W>x<H>     → resize clipboard image to W × H (Lanczos3)
  *   optim          → optimise clipboard PNG → save to ~/Downloads
  *   rmvvls <text>  → strip vowels from <text> → clipboard
@@ -27,6 +29,12 @@ export type CommandKind =
   | "translate-en"
   | "translate-de"
   | "translate-auto"
+  | "translate-de-it"
+  | "translate-it-de"
+  | "translate-de-es"
+  | "translate-es-de"
+  | "translate-de-pl"
+  | "translate-pl-de"
   | "resize"
   | "optim"
   | "rmvvls"
@@ -93,6 +101,48 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "tr",
     syntax: "tr <text>",
     description: "Translate text → German (auto-detect source language)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-de-it",
+    keyword: "trde2it",
+    syntax: "trde2it <text>",
+    description: "Translate text German → Italian (opens Google Translate)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-it-de",
+    keyword: "trit2de",
+    syntax: "trit2de <text>",
+    description: "Translate text Italian → German (opens Google Translate)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-de-es",
+    keyword: "trde2sp",
+    syntax: "trde2sp <text>",
+    description: "Translate text German → Spanish (opens Google Translate)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-es-de",
+    keyword: "trsp2de",
+    syntax: "trsp2de <text>",
+    description: "Translate text Spanish → German (opens Google Translate)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-de-pl",
+    keyword: "trde2pl",
+    syntax: "trde2pl <text>",
+    description: "Translate text German → Polish (opens Google Translate)",
+    requiresArg: true,
+  },
+  {
+    kind: "translate-pl-de",
+    keyword: "trpl2de",
+    syntax: "trpl2de <text>",
+    description: "Translate text Polish → German (opens Google Translate)",
     requiresArg: true,
   },
   {
@@ -541,19 +591,39 @@ export function commandSuggestions(query: string): CommandSpec[] {
     .filter((c) => !(c.keyword === needle && !c.requiresArg));
 }
 
+/**
+ * Source/target Google-Translate language codes per translate command kind.
+ * `sl`/`tl` are Google's `sl=`/`tl=` query params (Spanish is `es`, even
+ * though the command keyword spells it `sp`). Also drives the row label /
+ * hint, so a new language pair is a single entry here + a `COMMANDS` row.
+ */
+export const TRANSLATE_LANGS: Partial<
+  Record<CommandKind, { sl: string; tl: string; target: string }>
+> = {
+  "translate-en": { sl: "en", tl: "de", target: "German" },
+  "translate-de": { sl: "de", tl: "en", target: "English" },
+  "translate-auto": { sl: "auto", tl: "de", target: "German" },
+  "translate-de-it": { sl: "de", tl: "it", target: "Italian" },
+  "translate-it-de": { sl: "it", tl: "de", target: "German" },
+  "translate-de-es": { sl: "de", tl: "es", target: "Spanish" },
+  "translate-es-de": { sl: "es", tl: "de", target: "German" },
+  "translate-de-pl": { sl: "de", tl: "pl", target: "Polish" },
+  "translate-pl-de": { sl: "pl", tl: "de", target: "German" },
+};
+
+/** Whether a command kind is one of the Google-Translate commands. */
+export function isTranslateKind(kind: CommandKind): boolean {
+  return kind in TRANSLATE_LANGS;
+}
+
 /** Build the Google Translate URL for a translate command. */
 export function translateUrl(kind: CommandKind, text: string): string {
-  const encoded = encodeURIComponent(text);
-  switch (kind) {
-    case "translate-en":
-      return `https://translate.google.com/?sl=en&tl=de&text=${encoded}&op=translate`;
-    case "translate-de":
-      return `https://translate.google.com/?sl=de&tl=en&text=${encoded}&op=translate`;
-    case "translate-auto":
-      return `https://translate.google.com/?sl=auto&tl=de&text=${encoded}&op=translate`;
-    default:
-      throw new Error(`translateUrl called with non-translation kind: ${kind}`);
+  const pair = TRANSLATE_LANGS[kind];
+  if (!pair) {
+    throw new Error(`translateUrl called with non-translation kind: ${kind}`);
   }
+  const encoded = encodeURIComponent(text);
+  return `https://translate.google.com/?sl=${pair.sl}&tl=${pair.tl}&text=${encoded}&op=translate`;
 }
 
 /**

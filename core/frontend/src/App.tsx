@@ -43,6 +43,8 @@ import {
   formatBytes,
   resizePresetSuggestions,
   translateUrl,
+  isTranslateKind,
+  TRANSLATE_LANGS,
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
@@ -395,17 +397,20 @@ function App() {
     let hint: string;
     switch (spec.kind) {
       case "translate-en":
-        label = `Translate to German: "${arg}"`;
-        hint = "Opens Google Translate (en → de) in your browser";
-        break;
       case "translate-de":
-        label = `Translate to English: "${arg}"`;
-        hint = "Opens Google Translate (de → en) in your browser";
-        break;
       case "translate-auto":
-        label = `Translate to German: "${arg}"`;
-        hint = "Opens Google Translate (auto-detect → de) in your browser";
+      case "translate-de-it":
+      case "translate-it-de":
+      case "translate-de-es":
+      case "translate-es-de":
+      case "translate-de-pl":
+      case "translate-pl-de": {
+        const pair = TRANSLATE_LANGS[spec.kind]!;
+        label = `Translate to ${pair.target}: "${arg}"`;
+        const from = pair.sl === "auto" ? "auto-detect" : pair.sl;
+        hint = `Opens Google Translate (${from} → ${pair.tl}) in your browser`;
         break;
+      }
       case "resize": {
         const dims = parseResizeArg(arg);
         label = dims
@@ -1258,11 +1263,7 @@ function App() {
       arg: string,
       keyword?: string,
     ): Promise<boolean> => {
-      if (
-        commandKind === "translate-en" ||
-        commandKind === "translate-de" ||
-        commandKind === "translate-auto"
-      ) {
+      if (isTranslateKind(commandKind)) {
         await openUrl(translateUrl(commandKind, arg));
         await hidePopup();
       } else if (commandKind === "resize") {

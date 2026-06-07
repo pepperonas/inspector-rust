@@ -1,4 +1,5 @@
 import type { MemeEntry } from "./meme";
+import type { CommandKind } from "./commands";
 
 export type ContentType = "text" | "rtf" | "html" | "image" | "files";
 
@@ -69,34 +70,9 @@ export interface BackupImportResult {
 
 /** A runnable power-command parsed out of the search bar. */
 export interface CommandEntryView {
-  /** Stable kind for activate-dispatch. */
-  commandKind:
-    | "translate-en"
-    | "translate-de"
-    | "translate-auto"
-    | "resize"
-    | "optim"
-    | "rmvvls"
-    | "reboot"
-    | "shutdown"
-    | "lock"
-    | "mute"
-    | "freeze"
-    | "wakelock"
-    | "timer"
-    | "pwgen"
-    | "touch"
-    | "mkdir"
-    | "terminal"
-    | "alarm"
-    | "md2pdf"
-    | "shot-region"
-    | "shot-full"
-    | "shot-window"
-    | "shot-last"
-    | "clean"
-    | "brightness"
-    | "random";
+  /** Stable kind for activate-dispatch (sourced from `commands.ts` so new
+   *  command kinds never need a parallel edit here). */
+  commandKind: CommandKind;
   /** What the user typed (e.g. "tren hello world"). */
   rawInput: string;
   /** The argument portion ("" for `optim`). */

@@ -30,14 +30,14 @@
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
   - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
-  - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `clean` (free disk), `brightness` / `bri` (monitor brightness), `meme [query]` (browse & copy memes), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
+  - ⚙️ **Power commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (translate via Google Translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `clean` (free disk), `brightness` / `bri` (monitor brightness), `meme [query]` (browse & copy memes), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
   - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
   - 🎮 **Hidden games** — five Easter-egg trigger words. You'll find them.
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **949 unit tests (381 Rust + 568 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **974 unit tests (386 Rust + 588 frontend).** MIT-licensed.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>

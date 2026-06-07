@@ -214,6 +214,21 @@ pub fn generate(
     period: u32,
     algorithm: &str,
 ) -> Result<TotpCode> {
+    let now = chrono::Utc::now().timestamp() as u64;
+    generate_at(secret_base32, digits, period, algorithm, now)
+}
+
+/// Time-injected core of [`generate`] — the only difference is that `now`
+/// (Unix seconds) is supplied by the caller instead of read from the clock,
+/// which makes the RFC 6238 test vectors reproducible. `generate` is just
+/// `generate_at(.., now())`.
+pub fn generate_at(
+    secret_base32: &str,
+    digits: u32,
+    period: u32,
+    algorithm: &str,
+    now: u64,
+) -> Result<TotpCode> {
     use totp_rs::{Algorithm, TOTP};
     let algo = match algorithm.to_ascii_uppercase().as_str() {
         "SHA1" | "" => Algorithm::SHA1,
@@ -224,9 +239,7 @@ pub fn generate(
     let secret_bytes = decode_base32(secret_base32)?;
     let totp = TOTP::new(algo, digits as usize, 1, period as u64, secret_bytes)
         .map_err(|e| anyhow!("TOTP::new: {e}"))?;
-    let now = chrono::Utc::now().timestamp() as u64;
-    let code = totp
-        .generate(now);
+    let code = totp.generate(now);
     let seconds_remaining = (period as u64) - (now % period as u64);
     Ok(TotpCode {
         code,
@@ -321,5 +334,73 @@ mod tests {
         assert!(r.code.chars().all(|c| c.is_ascii_digit()));
         assert!(r.seconds_remaining <= 30);
         assert!(r.seconds_remaining > 0);
+    }
+
+    // RFC 6238 Appendix B reference values — the canonical TOTP test vectors,
+    // 8 digits, 30 s period. The per-algorithm seeds are the ASCII string
+    // "1234567890…" truncated/extended to the key length, base32-encoded.
+    const SEED_SHA1: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ";
+    const SEED_SHA256: &str = "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZA";
+    const SEED_SHA512: &str =
+        "GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQGEZDGNA";
+
+    #[test]
+    fn rfc6238_sha1_vectors() {
+        for (t, expected) in [
+            (59u64, "94287082"),
+            (1111111109, "07081804"),
+            (1111111111, "14050471"),
+            (1234567890, "89005924"),
+            (2000000000, "69279037"),
+            (20000000000, "65353130"),
+        ] {
+            let r = generate_at(SEED_SHA1, 8, 30, "SHA1", t).unwrap();
+            assert_eq!(r.code, expected, "SHA1 @ T={t}");
+        }
+    }
+
+    #[test]
+    fn rfc6238_sha256_vectors() {
+        for (t, expected) in [
+            (59u64, "46119246"),
+            (1111111109, "68084774"),
+            (1111111111, "67062674"),
+            (1234567890, "91819424"),
+            (2000000000, "90698825"),
+            (20000000000, "77737706"),
+        ] {
+            let r = generate_at(SEED_SHA256, 8, 30, "SHA256", t).unwrap();
+            assert_eq!(r.code, expected, "SHA256 @ T={t}");
+        }
+    }
+
+    #[test]
+    fn rfc6238_sha512_vectors() {
+        for (t, expected) in [
+            (59u64, "90693936"),
+            (1111111109, "25091201"),
+            (1111111111, "99943326"),
+            (1234567890, "93441116"),
+            (2000000000, "38618901"),
+            (20000000000, "47863826"),
+        ] {
+            let r = generate_at(SEED_SHA512, 8, 30, "SHA512", t).unwrap();
+            assert_eq!(r.code, expected, "SHA512 @ T={t}");
+        }
+    }
+
+    #[test]
+    fn generate_at_seconds_remaining_tracks_the_period() {
+        // 999_999_995 % 30 == 5 → 5 s into the window → 25 s left.
+        let r = generate_at(SEED_SHA1, 6, 30, "SHA1", 999_999_995).unwrap();
+        assert_eq!(r.seconds_remaining, 25);
+        // 1_000_000_020 % 30 == 0 → exactly on a boundary → a full period left.
+        let r2 = generate_at(SEED_SHA1, 6, 30, "SHA1", 1_000_000_020).unwrap();
+        assert_eq!(r2.seconds_remaining, 30);
+    }
+
+    #[test]
+    fn generate_rejects_unknown_algorithm() {
+        assert!(generate_at(SEED_SHA1, 6, 30, "MD5", 59).is_err());
     }
 }

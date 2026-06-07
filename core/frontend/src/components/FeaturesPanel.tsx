@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Gamepad2, Keyboard, MousePointerClick, Terminal } from "lucide-react";
+import { Gamepad2, Keyboard, MousePointerClick, Search, Terminal } from "lucide-react";
 import {
   getAutoExpandConfig,
   getDirectSlots,
@@ -53,6 +53,7 @@ export function FeaturesPanel() {
   const [slots, setSlots] = useState<DirectSlot[]>([]);
   const [chord, setChord] = useState<string[]>(["i", "r"]);
   const [autoExpand, setAutoExpand] = useState<AutoExpandConfig | null>(null);
+  const [query, setQuery] = useState("");
 
   useEffect(() => {
     let alive = true;
@@ -205,10 +206,44 @@ export function FeaturesPanel() {
     },
   ];
 
+  const q = query.trim().toLowerCase();
+  const filteredSections = q
+    ? sections
+        .map((sec) => ({
+          ...sec,
+          rows: sec.rows.filter(
+            (r) =>
+              r.name.toLowerCase().includes(q) ||
+              r.trigger.toLowerCase().includes(q) ||
+              (r.note ?? "").toLowerCase().includes(q),
+          ),
+        }))
+        .filter((sec) => sec.rows.length > 0)
+    : sections;
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-auto p-6">
       <div className="mx-auto w-full max-w-3xl space-y-7">
-        {sections.map((sec) => (
+        <div className="sticky top-0 z-10 -mx-6 -mt-6 mb-1 bg-[var(--color-bg)] px-6 pb-3 pt-6">
+          <div className="relative">
+            <Search
+              size={14}
+              className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--color-muted)]"
+            />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search features…"
+              className="w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] py-1.5 pl-8 pr-3 text-[12px] outline-none focus:border-[var(--color-accent)]"
+            />
+          </div>
+        </div>
+        {filteredSections.length === 0 && (
+          <p className="text-center text-[12px] text-[var(--color-muted)]">
+            No features match “{query}”.
+          </p>
+        )}
+        {filteredSections.map((sec) => (
           <section key={sec.title}>
             <div className="mb-2 flex items-center gap-2 text-[var(--color-fg)]">
               <span className="text-[var(--color-accent)]">{sec.icon}</span>

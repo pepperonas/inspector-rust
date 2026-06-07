@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePauseOnPopupHidden } from "../hooks/usePauseOnPopupHidden";
 import {
   ALIEN_H,
   ALIEN_SHOOT_INTERVAL_MS,
@@ -85,6 +86,12 @@ export function SpaceInvadersGame({ onExit }: Props) {
     resumeGateRef.current = false;
     setResumeGate(false);
   };
+  // Clicking outside the overlay hides the popup mid-play — re-arm the gate so
+  // reopening requires a keypress to continue (same as Esc-pause).
+  usePauseOnPopupHidden(phase === "playing", () => {
+    resumeGateRef.current = true;
+    setResumeGate(true);
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   // A resumed game seeds its entities from the suspended run; otherwise a

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePauseOnPopupHidden } from "../hooks/usePauseOnPopupHidden";
 import {
   BIRD_R,
   GROUND_H,
@@ -64,6 +65,12 @@ export function FlappyGame({ onExit }: Props) {
     resumeGateRef.current = false;
     setResumeGate(false);
   };
+  // Clicking outside the overlay hides the popup mid-play — re-arm the gate so
+  // reopening requires a keypress to continue (same as Esc-pause).
+  usePauseOnPopupHidden(phase === "playing", () => {
+    resumeGateRef.current = true;
+    setResumeGate(true);
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const stateRef = useRef({

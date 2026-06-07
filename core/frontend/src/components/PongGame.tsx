@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { usePauseOnPopupHidden } from "../hooks/usePauseOnPopupHidden";
 import {
   BALL_BASE_SPEED,
   BALL_R,
@@ -98,6 +99,12 @@ export function PongGame({ onExit }: Props) {
     resumeGateRef.current = false;
     setResumeGate(false);
   };
+  // Clicking outside the overlay hides the popup mid-play — re-arm the gate so
+  // reopening requires a keypress to continue (same as Esc-pause).
+  usePauseOnPopupHidden(phase === "playing", () => {
+    resumeGateRef.current = true;
+    setResumeGate(true);
+  });
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);

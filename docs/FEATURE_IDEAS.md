@@ -12,7 +12,14 @@ panel · global hotkeys). This is a menu to pick from, not a commitment.
 
 ---
 
-## Tier 1 — High value, small effort (do these first)
+## Tier 1 — ✅ SHIPPED in v0.76.0
+
+All seven Tier-1 items below were implemented in v0.76.0: pinned clips, smart
+preview actions, QR generator, inline converters, web-search bangs, dev
+quick-tools, and clipboard privacy (app-exclusion + auto-clear). The
+descriptions are kept for reference.
+
+## Tier 1 — High value, small effort (done)
 
 1. **Pinned / favourite clips** 🟢🟡
    A persistent flag on history rows (★) that exempts them from the 1 000-row

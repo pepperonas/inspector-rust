@@ -806,7 +806,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           guides the flow rather than automating it. Renders only while a
           permission is missing; the granted state is silent. */}
       {(accessibility === false || screenRec === false || finderAutomation === false) && (
-        <div className="mx-auto -mt-2 mb-4 w-full max-w-2xl">
+        <div className="-mt-2 mb-4 w-full">
           <div className="rounded border border-amber-500/60 bg-[var(--color-bg)] text-[12px] text-[var(--color-fg)] shadow-md ring-1 ring-amber-500/30">
             {/* Header + the one-click chained setup action. */}
             <div className="flex items-center gap-2 border-b border-amber-500/30 px-3 py-2">
@@ -938,7 +938,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         </div>
       )}
 
-      <div className="mx-auto w-full max-w-2xl">
+      <div className="w-full">
         {/* Popup hotkey — the global shortcut that opens the search popup. */}
         <PopupHotkeySection />
 

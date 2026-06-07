@@ -4,6 +4,61 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.76.0] — 2026-06-07
+
+A big "Swiss-Army-knife" feature drop — all of **Tier 1** from the feature
+roadmap, plus three UX fixes.
+
+### Added — Web-search bangs
+
+`g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>`
+open that site's search in the browser. Data-driven from a single table.
+
+### Added — Dev quick-tools
+
+`uuid [n]` · `slug <text>` · `hash <text>` (SHA-256) · `json` (pretty-print
+clipboard JSON) · `jwt` (decode clipboard JWT) — all land on the clipboard.
+
+### Added — Inline converters
+
+The calculator box now also does unit conversions (`5 km in mi`, `72 f to c`,
+`2 gb in mb` — length/mass/data/time/speed/temperature), number bases
+(`0xff in dec`, `255 in hex`), and epoch→date (`1717000000 as date`).
+
+### Added — QR codes (`qr <text>`)
+
+Renders a QR live in the preview; Enter copies the PNG to the clipboard.
+
+### Added — Smart preview actions
+
+A text clip now offers one-tap buttons: **Open link** (URL/domain),
+**Compose email**, **Call** (`tel:`), **Open in Maps** (`lat,lng`), and
+**Make QR** for any short value.
+
+### Added — Pinned clips
+
+A pin ★ toggle on each history row floats the clip to the top and exempts it
+from the 1 000-row prune.
+
+### Added — Clipboard privacy
+
+Settings → **Clipboard privacy**: never capture from listed apps (password
+managers), and auto-clear the clipboard N seconds after a copy (opt-in).
+
+### Added / Fixed — UX
+
+- **Features tab** now has a **search bar** to filter the function reference.
+- **Settings tab** fills the full width at the *large* window size (no more
+  empty side margins).
+- **Games**: leaving a running game by clicking outside the popup now re-arms
+  the "press a key to continue" gate, exactly like pausing with Esc.
+
+### Tests
+
+974 → **1040 unit tests** (392 Rust + 648 frontend), incl. the new devtools,
+converters, QR matrix, smart-action detector, pinned-clip prune/ordering,
+app-exclusion matcher, and earlier RFC 6238 TOTP vectors.
+
 ## [0.75.0] — 2026-06-07
 
 ### Added — Six more translate commands (German ↔ Italian / Spanish / Polish)

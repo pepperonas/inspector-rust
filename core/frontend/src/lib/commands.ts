@@ -676,6 +676,15 @@ export function isFlappyTrigger(query: string): boolean {
 }
 
 /**
+ * `spacer` → the hidden Space-Invaders game. Like the other game triggers,
+ * NOT in `COMMANDS` / autocomplete — exact match only (whitespace-tolerant,
+ * case-insensitive).
+ */
+export function isSpaceInvadersTrigger(query: string): boolean {
+  return query.trim().toLowerCase() === "spacer";
+}
+
+/**
  * `bpm` → surface a "Detect BPM" row at the top of the list. Unlike
  * the game-mode triggers above, BPM mode is **Enter-activated**, not
  * instant-on-type: short word with too many possible false positives

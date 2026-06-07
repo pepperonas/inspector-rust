@@ -28,6 +28,7 @@ Exact match in the popup search field (case-insensitive, no autocomplete):
 | `getshaky` | Pong (`PongGame.tsx`, `lib/pong.ts`) |
 | `rockthebox` | Snake — walls kill (`SnakeGame.tsx`, `lib/snake.ts`) |
 | `rockthabox` | Snake — wrap-around edges |
+| `spacer` | Space Invaders (`SpaceInvadersGame.tsx`, `lib/space-invaders.ts`) |
 | `learningtofly` | Flappy Bird (`FlappyGame.tsx`, `lib/flappy.ts`) |
 
 # Tests
@@ -112,7 +113,7 @@ type ListEntry =
   | { kind: "totp";               data: TotpListView }            // "otp <issuer>" autocomplete
 ```
 
-Assembly order in `App.tsx` (`combined`): **runnable command first (highest priority, v0.72.0)** → opener → app-launcher → bruno/pwgen/bpm/totp special rows → command suggestions → calc result → color result → snippet matches → fuzzy clips. The runnable `commandEntry` is deliberately spliced **above** the app-launcher hit so typing `terminal` runs the custom command (open terminal at the Finder folder) instead of launching Terminal.app — an app-name fuzzy-match must never outrank a complete custom command. Command + command-suggestion rows are **rendered with a reddish (`rose`) accent** in `HistoryItem.tsx` (reddish chip, icon, row background — selected = solid `bg-rose-600`) so it's visually obvious you're about to trigger a command rather than paste a clip / launch an app. Several **whole-list / whole-popup overrides**: in **kill-mode** (`kill` parsed) the list becomes `kill-target` rows; **game-mode** replaces the whole popup with a game (`<PongGame>` `getshaky`, `<SnakeGame>` `rockthebox`/`rockthabox`, `<FlappyGame>` `learningtofly`); **`2fa`** replaces it with `<TotpOverlay>`; **`bpm`** (Enter) replaces it with `<BpmDetector>`; **`freeze`** starts the input lock.
+Assembly order in `App.tsx` (`combined`): **runnable command first, then command suggestions (highest priority, v0.72.0/v0.74.0)** → opener → app-launcher → bruno/pwgen/bpm/totp special rows → calc result → color result → snippet matches → fuzzy clips. Both the complete `commandEntry` **and** the partial command `suggestionEntries` are spliced **above** the app-launcher hit so typing `terminal` (or even the partial `term`) surfaces the custom command (open a terminal in the current Finder folder) above Terminal.app — an app-name fuzzy-match must never outrank a custom command (complete or suggested). Command + command-suggestion rows are **rendered with a reddish (`rose`) accent** in `HistoryItem.tsx` (reddish chip, icon, row background — selected = solid `bg-rose-600`) so it's visually obvious you're about to trigger a command rather than paste a clip / launch an app. Several **whole-list / whole-popup overrides**: in **kill-mode** (`kill` parsed) the list becomes `kill-target` rows; **game-mode** replaces the whole popup with a game (`<PongGame>` `getshaky`, `<SnakeGame>` `rockthebox`/`rockthabox`, `<SpaceInvadersGame>` `spacer`, `<FlappyGame>` `learningtofly`); **`2fa`** replaces it with `<TotpOverlay>`; **`bpm`** (Enter) replaces it with `<BpmDetector>`; **`freeze`** starts the input lock.
 
 Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). The inline calculator (`lib/calc.ts`) runs `tryEvaluate(query)` — returns non-null only when the input contains an operator, function, or constant. Color rows come from `tryParseColor`. Command rows + suggestions come from `lib/commands.ts` (`parseCommand` / `commandSuggestions`).
 
@@ -225,7 +226,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
 
-**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `learningtofly` (Flappy Bird), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
+**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `spacer` (Space Invaders), `learningtofly` (Flappy Bird), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
 
 ### System commands (`system_commands.rs`, v0.19.0+)
 
@@ -355,6 +356,13 @@ The third hidden trigger, same shape as `getshaky` / `rockthebox`. Typing **`ope
 - `lib/openers.ts` — pure picker. `hashString` (FNV-1a-variant) returns an unsigned 32-bit integer; `pickOpener(seed)` returns `TOP_OPENERS[hash % length]`. Deterministic per seed, so the React render loop doesn't flicker between picks while the query is unchanged.
 - App.tsx wires an `openerEntry: ListEntry | null` (kind `"opener"`, `data.text`) into the top of `combined` when the trigger matches; the seed is the full query, so each keystroke re-rolls. The activate-handler pastes via `pasteText`. `HistoryItem` renders it with a `Sparkles` icon + italic body + an "opener" chip; `PreviewPanel` shows the full text with a "type any key to re-roll" hint.
 - Entirely client-side at runtime — no live DB call, no IPC, no Rust module.
+
+### `spacer` — hidden Space Invaders easter egg (`components/SpaceInvadersGame.tsx`, `lib/space-invaders.ts`)
+
+Typing the exact word **`spacer`** (`commands::isSpaceInvadersTrigger`) sets `gameMode` to `"space"` and replaces the app-shell with `<SpaceInvadersGame>`. Not in `COMMANDS`. Arrow/A-D to move, Space/W/↑ to fire, Esc to quit (Space rematches on game-over). (The trigger word was `space` before it was removed in v0.73.0 and re-added as `spacer` in v0.74.0 — `space` collided with the literal idea of "space".)
+
+- `lib/space-invaders.ts` — formation movement, bullets, collision, scoring (row bonuses).
+- `components/SpaceInvadersGame.tsx` — canvas loop; intro uses `space-invaders-descend` / `space-invaders-title` in `styles.css` (`INTRO_MS` = 1400) showing the title **SPACER**. Persists best score + a suspended run (key `spacer`) via `lib/game-storage.ts` — Esc resumes; see the persistence note under `getshaky`.
 
 ### `learningtofly` — hidden Flappy Bird easter egg (`components/FlappyGame.tsx`, `lib/flappy.ts`, v0.69.0+)
 

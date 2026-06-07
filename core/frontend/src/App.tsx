@@ -7,6 +7,7 @@ import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
 import { NotesPanel } from "./components/NotesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -21,6 +22,7 @@ import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
   isFlappyTrigger,
+  isSpaceInvadersTrigger,
   isGetShakyTrigger,
   is2faTrigger,
   isBpmTrigger,
@@ -119,7 +121,7 @@ function App() {
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
   // Exited only with Esc (handled inside the game).
   const [gameMode, setGameMode] = useState<
-    "pong" | "snake-classic" | "snake-wrap" | "flappy" | null
+    "pong" | "snake-classic" | "snake-wrap" | "space" | "flappy" | null
   >(null);
   // BPM detector overlay state. Separate from `gameMode` because it
   // has different lifecycle semantics: audio teardown, mic
@@ -250,6 +252,10 @@ function App() {
     const snake = rockTheBoxMode(query);
     if (snake) {
       setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
+      return;
+    }
+    if (isSpaceInvadersTrigger(query)) {
+      setGameMode("space");
       return;
     }
     if (isFlappyTrigger(query)) setGameMode("flappy");
@@ -850,12 +856,14 @@ function App() {
     : isMemeMode
     ? memeEntries
     : [
-        // A complete custom command (terminal, freeze, wakelock, kill, …)
-        // ALWAYS wins the top slot — otherwise an app-launcher hit with the
-        // same name (e.g. typing `terminal` also fuzzy-matches Terminal.app)
-        // would outrank it and Enter would launch the app instead of running
-        // the command. Custom commands have the highest priority.
+        // Custom commands have the HIGHEST priority. A complete command
+        // (commandEntry) takes the top slot, and partial command *suggestions*
+        // rank right below it — both above the app-launcher hit. Otherwise an
+        // app with the same name (typing `term` fuzzy-matches Terminal.app)
+        // would outrank the `terminal` command and you'd launch the app
+        // instead of opening a terminal in the current Finder folder.
         ...(commandEntry ? [commandEntry] : []),
+        ...suggestionEntries,
         ...(openerEntry ? [openerEntry] : []),
         ...(appEntry ? [appEntry] : []),
         ...(brunoEntry ? [brunoEntry] : []),
@@ -863,7 +871,6 @@ function App() {
         ...(bpmEntry ? [bpmEntry] : []),
         ...(totpManageEntry ? [totpManageEntry] : []),
         ...totpAutocompleteEntries,
-        ...suggestionEntries,
         ...resizePresetEntries,
         ...finderFileEntries,
         ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
@@ -1702,6 +1709,8 @@ function App() {
         <div className="app-shell fade-in flex h-full w-full flex-col">
           {gameMode === "pong" ? (
             <PongGame onExit={exitGame} />
+          ) : gameMode === "space" ? (
+            <SpaceInvadersGame onExit={exitGame} />
           ) : gameMode === "flappy" ? (
             <FlappyGame onExit={exitGame} />
           ) : (

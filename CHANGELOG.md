@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.74.0] — 2026-06-07
+
+### Added — Space Invaders is back, as `spacer`
+
+The hidden Space Invaders game returns under a new trigger word: type **`spacer`**
+(the old `space` was retired in v0.73.0). Same IR treatment as the other
+easter-egg games — intro animation, Esc to pause/resume, persistent high score.
+
+### Changed — `terminal` (and partial command names) outrank the app launcher
+
+Command suggestions now rank **above** app-launcher hits, so typing `term`
+surfaces the `terminal` command (open a terminal in the current Finder folder)
+above Terminal.app — you no longer have to type the whole word to reach it.
+Complete commands already won the top slot; this extends it to partial matches.
+
 ## [0.73.1] — 2026-06-07
 
 ### Changed — `pwgen` autocomplete inserts a trailing space; default length 12

@@ -62,6 +62,7 @@ import { TotpOverlay } from "./components/TotpOverlay";
 import {
   clearHistory,
   deleteEntry,
+  setClipPinned,
   findSnippets,
   hidePopup,
   killProcess,
@@ -1760,6 +1761,19 @@ function App() {
     }
   };
 
+  const onTogglePin = async (i: number, pinned: boolean) => {
+    const target = combined[i];
+    if (!target || target.kind !== "clip") return;
+    try {
+      await setClipPinned(target.data.id, pinned);
+      // The backend emits clipboard-changed, but refresh eagerly so the row
+      // re-orders without waiting for the event round-trip.
+      await refreshHistory();
+    } catch (e) {
+      console.error("toggle pin failed", e);
+    }
+  };
+
   const onClearAllHistory = async () => {
     try {
       await clearHistory();
@@ -2073,6 +2087,7 @@ function App() {
                 onActivate={activate}
                 onSaveAsNote={onSaveAsNote}
                 onDeleteClip={onDeleteClip}
+                onTogglePin={onTogglePin}
                 onClearAll={onClearAllHistory}
               />
             </div>

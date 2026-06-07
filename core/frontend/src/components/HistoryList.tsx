@@ -15,6 +15,8 @@ interface Props {
   onSaveAsNote?: (i: number) => void;
   /** Delete handler: invoked on the trash icon for a clipboard entry. */
   onDeleteClip?: (i: number) => void;
+  /** Pin/unpin handler: invoked on the pin icon for a clipboard entry. */
+  onTogglePin?: (i: number, pinned: boolean) => void;
   /** Clear-all-history handler: invoked from the toolbar button at the top. */
   onClearAll?: () => void;
 }
@@ -28,6 +30,7 @@ export function HistoryList({
   onActivate,
   onSaveAsNote,
   onDeleteClip,
+  onTogglePin,
   onClearAll,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
@@ -175,6 +178,11 @@ export function HistoryList({
                   onDoubleClick={() => onActivate(virtualRow.index)}
                   onSaveAsNote={
                     onSaveAsNote ? () => onSaveAsNote(virtualRow.index) : undefined
+                  }
+                  onTogglePin={
+                    onTogglePin
+                      ? (pinned) => onTogglePin(virtualRow.index, pinned)
+                      : undefined
                   }
                   onDelete={
                     onDeleteClip ? () => onDeleteClip(virtualRow.index) : undefined

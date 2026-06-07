@@ -37,12 +37,19 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
             hash          TEXT    NOT NULL UNIQUE,
             byte_size     INTEGER NOT NULL,
             created_at    INTEGER NOT NULL,
-            last_used_at  INTEGER NOT NULL
+            last_used_at  INTEGER NOT NULL,
+            pinned        INTEGER NOT NULL DEFAULT 0
         );
         CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
         CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
         "#,
     )?;
+    // Migration for pre-v0.76.0 databases created without the `pinned`
+    // column. Ignore the "duplicate column name" error on already-migrated DBs.
+    let _ = conn.execute(
+        "ALTER TABLE entries ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
+        [],
+    );
     Ok(Arc::new(Mutex::new(conn)))
 }
 
@@ -110,8 +117,9 @@ fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
     conn.execute(
         r#"
         DELETE FROM entries
-        WHERE id IN (
+        WHERE pinned = 0 AND id IN (
             SELECT id FROM entries
+            WHERE pinned = 0
             ORDER BY last_used_at DESC
             LIMIT -1 OFFSET ?1
         )
@@ -121,14 +129,25 @@ fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
     Ok(())
 }
 
+/// Pin / unpin an entry. Pinned entries float to the top of the list and are
+/// never pruned.
+pub fn set_pinned(db: &DbHandle, id: i64, pinned: bool) -> Result<()> {
+    let conn = db.lock();
+    conn.execute(
+        "UPDATE entries SET pinned = ?1 WHERE id = ?2",
+        params![pinned as i64, id],
+    )?;
+    Ok(())
+}
+
 pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
     let conn = db.lock();
     let mut stmt = conn.prepare(
         r#"
         SELECT id, content_type, content_text, content_data, hash,
-               byte_size, created_at, last_used_at
+               byte_size, created_at, last_used_at, pinned
         FROM entries
-        ORDER BY last_used_at DESC
+        ORDER BY pinned DESC, last_used_at DESC
         LIMIT ?1 OFFSET ?2
         "#,
     )?;
@@ -156,7 +175,7 @@ pub fn get(db: &DbHandle, id: i64) -> Result<Option<ClipEntry>> {
         .query_row(
             r#"
             SELECT id, content_type, content_text, content_data, hash,
-                   byte_size, created_at, last_used_at
+                   byte_size, created_at, last_used_at, pinned
             FROM entries
             WHERE id = ?1
             "#,
@@ -200,7 +219,8 @@ mod tests {
                 hash          TEXT    NOT NULL UNIQUE,
                 byte_size     INTEGER NOT NULL,
                 created_at    INTEGER NOT NULL,
-                last_used_at  INTEGER NOT NULL
+                last_used_at  INTEGER NOT NULL,
+                pinned        INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
@@ -465,6 +485,48 @@ mod tests {
     }
 
     #[test]
+    fn set_pinned_toggles_the_flag() {
+        let db = test_db();
+        let id = upsert_clip(&db, &text_clip("x")).unwrap();
+        assert!(!get(&db, id).unwrap().unwrap().pinned);
+        set_pinned(&db, id, true).unwrap();
+        assert!(get(&db, id).unwrap().unwrap().pinned);
+        set_pinned(&db, id, false).unwrap();
+        assert!(!get(&db, id).unwrap().unwrap().pinned);
+    }
+
+    #[test]
+    fn pinned_survives_prune() {
+        let db = test_db();
+        let a = upsert_clip(&db, &text_clip("a")).unwrap();
+        upsert_clip(&db, &text_clip("b")).unwrap();
+        upsert_clip(&db, &text_clip("c")).unwrap();
+        set_pinned(&db, a, true).unwrap();
+        // keep = 0 → every *non-pinned* row is pruned; only the pin survives.
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 0).unwrap();
+        }
+        let rows = list(&db, 100, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].id, a);
+        assert!(rows[0].pinned);
+    }
+
+    #[test]
+    fn pinned_floats_to_top_regardless_of_recency() {
+        let db = test_db();
+        let a = upsert_clip(&db, &text_clip("a")).unwrap();
+        set_pinned(&db, a, true).unwrap();
+        upsert_clip(&db, &text_clip("b")).unwrap(); // newer, unpinned
+        let rows = list(&db, 100, 0).unwrap();
+        // `ORDER BY pinned DESC` puts the pin first even though `b` is newer.
+        assert_eq!(rows[0].id, a);
+        assert!(rows[0].pinned);
+        assert!(!rows[1].pinned);
+    }
+
+    #[test]
     fn hash_payload_distinguishes_unicode_normalisation_forms() {
         // SHA-256 is byte-deterministic — equivalent NFC vs NFD strings
         // produce different hashes. Document that we do *not* normalise.
@@ -494,5 +556,6 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
         byte_size: row.get(5)?,
         created_at: row.get(6)?,
         last_used_at: row.get(7)?,
+        pinned: row.get::<_, i64>(8)? != 0,
     })
 }

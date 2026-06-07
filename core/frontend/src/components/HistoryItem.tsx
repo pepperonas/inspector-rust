@@ -1,5 +1,5 @@
 import { memo, useEffect, useState } from "react";
-import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -13,6 +13,8 @@ interface Props {
   onSaveAsNote?: () => void;
   /** Delete the underlying clipboard entry from history. Only invoked for `kind: "clip"`. */
   onDelete?: () => void;
+  /** Pin / unpin the clip (floats to top, never pruned). Only for `kind: "clip"`. */
+  onTogglePin?: (pinned: boolean) => void;
   style?: React.CSSProperties;
 }
 
@@ -61,6 +63,7 @@ export const HistoryItem = memo(function HistoryItem({
   onDoubleClick,
   onSaveAsNote,
   onDelete,
+  onTogglePin,
   style,
 }: Props) {
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
@@ -569,6 +572,26 @@ export const HistoryItem = memo(function HistoryItem({
           label
         )}
       </span>
+      {entry.kind === "clip" && onTogglePin && (
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onTogglePin(!entry.data.pinned);
+          }}
+          title={entry.data.pinned ? "Unpin" : "Pin to top"}
+          className={
+            "shrink-0 rounded p-0.5 " +
+            (entry.data.pinned
+              ? "opacity-100 text-[var(--color-accent)]"
+              : "opacity-0 group-hover:opacity-100 " +
+                (selected
+                  ? "text-white/80 hover:bg-white/20"
+                  : "text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-[var(--color-accent)]"))
+          }
+        >
+          <Pin size={12} fill={entry.data.pinned ? "currentColor" : "none"} />
+        </button>
+      )}
       {entry.kind === "clip" && onSaveAsNote && (
         <button
           onClick={(e) => {

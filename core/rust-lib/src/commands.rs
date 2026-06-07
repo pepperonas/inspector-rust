@@ -554,6 +554,20 @@ pub fn delete_entry(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
     db::delete(&db, id).map_err(map_err)
 }
 
+/// Pin / unpin a clipboard entry. Pinned entries float to the top of the
+/// history and are exempt from the 1 000-row prune.
+#[tauri::command]
+pub fn set_clip_pinned(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    id: i64,
+    pinned: bool,
+) -> Result<(), String> {
+    db::set_pinned(&db, id, pinned).map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 pub fn clear_history(db: State<'_, DbHandle>) -> Result<(), String> {
     db::clear(&db).map_err(map_err)

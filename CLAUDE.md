@@ -80,7 +80,7 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 
 | Table | Purpose | Notes |
 |---|---|---|
-| `entries` | Clipboard history | SHA-256 deduped; capped at 1 000 rows via `prune_locked`; sorted by `last_used_at DESC` |
+| `entries` | Clipboard history | SHA-256 deduped; capped at 1 000 rows via `prune_locked`; sorted by `pinned DESC, last_used_at DESC`. **Pinned clips (v0.76.0)**: a `pinned` column (lazy `ALTER TABLE` migration) exempts a row from the prune (`WHERE pinned = 0`) and floats it to the top. `db::set_pinned` + IPC `set_clip_pinned`; the pin ★ toggle lives on each `HistoryItem` row |
 | `snippets` | Text expander templates | `abbreviation` + `title` + `body`; index on `abbreviation` |
 | `notes` | Persistent bookmarks | Not pruned; `title` + `category`; any clipboard entry can be saved here |
 | `settings` | Key/value app settings | Simple `key TEXT PK, value TEXT`; used for expander hotkey, theme, bruno defaults, input-lock chord, etc. |

@@ -315,6 +315,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_input_lock_chord,
             commands::start_input_lock,
             commands::delete_entry,
+            commands::set_clip_pinned,
             commands::clear_history,
             commands::toggle_capture,
             commands::get_capture_state,

@@ -208,7 +208,8 @@ mod tests {
                 hash          TEXT    NOT NULL UNIQUE,
                 byte_size     INTEGER NOT NULL,
                 created_at    INTEGER NOT NULL,
-                last_used_at  INTEGER NOT NULL
+                last_used_at  INTEGER NOT NULL,
+                pinned        INTEGER NOT NULL DEFAULT 0
             );
             CREATE INDEX idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX idx_hash ON entries(hash);

@@ -47,6 +47,9 @@ pub struct ClipEntry {
     pub byte_size: i64,
     pub created_at: i64,
     pub last_used_at: i64,
+    /// Pinned entries float to the top and are exempt from pruning.
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 /// Payload coming in from the clipboard watcher, not yet hashed/stored.
@@ -135,6 +138,7 @@ mod tests {
             byte_size: 23,
             created_at: 1_700_000_000_000,
             last_used_at: 1_700_000_000_500,
+            pinned: false,
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let back: ClipEntry = serde_json::from_str(&json).expect("deserialize");

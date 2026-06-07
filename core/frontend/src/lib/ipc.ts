@@ -386,6 +386,11 @@ export function deleteEntry(id: number): Promise<void> {
   return invoke("delete_entry", { id });
 }
 
+/** Pin / unpin a clipboard entry (floats to top, exempt from pruning). */
+export function setClipPinned(id: number, pinned: boolean): Promise<void> {
+  return invoke("set_clip_pinned", { id, pinned });
+}
+
 export function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }

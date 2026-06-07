@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.0] — 2026-06-07
+
+### Changed — Brightness can now dim to 5%
+
+The software-dimming floor dropped from 10% to **5%** (`MIN_PERCENT`), so a
+monitor can be dimmed further while still staying recoverable. The inline
+sliders' ←/→ steps reach 5%.
+
+### Removed — Space Invaders hidden game
+
+The `space` Space Invaders easter egg was removed (`SpaceInvadersGame.tsx`,
+`lib/space-invaders.ts`, its CSS flourishes, and the `isSpaceInvadersTrigger`
+trigger). Four hidden games remain: Pong (`getshaky`), Snake
+(`rockthebox`/`rockthabox`), and Flappy Bird (`learningtofly`).
+
 ## [0.72.1] — 2026-06-07
 
 ### Changed — Brightness control is now inline in the popup (no separate window)

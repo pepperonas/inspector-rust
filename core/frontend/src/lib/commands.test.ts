@@ -9,7 +9,6 @@ import {
   parseWakelockArg,
   isGetShakyTrigger,
   isOpenerTrigger,
-  isSpaceInvadersTrigger,
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
@@ -487,21 +486,6 @@ describe("rockTheBoxMode — hidden Snake easter egg", () => {
         commandSuggestions(prefix).some((c) => c.keyword.startsWith("rockth")),
       ).toBe(false);
     }
-  });
-});
-
-describe("isSpaceInvadersTrigger — hidden Space Invaders easter egg", () => {
-  it("matches exact `space`", () => {
-    expect(isSpaceInvadersTrigger("space")).toBe(true);
-    expect(isSpaceInvadersTrigger("  SPACE  ")).toBe(true);
-  });
-  it("rejects partial or extended input", () => {
-    expect(isSpaceInvadersTrigger("spac")).toBe(false);
-    expect(isSpaceInvadersTrigger("spacebar")).toBe(false);
-    expect(isSpaceInvadersTrigger("space invaders")).toBe(false);
-  });
-  it("is NOT in the public COMMANDS catalogue", () => {
-    expect(COMMANDS.some((c) => c.keyword === "space")).toBe(false);
   });
 });
 

@@ -199,7 +199,6 @@ export function FeaturesPanel() {
         { name: "Pong", trigger: "getshaky", typed: true },
         { name: "Snake — walls", trigger: "rockthebox", typed: true },
         { name: "Snake — wrap edges", trigger: "rockthabox", typed: true },
-        { name: "Space Invaders", trigger: "space", typed: true },
         { name: "Flappy Bird", trigger: "learningtofly", typed: true },
       ],
     },

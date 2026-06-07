@@ -20,7 +20,7 @@ import {
  * debounced ~80 ms so a held arrow key doesn't flood the backend.
  */
 const STEP = 5;
-const MIN = 10;
+const MIN = 5;
 
 export function BrightnessPanel({
   focused,

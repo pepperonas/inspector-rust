@@ -30,10 +30,10 @@ describe("high score", () => {
   });
 
   it("floors and clamps negatives away", () => {
-    saveHighScore("space", 12.9);
-    expect(loadHighScore("space")).toBe(12);
-    saveHighScore("space", -5);
-    expect(loadHighScore("space")).toBe(0);
+    saveHighScore("flappy", 12.9);
+    expect(loadHighScore("flappy")).toBe(12);
+    saveHighScore("flappy", -5);
+    expect(loadHighScore("flappy")).toBe(0);
   });
 
   it("treats a corrupt value as 0", () => {
@@ -44,11 +44,11 @@ describe("high score", () => {
 
 describe("commitHighScore", () => {
   it("only raises the stored best, never lowers it", () => {
-    expect(commitHighScore("space", 30)).toBe(30);
-    expect(commitHighScore("space", 10)).toBe(30); // worse run doesn't overwrite
-    expect(loadHighScore("space")).toBe(30);
-    expect(commitHighScore("space", 55)).toBe(55); // better run wins
-    expect(loadHighScore("space")).toBe(55);
+    expect(commitHighScore("flappy", 30)).toBe(30);
+    expect(commitHighScore("flappy", 10)).toBe(30); // worse run doesn't overwrite
+    expect(loadHighScore("flappy")).toBe(30);
+    expect(commitHighScore("flappy", 55)).toBe(55); // better run wins
+    expect(loadHighScore("flappy")).toBe(55);
   });
 });
 
@@ -64,11 +64,11 @@ describe("suspended run", () => {
   });
 
   it("is cleared independently of the high score", () => {
-    saveHighScore("space", 99);
-    saveGame("space", { score: 12 });
-    clearSavedGame("space");
-    expect(loadSavedGame("space")).toBeNull();
-    expect(loadHighScore("space")).toBe(99); // best survives a state clear
+    saveHighScore("flappy", 99);
+    saveGame("flappy", { score: 12 });
+    clearSavedGame("flappy");
+    expect(loadSavedGame("flappy")).toBeNull();
+    expect(loadHighScore("flappy")).toBe(99); // best survives a state clear
   });
 
   it("treats corrupt JSON as no saved run", () => {

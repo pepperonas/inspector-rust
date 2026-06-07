@@ -33,11 +33,11 @@
   - ⚙️ **Power commands** — `tr` / `tren` / `trde` (translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `clean` (free disk), `brightness` / `bri` (monitor brightness), `meme [query]` (browse & copy memes), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
   - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
-  - 🎮 **Hidden games** — five Easter-egg trigger words. You'll find them.
+  - 🎮 **Hidden games** — four Easter-egg trigger words. You'll find them.
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **948 unit tests (380 Rust + 568 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **941 unit tests (381 Rust + 560 frontend).** MIT-licensed.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>

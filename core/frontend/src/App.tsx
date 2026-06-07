@@ -25,7 +25,6 @@ import {
   is2faTrigger,
   isBpmTrigger,
   isOpenerTrigger,
-  isSpaceInvadersTrigger,
   parseOtpQuery,
   rockTheBoxMode,
   DEFAULT_PWGEN_LENGTH,
@@ -48,7 +47,6 @@ import {
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
-import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { FlappyGame } from "./components/FlappyGame";
 import { matchMemes, type MemeEntry } from "./lib/meme";
 import { BpmDetector } from "./components/BpmDetector";
@@ -121,7 +119,7 @@ function App() {
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
   // Exited only with Esc (handled inside the game).
   const [gameMode, setGameMode] = useState<
-    "pong" | "snake-classic" | "snake-wrap" | "space" | "flappy" | null
+    "pong" | "snake-classic" | "snake-wrap" | "flappy" | null
   >(null);
   // BPM detector overlay state. Separate from `gameMode` because it
   // has different lifecycle semantics: audio teardown, mic
@@ -252,10 +250,6 @@ function App() {
     const snake = rockTheBoxMode(query);
     if (snake) {
       setGameMode(snake === "wrap" ? "snake-wrap" : "snake-classic");
-      return;
-    }
-    if (isSpaceInvadersTrigger(query)) {
-      setGameMode("space");
       return;
     }
     if (isFlappyTrigger(query)) setGameMode("flappy");
@@ -1702,8 +1696,6 @@ function App() {
         <div className="app-shell fade-in flex h-full w-full flex-col">
           {gameMode === "pong" ? (
             <PongGame onExit={exitGame} />
-          ) : gameMode === "space" ? (
-            <SpaceInvadersGame onExit={exitGame} />
           ) : gameMode === "flappy" ? (
             <FlappyGame onExit={exitGame} />
           ) : (

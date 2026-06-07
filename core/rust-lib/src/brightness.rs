@@ -185,7 +185,7 @@ mod macos_gamma {
 
     /// Floor so the screen never dims to fully black (unrecoverable — the
     /// user couldn't see the slider to bring it back up).
-    const MIN_PERCENT: u8 = 10;
+    const MIN_PERCENT: u8 = 5;
 
     struct Entry {
         cg_id: CGDirectDisplayID,
@@ -315,7 +315,7 @@ mod win_gamma {
     use windows::Win32::UI::WindowsAndMessaging::MONITORINFOF_PRIMARY;
 
     /// Safety floor so the screen never dims to fully black (unrecoverable).
-    const MIN_PERCENT: u8 = 10;
+    const MIN_PERCENT: u8 = 5;
 
     struct Entry {
         /// `\\.\DISPLAY1`-style adapter name, null-terminated wide string.
@@ -653,6 +653,14 @@ mod tests {
         assert_eq!(percent_to_gamma_fraction(0, 10), 0.10);
         assert_eq!(percent_to_gamma_fraction(5, 10), 0.10);
         assert!(percent_to_gamma_fraction(0, 10) > 0.0);
+    }
+
+    #[test]
+    fn gamma_fraction_allows_five_percent_floor() {
+        // The live floor (MIN_PERCENT = 5) lets the user dim to 5%.
+        assert_eq!(percent_to_gamma_fraction(5, 5), 0.05);
+        assert_eq!(percent_to_gamma_fraction(0, 5), 0.05); // clamps up to 5%
+        assert_eq!(percent_to_gamma_fraction(50, 5), 0.50);
     }
 
     #[test]

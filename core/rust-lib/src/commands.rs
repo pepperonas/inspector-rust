@@ -451,6 +451,45 @@ pub fn set_theme_preference(
     settings::set(&db, KEY_THEME, normalised).map_err(map_err)
 }
 
+// ── Clipboard privacy (v0.76.0) ────────────────────────────────────────
+
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct ClipboardPrivacy {
+    /// Comma/newline-separated app-name substrings never captured from.
+    pub exclude_apps: String,
+    /// Seconds after a copy to auto-wipe the clipboard (0 = off).
+    pub auto_clear_seconds: u32,
+}
+
+#[tauri::command]
+pub fn get_clipboard_privacy(db: State<'_, DbHandle>) -> Result<ClipboardPrivacy, String> {
+    use crate::clipboard_watcher::{KEY_AUTO_CLEAR_SECS, KEY_EXCLUDE_APPS};
+    let exclude_apps = settings::get_or(&db, KEY_EXCLUDE_APPS, "").map_err(map_err)?;
+    let auto_clear_seconds = settings::get_or(&db, KEY_AUTO_CLEAR_SECS, "0")
+        .map_err(map_err)?
+        .trim()
+        .parse::<u32>()
+        .unwrap_or(0);
+    Ok(ClipboardPrivacy {
+        exclude_apps,
+        auto_clear_seconds,
+    })
+}
+
+#[tauri::command]
+pub fn set_clipboard_privacy(
+    db: State<'_, DbHandle>,
+    exclude_apps: String,
+    auto_clear_seconds: u32,
+) -> Result<(), String> {
+    use crate::clipboard_watcher::{KEY_AUTO_CLEAR_SECS, KEY_EXCLUDE_APPS};
+    settings::set(&db, KEY_EXCLUDE_APPS, exclude_apps.trim()).map_err(map_err)?;
+    // Clamp to a sane ceiling (1 hour) so a typo can't park a wipe forever.
+    let secs = auto_clear_seconds.min(3600);
+    settings::set(&db, KEY_AUTO_CLEAR_SECS, &secs.to_string()).map_err(map_err)?;
+    Ok(())
+}
+
 // ── Popup overlay size (v0.49.0+) ──────────────────────────────────────
 
 const KEY_WINDOW_SIZE: &str = "appearance.window_size";

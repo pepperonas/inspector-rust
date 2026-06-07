@@ -50,6 +50,9 @@ import {
   getPopupHotkeyDefault,
   getScreenRecordingStatus,
   getThemePreference,
+  getClipboardPrivacy,
+  setClipboardPrivacy,
+  type ClipboardPrivacy,
   importBackup,
   listSnippets,
   openAccessibilitySettings,
@@ -271,6 +274,25 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       console.error("autostart toggle failed", e);
     } finally {
       setAutostartBusy(false);
+    }
+  };
+
+  // ── Clipboard privacy (v0.76.0) ──────────────────────────────────────────
+  const [privacy, setPrivacy] = useState<ClipboardPrivacy | null>(null);
+  const [privacySaved, setPrivacySaved] = useState(false);
+  useEffect(() => {
+    getClipboardPrivacy()
+      .then(setPrivacy)
+      .catch(() => setPrivacy({ exclude_apps: "", auto_clear_seconds: 0 }));
+  }, []);
+  const savePrivacy = async (next: ClipboardPrivacy) => {
+    setPrivacy(next);
+    try {
+      await setClipboardPrivacy(next);
+      setPrivacySaved(true);
+      setTimeout(() => setPrivacySaved(false), 1500);
+    } catch (e) {
+      console.error("save clipboard privacy failed", e);
     }
   };
 
@@ -1188,6 +1210,71 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
               </li>
             </ul>
           </details>
+        </Section>
+        </div>
+
+        {/* Clipboard privacy (v0.76.0) */}
+        <div className="mt-8">
+        <Section
+          icon={<Lock size={16} className="text-[var(--color-accent)]" />}
+          title="Clipboard privacy"
+          subtitle="Keep secrets out of the clipboard history, and auto-wipe sensitive copies."
+        >
+          {privacy === null ? (
+            <p className="text-[12px] text-[var(--color-muted)]">Loading…</p>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <label className="flex flex-col gap-1.5">
+                <span className="text-[12px]">
+                  <span className="text-[var(--color-fg)]">Never capture from these apps</span>
+                  <span className="block text-[11px] text-[var(--color-muted)]">
+                    One app-name (or part of it) per line or comma-separated — e.g. 1Password,
+                    KeePassXC, Bitwarden. Case-insensitive substring match against the frontmost app.
+                  </span>
+                </span>
+                <textarea
+                  value={privacy.exclude_apps}
+                  onChange={(e) => setPrivacy({ ...privacy, exclude_apps: e.target.value })}
+                  onBlur={() => void savePrivacy(privacy)}
+                  rows={3}
+                  placeholder={"1Password\nKeePassXC\nBitwarden"}
+                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 font-[var(--font-mono)] text-[12px]"
+                />
+              </label>
+
+              <label className="flex items-center justify-between gap-3">
+                <span className="text-[12px]">
+                  <span className="text-[var(--color-fg)]">Auto-clear the clipboard after</span>
+                  <span className="block text-[11px] text-[var(--color-muted)]">
+                    Wipes a copied value this many seconds later (a newer copy cancels it). 0 = off.
+                  </span>
+                </span>
+                <span className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={0}
+                    max={3600}
+                    value={privacy.auto_clear_seconds}
+                    onChange={(e) =>
+                      setPrivacy({
+                        ...privacy,
+                        auto_clear_seconds: Math.max(0, Math.min(3600, parseInt(e.target.value, 10) || 0)),
+                      })
+                    }
+                    onBlur={() => void savePrivacy(privacy)}
+                    className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-[12px] tabular-nums"
+                  />
+                  <span className="text-[11px] text-[var(--color-muted)]">sec</span>
+                </span>
+              </label>
+
+              {privacySaved && (
+                <span className="flex items-center gap-1.5 text-[11px] text-green-500">
+                  <CheckCircle2 size={12} /> Saved
+                </span>
+              )}
+            </div>
+          )}
         </Section>
         </div>
 

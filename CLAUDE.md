@@ -395,6 +395,8 @@ Both modules share the 16 MP hard cap and the multi-format `image` 0.25 dependen
 
 `clipboard_watcher::capture` checks formats in this order: **image → files → html → rtf → text**. Image-before-files matters on macOS, where copying a PNG/JPG/HEIC from Finder puts both the bitmap and the file path on the pasteboard — capturing as Files first meant the user only saw paths in history.
 
+**Clipboard privacy (v0.76.0).** Two opt-in settings, gated in `Handler::store`: **app exclusion** (`clipboard.exclude_apps`) — when the frontmost app at copy time matches the comma/newline list (case-insensitive substring via the pure, unit-tested `clipboard_watcher::is_excluded_app`), the clip is dropped silently so password-manager secrets never reach history (the slow `frontmost_app::name()` lookup only runs when the list is non-empty); and **auto-clear** (`clipboard.auto_clear_seconds`, 0 = off) — after a capture, a worker sleeps N s and wipes the system clipboard *unless a newer copy superseded it* (a per-`Handler` `clear_gen: AtomicU64` generation guard; clamped to ≤3600 s). IPC `get_clipboard_privacy` / `set_clipboard_privacy`; Settings → **Clipboard privacy** (exclude-apps textarea + auto-clear seconds).
+
 ### `UiState` and modal focus
 
 `UiState.suppress_hide` (AtomicBool, Tauri state) prevents the popup's "hide on focus-loss" handler from firing while a native file dialog is open. The frontend toggles it via `set_suppress_hide` before/after calling `tauri-plugin-dialog` commands (`dialog:allow-open`, `dialog:allow-save`).

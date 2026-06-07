@@ -430,6 +430,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,
+            commands::get_clipboard_privacy,
+            commands::set_clipboard_privacy,
             commands::get_window_size_preference,
             commands::set_window_size_preference,
             commands::get_status_toast,

@@ -7,13 +7,29 @@ use clipboard_rs::{
     ContentFormat,
 };
 use parking_lot::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
+use std::time::Duration;
 use tauri::{AppHandle, Emitter};
 
 use crate::db::{hash_payload, upsert_clip, DbHandle};
 use crate::models::{ContentType, NewClip, MAX_IMAGE_BYTES};
+
+/// Privacy setting keys (v0.76.0).
+pub const KEY_EXCLUDE_APPS: &str = "clipboard.exclude_apps";
+pub const KEY_AUTO_CLEAR_SECS: &str = "clipboard.auto_clear_seconds";
+
+/// Whether `frontmost` matches any entry in the comma/newline-separated
+/// `exclude_list` (case-insensitive substring). Pure + unit-tested.
+pub fn is_excluded_app(frontmost: &str, exclude_list: &str) -> bool {
+    let front = frontmost.to_lowercase();
+    exclude_list
+        .split([',', '\n'])
+        .map(|s| s.trim().to_lowercase())
+        .filter(|s| !s.is_empty())
+        .any(|pat| front.contains(&pat))
+}
 
 /// `Clone` is a cheap `Arc::clone` of both fields — used by the
 /// expander's background-restore thread (v0.35.0+) to ferry a handle
@@ -53,6 +69,9 @@ struct Handler {
     app: AppHandle,
     paused: Arc<AtomicBool>,
     self_written: Arc<Mutex<Option<String>>>,
+    /// Bumped on every captured clip; an auto-clear timer only fires if the
+    /// generation it recorded is still current (no newer copy happened).
+    clear_gen: Arc<AtomicU64>,
 }
 
 impl ClipboardHandler for Handler {
@@ -177,8 +196,51 @@ impl Handler {
                 return Ok(());
             }
         }
+
+        // App exclusion: when the frontmost app (the one that just copied) is
+        // on the user's exclude list — password managers etc. — drop the clip
+        // silently so secrets never reach the history. Only pay the frontmost
+        // lookup when the list is non-empty.
+        let exclude =
+            crate::settings::get_or(&self.db, KEY_EXCLUDE_APPS, "").unwrap_or_default();
+        if !exclude.trim().is_empty() {
+            if let Some(front) = crate::frontmost_app::name() {
+                if is_excluded_app(&front, &exclude) {
+                    return Ok(());
+                }
+            }
+        }
+
         let _id = upsert_clip(&self.db, &clip)?;
         let _ = self.app.emit("clipboard-changed", ());
+
+        // Auto-clear: wipe the system clipboard N seconds after this copy,
+        // unless a newer copy supersedes it first (generation guard). Opt-in
+        // (0 = off).
+        let secs = crate::settings::get_or(&self.db, KEY_AUTO_CLEAR_SECS, "0")
+            .ok()
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        let my_gen = self.clear_gen.fetch_add(1, Ordering::SeqCst) + 1;
+        if secs > 0 {
+            let clear_gen = self.clear_gen.clone();
+            let app = self.app.clone();
+            let self_written = self.self_written.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(secs));
+                // A newer clip arrived → its own timer owns the clipboard now.
+                if clear_gen.load(Ordering::SeqCst) != my_gen {
+                    return;
+                }
+                if let Ok(ctx) = ClipboardContext::new() {
+                    // Arm the self-write fuse so clearing doesn't capture an
+                    // empty entry, then blank the clipboard.
+                    *self_written.lock() = Some(hash_payload(ContentType::Text, ""));
+                    let _ = ctx.set_text(String::new());
+                    let _ = app.emit("clipboard-changed", ());
+                }
+            });
+        }
         Ok(())
     }
 }
@@ -212,6 +274,7 @@ pub fn spawn(
                 app,
                 paused,
                 self_written,
+                clear_gen: Arc::new(AtomicU64::new(0)),
             });
             watcher.start_watch();
         })
@@ -258,7 +321,31 @@ fn strip_html(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{strip_html, strip_rtf, WatcherState};
+    use super::{is_excluded_app, strip_html, strip_rtf, WatcherState};
+
+    #[test]
+    fn excluded_app_matches_case_insensitive_substring() {
+        let list = "1Password, KeePassXC\nBitwarden";
+        assert!(is_excluded_app("1Password 8", list));
+        assert!(is_excluded_app("keepassxc", list)); // case-insensitive
+        assert!(is_excluded_app("Bitwarden", list));
+        assert!(!is_excluded_app("Safari", list));
+        assert!(!is_excluded_app("Notes", list));
+    }
+
+    #[test]
+    fn excluded_app_empty_list_never_matches() {
+        assert!(!is_excluded_app("1Password", ""));
+        assert!(!is_excluded_app("anything", "   \n  ,  "));
+    }
+
+    #[test]
+    fn excluded_app_ignores_blank_entries_and_trims() {
+        let list = "  , Slack ,\n\n  Discord  ";
+        assert!(is_excluded_app("Slack", list));
+        assert!(is_excluded_app("discord canary", list));
+        assert!(!is_excluded_app("x", list)); // a lone blank entry must not match all
+    }
     use crate::db::hash_payload;
     use crate::models::ContentType;
 

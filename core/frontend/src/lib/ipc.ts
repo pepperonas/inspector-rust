@@ -391,6 +391,22 @@ export function setClipPinned(id: number, pinned: boolean): Promise<void> {
   return invoke("set_clip_pinned", { id, pinned });
 }
 
+export interface ClipboardPrivacy {
+  /** Comma/newline-separated app-name substrings never captured from. */
+  exclude_apps: string;
+  /** Seconds after a copy to auto-wipe the clipboard (0 = off). */
+  auto_clear_seconds: number;
+}
+export function getClipboardPrivacy(): Promise<ClipboardPrivacy> {
+  return invoke("get_clipboard_privacy");
+}
+export function setClipboardPrivacy(p: ClipboardPrivacy): Promise<void> {
+  return invoke("set_clipboard_privacy", {
+    excludeApps: p.exclude_apps,
+    autoClearSeconds: p.auto_clear_seconds,
+  });
+}
+
 export function clearHistory(): Promise<void> {
   return invoke("clear_history");
 }

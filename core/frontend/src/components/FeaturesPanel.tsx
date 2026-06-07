@@ -167,7 +167,7 @@ export function FeaturesPanel() {
         { name: "Markdown → PDF", trigger: "md2pdf [path]", typed: true, note: "Same as ⌃⇧M — selection or a path. PDF lands next to the source." },
         { name: "Screenshot (modes)", trigger: "shot [n] · shotfull · shotwin · shotlast", typed: true, note: "Region (opt. self-timer n) · full screen · active window · repeat last → same floating preview." },
         { name: "Clean caches/logs", trigger: "clean", typed: true, note: "Dry-run preview + confirm before deleting. Level/categories in Settings. Allowlist-only, no symlinks." },
-        { name: "Monitor brightness", trigger: "brightness · bri", typed: true, note: "Slider per display (built-in + external) + 'all'. Software dimming on macOS/Windows, DDC on Linux." },
+        { name: "Monitor brightness", trigger: "brightness · bri", typed: true, note: "Enter → sliders in the preview; ↑↓ pick monitor, ←→ adjust, Enter back to list. Built-in + external. Software dimming on macOS/Windows, DDC on Linux." },
         { name: "Random number", trigger: "rnd · random [max] [min max]", typed: true, note: "Rolls a number (default 1–6; `rnd 100` = 1–100, `rnd 5 500` = 5–500), shown big on screen." },
         { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
         { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export." },

@@ -60,7 +60,13 @@ export type CommandKind =
   | "clean"
   | "brightness"
   | "random"
-  | "meme";
+  | "meme"
+  | "websearch"
+  | "uuid"
+  | "slug"
+  | "hash"
+  | "json"
+  | "jwt";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -79,6 +85,51 @@ export interface CommandSpec {
    *  shouldn't clutter the list. */
   hidden?: boolean;
 }
+
+/**
+ * Web-search "bangs": a keyword that opens a site's search for the argument.
+ * Data-driven (like `TRANSLATE_LANGS`) — a new engine is one entry here, which
+ * also generates its `COMMANDS` row. `url(q)` must URL-encode the query.
+ */
+export const SEARCH_BANGS: Record<
+  string,
+  { name: string; url: (q: string) => string }
+> = {
+  g: { name: "Google", url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}` },
+  ddg: { name: "DuckDuckGo", url: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}` },
+  gh: {
+    name: "GitHub",
+    url: (q) => `https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`,
+  },
+  yt: {
+    name: "YouTube",
+    url: (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+  },
+  npm: { name: "npm", url: (q) => `https://www.npmjs.com/search?q=${encodeURIComponent(q)}` },
+  crates: { name: "crates.io", url: (q) => `https://crates.io/search?q=${encodeURIComponent(q)}` },
+  so: {
+    name: "Stack Overflow",
+    url: (q) => `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
+  },
+  mdn: {
+    name: "MDN",
+    url: (q) => `https://developer.mozilla.org/en-US/search?q=${encodeURIComponent(q)}`,
+  },
+  wiki: {
+    name: "Wikipedia",
+    url: (q) => `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(q)}`,
+  },
+};
+
+const SEARCH_BANG_COMMANDS: CommandSpec[] = Object.entries(SEARCH_BANGS).map(
+  ([keyword, { name }]) => ({
+    kind: "websearch" as const,
+    keyword,
+    syntax: `${keyword} <query>`,
+    description: `Search ${name} for the query (opens in browser)`,
+    requiresArg: true,
+  }),
+);
 
 /** Catalogue of all supported commands. Order = suggestion-list order. */
 export const COMMANDS: ReadonlyArray<CommandSpec> = [
@@ -387,6 +438,42 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
         },
       ]
     : []),
+  {
+    kind: "uuid",
+    keyword: "uuid",
+    syntax: "uuid [n]",
+    description: "Generate random v4 UUID(s) → clipboard (default 1)",
+    requiresArg: false,
+  },
+  {
+    kind: "slug",
+    keyword: "slug",
+    syntax: "slug <text>",
+    description: "Slugify text (URL-safe, lowercase) → clipboard",
+    requiresArg: true,
+  },
+  {
+    kind: "hash",
+    keyword: "hash",
+    syntax: "hash <text>",
+    description: "SHA-256 hex digest of text → clipboard",
+    requiresArg: true,
+  },
+  {
+    kind: "json",
+    keyword: "json",
+    syntax: "json",
+    description: "Pretty-print the JSON on your clipboard → clipboard",
+    requiresArg: false,
+  },
+  {
+    kind: "jwt",
+    keyword: "jwt",
+    syntax: "jwt",
+    description: "Decode the JWT on your clipboard (header + payload) → clipboard",
+    requiresArg: false,
+  },
+  ...SEARCH_BANG_COMMANDS,
 ];
 
 /** Parse the `rnd` / `random` argument into an inclusive `[min, max]`.

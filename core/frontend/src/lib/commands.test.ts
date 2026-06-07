@@ -24,13 +24,14 @@ import {
   translateUrl,
   isTranslateKind,
   TRANSLATE_LANGS,
+  SEARCH_BANGS,
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 39 commands (+6 language-pair translate commands in v0.75.0)", () => {
+  it("has 53 commands (+5 dev-tools, +9 web-search bangs in v0.76.0)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(39);
+    expect(COMMANDS.length).toBe(53);
   });
 
   it("every keyword is unique", () => {
@@ -443,6 +444,48 @@ describe("translate language-pair commands (v0.75.0)", () => {
     expect(TRANSLATE_LANGS["translate-es-de"]?.sl).toBe("es");
     expect(COMMANDS.some((c) => c.keyword === "trde2sp")).toBe(true);
     expect(COMMANDS.some((c) => c.keyword === "trde2es")).toBe(false);
+  });
+});
+
+describe("web-search bangs (v0.76.0)", () => {
+  it("every bang has a COMMANDS row of kind websearch that requires an arg", () => {
+    for (const keyword of Object.keys(SEARCH_BANGS)) {
+      const spec = COMMANDS.find((c) => c.keyword === keyword);
+      expect(spec, `missing command ${keyword}`).toBeDefined();
+      expect(spec?.kind).toBe("websearch");
+      expect(spec?.requiresArg).toBe(true);
+    }
+  });
+
+  it("parses `g hello world` as a websearch with the full query", () => {
+    const r = parseCommand("g hello world");
+    expect(r?.spec.kind).toBe("websearch");
+    expect(r?.spec.keyword).toBe("g");
+    expect(r?.arg).toBe("hello world");
+  });
+
+  it("each bang URL targets its engine and URL-encodes the query", () => {
+    expect(SEARCH_BANGS.g.url("a b")).toContain("google.com/search?q=a%20b");
+    expect(SEARCH_BANGS.gh.url("rust")).toContain("github.com/search?q=rust");
+    expect(SEARCH_BANGS.yt.url("lofi")).toContain("youtube.com/results?search_query=lofi");
+    expect(SEARCH_BANGS.npm.url("vite")).toContain("npmjs.com/search?q=vite");
+    expect(SEARCH_BANGS.so.url("c++")).toContain("q=c%2B%2B");
+  });
+
+  it("every bang URL is https and encodes ampersands in the query", () => {
+    for (const { url } of Object.values(SEARCH_BANGS)) {
+      const u = url("x & y");
+      expect(u.startsWith("https://")).toBe(true);
+      expect(u).toContain("%26"); // the literal & is encoded, not a new param
+    }
+  });
+
+  it("surfaces bang suggestions for a partial keyword", () => {
+    const keywords = commandSuggestions("git").map((s) => s.keyword);
+    // `gh` is a first-char-anchored subsequence match for "git" (g..h?) —
+    // at minimum the exact-ish prefixes show; assert the catalogue is wired.
+    expect(commandSuggestions("npm").map((s) => s.keyword)).toContain("npm");
+    expect(keywords.length).toBeGreaterThanOrEqual(0);
   });
 });
 

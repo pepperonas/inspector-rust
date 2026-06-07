@@ -45,9 +45,11 @@ import {
   translateUrl,
   isTranslateKind,
   TRANSLATE_LANGS,
+  SEARCH_BANGS,
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
+import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
 import { PongGame } from "./components/PongGame";
 import { SnakeGame } from "./components/SnakeGame";
@@ -411,6 +413,34 @@ function App() {
         hint = `Opens Google Translate (${from} → ${pair.tl}) in your browser`;
         break;
       }
+      case "websearch": {
+        const bang = SEARCH_BANGS[spec.keyword];
+        label = `Search ${bang?.name ?? spec.keyword}: "${arg}"`;
+        hint = `Opens ${bang?.name ?? "the search"} results in your browser`;
+        break;
+      }
+      case "uuid": {
+        const n = Math.max(1, Math.min(parseInt(arg, 10) || 1, 100));
+        label = `Generate ${n} UUID${n > 1 ? "s" : ""} → clipboard`;
+        hint = "Random v4 UUIDs (CSPRNG), one per line";
+        break;
+      }
+      case "slug":
+        label = `Slugify: "${arg}" → "${slugify(arg)}"`;
+        hint = "URL-safe lowercase slug → clipboard";
+        break;
+      case "hash":
+        label = `SHA-256: "${arg}" → clipboard`;
+        hint = "Hex SHA-256 digest of the text";
+        break;
+      case "json":
+        label = "Pretty-print clipboard JSON → clipboard";
+        hint = "Parses + re-indents the JSON on your clipboard (2 spaces)";
+        break;
+      case "jwt":
+        label = "Decode clipboard JWT → clipboard";
+        hint = "Base64url-decodes the header + payload (no signature check)";
+        break;
       case "resize": {
         const dims = parseResizeArg(arg);
         label = dims
@@ -1266,6 +1296,47 @@ function App() {
       if (isTranslateKind(commandKind)) {
         await openUrl(translateUrl(commandKind, arg));
         await hidePopup();
+      } else if (commandKind === "websearch") {
+        const bang = SEARCH_BANGS[keyword ?? ""];
+        if (!bang) {
+          setPasteError("other");
+          return true;
+        }
+        await openUrl(bang.url(arg));
+        await hidePopup();
+      } else if (
+        commandKind === "uuid" ||
+        commandKind === "slug" ||
+        commandKind === "hash" ||
+        commandKind === "json" ||
+        commandKind === "jwt"
+      ) {
+        // Dev quick-tools: compute a result and put it on the clipboard. uuid /
+        // slug / hash transform the argument; json / jwt transform whatever is
+        // currently on the clipboard. The result lands in history too.
+        try {
+          const { writeText, readText } = await import(
+            "@tauri-apps/plugin-clipboard-manager"
+          );
+          let out: string;
+          if (commandKind === "uuid") {
+            out = generateUuids(parseInt(arg, 10) || 1);
+          } else if (commandKind === "slug") {
+            out = slugify(arg);
+          } else if (commandKind === "hash") {
+            out = await sha256Hex(arg);
+          } else if (commandKind === "json") {
+            out = formatJson((await readText()) ?? "");
+          } else {
+            out = decodeJwt((await readText()) ?? "");
+          }
+          await writeText(out);
+          await hidePopup();
+        } catch (e) {
+          setPasteError("other");
+          console.error(`${commandKind} failed`, e);
+          return true;
+        }
       } else if (commandKind === "resize") {
         const dims = parseResizeArg(arg);
         if (!dims) {

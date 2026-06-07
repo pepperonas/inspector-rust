@@ -7,6 +7,7 @@ import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
 import { NotesPanel } from "./components/NotesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
+import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SnippetsPanel } from "./components/SnippetsPanel";
@@ -88,7 +89,6 @@ import {
   screenshotRepeatLast,
   cleanerScan,
   cleanerExecute,
-  brightnessOpen,
   listMemes,
   copyMeme,
   showStatusToast,
@@ -127,6 +127,12 @@ function App() {
   // has different lifecycle semantics: audio teardown, mic
   // permission, and Enter-to-start (vs gameMode's type-to-start).
   const [bpmMode, setBpmMode] = useState(false);
+  // Brightness mode — Enter on the `brightness` command row renders the
+  // sliders in the right preview column (no separate window). `brightnessFocus`
+  // is whether the arrow keys currently drive the sliders (true) or the left
+  // list (false); Enter toggles between the two.
+  const [brightnessMode, setBrightnessMode] = useState(false);
+  const [brightnessFocus, setBrightnessFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -368,6 +374,16 @@ function App() {
       (m): ListEntry => ({ kind: "meme", data: m }),
     );
   }, [isMemeMode, memeArg, memeLibrary]);
+
+  // Leave brightness mode automatically once the query is no longer the
+  // `brightness` command (e.g. the user cleared / retyped the search field).
+  const isBrightnessCmd = parsedCommand?.spec.kind === "brightness";
+  useEffect(() => {
+    if (!isBrightnessCmd && brightnessMode) {
+      setBrightnessMode(false);
+      setBrightnessFocus(false);
+    }
+  }, [isBrightnessCmd, brightnessMode]);
 
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
@@ -1410,14 +1426,12 @@ function App() {
         }
         // Backend hides the popup; region mode also drives its own UI.
       } else if (commandKind === "brightness") {
-        // Backend hides the popup + shows the slider overlay window.
-        try {
-          await brightnessOpen();
-        } catch (e) {
-          setPasteError("other");
-          console.error("brightness failed", e);
-          return true;
-        }
+        // Render the sliders inline in the right preview column and give the
+        // arrow keys to them — the popup stays open. A repeated Enter (handled
+        // inside BrightnessPanel) hands the arrows back to the left list.
+        setBrightnessMode(true);
+        setBrightnessFocus(true);
+        return true;
       } else if (commandKind === "random") {
         // Roll a random number and show it in the (longer-lasting) toast.
         const r = parseRandomArg(arg);
@@ -1668,7 +1682,7 @@ function App() {
     // In game mode the game owns the keyboard — disable the popup nav
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
-    enabled: !gameMode && !bpmMode && !totpMode && !pwgenEditing,
+    enabled: !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -1957,6 +1971,20 @@ function App() {
               />
             </div>
             <div className="w-3/5 min-w-0">
+              {brightnessMode ? (
+                <BrightnessPanel
+                  focused={brightnessFocus}
+                  onUnfocus={() => {
+                    setBrightnessFocus(false);
+                    requestAnimationFrame(() => searchRef.current?.focus());
+                  }}
+                  onExit={() => {
+                    setBrightnessMode(false);
+                    setBrightnessFocus(false);
+                    requestAnimationFrame(() => searchRef.current?.focus());
+                  }}
+                />
+              ) : (
               <PreviewPanel
                 entry={current}
                 pwgenMode={pwgenMode}
@@ -1978,6 +2006,7 @@ function App() {
                   await hidePopup();
                 }}
               />
+              )}
             </div>
           </div>
         ) : activeTab === "snippets" ? (

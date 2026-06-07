@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.72.1] — 2026-06-07
+
+### Changed — Brightness control is now inline in the popup (no separate window)
+
+The brightness sliders no longer open a separate floating window (whose webview
+didn't reliably load the monitor list — sliders never appeared). Pressing
+**Enter** on the `brightness` row now renders the sliders in the **right preview
+column** and keeps the popup open:
+
+- **↑ / ↓** select a monitor
+- **← / →** adjust the selected monitor's brightness (±5)
+- **Enter** hands the arrow keys back to the left list
+- **Esc** leaves brightness mode
+
+This fixes "no slider is shown" and gives full keyboard control.
+
 ## [0.72.0] — 2026-06-07
 
 ### Fixed — Custom commands always win the top slot

@@ -404,7 +404,7 @@ export function parseShotDelay(arg: string): number {
 }
 
 /** Default password length when `pwgen` is typed without a number. */
-export const DEFAULT_PWGEN_LENGTH = 20;
+export const DEFAULT_PWGEN_LENGTH = 12;
 
 /** Parse a wakelock/caffeine on/off argument. Accepts on/off (the new
  *  canonical syntax) plus 1/0/true/false for leniency. Returns the

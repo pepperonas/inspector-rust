@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.73.1] — 2026-06-07
+
+### Changed — `pwgen` autocomplete inserts a trailing space; default length 12
+
+Completing the `pwgen` suggestion (Enter / Tab / →) now fills `pwgen ` **with a
+trailing space**, so you can type the length straight away. The same applies to
+every argument-taking command. The default password length is now **12** (down
+from 20) and is never shown in the input — completing a bare `pwgen` just
+generates a 12-character password.
+
 ## [0.73.0] — 2026-06-07
 
 ### Changed — Brightness can now dim to 5%

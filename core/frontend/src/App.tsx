@@ -587,7 +587,13 @@ function App() {
           keyword: spec.keyword,
           syntax: spec.syntax,
           description: spec.description,
-          completion: spec.requiresArg ? `${spec.keyword} ` : spec.keyword,
+          // Append a trailing space whenever the command takes an argument
+          // (required OR optional — detected from the syntax having more than
+          // just the keyword), so completing e.g. `pwgen` lands the caret at
+          // `pwgen ` ready for the length. Arg-less commands (optim, lock, …)
+          // stay bare.
+          completion:
+            spec.syntax.trim() !== spec.keyword ? `${spec.keyword} ` : spec.keyword,
         },
       })),
     [commandSuggestionList],

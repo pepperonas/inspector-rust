@@ -18,6 +18,7 @@ import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
 import { tryEvaluate } from "./lib/calc";
+import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
@@ -269,6 +270,13 @@ function App() {
   // least one operator/function/constant, surface the result as the top
   // list item (Alfred-style).
   const calcResult = useMemo(() => tryEvaluate(query), [query]);
+  // Inline unit / number-base / epoch converter — renders as a calc row too.
+  // Only consulted when the calculator itself didn't match (they're mutually
+  // exclusive in practice: `5 km in mi` has no operator, `2+2` has no unit).
+  const convertResult = useMemo(
+    () => (calcResult ? null : tryConvert(query)),
+    [query, calcResult],
+  );
   // Inline hex-color preview: same idea — when the query parses as a
   // hex color (#RGB, #RGBA, RRGGBB, RRGGBBAA, …) prepend a color row.
   // Calc and color are mutually exclusive in practice (a math expression
@@ -909,6 +917,7 @@ function App() {
         ...resizePresetEntries,
         ...finderFileEntries,
         ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
+        ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),
         ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
         ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
         ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
@@ -1995,7 +2004,7 @@ function App() {
               ref={searchRef}
               value={query}
               onChange={setQuery}
-              calcMode={calcResult !== null}
+              calcMode={calcResult !== null || convertResult !== null}
             />
           ) : (
             <div className="flex h-14 items-center border-b border-[var(--color-border)] pl-4 pr-[260px]">

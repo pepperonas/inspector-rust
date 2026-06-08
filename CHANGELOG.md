@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.79.2] — 2026-06-08
+
+### Fixed — `kill` and `meme` picker rows now get the red highlight too
+
+Completing the uniform command tint: the whole-list command pickers (`kill` /
+`meme`, including with a parameter like `kill slack` or `meme cat`) now share
+the reddish command styling. Every keyword-triggered command row is now
+consistently red; only expression results (calc/color) and non-command rows
+(app/finder/clip/snippet) stay neutral. (The `kill` chip keeps its more-alarming
+`red-500` since it's destructive.)
+
 ## [0.79.1] — 2026-06-08
 
 ### Fixed — All keyword-commands now get the red highlight

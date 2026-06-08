@@ -82,19 +82,30 @@ export const HistoryItem = memo(function HistoryItem({
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
   const isTotp = entry.kind === "totp";
+  const isKillTarget = entry.kind === "kill-target";
+  const isMeme = entry.kind === "meme";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
-  // app. This covers EVERY row reached by typing a command keyword: the
-  // generic `command` + its suggestions, plus the dedicated keyword-command
-  // rows (2fa, otp, pwgen, bruno, bpm). Expression results (calc / color) and
-  // whole-list pickers (kill / meme) keep their own styling.
+  // app. This covers EVERY row reached by typing a command keyword —
+  // uniformly, including with a parameter (`kill slack`, `meme cat`, …): the
+  // generic `command` + its suggestions, the dedicated keyword-command rows
+  // (2fa, otp, pwgen, bruno, bpm), AND the whole-list command pickers
+  // (kill-target, meme). Only expression results (calc / color, where you type
+  // an expression rather than a keyword) and non-command rows (app, finder,
+  // clip, snippet, opener) keep the neutral accent.
   const isCustomCommand =
-    isCommand || isSuggestion || isTotpManage || isBruno || isPwgen || isBpm || isTotp;
-  const isKillTarget = entry.kind === "kill-target";
+    isCommand ||
+    isSuggestion ||
+    isTotpManage ||
+    isBruno ||
+    isPwgen ||
+    isBpm ||
+    isTotp ||
+    isKillTarget ||
+    isMeme;
   const isOpener = entry.kind === "opener";
   const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";
-  const isMeme = entry.kind === "meme";
 
   const label =
     isSnippet
@@ -201,8 +212,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="Meme — ⏎ copies it to the clipboard"
     >

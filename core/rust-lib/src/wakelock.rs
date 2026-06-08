@@ -1,11 +1,18 @@
 //! `wakelock` — keep the computer awake. Toggled via the search-bar
 //! commands `wakelock on` / `wakelock off` (alias `caffeine on/off`).
 //!
-//! **macOS (v0.41.0+):** spawns `/usr/bin/caffeinate -disu` as a
+//! **macOS (v0.41.0+):** spawns `/usr/bin/caffeinate -disu -w <ir-pid>` as a
 //! child process while wakelock is on; killed on toggle-off. This
 //! raises proper IOPM assertions in the kernel
 //! (`PreventUserIdleSystemSleep` + `PreventUserIdleDisplaySleep`),
 //! which actually pauses the screen-lock / screensaver counters.
+//!
+//! **v0.78.0 fix — no more orphans.** The `-w <ir-pid>` ties caffeinate's
+//! lifetime to IR's process: it exits the instant IR does (clean quit, crash,
+//! or a reinstall replacing the binary), so a keep-awake assertion can never
+//! outlive the app that set it. Pre-0.78.0 the child was reparented to launchd
+//! and kept the Mac awake forever, unreachable by a later `caffeine off`.
+//! [`cleanup_orphans`] additionally reaps any such pre-fix orphan at startup.
 //!
 //! **Windows (v0.41.0+):** a worker thread calls
 //! `SetThreadExecutionState(ES_CONTINUOUS | ES_DISPLAY_REQUIRED |
@@ -136,8 +143,14 @@ pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
             //   -i  prevent idle system sleep
             //   -s  prevent system sleep on AC
             //   -u  declare user is active (resets idle-lock counter)
+            //   -w <pid>  tie the assertion to OUR process — caffeinate exits
+            //             the moment IR exits (clean quit OR crash OR being
+            //             replaced by a reinstall). Without this the child was
+            //             reparented to launchd and kept the Mac awake forever,
+            //             unreachable by a later `caffeine off` (v0.78.0 fix).
+            let self_pid = std::process::id().to_string();
             let child = std::process::Command::new("/usr/bin/caffeinate")
-                .args(["-disu"])
+                .args(["-disu", "-w", &self_pid])
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -191,6 +204,46 @@ pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
 pub fn is_enabled(state: &WakelockState) -> bool {
     state.active.load(Ordering::SeqCst)
 }
+
+/// Best-effort cleanup of **orphaned** `caffeinate` processes left behind by a
+/// pre-v0.78.0 IR session (which spawned `caffeinate -disu` with no `-w` tie,
+/// so a crash / reinstall reparented it to launchd and it kept the Mac awake
+/// forever). Called once at startup. Conservative match so it can't touch an
+/// unrelated tool's caffeinate: name `caffeinate`, **orphaned** (parent = pid 1),
+/// IR's exact `-disu` flags, and **no** `-w` (the v0.78.0+ form self-terminates,
+/// so it never orphans and is never matched here).
+/// Pure predicate (unit-tested): is this process an orphaned IR caffeinate we
+/// should reap? Matches the `caffeinate` name, an orphaned parent (launchd /
+/// pid 1), IR's `-disu` flags, and the absence of `-w` (so the v0.78.0+ form,
+/// which self-terminates, is never killed).
+#[cfg(any(target_os = "macos", test))]
+fn should_reap_caffeinate(name: &str, parent: Option<u32>, cmd: &[String]) -> bool {
+    name == "caffeinate"
+        && parent == Some(1)
+        && cmd.iter().any(|a| a == "-disu")
+        && !cmd.iter().any(|a| a == "-w")
+}
+
+#[cfg(target_os = "macos")]
+pub fn cleanup_orphans() {
+    use sysinfo::{ProcessRefreshKind, RefreshKind, Signal, System};
+    let mut sys = System::new_with_specifics(
+        RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
+    );
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::All, true);
+    for (pid, proc) in sys.processes() {
+        let name = proc.name().to_string_lossy();
+        let parent = proc.parent().map(|p| p.as_u32());
+        let cmd: Vec<String> = proc.cmd().iter().map(|a| a.to_string_lossy().into_owned()).collect();
+        if should_reap_caffeinate(&name, parent, &cmd) {
+            tracing::warn!("wakelock: killing orphaned caffeinate (pid {})", pid.as_u32());
+            proc.kill_with(Signal::Term);
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn cleanup_orphans() {}
 
 /// Linux worker — 60 s cursor-jiggle loop. (Linux has no kernel-side
 /// idle-inhibit API in the base install; a future Wayland path would
@@ -552,6 +605,31 @@ mod tests {
     /// call this so the next test starts from a clean state.
     fn cleanup(s: &WakelockState) {
         set_enabled(s, false);
+    }
+
+    #[test]
+    fn reaps_only_orphaned_disu_caffeinate_without_w() {
+        let disu = vec!["/usr/bin/caffeinate".into(), "-disu".into()];
+        let disu_w = vec![
+            "/usr/bin/caffeinate".into(),
+            "-disu".into(),
+            "-w".into(),
+            "4242".into(),
+        ];
+        // The target: an orphaned (parent=1) `-disu` caffeinate with no `-w`.
+        assert!(should_reap_caffeinate("caffeinate", Some(1), &disu));
+        // v0.78.0+ form (has -w) → self-terminates, never reaped.
+        assert!(!should_reap_caffeinate("caffeinate", Some(1), &disu_w));
+        // Still has a live parent → not an orphan, leave it.
+        assert!(!should_reap_caffeinate("caffeinate", Some(500), &disu));
+        // A different process named caffeinate-ish, or other flags → ignored.
+        assert!(!should_reap_caffeinate("caffeinated", Some(1), &disu));
+        assert!(!should_reap_caffeinate(
+            "caffeinate",
+            Some(1),
+            &vec!["/usr/bin/caffeinate".into(), "-d".into()]
+        ));
+        assert!(!should_reap_caffeinate("caffeinate", None, &disu));
     }
 
     #[test]

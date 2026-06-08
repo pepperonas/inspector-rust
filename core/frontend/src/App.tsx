@@ -1549,6 +1549,11 @@ function App() {
         // Render the sliders inline in the right preview column and give the
         // arrow keys to them — the popup stays open. A repeated Enter (handled
         // inside BrightnessPanel) hands the arrows back to the left list.
+        // Canonicalise the query to the full command so entering the mode from
+        // a *partial* suggestion (e.g. Enter on the `brightness` hint while the
+        // field still reads `bright`) doesn't immediately trip the
+        // `!isBrightnessCmd` auto-exit effect.
+        setQuery("brightness");
         setBrightnessMode(true);
         setBrightnessFocus(true);
         return true;

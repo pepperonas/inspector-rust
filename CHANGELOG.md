@@ -4,6 +4,31 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.78.0] — 2026-06-08
+
+### Fixed — Keep-awake (`caffeine` / `wakelock`) could keep the Mac awake forever
+
+`caffeinate` is now spawned as `-disu -w <ir-pid>`, tying its lifetime to
+Inspector Rust: it exits the instant IR does (clean quit, crash, or a
+reinstall). Previously the child was reparented to launchd on an unclean exit
+and kept the Mac awake **forever**, unreachable by a later `caffeine off`. A
+startup sweep (`cleanup_orphans`) also reaps any such pre-fix orphan.
+
+### Fixed — `brightness` from a partial suggestion
+
+Pressing Enter on the `brightness` autocomplete hint (while the field still read
+e.g. `bright`) used to flip into brightness mode and immediately back out. The
+command now canonicalises the query so it sticks.
+
+### Changed — Features tab now lists everything
+
+Audited the Features reference against the full feature set and added the
+missing entries: inline calculator, unit/base/epoch converters, colour
+converter, the six DE↔IT/ES/PL translate commands, web-search bangs, dev tools
+(`uuid`/`slug`/`hash`/`json`/`jwt`), `qr`, `meme`, plus the in-popup actions
+formatted paste, volume keys, pin-to-top, smart preview actions, and delete.
+(The hidden `opener` easter egg is intentionally listed nowhere.)
+
 ## [0.77.0] — 2026-06-08
 
 ### Added — `kill` by PID

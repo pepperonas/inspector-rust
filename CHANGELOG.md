@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.79.1] — 2026-06-08
+
+### Fixed — All keyword-commands now get the red highlight
+
+Several command rows reached by typing a keyword — `otp`, `pwgen`, `bruno`,
+`bpm` — were rendered in the neutral accent colour instead of the reddish
+command tint, so they looked like plain results rather than commands.
+`HistoryItem`'s `isCustomCommand` now covers every keyword-command row
+(`command`, `command-suggestion`, `2fa`, `otp`, `pwgen`, `bruno`, `bpm`) — chip,
+icon, and row background. Expression results (`calc`/`color`) and whole-list
+pickers (`kill`/`meme`) intentionally keep their own styling.
+
 ## [0.79.0] — 2026-06-08
 
 ### Added / Fixed — Windows `touch` / `mkdir` / `terminal` in the Explorer folder

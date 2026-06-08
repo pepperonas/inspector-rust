@@ -78,17 +78,21 @@ export const HistoryItem = memo(function HistoryItem({
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
   const isTotpManage = entry.kind === "totp-manage";
-  // Custom commands (terminal, freeze, wakelock, tren, 2fa, …) get a
-  // reddish treatment so the user immediately sees they're about to
-  // trigger a command rather than paste a clip / launch an app.
-  const isCustomCommand = isCommand || isSuggestion || isTotpManage;
-  const isKillTarget = entry.kind === "kill-target";
-  const isOpener = entry.kind === "opener";
   const isBruno = entry.kind === "bruno";
-  const isApp = entry.kind === "app";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
   const isTotp = entry.kind === "totp";
+  // Custom commands get a reddish treatment so the user immediately sees
+  // they're about to trigger a command rather than paste a clip / launch an
+  // app. This covers EVERY row reached by typing a command keyword: the
+  // generic `command` + its suggestions, plus the dedicated keyword-command
+  // rows (2fa, otp, pwgen, bruno, bpm). Expression results (calc / color) and
+  // whole-list pickers (kill / meme) keep their own styling.
+  const isCustomCommand =
+    isCommand || isSuggestion || isTotpManage || isBruno || isPwgen || isBpm || isTotp;
+  const isKillTarget = entry.kind === "kill-target";
+  const isOpener = entry.kind === "opener";
+  const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";
   const isMeme = entry.kind === "meme";
 
@@ -209,8 +213,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="Brutto → Netto (Steuerjahr 2025, vereinfacht)"
     >
@@ -233,8 +237,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="Generated password — ⏎ copies, ⌥⏎ switches to alphanumeric + copies"
     >
@@ -245,8 +249,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="Live BPM detector — listens to the microphone"
     >
@@ -269,8 +273,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="TOTP code — ⏎ copies"
     >

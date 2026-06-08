@@ -1083,7 +1083,7 @@ mod platform {
             }
             let layout = GetKeyboardLayout(0);
             let mut buf = [0u16; 8];
-            let n = ToUnicodeEx(vk, scan, &state, &mut buf, 0, layout);
+            let n = ToUnicodeEx(vk, scan, &state, &mut buf, 0, Some(layout));
             if n == 1 {
                 let c = char::from_u32(buf[0] as u32)?;
                 if c.is_control() {
@@ -1118,7 +1118,14 @@ mod platform {
                 }
             }
         }
-        unsafe { CallNextHookEx(HHOOK(HOOK.load(Ordering::SeqCst) as *mut _), code, wparam, lparam) }
+        unsafe {
+            CallNextHookEx(
+                Some(HHOOK(HOOK.load(Ordering::SeqCst) as *mut _)),
+                code,
+                wparam,
+                lparam,
+            )
+        }
     }
 
     pub fn install() -> anyhow::Result<()> {

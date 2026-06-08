@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
@@ -22,7 +21,7 @@ import {
   editorCancel,
   editorCopy,
   editorSave,
-  getPendingScreenshotInfo,
+  getPendingScreenshotDataUrl,
   setEditorSize,
 } from "../lib/ipc";
 import {
@@ -109,8 +108,15 @@ export function ScreenshotEditor() {
 
   // ── Load the pending screenshot on mount ─────────────────────────
   const loadImage = useCallback(async () => {
-    const info = await getPendingScreenshotInfo().catch(() => null);
-    if (!info) return;
+    // Load the PNG as a base64 data URL (not convertFileSrc). On Windows
+    // the asset protocol fails to render inside this webview and taints
+    // the canvas; a data URL is same-origin, always renders, and lets the
+    // Save path's canvas.toDataURL() succeed. See the backend command.
+    const dataUrl = await getPendingScreenshotDataUrl().catch(() => null);
+    if (!dataUrl) {
+      console.error("editor: no pending screenshot data URL");
+      return;
+    }
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
@@ -121,7 +127,10 @@ export function ScreenshotEditor() {
       }
       setImgReady(true);
     };
-    img.src = convertFileSrc(info.path);
+    img.onerror = (e) => {
+      console.error("editor: screenshot image failed to load", e);
+    };
+    img.src = dataUrl;
   }, []);
 
   useEffect(() => {

@@ -65,6 +65,16 @@ export function getPendingScreenshotInfo(): Promise<PendingScreenshotInfo | null
   return invoke("get_pending_screenshot_info");
 }
 
+/** Read the pending screenshot's PNG bytes as a `data:image/png;base64,…`
+ *  URL. The annotation editor loads this instead of `convertFileSrc` so
+ *  the image is same-origin: on Windows the asset protocol both fails to
+ *  render inside the editor webview and taints the canvas (breaking the
+ *  Save path's `toDataURL()`). A data URL renders everywhere and never
+ *  taints. Returns null when nothing is pending or the file is unreadable. */
+export function getPendingScreenshotDataUrl(): Promise<string | null> {
+  return invoke("get_pending_screenshot_data_url");
+}
+
 /** Set the pin state. While pinned, a subsequent screenshot does NOT
  *  replace the on-screen preview (the new PNG still goes to clipboard
  *  + history). Returns the resulting state. */

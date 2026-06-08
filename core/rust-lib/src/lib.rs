@@ -384,6 +384,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::screenshot_repeat_last,
             screenshot_preview::get_pending_screenshot_path,
             screenshot_preview::get_pending_screenshot_info,
+            screenshot_preview::get_pending_screenshot_data_url,
             screenshot_preview::set_screenshot_pinned,
             screenshot_preview::screenshot_preview_save,
             screenshot_preview::screenshot_preview_copy,

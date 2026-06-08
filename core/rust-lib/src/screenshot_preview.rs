@@ -689,6 +689,25 @@ pub fn get_pending_screenshot_info(state: State<'_, PendingScreenshot>) -> Optio
     })
 }
 
+/// Read the pending screenshot's PNG bytes and return them as a
+/// `data:image/png;base64,…` URL. The annotation editor uses this
+/// instead of `convertFileSrc` so the `<img>` it loads is *same-origin*
+/// — on Windows the `asset:`/`http://asset.localhost` protocol both
+/// fails to display inside the editor webview and **taints** the canvas
+/// (which then makes the Save path's `canvas.toDataURL()` throw). A data
+/// URL sidesteps both: it always renders and never taints. Returns
+/// `None` when there's nothing pending or the file can't be read.
+#[tauri::command]
+pub fn get_pending_screenshot_data_url(state: State<'_, PendingScreenshot>) -> Option<String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    let path = {
+        let cur = state.inner().current.lock();
+        cur.as_ref().map(|p| p.path.clone())?
+    };
+    let bytes = std::fs::read(&path).ok()?;
+    Some(format!("data:image/png;base64,{}", B64.encode(&bytes)))
+}
+
 /// Toggle / set the pin state. While pinned, a subsequent
 /// `run_screenshot_pipeline` call leaves the existing preview alone
 /// (writes the new PNG to the clipboard + history as usual, but does
@@ -860,7 +879,20 @@ pub fn screenshot_preview_edit(
             return Err("nothing pending".to_string());
         }
     }
-    crate::screenshot_editor::open_editor(&app).map_err(|e| format!("open editor: {e}"))?;
+    // Build the editor webview OFF the main thread. A sync command runs
+    // on the main thread, and `WebviewWindowBuilder::build()` for a fresh
+    // WebView2 window needs that same main-thread event loop to pump —
+    // calling it synchronously here DEADLOCKS on Windows (the editor
+    // window appears but never loads / hangs). The screenshot preview
+    // never hit this because it's built from the capture pipeline's
+    // worker thread. Spawning a thread lets Tauri marshal the window
+    // creation onto the event loop cleanly, exactly like `show_preview`.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        if let Err(e) = crate::screenshot_editor::open_editor(&app2) {
+            tracing::warn!("open editor: {e:#}");
+        }
+    });
     if let Some(win) = app.get_webview_window(PREVIEW_LABEL) {
         let _ = win.hide();
     }

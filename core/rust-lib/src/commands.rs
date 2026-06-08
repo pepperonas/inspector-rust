@@ -3095,3 +3095,16 @@ pub fn list_memes(db: State<'_, DbHandle>) -> Vec<meme::MemeEntry> {
 pub fn copy_meme(path: String) -> Result<(), String> {
     meme::copy_to_clipboard(&path)
 }
+
+/// The currently configured meme library directory (the `meme.dir` setting,
+/// or the home-relative default). Used by Settings → Meme library.
+#[tauri::command]
+pub fn get_meme_dir(db: State<'_, DbHandle>) -> String {
+    meme::meme_dir(&db).to_string_lossy().to_string()
+}
+
+/// Persist the meme library directory. A blank value resets to the default.
+#[tauri::command]
+pub fn set_meme_dir(db: State<'_, DbHandle>, dir: String) -> Result<(), String> {
+    settings::set(&db, meme::KEY_MEME_DIR, dir.trim()).map_err(map_err)
+}

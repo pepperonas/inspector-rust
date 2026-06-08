@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.81.1] — 2026-06-09
+
+### Fixed — `meme` command found nothing on Windows; meme folder now configurable
+
+The meme library path was a hard-coded macOS path (`/Users/martin/My
+Drive/media/memes`), so on Windows the `meme` command scanned a non-existent
+folder and found nothing.
+
+- The default is now **home-relative** (`~/My Drive/media/memes`) so it resolves
+  per-user on every OS.
+- **Settings → Meme library** lets you point the picker at any folder (with a
+  Browse… picker). On Windows with Google Drive in *streaming* mode the library
+  lives under a drive letter (e.g. `G:\My Drive\media\memes`); set it there. A
+  blank value resets to the default. IPC `get_meme_dir` / `set_meme_dir`.
+- The Windows/Linux asset-protocol scopes now include the default meme location
+  so animated previews render there too. (A custom folder still lists and copies
+  memes; only the in-app animated preview needs the scoped location.)
+
 ## [0.81.0] — 2026-06-09
 
 ### Added — screen recording (`Ctrl+Shift+R`)

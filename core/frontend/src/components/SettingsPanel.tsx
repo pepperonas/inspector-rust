@@ -17,6 +17,7 @@ import {
   Moon,
   PlayCircle,
   Power,
+  Smile,
   Sun,
   SunMoon,
   Trash2,
@@ -32,6 +33,8 @@ import {
   forceResetAndRequestGrant,
   brunoGetDefaults,
   brunoSetDefaults,
+  getMemeDir,
+  setMemeDir,
   forceResetFinderAutomationGrant,
   forceResetScreenRecordingGrant,
   getAccessibilityStatus,
@@ -83,6 +86,7 @@ import {
   type ExpanderConfig,
 } from "../lib/ipc";
 import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
+import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { HotkeyCapture } from "./HotkeyCapture";
@@ -1903,6 +1907,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <BrunoSection />
         </div>
 
+        {/* Meme library directory */}
+        {MEME_ENABLED && (
+          <div className="mt-6">
+            <MemeSection />
+          </div>
+        )}
+
         {/* Backup & restore section */}
         <div className="mt-6">
           <Section
@@ -2524,6 +2535,126 @@ function BrunoSection() {
           </span>
         )}
       </div>
+    </Section>
+  );
+}
+
+// ── Meme library directory ─────────────────────────────────────────────
+// Where the `meme [query]` picker scans for GIFs/images. Defaults to a
+// home-relative `My Drive/media/memes`; on Windows with Google Drive in
+// streaming mode the library lives under a drive letter (e.g.
+// `G:\My Drive\media\memes`), so it's overridable here.
+function MemeSection() {
+  const [dir, setDir] = useState<string | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  useEffect(() => {
+    getMemeDir()
+      .then((d) => {
+        setDir(d);
+        setSaved(d);
+      })
+      .catch(() => {
+        setDir("");
+        setSaved("");
+      });
+  }, []);
+
+  if (dir === null) return null;
+
+  const dirty = saved !== null && saved !== dir;
+
+  const browse = async () => {
+    await setSuppressHide(true).catch(() => {});
+    try {
+      const path = await openDialog({
+        multiple: false,
+        directory: true,
+        title: "Select your meme library folder",
+      });
+      if (typeof path === "string") setDir(path);
+    } catch {
+      /* cancelled */
+    } finally {
+      await setSuppressHide(false).catch(() => {});
+    }
+  };
+
+  const save = async () => {
+    setBusy(true);
+    setSavedOk(false);
+    try {
+      await setMemeDir(dir);
+      // Re-read so a blank value reflects the resolved default.
+      const effective = await getMemeDir();
+      setDir(effective);
+      setSaved(effective);
+      setSavedOk(true);
+    } catch (e) {
+      console.error("save meme dir", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={<Smile size={16} className="text-[var(--color-accent)]" />}
+      title="Meme library"
+      subtitle="The folder the `meme [query]` picker scans (recursively) for GIFs/images. On Windows with Google Drive in streaming mode the library is under a drive letter, e.g. G:\\My Drive\\media\\memes — set it here."
+    >
+      <Row label="Folder">
+        <div className="flex w-full items-center gap-2">
+          <input
+            type="text"
+            value={dir}
+            spellCheck={false}
+            placeholder="(default: ~/My Drive/media/memes)"
+            onChange={(e) => {
+              setDir(e.target.value);
+              setSavedOk(false);
+            }}
+            className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px]"
+          />
+          <button
+            onClick={browse}
+            className="shrink-0 rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+          >
+            Browse…
+          </button>
+        </div>
+      </Row>
+
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={save}
+          disabled={!dirty || busy}
+          className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        <button
+          onClick={() => {
+            setDir("");
+            setSavedOk(false);
+          }}
+          className="rounded border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+        >
+          Reset to default
+        </button>
+        {dirty && !busy && (
+          <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
+        )}
+        {savedOk && !dirty && (
+          <span className="text-[11px] text-[var(--color-muted)]">Saved</span>
+        )}
+      </div>
+      <p className="mt-1 text-[11px] text-[var(--color-muted)]">
+        Animated previews only render for folders inside the scoped default
+        location; a custom folder still lists and copies memes.
+      </p>
     </Section>
   );
 }

@@ -20,8 +20,20 @@ use crate::db::DbHandle;
 /// Settings key for a user-overridable meme directory.
 pub const KEY_MEME_DIR: &str = "meme.dir";
 
-/// Default meme library location (overridable via the `meme.dir` setting).
-pub const DEFAULT_MEME_DIR: &str = "/Users/martin/My Drive/media/memes";
+/// Default meme library location, resolved relative to the user's home so it
+/// works on every OS and user (macOS `/Users/<u>/My Drive/media/memes`,
+/// Windows `C:\Users\<u>\My Drive\media\memes`). Google-Drive-for-Desktop in
+/// *streaming* mode mounts under a drive letter instead (e.g. `G:\My Drive`),
+/// so the directory is **overridable** via the `meme.dir` setting
+/// (Settings → Meme library). Falls back to the literal `My Drive/...` if the
+/// home dir can't be resolved.
+pub fn default_meme_dir() -> PathBuf {
+    dirs::home_dir()
+        .unwrap_or_default()
+        .join("My Drive")
+        .join("media")
+        .join("memes")
+}
 
 /// Image extensions we treat as memes (lower-cased compare).
 const MEME_EXTS: &[&str] = &["gif", "png", "jpg", "jpeg", "webp", "bmp", "apng"];
@@ -97,10 +109,12 @@ fn walk(root: &Path, dir: &Path, out: &mut Vec<MemeEntry>) {
 }
 
 /// The configured meme directory (the `meme.dir` setting, or the default).
+/// A blank/whitespace-only setting collapses to the default.
 pub fn meme_dir(db: &DbHandle) -> PathBuf {
-    let s = crate::settings::get_or(db, KEY_MEME_DIR, DEFAULT_MEME_DIR)
-        .unwrap_or_else(|_| DEFAULT_MEME_DIR.to_string());
-    PathBuf::from(s)
+    match crate::settings::get(db, KEY_MEME_DIR) {
+        Ok(Some(s)) if !s.trim().is_empty() => PathBuf::from(s.trim()),
+        _ => default_meme_dir(),
+    }
 }
 
 /// Scan the configured library.

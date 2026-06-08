@@ -451,6 +451,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_cleaner_config,
             commands::list_memes,
             commands::copy_meme,
+            commands::get_meme_dir,
+            commands::set_meme_dir,
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,
             commands::set_monitor_brightness,

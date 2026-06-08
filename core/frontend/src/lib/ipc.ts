@@ -1040,6 +1040,16 @@ export function copyMeme(path: string): Promise<void> {
   return invoke("copy_meme", { path });
 }
 
+/** The configured meme library directory (resolved default if unset). */
+export function getMemeDir(): Promise<string> {
+  return invoke("get_meme_dir");
+}
+
+/** Persist the meme library directory (blank resets to the default). */
+export function setMemeDir(dir: string): Promise<void> {
+  return invoke("set_meme_dir", { dir });
+}
+
 // ── Monitor brightness (v0.62.0) ───────────────────────────────────────────
 
 export interface MonitorInfo {

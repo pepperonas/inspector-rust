@@ -448,6 +448,25 @@ fn explorer_path_for_hwnd(hwnd: isize) -> Option<String> {
     }
 }
 
+/// First open Explorer window whose folder is a real filesystem path. Used as
+/// a fallback when the precise frontmost-HWND/active-tab match misses (some
+/// Win11 tab layouts) — better to land in *an* Explorer folder than to dump
+/// the new item onto the Desktop.
+#[cfg(target_os = "windows")]
+fn first_explorer_path() -> Option<String> {
+    let script = "$ErrorActionPreference='SilentlyContinue';\
+         $sh=New-Object -ComObject Shell.Application;\
+         foreach($w in $sh.Windows()){try{$p=$w.Document.Folder.Self.Path;\
+         if($p -and (Test-Path -LiteralPath $p)){Write-Output $p;break}}catch{}}";
+    let out = run_powershell(script, std::time::Duration::from_secs(3))?;
+    let p = out.trim().to_string();
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
+}
+
 /// Folder where a new item should be created — the frontmost Explorer
 /// window's folder, or the Desktop when no Explorer window is open.
 #[cfg(target_os = "windows")]
@@ -456,6 +475,10 @@ fn front_dir() -> Result<PathBuf, String> {
         if let Some(p) = explorer_path_for_hwnd(hwnd) {
             return Ok(PathBuf::from(p));
         }
+    }
+    // The precise match missed — take any open Explorer folder before Desktop.
+    if let Some(p) = first_explorer_path() {
+        return Ok(PathBuf::from(p));
     }
     dirs::desktop_dir().ok_or_else(|| "no active Explorer window and no Desktop folder".into())
 }
@@ -569,6 +592,49 @@ pub fn open_terminal() -> Result<PathBuf, String> {
     if !status.success() {
         return Err("failed to open a terminal".into());
     }
+    Ok(dir)
+}
+
+/// Open a terminal at the front Explorer folder (Windows). Prefers **Windows
+/// Terminal** (`wt.exe -d <dir>`, the default on Windows 11), falling back to
+/// PowerShell, then `cmd.exe` — each launched in its own console window with
+/// the working directory set to the folder. Returns the directory opened.
+///
+/// **Windows runtime-unverified** — written compile-clean against the std
+/// `CommandExt` API; validated for compilation but not yet exercised on a real
+/// Windows box.
+#[cfg(target_os = "windows")]
+pub fn open_terminal() -> Result<PathBuf, String> {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    // CREATE_NEW_CONSOLE — give the spawned shell its own visible window
+    // (a GUI app's children don't inherit a console otherwise).
+    const CREATE_NEW_CONSOLE: u32 = 0x0000_0010;
+
+    let dir = front_dir()?;
+
+    // 1) Windows Terminal — its own GUI window, opens directly at `-d <dir>`.
+    //    (wt.exe is reachable via the App Execution Alias on Win11.)
+    if Command::new("wt.exe").arg("-d").arg(&dir).spawn().is_ok() {
+        return Ok(dir);
+    }
+    // 2) PowerShell in a fresh console, started in the folder.
+    if Command::new("powershell.exe")
+        .arg("-NoExit")
+        .current_dir(&dir)
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .spawn()
+        .is_ok()
+    {
+        return Ok(dir);
+    }
+    // 3) cmd.exe fallback.
+    Command::new("cmd.exe")
+        .arg("/K")
+        .current_dir(&dir)
+        .creation_flags(CREATE_NEW_CONSOLE)
+        .spawn()
+        .map_err(|e| format!("open terminal failed: {e}"))?;
     Ok(dir)
 }
 

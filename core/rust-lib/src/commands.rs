@@ -2228,18 +2228,19 @@ pub fn finder_mkdir(name: String) -> Result<String, String> {
     }
 }
 
-/// `terminal` — open the user's terminal (iTerm2 if installed, else
-/// Terminal.app) at the frontmost Finder window's folder. Returns the
-/// directory. macOS-only.
+/// `terminal` — open the user's terminal at the frontmost file-manager
+/// window's folder: iTerm2/Terminal.app on macOS, Windows Terminal / PowerShell
+/// / cmd on Windows (Explorer folder, or Desktop when none is open). Returns
+/// the directory opened.
 #[tauri::command]
 pub fn finder_open_terminal() -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::finder_selection::open_terminal().map(|p| p.display().to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        Err("terminal is macOS-only (needs Finder)".into())
+        Err("terminal needs Finder (macOS) or Explorer (Windows)".into())
     }
 }
 

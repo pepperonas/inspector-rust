@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.79.0] — 2026-06-08
+
+### Added / Fixed — Windows `touch` / `mkdir` / `terminal` in the Explorer folder
+
+- **`terminal` now works on Windows** (it previously returned a macOS-only
+  error): opens **Windows Terminal** (`wt.exe -d <dir>`), falling back to
+  PowerShell then `cmd.exe`, each in a fresh console window with the working
+  directory set to the active Explorer folder.
+- **`touch` / `mkdir` more reliable**: when the precise frontmost-HWND / active
+  tab match misses, `front_dir` now falls back to *any* open Explorer folder
+  (`first_explorer_path`) before resorting to the Desktop — so the new item
+  lands in an Explorer folder far more often.
+
+(Builds on the pulled v0.79.0 Windows Explorer work — encrypted backup, TOTP /
+settings export, Win11 tabbed-Explorer selection, EN locale.) Windows paths are
+compile-validated against the `windows` 0.61 bindings; runtime verification on a
+real Windows box is still pending.
+
 ## [0.78.0] — 2026-06-08
 
 ### Fixed — Keep-awake (`caffeine` / `wakelock`) could keep the Mac awake forever

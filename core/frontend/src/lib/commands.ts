@@ -341,7 +341,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "terminal",
     keyword: "terminal",
     syntax: "terminal",
-    description: "Open the terminal (iTerm2 / Terminal) at the frontmost Finder folder",
+    description: "Open a terminal at the active Explorer/Finder window's folder",
     requiresArg: false,
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────

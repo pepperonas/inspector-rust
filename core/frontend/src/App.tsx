@@ -522,16 +522,16 @@ function App() {
         break;
       }
       case "touch":
-        label = `Create file "${arg}" in the open Finder folder`;
-        hint = "Created in the frontmost Finder window's directory";
+        label = `Create file "${arg}" in the open folder`;
+        hint = "In the frontmost Explorer (Windows) / Finder (macOS) window's directory";
         break;
       case "mkdir":
-        label = `Create folder "${arg}" in the open Finder folder`;
-        hint = "Created in the frontmost Finder window's directory";
+        label = `Create folder "${arg}" in the open folder`;
+        hint = "In the frontmost Explorer (Windows) / Finder (macOS) window's directory";
         break;
       case "terminal":
-        label = "Open terminal in the open Finder folder";
-        hint = "iTerm2 if installed, else Terminal.app · frontmost Finder directory";
+        label = "Open a terminal in the open folder";
+        hint = "Windows Terminal/PowerShell (Windows) · iTerm2/Terminal (macOS) · frontmost folder";
         break;
       case "timer": {
         const t = parseTimerArg(arg);

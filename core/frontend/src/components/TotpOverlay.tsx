@@ -104,7 +104,7 @@ export function TotpOverlay({ onExit }: Props) {
 
   const doAdd = async () => {
     if (!addIssuer.trim() || !addSecret.trim()) {
-      setToast({ kind: "err", message: "Issuer und Secret sind Pflicht." });
+      setToast({ kind: "err", message: "Issuer and Secret are required." });
       return;
     }
     setBusy(true);
@@ -125,7 +125,7 @@ export function TotpOverlay({ onExit }: Props) {
       setAddDigits(6);
       setAddPeriod(30);
       setAddAlgorithm("SHA1");
-      setToast({ kind: "ok", message: "Eintrag hinzugefügt." });
+      setToast({ kind: "ok", message: "Entry added." });
       // Refresh visible list immediately.
       const [list, currentCodes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
       setEntries(list);
@@ -139,7 +139,7 @@ export function TotpOverlay({ onExit }: Props) {
   };
 
   const doDelete = async (id: number, label: string) => {
-    if (!window.confirm(`Eintrag "${label}" wirklich löschen?`)) return;
+    if (!window.confirm(`Delete entry "${label}"?`)) return;
     setBusy(true);
     try {
       await totpDelete(id);
@@ -149,7 +149,7 @@ export function TotpOverlay({ onExit }: Props) {
         next.delete(id);
         return next;
       });
-      setToast({ kind: "ok", message: `"${label}" gelöscht.` });
+      setToast({ kind: "ok", message: `"${label}" deleted.` });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
     } finally {
@@ -163,7 +163,7 @@ export function TotpOverlay({ onExit }: Props) {
     try {
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(code);
-      setToast({ kind: "ok", message: `${label} → Zwischenablage` });
+      setToast({ kind: "ok", message: `${label} → clipboard` });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
     }
@@ -171,7 +171,7 @@ export function TotpOverlay({ onExit }: Props) {
 
   const doImport = async () => {
     if (!importText.trim()) {
-      setToast({ kind: "err", message: "Nichts zum Importieren." });
+      setToast({ kind: "err", message: "Nothing to import." });
       return;
     }
     setBusy(true);
@@ -180,7 +180,7 @@ export function TotpOverlay({ onExit }: Props) {
       if (result.error) {
         setToast({ kind: "err", message: result.error });
       } else {
-        setToast({ kind: "ok", message: `${result.added} Eintrag/Einträge importiert.` });
+        setToast({ kind: "ok", message: `${result.added} entry/entries imported.` });
         setImportText("");
         // Refresh.
         const [list, currentCodes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
@@ -199,14 +199,14 @@ export function TotpOverlay({ onExit }: Props) {
     try {
       const uris = await totpExport();
       if (!uris.trim()) {
-        setToast({ kind: "err", message: "Keine Einträge zum Exportieren." });
+        setToast({ kind: "err", message: "No entries to export." });
         return;
       }
       const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
       await writeText(uris);
       setToast({
         kind: "ok",
-        message: `${entries.length} Einträge als otpauth-URIs in der Zwischenablage. Achtung: Plaintext!`,
+        message: `${entries.length} entries exported as otpauth URIs to clipboard. Caution: plaintext!`,
       });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -222,10 +222,10 @@ export function TotpOverlay({ onExit }: Props) {
           <span className="font-semibold">2FA · TOTP</span>
           <span className="text-[var(--color-muted)]">·</span>
           <TabButton active={tab === "list"} onClick={() => setTab("list")}>
-            Liste {entries.length > 0 ? `(${entries.length})` : ""}
+            List {entries.length > 0 ? `(${entries.length})` : ""}
           </TabButton>
           <TabButton active={tab === "add"} onClick={() => setTab("add")}>
-            Hinzufügen
+            Add
           </TabButton>
           <TabButton active={tab === "import"} onClick={() => setTab("import")}>
             Import / Export
@@ -346,10 +346,10 @@ function ListTab({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[var(--color-muted)]">
         <KeyRound size={32} className="opacity-50" />
-        <div className="text-[14px]">Noch keine 2FA-Einträge.</div>
+        <div className="text-[14px]">No 2FA entries yet.</div>
         <div className="text-[12px]">
-          Wechsle zu <b>Hinzufügen</b> oder <b>Import</b>, um deine
-          Authenticator-Konten anzulegen.
+          Switch to <b>Add</b> or <b>Import</b> to set up your
+          authenticator accounts.
         </div>
       </div>
     );
@@ -382,14 +382,14 @@ function ListTab({
               onClick={() => onCopy(e.id, label)}
               disabled={busy || !c}
               className="rounded border border-[var(--color-border)] px-3 py-1.5 font-[var(--font-mono)] text-[20px] font-semibold tracking-[0.15em] tabular-nums hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
-              title="Code in die Zwischenablage kopieren"
+              title="Copy code to clipboard"
             >
               {c?.code ?? "…"}
             </button>
             <button
               onClick={() => onCopy(e.id, label)}
               disabled={busy || !c}
-              title="Kopieren"
+              title="Copy"
               className="rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
             >
               <Clipboard size={14} />
@@ -397,7 +397,7 @@ function ListTab({
             <button
               onClick={() => onDelete(e.id, label)}
               disabled={busy}
-              title="Löschen"
+              title="Delete"
               className="rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] hover:border-rose-500/60 hover:text-rose-500 disabled:opacity-40"
             >
               <Trash2 size={14} />
@@ -502,7 +502,7 @@ function AddTab(props: {
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
-        <span className="font-semibold">Konto (optional)</span>
+        <span className="font-semibold">Account (optional)</span>
         <input
           type="text"
           value={props.account}
@@ -521,7 +521,7 @@ function AddTab(props: {
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[13px] focus:border-[var(--color-accent)] focus:outline-none"
         />
         <span className="text-[10px] text-[var(--color-muted)]">
-          Leerzeichen + Bindestriche werden automatisch entfernt; Padding (=) optional.
+          Spaces and hyphens are stripped automatically; padding (=) is optional.
         </span>
       </label>
 
@@ -530,7 +530,7 @@ function AddTab(props: {
         onClick={() => props.setAdvanced(!props.advanced)}
         className="self-start text-[11px] text-[var(--color-muted)] hover:text-[var(--color-accent)]"
       >
-        {props.advanced ? "▾ Erweitert ausblenden" : "▸ Erweitert (Digits / Period / Algorithm)"}
+        {props.advanced ? "▾ Hide advanced" : "▸ Advanced (Digits / Period / Algorithm)"}
       </button>
       {props.advanced && (
         <div className="grid grid-cols-3 gap-3">
@@ -579,7 +579,7 @@ function AddTab(props: {
         className="mt-2 flex items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2 text-[13px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
       >
         <Plus size={14} />
-        Hinzufügen
+        Add
       </button>
     </div>
   );
@@ -604,11 +604,11 @@ function ImportExportTab({
 }) {
   const supportedFormats = useMemo(
     () => [
-      "otpauth://totp/… (einzelnes QR-Code-URI)",
-      "otpauth-migration://offline?data=… (Google Authenticator Bulk-Export)",
-      "Aegis JSON (Android Aegis Authenticator, unverschlüsselt)",
+      "otpauth://totp/… (single QR code URI)",
+      "otpauth-migration://offline?data=… (Google Authenticator bulk export)",
+      "Aegis JSON (Android Aegis Authenticator, unencrypted)",
       "2FAS JSON (2FAS Auth)",
-      "Plain-Text: ein otpauth://-URI pro Zeile",
+      "Plain text: one otpauth:// URI per line",
     ],
     [],
   );
@@ -623,7 +623,7 @@ function ImportExportTab({
         <textarea
           value={importText}
           onChange={(e) => setImportText(e.target.value)}
-          placeholder="otpauth://totp/...  oder JSON-Export hier einfügen"
+          placeholder="otpauth://totp/...  or paste JSON export here"
           rows={8}
           className="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 font-[var(--font-mono)] text-[12px] focus:border-[var(--color-accent)] focus:outline-none"
         />
@@ -634,15 +634,15 @@ function ImportExportTab({
             className="flex items-center gap-2 rounded bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
           >
             <Upload size={12} />
-            Import starten
+            Import
           </button>
           <span className="text-[11px] text-[var(--color-muted)]">
-            Format wird automatisch erkannt.
+            Format is detected automatically.
           </span>
         </div>
         <details className="mt-3 text-[11px] text-[var(--color-muted)]">
           <summary className="cursor-pointer hover:text-[var(--color-fg)]">
-            Unterstützte Formate
+            Supported formats
           </summary>
           <ul className="mt-2 list-disc space-y-1 pl-5">
             {supportedFormats.map((f, i) => (
@@ -658,17 +658,16 @@ function ImportExportTab({
           Export
         </h3>
         <p className="mb-2 text-[12px] text-[var(--color-muted)]">
-          Exportiert alle {entryCount} Einträge als Liste von{" "}
+          Exports all {entryCount} entries as a list of{" "}
           <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[11px]">
             otpauth://
           </code>
-          -URIs in der Zwischenablage.
+          {" "}URIs to the clipboard.
         </p>
         <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
-          <b>Achtung:</b> Plaintext. Die Secrets sind die langfristige
-          Wurzel deiner 2FA — speichere die Datei verschlüsselt
-          (z.B. macOS Keychain, 1Password) und lösche danach die
-          Zwischenablage.
+          <b>Caution:</b> Plaintext. The secrets are the long-term root
+          of your 2FA — store the export encrypted (e.g. password
+          manager, encrypted archive) and clear the clipboard afterwards.
         </div>
         <button
           onClick={onExport}
@@ -676,7 +675,7 @@ function ImportExportTab({
           className="flex items-center gap-2 rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
         >
           <Download size={12} />
-          In Zwischenablage exportieren
+          Export to clipboard
         </button>
       </section>
     </div>

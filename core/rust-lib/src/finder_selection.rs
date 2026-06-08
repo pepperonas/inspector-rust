@@ -196,6 +196,310 @@ pub fn create_dir(name: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
+// ── touch / mkdir in the front Explorer window's folder (Windows) ─────────────
+//
+// Windows analog of the macOS Finder path above. macOS asks Finder for its
+// `insertion location` via osascript; Windows has no equivalent single query,
+// so we (1) find the frontmost File Explorer window natively by walking the
+// top-level z-order for the first `CabinetWClass` window, then (2) resolve
+// that window's current folder to a filesystem path via the `Shell.Application`
+// COM object — driven from PowerShell, mirroring the osascript shell-out. If
+// no Explorer window is open we fall back to the Desktop, exactly like Finder's
+// insertion-location → Desktop behaviour.
+
+/// Validate a user-supplied file/folder name on Windows: non-empty, not
+/// `.`/`..`, and free of the reserved path characters — so creation can't
+/// escape the target folder.
+#[cfg(target_os = "windows")]
+fn sanitize_name(name: &str) -> Result<&str, String> {
+    let n = name.trim();
+    if n.is_empty() {
+        return Err("name is empty".into());
+    }
+    if n == "." || n == ".." {
+        return Err("name must be a plain file/folder name (not '.' or '..')".into());
+    }
+    if n.chars().any(|c| {
+        matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0')
+    }) {
+        return Err(r#"name contains an invalid character (\ / : * ? " < > |)"#.into());
+    }
+    Ok(n)
+}
+
+/// HWND (as `isize`) of the frontmost File Explorer window, or `None` when
+/// no Explorer window is open. Walks the top-level z-order from the top and
+/// returns the first visible window whose class is `CabinetWClass` (the
+/// standard File Explorer window class). Our own popup sits above it in the
+/// z-order but has a different class, so it's skipped.
+#[cfg(target_os = "windows")]
+fn topmost_explorer_hwnd() -> Option<isize> {
+    use windows::Win32::UI::WindowsAndMessaging::{
+        GetClassNameW, GetTopWindow, GetWindow, IsWindowVisible, GW_HWNDNEXT,
+    };
+    unsafe {
+        let mut h = GetTopWindow(None).ok()?;
+        loop {
+            if h.0.is_null() {
+                break;
+            }
+            if IsWindowVisible(h).as_bool() {
+                let mut buf = [0u16; 256];
+                let n = GetClassNameW(h, &mut buf);
+                if n > 0 {
+                    let class = String::from_utf16_lossy(&buf[..n as usize]);
+                    if class == "CabinetWClass" {
+                        return Some(h.0 as isize);
+                    }
+                }
+            }
+            h = match GetWindow(h, GW_HWNDNEXT) {
+                Ok(next) => next,
+                Err(_) => break,
+            };
+        }
+    }
+    None
+}
+
+/// Run a PowerShell snippet with a watchdog timeout, returning trimmed
+/// stdout on success. Windows analog of `osascript_util::run_osascript`:
+/// a hung Shell COM call can't wedge the popup indefinitely.
+#[cfg(target_os = "windows")]
+fn run_powershell(script: &str, timeout: std::time::Duration) -> Option<String> {
+    use std::io::Read;
+    use std::process::{Command, Stdio};
+    use std::time::Instant;
+
+    let mut child = Command::new("powershell.exe")
+        .args(["-NoProfile", "-NonInteractive", "-Command", script])
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+
+    let start = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(_status)) => {
+                let mut stdout = String::new();
+                if let Some(mut s) = child.stdout.take() {
+                    let _ = s.read_to_string(&mut stdout);
+                }
+                return Some(stdout);
+            }
+            Ok(None) => {
+                if start.elapsed() >= timeout {
+                    let _ = child.kill();
+                    let _ = child.wait();
+                    tracing::warn!("finder(win): powershell timed out after {timeout:?}");
+                    return None;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            Err(_) => {
+                let _ = child.kill();
+                return None;
+            }
+        }
+    }
+}
+
+/// Read the window title for an HWND. Used to detect the active tab in
+/// Windows 11 tabbed Explorer (the title shows the active tab's name).
+#[cfg(target_os = "windows")]
+fn explorer_window_title(hwnd: isize) -> Option<String> {
+    use windows::Win32::Foundation::HWND;
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowTextW;
+    unsafe {
+        let h = HWND(hwnd as *mut _);
+        let mut buf = [0u16; 512];
+        let n = GetWindowTextW(h, &mut buf);
+        if n > 0 {
+            Some(String::from_utf16_lossy(&buf[..n as usize]))
+        } else {
+            None
+        }
+    }
+}
+
+/// Extract the active tab's display name from a Windows 11 Explorer title.
+///
+/// Formats observed (note: the separator is EN DASH U+2013, not ASCII hyphen):
+/// - Single tab:  `Downloads \u{2013} Explorer`
+/// - Multi tab:   `Downloads und 2 weitere Registerkarten \u{2013} Explorer`
+/// - English:     `Downloads and 2 more tabs \u{2013} File Explorer`
+/// - Older Win10: `Downloads - File Explorer` (ASCII hyphen)
+///
+/// Returns `None` if the title cannot be parsed.
+#[cfg(any(target_os = "windows", test))]
+fn active_tab_name_from_title(title: &str) -> Option<String> {
+    // The separator between the tab name and "Explorer" can be:
+    //   " \u{2013} " (EN DASH, Win11)  or  " - " (ASCII hyphen, Win10).
+    // Find the LAST occurrence of either separator followed by an Explorer
+    // suffix. We search right-to-left so folder names that happen to
+    // contain " - " (rare but possible) are handled correctly.
+    let separators: &[&str] = &[" \u{2013} ", " - "];
+    let mut best_split: Option<usize> = None;
+
+    for sep in separators {
+        if let Some(idx) = title.rfind(sep) {
+            let after = &title[idx + sep.len()..];
+            // Suffix must be one of: "Explorer", "File Explorer", "Datei-Explorer"
+            let after_trimmed = after.trim_end();
+            if after_trimmed == "Explorer"
+                || after_trimmed == "File Explorer"
+                || after_trimmed == "Datei-Explorer"
+            {
+                // Pick the rightmost separator (largest idx).
+                if best_split.map_or(true, |prev| idx > prev) {
+                    best_split = Some(idx);
+                }
+            }
+        }
+    }
+
+    let name = best_split.map(|idx| title[..idx].trim_end())?;
+    if name.is_empty() {
+        return None;
+    }
+
+    // Strip the tab-count suffix: " und N weitere Registerkarte[n]" (German)
+    // or " and N more tab[s]" (English).
+    let tab_name = strip_tab_count_suffix(name);
+    if tab_name.is_empty() {
+        None
+    } else {
+        Some(tab_name.to_string())
+    }
+}
+
+/// Strip " und N weitere Registerkarte[n]" / " and N more tab[s]" from the end.
+#[cfg(any(target_os = "windows", test))]
+fn strip_tab_count_suffix(s: &str) -> &str {
+    // Look for " und " or " and " followed by a digit — simple scan.
+    // German: " und 2 weitere Registerkarten"
+    if let Some(idx) = s.rfind(" und ") {
+        let after = &s[idx + 5..];
+        if after.starts_with(|c: char| c.is_ascii_digit())
+            && (after.contains("weitere Registerkarte"))
+        {
+            return s[..idx].trim_end();
+        }
+    }
+    // English: " and 2 more tabs"
+    if let Some(idx) = s.rfind(" and ") {
+        let after = &s[idx + 5..];
+        if after.starts_with(|c: char| c.is_ascii_digit()) && after.contains("more tab") {
+            return s[..idx].trim_end();
+        }
+    }
+    s
+}
+
+/// Resolve an Explorer window HWND to its current folder's filesystem path
+/// via `Shell.Application`. For Windows 11 tabbed Explorer we disambiguate
+/// by matching the active tab's `LocationName` (derived from the window title)
+/// against the COM windows collection. Returns `None` on any failure or for
+/// non-filesystem locations (This PC, Control Panel, …) whose `Path` is empty.
+#[cfg(target_os = "windows")]
+fn explorer_path_for_hwnd(hwnd: isize) -> Option<String> {
+    // Determine the active tab name so we can pick the right Shell window
+    // when multiple tabs share the same HWND (Windows 11).
+    let tab_filter = explorer_window_title(hwnd)
+        .as_deref()
+        .and_then(active_tab_name_from_title)
+        .unwrap_or_default();
+
+    // Build the PowerShell script. If we have a tab name, match by
+    // LocationName and take the last hit (handles duplicate tab names —
+    // the last instance is typically the most recently focused). Without a
+    // tab name we fall back to taking the first path (pre-Win11 behaviour).
+    let script = if tab_filter.is_empty() {
+        // Legacy / single-tab: take the first window with matching HWND.
+        format!(
+            "$ErrorActionPreference='SilentlyContinue';\
+             $t={hwnd};\
+             $sh=New-Object -ComObject Shell.Application;\
+             foreach($w in $sh.Windows()){{try{{if([int64]$w.HWND -eq $t)\
+             {{$p=$w.Document.Folder.Self.Path;if($p){{Write-Output $p}};break}}}}catch{{}}}}"
+        )
+    } else {
+        // Win11 tabbed: match LocationName to the active tab title.
+        // Take the LAST match so duplicate-named tabs resolve to the newest.
+        // PowerShell escaping: the tab name comes from GetWindowText and is
+        // safe (no user input injection), but we single-quote it anyway.
+        let escaped = tab_filter.replace('\'', "''"); // PS single-quote escape
+        format!(
+            "$ErrorActionPreference='SilentlyContinue';\
+             $t={hwnd};$n='{escaped}';\
+             $sh=New-Object -ComObject Shell.Application;$r='';\
+             foreach($w in $sh.Windows()){{try{{if([int64]$w.HWND -eq $t -and $w.LocationName -eq $n)\
+             {{$p=$w.Document.Folder.Self.Path;if($p){{$r=$p}}}}}}catch{{}}}};\
+             if($r){{Write-Output $r}}"
+        )
+    };
+    let out = run_powershell(&script, std::time::Duration::from_secs(3))?;
+    let p = out.trim().to_string();
+    if p.is_empty() {
+        None
+    } else {
+        Some(p)
+    }
+}
+
+/// Folder where a new item should be created — the frontmost Explorer
+/// window's folder, or the Desktop when no Explorer window is open.
+#[cfg(target_os = "windows")]
+fn front_dir() -> Result<PathBuf, String> {
+    if let Some(hwnd) = topmost_explorer_hwnd() {
+        if let Some(p) = explorer_path_for_hwnd(hwnd) {
+            return Ok(PathBuf::from(p));
+        }
+    }
+    dirs::desktop_dir().ok_or_else(|| "no active Explorer window and no Desktop folder".into())
+}
+
+/// Best-effort: open Explorer with the freshly-created item selected so the
+/// user sees it appear (the Windows analog of Finder reveal). `raw_arg` is
+/// used because explorer.exe parses its own command line and is picky about
+/// the `/select,"<path>"` form.
+#[cfg(target_os = "windows")]
+fn reveal_in_explorer(path: &std::path::Path) {
+    use std::os::windows::process::CommandExt;
+    use std::process::Command;
+    let arg = format!("/select,\"{}\"", path.display());
+    let _ = Command::new("explorer.exe").raw_arg(arg).spawn();
+}
+
+/// Create an empty file `name` in the front Explorer folder. Errors if it
+/// already exists. Returns the absolute path created.
+#[cfg(target_os = "windows")]
+pub fn create_file(name: &str) -> Result<PathBuf, String> {
+    let n = sanitize_name(name)?;
+    let path = front_dir()?.join(n);
+    if path.exists() {
+        return Err(format!("already exists: {}", path.display()));
+    }
+    std::fs::File::create(&path).map_err(|e| format!("create file failed: {e}"))?;
+    reveal_in_explorer(&path);
+    Ok(path)
+}
+
+/// Create a folder `name` in the front Explorer folder. Errors if it
+/// already exists. Returns the absolute path created.
+#[cfg(target_os = "windows")]
+pub fn create_dir(name: &str) -> Result<PathBuf, String> {
+    let n = sanitize_name(name)?;
+    let path = front_dir()?.join(n);
+    if path.exists() {
+        return Err(format!("already exists: {}", path.display()));
+    }
+    std::fs::create_dir(&path).map_err(|e| format!("create folder failed: {e}"))?;
+    reveal_in_explorer(&path);
+    Ok(path)
+}
+
 /// Open a terminal at the front Finder folder. Prefers **iTerm2** (the
 /// user's terminal) if installed, falling back to Terminal.app. Returns
 /// the directory opened.
@@ -314,6 +618,49 @@ mod tests {
     }
 }
 
+#[cfg(all(test, target_os = "windows"))]
+mod win_tests {
+    use super::sanitize_name;
+
+    #[test]
+    fn accepts_plain_names_and_trims() {
+        assert_eq!(sanitize_name("notes.txt").unwrap(), "notes.txt");
+        assert_eq!(sanitize_name("  spaced.md  ").unwrap(), "spaced.md");
+        assert_eq!(sanitize_name("My Folder").unwrap(), "My Folder");
+        assert_eq!(sanitize_name("archive.tar.gz").unwrap(), "archive.tar.gz");
+        assert_eq!(sanitize_name(".gitignore").unwrap(), ".gitignore");
+        assert_eq!(sanitize_name("Über.txt").unwrap(), "Über.txt");
+    }
+
+    #[test]
+    fn rejects_empty_or_whitespace() {
+        assert!(sanitize_name("").is_err());
+        assert!(sanitize_name("   ").is_err());
+        assert!(sanitize_name("\t").is_err());
+    }
+
+    #[test]
+    fn rejects_reserved_windows_chars_so_creation_cant_escape() {
+        assert!(sanitize_name("a\\b").is_err()); // backslash separator
+        assert!(sanitize_name("a/b").is_err()); // forward slash
+        assert!(sanitize_name("C:evil").is_err()); // drive/stream colon
+        assert!(sanitize_name("na*me").is_err());
+        assert!(sanitize_name("na?me").is_err());
+        assert!(sanitize_name(r#"na"me"#).is_err());
+        assert!(sanitize_name("na<me").is_err());
+        assert!(sanitize_name("na>me").is_err());
+        assert!(sanitize_name("na|me").is_err());
+    }
+
+    #[test]
+    fn rejects_dot_and_dotdot_and_nul() {
+        assert!(sanitize_name(".").is_err());
+        assert!(sanitize_name("..").is_err());
+        assert!(sanitize_name("  ..  ").is_err());
+        assert!(sanitize_name("evil\0name").is_err());
+    }
+}
+
 #[cfg(test)]
 mod quote_tests {
     use super::{osa_escape, sh_squote};
@@ -334,5 +681,81 @@ mod quote_tests {
         assert_eq!(osa_escape(r"a\b"), "a\\\\b");
         // Order matters: backslash first, then quote.
         assert_eq!(osa_escape(r#"\""#), "\\\\\\\"");
+    }
+}
+
+#[cfg(test)]
+mod title_parse_tests {
+    use super::active_tab_name_from_title;
+
+    #[test]
+    fn win11_german_multi_tab_en_dash() {
+        // Real-world title observed on Win11 DE with 3 tabs, Desktop active.
+        let title = "Desktop und 2 weitere Registerkarten \u{2013} Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Desktop".to_string())
+        );
+    }
+
+    #[test]
+    fn win11_german_single_tab_en_dash() {
+        let title = "Downloads \u{2013} Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Downloads".to_string())
+        );
+    }
+
+    #[test]
+    fn win11_english_multi_tab() {
+        let title = "Documents and 3 more tabs \u{2013} File Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Documents".to_string())
+        );
+    }
+
+    #[test]
+    fn win10_ascii_hyphen() {
+        let title = "Downloads - File Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Downloads".to_string())
+        );
+    }
+
+    #[test]
+    fn win11_singular_registerkarte() {
+        // 1 additional tab: "Registerkarte" (singular)
+        let title = "Projekte und 1 weitere Registerkarte \u{2013} Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Projekte".to_string())
+        );
+    }
+
+    #[test]
+    fn folder_name_with_spaces() {
+        let title = "My Documents \u{2013} Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("My Documents".to_string())
+        );
+    }
+
+    #[test]
+    fn datei_explorer_suffix() {
+        let title = "Downloads \u{2013} Datei-Explorer";
+        assert_eq!(
+            active_tab_name_from_title(title),
+            Some("Downloads".to_string())
+        );
+    }
+
+    #[test]
+    fn returns_none_for_unparseable() {
+        assert_eq!(active_tab_name_from_title(""), None);
+        assert_eq!(active_tab_name_from_title("Some Random Window"), None);
     }
 }

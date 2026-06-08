@@ -31,6 +31,9 @@ base64 = "0.22"
 # is the modern AEAD with hardware acceleration on both AArch64 and x86-64.
 aes-gcm = "0.10"
 rand = "0.8"
+# Argon2id password-based KDF for encrypted backup files. Memory-hard,
+# resistant to GPU/ASIC attacks; recommended by OWASP for password hashing.
+argon2 = "0.5"
 # OS keychain-backed key storage. macOS Keychain / Windows Credential
 # Manager / Linux Secret Service — single API, transparent fallback.
 keyring = "3"

@@ -859,7 +859,7 @@ function App() {
     if (!is2faTrigger(query)) return null;
     return {
       kind: "totp-manage",
-      data: { label: "2FA · TOTP verwalten" },
+      data: { label: "2FA · Manage TOTP" },
     };
   }, [query]);
 
@@ -1466,7 +1466,8 @@ function App() {
         const source = keyword === "caffeine" ? "caffeine" : "wakelock";
         await wakelockSet(on, source);
       } else if (commandKind === "touch" || commandKind === "mkdir") {
-        // Create a file / folder in the frontmost Finder window's folder.
+        // Create a file / folder in the active file-manager window's folder
+        // (Finder on macOS, Explorer on Windows).
         try {
           const path =
             commandKind === "touch"

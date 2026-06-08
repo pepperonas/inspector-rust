@@ -321,19 +321,20 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     // that lets matching snippets outrank it.
     requiresArg: false,
   },
-  // ── Finder file/folder creation (in the front Finder window's dir) ──
+  // ── File/folder creation in the front file-manager window's dir ──
+  //    (Finder on macOS, Explorer on Windows)
   {
     kind: "touch",
     keyword: "touch",
     syntax: "touch <name>",
-    description: "Create an empty file in the frontmost Finder window's folder",
+    description: "Create an empty file in the active Explorer/Finder window's folder",
     requiresArg: true,
   },
   {
     kind: "mkdir",
     keyword: "mkdir",
     syntax: "mkdir <name>",
-    description: "Create a new folder in the frontmost Finder window's folder",
+    description: "Create a new folder in the active Explorer/Finder window's folder",
     requiresArg: true,
   },
   {

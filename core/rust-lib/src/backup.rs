@@ -1,27 +1,55 @@
-//! Full-app backup: serialize history + snippets + notes to a single JSON
-//! document, and merge-restore from the same shape.
+//! Full-app backup: serialize history + snippets + notes + TOTP entries +
+//! settings to a single JSON document, and merge-restore from the same shape.
 //!
-//! Merge semantics on import:
-//!   * snippets — upsert by `abbreviation` (existing rows are overwritten)
-//!   * history  — upsert by SHA-256 hash (existing rows just bump
-//!                `last_used_at`); duplicates are silently merged
-//!   * notes    — appended verbatim with original timestamps; there is no
-//!                natural dedup key, so re-importing the same backup will
-//!                create duplicate notes (acceptable trade-off vs. data loss)
+//! ## Encrypted backups (v2+)
+//!
+//! Backups can optionally be password-encrypted. The format is a JSON
+//! envelope: `{ "encrypted": true, "kdf": "argon2id", "salt": "<b64>",
+//! "nonce": "<b64>", "ciphertext": "<b64>" }`. The ciphertext is the
+//! AES-256-GCM encryption of the plaintext backup JSON. On import, the
+//! presence of `"encrypted": true` triggers a password prompt in the UI.
+//!
+//! ## Merge semantics on import:
+//!   * snippets      — upsert by `abbreviation` (existing rows are overwritten)
+//!   * history       — upsert by SHA-256 hash (existing rows just bump
+//!                     `last_used_at`); duplicates are silently merged
+//!   * notes         — appended verbatim with original timestamps; there is no
+//!                     natural dedup key, so re-importing the same backup will
+//!                     create duplicate notes (acceptable trade-off vs. data loss)
+//!   * totp_entries  — upsert by (issuer, account); secret is re-encrypted with
+//!                     the target machine's key on import
+//!   * settings      — upsert by key (new values overwrite existing)
 
-use anyhow::{anyhow, Result};
+use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 
 use crate::db::{self, DbHandle};
 use crate::models::{ClipEntry, ContentType, NewClip};
 use crate::notes::{self, Note};
 use crate::snippets::{self, Snippet};
+use crate::{crypto, settings, totp_store};
 
 /// Bumped whenever the on-disk shape changes. Importing a newer-versioned
 /// backup than this constant is rejected so users get a clear error rather
 /// than silently losing fields.
-pub const CURRENT_VERSION: u32 = 1;
+pub const CURRENT_VERSION: u32 = 2;
+
+/// A TOTP entry as stored in the backup. Contains the **plaintext**
+/// base32 secret (decrypted at export time) so the backup is portable
+/// across machines with different encryption keys.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TotpBackupEntry {
+    pub issuer: String,
+    pub account: String,
+    /// Base32-encoded TOTP secret (plaintext in the backup file).
+    pub secret: String,
+    pub digits: u32,
+    pub period: u32,
+    pub algorithm: String,
+    pub created_at: i64,
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Backup {
@@ -34,6 +62,12 @@ pub struct Backup {
     pub snippets: Vec<Snippet>,
     #[serde(default)]
     pub notes: Vec<Note>,
+    /// TOTP entries with plaintext secrets (v2+).
+    #[serde(default)]
+    pub totp_entries: Vec<TotpBackupEntry>,
+    /// App settings as key-value pairs (v2+).
+    #[serde(default)]
+    pub settings: HashMap<String, String>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -41,6 +75,8 @@ pub struct BackupImportResult {
     pub history_imported: usize,
     pub snippets_imported: usize,
     pub notes_imported: usize,
+    pub totp_imported: usize,
+    pub settings_imported: usize,
     pub errors: Vec<String>,
 }
 
@@ -53,6 +89,14 @@ pub struct ExportOptions {
     pub include_history: bool,
     pub include_snippets: bool,
     pub include_notes: bool,
+    #[serde(default = "default_true")]
+    pub include_totp: bool,
+    #[serde(default = "default_true")]
+    pub include_settings: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl ExportOptions {
@@ -61,6 +105,8 @@ impl ExportOptions {
             include_history: true,
             include_snippets: true,
             include_notes: true,
+            include_totp: true,
+            include_settings: true,
         }
     }
 }
@@ -94,7 +140,54 @@ pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
         } else {
             Vec::new()
         },
+        totp_entries: if opts.include_totp {
+            export_totp_entries(db)?
+        } else {
+            Vec::new()
+        },
+        settings: if opts.include_settings {
+            export_settings(db)?
+        } else {
+            HashMap::new()
+        },
     })
+}
+
+/// Read all TOTP entries with their decrypted secrets for backup.
+fn export_totp_entries(db: &DbHandle) -> Result<Vec<TotpBackupEntry>> {
+    let entries = totp_store::list(db)?;
+    let conn = db.lock();
+    let mut out = Vec::with_capacity(entries.len());
+    for e in entries {
+        let secret_enc: String = conn
+            .query_row(
+                "SELECT secret_enc FROM totp_entries WHERE id = ?1",
+                [e.id],
+                |r| r.get(0),
+            )
+            .with_context(|| format!("read TOTP secret for id {}", e.id))?;
+        let secret = crypto::decrypt(&secret_enc);
+        out.push(TotpBackupEntry {
+            issuer: e.issuer,
+            account: e.account,
+            secret,
+            digits: e.digits,
+            period: e.period,
+            algorithm: e.algorithm,
+            created_at: e.created_at,
+        });
+    }
+    Ok(out)
+}
+
+/// Read all settings key-value pairs.
+fn export_settings(db: &DbHandle) -> Result<HashMap<String, String>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare("SELECT key, value FROM settings")?;
+    let rows = stmt
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    Ok(rows.into_iter().collect())
 }
 
 /// Serialize the backup as pretty-printed JSON.
@@ -171,6 +264,47 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
         }
     }
 
+    // 4) TOTP entries — upsert by (issuer, account). The plaintext secret
+    //    from the backup is re-encrypted with this machine's key.
+    for (idx, te) in backup.totp_entries.iter().enumerate() {
+        if te.issuer.trim().is_empty() || te.secret.trim().is_empty() {
+            result
+                .errors
+                .push(format!("totp #{idx}: empty issuer or secret"));
+            continue;
+        }
+        match totp_store::add(
+            db,
+            &te.issuer,
+            &te.account,
+            &te.secret,
+            te.digits,
+            te.period,
+            &te.algorithm,
+        ) {
+            Ok(_) => result.totp_imported += 1,
+            Err(e) => {
+                // If it already exists (duplicate), that's fine — count as imported.
+                let msg = e.to_string();
+                if msg.contains("UNIQUE constraint") || msg.contains("already exists") {
+                    result.totp_imported += 1;
+                } else {
+                    result
+                        .errors
+                        .push(format!("totp #{idx} ({}): {e}", te.issuer));
+                }
+            }
+        }
+    }
+
+    // 5) Settings — upsert by key.
+    for (key, value) in &backup.settings {
+        match settings::set(db, key, value) {
+            Ok(()) => result.settings_imported += 1,
+            Err(e) => result.errors.push(format!("setting '{key}': {e}")),
+        }
+    }
+
     Ok(result)
 }
 
@@ -186,6 +320,153 @@ pub fn replace_all(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> 
         conn.execute("DELETE FROM notes", [])?;
     }
     apply(db, backup)
+}
+
+// ── Encrypted backup ────────────────────────────────────────────────
+
+/// JSON envelope for an encrypted backup file.
+#[derive(Debug, Serialize, Deserialize)]
+pub struct EncryptedEnvelope {
+    /// Always `true` — presence of this field signals encrypted content.
+    pub encrypted: bool,
+    /// KDF identifier. Currently always "argon2id".
+    pub kdf: String,
+    /// Base64-encoded 16-byte salt for the KDF.
+    pub salt: String,
+    /// Base64-encoded 12-byte AES-GCM nonce.
+    pub nonce: String,
+    /// Base64-encoded AES-256-GCM ciphertext of the backup JSON.
+    pub ciphertext: String,
+}
+
+/// Check if a JSON string is an encrypted backup (has `"encrypted": true`).
+pub fn is_encrypted(json: &str) -> bool {
+    // Quick heuristic check before full parse — avoids deserializing
+    // a potentially large plaintext backup just to check a flag.
+    if !json.contains("\"encrypted\"") {
+        return false;
+    }
+    #[derive(Deserialize)]
+    struct Probe {
+        #[serde(default)]
+        encrypted: bool,
+    }
+    serde_json::from_str::<Probe>(json)
+        .map(|p| p.encrypted)
+        .unwrap_or(false)
+}
+
+/// Encrypt a backup JSON string with a password using Argon2id + AES-256-GCM.
+/// Returns the encrypted envelope as a pretty-printed JSON string.
+pub fn encrypt_backup(plaintext_json: &str, password: &str) -> Result<String> {
+    use aes_gcm::aead::Aead;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+    use argon2::Argon2;
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+    use rand::RngCore;
+
+    // Generate random salt (16 bytes) and nonce (12 bytes).
+    let mut salt = [0u8; 16];
+    let mut nonce_bytes = [0u8; 12];
+    rand::thread_rng().fill_bytes(&mut salt);
+    rand::thread_rng().fill_bytes(&mut nonce_bytes);
+
+    // Derive 32-byte key from password via Argon2id.
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), &salt, &mut key)
+        .map_err(|e| anyhow!("Argon2id KDF failed: {e}"))?;
+
+    // Encrypt the plaintext JSON with AES-256-GCM.
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| anyhow!("AES-256-GCM init: {e}"))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let ciphertext = cipher
+        .encrypt(nonce, plaintext_json.as_bytes())
+        .map_err(|e| anyhow!("AES-256-GCM encrypt: {e}"))?;
+
+    let envelope = EncryptedEnvelope {
+        encrypted: true,
+        kdf: "argon2id".into(),
+        salt: B64.encode(salt),
+        nonce: B64.encode(nonce_bytes),
+        ciphertext: B64.encode(ciphertext),
+    };
+
+    serde_json::to_string_pretty(&envelope).map_err(Into::into)
+}
+
+/// Decrypt an encrypted backup envelope using the provided password.
+/// Returns the decrypted backup JSON string on success.
+pub fn decrypt_backup(envelope_json: &str, password: &str) -> Result<String> {
+    use aes_gcm::aead::Aead;
+    use aes_gcm::{Aes256Gcm, KeyInit, Nonce};
+    use argon2::Argon2;
+    use base64::engine::general_purpose::STANDARD as B64;
+    use base64::Engine;
+
+    let envelope: EncryptedEnvelope = serde_json::from_str(envelope_json)
+        .context("invalid encrypted backup envelope")?;
+
+    if envelope.kdf != "argon2id" {
+        return Err(anyhow!("unsupported KDF: {} (expected argon2id)", envelope.kdf));
+    }
+
+    let salt = B64.decode(&envelope.salt).context("invalid salt base64")?;
+    let nonce_bytes = B64.decode(&envelope.nonce).context("invalid nonce base64")?;
+    let ciphertext = B64.decode(&envelope.ciphertext).context("invalid ciphertext base64")?;
+
+    if salt.len() != 16 {
+        return Err(anyhow!("salt must be 16 bytes, got {}", salt.len()));
+    }
+    if nonce_bytes.len() != 12 {
+        return Err(anyhow!("nonce must be 12 bytes, got {}", nonce_bytes.len()));
+    }
+
+    // Derive key from password.
+    let mut key = [0u8; 32];
+    Argon2::default()
+        .hash_password_into(password.as_bytes(), &salt, &mut key)
+        .map_err(|e| anyhow!("Argon2id KDF failed: {e}"))?;
+
+    // Decrypt.
+    let cipher = Aes256Gcm::new_from_slice(&key)
+        .map_err(|e| anyhow!("AES-256-GCM init: {e}"))?;
+    let nonce = Nonce::from_slice(&nonce_bytes);
+    let plaintext = cipher
+        .decrypt(nonce, ciphertext.as_ref())
+        .map_err(|_| anyhow!("decryption failed — wrong password or corrupted file"))?;
+
+    String::from_utf8(plaintext).context("decrypted content is not valid UTF-8")
+}
+
+/// High-level: export + optionally encrypt in one call.
+pub fn export_json_maybe_encrypted(
+    db: &DbHandle,
+    opts: ExportOptions,
+    password: Option<&str>,
+) -> Result<String> {
+    let json = export_json(db, opts)?;
+    match password {
+        Some(pw) if !pw.is_empty() => encrypt_backup(&json, pw),
+        _ => Ok(json),
+    }
+}
+
+/// High-level: detect encrypted → decrypt if needed → import.
+pub fn import_json_maybe_encrypted(
+    db: &DbHandle,
+    json: &str,
+    password: Option<&str>,
+) -> Result<BackupImportResult> {
+    if is_encrypted(json) {
+        let pw = password.ok_or_else(|| anyhow!("backup is encrypted — password required"))?;
+        let decrypted = decrypt_backup(json, pw)?;
+        import_json(db, &decrypted)
+    } else {
+        import_json(db, json)
+    }
 }
 
 #[cfg(test)]
@@ -219,6 +500,8 @@ mod tests {
         let db = Arc::new(Mutex::new(conn));
         snippets::init_table(&db).unwrap();
         notes::init_table(&db).unwrap();
+        settings::init_table(&db).unwrap();
+        totp_store::init_table(&db).unwrap();
         db
     }
 
@@ -293,6 +576,8 @@ mod tests {
             include_history: false,
             include_snippets: true,
             include_notes: false,
+            include_totp: false,
+            include_settings: false,
         };
         let backup = export(&db, opts).unwrap();
         assert!(backup.history.is_empty(), "history should be empty");
@@ -308,6 +593,8 @@ mod tests {
             include_history: false,
             include_snippets: false,
             include_notes: false,
+            include_totp: false,
+            include_settings: false,
         };
         let backup = export(&db, opts).unwrap();
         assert!(backup.history.is_empty());
@@ -364,6 +651,8 @@ mod tests {
                 created_at: 1,
                 updated_at: 1,
             }],
+            totp_entries: vec![],
+            settings: HashMap::new(),
         };
         let r = replace_all(&db, backup).unwrap();
         assert_eq!(r.notes_imported, 1);
@@ -447,5 +736,72 @@ mod tests {
             notes::list_all(&db).unwrap().len(),
         );
         assert_eq!(before, after, "malformed input must not leak partial writes");
+    }
+
+    #[test]
+    fn encrypt_decrypt_roundtrip() {
+        let db = fresh_db();
+        seed(&db);
+        let json = export_json(&db, ExportOptions::all()).unwrap();
+        let encrypted = encrypt_backup(&json, "test-password-123").unwrap();
+
+        // Must be detected as encrypted.
+        assert!(is_encrypted(&encrypted));
+        assert!(!is_encrypted(&json));
+
+        // Decrypt with correct password.
+        let decrypted = decrypt_backup(&encrypted, "test-password-123").unwrap();
+        assert_eq!(decrypted, json);
+
+        // Wrong password must fail.
+        assert!(decrypt_backup(&encrypted, "wrong").is_err());
+    }
+
+    #[test]
+    fn import_maybe_encrypted_plaintext() {
+        let db = fresh_db();
+        seed(&db);
+        let json = export_json(&db, ExportOptions::all()).unwrap();
+
+        let dst = fresh_db();
+        let r = import_json_maybe_encrypted(&dst, &json, None).unwrap();
+        assert!(r.errors.is_empty());
+        assert_eq!(r.history_imported, 1);
+    }
+
+    #[test]
+    fn import_maybe_encrypted_with_password() {
+        let db = fresh_db();
+        seed(&db);
+        let json = export_json(&db, ExportOptions::all()).unwrap();
+        let encrypted = encrypt_backup(&json, "secret").unwrap();
+
+        let dst = fresh_db();
+        // Without password: error.
+        assert!(import_json_maybe_encrypted(&dst, &encrypted, None).is_err());
+        // With wrong password: error.
+        assert!(import_json_maybe_encrypted(&dst, &encrypted, Some("wrong")).is_err());
+        // With correct password: success.
+        let r = import_json_maybe_encrypted(&dst, &encrypted, Some("secret")).unwrap();
+        assert!(r.errors.is_empty());
+        assert_eq!(r.history_imported, 1);
+    }
+
+    #[test]
+    fn v1_backup_imports_into_v2_without_totp_or_settings() {
+        // A v1 backup has no totp_entries or settings fields — they
+        // should default to empty via #[serde(default)].
+        let db = fresh_db();
+        let blob = r#"{
+            "version": 1,
+            "exported_at": 0,
+            "history": [],
+            "snippets": [],
+            "notes": []
+        }"#;
+        let r = import_json(&db, blob).unwrap();
+        assert_eq!(r.totp_imported, 0);
+        assert_eq!(r.settings_imported, 0);
+        assert!(r.errors.is_empty());
     }
 }

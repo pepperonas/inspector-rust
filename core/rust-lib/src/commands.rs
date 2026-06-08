@@ -891,23 +891,29 @@ pub fn paste_note_formatted(
 // ── Backup (full app export / import) ────────────────────────────────────────
 
 /// Build a backup JSON document. Each section (history / snippets /
-/// notes) is included only if the corresponding flag is `true` — lets
-/// the user opt out of, say, exporting their clipboard history when
-/// sharing snippets with a colleague. Defaults to *all true* if invoked
-/// without the flags (legacy callers).
+/// notes / totp / settings) is included only if the corresponding flag
+/// is `true` — lets the user opt out of, say, exporting their clipboard
+/// history when sharing snippets with a colleague. Defaults to *all true*
+/// if invoked without the flags (legacy callers). If `password` is
+/// provided, the backup is encrypted with AES-256-GCM + Argon2id.
 #[tauri::command]
 pub fn export_backup(
     db: State<'_, DbHandle>,
     include_history: Option<bool>,
     include_snippets: Option<bool>,
     include_notes: Option<bool>,
+    include_totp: Option<bool>,
+    include_settings: Option<bool>,
+    password: Option<String>,
 ) -> Result<String, String> {
     let opts = backup::ExportOptions {
         include_history: include_history.unwrap_or(true),
         include_snippets: include_snippets.unwrap_or(true),
         include_notes: include_notes.unwrap_or(true),
+        include_totp: include_totp.unwrap_or(true),
+        include_settings: include_settings.unwrap_or(true),
     };
-    backup::export_json(&db, opts).map_err(map_err)
+    backup::export_json_maybe_encrypted(&db, opts, password.as_deref()).map_err(map_err)
 }
 
 /// Convenience: build the backup JSON and write it directly to `path`.
@@ -920,28 +926,44 @@ pub fn save_backup_to_file(
     include_history: Option<bool>,
     include_snippets: Option<bool>,
     include_notes: Option<bool>,
+    include_totp: Option<bool>,
+    include_settings: Option<bool>,
+    password: Option<String>,
 ) -> Result<usize, String> {
     let opts = backup::ExportOptions {
         include_history: include_history.unwrap_or(true),
         include_snippets: include_snippets.unwrap_or(true),
         include_notes: include_notes.unwrap_or(true),
+        include_totp: include_totp.unwrap_or(true),
+        include_settings: include_settings.unwrap_or(true),
     };
-    let json = backup::export_json(&db, opts).map_err(map_err)?;
+    let json = backup::export_json_maybe_encrypted(&db, opts, password.as_deref())
+        .map_err(map_err)?;
     std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
     Ok(json.len())
 }
 
-/// Read a backup JSON file from `path` and merge it into the live database
-/// (snippets upsert by abbreviation, history dedupes by hash, notes are
-/// appended).
+/// Read a backup JSON file from `path` and merge it into the live database.
+/// If the file is encrypted (detected automatically), the `password` parameter
+/// is required. Returns import counts.
 #[tauri::command]
 pub fn import_backup(
     db: State<'_, DbHandle>,
     path: String,
+    password: Option<String>,
 ) -> Result<BackupImportResult, String> {
     let json = std::fs::read_to_string(&path)
         .map_err(|e| format!("read {path}: {e}"))?;
-    backup::import_json(&db, &json).map_err(map_err)
+    backup::import_json_maybe_encrypted(&db, &json, password.as_deref()).map_err(map_err)
+}
+
+/// Check if a backup file is encrypted. The frontend uses this to decide
+/// whether to prompt for a password before importing.
+#[tauri::command]
+pub fn is_backup_encrypted(path: String) -> Result<bool, String> {
+    let json = std::fs::read_to_string(&path)
+        .map_err(|e| format!("read {path}: {e}"))?;
+    Ok(backup::is_encrypted(&json))
 }
 
 // ── Passive auto-expansion (aText-style, v0.56.0) ──────────────────────────────
@@ -2172,36 +2194,37 @@ pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, Stri
     crate::image_ops::optimize_file_to_neighbor(&src).map_err(map_err)
 }
 
-/// `touch <name>` — create an empty file in the frontmost Finder
-/// window's folder (or the Desktop). Returns the absolute path created.
-/// Needs the Automation→Finder TCC grant (returns the same
-/// `finder.automation_denied` sentinel as Finder selection on a miss).
-/// macOS-only.
+/// `touch <name>` — create an empty file in the frontmost file-manager
+/// window's folder (Finder on macOS, Explorer on Windows), or the Desktop
+/// when none is open. Returns the absolute path created. On macOS this needs
+/// the Automation→Finder TCC grant (returns the `finder.automation_denied`
+/// sentinel on a miss).
 #[tauri::command]
 pub fn finder_touch(name: String) -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::finder_selection::create_file(&name).map(|p| p.display().to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = name;
-        Err("touch is macOS-only (needs Finder)".into())
+        Err("touch needs Finder (macOS) or Explorer (Windows)".into())
     }
 }
 
-/// `mkdir <name>` — create a folder in the frontmost Finder window's
-/// folder. Returns the absolute path created. macOS-only.
+/// `mkdir <name>` — create a folder in the frontmost file-manager window's
+/// folder (Finder on macOS, Explorer on Windows), or the Desktop when none
+/// is open. Returns the absolute path created.
 #[tauri::command]
 pub fn finder_mkdir(name: String) -> Result<String, String> {
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::finder_selection::create_dir(&name).map(|p| p.display().to_string())
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = name;
-        Err("mkdir is macOS-only (needs Finder)".into())
+        Err("mkdir needs Finder (macOS) or Explorer (Windows)".into())
     }
 }
 

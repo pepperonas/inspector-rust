@@ -77,17 +77,17 @@ export const HistoryItem = memo(function HistoryItem({
   const isColor = entry.kind === "color";
   const isCommand = entry.kind === "command";
   const isSuggestion = entry.kind === "command-suggestion";
-  // Custom commands (terminal, freeze, wakelock, tren, …) get a reddish
-  // treatment so the user immediately sees they're about to trigger a
-  // command rather than paste a clip / launch an app.
-  const isCustomCommand = isCommand || isSuggestion;
+  const isTotpManage = entry.kind === "totp-manage";
+  // Custom commands (terminal, freeze, wakelock, tren, 2fa, …) get a
+  // reddish treatment so the user immediately sees they're about to
+  // trigger a command rather than paste a clip / launch an app.
+  const isCustomCommand = isCommand || isSuggestion || isTotpManage;
   const isKillTarget = entry.kind === "kill-target";
   const isOpener = entry.kind === "opener";
   const isBruno = entry.kind === "bruno";
   const isApp = entry.kind === "app";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
-  const isTotpManage = entry.kind === "totp-manage";
   const isTotp = entry.kind === "totp";
   const isFinderFile = entry.kind === "finder-file";
   const isMeme = entry.kind === "meme";
@@ -257,8 +257,8 @@ export const HistoryItem = memo(function HistoryItem({
       className={
         "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
         (selected
-          ? "bg-white/20 text-white/80"
-          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
       }
       title="2FA / TOTP management overlay"
     >
@@ -511,7 +511,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Liste, Add, Import, Export · Esc to exit
+              ⏎ List, Add, Import, Export · Esc to exit
             </span>
           </span>
         ) : isTotp && entry.kind === "totp" ? (
@@ -527,7 +527,7 @@ export const HistoryItem = memo(function HistoryItem({
                     (selected ? "text-white/70" : "text-[var(--color-muted)]")
                   }
                 >
-                  {entry.data.account} · {entry.data.seconds_remaining}s remaining · ⏎ kopiert Code
+                  {entry.data.account} · {entry.data.seconds_remaining}s remaining · ⏎ copies code
                 </span>
               )}
             </span>

@@ -347,13 +347,13 @@ export function PreviewPanel({
           <div className="text-[14px] font-semibold">{entry.data.label}</div>
           <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
             Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the full
-            overlay: alle Einträge mit Live-Code + Countdown, neue
-            Einträge anlegen, importieren (otpauth://, Google
-            Authenticator Migration, Aegis JSON, 2FAS JSON), exportieren.
+            overlay: all entries with live code + countdown, add new
+            entries, import (otpauth://, Google Authenticator Migration,
+            Aegis JSON, 2FAS JSON), export.
           </div>
           <div className="text-[10px] text-[var(--color-muted)]">
-            Secrets sind in der SQLite-DB AES-GCM-verschlüsselt;
-            Schlüssel liegt im macOS Keychain.
+            Secrets are AES-GCM encrypted in the SQLite DB;
+            key is stored in the OS credential store.
           </div>
         </div>
       </div>

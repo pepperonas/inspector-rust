@@ -30,6 +30,7 @@ dirs = { workspace = true }
 clipboard-rs = { workspace = true }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
+argon2 = { workspace = true }
 keyring = { workspace = true }
 image = { workspace = true }
 ort = { workspace = true }

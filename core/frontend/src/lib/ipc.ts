@@ -554,16 +554,23 @@ export interface BackupExportOptions {
   includeHistory?: boolean;
   includeSnippets?: boolean;
   includeNotes?: boolean;
+  includeTotp?: boolean;
+  includeSettings?: boolean;
+  /** If set, encrypt the backup with this password (AES-256-GCM + Argon2id). */
+  password?: string;
 }
 
-/** Returns a pretty-printed JSON string. Each section is included only
- *  when the corresponding flag is true (or undefined — defaults to true
- *  for backwards compatibility). */
+/** Returns a pretty-printed JSON string (or encrypted envelope if password
+ *  is provided). Each section is included only when the corresponding flag
+ *  is true (or undefined — defaults to true for backwards compatibility). */
 export function exportBackup(opts: BackupExportOptions = {}): Promise<string> {
   return invoke("export_backup", {
     includeHistory: opts.includeHistory ?? true,
     includeSnippets: opts.includeSnippets ?? true,
     includeNotes: opts.includeNotes ?? true,
+    includeTotp: opts.includeTotp ?? true,
+    includeSettings: opts.includeSettings ?? true,
+    password: opts.password ?? null,
   });
 }
 
@@ -579,7 +586,15 @@ export function saveBackupToFile(
     includeHistory: opts.includeHistory ?? true,
     includeSnippets: opts.includeSnippets ?? true,
     includeNotes: opts.includeNotes ?? true,
+    includeTotp: opts.includeTotp ?? true,
+    includeSettings: opts.includeSettings ?? true,
+    password: opts.password ?? null,
   });
+}
+
+/** Check if a backup file is encrypted (requires password to import). */
+export function isBackupEncrypted(path: string): Promise<boolean> {
+  return invoke("is_backup_encrypted", { path });
 }
 
 // ── Text expander ────────────────────────────────────────────────────────────
@@ -819,9 +834,10 @@ export function setAutostartEnabled(enabled: boolean): Promise<boolean> {
   return invoke("set_autostart_enabled", { enabled });
 }
 
-/** Read a backup JSON file from `path` and merge it into the live database. */
-export function importBackup(path: string): Promise<BackupImportResult> {
-  return invoke("import_backup", { path });
+/** Read a backup JSON file from `path` and merge it into the live database.
+ *  If the backup is encrypted, `password` must be provided. */
+export function importBackup(path: string, password?: string): Promise<BackupImportResult> {
+  return invoke("import_backup", { path, password: password ?? null });
 }
 
 /** Show the system-wide screen color picker (eyedropper). Returns

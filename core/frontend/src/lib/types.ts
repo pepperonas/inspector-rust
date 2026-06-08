@@ -67,6 +67,8 @@ export interface BackupImportResult {
   history_imported: number;
   snippets_imported: number;
   notes_imported: number;
+  totp_imported: number;
+  settings_imported: number;
   errors: string[];
 }
 

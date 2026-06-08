@@ -345,6 +345,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::export_backup,
             commands::save_backup_to_file,
             commands::import_backup,
+            commands::is_backup_encrypted,
             commands::get_expander_config,
             commands::set_expander_config,
             commands::get_auto_expand_config,

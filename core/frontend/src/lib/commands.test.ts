@@ -28,10 +28,10 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 54 commands (+5 dev-tools, +9 web-search bangs, +qr in v0.76.0)", () => {
+  it("has 55 commands (+5 dev-tools, +9 web-search bangs, +qr, +sound)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(54);
+    expect(COMMANDS.length).toBe(55);
   });
 
   it("every keyword is unique", () => {
@@ -56,6 +56,13 @@ describe("COMMANDS catalogue", () => {
       expect(c.description.length).toBeGreaterThan(0);
       expect(c.syntax.length).toBeGreaterThan(0);
     }
+  });
+
+  it("`sound` is an arg-less command of kind sound", () => {
+    const r = parseCommand("sound");
+    expect(r?.spec.kind).toBe("sound");
+    expect(r?.spec.requiresArg).toBe(false);
+    expect(COMMANDS.find((c) => c.keyword === "sound")?.kind).toBe("sound");
   });
 
   it("every syntax starts with its own keyword", () => {

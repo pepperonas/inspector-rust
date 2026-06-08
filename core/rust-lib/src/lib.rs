@@ -1,6 +1,7 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod app_launcher;
+mod audio;
 mod auto_expand;
 mod backup;
 mod brightness;
@@ -451,6 +452,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,
             commands::set_monitor_brightness,
+            commands::list_audio_outputs,
+            commands::set_audio_output,
             commands::brightness_open,
             commands::brightness_close,
             commands::get_screen_recording_status,

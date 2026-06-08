@@ -67,7 +67,8 @@ export type CommandKind =
   | "hash"
   | "json"
   | "jwt"
-  | "qr";
+  | "qr"
+  | "sound";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -481,6 +482,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "qr <text>",
     description: "Generate a QR code — preview it, Enter copies the PNG to clipboard",
     requiresArg: true,
+  },
+  {
+    kind: "sound",
+    keyword: "sound",
+    syntax: "sound",
+    description: "Pick the audio output device — ↑↓ select, Enter switches to it",
+    requiresArg: false,
   },
   ...SEARCH_BANG_COMMANDS,
 ];

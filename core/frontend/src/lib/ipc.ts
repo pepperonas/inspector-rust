@@ -1069,6 +1069,23 @@ export function brightnessClose(): Promise<void> {
   return invoke("brightness_close");
 }
 
+// ── Audio output device (v0.80.0) ───────────────────────────────────────────
+
+export interface AudioDevice {
+  /** Opaque per-platform id (CoreAudio AudioDeviceID on macOS, MMDevice id on Windows). */
+  id: string;
+  name: string;
+  is_default: boolean;
+}
+/** List the system audio output devices, marking the current default. */
+export function listAudioOutputs(): Promise<AudioDevice[]> {
+  return invoke("list_audio_outputs");
+}
+/** Set the default audio output device by its id. */
+export function setAudioOutput(id: string): Promise<void> {
+  return invoke("set_audio_output", { id });
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

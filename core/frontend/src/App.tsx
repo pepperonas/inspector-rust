@@ -9,6 +9,7 @@ import { NotesPanel } from "./components/NotesPanel";
 import { PreviewPanel } from "./components/PreviewPanel";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BrightnessPanel } from "./components/BrightnessPanel";
+import { SoundPanel } from "./components/SoundPanel";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SnippetsPanel } from "./components/SnippetsPanel";
@@ -141,6 +142,11 @@ function App() {
   // list (false); Enter toggles between the two.
   const [brightnessMode, setBrightnessMode] = useState(false);
   const [brightnessFocus, setBrightnessFocus] = useState(false);
+  // Sound mode — Enter on the `sound` command row renders the audio
+  // output-device picker in the right preview column; `soundFocus` is whether
+  // the arrow keys drive the picker (true) or the left list (false).
+  const [soundMode, setSoundMode] = useState(false);
+  const [soundFocus, setSoundFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -413,6 +419,15 @@ function App() {
     }
   }, [isBrightnessCmd, brightnessMode]);
 
+  // Same auto-exit for sound mode.
+  const isSoundCmd = parsedCommand?.spec.kind === "sound";
+  useEffect(() => {
+    if (!isSoundCmd && soundMode) {
+      setSoundMode(false);
+      setSoundFocus(false);
+    }
+  }, [isSoundCmd, soundMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -590,6 +605,10 @@ function App() {
       case "brightness":
         label = "Adjust monitor brightness";
         hint = "Opens a slider per DDC monitor (external displays)";
+        break;
+      case "sound":
+        label = "Pick the audio output device";
+        hint = "Enter → device list in the preview; ↑↓ select, Enter switches output";
         break;
       case "random": {
         const r = parseRandomArg(arg);
@@ -1558,6 +1577,12 @@ function App() {
         setBrightnessMode(true);
         setBrightnessFocus(true);
         return true;
+      } else if (commandKind === "sound") {
+        // Inline output-device picker in the preview column (like brightness).
+        setQuery("sound");
+        setSoundMode(true);
+        setSoundFocus(true);
+        return true;
       } else if (commandKind === "random") {
         // Roll a random number and show it in the (longer-lasting) toast.
         const r = parseRandomArg(arg);
@@ -1821,7 +1846,8 @@ function App() {
     // In game mode the game owns the keyboard — disable the popup nav
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
-    enabled: !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus,
+    enabled:
+      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2121,6 +2147,15 @@ function App() {
                   onExit={() => {
                     setBrightnessMode(false);
                     setBrightnessFocus(false);
+                    requestAnimationFrame(() => searchRef.current?.focus());
+                  }}
+                />
+              ) : soundMode ? (
+                <SoundPanel
+                  focused={soundFocus}
+                  onExit={() => {
+                    setSoundMode(false);
+                    setSoundFocus(false);
                     requestAnimationFrame(() => searchRef.current?.focus());
                   }}
                 />

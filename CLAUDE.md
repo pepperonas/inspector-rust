@@ -267,6 +267,34 @@ Pure, unit-tested mappings: `percent_to_raw`/`raw_to_percent` (DDC, scaled to ea
 
 **Frontend — inline in the preview column (v0.72.1).** `brightness` does **not** open a separate window. Pressing Enter on the `brightness` command row sets `App.tsx`'s `brightnessMode` + `brightnessFocus`, which renders `BrightnessPanel.tsx` in the **right preview column** (replacing `PreviewPanel`) and gives the arrow keys to the sliders: **↑/↓** select a monitor, **←/→** adjust ±5 (debounced ~80 ms, floor 5%), **Enter** hands the arrows back to the left list (`onUnfocus`, re-focuses the search field), **Esc** leaves brightness mode (`onExit`). `useKeyboardNav` is disabled while `brightnessFocus` is true so the list nav doesn't double-fire (same `enabled` gate as games/bpm/totp). `brightnessMode` auto-exits when the query is no longer the `brightness` command. (The old separate `brightness-overlay` window + `BrightnessOverlay.tsx` / `brightness_open`/`_close` IPC are retired but left inert in the tree — its webview didn't reliably load the monitor list, which is why the redesign moved control inline.)
 
+### Audio output device (`audio.rs`, v0.80.0)
+
+`sound` opens an inline **output-device picker** in the right preview column —
+same arrow-key model as `brightness`. Enter on the `sound` row → `App.tsx`'s
+`soundMode` + `soundFocus` render `SoundPanel.tsx`: **↑/↓** select a device,
+**Enter** switches the system default output to it, **Esc** leaves. `useKeyboardNav`
+is gated off while `soundFocus`; `soundMode` auto-exits when the query is no
+longer `sound`. IPC: `list_audio_outputs` / `set_audio_output` (`AudioDevice { id, name, is_default }`).
+
+- **macOS:** raw CoreAudio FFI (`#[link(... "CoreAudio")]`). Enumerate
+  `kAudioHardwarePropertyDevices`, keep devices with output channels (stream
+  config, output scope), read each `kAudioObjectPropertyName`, and get/set
+  `kAudioHardwarePropertyDefaultOutputDevice`. `id` is the decimal
+  `AudioDeviceID`. Fully tested live (list + set-to-default no-op + bad-id).
+- **Windows (runtime-unverified):** the public MMDevice API
+  (`IMMDeviceEnumerator.EnumAudioEndpoints(eRender, ACTIVE)` + friendly name via
+  `IPropertyStore`/`PKEY_Device_FriendlyName`/`PropVariantToStringAlloc`) lists
+  endpoints; the default is switched with the undocumented `IPolicyConfig` COM
+  object — created via raw `ole32!CoCreateInstance` directly on its IID (linked
+  as `co_create_instance_raw` to avoid clashing with the `windows` crate's typed
+  one) + a hand-declared vtable, calling `SetDefaultEndpoint` for all three
+  roles. Same approach as NirCmd/SoundVolumeView (no public "set default" API).
+  Compile-validated against `windows` 0.61 (isolated `windows-gnu` check); needs
+  the `Win32_Media_Audio` / `Win32_Devices_FunctionDiscovery` /
+  `Win32_System_Com_StructuredStorage` / `Win32_System_Variant` /
+  `Win32_UI_Shell{,_PropertiesSystem}` features.
+- **Linux:** returns an explanatory error (no portable base-install API).
+
 ### Cleaning workflow (`cleaner.rs`, v0.60.0)
 
 `clean` (alias `cleanup`) deletes cache/log/temp files — **safety is the whole design** (it deletes user files). Guarantees: (1) **strict hard-coded allowlist** of cache/log/temp roots per OS in `cleaner::categories()` — never documents/Desktop/Pictures; (2) **canonicalise + containment check** (`is_contained`) before every delete, **symlinks never followed** (`symlink_metadata`/`lstat` → skipped, both when walking and deleting) so a symlinked subdir can't escape the allowlist; (3) **dry-run first** — `scan(cfg)` is read-only and returns a `CleanPlan { items, total_bytes, categories }`; nothing is deleted until `execute(cfg, plan)`, which **re-validates** every path against the allowlist again (TOCTOU-resistant); (4) **conservative opt-in levels** `Level { Safe (default), Standard, Aggressive }` — each category has a `level` + `default_enabled` (dev-tool caches are Aggressive **and** opt-in), plus a `min_age_days` mtime filter. The pure core (`scan_roots`/`execute_plan`/`is_contained`, explicit roots) is exhaustively unit-tested against temp fixtures (containment, symlink-escape rejection, outside-allowlist rejection, age filter, plan→execute consistency, empty no-op) — **no test touches a real user path**. Settings `cleaner.{level,min_age_days,categories}`; IPC `cleaner_scan` / `cleaner_execute` / `cleaner_categories` / `get_cleaner_config` / `set_cleaner_config`. Frontend: the `clean` dispatch always **scans → `window.confirm` (count + freed bytes + per-category breakdown) → executes → status toast** (`clean` kind, Sparkles icon); Settings → Cleaning has the level picker + age + per-category checkboxes + an Aggressive warning.

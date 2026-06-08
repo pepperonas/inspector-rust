@@ -2867,6 +2867,18 @@ pub fn set_monitor_brightness(id: u32, percent: u8) -> Result<(), String> {
     crate::brightness::set(id, percent)
 }
 
+/// List the system audio output devices (`sound` command). Marks the default.
+#[tauri::command]
+pub fn list_audio_outputs() -> Result<Vec<crate::audio::AudioDevice>, String> {
+    crate::audio::list_outputs()
+}
+
+/// Set the default audio output device by its opaque per-platform id.
+#[tauri::command]
+pub fn set_audio_output(id: String) -> Result<(), String> {
+    crate::audio::set_output(&id)
+}
+
 /// Window label for the brightness slider overlay.
 pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
 

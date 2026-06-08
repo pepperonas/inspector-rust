@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.80.0] — 2026-06-09
+
+### Added — `sound` command: pick the audio output device
+
+Type **`sound`** and Enter to get an inline output-device picker in the preview
+column (same arrow-key model as `brightness`): **↑/↓** select, **Enter** switches
+the system default output, **Esc** closes. Mirrors the macOS Sound pane's Output
+list.
+
+- **macOS:** CoreAudio — enumerates output devices, marks the default, switches
+  it. Tested live.
+- **Windows:** MMDevice enumeration + the `IPolicyConfig` COM object to switch
+  the default (the standard approach, since Windows has no public "set default
+  device" API). Compile-validated against the `windows` 0.61 bindings; runtime
+  verification on a real Windows box is pending.
+
 ## [0.79.2] — 2026-06-08
 
 ### Fixed — `kill` and `meme` picker rows now get the red highlight too

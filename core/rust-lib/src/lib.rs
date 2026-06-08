@@ -31,6 +31,7 @@ mod recolor;
 mod input_lock;
 mod region_picker;
 mod screen_picker;
+mod screen_record;
 mod screen_recording;
 mod frontmost_app;
 mod screenshot_editor;
@@ -153,6 +154,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(popup_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
+            app.manage(screen_record::RecordState::default());
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.
             wakelock::cleanup_orphans();
@@ -454,6 +456,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_monitor_brightness,
             commands::list_audio_outputs,
             commands::set_audio_output,
+            commands::screen_record_open_overlay,
+            commands::cancel_record_overlay,
+            commands::start_screen_record,
+            commands::stop_screen_record,
+            commands::is_recording,
             commands::brightness_open,
             commands::brightness_close,
             commands::get_screen_recording_status,

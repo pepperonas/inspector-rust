@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.81.0] — 2026-06-09
+
+### Added — screen recording (`Ctrl+Shift+R`)
+
+Record a screen region to an **MP4 (H.264)**, the same workflow on **macOS and
+Windows 11**. Press **`Ctrl+Shift+R`** → a fullscreen overlay lets you **drag a
+region** → a small panel lets you choose which **audio tracks** to capture
+(**System** and/or **Microphone** and/or **none**) → **Record** starts a **3-second
+countdown** → recording begins. A floating **stop bar** (pulsing red dot + elapsed
+timer + Stop button) sits at the bottom of the screen; Stop finalises the MP4 to
+**Downloads** and reveals it in Finder/Explorer.
+
+- **Engine: ffmpeg** (the one engine that gives an identical cross-platform
+  workflow + MP4). macOS uses `avfoundation` (screen + device audio, region via
+  `crop`); Windows uses `gdigrab` (region offsets) + `dshow` audio. Two audio
+  tracks are mixed with `amix`. Output is `libx264 -preset ultrafast -pix_fmt
+  yuv420p -movflags +faststart`.
+- The pure ffmpeg-argument builders and avfoundation/dshow device parsers in
+  `screen_record.rs` are unit-tested (8 tests).
+- **Requirements / caveats:** ffmpeg must be installed (macOS: `brew install
+  ffmpeg`; the overlay shows an install hint via the `record.no_ffmpeg`
+  sentinel). System audio needs a loopback device (macOS: BlackHole). The
+  Windows path is compile-validated; runtime verification on a real Windows box
+  is pending. On macOS the OS may prompt ffmpeg for its own Screen-Recording
+  permission the first time.
+
 ## [0.80.0] — 2026-06-09
 
 ### Added — `sound` command: pick the audio output device

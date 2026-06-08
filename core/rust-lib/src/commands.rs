@@ -2879,6 +2879,151 @@ pub fn set_audio_output(id: String) -> Result<(), String> {
     crate::audio::set_output(&id)
 }
 
+// ── Screen recording (Ctrl+Shift+R, v0.81.0) ────────────────────────────────
+
+pub const RECORD_OVERLAY_LABEL: &str = "record-overlay";
+pub const RECORD_STOP_LABEL: &str = "record-stop";
+
+/// Open the fullscreen region-select overlay (the start of the recording flow).
+#[tauri::command]
+pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(state) = app.try_state::<crate::screen_record::RecordState>() {
+        if state.is_recording() {
+            return Err("already recording".into());
+        }
+    }
+    if let Some(popup) = app.get_webview_window(hotkey::POPUP_LABEL) {
+        let _ = popup.hide();
+    }
+    let _ = app.emit("popup-hidden", ());
+    if let Some(existing) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
+        let _ = existing.close();
+    }
+    let win = WebviewWindowBuilder::new(
+        &app,
+        RECORD_OVERLAY_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Select recording region")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    .map_err(|e| format!("build record overlay: {e}"))?;
+    // Cover the primary monitor edge to edge.
+    if let Ok(Some(mon)) = win.primary_monitor() {
+        let _ = win.set_position(*mon.position());
+        let _ = win.set_size(*mon.size());
+    }
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+/// Esc / cancel from the overlay — just close it.
+#[tauri::command]
+pub fn cancel_record_overlay(app: AppHandle) -> Result<(), String> {
+    if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
+        let _ = w.close();
+    }
+    Ok(())
+}
+
+/// Start recording the chosen region with the chosen audio tracks. Closes the
+/// overlay and shows the floating stop bar. Returns the sentinel
+/// `record.no_ffmpeg` if ffmpeg isn't installed (frontend shows an install hint).
+#[tauri::command]
+pub fn start_screen_record(
+    app: AppHandle,
+    state: State<'_, crate::screen_record::RecordState>,
+    region: crate::screen_record::RecordRegion,
+    audio: crate::screen_record::AudioChoice,
+) -> Result<(), String> {
+    crate::screen_record::start(&state, region, audio)?;
+    if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
+        let _ = w.close();
+    }
+    open_record_stop_bar(&app)?;
+    Ok(())
+}
+
+fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(existing) = app.get_webview_window(RECORD_STOP_LABEL) {
+        let _ = existing.close();
+    }
+    let win = WebviewWindowBuilder::new(app, RECORD_STOP_LABEL, WebviewUrl::App("index.html".into()))
+        .title("Recording")
+        .inner_size(230.0, 54.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(true)
+        .visible(false)
+        .build()
+        .map_err(|e| format!("build stop bar: {e}"))?;
+    // Bottom-centre of the primary monitor.
+    if let Ok(Some(mon)) = win.primary_monitor() {
+        let mpos = mon.position();
+        let msize = mon.size();
+        let bar_w = (230.0 * mon.scale_factor()) as i32;
+        let bar_h = (54.0 * mon.scale_factor()) as i32;
+        let x = mpos.x + (msize.width as i32 - bar_w) / 2;
+        let y = mpos.y + msize.height as i32 - bar_h - (40.0 * mon.scale_factor()) as i32;
+        let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
+    }
+    let _ = win.show();
+    let _ = win.set_focus();
+    Ok(())
+}
+
+/// Stop the active recording, finalise the MP4, reveal it, and toast the path.
+#[tauri::command]
+pub fn stop_screen_record(
+    app: AppHandle,
+    state: State<'_, crate::screen_record::RecordState>,
+) -> Result<String, String> {
+    let path = crate::screen_record::stop(&state)?;
+    if let Some(w) = app.get_webview_window(RECORD_STOP_LABEL) {
+        let _ = w.close();
+    }
+    reveal_in_file_manager(&path);
+    let s = path.to_string_lossy().to_string();
+    let _ = app.emit("recording-saved", s.clone());
+    Ok(s)
+}
+
+#[tauri::command]
+pub fn is_recording(state: State<'_, crate::screen_record::RecordState>) -> bool {
+    state.is_recording()
+}
+
+/// Reveal a file in Finder (macOS) / Explorer (Windows) with it selected.
+fn reveal_in_file_manager(path: &std::path::Path) {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("/usr/bin/open")
+            .arg("-R")
+            .arg(path)
+            .spawn();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        let arg = format!("/select,\"{}\"", path.display());
+        let _ = std::process::Command::new("explorer.exe").raw_arg(arg).spawn();
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = path;
+    }
+}
+
 /// Window label for the brightness slider overlay.
 pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
 

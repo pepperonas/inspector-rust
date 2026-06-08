@@ -161,6 +161,12 @@ code {
   }
 }
 
+/* ── Screen-recording stop bar ─────────────────────────────────────────
+   The red dot pulses while a recording is active. */
+.recordPulse {
+  animation: wakelockPulse 1.4s ease-in-out infinite;
+}
+
 /* ── BPM detector ──────────────────────────────────────────────────────
    Two animations: the slow `bpmPulse` runs while waiting for mic
    permission (mic icon breathing); `bpmBeatPulse` fires once per

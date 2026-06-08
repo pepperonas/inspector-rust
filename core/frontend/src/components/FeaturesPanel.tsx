@@ -108,6 +108,11 @@ export function FeaturesPanel() {
           note: "Loupe to sample any on-screen pixel; hex → clipboard.",
         },
         {
+          name: "Screen recording",
+          trigger: formatHotkey("Ctrl+Shift+R"),
+          note: "Drag a region → pick audio (system / mic / none) → 3 s countdown → MP4 to Downloads. Floating stop bar; needs ffmpeg.",
+        },
+        {
           name: "Finder selection",
           trigger: formatHotkey("Ctrl+Shift+F"),
           note: "Pull the files selected in Finder into the popup (resize / optimise / cut-out).",

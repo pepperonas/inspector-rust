@@ -1,0 +1,579 @@
+//! Screen recording — the `Ctrl+Shift+R` flow. Region select → audio-track
+//! choice (system / mic / both / none) → 3 s countdown → ffmpeg records the
+//! region to an MP4 → floating stop bar → Downloads + preview.
+//!
+//! **Engine: ffmpeg** (same workflow on macOS + Windows, MP4/H.264). macOS uses
+//! the `avfoundation` input + a `crop` filter; Windows uses `gdigrab` (region
+//! offset/size) + `dshow` audio. System audio needs a loopback device
+//! (macOS: BlackHole; Windows: a virtual capturer / "Stereo Mix") — captured by
+//! name when present. The pure argv builders + device-list parsers are
+//! unit-tested; the spawn/stop is a thin process wrapper.
+//!
+//! **Windows is runtime-unverified** (built compile-clean; not yet exercised on
+//! a real Windows box).
+
+use parking_lot::Mutex;
+use std::path::PathBuf;
+use std::process::Child;
+
+/// A capture rectangle in **physical pixels** of the target display (the
+/// frontend overlay multiplies CSS px by `devicePixelRatio` before sending).
+#[derive(Debug, Clone, Copy, serde::Deserialize)]
+pub struct RecordRegion {
+    pub x: i32,
+    pub y: i32,
+    pub w: u32,
+    pub h: u32,
+}
+
+/// Which audio tracks to mix into the recording.
+#[derive(Debug, Clone, Copy, serde::Deserialize, Default)]
+pub struct AudioChoice {
+    pub system: bool,
+    pub mic: bool,
+}
+
+const FPS: u32 = 30;
+
+// ── Device-list parsers (pure, unit-tested) ──────────────────────────────────
+
+/// One `(index, name)` device row.
+pub type Device = (u32, String);
+
+/// Parse `ffmpeg -f avfoundation -list_devices true -i ""` stderr into the
+/// `(video, audio)` device lists. Lines look like:
+/// `[AVFoundation indev @ 0x..] [2] Capture screen 0`
+#[cfg(any(target_os = "macos", test))]
+pub fn parse_avf_devices(stderr: &str) -> (Vec<Device>, Vec<Device>) {
+    let mut video = Vec::new();
+    let mut audio = Vec::new();
+    let mut in_audio = false;
+    for line in stderr.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("video devices") {
+            in_audio = false;
+            continue;
+        }
+        if lower.contains("audio devices") {
+            in_audio = true;
+            continue;
+        }
+        // Extract a trailing `[<n>] <name>` (skip the leading `[AVFoundation …]`).
+        if let Some((idx, name)) = parse_indexed_tail(line) {
+            if in_audio {
+                audio.push((idx, name));
+            } else {
+                video.push((idx, name));
+            }
+        }
+    }
+    (video, audio)
+}
+
+/// From a line, take the LAST `[<digits>] <rest>` occurrence as `(idx, name)`.
+fn parse_indexed_tail(line: &str) -> Option<Device> {
+    let open = line.rfind('[')?;
+    let close = line[open..].find(']')? + open;
+    let idx: u32 = line[open + 1..close].trim().parse().ok()?;
+    let name = line[close + 1..].trim().to_string();
+    if name.is_empty() {
+        return None;
+    }
+    Some((idx, name))
+}
+
+/// Pick the avfoundation **screen** capture video index ("Capture screen N").
+#[cfg(any(target_os = "macos", test))]
+pub fn pick_screen_index(video: &[Device]) -> Option<u32> {
+    video
+        .iter()
+        .find(|(_, n)| n.to_lowercase().contains("capture screen"))
+        .map(|(i, _)| *i)
+}
+
+/// Pick the microphone audio index (name contains "microphone"/"mikrofon",
+/// else the first audio device).
+#[cfg(any(target_os = "macos", test))]
+pub fn pick_mic_index(audio: &[Device]) -> Option<u32> {
+    audio
+        .iter()
+        .find(|(_, n)| {
+            let l = n.to_lowercase();
+            l.contains("microphone") || l.contains("mikrofon") || l.contains("mic")
+        })
+        .or_else(|| audio.first())
+        .map(|(i, _)| *i)
+}
+
+/// Pick a loopback/system-audio capture index (BlackHole / Loopback / Soundflower).
+#[cfg(any(target_os = "macos", test))]
+pub fn pick_system_index(audio: &[Device]) -> Option<u32> {
+    audio
+        .iter()
+        .find(|(_, n)| {
+            let l = n.to_lowercase();
+            l.contains("blackhole") || l.contains("loopback") || l.contains("soundflower")
+        })
+        .map(|(i, _)| *i)
+}
+
+/// Parse `ffmpeg -list_devices true -f dshow -i dummy` stderr → audio device
+/// names. Lines look like: `[dshow @ 0x..] "Microphone (Realtek)" (audio)`.
+#[cfg(any(target_os = "windows", test))]
+pub fn parse_dshow_audio(stderr: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut in_audio = false;
+    for line in stderr.lines() {
+        let lower = line.to_lowercase();
+        if lower.contains("directshow audio devices") {
+            in_audio = true;
+            continue;
+        }
+        if lower.contains("directshow video devices") {
+            in_audio = false;
+            continue;
+        }
+        if !in_audio {
+            continue;
+        }
+        // Take the first double-quoted token as the device name.
+        if let Some(start) = line.find('"') {
+            if let Some(end) = line[start + 1..].find('"') {
+                let name = &line[start + 1..start + 1 + end];
+                if !name.is_empty() {
+                    out.push(name.to_string());
+                }
+            }
+        }
+    }
+    out
+}
+
+/// Best-effort pick of a Windows microphone capture device name.
+#[cfg(any(target_os = "windows", test))]
+pub fn pick_dshow_mic(devices: &[String]) -> Option<String> {
+    devices
+        .iter()
+        .find(|n| {
+            let l = n.to_lowercase();
+            l.contains("microphone") || l.contains("mikrofon") || l.contains("mic")
+        })
+        .or_else(|| devices.first())
+        .cloned()
+}
+
+/// Best-effort pick of a Windows system/loopback capture device name.
+#[cfg(any(target_os = "windows", test))]
+pub fn pick_dshow_system(devices: &[String]) -> Option<String> {
+    devices
+        .iter()
+        .find(|n| {
+            let l = n.to_lowercase();
+            l.contains("stereo mix")
+                || l.contains("stereomix")
+                || l.contains("virtual-audio-capturer")
+                || l.contains("loopback")
+                || l.contains("what u hear")
+                || l.contains("was sie hören")
+        })
+        .cloned()
+}
+
+// ── Pure argv builders (unit-tested) ─────────────────────────────────────────
+
+/// Build the macOS (avfoundation) ffmpeg argv. `system`/`mic` are resolved
+/// avfoundation audio indices (None = unavailable / not wanted).
+#[cfg(any(target_os = "macos", test))]
+pub fn build_args_macos(
+    region: RecordRegion,
+    screen_idx: u32,
+    system: Option<u32>,
+    mic: Option<u32>,
+    out: &str,
+) -> Vec<String> {
+    let mut a: Vec<String> = vec!["-y".into(), "-hide_banner".into()];
+    let crop = format!("crop={}:{}:{}:{}", region.w, region.h, region.x, region.y);
+
+    // Primary screen input. Pair the first audio source onto it; a second
+    // source (for "both") comes as a separate audio-only avfoundation input.
+    let (primary_audio, second_audio): (Option<u32>, Option<u32>) = match (system, mic) {
+        (Some(s), Some(m)) => (Some(s), Some(m)),
+        (Some(s), None) => (Some(s), None),
+        (None, Some(m)) => (Some(m), None),
+        (None, None) => (None, None),
+    };
+
+    a.push("-f".into());
+    a.push("avfoundation".into());
+    a.push("-capture_cursor".into());
+    a.push("1".into());
+    a.push("-framerate".into());
+    a.push(FPS.to_string());
+    a.push("-i".into());
+    a.push(format!(
+        "{screen_idx}:{}",
+        primary_audio.map(|i| i.to_string()).unwrap_or_else(|| "none".into())
+    ));
+
+    if let Some(m) = second_audio {
+        a.push("-f".into());
+        a.push("avfoundation".into());
+        a.push("-i".into());
+        a.push(format!(":{m}"));
+    }
+
+    if second_audio.is_some() {
+        // crop video + mix the two audio inputs.
+        a.push("-filter_complex".into());
+        a.push(format!(
+            "[0:v]{crop}[v];[0:a][1:a]amix=inputs=2:duration=longest[a]"
+        ));
+        a.push("-map".into());
+        a.push("[v]".into());
+        a.push("-map".into());
+        a.push("[a]".into());
+        a.push("-c:a".into());
+        a.push("aac".into());
+    } else if primary_audio.is_some() {
+        a.push("-vf".into());
+        a.push(crop);
+        a.push("-c:a".into());
+        a.push("aac".into());
+    } else {
+        a.push("-vf".into());
+        a.push(crop);
+        a.push("-an".into());
+    }
+
+    push_video_out(&mut a, out);
+    a
+}
+
+/// Build the Windows (gdigrab + dshow) ffmpeg argv. `mic`/`system` are resolved
+/// dshow device names. gdigrab coords are in desktop pixels.
+#[cfg(any(target_os = "windows", test))]
+pub fn build_args_windows(
+    region: RecordRegion,
+    system: Option<&str>,
+    mic: Option<&str>,
+    out: &str,
+) -> Vec<String> {
+    let mut a: Vec<String> = vec!["-y".into(), "-hide_banner".into()];
+    a.push("-f".into());
+    a.push("gdigrab".into());
+    a.push("-framerate".into());
+    a.push(FPS.to_string());
+    a.push("-offset_x".into());
+    a.push(region.x.to_string());
+    a.push("-offset_y".into());
+    a.push(region.y.to_string());
+    a.push("-video_size".into());
+    a.push(format!("{}x{}", region.w, region.h));
+    a.push("-i".into());
+    a.push("desktop".into());
+
+    let audios: Vec<&str> = [system, mic].into_iter().flatten().collect();
+    for dev in &audios {
+        a.push("-f".into());
+        a.push("dshow".into());
+        a.push("-i".into());
+        a.push(format!("audio={dev}"));
+    }
+    match audios.len() {
+        0 => {
+            a.push("-an".into());
+        }
+        1 => {
+            a.push("-map".into());
+            a.push("0:v".into());
+            a.push("-map".into());
+            a.push("1:a".into());
+            a.push("-c:a".into());
+            a.push("aac".into());
+        }
+        _ => {
+            a.push("-filter_complex".into());
+            a.push("[1:a][2:a]amix=inputs=2:duration=longest[a]".into());
+            a.push("-map".into());
+            a.push("0:v".into());
+            a.push("-map".into());
+            a.push("[a]".into());
+            a.push("-c:a".into());
+            a.push("aac".into());
+        }
+    }
+    push_video_out(&mut a, out);
+    a
+}
+
+/// Shared H.264 / MP4 output tail.
+fn push_video_out(a: &mut Vec<String>, out: &str) {
+    for s in [
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+    ] {
+        a.push(s.into());
+    }
+    a.push(out.into());
+}
+
+// ── ffmpeg discovery ─────────────────────────────────────────────────────────
+
+/// Locate the `ffmpeg` binary on PATH or in common install locations.
+pub fn ffmpeg_path() -> Option<PathBuf> {
+    // Honour an explicit PATH lookup first.
+    if let Ok(path) = std::env::var("PATH") {
+        let exe = if cfg!(windows) { "ffmpeg.exe" } else { "ffmpeg" };
+        for dir in std::env::split_paths(&path) {
+            let cand = dir.join(exe);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    // Common spots GUI apps (with a stripped PATH) miss.
+    let extra: &[&str] = if cfg!(target_os = "macos") {
+        &["/opt/homebrew/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
+    } else if cfg!(windows) {
+        &[r"C:\ffmpeg\bin\ffmpeg.exe", r"C:\Program Files\ffmpeg\bin\ffmpeg.exe"]
+    } else {
+        &["/usr/bin/ffmpeg", "/usr/local/bin/ffmpeg"]
+    };
+    extra.iter().map(PathBuf::from).find(|p| p.is_file())
+}
+
+// ── Recording state + start/stop ─────────────────────────────────────────────
+
+#[derive(Default)]
+pub struct RecordState {
+    inner: Mutex<Option<Active>>,
+}
+struct Active {
+    child: Child,
+    out: PathBuf,
+}
+
+impl RecordState {
+    pub fn is_recording(&self) -> bool {
+        self.inner.lock().is_some()
+    }
+}
+
+const ERR_NO_FFMPEG: &str =
+    "record.no_ffmpeg"; // sentinel → frontend shows an install hint
+
+/// Resolve devices, build the platform argv, and spawn ffmpeg. The output MP4
+/// path is returned so the caller can stash it for the preview.
+pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> Result<PathBuf, String> {
+    if state.is_recording() {
+        return Err("already recording".into());
+    }
+    let ffmpeg = ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let out = output_path()?;
+    let args = resolve_args(&ffmpeg, region, audio, &out)?;
+
+    use std::process::{Command, Stdio};
+    let child = Command::new(&ffmpeg)
+        .args(&args)
+        .stdin(Stdio::piped()) // we send "q" to finalize cleanly
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("spawn ffmpeg: {e}"))?;
+
+    *state.inner.lock() = Some(Active { child, out: out.clone() });
+    Ok(out)
+}
+
+/// Stop the recording: send `q` to ffmpeg's stdin for a clean finalize, wait,
+/// and return the finished file path.
+pub fn stop(state: &RecordState) -> Result<PathBuf, String> {
+    let mut active = state.inner.lock().take().ok_or("not recording")?;
+    use std::io::Write;
+    if let Some(stdin) = active.child.stdin.as_mut() {
+        let _ = stdin.write_all(b"q");
+        let _ = stdin.flush();
+    }
+    // Give ffmpeg a moment to flush the moov atom; fall back to a kill.
+    let mut waited = std::time::Duration::ZERO;
+    let step = std::time::Duration::from_millis(100);
+    loop {
+        match active.child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if waited < std::time::Duration::from_secs(5) => {
+                std::thread::sleep(step);
+                waited += step;
+            }
+            _ => {
+                let _ = active.child.kill();
+                let _ = active.child.wait();
+                break;
+            }
+        }
+    }
+    Ok(active.out)
+}
+
+fn output_path() -> Result<PathBuf, String> {
+    let dir = dirs::download_dir().ok_or("no Downloads folder")?;
+    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    Ok(dir.join(format!("Recording-{ts}.mp4")))
+}
+
+#[cfg(target_os = "macos")]
+fn resolve_args(
+    ffmpeg: &std::path::Path,
+    region: RecordRegion,
+    audio: AudioChoice,
+    out: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    let listing = std::process::Command::new(ffmpeg)
+        .args(["-f", "avfoundation", "-list_devices", "true", "-i", ""])
+        .output()
+        .map_err(|e| format!("list avfoundation devices: {e}"))?;
+    let stderr = String::from_utf8_lossy(&listing.stderr);
+    let (video, audio_devs) = parse_avf_devices(&stderr);
+    let screen = pick_screen_index(&video).ok_or("no 'Capture screen' device found")?;
+    let system = if audio.system { pick_system_index(&audio_devs) } else { None };
+    let mic = if audio.mic { pick_mic_index(&audio_devs) } else { None };
+    Ok(build_args_macos(region, screen, system, mic, &out.to_string_lossy()))
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_args(
+    ffmpeg: &std::path::Path,
+    region: RecordRegion,
+    audio: AudioChoice,
+    out: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    let listing = std::process::Command::new(ffmpeg)
+        .args(["-list_devices", "true", "-f", "dshow", "-i", "dummy"])
+        .output()
+        .map_err(|e| format!("list dshow devices: {e}"))?;
+    let stderr = String::from_utf8_lossy(&listing.stderr);
+    let devs = parse_dshow_audio(&stderr);
+    let system = if audio.system { pick_dshow_system(&devs) } else { None };
+    let mic = if audio.mic { pick_dshow_mic(&devs) } else { None };
+    Ok(build_args_windows(
+        region,
+        system.as_deref(),
+        mic.as_deref(),
+        &out.to_string_lossy(),
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+fn resolve_args(
+    _ffmpeg: &std::path::Path,
+    _region: RecordRegion,
+    _audio: AudioChoice,
+    _out: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    Err("screen recording isn't supported on this platform yet".into())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const RGN: RecordRegion = RecordRegion { x: 100, y: 200, w: 640, h: 480 };
+
+    const AVF_SAMPLE: &str = "\
+[AVFoundation indev @ 0x1] AVFoundation video devices:
+[AVFoundation indev @ 0x1] [0] FaceTime HD Camera
+[AVFoundation indev @ 0x1] [2] Capture screen 0
+[AVFoundation indev @ 0x1] AVFoundation audio devices:
+[AVFoundation indev @ 0x1] [1] BlackHole 2ch
+[AVFoundation indev @ 0x1] [3] MacBook Pro Microphone";
+
+    #[test]
+    fn avf_parser_splits_video_and_audio() {
+        let (v, a) = parse_avf_devices(AVF_SAMPLE);
+        assert_eq!(v, vec![(0, "FaceTime HD Camera".into()), (2, "Capture screen 0".into())]);
+        assert_eq!(a, vec![(1, "BlackHole 2ch".into()), (3, "MacBook Pro Microphone".into())]);
+        assert_eq!(pick_screen_index(&v), Some(2));
+        assert_eq!(pick_system_index(&a), Some(1));
+        assert_eq!(pick_mic_index(&a), Some(3));
+    }
+
+    #[test]
+    fn macos_none_audio_uses_an_and_crop() {
+        let args = build_args_macos(RGN, 2, None, None, "/tmp/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("avfoundation"));
+        assert!(j.contains("-i 2:none"));
+        assert!(j.contains("crop=640:480:100:200"));
+        assert!(j.contains("-an"));
+        assert!(j.ends_with("/tmp/o.mp4"));
+        assert!(j.contains("libx264"));
+    }
+
+    #[test]
+    fn macos_system_only_pairs_audio_on_screen_input() {
+        let args = build_args_macos(RGN, 2, Some(1), None, "/tmp/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("-i 2:1"));
+        assert!(j.contains("-c:a aac"));
+        assert!(!j.contains("amix"));
+    }
+
+    #[test]
+    fn macos_both_uses_two_inputs_and_amix() {
+        let args = build_args_macos(RGN, 2, Some(1), Some(3), "/tmp/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("-i 2:1")); // screen + system
+        assert!(j.contains("-i :3")); // mic-only second input
+        assert!(j.contains("amix=inputs=2"));
+        assert!(j.contains("[0:v]crop=640:480:100:200[v]"));
+        assert!(j.contains("-map [v]"));
+        assert!(j.contains("-map [a]"));
+    }
+
+    #[test]
+    fn windows_region_uses_gdigrab_offsets() {
+        let args = build_args_windows(RGN, None, Some("Microphone (X)"), "C:/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("gdigrab"));
+        assert!(j.contains("-offset_x 100"));
+        assert!(j.contains("-offset_y 200"));
+        assert!(j.contains("-video_size 640x480"));
+        assert!(j.contains("audio=Microphone (X)"));
+        assert!(j.contains("-map 1:a"));
+    }
+
+    #[test]
+    fn windows_both_amix_two_dshow_inputs() {
+        let args = build_args_windows(RGN, Some("Stereo Mix"), Some("Mic"), "C:/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("audio=Stereo Mix"));
+        assert!(j.contains("audio=Mic"));
+        assert!(j.contains("[1:a][2:a]amix=inputs=2"));
+        assert!(j.contains("-map 0:v"));
+    }
+
+    #[test]
+    fn windows_none_is_an() {
+        let args = build_args_windows(RGN, None, None, "C:/o.mp4");
+        assert!(args.join(" ").contains("-an"));
+    }
+
+    #[test]
+    fn dshow_parser_extracts_audio_names() {
+        let sample = "\
+[dshow @ 0x1] DirectShow video devices
+[dshow @ 0x1]  \"HD WebCam\"
+[dshow @ 0x1] DirectShow audio devices
+[dshow @ 0x1]  \"Microphone (Realtek)\"
+[dshow @ 0x1]  \"Stereo Mix (Realtek)\"";
+        let devs = parse_dshow_audio(sample);
+        assert_eq!(devs, vec!["Microphone (Realtek)", "Stereo Mix (Realtek)"]);
+        assert_eq!(pick_dshow_mic(&devs).as_deref(), Some("Microphone (Realtek)"));
+        assert_eq!(pick_dshow_system(&devs).as_deref(), Some("Stereo Mix (Realtek)"));
+    }
+}

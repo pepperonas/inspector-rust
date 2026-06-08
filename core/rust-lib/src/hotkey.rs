@@ -363,6 +363,27 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register Finder-selection hotkey")?;
 
+    // Screen recording — Ctrl+Shift+R. Opens the fullscreen region-select
+    // overlay (the start of the record flow: region → audio tracks → 3 s
+    // countdown → ffmpeg). Building a webview window must run on the main
+    // thread, so dispatch there.
+    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyR);
+    let app_for_record = app.clone();
+    app.global_shortcut()
+        .on_shortcut(record, move |_app, sc, event| {
+            if event.state != ShortcutState::Pressed || *sc != record {
+                return;
+            }
+            let app = app_for_record.clone();
+            let app_main = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Err(e) = crate::commands::screen_record_open_overlay(app_main.clone()) {
+                    tracing::warn!("screen-record overlay: {e}");
+                }
+            });
+        })
+        .context("failed to register screen-record hotkey")?;
+
     // Markdown → PDF (standalone) — Ctrl+Shift+M. Reads the Finder
     // selection (same osascript path as Ctrl+Shift+F), filters to
     // `.md`/`.markdown`, converts each via in-process pulldown-cmark

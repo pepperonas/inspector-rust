@@ -1086,6 +1086,43 @@ export function setAudioOutput(id: string): Promise<void> {
   return invoke("set_audio_output", { id });
 }
 
+/** Screen-recording region in **physical** pixels (CSS-rect × devicePixelRatio). */
+export interface RecordRegion {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+/** Which audio tracks to capture. Both false → silent video. */
+export interface AudioChoice {
+  system: boolean;
+  mic: boolean;
+}
+/** Sentinel returned by `startScreenRecord` when ffmpeg isn't installed. */
+export const ERR_NO_FFMPEG = "record.no_ffmpeg";
+/** Open the fullscreen region-select overlay (start of the Ctrl+Shift+R flow). */
+export function screenRecordOpenOverlay(): Promise<void> {
+  return invoke("screen_record_open_overlay");
+}
+/** Esc / cancel from the overlay — closes it without recording. */
+export function cancelRecordOverlay(): Promise<void> {
+  return invoke("cancel_record_overlay");
+}
+/** Start recording the chosen region with the chosen audio tracks. Closes the
+ *  overlay, shows the floating stop bar. Rejects with `record.no_ffmpeg` if
+ *  ffmpeg is missing. */
+export function startScreenRecord(region: RecordRegion, audio: AudioChoice): Promise<void> {
+  return invoke("start_screen_record", { region, audio });
+}
+/** Stop the active recording, finalise the MP4, reveal it. Returns the path. */
+export function stopScreenRecord(): Promise<string> {
+  return invoke("stop_screen_record");
+}
+/** Whether a recording is currently active. */
+export function isRecording(): Promise<boolean> {
+  return invoke("is_recording");
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

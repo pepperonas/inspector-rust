@@ -245,7 +245,10 @@ export function RecordOverlay() {
             </button>
           </div>
           <p className="text-[10px] leading-snug text-[var(--color-muted)]">
-            System audio needs a loopback device (macOS: BlackHole). Starts after a 3 s countdown.
+            Mic records directly. <b>System audio</b> is captured through a
+            loopback device (macOS: BlackHole) — your output must actually be
+            routed through it (e.g. a Multi-Output Device), otherwise it records
+            silence. Starts after a 3&nbsp;s countdown.
           </p>
         </div>
       )}

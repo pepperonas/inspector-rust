@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.6] — 2026-06-09
+
+### Verified + clarified — recording audio
+
+Tested the macOS audio paths end-to-end (3 s captures + ffprobe/volumedetect):
+**mic** records real audio (aac 48 kHz; measured signal, not silent) and **both**
+mixes correctly via `amix` (mic audible in the output). **System audio** produces
+a valid stream but is **silent unless the system output is actually routed
+through the loopback device** (BlackHole is a virtual cable — it only carries
+what's sent to it; use a Multi-Output Device). That's inherent to
+avfoundation/ffmpeg system-audio capture, not a bug. The record overlay's hint
+now spells this out so "System audio → silence" isn't mistaken for a failure.
+
 ## [0.82.5] — 2026-06-09
 
 ### Fixed — Windows orphan-ffmpeg cleanup was broken

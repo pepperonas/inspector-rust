@@ -2943,11 +2943,36 @@ pub fn start_screen_record(
     audio: crate::screen_record::AudioChoice,
 ) -> Result<(), String> {
     crate::screen_record::start(&state, region, audio)?;
-    if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
-        let _ = w.close();
-    }
-    open_record_stop_bar(&app)?;
+    // Window ops MUST run on the main thread — on macOS, building/closing an
+    // NSWindow off the Tauri command-worker thread is unreliable (this is why
+    // the stop bar previously never appeared).
+    let app2 = app.clone();
+    app.run_on_main_thread(move || {
+        if let Some(w) = app2.get_webview_window(RECORD_OVERLAY_LABEL) {
+            let _ = w.close();
+        }
+        if let Err(e) = open_record_stop_bar(&app2) {
+            tracing::warn!("open record stop bar: {e}");
+        }
+    })
+    .map_err(|e| format!("dispatch stop bar: {e}"))?;
     Ok(())
+}
+
+/// Pause the active recording (finalises the current segment).
+#[tauri::command]
+pub fn pause_screen_record(
+    state: State<'_, crate::screen_record::RecordState>,
+) -> Result<(), String> {
+    crate::screen_record::pause(&state)
+}
+
+/// Resume a paused recording (starts a fresh segment).
+#[tauri::command]
+pub fn resume_screen_record(
+    state: State<'_, crate::screen_record::RecordState>,
+) -> Result<(), String> {
+    crate::screen_record::resume(&state)
 }
 
 fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
@@ -2957,7 +2982,7 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
     }
     let win = WebviewWindowBuilder::new(app, RECORD_STOP_LABEL, WebviewUrl::App("index.html".into()))
         .title("Recording")
-        .inner_size(230.0, 54.0)
+        .inner_size(312.0, 54.0)
         .resizable(false)
         .decorations(false)
         .transparent(true)
@@ -2971,7 +2996,7 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
     if let Ok(Some(mon)) = win.primary_monitor() {
         let mpos = mon.position();
         let msize = mon.size();
-        let bar_w = (230.0 * mon.scale_factor()) as i32;
+        let bar_w = (312.0 * mon.scale_factor()) as i32;
         let bar_h = (54.0 * mon.scale_factor()) as i32;
         let x = mpos.x + (msize.width as i32 - bar_w) / 2;
         let y = mpos.y + msize.height as i32 - bar_h - (40.0 * mon.scale_factor()) as i32;
@@ -2989,9 +3014,12 @@ pub fn stop_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<String, String> {
     let path = crate::screen_record::stop(&state)?;
-    if let Some(w) = app.get_webview_window(RECORD_STOP_LABEL) {
-        let _ = w.close();
-    }
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        if let Some(w) = app2.get_webview_window(RECORD_STOP_LABEL) {
+            let _ = w.close();
+        }
+    });
     reveal_in_file_manager(&path);
     let s = path.to_string_lossy().to_string();
     let _ = app.emit("recording-saved", s.clone());

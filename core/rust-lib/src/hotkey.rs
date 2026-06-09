@@ -363,11 +363,15 @@ pub fn register(app: &AppHandle) -> Result<()> {
         })
         .context("failed to register Finder-selection hotkey")?;
 
-    // Screen recording — Ctrl+Shift+R. Opens the fullscreen region-select
-    // overlay (the start of the record flow: region → audio tracks → 3 s
-    // countdown → ffmpeg). Building a webview window must run on the main
-    // thread, so dispatch there.
-    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyR);
+    // Screen recording — Ctrl+Shift+Alt+S (⌃⇧⌥S). Opens the fullscreen
+    // region-select overlay (the start of the record flow: region → audio
+    // tracks → 3 s countdown → ffmpeg). The extra Alt distinguishes it from
+    // Ctrl+Shift+S (screenshot region). Building a webview window must run on
+    // the main thread, so dispatch there.
+    let record = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT),
+        Code::KeyS,
+    );
     let app_for_record = app.clone();
     app.global_shortcut()
         .on_shortcut(record, move |_app, sc, event| {

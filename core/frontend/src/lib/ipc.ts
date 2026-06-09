@@ -1124,7 +1124,15 @@ export function cancelRecordOverlay(): Promise<void> {
 export function startScreenRecord(region: RecordRegion, audio: AudioChoice): Promise<void> {
   return invoke("start_screen_record", { region, audio });
 }
-/** Stop the active recording, finalise the MP4, reveal it. Returns the path. */
+/** Pause the active recording (finalises the current segment). */
+export function pauseScreenRecord(): Promise<void> {
+  return invoke("pause_screen_record");
+}
+/** Resume a paused recording (starts a fresh segment). */
+export function resumeScreenRecord(): Promise<void> {
+  return invoke("resume_screen_record");
+}
+/** Stop the active recording, finalise + concat the MP4, reveal it. Returns the path. */
 export function stopScreenRecord(): Promise<string> {
   return invoke("stop_screen_record");
 }

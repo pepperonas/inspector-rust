@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.0] — 2026-06-09
+
+### Fixed — recording stop bar never appeared
+
+The floating stop bar was built from a Tauri command-worker thread; on macOS,
+creating an `NSWindow`/webview off the main thread is unreliable, so it silently
+never showed. Window open/close for the recording flow now runs on the **main
+thread** (`run_on_main_thread`), so the bar appears reliably.
+
+### Added — pause / resume a recording
+
+The floating bar now has a **Pause/Resume** button next to **Stop**, and the
+elapsed timer freezes while paused. Because ffmpeg can't truly pause a live
+capture, pause is implemented as **segment + concat**: each contiguous run is a
+temp segment; Stop concatenates them losslessly (`-c copy`, no re-encode) into
+the final MP4. A never-paused recording is just moved to the output (no concat).
+
+### Changed — record hotkey is now `Ctrl+Shift+Alt+S` (⌃⇧⌥S)
+
+Was `Ctrl+Shift+R`. The extra Alt keeps it clearly distinct from `Ctrl+Shift+S`
+(screenshot region).
+
 ## [0.81.1] — 2026-06-09
 
 ### Fixed — `meme` command found nothing on Windows; meme folder now configurable

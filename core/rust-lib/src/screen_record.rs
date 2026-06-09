@@ -348,15 +348,33 @@ pub fn ffmpeg_path() -> Option<PathBuf> {
     extra.iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
-// ── Recording state + start/stop ─────────────────────────────────────────────
+// ── Recording state + start/pause/resume/stop ────────────────────────────────
+//
+// Pause/resume is implemented as **segment + concat**: ffmpeg can't truly
+// pause a live capture, so each contiguous run is recorded to its own temp
+// segment file. Pause finalises the current segment; resume spawns a fresh
+// ffmpeg into the next segment; stop finalises the last segment and concatenates
+// them all losslessly (`-c copy`, no re-encode) into the final MP4. A single
+// segment (never paused) is just moved to the output, skipping concat.
 
 #[derive(Default)]
 pub struct RecordState {
-    inner: Mutex<Option<Active>>,
+    inner: Mutex<Option<Session>>,
 }
-struct Active {
-    child: Child,
-    out: PathBuf,
+
+/// One recording session, possibly spanning several pause/resume segments.
+struct Session {
+    region: RecordRegion,
+    audio: AudioChoice,
+    ffmpeg: PathBuf,
+    /// Final MP4 path in Downloads.
+    final_out: PathBuf,
+    /// Completed segment files (in capture order).
+    segments: Vec<PathBuf>,
+    /// The currently-recording ffmpeg + its segment file; `None` while paused.
+    current: Option<(Child, PathBuf)>,
+    /// Monotonic segment counter (names the temp files).
+    seq: u32,
 }
 
 impl RecordState {
@@ -368,56 +386,185 @@ impl RecordState {
 const ERR_NO_FFMPEG: &str =
     "record.no_ffmpeg"; // sentinel → frontend shows an install hint
 
-/// Resolve devices, build the platform argv, and spawn ffmpeg. The output MP4
-/// path is returned so the caller can stash it for the preview.
-pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> Result<PathBuf, String> {
-    if state.is_recording() {
-        return Err("already recording".into());
-    }
-    let ffmpeg = ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
-    let out = output_path()?;
-    let args = resolve_args(&ffmpeg, region, audio, &out)?;
-
+/// Spawn an ffmpeg recording the `region`/`audio` into `out`. stdin is piped so
+/// we can send `q` for a clean finalize.
+fn spawn_segment(
+    ffmpeg: &std::path::Path,
+    region: RecordRegion,
+    audio: AudioChoice,
+    out: &std::path::Path,
+) -> Result<Child, String> {
+    let args = resolve_args(ffmpeg, region, audio, out)?;
     use std::process::{Command, Stdio};
-    let child = Command::new(&ffmpeg)
+    Command::new(ffmpeg)
         .args(&args)
-        .stdin(Stdio::piped()) // we send "q" to finalize cleanly
+        .stdin(Stdio::piped())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .spawn()
-        .map_err(|e| format!("spawn ffmpeg: {e}"))?;
-
-    *state.inner.lock() = Some(Active { child, out: out.clone() });
-    Ok(out)
+        .map_err(|e| format!("spawn ffmpeg: {e}"))
 }
 
-/// Stop the recording: send `q` to ffmpeg's stdin for a clean finalize, wait,
-/// and return the finished file path.
-pub fn stop(state: &RecordState) -> Result<PathBuf, String> {
-    let mut active = state.inner.lock().take().ok_or("not recording")?;
+/// Cleanly finalize a running ffmpeg: send `q`, wait up to 5 s for the moov
+/// atom to flush, else kill.
+fn finalize_child(mut child: Child) {
     use std::io::Write;
-    if let Some(stdin) = active.child.stdin.as_mut() {
+    if let Some(stdin) = child.stdin.as_mut() {
         let _ = stdin.write_all(b"q");
         let _ = stdin.flush();
     }
-    // Give ffmpeg a moment to flush the moov atom; fall back to a kill.
     let mut waited = std::time::Duration::ZERO;
     let step = std::time::Duration::from_millis(100);
     loop {
-        match active.child.try_wait() {
+        match child.try_wait() {
             Ok(Some(_)) => break,
             Ok(None) if waited < std::time::Duration::from_secs(5) => {
                 std::thread::sleep(step);
                 waited += step;
             }
             _ => {
-                let _ = active.child.kill();
-                let _ = active.child.wait();
+                let _ = child.kill();
+                let _ = child.wait();
                 break;
             }
         }
     }
-    Ok(active.out)
+}
+
+/// Start a new recording. Returns the final MP4 path it will produce.
+pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> Result<PathBuf, String> {
+    if state.is_recording() {
+        return Err("already recording".into());
+    }
+    let ffmpeg = ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
+    let final_out = output_path()?;
+    let seg0 = segment_path(0)?;
+    let child = spawn_segment(&ffmpeg, region, audio, &seg0)?;
+
+    *state.inner.lock() = Some(Session {
+        region,
+        audio,
+        ffmpeg,
+        final_out: final_out.clone(),
+        segments: Vec::new(),
+        current: Some((child, seg0)),
+        seq: 0,
+    });
+    Ok(final_out)
+}
+
+/// Pause: finalize the current segment; the session stays alive.
+pub fn pause(state: &RecordState) -> Result<(), String> {
+    let mut guard = state.inner.lock();
+    let s = guard.as_mut().ok_or("not recording")?;
+    if let Some((child, path)) = s.current.take() {
+        finalize_child(child);
+        s.segments.push(path);
+    }
+    Ok(())
+}
+
+/// Resume: spawn a fresh ffmpeg into the next segment.
+pub fn resume(state: &RecordState) -> Result<(), String> {
+    let mut guard = state.inner.lock();
+    let s = guard.as_mut().ok_or("not recording")?;
+    if s.current.is_some() {
+        return Ok(()); // already running
+    }
+    s.seq += 1;
+    let seg = segment_path(s.seq)?;
+    let child = spawn_segment(&s.ffmpeg, s.region, s.audio, &seg)?;
+    s.current = Some((child, seg));
+    Ok(())
+}
+
+/// Stop: finalize the last segment, concatenate all segments into the final
+/// MP4, clean up the temps, and return the output path.
+pub fn stop(state: &RecordState) -> Result<PathBuf, String> {
+    let mut session = state.inner.lock().take().ok_or("not recording")?;
+    if let Some((child, path)) = session.current.take() {
+        finalize_child(child);
+        session.segments.push(path);
+    }
+    // Drop segments that ffmpeg never actually wrote (e.g. instant pause).
+    session.segments.retain(|p| p.is_file());
+    if session.segments.is_empty() {
+        return Err("nothing was recorded".into());
+    }
+
+    let out = session.final_out.clone();
+    if session.segments.len() == 1 {
+        move_file(&session.segments[0], &out)?;
+    } else {
+        concat_segments(&session.ffmpeg, &session.segments, &out)?;
+        for seg in &session.segments {
+            let _ = std::fs::remove_file(seg);
+        }
+    }
+    Ok(out)
+}
+
+/// Move a file, falling back to copy+remove across volumes (the cache dir and
+/// Downloads can live on different mounts).
+fn move_file(from: &std::path::Path, to: &std::path::Path) -> Result<(), String> {
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    std::fs::copy(from, to).map_err(|e| format!("copy recording: {e}"))?;
+    let _ = std::fs::remove_file(from);
+    Ok(())
+}
+
+/// Concatenate MP4 segments losslessly via ffmpeg's concat demuxer (`-c copy`).
+fn concat_segments(
+    ffmpeg: &std::path::Path,
+    segments: &[PathBuf],
+    out: &std::path::Path,
+) -> Result<(), String> {
+    let list_path = segment_dir()?.join(format!("concat-{}.txt", std::process::id()));
+    std::fs::write(&list_path, concat_list_contents(segments))
+        .map_err(|e| format!("write concat list: {e}"))?;
+    let status = std::process::Command::new(ffmpeg)
+        .args(["-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i"])
+        .arg(&list_path)
+        .args(["-c", "copy", "-movflags", "+faststart"])
+        .arg(out)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map_err(|e| format!("concat ffmpeg: {e}"))?;
+    let _ = std::fs::remove_file(&list_path);
+    if !status.success() {
+        return Err("concat failed".into());
+    }
+    Ok(())
+}
+
+/// Build the concat-demuxer list file body. Pure (unit-tested). Each line is
+/// `file '<abs-path>'`; embedded single quotes are escaped the ffmpeg way.
+fn concat_list_contents(segments: &[PathBuf]) -> String {
+    segments
+        .iter()
+        .map(|p| {
+            let s = p.to_string_lossy().replace('\'', "'\\''");
+            format!("file '{s}'\n")
+        })
+        .collect()
+}
+
+/// Temp directory for in-progress recording segments.
+fn segment_dir() -> Result<PathBuf, String> {
+    let dir = dirs::cache_dir()
+        .ok_or("no cache dir")?
+        .join("InspectorRust")
+        .join("recordings");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create segment dir: {e}"))?;
+    Ok(dir)
+}
+
+fn segment_path(seq: u32) -> Result<PathBuf, String> {
+    Ok(segment_dir()?.join(format!("seg-{}-{seq}.mp4", std::process::id())))
 }
 
 fn output_path() -> Result<PathBuf, String> {
@@ -561,6 +708,20 @@ mod tests {
     fn windows_none_is_an() {
         let args = build_args_windows(RGN, None, None, "C:/o.mp4");
         assert!(args.join(" ").contains("-an"));
+    }
+
+    #[test]
+    fn concat_list_one_line_per_segment() {
+        let segs = vec![PathBuf::from("/tmp/seg-0.mp4"), PathBuf::from("/tmp/seg-1.mp4")];
+        let body = concat_list_contents(&segs);
+        assert_eq!(body, "file '/tmp/seg-0.mp4'\nfile '/tmp/seg-1.mp4'\n");
+    }
+
+    #[test]
+    fn concat_list_escapes_single_quotes() {
+        let segs = vec![PathBuf::from("/tmp/a'b.mp4")];
+        // ffmpeg single-quote escape: ' -> '\''
+        assert_eq!(concat_list_contents(&segs), "file '/tmp/a'\\''b.mp4'\n");
     }
 
     #[test]

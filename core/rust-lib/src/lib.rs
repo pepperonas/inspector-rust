@@ -461,6 +461,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::screen_record_open_overlay,
             commands::cancel_record_overlay,
             commands::start_screen_record,
+            commands::pause_screen_record,
+            commands::resume_screen_record,
             commands::stop_screen_record,
             commands::is_recording,
             commands::brightness_open,

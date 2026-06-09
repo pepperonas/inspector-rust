@@ -109,8 +109,8 @@ export function FeaturesPanel() {
         },
         {
           name: "Screen recording",
-          trigger: formatHotkey("Ctrl+Shift+R"),
-          note: "Drag a region → pick audio (system / mic / none) → 3 s countdown → MP4 to Downloads. Floating stop bar; needs ffmpeg.",
+          trigger: formatHotkey("Ctrl+Shift+Alt+S"),
+          note: "Drag a region → pick audio (system / mic / none) → 3 s countdown → MP4 to Downloads. Floating bar with pause/resume + stop; needs ffmpeg.",
         },
         {
           name: "Finder selection",

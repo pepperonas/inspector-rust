@@ -573,10 +573,6 @@ fn output_path() -> Result<PathBuf, String> {
     Ok(dir.join(format!("Recording-{ts}.mp4")))
 }
 
-/// Substring that uniquely identifies a recording ffmpeg's command line (it
-/// always writes to our segment cache dir).
-const ORPHAN_MARKER: &str = "InspectorRust/recordings";
-
 /// Kill any orphaned recording ffmpeg left over from a crash or a failed stop,
 /// and clear stale segment files. Matched by our segment-cache path, so it's
 /// unambiguously ours — safe to run at startup (no recording is ever active
@@ -584,16 +580,26 @@ const ORPHAN_MARKER: &str = "InspectorRust/recordings";
 pub fn cleanup_orphans() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
+        // `pkill -f` matches the full command line; our recording ffmpeg always
+        // writes into `…/InspectorRust/recordings/seg-*.mp4`.
         let _ = std::process::Command::new("pkill")
-            .args(["-f", ORPHAN_MARKER])
+            .args(["-f", "InspectorRust/recordings"])
             .status();
     }
     #[cfg(target_os = "windows")]
     {
-        // Best-effort: kill ffmpeg whose command line references our cache dir.
-        let _ = std::process::Command::new("taskkill")
-            .args(["/F", "/IM", "ffmpeg.exe", "/FI"])
-            .arg(format!("WINDOWTITLE eq *{ORPHAN_MARKER}*"))
+        // taskkill can't filter by command line, so use PowerShell to find any
+        // ffmpeg whose CommandLine references our cache (separator-agnostic:
+        // `*InspectorRust*recordings*`) and kill it. CREATE_NO_WINDOW so no
+        // console flashes at startup.
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        let script = "Get-CimInstance Win32_Process -Filter \"Name='ffmpeg.exe'\" | \
+             Where-Object { $_.CommandLine -like '*InspectorRust*recordings*' } | \
+             ForEach-Object { Stop-Process -Id $_.ProcessId -Force }";
+        let _ = std::process::Command::new("powershell")
+            .args(["-NoProfile", "-NonInteractive", "-Command", script])
+            .creation_flags(CREATE_NO_WINDOW)
             .status();
     }
     // Remove any leftover segment files (incomplete, never concatenated).

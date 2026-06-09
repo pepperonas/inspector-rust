@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.5] — 2026-06-09
+
+### Fixed — Windows orphan-ffmpeg cleanup was broken
+
+The v0.82.4 Windows branch of `cleanup_orphans` used `taskkill` with a
+`WINDOWTITLE` filter — ffmpeg console processes have no window title matching our
+cache path, and the marker used `/` not `\`, so it matched nothing. Rewrote it to
+PowerShell, killing any `ffmpeg.exe` whose `CommandLine` references our cache
+(separator-agnostic `*InspectorRust*recordings*`), with `CREATE_NO_WINDOW` so no
+console flashes. Compile-validated for `x86_64-pc-windows-gnu`; still
+runtime-unverified on a real Windows box (like the rest of the Windows record
+path).
+
 ## [0.82.4] — 2026-06-09
 
 ### Fixed — Stop/Pause/Resume froze the UI; orphaned ffmpeg ate CPU

@@ -1390,6 +1390,36 @@ pub fn set_popup_hotkey(
     Ok(hotkey)
 }
 
+// ── Clipboard-history hotkey (second popup hotkey) ────────────────────────
+
+/// Read the user-configured clipboard-history hotkey (or the default).
+#[tauri::command]
+pub fn get_history_hotkey(db: State<'_, DbHandle>) -> Result<String, String> {
+    settings::get_or(&db, hotkey::KEY_HISTORY_HOTKEY, hotkey::DEFAULT_HISTORY_HOTKEY)
+        .map_err(map_err)
+}
+
+/// The hard-coded default for the clipboard-history hotkey.
+#[tauri::command]
+pub fn get_history_hotkey_default() -> String {
+    hotkey::DEFAULT_HISTORY_HOTKEY.to_string()
+}
+
+/// Set the second (clipboard-history) popup hotkey. An empty string disables
+/// it. Validates against the other globals + the main popup hotkey; on failure
+/// the old binding stays and nothing is persisted.
+#[tauri::command]
+pub fn set_history_hotkey(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, hotkey::PopupShortcutState>,
+    hotkey: String,
+) -> Result<String, String> {
+    hotkey::register_history_hotkey(&app, &state, &hotkey).map_err(map_err)?;
+    settings::set(&db, hotkey::KEY_HISTORY_HOTKEY, &hotkey).map_err(map_err)?;
+    Ok(hotkey)
+}
+
 // ── TOTP (2FA) ──────────────────────────────────────────────────────────
 
 /// List all TOTP entries (without the secret). Sorted by issuer.

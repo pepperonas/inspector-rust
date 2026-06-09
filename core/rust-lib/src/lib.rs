@@ -214,6 +214,18 @@ pub fn run(context: tauri::Context<Wry>) {
                         hotkey::DEFAULT_POPUP_HOTKEY,
                     );
                 }
+                // Second, optional clipboard-history hotkey (default Ctrl+Shift+V).
+                let hist = settings::get_or(
+                    &db_handle,
+                    hotkey::KEY_HISTORY_HOTKEY,
+                    hotkey::DEFAULT_HISTORY_HOTKEY,
+                )
+                .unwrap_or_else(|_| hotkey::DEFAULT_HISTORY_HOTKEY.to_string());
+                if let Err(e) =
+                    hotkey::register_history_hotkey(&app.handle(), &popup_state, &hist)
+                {
+                    tracing::warn!("clipboard-history hotkey {hist:?} register failed: {e:#}");
+                }
             }
 
             // Restore the expander hotkey from settings if it was enabled
@@ -359,6 +371,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,
+            commands::get_history_hotkey,
+            commands::set_history_hotkey,
+            commands::get_history_hotkey_default,
             commands::totp_list,
             commands::totp_add,
             commands::totp_delete,

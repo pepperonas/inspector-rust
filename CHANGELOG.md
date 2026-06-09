@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.83.0] — 2026-06-09
+
+### Added — second, configurable "clipboard history" hotkey
+
+The popup can now be opened by a **second global shortcut** (default
+**`Ctrl+Shift+V`**) in addition to the main `Ctrl+Space`, so you can bind a
+dedicated clipboard-history key. Both hotkeys are now configurable in
+**Settings**: *Popup hotkey* (existing) + the new *Clipboard-history hotkey*
+(with presets, Reset, and a Disable button — an empty value turns the second
+hotkey off). Both are validated against each other and the reserved global
+shortcuts. The **Features tab** now names them clearly ("Open app / clipboard
+history" + "Clipboard history (2nd hotkey)", shown only when set) and loads the
+second hotkey live. IPC: `get_/set_/get_default_history_hotkey`.
+
 ## [0.82.8] — 2026-06-09
 
 ### Fixed — recording played too fast + mic too quiet

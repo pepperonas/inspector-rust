@@ -98,6 +98,15 @@ pub const LEGACY_POPUP_HOTKEY: &str = "Ctrl+Shift+KeyV";
 /// accepts. Absent → default applies.
 pub const KEY_POPUP_HOTKEY: &str = "popup.hotkey";
 
+/// A SECOND, optional global hotkey that also opens the popup (clipboard
+/// history). Default `Ctrl+Shift+V` (the popup's pre-0.67 default, now free
+/// since the main popup migrated to `Ctrl+Space`). Configurable in Settings;
+/// independent of the main popup hotkey. Empty string = disabled.
+pub const DEFAULT_HISTORY_HOTKEY: &str = "Ctrl+Shift+KeyV";
+
+/// Settings key for the second (clipboard-history) popup hotkey.
+pub const KEY_HISTORY_HOTKEY: &str = "popup.history_hotkey";
+
 /// One-shot flag: set once the legacy `Ctrl+Shift+V` popup default has
 /// been migrated to [`DEFAULT_POPUP_HOTKEY`]. Idempotent; never clobbers a
 /// value the user deliberately set.
@@ -142,6 +151,8 @@ pub struct ExpanderShortcutState {
 #[derive(Default)]
 pub struct PopupShortcutState {
     pub current: Arc<Mutex<Option<Shortcut>>>,
+    /// The second, optional clipboard-history hotkey (also opens the popup).
+    pub history: Arc<Mutex<Option<Shortcut>>>,
 }
 
 /// Register the popup-show hotkey from a string. If a previous popup
@@ -197,6 +208,14 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
         }
     }
 
+    // ── Don't let the main popup hotkey collide with the second
+    //    (clipboard-history) hotkey.
+    if *state.history.lock() == Some(shortcut) {
+        return Err(anyhow!(
+            "hotkey {hotkey} is bound to the clipboard-history shortcut — pick another"
+        ));
+    }
+
     // Unregister the previous popup hotkey (if any) only AFTER all
     // validation passes — that way a rejected change leaves the old
     // hotkey still working.
@@ -220,6 +239,84 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
 
     *state.current.lock() = Some(shortcut);
     tracing::info!("popup hotkey armed: {hotkey}");
+    Ok(())
+}
+
+/// Register the SECOND, optional clipboard-history hotkey — a separate global
+/// shortcut that also toggles the popup. An **empty** string disables it
+/// (unregisters any previous one). Same collision checks as [`register_popup`],
+/// plus it must not equal the main popup hotkey. Default `Ctrl+Shift+V`.
+pub fn register_history_hotkey(
+    app: &AppHandle,
+    state: &PopupShortcutState,
+    hotkey: &str,
+) -> Result<()> {
+    // Empty = disabled: unregister whatever was there and store None.
+    if hotkey.trim().is_empty() {
+        let mut hist = state.history.lock();
+        if let Some(prev) = hist.take() {
+            let _ = app.global_shortcut().unregister(prev);
+        }
+        tracing::info!("clipboard-history hotkey disabled");
+        return Ok(());
+    }
+
+    let shortcut = parse_shortcut(hotkey)
+        .with_context(|| format!("could not parse clipboard-history hotkey {hotkey:?}"))?;
+
+    // ── Reserved hard-coded globals (same set as register_popup).
+    let reserved = [
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO), "OCR region (Ctrl+Shift+O)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS), "Screenshot region (Ctrl+Shift+S)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC), "Eyedropper (Ctrl+Shift+C)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF), "Finder selection (Ctrl+Shift+F)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM), "Markdown → PDF (Ctrl+Shift+M)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS), "Screen recording (Ctrl+Shift+Alt+S)"),
+    ];
+    for (sc, name) in reserved {
+        if shortcut == sc {
+            return Err(anyhow!("hotkey {hotkey} is reserved by {name} — pick another"));
+        }
+    }
+
+    // ── Must not equal the main popup hotkey.
+    if *state.current.lock() == Some(shortcut) {
+        return Err(anyhow!(
+            "hotkey {hotkey} is already the main popup hotkey — pick another"
+        ));
+    }
+
+    // ── Expander + direct-slot collisions.
+    if let Some(exp_state) = app.try_state::<ExpanderShortcutState>() {
+        if *exp_state.current.lock() == Some(shortcut) {
+            return Err(anyhow!("hotkey {hotkey} is bound to the text expander — pick another"));
+        }
+        if exp_state.direct.lock().iter().any(|(sc, _)| *sc == shortcut) {
+            return Err(anyhow!("hotkey {hotkey} is bound to a direct snippet slot — pick another"));
+        }
+    }
+
+    // Unregister the previous history hotkey only after validation passes.
+    {
+        let mut hist = state.history.lock();
+        if let Some(prev) = hist.take() {
+            let _ = app.global_shortcut().unregister(prev);
+        }
+    }
+
+    let app_for_history = app.clone();
+    app.global_shortcut()
+        .on_shortcut(shortcut, move |_app, sc, event| {
+            if event.state == ShortcutState::Pressed && *sc == shortcut {
+                if let Err(e) = toggle_popup(&app_for_history) {
+                    tracing::warn!("toggle_popup (history hotkey) failed: {e:#}");
+                }
+            }
+        })
+        .with_context(|| format!("failed to register clipboard-history hotkey {hotkey:?}"))?;
+
+    *state.history.lock() = Some(shortcut);
+    tracing::info!("clipboard-history hotkey armed: {hotkey}");
     Ok(())
 }
 
@@ -624,6 +721,9 @@ pub fn register_direct_slots(
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
     let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
     let abbr_hotkey: Option<Shortcut> = *state.current.lock();
+    // The optional second (clipboard-history) popup hotkey, if armed.
+    let history_hotkey: Option<Shortcut> =
+        app.try_state::<PopupShortcutState>().and_then(|s| *s.history.lock());
 
     let mut parsed: Vec<(Shortcut, i64)> = Vec::with_capacity(slots.len());
     for slot in slots {
@@ -635,9 +735,10 @@ pub fn register_direct_slots(
             || sc == color
             || sc == markdown
             || abbr_hotkey == Some(sc)
+            || history_hotkey == Some(sc)
         {
             return Err(anyhow!(
-                "hotkey {} is reserved (popup / OCR / screenshot / color picker / markdown / text-expander) — pick another",
+                "hotkey {} is reserved (popup / clipboard-history / OCR / screenshot / color picker / markdown / text-expander) — pick another",
                 slot.hotkey
             ));
         }

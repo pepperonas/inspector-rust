@@ -51,6 +51,9 @@ import {
   getPastePlainTextOnly,
   getPopupHotkey,
   getPopupHotkeyDefault,
+  getHistoryHotkey,
+  getHistoryHotkeyDefault,
+  setHistoryHotkey,
   getScreenRecordingStatus,
   getThemePreference,
   getClipboardPrivacy,
@@ -945,6 +948,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       <div className="w-full">
         {/* Popup hotkey — the global shortcut that opens the search popup. */}
         <PopupHotkeySection />
+
+        {/* Second, optional clipboard-history hotkey (default Ctrl+Shift+V). */}
+        <div className="mt-6">
+          <HistoryHotkeySection />
+        </div>
 
         {/* Text expander section */}
         <div className="mt-6">
@@ -2384,6 +2392,152 @@ function PopupHotkeySection() {
         {!dirty && stored && (
           <span className="text-[11px] text-[var(--color-muted)]">
             Currently armed: <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">{prettyHotkey(stored)}</code>
+          </span>
+        )}
+      </div>
+
+      {status && (
+        <div
+          className={
+            "mt-3 rounded border px-3 py-2 text-[12px] " +
+            (status.kind === "ok"
+              ? "border-emerald-500/40 bg-emerald-500/5 text-[var(--color-fg)]"
+              : "border-amber-500/40 bg-amber-500/5 text-[var(--color-fg)]")
+          }
+        >
+          {status.message}
+        </div>
+      )}
+    </Section>
+  );
+}
+
+// ── Clipboard-history hotkey ───────────────────────────────────────────
+// A SECOND, optional global shortcut that also opens the popup (clipboard
+// history), alongside the main popup hotkey. Default Ctrl+Shift+V. An empty
+// value disables it.
+function HistoryHotkeySection() {
+  const [hotkey, setHotkey] = useState<string>("");
+  const [defaultHotkey, setDefaultHotkey] = useState<string>("");
+  const [stored, setStored] = useState<string>("");
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
+
+  useEffect(() => {
+    void Promise.all([getHistoryHotkey(), getHistoryHotkeyDefault()])
+      .then(([h, d]) => {
+        setHotkey(h);
+        setStored(h);
+        setDefaultHotkey(d);
+      })
+      .catch((e) => setStatus({ kind: "err", message: String(e) }));
+  }, []);
+
+  // Empty is a valid value here (= disabled), so any change is dirty.
+  const dirty = hotkey !== stored;
+
+  const save = async () => {
+    setBusy(true);
+    setStatus(null);
+    try {
+      const applied = await setHistoryHotkey(hotkey);
+      setHotkey(applied);
+      setStored(applied);
+      setStatus({
+        kind: "ok",
+        message: applied.trim()
+          ? `Clipboard-history hotkey armed: ${prettyHotkey(applied)}`
+          : "Clipboard-history hotkey disabled",
+      });
+    } catch (e) {
+      setStatus({ kind: "err", message: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const PRESETS: ReadonlyArray<{ label: string; value: string }> = IS_MAC
+    ? [
+        { label: "⌃⇧V (default)", value: "Ctrl+Shift+KeyV" },
+        { label: "⌘⇧V", value: "Cmd+Shift+KeyV" },
+        { label: "⌘⇧C", value: "Cmd+Shift+KeyC" },
+      ]
+    : [
+        { label: "Ctrl+Shift+V (default)", value: "Ctrl+Shift+KeyV" },
+        { label: "Ctrl+Shift+H", value: "Ctrl+Shift+KeyH" },
+        { label: "Alt+V", value: "Alt+KeyV" },
+      ];
+
+  return (
+    <Section
+      icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
+      title="Clipboard-history hotkey"
+      subtitle="A second, optional global shortcut that also opens the clipboard history — alongside the main popup hotkey. Clear it to disable."
+    >
+      <Row
+        label="Hotkey"
+        help="Press a key combination, or pick a preset. Backspace / the Disable button clears it (turns the second hotkey off)."
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <HotkeyCapture value={hotkey} onChange={setHotkey} disabled={busy} />
+          <button
+            onClick={() => setHotkey("")}
+            disabled={busy || hotkey === ""}
+            className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
+            title="Disable the second hotkey"
+          >
+            Disable
+          </button>
+          <button
+            onClick={() => defaultHotkey && setHotkey(defaultHotkey)}
+            disabled={busy || !defaultHotkey || hotkey === defaultHotkey}
+            className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
+            title={defaultHotkey ? `Reset to ${prettyHotkey(defaultHotkey)}` : ""}
+          >
+            Reset
+          </button>
+          <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
+          {PRESETS.map((p) => {
+            const active = hotkey === p.value;
+            return (
+              <button
+                key={p.value}
+                onClick={() => setHotkey(p.value)}
+                disabled={busy}
+                className={
+                  "rounded border px-2 py-1 text-[11px] disabled:opacity-40 " +
+                  (active
+                    ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                    : "border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]")
+                }
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+      </Row>
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={() => void save()}
+          disabled={busy || !dirty}
+          className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {!dirty && (
+          <span className="text-[11px] text-[var(--color-muted)]">
+            {stored.trim() ? (
+              <>
+                Currently armed:{" "}
+                <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
+                  {prettyHotkey(stored)}
+                </code>
+              </>
+            ) : (
+              "Disabled"
+            )}
           </span>
         )}
       </div>

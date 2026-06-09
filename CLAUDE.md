@@ -128,7 +128,9 @@ Snippet matches come from `findSnippets(query)` (backend prefix/contains SQL). T
 | History | `HistoryList` + `PreviewPanel` | `useClipboardHistory` + `useFuzzySearch` |
 | Snippets | `SnippetsPanel` | `useSnippets` |
 | Notes | `NotesPanel` | `useNotes` |
-| Features | `FeaturesPanel` | read-only catalogue; fetches live shortcuts (`get_popup_hotkey` / `get_expander_config` / `get_direct_slots` / `get_input_lock_chord`) |
+| Features | `FeaturesPanel` | read-only catalogue; fetches live shortcuts (`get_popup_hotkey` / `get_history_hotkey` / `get_expander_config` / `get_direct_slots` / `get_input_lock_chord`) |
+
+**Popup open hotkeys (two, both configurable).** The popup is opened by a **main** hotkey (`popup.hotkey`, default `Ctrl+Space`; `register_popup`) **and** an optional **second clipboard-history** hotkey (`popup.history_hotkey`, default `Ctrl+Shift+V`; `register_history_hotkey`, v0.83.0). Both live in `PopupShortcutState` (`current` + `history`), both call `toggle_popup`, both are validated against each other + the reserved globals (OCR/screenshot/eyedropper/finder/markdown/record) + the expander/direct-slots. An **empty** history string disables the second hotkey. IPC: `get_/set_/get_default_popup_hotkey` + `get_/set_/get_default_history_hotkey`; Settings → *Popup hotkey* + *Clipboard-history hotkey* (both `HotkeyCapture`). Registered at startup in `lib.rs`.
 | Settings | `SettingsPanel` | IPC to `settings.rs` + `expander.rs` |
 
 **Features tab** (`FeaturesPanel.tsx`) — a read-only, tabular reference of every function grouped into *Global hotkeys* · *Search-bar commands* · *In-popup & preview actions* · *Hidden games*, each row showing the **currently configured** shortcut/trigger + a short how-to. Configurable hotkeys are fetched live on mount (the panel remounts on each tab switch, so values are current); fixed global hotkeys are literal constants mirroring `hotkey.rs`. Tauri shortcut specs are pretty-printed by `lib/platform.ts::formatHotkey` (`Alt+Digit1` → `⌥1`, `Ctrl+Shift+V` → `⌃⇧V` on macOS).

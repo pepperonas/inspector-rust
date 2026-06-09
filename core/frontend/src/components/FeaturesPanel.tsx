@@ -6,6 +6,7 @@ import {
   getExpanderConfig,
   getInputLockChord,
   getPopupHotkey,
+  getHistoryHotkey,
   type AutoExpandConfig,
   type DirectSlot,
 } from "../lib/ipc";
@@ -46,6 +47,7 @@ const MOD = IS_MAC ? "Meta" : "Ctrl"; // Cmd on macOS, Ctrl elsewhere
 
 export function FeaturesPanel() {
   const [popupHotkey, setPopupHotkey] = useState("Ctrl+Space");
+  const [historyHotkey, setHistoryHotkey] = useState("");
   const [expander, setExpander] = useState<{ enabled: boolean; hotkey: string }>({
     enabled: false,
     hotkey: "Alt+Digit1",
@@ -59,15 +61,17 @@ export function FeaturesPanel() {
     let alive = true;
     void (async () => {
       try {
-        const [p, e, s, c, ae] = await Promise.all([
+        const [p, e, s, c, ae, h] = await Promise.all([
           getPopupHotkey(),
           getExpanderConfig(),
           getDirectSlots(),
           getInputLockChord(),
           getAutoExpandConfig(),
+          getHistoryHotkey(),
         ]);
         if (!alive) return;
         setPopupHotkey(p);
+        setHistoryHotkey(h);
         setExpander({ enabled: e.enabled, hotkey: e.hotkey });
         setSlots(s);
         setChord(c);
@@ -88,10 +92,19 @@ export function FeaturesPanel() {
       blurb: "Work in any app, even when the popup is closed.",
       rows: [
         {
-          name: "Open / close popup",
+          name: "Open app / clipboard history",
           trigger: formatHotkey(popupHotkey),
-          note: "Toggle the clipboard popup. Configurable in Settings.",
+          note: "Toggle the main popup (clipboard history, search & commands). Configurable in Settings → Popup hotkey.",
         },
+        ...(historyHotkey.trim()
+          ? [
+              {
+                name: "Clipboard history (2nd hotkey)",
+                trigger: formatHotkey(historyHotkey),
+                note: "Second, optional shortcut that also opens the clipboard history. Configurable in Settings → Clipboard-history hotkey.",
+              },
+            ]
+          : []),
         {
           name: "OCR region",
           trigger: formatHotkey("Ctrl+Shift+O"),

@@ -727,6 +727,21 @@ export function setPopupHotkey(hotkey: string): Promise<string> {
   return invoke("set_popup_hotkey", { hotkey });
 }
 
+/** Read the second (clipboard-history) popup hotkey, default `Ctrl+Shift+V`.
+ *  Empty string = disabled. */
+export function getHistoryHotkey(): Promise<string> {
+  return invoke("get_history_hotkey");
+}
+/** The hard-coded default for the clipboard-history hotkey. */
+export function getHistoryHotkeyDefault(): Promise<string> {
+  return invoke("get_history_hotkey_default");
+}
+/** Set the clipboard-history hotkey (empty string disables it). Validated +
+ *  re-registered like the main popup hotkey. */
+export function setHistoryHotkey(hotkey: string): Promise<string> {
+  return invoke("set_history_hotkey", { hotkey });
+}
+
 export interface DiagnoseResult {
   captured: string;
   matched_abbreviation: string | null;

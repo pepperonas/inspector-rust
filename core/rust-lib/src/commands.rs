@@ -2943,19 +2943,23 @@ pub fn start_screen_record(
     audio: crate::screen_record::AudioChoice,
 ) -> Result<(), String> {
     crate::screen_record::start(&state, region, audio)?;
-    // Window ops MUST run on the main thread — on macOS, building/closing an
-    // NSWindow off the Tauri command-worker thread is unreliable (this is why
-    // the stop bar previously never appeared).
+    // Close the overlay on the main thread (safe — not a window build).
+    if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
+        let _ = w.close();
+    }
+    // Build the stop bar from a WORKER thread, NOT the main thread. A sync
+    // `#[tauri::command]` runs on the main thread, and calling
+    // `WebviewWindowBuilder::build()` synchronously there DEADLOCKS (the build
+    // needs the main-thread event loop to pump, but we're blocking it) — this
+    // is exactly why the stop bar never appeared. Spawning a thread lets Tauri
+    // marshal the window creation onto the event loop cleanly, the same proven
+    // pattern as `screenshot_editor::open_editor` / `show_preview`.
     let app2 = app.clone();
-    app.run_on_main_thread(move || {
-        if let Some(w) = app2.get_webview_window(RECORD_OVERLAY_LABEL) {
-            let _ = w.close();
-        }
+    std::thread::spawn(move || {
         if let Err(e) = open_record_stop_bar(&app2) {
             tracing::warn!("open record stop bar: {e}");
         }
-    })
-    .map_err(|e| format!("dispatch stop bar: {e}"))?;
+    });
     Ok(())
 }
 
@@ -3014,12 +3018,10 @@ pub fn stop_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<String, String> {
     let path = crate::screen_record::stop(&state)?;
-    let app2 = app.clone();
-    let _ = app.run_on_main_thread(move || {
-        if let Some(w) = app2.get_webview_window(RECORD_STOP_LABEL) {
-            let _ = w.close();
-        }
-    });
+    // Closing a window (no build) is safe on the main thread.
+    if let Some(w) = app.get_webview_window(RECORD_STOP_LABEL) {
+        let _ = w.close();
+    }
     reveal_in_file_manager(&path);
     let s = path.to_string_lossy().to_string();
     let _ = app.emit("recording-saved", s.clone());

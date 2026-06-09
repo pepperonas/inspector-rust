@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.1] — 2026-06-09
+
+### Fixed — recording stop bar STILL never appeared (the real cause)
+
+The v0.82.0 fix was wrong: it dispatched the stop-bar window build to the main
+thread, but a synchronous `#[tauri::command]` already runs **on** the main
+thread, and calling `WebviewWindowBuilder::build()` there **deadlocks** (the
+build needs the main-thread event loop to pump, but the command is blocking it).
+The stop bar is now built from a **worker thread** (`std::thread::spawn`), the
+same proven pattern as the screenshot editor/preview — Tauri then marshals the
+window creation onto the event loop cleanly. The overlay is still closed on the
+main thread (closing isn't a build, so it's safe).
+
 ## [0.82.0] — 2026-06-09
 
 ### Fixed — recording stop bar never appeared

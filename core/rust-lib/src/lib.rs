@@ -158,6 +158,9 @@ pub fn run(context: tauri::Context<Wry>) {
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.
             wakelock::cleanup_orphans();
+            // Reap any recording ffmpeg orphaned by a crash / failed stop — it
+            // keeps capturing at high CPU otherwise.
+            screen_record::cleanup_orphans();
             app.manage(timer::TimerRegistry::default());
             app.manage(status_toast::LatestToast::default());
             app.manage(auto_expand::AutoExpandState::default());

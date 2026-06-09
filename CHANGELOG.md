@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.4] — 2026-06-09
+
+### Fixed — Stop/Pause/Resume froze the UI; orphaned ffmpeg ate CPU
+
+- **UI froze, buttons didn't respond.** `stop`/`pause`/`resume`/`start` were
+  synchronous `#[tauri::command]`s, which Tauri runs **on the main thread**. Each
+  blocks for seconds (ffmpeg finalize waits up to 5 s, device re-listing ~0.5 s,
+  lossless concat), freezing the whole UI so Stop/Pause/Resume appeared dead.
+  They're now `async`, so Tauri runs them off the main thread — the bar stays
+  responsive.
+- **Orphaned recording ffmpeg.** When a stop failed (or the app crashed), the
+  ffmpeg child kept capturing at high CPU forever (the "bad performance"). Added
+  `screen_record::cleanup_orphans()` at startup — it kills any ffmpeg writing to
+  our segment cache and clears stale segments (matched by our cache path, so it's
+  unambiguously ours), mirroring the wakelock orphan-reaper.
+
 ## [0.82.3] — 2026-06-09
 
 ### Fixed — recording stop bar was hidden behind the Dock

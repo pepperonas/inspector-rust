@@ -2936,24 +2936,22 @@ pub fn cancel_record_overlay(app: AppHandle) -> Result<(), String> {
 /// overlay and shows the floating stop bar. Returns the sentinel
 /// `record.no_ffmpeg` if ffmpeg isn't installed (frontend shows an install hint).
 #[tauri::command]
-pub fn start_screen_record(
+pub async fn start_screen_record(
     app: AppHandle,
     state: State<'_, crate::screen_record::RecordState>,
     region: crate::screen_record::RecordRegion,
     audio: crate::screen_record::AudioChoice,
 ) -> Result<(), String> {
+    // `async fn` so Tauri runs this OFF the main thread — `screen_record::start`
+    // blocks ~0.5 s listing ffmpeg devices, which would otherwise freeze the UI.
     crate::screen_record::start(&state, region, audio)?;
-    // Close the overlay on the main thread (safe — not a window build).
+    // Close the overlay (not a window build, safe off-main).
     if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
         let _ = w.close();
     }
-    // Build the stop bar from a WORKER thread, NOT the main thread. A sync
-    // `#[tauri::command]` runs on the main thread, and calling
-    // `WebviewWindowBuilder::build()` synchronously there DEADLOCKS (the build
-    // needs the main-thread event loop to pump, but we're blocking it) — this
-    // is exactly why the stop bar never appeared. Spawning a thread lets Tauri
-    // marshal the window creation onto the event loop cleanly, the same proven
-    // pattern as `screenshot_editor::open_editor` / `show_preview`.
+    // Build the stop bar from a dedicated thread so Tauri marshals the window
+    // creation onto the event loop cleanly (same proven pattern as
+    // `screenshot_editor::open_editor`).
     let app2 = app.clone();
     std::thread::spawn(move || {
         if let Err(e) = open_record_stop_bar(&app2) {
@@ -2963,17 +2961,19 @@ pub fn start_screen_record(
     Ok(())
 }
 
-/// Pause the active recording (finalises the current segment).
+/// Pause the active recording (finalises the current segment). `async` so the
+/// ffmpeg finalize-wait (up to 5 s) runs off the main thread (no UI freeze).
 #[tauri::command]
-pub fn pause_screen_record(
+pub async fn pause_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<(), String> {
     crate::screen_record::pause(&state)
 }
 
-/// Resume a paused recording (starts a fresh segment).
+/// Resume a paused recording (starts a fresh segment). `async` so the device
+/// re-listing + spawn runs off the main thread.
 #[tauri::command]
-pub fn resume_screen_record(
+pub async fn resume_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<(), String> {
     crate::screen_record::resume(&state)
@@ -3014,13 +3014,15 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Stop the active recording, finalise the MP4, reveal it, and toast the path.
+/// `async` so the finalize-wait + lossless concat (both blocking, up to several
+/// seconds) run off the main thread — otherwise the UI freezes and the Stop
+/// button appears unresponsive.
 #[tauri::command]
-pub fn stop_screen_record(
+pub async fn stop_screen_record(
     app: AppHandle,
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<String, String> {
     let path = crate::screen_record::stop(&state)?;
-    // Closing a window (no build) is safe on the main thread.
     if let Some(w) = app.get_webview_window(RECORD_STOP_LABEL) {
         let _ = w.close();
     }

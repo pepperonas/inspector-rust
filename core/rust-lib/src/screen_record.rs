@@ -573,6 +573,39 @@ fn output_path() -> Result<PathBuf, String> {
     Ok(dir.join(format!("Recording-{ts}.mp4")))
 }
 
+/// Substring that uniquely identifies a recording ffmpeg's command line (it
+/// always writes to our segment cache dir).
+const ORPHAN_MARKER: &str = "InspectorRust/recordings";
+
+/// Kill any orphaned recording ffmpeg left over from a crash or a failed stop,
+/// and clear stale segment files. Matched by our segment-cache path, so it's
+/// unambiguously ours — safe to run at startup (no recording is ever active
+/// then; the app is single-instance). Mirrors `wakelock::cleanup_orphans`.
+pub fn cleanup_orphans() {
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        let _ = std::process::Command::new("pkill")
+            .args(["-f", ORPHAN_MARKER])
+            .status();
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Best-effort: kill ffmpeg whose command line references our cache dir.
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", "ffmpeg.exe", "/FI"])
+            .arg(format!("WINDOWTITLE eq *{ORPHAN_MARKER}*"))
+            .status();
+    }
+    // Remove any leftover segment files (incomplete, never concatenated).
+    if let Ok(dir) = segment_dir() {
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for e in entries.flatten() {
+                let _ = std::fs::remove_file(e.path());
+            }
+        }
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn resolve_args(
     ffmpeg: &std::path::Path,

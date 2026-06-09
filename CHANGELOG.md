@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.8] — 2026-06-09
+
+### Fixed — recording played too fast + mic too quiet
+
+- **Video timebase locked to CFR (`-r 30`).** The avfoundation screen input
+  reports an undefined "1000k fps" nominal rate (it's event-driven), leaving the
+  output with an irregular timebase that can play back too fast in some players
+  and makes the pause/resume concat unreliable. Forcing constant 30 fps on the
+  output gives real-time playback and clean concatenation. (In controlled tests
+  the raw capture already measured real-time — the deficit was avfoundation
+  startup latency — but the CFR lock removes the irregular-timebase failure mode
+  and is the standard fix.)
+- **Mic boosted +10 dB.** macOS built-in mics record well below line level
+  (measured), so the mic input now gets a `+10 dB` gain (`volume=`), applied only
+  to the microphone — system/loopback audio is left at its proper level. Works
+  for mic-only and the system+mic mix.
+
 ## [0.82.7] — 2026-06-09
 
 ### Added — `audio` as an alias for `sound`

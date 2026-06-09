@@ -35,6 +35,12 @@ pub struct AudioChoice {
 
 const FPS: u32 = 30;
 
+/// Gain applied to the (typically quiet) microphone input. macOS built-in mics
+/// record well below line level; +10 dB lifts speech to a usable range while
+/// staying clear of clipping for normal voice. System/loopback audio is left
+/// untouched (it's already at proper level).
+const MIC_GAIN: &str = "10dB";
+
 // ── Device-list parsers (pure, unit-tested) ──────────────────────────────────
 
 /// One `(index, name)` device row.
@@ -202,6 +208,10 @@ pub fn build_args_macos(
         (None, Some(m)) => (Some(m), None),
         (None, None) => (None, None),
     };
+    // When the *single* paired audio source is the mic (mic-only), it gets the
+    // gain boost. In the "both" case the mic is the second input and is boosted
+    // inside the filter graph; system-only is never boosted.
+    let primary_is_mic = system.is_none() && mic.is_some();
 
     a.push("-f".into());
     a.push("avfoundation".into());
@@ -223,10 +233,10 @@ pub fn build_args_macos(
     }
 
     if second_audio.is_some() {
-        // crop video + mix the two audio inputs.
+        // crop video + boost the mic (input 1) + mix the two audio inputs.
         a.push("-filter_complex".into());
         a.push(format!(
-            "[0:v]{crop}[v];[0:a][1:a]amix=inputs=2:duration=longest[a]"
+            "[0:v]{crop}[v];[1:a]volume={MIC_GAIN}[m];[0:a][m]amix=inputs=2:duration=longest[a]"
         ));
         a.push("-map".into());
         a.push("[v]".into());
@@ -237,6 +247,10 @@ pub fn build_args_macos(
     } else if primary_audio.is_some() {
         a.push("-vf".into());
         a.push(crop);
+        if primary_is_mic {
+            a.push("-af".into());
+            a.push(format!("volume={MIC_GAIN}"));
+        }
         a.push("-c:a".into());
         a.push("aac".into());
     } else {
@@ -279,6 +293,8 @@ pub fn build_args_windows(
         a.push("-i".into());
         a.push(format!("audio={dev}"));
     }
+    // Boost the mic only. With both, audios = [system, mic] → mic is input 2.
+    let single_is_mic = system.is_none() && mic.is_some();
     match audios.len() {
         0 => {
             a.push("-an".into());
@@ -288,12 +304,18 @@ pub fn build_args_windows(
             a.push("0:v".into());
             a.push("-map".into());
             a.push("1:a".into());
+            if single_is_mic {
+                a.push("-af".into());
+                a.push(format!("volume={MIC_GAIN}"));
+            }
             a.push("-c:a".into());
             a.push("aac".into());
         }
         _ => {
             a.push("-filter_complex".into());
-            a.push("[1:a][2:a]amix=inputs=2:duration=longest[a]".into());
+            a.push(format!(
+                "[2:a]volume={MIC_GAIN}[m];[1:a][m]amix=inputs=2:duration=longest[a]"
+            ));
             a.push("-map".into());
             a.push("0:v".into());
             a.push("-map".into());
@@ -306,7 +328,11 @@ pub fn build_args_windows(
     a
 }
 
-/// Shared H.264 / MP4 output tail.
+/// Shared H.264 / MP4 output tail. `-r FPS` locks the output to constant frame
+/// rate: the avfoundation screen input reports an undefined "1000k fps" nominal
+/// rate (it's event-driven), so without this the output timebase is irregular,
+/// which can play back too fast in some players and makes the pause/resume
+/// concat unreliable. Forcing CFR keeps real-time playback + clean concat.
 fn push_video_out(a: &mut Vec<String>, out: &str) {
     for s in [
         "-c:v",
@@ -315,6 +341,8 @@ fn push_video_out(a: &mut Vec<String>, out: &str) {
         "ultrafast",
         "-pix_fmt",
         "yuv420p",
+        "-r",
+        &FPS.to_string(),
         "-movflags",
         "+faststart",
     ] {
@@ -717,8 +745,24 @@ mod tests {
         assert!(j.contains("-i :3")); // mic-only second input
         assert!(j.contains("amix=inputs=2"));
         assert!(j.contains("[0:v]crop=640:480:100:200[v]"));
+        assert!(j.contains("[1:a]volume=10dB[m]")); // mic boosted, system isn't
         assert!(j.contains("-map [v]"));
         assert!(j.contains("-map [a]"));
+    }
+
+    #[test]
+    fn macos_mic_only_is_boosted_system_only_is_not() {
+        let mic = build_args_macos(RGN, 2, None, Some(3), "/tmp/o.mp4").join(" ");
+        assert!(mic.contains("-i 2:3"));
+        assert!(mic.contains("-af volume=10dB"));
+        let sys = build_args_macos(RGN, 2, Some(1), None, "/tmp/o.mp4").join(" ");
+        assert!(!sys.contains("volume=")); // system audio left untouched
+    }
+
+    #[test]
+    fn output_is_locked_to_cfr() {
+        let args = build_args_macos(RGN, 2, None, None, "/tmp/o.mp4").join(" ");
+        assert!(args.contains("-r 30"));
     }
 
     #[test]
@@ -739,8 +783,17 @@ mod tests {
         let j = args.join(" ");
         assert!(j.contains("audio=Stereo Mix"));
         assert!(j.contains("audio=Mic"));
-        assert!(j.contains("[1:a][2:a]amix=inputs=2"));
+        // mic (input 2) is boosted, then mixed with system (input 1).
+        assert!(j.contains("[2:a]volume=10dB[m];[1:a][m]amix=inputs=2"));
         assert!(j.contains("-map 0:v"));
+    }
+
+    #[test]
+    fn windows_mic_only_is_boosted() {
+        let mic = build_args_windows(RGN, None, Some("Mic"), "C:/o.mp4").join(" ");
+        assert!(mic.contains("-af volume=10dB"));
+        let sys = build_args_windows(RGN, Some("Stereo Mix"), None, "C:/o.mp4").join(" ");
+        assert!(!sys.contains("volume="));
     }
 
     #[test]

@@ -490,6 +490,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Pick the audio output device — ↑↓ select, Enter switches to it",
     requiresArg: false,
   },
+  {
+    kind: "sound",
+    keyword: "audio",
+    syntax: "audio",
+    description: "Alias for sound",
+    requiresArg: false,
+    hidden: true,
+  },
   ...SEARCH_BANG_COMMANDS,
 ];
 

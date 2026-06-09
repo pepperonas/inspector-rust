@@ -278,7 +278,7 @@ Pure, unit-tested mappings: `percent_to_raw`/`raw_to_percent` (DDC, scaled to ea
 
 ### Audio output device (`audio.rs`, v0.80.0)
 
-`sound` opens an inline **output-device picker** in the right preview column —
+`sound` (alias **`audio`**) opens an inline **output-device picker** in the right preview column —
 same arrow-key model as `brightness`. Enter on the `sound` row → `App.tsx`'s
 `soundMode` + `soundFocus` render `SoundPanel.tsx`: **↑/↓** select a device,
 **Enter** switches the system default output to it, **Esc** leaves. `useKeyboardNav`

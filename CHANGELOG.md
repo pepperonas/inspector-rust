@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.7] — 2026-06-09
+
+### Added — `audio` as an alias for `sound`
+
+Typing **`audio`** now opens the same output-device picker as `sound` (hidden
+alias, so it doesn't clutter the autocomplete list).
+
 ## [0.82.6] — 2026-06-09
 
 ### Verified + clarified — recording audio

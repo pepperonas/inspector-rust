@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.3] — 2026-06-09
+
+### Fixed — recording stop bar was hidden behind the Dock
+
+The stop bar was positioned against the full monitor height, so its bottom-centre
+spot sat behind the macOS Dock. It's now placed against the monitor's **work
+area** (`Monitor::work_area()`, which excludes the Dock + menu bar), 12 pt above
+the bottom edge of the visible region.
+
 ## [0.82.2] — 2026-06-09
 
 ### Fixed — recording never actually started (the *real* real cause)

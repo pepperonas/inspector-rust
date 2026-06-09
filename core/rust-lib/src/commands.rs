@@ -2996,14 +2996,16 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
         .visible(false)
         .build()
         .map_err(|e| format!("build stop bar: {e}"))?;
-    // Bottom-centre of the primary monitor.
+    // Bottom-centre of the monitor's WORK AREA (excludes the Dock + menu bar),
+    // so the bar is never hidden behind the Dock.
     if let Ok(Some(mon)) = win.primary_monitor() {
-        let mpos = mon.position();
-        let msize = mon.size();
-        let bar_w = (312.0 * mon.scale_factor()) as i32;
-        let bar_h = (54.0 * mon.scale_factor()) as i32;
-        let x = mpos.x + (msize.width as i32 - bar_w) / 2;
-        let y = mpos.y + msize.height as i32 - bar_h - (40.0 * mon.scale_factor()) as i32;
+        let area = mon.work_area();
+        let scale = mon.scale_factor();
+        let bar_w = (312.0 * scale) as i32;
+        let bar_h = (54.0 * scale) as i32;
+        let margin = (12.0 * scale) as i32;
+        let x = area.position.x + (area.size.width as i32 - bar_w) / 2;
+        let y = area.position.y + area.size.height as i32 - bar_h - margin;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
     }
     let _ = win.show();

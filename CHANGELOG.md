@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.82.2] — 2026-06-09
+
+### Fixed — recording never actually started (the *real* real cause)
+
+The stop bar wasn't appearing because **the recording never started** — a
+frontend bug in the countdown overlay. When the countdown hit 0, the same
+`useEffect` both did `setPhase("starting")` and scheduled the
+`setTimeout(beginRecording, 150)`; because `phase` is in that effect's deps,
+`setPhase` tore the effect down and ran its cleanup (`clearTimeout`) **before
+the timer fired**, so `beginRecording` (hence `startScreenRecord`) was never
+called and the overlay sat invisible in the "starting" phase. Split into two
+effects — a countdown ticker and a one-shot start guarded by a ref — so the
+recording reliably starts and the stop bar appears. (The v0.82.1 worker-thread
+build fix is still correct and stays.)
+
 ## [0.82.1] — 2026-06-09
 
 ### Fixed — recording stop bar STILL never appeared (the real cause)

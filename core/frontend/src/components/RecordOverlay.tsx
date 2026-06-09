@@ -103,18 +103,30 @@ export function RecordOverlay() {
     });
   }, [rect, system, mic]);
 
+  // Tick the countdown down to 0, then switch to the transparent "starting"
+  // phase. IMPORTANT: do NOT schedule the start timer in this same effect — its
+  // deps include `phase`, so `setPhase` would tear the effect down (running the
+  // cleanup) and cancel the timer before it fires. The dedicated effect below
+  // owns the start.
   useEffect(() => {
     if (phase !== "countdown") return;
     if (count <= 0) {
-      // Go transparent for a beat so the first frames don't show our chrome,
-      // then start. The backend closes this window once ffmpeg is up.
       setPhase("starting");
-      const t = window.setTimeout(beginRecording, 150);
-      return () => window.clearTimeout(t);
+      return;
     }
     const t = window.setTimeout(() => setCount((c) => c - 1), 1000);
     return () => window.clearTimeout(t);
-  }, [phase, count, beginRecording]);
+  }, [phase, count]);
+
+  // Once transparent (so our chrome isn't in the first frames), kick off the
+  // recording — exactly once (a ref guards against effect re-runs).
+  const startedRef = useRef(false);
+  useEffect(() => {
+    if (phase !== "starting" || startedRef.current) return;
+    startedRef.current = true;
+    const t = window.setTimeout(beginRecording, 150);
+    return () => window.clearTimeout(t);
+  }, [phase, beginRecording]);
 
   const startCountdown = () => {
     setError(null);

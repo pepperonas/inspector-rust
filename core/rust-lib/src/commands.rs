@@ -2943,10 +2943,41 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|e| format!("build record overlay: {e}"))?;
-    // Cover the primary monitor edge to edge.
-    if let Ok(Some(mon)) = win.primary_monitor() {
-        let _ = win.set_position(*mon.position());
-        let _ = win.set_size(*mon.size());
+    // Cover the entire virtual desktop (all monitors) so the user can
+    // select a region on any screen.
+    if let Ok(monitors) = win.available_monitors() {
+        let mut min_x = 0i32;
+        let mut min_y = 0i32;
+        let mut max_x = 0i32;
+        let mut max_y = 0i32;
+        let mut first = true;
+        for mon in monitors {
+            let pos = mon.position();
+            let size = mon.size();
+            let x = pos.x;
+            let y = pos.y;
+            let r = x + size.width as i32;
+            let b = y + size.height as i32;
+            if first {
+                min_x = x;
+                min_y = y;
+                max_x = r;
+                max_y = b;
+                first = false;
+            } else {
+                min_x = min_x.min(x);
+                min_y = min_y.min(y);
+                max_x = max_x.max(r);
+                max_y = max_y.max(b);
+            }
+        }
+        if !first {
+            let _ = win.set_position(tauri::PhysicalPosition::new(min_x, min_y));
+            let _ = win.set_size(tauri::PhysicalSize::new(
+                (max_x - min_x) as u32,
+                (max_y - min_y) as u32,
+            ));
+        }
     }
     let _ = win.show();
     let _ = win.set_focus();

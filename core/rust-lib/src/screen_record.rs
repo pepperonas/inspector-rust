@@ -424,13 +424,31 @@ fn spawn_segment(
 ) -> Result<Child, String> {
     let args = resolve_args(ffmpeg, region, audio, out)?;
     use std::process::{Command, Stdio};
-    Command::new(ffmpeg)
-        .args(&args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()
-        .map_err(|e| format!("spawn ffmpeg: {e}"))
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::process::CommandExt;
+        // CREATE_NO_WINDOW (0x0800_0000) prevents the console window flash.
+        Command::new(ffmpeg)
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .creation_flags(0x0800_0000)
+            .spawn()
+            .map_err(|e| format!("spawn ffmpeg: {e}"))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        Command::new(ffmpeg)
+            .args(&args)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .map_err(|e| format!("spawn ffmpeg: {e}"))
+    }
 }
 
 /// Cleanly finalize a running ffmpeg: send `q`, wait up to 5 s for the moov

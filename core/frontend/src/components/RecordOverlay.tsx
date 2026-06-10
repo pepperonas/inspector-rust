@@ -97,7 +97,7 @@ export function RecordOverlay() {
       setPhase("configure");
       setError(
         msg.includes(ERR_NO_FFMPEG)
-          ? "ffmpeg is not installed. Install it (macOS: brew install ffmpeg) and try again."
+          ? "ffmpeg is not installed. Install it (Windows: winget install ffmpeg; macOS: brew install ffmpeg) and restart the app."
           : `Could not start recording: ${msg}`,
       );
     });

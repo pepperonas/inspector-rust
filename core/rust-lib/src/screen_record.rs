@@ -451,14 +451,18 @@ fn spawn_segment(
     }
 }
 
-/// Cleanly finalize a running ffmpeg: send `q`, wait up to 5 s for the moov
-/// atom to flush, else kill.
+/// Cleanly finalize a running ffmpeg: send `q` + newline, wait up to 5 s for
+/// the moov atom to flush, else kill. The newline is needed on Windows where
+/// piped stdin is not line-buffered by default.
 fn finalize_child(mut child: Child) {
     use std::io::Write;
     if let Some(stdin) = child.stdin.as_mut() {
-        let _ = stdin.write_all(b"q");
+        let _ = stdin.write_all(b"q\n");
         let _ = stdin.flush();
     }
+    // Drop stdin so ffmpeg sees EOF — on Windows this is often what
+    // unblocks the read loop if `q` alone didn't trigger shutdown.
+    drop(child.stdin.take());
     let mut waited = std::time::Duration::ZERO;
     let step = std::time::Duration::from_millis(100);
     loop {
@@ -570,16 +574,37 @@ fn concat_segments(
     let list_path = segment_dir()?.join(format!("concat-{}.txt", std::process::id()));
     std::fs::write(&list_path, concat_list_contents(segments))
         .map_err(|e| format!("write concat list: {e}"))?;
-    let status = std::process::Command::new(ffmpeg)
-        .args(["-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i"])
-        .arg(&list_path)
-        .args(["-c", "copy", "-movflags", "+faststart"])
-        .arg(out)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .map_err(|e| format!("concat ffmpeg: {e}"))?;
+
+    #[cfg(target_os = "windows")]
+    let status = {
+        use std::os::windows::process::CommandExt;
+        std::process::Command::new(ffmpeg)
+            .args(["-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i"])
+            .arg(&list_path)
+            .args(["-c", "copy", "-movflags", "+faststart"])
+            .arg(out)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .status()
+            .map_err(|e| format!("concat ffmpeg: {e}"))?
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let status = {
+        std::process::Command::new(ffmpeg)
+            .args(["-y", "-hide_banner", "-f", "concat", "-safe", "0", "-i"])
+            .arg(&list_path)
+            .args(["-c", "copy", "-movflags", "+faststart"])
+            .arg(out)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .map_err(|e| format!("concat ffmpeg: {e}"))?
+    };
+
     let _ = std::fs::remove_file(&list_path);
     if !status.success() {
         return Err("concat failed".into());

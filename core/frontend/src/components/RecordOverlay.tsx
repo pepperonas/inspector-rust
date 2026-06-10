@@ -189,13 +189,14 @@ export function RecordOverlay() {
         </div>
       )}
 
-      {/* Configure panel, anchored near the selection. */}
+      {/* Configure panel — centred inside the selection rectangle so it
+          is always visible on the same monitor as the selection. */}
       {phase === "configure" && hasRect && (
         <div
           className="absolute flex flex-col gap-3 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[var(--color-fg)] shadow-2xl"
           style={{
-            left: Math.min(rect!.left, window.innerWidth - 280),
-            top: Math.min(rect!.top + rect!.height + 12, window.innerHeight - 220),
+            left: rect!.left + Math.max(0, (rect!.width - 264) / 2),
+            top: rect!.top + Math.max(0, (rect!.height - 200) / 2),
             width: 264,
           }}
           onMouseDown={(e) => e.stopPropagation()}

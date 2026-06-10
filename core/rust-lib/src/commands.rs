@@ -3022,19 +3022,19 @@ pub async fn start_screen_record(
     Ok(())
 }
 
-/// Pause the active recording (finalises the current segment). `async` so the
-/// ffmpeg finalize-wait (up to 5 s) runs off the main thread (no UI freeze).
+/// Pause the active recording (finalises the current segment). Synchronous
+/// so the finalize-wait (up to 5 s) runs on Tauri's blocking thread pool.
 #[tauri::command]
-pub async fn pause_screen_record(
+pub fn pause_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<(), String> {
     crate::screen_record::pause(&state)
 }
 
-/// Resume a paused recording (starts a fresh segment). `async` so the device
-/// re-listing + spawn runs off the main thread.
+/// Resume a paused recording (starts a fresh segment). Synchronous so device
+/// re-listing + spawn runs on a blocking thread.
 #[tauri::command]
-pub async fn resume_screen_record(
+pub fn resume_screen_record(
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<(), String> {
     crate::screen_record::resume(&state)
@@ -3057,16 +3057,16 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
         .visible(false)
         .build()
         .map_err(|e| format!("build stop bar: {e}"))?;
-    // Bottom-centre of the monitor's WORK AREA (excludes the Dock + menu bar),
-    // so the bar is never hidden behind the Dock.
+    // Position at the top-centre of the primary monitor's work area so it
+    // never clips below the screen (the previous bottom-centre placement
+    // could land behind the Windows taskbar or outside the visible bounds).
     if let Ok(Some(mon)) = win.primary_monitor() {
         let area = mon.work_area();
         let scale = mon.scale_factor();
         let bar_w = (312.0 * scale) as i32;
-        let bar_h = (54.0 * scale) as i32;
         let margin = (12.0 * scale) as i32;
         let x = area.position.x + (area.size.width as i32 - bar_w) / 2;
-        let y = area.position.y + area.size.height as i32 - bar_h - margin;
+        let y = area.position.y + margin;
         let _ = win.set_position(tauri::PhysicalPosition::new(x, y));
     }
     let _ = win.show();
@@ -3075,11 +3075,11 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
 }
 
 /// Stop the active recording, finalise the MP4, reveal it, and toast the path.
-/// `async` so the finalize-wait + lossless concat (both blocking, up to several
-/// seconds) run off the main thread — otherwise the UI freezes and the Stop
-/// button appears unresponsive.
+/// Synchronous (not `async`) so Tauri runs it on a blocking thread automatically
+/// — `finalize_child` can take up to 5 s, and a non-async command won't starve
+/// the async runtime's worker pool.
 #[tauri::command]
-pub async fn stop_screen_record(
+pub fn stop_screen_record(
     app: AppHandle,
     state: State<'_, crate::screen_record::RecordState>,
 ) -> Result<String, String> {

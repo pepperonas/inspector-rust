@@ -2045,6 +2045,8 @@ pub fn run_capture_pipeline(
                 Some(crate::screenshot_preview::Pending {
                     path: temp_path.clone(),
                     app_name: captured_app_name.clone(),
+                    // A fresh capture lives in the cache dir — discardable.
+                    saved: false,
                 });
         } else {
             tracing::warn!("PendingScreenshot state missing — preview won't work");

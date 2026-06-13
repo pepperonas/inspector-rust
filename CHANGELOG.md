@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.4] — 2026-06-13
+
+### Fixed — edited screenshots vanished from Downloads after saving
+
+`editor_save` wrote the annotated PNG to `~/Downloads`, then re-pointed the
+preview's pending entry at that file and re-showed the preview. Dismissing the
+preview (its Close button, Pin-to-screen, or auto-hide) runs
+`screenshot_preview_discard`, which `remove_file`d the pending path — so the
+just-saved Downloads file got deleted moments later. Edited screenshots now
+persist: `Pending` carries a `saved` flag (true once the file lives in
+Downloads), discard only deletes unsaved temp captures in the cache dir, and
+re-saving an already-saved file no longer needlessly renames it.
+
 ## [0.84.3] — 2026-06-13
 
 ### Fixed — `freeze` (input lock) only worked once per session

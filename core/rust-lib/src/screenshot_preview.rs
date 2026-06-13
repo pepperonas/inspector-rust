@@ -32,6 +32,11 @@ use tauri::{
 pub struct Pending {
     pub path: PathBuf,
     pub app_name: Option<String>,
+    /// `true` once `path` points at a file the user already owns in
+    /// `~/Downloads` (e.g. after the annotation editor saved it). Discarding
+    /// the preview must NOT delete such a file — only the unsaved temp captures
+    /// living in the cache dir are safe to `remove_file`.
+    pub saved: bool,
 }
 
 /// Shared state holding the most recently captured (still-pending)
@@ -745,12 +750,17 @@ pub fn screenshot_preview_save(
     let app_name = pending_item.app_name.clone();
     let bytes = std::fs::read(&temp).map_err(|e| format!("read pending {}: {e}", temp.display()))?;
 
-    // Move to ~/Downloads first so a clipboard or history failure
-    // doesn't leave the user without the file. App name (best-effort)
-    // is baked into the filename so the Downloads folder stays
-    // grep-able.
-    let dest = promote_to_downloads(&temp, app_name.as_deref())
-        .map_err(|e| format!("promote to Downloads: {e}"))?;
+    // Move to ~/Downloads first so a clipboard or history failure doesn't leave
+    // the user without the file. App name (best-effort) is baked into the
+    // filename so the Downloads folder stays grep-able. If the file is already
+    // a saved Downloads file (e.g. the editor saved it and re-showed the
+    // preview), keep it in place — re-promoting would needlessly rename it.
+    let dest = if pending_item.saved {
+        temp.clone()
+    } else {
+        promote_to_downloads(&temp, app_name.as_deref())
+            .map_err(|e| format!("promote to Downloads: {e}"))?
+    };
 
     // Clipboard.
     let b64 = B64.encode(&bytes);
@@ -821,7 +831,12 @@ pub fn screenshot_preview_discard(
     pending: State<'_, PendingScreenshot>,
 ) -> Result<(), String> {
     if let Some(p) = pending.inner().current.lock().take() {
-        let _ = std::fs::remove_file(&p.path);
+        // Only delete unsaved temp captures (cache dir). A file the user has
+        // already saved to ~/Downloads (e.g. via the editor) must persist —
+        // discarding the *preview* of it must not delete the saved file.
+        if !p.saved {
+            let _ = std::fs::remove_file(&p.path);
+        }
     }
     // Discarding also clears the pin state so the next screenshot
     // starts fresh; otherwise a leftover pinned=true would silently

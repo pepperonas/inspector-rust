@@ -174,6 +174,8 @@ pub fn editor_save(
         *cur = Some(Pending {
             path: dest.clone(),
             app_name,
+            // Already written to ~/Downloads — must survive a later discard.
+            saved: true,
         });
     }
 

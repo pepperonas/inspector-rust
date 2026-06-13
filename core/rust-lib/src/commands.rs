@@ -2961,37 +2961,43 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|e| format!("build record overlay: {e}"))?;
-    // Cover the entire virtual desktop (all monitors) so the user can select a
-    // region on any screen. Compute the bounding box of all monitors in
-    // physical pixels (min corner can be negative when a monitor sits left/above
-    // the primary).
-    let span = win.available_monitors().ok().and_then(|monitors| {
-        let mut bbox: Option<(i32, i32, i32, i32)> = None;
-        for mon in monitors {
-            let p = mon.position();
-            let s = mon.size();
-            let (x, y, r, b) = (p.x, p.y, p.x + s.width as i32, p.y + s.height as i32);
-            bbox = Some(match bbox {
-                None => (x, y, r, b),
-                Some((mx, my, mr, mb)) => (mx.min(x), my.min(y), mr.max(r), mb.max(b)),
-            });
-        }
-        bbox
-    });
-    let apply_span = |w: &tauri::WebviewWindow| {
-        if let Some((min_x, min_y, max_x, max_y)) = span {
-            let _ = w.set_position(tauri::PhysicalPosition::new(min_x, min_y));
-            let _ = w.set_size(tauri::PhysicalSize::new(
-                (max_x - min_x) as u32,
-                (max_y - min_y) as u32,
-            ));
+    // Cover the monitor under the cursor (fully). A single window can't reliably
+    // span mixed-DPI monitors — the virtual-desktop bounding box in physical
+    // pixels isn't coherent when a Retina (scale 2) and a non-Retina (scale 1)
+    // display are combined, so the overlay only partially covered secondary
+    // screens. One monitor's physical position+size ARE self-consistent, so
+    // covering just the cursor's monitor is exact. To record a different screen,
+    // move the cursor there before triggering.
+    let target = win
+        .cursor_position()
+        .ok()
+        .and_then(|cursor| {
+            win.available_monitors().ok().and_then(|mons| {
+                mons.into_iter().find(|m| {
+                    let p = m.position();
+                    let s = m.size();
+                    let (cx, cy) = (cursor.x as i32, cursor.y as i32);
+                    cx >= p.x
+                        && cx < p.x + s.width as i32
+                        && cy >= p.y
+                        && cy < p.y + s.height as i32
+                })
+            })
+        })
+        .or_else(|| win.primary_monitor().ok().flatten());
+    let apply = |w: &tauri::WebviewWindow| {
+        if let Some(m) = &target {
+            let p = m.position();
+            let s = m.size();
+            let _ = w.set_position(tauri::PhysicalPosition::new(p.x, p.y));
+            let _ = w.set_size(tauri::PhysicalSize::new(s.width, s.height));
         }
     };
     // Apply before show; some macOS configurations ignore sizing on a window
     // that hasn't been realised yet, so apply again right after show.
-    apply_span(&win);
+    apply(&win);
     let _ = win.show();
-    apply_span(&win);
+    apply(&win);
     let _ = win.set_focus();
     Ok(())
 }

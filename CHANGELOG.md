@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.6] — 2026-06-13
+
+### Fixed — recorder selection on a secondary monitor (mixed-DPI)
+
+v0.84.5 made the select overlay span the whole virtual desktop, but on macOS a
+single window can't reliably span monitors with different scale factors (a
+Retina primary + a non-Retina external): the overlay only partially covered the
+secondary screen. The overlay now covers **the monitor under the cursor**,
+sized from that one monitor's self-consistent physical position+size — so the
+selection fills the whole screen on any monitor. Move the cursor to the screen
+you want before triggering. (The region is still mapped to the correct display
+for capture, as in 0.84.5.)
+
 ## [0.84.5] — 2026-06-13
 
 ### Fixed — screen recorder: select a region on any monitor

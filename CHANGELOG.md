@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.5] — 2026-06-13
+
+### Fixed — screen recorder: select a region on any monitor
+
+The region selection couldn't reach all monitors, and a region wasn't mapped to
+the right display. Now:
+
+- The select overlay covers the **entire virtual desktop** (bounding box of all
+  monitors, re-applied after `show` for macOS reliability), so the marquee can
+  be drawn on any screen.
+- The selected region is converted to **absolute virtual-desktop coordinates**
+  (overlay window position + marquee). Windows (`gdigrab`) and Linux (`x11grab`)
+  capture the whole desktop with absolute offsets, so any monitor records
+  directly.
+- macOS `avfoundation` records one display at a time, so the region is mapped to
+  the display it lands on (CoreGraphics `CGGetActiveDisplayList`/`CGDisplayBounds`
+  + the unit-tested `pick_display_for_region`), that display's `Capture screen N`
+  device is selected, and the crop is taken relative to that display. Single-
+  monitor behaviour is unchanged. (Mixed-DPI multi-monitor layouts assume a
+  uniform scale factor and may be slightly off; macOS multi-display capture is
+  runtime-unverified on this build host.)
+
 ## [0.84.4] — 2026-06-13
 
 ### Fixed — edited screenshots vanished from Downloads after saving

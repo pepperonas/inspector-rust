@@ -2961,43 +2961,37 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     .visible(false)
     .build()
     .map_err(|e| format!("build record overlay: {e}"))?;
-    // Cover the entire virtual desktop (all monitors) so the user can
-    // select a region on any screen.
-    if let Ok(monitors) = win.available_monitors() {
-        let mut min_x = 0i32;
-        let mut min_y = 0i32;
-        let mut max_x = 0i32;
-        let mut max_y = 0i32;
-        let mut first = true;
+    // Cover the entire virtual desktop (all monitors) so the user can select a
+    // region on any screen. Compute the bounding box of all monitors in
+    // physical pixels (min corner can be negative when a monitor sits left/above
+    // the primary).
+    let span = win.available_monitors().ok().and_then(|monitors| {
+        let mut bbox: Option<(i32, i32, i32, i32)> = None;
         for mon in monitors {
-            let pos = mon.position();
-            let size = mon.size();
-            let x = pos.x;
-            let y = pos.y;
-            let r = x + size.width as i32;
-            let b = y + size.height as i32;
-            if first {
-                min_x = x;
-                min_y = y;
-                max_x = r;
-                max_y = b;
-                first = false;
-            } else {
-                min_x = min_x.min(x);
-                min_y = min_y.min(y);
-                max_x = max_x.max(r);
-                max_y = max_y.max(b);
-            }
+            let p = mon.position();
+            let s = mon.size();
+            let (x, y, r, b) = (p.x, p.y, p.x + s.width as i32, p.y + s.height as i32);
+            bbox = Some(match bbox {
+                None => (x, y, r, b),
+                Some((mx, my, mr, mb)) => (mx.min(x), my.min(y), mr.max(r), mb.max(b)),
+            });
         }
-        if !first {
-            let _ = win.set_position(tauri::PhysicalPosition::new(min_x, min_y));
-            let _ = win.set_size(tauri::PhysicalSize::new(
+        bbox
+    });
+    let apply_span = |w: &tauri::WebviewWindow| {
+        if let Some((min_x, min_y, max_x, max_y)) = span {
+            let _ = w.set_position(tauri::PhysicalPosition::new(min_x, min_y));
+            let _ = w.set_size(tauri::PhysicalSize::new(
                 (max_x - min_x) as u32,
                 (max_y - min_y) as u32,
             ));
         }
-    }
+    };
+    // Apply before show; some macOS configurations ignore sizing on a window
+    // that hasn't been realised yet, so apply again right after show.
+    apply_span(&win);
     let _ = win.show();
+    apply_span(&win);
     let _ = win.set_focus();
     Ok(())
 }
@@ -3021,6 +3015,22 @@ pub async fn start_screen_record(
     region: crate::screen_record::RecordRegion,
     audio: crate::screen_record::AudioChoice,
 ) -> Result<(), String> {
+    // The overlay sends the marquee rect relative to its own (multi-monitor-
+    // spanning) window. Add the overlay window's screen position to get an
+    // ABSOLUTE virtual-desktop region, so a selection on any monitor is
+    // addressable. The overlay still exists here (closed just below).
+    let region = match app
+        .get_webview_window(RECORD_OVERLAY_LABEL)
+        .and_then(|w| w.outer_position().ok())
+    {
+        Some(pos) => crate::screen_record::RecordRegion {
+            x: region.x + pos.x,
+            y: region.y + pos.y,
+            w: region.w,
+            h: region.h,
+        },
+        None => region,
+    };
     // `async fn` so Tauri runs this OFF the main thread — `screen_record::start`
     // blocks ~0.5 s listing ffmpeg devices, which would otherwise freeze the UI.
     crate::screen_record::start(&state, region, audio)?;

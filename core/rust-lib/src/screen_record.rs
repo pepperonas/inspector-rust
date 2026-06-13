@@ -88,14 +88,6 @@ fn parse_indexed_tail(line: &str) -> Option<Device> {
     Some((idx, name))
 }
 
-/// Pick the avfoundation **screen** capture video index ("Capture screen N").
-#[cfg(any(target_os = "macos", test))]
-pub fn pick_screen_index(video: &[Device]) -> Option<u32> {
-    video
-        .iter()
-        .find(|(_, n)| n.to_lowercase().contains("capture screen"))
-        .map(|(i, _)| *i)
-}
 
 /// Pick the microphone audio index (name contains "microphone"/"mikrofon",
 /// else the first audio device).
@@ -109,6 +101,47 @@ pub fn pick_mic_index(audio: &[Device]) -> Option<u32> {
         })
         .or_else(|| audio.first())
         .map(|(i, _)| *i)
+}
+
+/// Pick the avfoundation video index for **`Capture screen {ordinal}`** (the
+/// per-display screen-capture devices). Falls back to the first capture-screen
+/// device if the exact ordinal isn't present. Pure → unit-tested.
+#[cfg(any(target_os = "macos", test))]
+pub fn pick_screen_index_n(video: &[Device], ordinal: usize) -> Option<u32> {
+    let want = format!("capture screen {ordinal}");
+    video
+        .iter()
+        .find(|(_, n)| n.to_lowercase().contains(&want))
+        .or_else(|| {
+            video
+                .iter()
+                .find(|(_, n)| n.to_lowercase().contains("capture screen"))
+        })
+        .map(|(i, _)| *i)
+}
+
+/// Given physical display rects `(x, y, w, h)` in active-display order and an
+/// **absolute** physical region, return `(display_ordinal, crop_x, crop_y)` for
+/// the display whose bounds contain the region's origin — the ordinal selects
+/// the avfoundation `Capture screen N` device, the crop is the region relative
+/// to that display. `None` if no display contains the origin. Pure →
+/// unit-tested.
+#[cfg(any(target_os = "macos", test))]
+pub fn pick_display_for_region(
+    displays: &[(i32, i32, u32, u32)],
+    region: RecordRegion,
+) -> Option<(usize, i32, i32)> {
+    displays.iter().enumerate().find_map(|(i, &(x, y, w, h))| {
+        if region.x >= x
+            && region.x < x + w as i32
+            && region.y >= y
+            && region.y < y + h as i32
+        {
+            Some((i, region.x - x, region.y - y))
+        } else {
+            None
+        }
+    })
 }
 
 /// Pick a loopback/system-audio capture index (BlackHole / Loopback / Soundflower).
@@ -807,6 +840,70 @@ pub fn cleanup_orphans() {
     }
 }
 
+/// CoreGraphics display enumeration → physical display rects in active-display
+/// order (main display first), matching the order ffmpeg's avfoundation uses for
+/// its `Capture screen N` devices. Same FFI pattern as `brightness.rs`.
+#[cfg(target_os = "macos")]
+mod cg_displays {
+    type CGDirectDisplayID = u32;
+
+    #[repr(C)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGGetActiveDisplayList(
+            max_displays: u32,
+            active: *mut CGDirectDisplayID,
+            display_count: *mut u32,
+        ) -> i32;
+        fn CGDisplayBounds(display: CGDirectDisplayID) -> CGRect;
+        fn CGDisplayPixelsWide(display: CGDirectDisplayID) -> usize;
+        fn CGDisplayPixelsHigh(display: CGDirectDisplayID) -> usize;
+    }
+
+    /// `(x, y, w, h)` per display in **physical pixels**, active-display order.
+    /// `CGDisplayBounds` is in points; we scale by each display's pixels/points
+    /// ratio. (Assumes a uniform scale factor across displays — the common case;
+    /// mixed-DPI layouts may be slightly off.) Empty on failure → caller falls
+    /// back to the primary screen.
+    pub fn physical_rects() -> Vec<(i32, i32, u32, u32)> {
+        let mut ids = [0u32; 16];
+        let mut count = 0u32;
+        let err = unsafe { CGGetActiveDisplayList(16, ids.as_mut_ptr(), &mut count) };
+        if err != 0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        for &id in ids.iter().take(count as usize) {
+            let b = unsafe { CGDisplayBounds(id) };
+            let pw = unsafe { CGDisplayPixelsWide(id) } as f64;
+            let ph = unsafe { CGDisplayPixelsHigh(id) } as f64;
+            let scale = if b.size.width > 0.0 { pw / b.size.width } else { 1.0 };
+            out.push((
+                (b.origin.x * scale).round() as i32,
+                (b.origin.y * scale).round() as i32,
+                pw as u32,
+                ph as u32,
+            ));
+        }
+        out
+    }
+}
+
 #[cfg(target_os = "macos")]
 fn resolve_args(
     ffmpeg: &std::path::Path,
@@ -820,10 +917,22 @@ fn resolve_args(
         .map_err(|e| format!("list avfoundation devices: {e}"))?;
     let stderr = String::from_utf8_lossy(&listing.stderr);
     let (video, audio_devs) = parse_avf_devices(&stderr);
-    let screen = pick_screen_index(&video).ok_or("no 'Capture screen' device found")?;
+
+    // The region is in ABSOLUTE virtual-desktop physical coords. avfoundation
+    // captures one display at a time, so find which display the region lands on
+    // → pick that `Capture screen N` device and crop relative to that display.
+    // On a single-monitor setup this resolves to (screen 0, region) — the
+    // previous behaviour.
+    let displays = cg_displays::physical_rects();
+    let (ordinal, crop_x, crop_y) =
+        pick_display_for_region(&displays, region).unwrap_or((0, region.x, region.y));
+    let screen =
+        pick_screen_index_n(&video, ordinal).ok_or("no 'Capture screen' device found")?;
     let system = if audio.system { pick_system_index(&audio_devs) } else { None };
     let mic = if audio.mic { pick_mic_index(&audio_devs) } else { None };
-    Ok(build_args_macos(region, screen, system, mic, &out.to_string_lossy()))
+
+    let crop_region = RecordRegion { x: crop_x, y: crop_y, w: region.w, h: region.h };
+    Ok(build_args_macos(crop_region, screen, system, mic, &out.to_string_lossy()))
 }
 
 #[cfg(target_os = "windows")]
@@ -902,7 +1011,7 @@ mod tests {
         let (v, a) = parse_avf_devices(AVF_SAMPLE);
         assert_eq!(v, vec![(0, "FaceTime HD Camera".into()), (2, "Capture screen 0".into())]);
         assert_eq!(a, vec![(1, "BlackHole 2ch".into()), (3, "MacBook Pro Microphone".into())]);
-        assert_eq!(pick_screen_index(&v), Some(2));
+        assert_eq!(pick_screen_index_n(&v, 0), Some(2));
         assert_eq!(pick_system_index(&a), Some(1));
         assert_eq!(pick_mic_index(&a), Some(3));
     }
@@ -1005,6 +1114,44 @@ mod tests {
         let segs = vec![PathBuf::from("/tmp/a'b.mp4")];
         // ffmpeg single-quote escape: ' -> '\''
         assert_eq!(concat_list_contents(&segs), "file '/tmp/a'\\''b.mp4'\n");
+    }
+
+    #[test]
+    fn picks_capture_screen_by_ordinal() {
+        let video = vec![
+            (0, "FaceTime HD Camera".to_string()),
+            (2, "Capture screen 0".to_string()),
+            (3, "Capture screen 1".to_string()),
+        ];
+        assert_eq!(pick_screen_index_n(&video, 0), Some(2));
+        assert_eq!(pick_screen_index_n(&video, 1), Some(3));
+        // Unknown ordinal falls back to the first capture-screen device.
+        assert_eq!(pick_screen_index_n(&video, 5), Some(2));
+        // No capture-screen device at all → None.
+        assert_eq!(pick_screen_index_n(&[(0, "Camera".into())], 0), None);
+    }
+
+    #[test]
+    fn maps_region_to_display_and_crop() {
+        // Main 2560x1440 at origin; secondary 1920x1080 to its right at x=2560.
+        let displays = [(0, 0, 2560, 1440), (2560, 0, 1920, 1080)];
+        // Region fully on the main display.
+        let r0 = RecordRegion { x: 100, y: 200, w: 640, h: 480 };
+        assert_eq!(pick_display_for_region(&displays, r0), Some((0, 100, 200)));
+        // Region on the secondary display → ordinal 1, crop relative to it.
+        let r1 = RecordRegion { x: 2660, y: 50, w: 320, h: 240 };
+        assert_eq!(pick_display_for_region(&displays, r1), Some((1, 100, 50)));
+        // Region origin off every display → None (caller falls back to primary).
+        let r2 = RecordRegion { x: 9000, y: 9000, w: 10, h: 10 };
+        assert_eq!(pick_display_for_region(&displays, r2), None);
+    }
+
+    #[test]
+    fn maps_region_on_a_monitor_left_of_primary() {
+        // Secondary 1920x1080 to the LEFT of main (negative origin).
+        let displays = [(0, 0, 2560, 1440), (-1920, 0, 1920, 1080)];
+        let r = RecordRegion { x: -1800, y: 10, w: 200, h: 200 };
+        assert_eq!(pick_display_for_region(&displays, r), Some((1, 120, 10)));
     }
 
     #[test]

@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.10] — 2026-06-14
+
+### Fixed — deadlock that froze the whole app (no hotkeys after using the recorder)
+
+A process sample (via the new logging + `sample`) pinned it exactly: the global
+Esc-cancel added in 0.84.7 called `global_shortcut().unregister`/`.on_shortcut`
+**inside `screen_record_open_overlay`**. When that runs from the record hotkey,
+it executes within the global-shortcut event handler, which holds the plugin's
+manager mutex — so registering/unregistering there re-entered the same mutex and
+**deadlocked the main thread**. After triggering the screen recorder once, the
+main run loop was hung forever: no global hotkey fired again (Ctrl+Space,
+Ctrl+Shift+V did nothing), and the app beach-balled. Fix: arm the global Esc on
+a worker thread, which waits for the handler to release the mutex instead of
+re-entering it. The recorder + all hotkeys keep working.
+
 ## [0.84.9] — 2026-06-13
 
 ### Added — persistent file logging + crash capture

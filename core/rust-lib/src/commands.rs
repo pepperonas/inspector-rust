@@ -2999,7 +2999,15 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     // Esc must abort from anywhere — the transparent overlay doesn't reliably
     // hold keyboard focus (the in-webview keydown listener needs a click first),
     // so register a GLOBAL Esc that cancels. Disarmed on cancel / record-start.
-    arm_overlay_escape(&app);
+    //
+    // CRITICAL: arm it on a WORKER thread, never inline. When this function runs
+    // from the record hotkey, we are *inside* the global-shortcut event handler,
+    // which holds the plugin's manager mutex; calling `global_shortcut()
+    // .unregister`/`.on_shortcut` here re-enters that mutex → deadlock (the main
+    // thread hangs forever and NO hotkey fires again — the v0.84.7 regression).
+    // The worker blocks on the mutex only until the handler returns, then arms.
+    let app_esc = app.clone();
+    std::thread::spawn(move || arm_overlay_escape(&app_esc));
     // Deferred re-apply: `set_size(PhysicalSize)` converts physical→logical via
     // the window's CURRENT scale factor, which can still be the OLD monitor's
     // right after a move to a different-scale display (Retina ↔ non-Retina) —

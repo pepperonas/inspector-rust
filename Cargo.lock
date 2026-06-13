@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.84.8"
+version = "0.84.9"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2403,13 +2403,14 @@ dependencies = [
  "tauri-plugin-single-instance",
  "totp-rs",
  "tracing",
+ "tracing-appender",
  "tracing-subscriber",
  "windows 0.61.3",
 ]
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.84.8"
+version = "0.84.9"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2423,7 +2424,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.84.8"
+version = "0.84.9"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2437,7 +2438,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.84.8"
+version = "0.84.9"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -4998,6 +4999,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "symlink"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a7973cce6668464ea31f176d85b13c7ab3bba2cb3b77a2ed26abd7801688010a"
+
+[[package]]
 name = "syn"
 version = "1.0.109"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5819,6 +5826,19 @@ dependencies = [
  "pin-project-lite",
  "tracing-attributes",
  "tracing-core",
+]
+
+[[package]]
+name = "tracing-appender"
+version = "0.2.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "050686193eb999b4bb3bc2acfa891a13da00f79734704c4b8b4ef1a10b368a3c"
+dependencies = [
+ "crossbeam-channel",
+ "symlink",
+ "thiserror 2.0.18",
+ "time",
+ "tracing-subscriber",
 ]
 
 [[package]]

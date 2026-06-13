@@ -1062,13 +1062,16 @@ pub fn toggle_popup(app: &AppHandle) -> Result<()> {
         .get_webview_window(POPUP_LABEL)
         .context("popup window not found")?;
 
-    if window.is_visible().unwrap_or(false) {
+    let visible = window.is_visible().unwrap_or(false);
+    tracing::info!(visible, "toggle_popup");
+    if visible {
         let _ = window.hide();
         return Ok(());
     }
 
     show_and_position(&window)?;
     let _ = app.emit("window-shown", ());
+    tracing::info!("toggle_popup: shown");
     Ok(())
 }
 

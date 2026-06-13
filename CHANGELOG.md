@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.9] — 2026-06-13
+
+### Added — persistent file logging + crash capture
+
+Bundled builds had no terminal, so all `tracing` output was lost and field
+hangs/crashes were undiagnosable. Now the app writes a **daily-rolling log
+file** to `<data dir>/InspectorRust/logs/inspector-rust.log` (macOS:
+`~/Library/Application Support/InspectorRust/logs/`) in addition to stderr, at
+`info` by default (`RUST_LOG` overrides). A **panic hook** records crashes — with
+thread + source location — to both the rolling log and a dedicated `crash.log`
+written synchronously so the trace survives an immediate abort. Key
+interactions (popup show/hide, hotkeys, recording, etc.) are logged as
+breadcrumbs. New `logging` module; `tracing-appender` dependency.
+
 ## [0.84.8] — 2026-06-13
 
 ### Fixed — popup (Ctrl+Space) opened on the wrong monitor

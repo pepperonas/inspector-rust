@@ -19,6 +19,7 @@ mod desktop_shortcuts;
 mod expander;
 mod hotkey;
 mod image_ops;
+mod logging;
 mod md_to_pdf;
 mod meme;
 mod models;
@@ -69,12 +70,17 @@ pub fn run(context: tauri::Context<Wry>) {
         return;
     }
 
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| tracing_subscriber::EnvFilter::new("info")),
-        )
-        .init();
+    // Persistent logging: stderr + a daily-rolling file in the data dir, plus a
+    // panic hook that captures crashes. `_log_guard` MUST stay alive for the
+    // whole process (its drop flushes the async writer) — it lives until `run`
+    // returns, i.e. until the blocking `.run(...)` below exits.
+    let _log_guard = logging::init();
+    logging::install_panic_hook();
+    tracing::info!(
+        "Inspector Rust v{} starting (logs: {:?})",
+        env!("CARGO_PKG_VERSION"),
+        logging::log_dir()
+    );
 
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {

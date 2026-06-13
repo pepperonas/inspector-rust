@@ -178,11 +178,49 @@ fn notify_visual(label: &str) {
         .spawn();
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+fn notify_visual(label: &str) {
+    // libnotify's `notify-send` is present on essentially every desktop Linux
+    // and shows a real OS notification regardless of whether our popup is open.
+    let _ = std::process::Command::new("notify-send")
+        .args([
+            "--app-name=Inspector Rust",
+            "Timer fired",
+            &format!("Timer done — {label}"),
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+#[cfg(target_os = "windows")]
+fn notify_visual(label: &str) {
+    // Best-effort WinRT toast via PowerShell — no extra crate / plugin needed.
+    // Sanitise the label so it can't break out of the string literal.
+    // (Windows runtime-unverified.)
+    let safe = label.replace('\'', " ").replace(['\r', '\n'], " ");
+    let script = format!(
+        "[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType=WindowsRuntime] > $null; \
+         $t=[Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
+         $x=$t.GetElementsByTagName('text'); \
+         $x.Item(0).AppendChild($t.CreateTextNode('Inspector Rust')) > $null; \
+         $x.Item(1).AppendChild($t.CreateTextNode('Timer done — {safe}')) > $null; \
+         $toast=[Windows.UI.Notifications.ToastNotification]::new($t); \
+         [Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier('Inspector Rust').Show($toast)"
+    );
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("powershell")
+        .args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script])
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 fn notify_visual(_label: &str) {
-    // Windows + Linux native notifications: not in v1.
-    // The `timer-fired` event + popup banner are the cross-platform
-    // surface.
+    // No native notification surface; the `timer-fired` event + popup banner
+    // remain the fallback.
 }
 
 #[cfg(target_os = "macos")]
@@ -199,7 +237,46 @@ fn notify_audio() {
         .spawn();
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 fn notify_audio() {
-    // Defer to a v2 with a cross-platform audio crate.
+    // Best-effort: the freedesktop "complete" sound via the theme player, then
+    // a direct paplay of the standard ogg as a fallback. Either may be absent;
+    // both are spawned non-blocking and failures are ignored.
+    if std::process::Command::new("canberra-gtk-play")
+        .args(["-i", "complete"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .is_err()
+    {
+        let _ = std::process::Command::new("paplay")
+            .arg("/usr/share/sounds/freedesktop/stereo/complete.oga")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+    }
+}
+
+#[cfg(target_os = "windows")]
+fn notify_audio() {
+    // Play the system "Asterisk" sound via PowerShell — no crate needed.
+    // (Windows runtime-unverified.)
+    use std::os::windows::process::CommandExt;
+    let _ = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-WindowStyle",
+            "Hidden",
+            "-Command",
+            "[System.Media.SystemSounds]::Asterisk.Play()",
+        ])
+        .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn();
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+fn notify_audio() {
+    // No portable audio path on other platforms.
 }

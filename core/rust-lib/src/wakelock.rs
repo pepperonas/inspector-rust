@@ -102,6 +102,12 @@ pub struct WakelockState {
     /// wakelock is on. Killed in `set_enabled(false)`.
     #[cfg(target_os = "macos")]
     pub caffeinate: Mutex<Option<std::process::Child>>,
+    /// Linux-only: handle to the `systemd-inhibit … sleep infinity` child kept
+    /// alive while wakelock is on (the logind idle/sleep inhibitor — works
+    /// under Wayland where the cursor-jiggle worker is a no-op). Killed in
+    /// `set_enabled(false)`.
+    #[cfg(target_os = "linux")]
+    pub inhibitor: Mutex<Option<std::process::Child>>,
 }
 
 /// Toggle the wakelock. Idempotent — calling with the current state
@@ -171,8 +177,39 @@ pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
                 }
             }
         }
+        #[cfg(target_os = "linux")]
+        {
+            // Primary: a logind idle+sleep inhibitor. Unlike the X11 cursor
+            // jiggle (which Wayland blocks at the protocol level), this actually
+            // keeps a Wayland session from going idle / locking / sleeping, as
+            // long as the desktop honours logind inhibitors (GNOME, KDE do).
+            // Best-effort — if systemd-inhibit is missing, the jiggle worker
+            // below still helps on X11.
+            let child = std::process::Command::new("systemd-inhibit")
+                .args([
+                    "--what=idle:sleep",
+                    "--who=Inspector Rust",
+                    "--why=Keep awake",
+                    "--mode=block",
+                    "sleep",
+                    "infinity",
+                ])
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn();
+            match child {
+                Ok(c) => *state.inhibitor.lock() = Some(c),
+                Err(e) => tracing::warn!(
+                    "wakelock: systemd-inhibit unavailable ({e}); \
+                     relying on the X11 cursor jiggle (a no-op under Wayland)"
+                ),
+            }
+        }
         #[cfg(not(target_os = "macos"))]
         {
+            // Cursor-jiggle worker — primary on Windows/X11, a complement to the
+            // logind inhibitor on Linux (no-op under Wayland).
             let stop = Arc::new(AtomicBool::new(false));
             *state.stop.lock() = Some(stop.clone());
             let h = std::thread::spawn(move || worker(stop));
@@ -196,6 +233,14 @@ pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
             // Let the worker exit on its own at the next 200 ms tick so
             // we don't block the IPC for up to a minute waiting on `join`.
             *state.handle.lock() = None;
+        }
+        #[cfg(target_os = "linux")]
+        {
+            // Release the logind inhibitor (kill the `sleep infinity` child).
+            if let Some(mut child) = state.inhibitor.lock().take() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
         }
     }
     enable

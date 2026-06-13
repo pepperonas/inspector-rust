@@ -99,19 +99,25 @@ pub fn list_running_processes() -> Result<Vec<ProcessInfo>> {
 
 /// Send SIGTERM (graceful) or SIGKILL (force) to `pid`.
 ///
-/// - macOS / Linux: `libc::kill(pid, signal)`. Doesn't require root for
-///   processes owned by the current user. Returns an error if the PID
-///   doesn't exist or we don't have permission.
-/// - Windows: stub (would use `OpenProcess` + `TerminateProcess`).
+/// - macOS / Linux: SIGTERM (graceful) or SIGKILL (`force`), via the
+///   `sysinfo` wrapper over `libc::kill`. No root needed for own processes.
+/// - Windows: `sysinfo` maps `Signal::Kill` to `TerminateProcess` — Windows
+///   has no signals, so the SIGTERM/SIGKILL distinction collapses to a forced
+///   terminate. (Windows runtime-unverified.)
 pub fn kill_process_by_pid(pid: u32, force: bool) -> Result<()> {
-    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
-        // libc is already a transitive dep — we don't need to pull it in
-        // ourselves. Re-use the sysinfo crate's Process::kill_with for
-        // a portable wrapper.
+        // `sysinfo` gives a portable kill across all three OSes (it's already a
+        // dependency and powers `list_running_processes`).
         use sysinfo::{Pid, ProcessRefreshKind, RefreshKind, Signal, System};
 
-        let signal = if force { Signal::Kill } else { Signal::Term };
+        // Windows has no signal model — TerminateProcess is the only option,
+        // which sysinfo exposes as `Signal::Kill`. Elsewhere honour `force`.
+        let signal = if cfg!(target_os = "windows") || force {
+            Signal::Kill
+        } else {
+            Signal::Term
+        };
         let mut sys = System::new_with_specifics(
             RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
         );
@@ -122,22 +128,18 @@ pub fn kill_process_by_pid(pid: u32, force: bool) -> Result<()> {
             .ok_or_else(|| anyhow!("no process with PID {pid}"))?;
 
         // kill_with returns Some(bool) — Some(true) means the signal was
-        // delivered. Returning None means the signal isn't supported on
-        // this platform; treat as a fall-through error.
+        // delivered. None means the signal isn't supported on this platform;
+        // retry with Kill (covers a Windows build that returns None for Term).
         match target.kill_with(signal) {
             Some(true) => Ok(()),
             Some(false) => Err(anyhow!(
                 "failed to deliver {signal:?} to PID {pid} (permission denied?)",
             )),
-            None => Err(anyhow!("{signal:?} not supported on this platform")),
+            None => match target.kill_with(Signal::Kill) {
+                Some(true) => Ok(()),
+                _ => Err(anyhow!("could not terminate PID {pid}")),
+            },
         }
-    }
-    #[cfg(target_os = "windows")]
-    {
-        let _ = (pid, force);
-        Err(anyhow!(
-            "kill_process_by_pid not yet implemented on Windows"
-        ))
     }
     #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
     {
@@ -146,6 +148,24 @@ pub fn kill_process_by_pid(pid: u32, force: bool) -> Result<()> {
             "kill_process_by_pid not implemented on this platform"
         ))
     }
+}
+
+/// Linux helper: run each `(program, args)` in order, returning `Ok(())` on the
+/// first that launches and exits zero. Used for the power/lock/audio commands
+/// where the right tool depends on the distro (systemd vs. legacy, PipeWire vs.
+/// PulseAudio). The final `Err` names every tool tried so the failure is
+/// actionable.
+#[cfg(target_os = "linux")]
+fn run_first_ok(label: &str, candidates: &[(&str, &[&str])]) -> Result<()> {
+    let mut tried = Vec::new();
+    for (program, args) in candidates {
+        tried.push(*program);
+        match std::process::Command::new(program).args(*args).status() {
+            Ok(s) if s.success() => return Ok(()),
+            _ => continue, // missing tool or non-zero exit → try the next
+        }
+    }
+    Err(anyhow!("{label}: none of {tried:?} succeeded"))
 }
 
 /// Restart the system via `osascript` → `loginwindow`. Apps get a
@@ -176,7 +196,12 @@ pub fn system_reboot() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("shutdown /r returned non-zero exit"))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // logind reboots without sudo on a normal desktop session.
+        run_first_ok("reboot", &[("systemctl", &["reboot"])])
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err(anyhow!("system_reboot not implemented on this platform"))
     }
@@ -206,7 +231,11 @@ pub fn system_shutdown() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("shutdown /s returned non-zero exit"))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        run_first_ok("shutdown", &[("systemctl", &["poweroff"])])
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err(anyhow!("system_shutdown not implemented on this platform"))
     }
@@ -238,7 +267,21 @@ pub fn system_lock() -> Result<()> {
             .then_some(())
             .ok_or_else(|| anyhow!("LockWorkStation returned non-zero exit"))
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // The right lock command varies by desktop: logind (most), then the
+        // freedesktop screensaver helper, then the GNOME/Cinnamon fallbacks.
+        run_first_ok(
+            "lock",
+            &[
+                ("loginctl", &["lock-session"]),
+                ("xdg-screensaver", &["lock"]),
+                ("gnome-screensaver-command", &["-l"]),
+                ("cinnamon-screensaver-command", &["-l"]),
+            ],
+        )
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err(anyhow!("system_lock not implemented on this platform"))
     }
@@ -306,7 +349,25 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
         }
         Ok(0)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // PipeWire (wpctl) first, then PulseAudio (pactl). Both step the
+        // default sink by a relative percentage; we don't read the result back
+        // (return 0 like the other platforms — the caller only checks success).
+        let sign = if delta >= 0 { "+" } else { "-" };
+        let mag = delta.unsigned_abs();
+        let wp = format!("{mag}%{sign}"); // wpctl: "5%+" / "5%-"
+        let pa = format!("{sign}{mag}%"); // pactl: "+5%" / "-5%"
+        run_first_ok(
+            "volume",
+            &[
+                ("wpctl", &["set-volume", "-l", "1.0", "@DEFAULT_AUDIO_SINK@", &wp]),
+                ("pactl", &["set-sink-volume", "@DEFAULT_SINK@", &pa]),
+            ],
+        )?;
+        Ok(0)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = delta;
         Err(anyhow!("adjust_system_volume not implemented on this platform"))
@@ -349,7 +410,21 @@ pub fn toggle_system_mute() -> Result<bool> {
         win_vol::tap(win_vol::VK_VOLUME_MUTE);
         Ok(true)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        // Toggle mute on the default sink (PipeWire, then PulseAudio). We can't
+        // cheaply read the resulting state, so report `true` best-effort (the
+        // `mute` command ignores the value).
+        run_first_ok(
+            "mute",
+            &[
+                ("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", "toggle"]),
+                ("pactl", &["set-sink-mute", "@DEFAULT_SINK@", "toggle"]),
+            ],
+        )?;
+        Ok(true)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err(anyhow!("toggle_system_mute not implemented on this platform"))
     }

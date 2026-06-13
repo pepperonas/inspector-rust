@@ -180,11 +180,20 @@ pub fn scan() -> Vec<AppEntry> {
     found
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
 pub fn scan() -> Vec<AppEntry> {
-    // Windows + Linux launchers tracked in a follow-up. Returning an
-    // empty list here means the frontend's `appEntry` useMemo will
-    // never surface a row — no UI breakage.
+    linux::scan()
+}
+
+#[cfg(target_os = "windows")]
+pub fn scan() -> Vec<AppEntry> {
+    win::scan()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+pub fn scan() -> Vec<AppEntry> {
+    // No launcher on other platforms — an empty list means the frontend's
+    // `appEntry` useMemo never surfaces a row (no UI breakage).
     Vec::new()
 }
 
@@ -207,9 +216,256 @@ pub fn launch(path: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(target_os = "linux")]
+pub fn launch(path: &Path) -> Result<()> {
+    linux::launch(path)
+}
+
+#[cfg(target_os = "windows")]
+pub fn launch(path: &Path) -> Result<()> {
+    win::launch(path)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
 pub fn launch(_path: &Path) -> Result<()> {
-    Err(anyhow!("app launching: only macOS implemented in v0.37"))
+    Err(anyhow!("app launching not implemented on this platform"))
+}
+
+// ── Pure `.desktop` parsers (Linux; unit-tested) ─────────────────────────────
+
+/// Parse a `.desktop` file's `[Desktop Entry]` into `(Name, should_show)`.
+/// `should_show` is true only for `Type=Application` entries that are neither
+/// `Hidden=true` nor `NoDisplay=true`. Localised `Name[xx]=` keys are ignored
+/// (we keep the unlocalised `Name=`). Pure → unit-tested without a filesystem.
+#[cfg(any(target_os = "linux", test))]
+pub fn parse_desktop_entry(contents: &str) -> Option<(String, bool)> {
+    let mut in_entry = false;
+    let mut name: Option<String> = None;
+    let mut is_application = false;
+    let mut hidden = false;
+    let mut nodisplay = false;
+    for line in contents.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            in_entry = l == "[Desktop Entry]";
+            continue;
+        }
+        if !in_entry {
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("Name=") {
+            if name.is_none() {
+                name = Some(v.trim().to_string());
+            }
+        } else if let Some(v) = l.strip_prefix("Type=") {
+            is_application = v.trim() == "Application";
+        } else if let Some(v) = l.strip_prefix("NoDisplay=") {
+            nodisplay = v.trim().eq_ignore_ascii_case("true");
+        } else if let Some(v) = l.strip_prefix("Hidden=") {
+            hidden = v.trim().eq_ignore_ascii_case("true");
+        }
+    }
+    let name = name?;
+    Some((name, is_application && !hidden && !nodisplay))
+}
+
+/// Extract the `Exec=` command from a `.desktop` file, stripping the `%U`/`%f`/…
+/// field codes. Used as the fallback when `gtk-launch` is unavailable.
+#[cfg(any(target_os = "linux", test))]
+pub fn parse_desktop_exec(contents: &str) -> Option<String> {
+    let mut in_entry = false;
+    for line in contents.lines() {
+        let l = line.trim();
+        if l.starts_with('[') {
+            in_entry = l == "[Desktop Entry]";
+            continue;
+        }
+        if !in_entry {
+            continue;
+        }
+        if let Some(v) = l.strip_prefix("Exec=") {
+            let cleaned = v
+                .split_whitespace()
+                .filter(|tok| !(tok.len() == 2 && tok.starts_with('%')))
+                .collect::<Vec<_>>()
+                .join(" ");
+            return Some(cleaned.trim().to_string());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{parse_desktop_entry, parse_desktop_exec, AppEntry};
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+
+    /// XDG application directories, user-first so a user override shadows the
+    /// system entry of the same desktop-file id.
+    fn app_dirs() -> Vec<PathBuf> {
+        let mut dirs: Vec<PathBuf> = Vec::new();
+        let user = std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| dirs::home_dir().map(|h| h.join(".local/share")));
+        if let Some(u) = user {
+            dirs.push(u.join("applications"));
+        }
+        if let Some(h) = dirs::home_dir() {
+            dirs.push(h.join(".local/share/flatpak/exports/share/applications"));
+        }
+        let data_dirs =
+            std::env::var("XDG_DATA_DIRS").unwrap_or_else(|_| "/usr/local/share:/usr/share".into());
+        for d in data_dirs.split(':').filter(|s| !s.is_empty()) {
+            dirs.push(PathBuf::from(d).join("applications"));
+        }
+        dirs.push(PathBuf::from("/var/lib/flatpak/exports/share/applications"));
+        dirs
+    }
+
+    pub fn scan() -> Vec<AppEntry> {
+        let mut found: Vec<AppEntry> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for dir in app_dirs() {
+            let Ok(entries) = std::fs::read_dir(&dir) else {
+                continue;
+            };
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) != Some("desktop") {
+                    continue;
+                }
+                let Some(id) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+                    continue;
+                };
+                // First occurrence wins (user dir precedes system dirs).
+                if !seen.insert(id) {
+                    continue;
+                }
+                let Ok(contents) = std::fs::read_to_string(&path) else {
+                    continue;
+                };
+                let Some((name, show)) = parse_desktop_entry(&contents) else {
+                    continue;
+                };
+                if !show {
+                    continue;
+                }
+                found.push(AppEntry {
+                    name_lower: name.to_lowercase(),
+                    name,
+                    path: path.to_string_lossy().into_owned(),
+                });
+            }
+        }
+        found.sort_by(|a, b| a.name_lower.cmp(&b.name_lower));
+        found
+    }
+
+    pub fn launch(path: &Path) -> anyhow::Result<()> {
+        // Prefer `gtk-launch <id>` — it honours Exec field codes, Terminal=true,
+        // and DBus activation. Fall back to parsing Exec ourselves.
+        if let Some(id) = path.file_stem().and_then(|s| s.to_str()) {
+            if let Ok(status) = std::process::Command::new("gtk-launch").arg(id).status() {
+                if status.success() {
+                    return Ok(());
+                }
+            }
+        }
+        let contents = std::fs::read_to_string(path)
+            .map_err(|e| anyhow::anyhow!("read {}: {e}", path.display()))?;
+        let exec = parse_desktop_exec(&contents)
+            .ok_or_else(|| anyhow::anyhow!("no Exec in {}", path.display()))?;
+        let mut parts = exec.split_whitespace();
+        let program = parts
+            .next()
+            .ok_or_else(|| anyhow::anyhow!("empty Exec line"))?;
+        std::process::Command::new(program)
+            .args(parts)
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("launch {program}: {e}"))?;
+        Ok(())
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod win {
+    use super::AppEntry;
+    use std::collections::HashSet;
+    use std::path::{Path, PathBuf};
+
+    fn start_menu_dirs() -> Vec<PathBuf> {
+        let mut dirs = Vec::new();
+        if let Ok(pd) = std::env::var("ProgramData") {
+            dirs.push(PathBuf::from(pd).join(r"Microsoft\Windows\Start Menu\Programs"));
+        }
+        if let Ok(ad) = std::env::var("APPDATA") {
+            dirs.push(PathBuf::from(ad).join(r"Microsoft\Windows\Start Menu\Programs"));
+        }
+        dirs
+    }
+
+    fn walk(dir: &Path, out: &mut Vec<AppEntry>, seen: &mut HashSet<String>, depth: usize) {
+        if depth > 6 {
+            return;
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                walk(&path, out, seen, depth + 1);
+                continue;
+            }
+            let is_lnk = path
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|e| e.eq_ignore_ascii_case("lnk"))
+                == Some(true);
+            if !is_lnk {
+                continue;
+            }
+            let Some(name) = path.file_stem().and_then(|s| s.to_str()).map(str::to_string) else {
+                continue;
+            };
+            let key = name.to_lowercase();
+            if !seen.insert(key.clone()) {
+                continue;
+            }
+            out.push(AppEntry {
+                name_lower: key,
+                name,
+                path: path.to_string_lossy().into_owned(),
+            });
+        }
+    }
+
+    pub fn scan() -> Vec<AppEntry> {
+        let mut out = Vec::new();
+        let mut seen = HashSet::new();
+        for dir in start_menu_dirs() {
+            walk(&dir, &mut out, &mut seen, 0);
+        }
+        out.sort_by(|a, b| a.name_lower.cmp(&b.name_lower));
+        out
+    }
+
+    pub fn launch(path: &Path) -> anyhow::Result<()> {
+        use std::os::windows::process::CommandExt;
+        // `cmd /C start "" <lnk>` — the shell resolves the shortcut and launches
+        // its target. The empty "" is the (required) window-title argument.
+        let status = std::process::Command::new("cmd")
+            .args(["/C", "start", ""])
+            .arg(path)
+            .creation_flags(0x0800_0000) // CREATE_NO_WINDOW
+            .status()
+            .map_err(|e| anyhow::anyhow!("cmd start failed: {e}"))?;
+        if !status.success() {
+            return Err(anyhow::anyhow!("launch exited {:?}", status.code()));
+        }
+        Ok(())
+    }
 }
 
 /// Generate a base64-encoded PNG of the app's icon, sized 128×128.
@@ -329,6 +585,54 @@ fn first_icns_in(resources: &Path) -> Option<PathBuf> {
         .flatten()
         .map(|e| e.path())
         .find(|p| p.extension().and_then(|s| s.to_str()) == Some("icns"))
+}
+
+#[cfg(test)]
+mod desktop_parser_tests {
+    use super::{parse_desktop_entry, parse_desktop_exec};
+
+    #[test]
+    fn parses_a_normal_application_entry() {
+        let s = "[Desktop Entry]\nType=Application\nName=Firefox\nExec=firefox %u\n";
+        assert_eq!(parse_desktop_entry(s), Some(("Firefox".to_string(), true)));
+        assert_eq!(parse_desktop_exec(s).as_deref(), Some("firefox"));
+    }
+
+    #[test]
+    fn hidden_and_nodisplay_are_not_shown() {
+        let hidden = "[Desktop Entry]\nType=Application\nName=Bg\nHidden=true\n";
+        assert_eq!(parse_desktop_entry(hidden), Some(("Bg".to_string(), false)));
+        let nd = "[Desktop Entry]\nType=Application\nName=Bg\nNoDisplay=True\n";
+        assert_eq!(parse_desktop_entry(nd), Some(("Bg".to_string(), false)));
+    }
+
+    #[test]
+    fn non_application_types_are_not_shown() {
+        let dir = "[Desktop Entry]\nType=Directory\nName=Stuff\n";
+        assert_eq!(parse_desktop_entry(dir), Some(("Stuff".to_string(), false)));
+    }
+
+    #[test]
+    fn ignores_localised_name_keys_and_other_sections() {
+        let s = "[Desktop Entry]\nType=Application\nName=Editor\nName[de]=Editor DE\nExec=editor %F\n\
+                 [Desktop Action new]\nName=New Window\nExec=other-binary --new %F\n";
+        // The unlocalised Name + the entry's own Exec win; the action section
+        // (its Name and Exec) is ignored.
+        assert_eq!(parse_desktop_entry(s), Some(("Editor".to_string(), true)));
+        assert_eq!(parse_desktop_exec(s).as_deref(), Some("editor"));
+    }
+
+    #[test]
+    fn strips_multiple_field_codes_from_exec() {
+        let s = "[Desktop Entry]\nType=Application\nName=X\nExec=/usr/bin/x -p %U %i %c\n";
+        assert_eq!(parse_desktop_exec(s).as_deref(), Some("/usr/bin/x -p"));
+    }
+
+    #[test]
+    fn missing_name_yields_none() {
+        let s = "[Desktop Entry]\nType=Application\nExec=foo\n";
+        assert_eq!(parse_desktop_entry(s), None);
+    }
 }
 
 #[cfg(test)]

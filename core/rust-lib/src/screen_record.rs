@@ -328,6 +328,80 @@ pub fn build_args_windows(
     a
 }
 
+/// Build the Linux (x11grab + PulseAudio) ffmpeg argv. The region is captured
+/// directly by x11grab's `-video_size` + offset (no crop filter needed).
+/// `display` is the X11 `DISPLAY` (e.g. `:0`). System audio is the default
+/// sink's monitor source; mic is the default source. The mic is gain-boosted to
+/// match the macOS/Windows paths. (Runtime-unverified; X11 / XWayland only.)
+#[cfg(any(target_os = "linux", test))]
+pub fn build_args_linux(
+    region: RecordRegion,
+    display: &str,
+    system: bool,
+    mic: bool,
+    out: &str,
+) -> Vec<String> {
+    let mut a: Vec<String> = vec!["-y".into(), "-hide_banner".into()];
+    a.push("-f".into());
+    a.push("x11grab".into());
+    a.push("-framerate".into());
+    a.push(FPS.to_string());
+    a.push("-video_size".into());
+    a.push(format!("{}x{}", region.w, region.h));
+    a.push("-i".into());
+    a.push(format!("{display}+{},{}", region.x, region.y));
+
+    // Audio inputs (PulseAudio / PipeWire-pulse): input 1 = system monitor (if
+    // requested), then the mic. Indices below assume this order.
+    if system {
+        a.push("-f".into());
+        a.push("pulse".into());
+        a.push("-i".into());
+        a.push("default.monitor".into());
+    }
+    if mic {
+        a.push("-f".into());
+        a.push("pulse".into());
+        a.push("-i".into());
+        a.push("default".into());
+    }
+
+    if system && mic {
+        // 0=video, 1=system, 2=mic → boost mic, mix both audio inputs.
+        a.push("-filter_complex".into());
+        a.push(format!(
+            "[2:a]volume={MIC_GAIN}[m];[1:a][m]amix=inputs=2:duration=longest[a]"
+        ));
+        a.push("-map".into());
+        a.push("0:v".into());
+        a.push("-map".into());
+        a.push("[a]".into());
+        a.push("-c:a".into());
+        a.push("aac".into());
+    } else if system {
+        a.push("-map".into());
+        a.push("0:v".into());
+        a.push("-map".into());
+        a.push("1:a".into());
+        a.push("-c:a".into());
+        a.push("aac".into());
+    } else if mic {
+        a.push("-map".into());
+        a.push("0:v".into());
+        a.push("-map".into());
+        a.push("1:a".into());
+        a.push("-af".into());
+        a.push(format!("volume={MIC_GAIN}"));
+        a.push("-c:a".into());
+        a.push("aac".into());
+    } else {
+        a.push("-an".into());
+    }
+
+    push_video_out(&mut a, out);
+    a
+}
+
 /// Shared H.264 / MP4 output tail. `-r FPS` locks the output to constant frame
 /// rate: the avfoundation screen input reports an undefined "1000k fps" nominal
 /// rate (it's event-driven), so without this the output timebase is irregular,
@@ -775,7 +849,31 @@ fn resolve_args(
     ))
 }
 
-#[cfg(not(any(target_os = "macos", target_os = "windows")))]
+#[cfg(target_os = "linux")]
+fn resolve_args(
+    _ffmpeg: &std::path::Path,
+    region: RecordRegion,
+    audio: AudioChoice,
+    out: &std::path::Path,
+) -> Result<Vec<String>, String> {
+    // x11grab needs an X11 DISPLAY. Most Wayland sessions run XWayland and set
+    // DISPLAY (capture works, though it sees the XWayland surface); a pure
+    // Wayland session without XWayland has none → clear error.
+    let display = std::env::var("DISPLAY").map_err(|_| {
+        "screen recording needs an X11 DISPLAY (a Wayland-only session without \
+         XWayland isn't supported yet)"
+            .to_string()
+    })?;
+    Ok(build_args_linux(
+        region,
+        &display,
+        audio.system,
+        audio.mic,
+        &out.to_string_lossy(),
+    ))
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
 fn resolve_args(
     _ffmpeg: &std::path::Path,
     _region: RecordRegion,
@@ -907,6 +1005,39 @@ mod tests {
         let segs = vec![PathBuf::from("/tmp/a'b.mp4")];
         // ffmpeg single-quote escape: ' -> '\''
         assert_eq!(concat_list_contents(&segs), "file '/tmp/a'\\''b.mp4'\n");
+    }
+
+    #[test]
+    fn linux_none_audio_uses_x11grab_region_and_an() {
+        let args = build_args_linux(RGN, ":0", false, false, "/tmp/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("x11grab"));
+        assert!(j.contains("-video_size 640x480"));
+        assert!(j.contains("-i :0+100,200"));
+        assert!(j.contains("-an"));
+        assert!(j.contains("libx264"));
+        assert!(j.ends_with("/tmp/o.mp4"));
+    }
+
+    #[test]
+    fn linux_both_mixes_monitor_and_mic_with_boost() {
+        let args = build_args_linux(RGN, ":0", true, true, "/tmp/o.mp4");
+        let j = args.join(" ");
+        assert!(j.contains("-i default.monitor"));
+        assert!(j.contains("-i default"));
+        assert!(j.contains(&format!("[2:a]volume={MIC_GAIN}[m]")));
+        assert!(j.contains("amix=inputs=2"));
+        assert!(j.contains("-map 0:v"));
+    }
+
+    #[test]
+    fn linux_mic_only_is_boosted_system_only_is_not() {
+        let mic = build_args_linux(RGN, ":0", false, true, "/tmp/o.mp4").join(" ");
+        assert!(mic.contains("-i default"));
+        assert!(mic.contains(&format!("-af volume={MIC_GAIN}")));
+        let sys = build_args_linux(RGN, ":0", true, false, "/tmp/o.mp4").join(" ");
+        assert!(sys.contains("-i default.monitor"));
+        assert!(!sys.contains("volume="));
     }
 
     #[test]

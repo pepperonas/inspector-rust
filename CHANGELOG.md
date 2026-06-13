@@ -4,6 +4,46 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.0] — 2026-06-13
+
+### Added — cross-platform feature parity (Windows + Linux)
+
+Features that were macOS-only / stubs now have real Windows and/or Linux
+implementations. macOS is unchanged; the new Windows paths are **compile-clean
+but runtime-unverified**, the Linux paths are testable on a Linux box (pure
+arg/parser logic is unit-tested on every platform).
+
+- **`kill` works on Windows.** `kill_process_by_pid` now uses `sysinfo`'s
+  cross-platform kill (Windows `TerminateProcess`) instead of a stub — the kill
+  picker's action actually terminates on Windows.
+- **Linux system commands.** `reboot` → `systemctl reboot`, `shutdown` →
+  `systemctl poweroff`, `lock` → `loginctl lock-session` (with
+  `xdg-screensaver` / GNOME / Cinnamon fallbacks), `mute` + volume → `wpctl`
+  (PipeWire) then `pactl` (PulseAudio). Each tries a list of tools and reports
+  which it attempted on failure.
+- **Linux audio output picker (`sound`/`audio`).** Lists sinks via `pactl list
+  sinks`, reads the default from `pactl get-default-sink`, switches with
+  `pactl set-default-sink` (works on PipeWire via pipewire-pulse). Sink parser
+  is pure + unit-tested.
+- **Linux wakelock under Wayland.** A logind idle+sleep inhibitor
+  (`systemd-inhibit … sleep infinity`) is now the primary keep-awake on Linux —
+  it actually prevents idle/lock/sleep under Wayland, where the old cursor
+  jiggle was a silent no-op. The jiggle remains a complement on X11.
+- **Cross-platform timer notifications.** A timer firing while the popup is
+  hidden now shows a real OS notification + sound on **Linux** (`notify-send` +
+  `canberra-gtk-play`/`paplay`) and **Windows** (WinRT toast + system sound via
+  PowerShell), not just macOS.
+- **App launcher on Windows + Linux.** Linux scans XDG `.desktop` entries
+  (`/usr/share/applications`, `~/.local/share/applications`, Flatpak exports;
+  honours `Hidden`/`NoDisplay`/`Type`) and launches via `gtk-launch` (Exec
+  fallback). Windows scans the Start-Menu `.lnk` shortcuts and launches via the
+  shell. Desktop-entry parsers are pure + unit-tested.
+- **Linux screen recording.** ffmpeg `x11grab` (region via `-video_size` +
+  offset) + PulseAudio (default-sink monitor for system, default source for
+  mic, mic gain-boosted, `amix` for both). Arg-builder is pure + unit-tested.
+  X11 / XWayland only; a pure-Wayland session without XWayland gets a clear
+  error.
+
 ## [0.83.1] — 2026-06-13
 
 ### Fixed — audit-driven correctness & resource-safety pass

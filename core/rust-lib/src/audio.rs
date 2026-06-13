@@ -12,7 +12,11 @@
 //!   the undocumented-but-ubiquitous `IPolicyConfig` COM interface (the same
 //!   one NirCmd / SoundVolumeView use — there's no public "set default device"
 //!   API). Defined by hand since the `windows` metadata doesn't ship it.
-//! - **Linux:** no portable base-install API; returns an explanatory error.
+//! - **Linux:** PulseAudio / PipeWire via the `pactl` CLI (PipeWire ships a
+//!   `pipewire-pulse` shim so `pactl` works on both). Lists sinks from
+//!   `pactl list sinks`, reads the default from `pactl get-default-sink`, and
+//!   switches with `pactl set-default-sink`. The sink-list parser is pure +
+//!   unit-tested.
 
 use serde::Serialize;
 
@@ -37,7 +41,11 @@ pub fn list_outputs() -> Result<Vec<AudioDevice>, String> {
     {
         win::list_outputs()
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::list_outputs()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err("audio output switching isn't supported on this platform yet".into())
     }
@@ -53,10 +61,121 @@ pub fn set_output(id: &str) -> Result<(), String> {
     {
         win::set_output(id)
     }
-    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    #[cfg(target_os = "linux")]
+    {
+        linux::set_output(id)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = id;
         Err("audio output switching isn't supported on this platform yet".into())
+    }
+}
+
+/// Parse the `Name:` / `Description:` pairs out of `pactl list sinks` (long
+/// form). Each sink block starts with a `Sink #N` header. Pure so it's
+/// unit-testable without a running PulseAudio/PipeWire server. Returns
+/// `(name, description)` in listing order; the name is the id `set-default-sink`
+/// expects, the description is the human-readable label.
+#[cfg(any(target_os = "linux", test))]
+pub fn parse_pactl_sinks(output: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    let mut name: Option<String> = None;
+    let mut desc: Option<String> = None;
+    let flush = |out: &mut Vec<(String, String)>, n: &mut Option<String>, d: &mut Option<String>| {
+        if let Some(name) = n.take() {
+            let description = d.take().filter(|s| !s.is_empty()).unwrap_or_else(|| name.clone());
+            out.push((name, description));
+        } else {
+            *d = None;
+        }
+    };
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Sink #") {
+            flush(&mut out, &mut name, &mut desc);
+        } else if let Some(rest) = trimmed.strip_prefix("Name:") {
+            name = Some(rest.trim().to_string());
+        } else if let Some(rest) = trimmed.strip_prefix("Description:") {
+            desc = Some(rest.trim().to_string());
+        }
+    }
+    flush(&mut out, &mut name, &mut desc);
+    out
+}
+
+#[cfg(target_os = "linux")]
+mod linux {
+    use super::{parse_pactl_sinks, AudioDevice};
+
+    fn pactl(args: &[&str]) -> Result<String, String> {
+        let out = std::process::Command::new("pactl")
+            .args(args)
+            .output()
+            .map_err(|e| format!("pactl not available ({e}); install pulseaudio-utils"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "pactl {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+    }
+
+    pub fn list_outputs() -> Result<Vec<AudioDevice>, String> {
+        let default = pactl(&["get-default-sink"]).unwrap_or_default();
+        let default = default.trim();
+        let sinks = parse_pactl_sinks(&pactl(&["list", "sinks"])?);
+        Ok(sinks
+            .into_iter()
+            .map(|(name, description)| AudioDevice {
+                is_default: name == default,
+                id: name,
+                name: description,
+            })
+            .collect())
+    }
+
+    pub fn set_output(id: &str) -> Result<(), String> {
+        pactl(&["set-default-sink", id]).map(|_| ())
+    }
+}
+
+#[cfg(test)]
+mod pactl_tests {
+    use super::parse_pactl_sinks;
+
+    #[test]
+    fn parses_name_and_description_pairs() {
+        let sample = "\
+Sink #0
+	State: RUNNING
+	Name: alsa_output.pci-0000_00_1f.3.analog-stereo
+	Description: Built-in Audio Analog Stereo
+	Mute: no
+Sink #1
+	State: SUSPENDED
+	Name: alsa_output.usb-Generic-00.analog-stereo
+	Description: USB Headset
+";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks.len(), 2);
+        assert_eq!(sinks[0].0, "alsa_output.pci-0000_00_1f.3.analog-stereo");
+        assert_eq!(sinks[0].1, "Built-in Audio Analog Stereo");
+        assert_eq!(sinks[1].0, "alsa_output.usb-Generic-00.analog-stereo");
+        assert_eq!(sinks[1].1, "USB Headset");
+    }
+
+    #[test]
+    fn falls_back_to_name_when_description_missing() {
+        let sample = "Sink #0\n\tName: only_name\n";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("only_name".to_string(), "only_name".to_string())]);
+    }
+
+    #[test]
+    fn empty_input_yields_no_sinks() {
+        assert!(parse_pactl_sinks("").is_empty());
     }
 }
 

@@ -165,18 +165,23 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(status_toast::LatestToast::default());
             app.manage(auto_expand::AutoExpandState::default());
 
-            // App-launcher cache. Scan once at startup; the Settings
-            // → Apps Refresh button can re-trigger via `refresh_apps`.
-            // Done on the setup thread (not blocking the main loop)
-            // because scanning ~200-400 .app bundles is ~20-100 ms.
+            // App-launcher cache. Manage an empty index immediately, then fill
+            // it from a background thread — scanning ~200-400 .app bundles (or
+            // walking the XDG / Start-Menu dirs) is ~20-100 ms and was blocking
+            // the whole `setup` closure (and therefore the first hotkey's
+            // readiness). The list is briefly empty after launch; the Settings
+            // → Apps Refresh button re-triggers `refresh_apps` if needed.
             {
-                let app_index = app_launcher::AppIndex::default();
-                *app_index.apps.lock() = app_launcher::scan();
-                tracing::info!(
-                    "app launcher: indexed {} apps",
-                    app_index.apps.lock().len()
-                );
-                app.manage(app_index);
+                app.manage(app_launcher::AppIndex::default());
+                let handle = app.handle().clone();
+                std::thread::spawn(move || {
+                    let apps = app_launcher::scan();
+                    if let Some(index) = handle.try_state::<app_launcher::AppIndex>() {
+                        let n = apps.len();
+                        *index.apps.lock() = apps;
+                        tracing::info!("app launcher: indexed {n} apps");
+                    }
+                });
             }
 
             // Apply the persisted popup-size preset so the window opens at

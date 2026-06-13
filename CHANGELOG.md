@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.2] — 2026-06-13
+
+### Performance — faster launch + snappier popup open
+
+- **App init no longer blocks on the app-launcher scan.** The startup `setup`
+  closure ran `app_launcher::scan()` synchronously (a ~20-100 ms walk of the
+  app directories), delaying when the app — and the popup hotkey — became
+  ready. The scan now runs on a background thread and fills the (already-managed,
+  initially-empty) index when done; `refresh_apps` still re-triggers it.
+- **The popup opens without the corner-flash-then-snap.** `show_and_position`
+  parked the hidden window at a quarter-monitor offset, showed it, then moved
+  it to centre — so the window visibly appeared off-centre and jumped. It now
+  parks at the final centred position whenever the window size is already known
+  (every open after the first), so it appears directly in place; the post-show
+  clamp still corrects the first-ever open.
+
 ## [0.84.1] — 2026-06-13
 
 ### Changed — per-OS command gating + frontend performance

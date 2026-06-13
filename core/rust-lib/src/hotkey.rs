@@ -1104,13 +1104,31 @@ pub fn hide_popup(app: &AppHandle) {
 fn show_and_position(window: &WebviewWindow) -> Result<()> {
     let target = pick_cursor_monitor(window);
 
-    // 1) Park the hidden window somewhere on the target monitor so that
-    //    `current_monitor()` reports the right one after `show()`.
+    // 1) Park the hidden window on the target monitor so `current_monitor()`
+    //    reports the right one after `show()`. Park at the FINAL centred
+    //    position (matching `clamp_into_monitor`'s math) whenever we already
+    //    know the window size — i.e. every open after the first — so the window
+    //    appears directly in place instead of flashing at a corner and snapping
+    //    to centre (which reads as lag). On the very first open `outer_size()`
+    //    is still zero on macOS, so fall back to a quarter-monitor park; the
+    //    post-show clamp then centres it.
     if let Some(m) = &target {
         let mpos = m.position();
         let msize = m.size();
-        let parked_x = mpos.x + (msize.width as i32 / 4);
-        let parked_y = mpos.y + (msize.height as i32 / 4);
+        let wsize = window
+            .outer_size()
+            .ok()
+            .filter(|s| s.width > 0 && s.height > 0);
+        let (parked_x, parked_y) = match wsize {
+            Some(s) => (
+                mpos.x + (msize.width as i32 - s.width as i32) / 2,
+                mpos.y + (msize.height as i32 - s.height as i32) / 3,
+            ),
+            None => (
+                mpos.x + (msize.width as i32 / 4),
+                mpos.y + (msize.height as i32 / 4),
+            ),
+        };
         let _ = window.set_position(PhysicalPosition::new(parked_x, parked_y));
     }
 

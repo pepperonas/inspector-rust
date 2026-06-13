@@ -1175,21 +1175,18 @@ pub fn park_on_cursor_monitor(window: &WebviewWindow) {
 }
 
 /// Find the monitor that contains the OS cursor; fall back to primary.
+///
+/// Uses the **global** cursor query (`screenshot_preview::pick_cursor_monitor_globally`
+/// → `CGEventGetLocation`, point-space / mixed-DPI aware) — NOT
+/// `WebviewWindow::cursor_position()`, which only refreshes when the popup
+/// window itself receives a mouse event and so returns a STALE position. With
+/// the stale query the popup opened on the wrong monitor (typically the
+/// primary) when the cursor was on a secondary screen — so it looked like
+/// "Ctrl+Space doesn't open" while the popup was actually appearing on another
+/// display. Same root cause + fix as the record overlay.
 fn pick_cursor_monitor(window: &WebviewWindow) -> Option<Monitor> {
-    let pos = window.cursor_position().ok()?;
     let monitors = window.available_monitors().ok()?;
-    monitors
-        .into_iter()
-        .find(|m| {
-            let p = m.position();
-            let s = m.size();
-            let x = pos.x as i32;
-            let y = pos.y as i32;
-            x >= p.x
-                && x < p.x + s.width as i32
-                && y >= p.y
-                && y < p.y + s.height as i32
-        })
+    crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
         .or_else(|| window.primary_monitor().ok().flatten())
 }
 

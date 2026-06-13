@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.8] — 2026-06-13
+
+### Fixed — popup (Ctrl+Space) opened on the wrong monitor
+
+`show_and_position` resolved the cursor's monitor via `pick_cursor_monitor`,
+which used `WebviewWindow::cursor_position()` — stale on the popup window (it
+only refreshes when that window receives a mouse event). So when the cursor was
+on a secondary monitor, the popup centered on the **primary** and looked like
+"Ctrl+Space doesn't open" (it was appearing on another display). `pick_cursor_monitor`
+now uses the same global cursor query (`CGEventGetLocation`, point-space /
+mixed-DPI aware) the screenshot preview and record overlay use, so the popup
+opens on the monitor the cursor is actually on. Verified the show/toggle path
+itself is healthy (a clean launch + one toggle puts the popup on screen).
+
 ## [0.84.7] — 2026-06-13
 
 ### Fixed — recorder region selection on a secondary monitor (root cause)

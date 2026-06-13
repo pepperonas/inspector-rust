@@ -332,7 +332,7 @@ Spotlight-like launcher. **macOS:** walks `/Applications`, `~/Applications`, `/S
 
 ### Input lock (`input_lock.rs`)
 
-Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock chord (default: hold `i`, press `r`; configurable in Settings → Input Lock). macOS impl is **raw FFI to `CGEventTapCreate` + `CFRunLoop`** installed on the main thread's run loop (the `core-graphics` wrapper didn't actually drop events on Sonoma). Requires Accessibility (shares the expander grant). Safety hatch: `⌥⌘Esc` (Force Quit) always works above the tap. IPC: `get_input_lock_chord`, `set_input_lock_chord`, `start_input_lock`.
+Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock chord (default: hold `i`, press `r`; configurable in Settings → Input Lock). macOS impl is **raw FFI to `CGEventTapCreate` + `CFRunLoop`** installed on the main thread's run loop (the `core-graphics` wrapper didn't actually drop events on Sonoma). The tap is installed once but **re-enabled on every `start_input_lock`** and from the callback on `kCGEventTapDisabledBy{Timeout,UserInput}` (`TAP_PORT` holds the port) — macOS auto-disables a tap on callback-timeout/heavy-input and it stays dead until `CGEventTapEnable(true)`; without the re-enable, `freeze` locked once but a second invocation after unlocking silently no-op'd (v0.84.3). Requires Accessibility (shares the expander grant). Safety hatch: `⌥⌘Esc` (Force Quit) always works above the tap. IPC: `get_input_lock_chord`, `set_input_lock_chord`, `start_input_lock`.
 
 ### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
 

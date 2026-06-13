@@ -31,7 +31,7 @@
 
 use parking_lot::Mutex;
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::OnceLock;
 
 // ── Key-name → macOS keycode table ───────────────────────────────────────
@@ -65,6 +65,9 @@ pub fn key_from_str(name: &str) -> Option<i64> {
 
 static LOCK_ACTIVE: AtomicBool = AtomicBool::new(false);
 static TAP_INSTALLED: AtomicBool = AtomicBool::new(false);
+/// Address of the installed `CFMachPortRef` (event tap), stored as a `usize`
+/// so it can be re-enabled across calls / from the callback. 0 = not installed.
+static TAP_PORT: AtomicUsize = AtomicUsize::new(0);
 static CALLBACK_COUNT: AtomicU64 = AtomicU64::new(0);
 static UNLOCK_CODES: OnceLock<Mutex<Vec<i64>>> = OnceLock::new();
 static PRESSED: OnceLock<Mutex<HashSet<i64>>> = OnceLock::new();
@@ -92,6 +95,13 @@ pub fn start_input_lock(unlock_keys: Vec<String>) -> Result<(), String> {
             macos_impl::install_tap_on_main_runloop()?;
             TAP_INSTALLED.store(true, Ordering::SeqCst);
         }
+        // Re-enable on EVERY activation, not just first install. macOS auto-
+        // disables an event tap when its callback times out or under heavy
+        // user input (`kCGEventTapDisabledBy*`), and a disabled tap stays dead
+        // until `CGEventTapEnable(true)` is called again. Without this, `freeze`
+        // worked once but a second invocation (after unlocking) silently failed
+        // to lock because the tap had been disabled during the first session.
+        macos_impl::reenable_tap();
         LOCK_ACTIVE.store(true, Ordering::SeqCst);
         tracing::info!(
             "input_lock: activated (callback_count_so_far={})",
@@ -164,6 +174,10 @@ mod macos_impl {
         pub const EVT_OTHER_MOUSE_DOWN: u32 = 25;
         pub const EVT_OTHER_MOUSE_UP: u32 = 26;
         pub const EVT_OTHER_MOUSE_DRAGGED: u32 = 27;
+        // The OS sends these to a tap it has just disabled; the callback must
+        // re-enable the tap or it stays dead. (`kCGEventTapDisabledBy*`.)
+        pub const EVT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
+        pub const EVT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
     }
 
     #[link(name = "ApplicationServices", kind = "framework")]
@@ -208,6 +222,18 @@ mod macos_impl {
                 "input_lock callback #{n}: type={event_type}, lock_active={}",
                 LOCK_ACTIVE.load(Ordering::SeqCst)
             );
+        }
+
+        // If macOS disabled the tap (callback timeout / heavy input), re-arm it
+        // immediately so locking keeps working. Must run regardless of
+        // LOCK_ACTIVE — a tap disabled while unlocked would otherwise never
+        // come back for the next `freeze`.
+        if event_type == c::EVT_TAP_DISABLED_BY_TIMEOUT
+            || event_type == c::EVT_TAP_DISABLED_BY_USER_INPUT
+        {
+            tracing::warn!("input_lock: tap disabled by OS (type={event_type}) — re-enabling");
+            reenable_tap();
+            return event;
         }
 
         if !LOCK_ACTIVE.load(Ordering::SeqCst) {
@@ -277,6 +303,9 @@ mod macos_impl {
                     .into(),
             );
         }
+        // Remember the port so `reenable_tap` can re-arm it later (the tap lives
+        // for the whole app lifetime; never released).
+        TAP_PORT.store(tap_port as usize, Ordering::SeqCst);
 
         unsafe {
             let loop_source =
@@ -293,6 +322,18 @@ mod macos_impl {
             "input_lock: CGEventTap installed on main run loop (raw FFI)"
         );
         Ok(())
+    }
+
+    /// Re-enable the installed event tap. No-op if the tap was never installed.
+    /// macOS disables a tap on callback timeout / heavy user input; calling
+    /// this revives it so a later `freeze` (or the rest of the current session)
+    /// keeps intercepting events. Safe to call from the tap callback or another
+    /// thread — `CGEventTapEnable` just toggles the port's enabled flag.
+    pub fn reenable_tap() {
+        let port = TAP_PORT.load(Ordering::SeqCst) as CFMachPortRef;
+        if !port.is_null() {
+            unsafe { CGEventTapEnable(port, true) };
+        }
     }
 }
 

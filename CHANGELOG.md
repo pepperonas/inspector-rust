@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.3] — 2026-06-13
+
+### Fixed — `freeze` (input lock) only worked once per session
+
+The macOS input-lock event tap was enabled exactly once (inside the
+install-guarded path) and the callback didn't handle the OS disabling it.
+macOS auto-disables a `CGEventTap` on callback-timeout / heavy user input
+(`kCGEventTapDisabledBy{Timeout,UserInput}`), and a disabled tap stays dead
+until `CGEventTapEnable(true)` is called again — so `freeze` locked the first
+time but, after unlocking, every later invocation flipped the lock flag on yet
+intercepted nothing. Fix: the tap port is now remembered (`TAP_PORT`) and
+**re-enabled on every `start_input_lock`**, plus the callback re-arms the tap
+when it receives a disable event. Locking now works on every invocation.
+
 ## [0.84.2] — 2026-06-13
 
 ### Performance — faster launch + snappier popup open

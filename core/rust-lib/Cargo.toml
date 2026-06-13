@@ -68,6 +68,8 @@ enigo = { workspace = true }
 windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_System_Com",
+    # CTRL+BREAK graceful-stop for the recording ffmpeg (screen_record.rs)
+    "Win32_System_Console",
     "Win32_UI_Accessibility",
     "Win32_UI_WindowsAndMessaging",
     "Win32_Graphics_Gdi",

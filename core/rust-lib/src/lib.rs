@@ -564,9 +564,8 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         ])
         .build()?;
 
-    let _tray = TrayIconBuilder::with_id("main")
+    let mut tray_builder = TrayIconBuilder::with_id("main")
         .tooltip("Inspector Rust")
-        .icon(app.default_window_icon().cloned().unwrap())
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::TogglePopup),
@@ -643,8 +642,16 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
                 app.exit(0);
             }
             _ => {}
-        })
-        .build(app)?;
+        });
+    // The default window icon is normally present in the bundle, but a
+    // misconfigured / stripped build could lack one — never panic at startup
+    // over a cosmetic tray icon; fall back to an icon-less tray.
+    if let Some(icon) = app.default_window_icon().cloned() {
+        tray_builder = tray_builder.icon(icon);
+    } else {
+        tracing::warn!("no default window icon found; tray shown without an icon");
+    }
+    let _tray = tray_builder.build(app)?;
 
     Ok(())
 }

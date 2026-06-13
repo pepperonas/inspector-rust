@@ -1,4 +1,4 @@
-import { memo, useEffect, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
@@ -67,6 +67,18 @@ export const HistoryItem = memo(function HistoryItem({
   style,
 }: Props) {
   const [bookmarkSaved, setBookmarkSaved] = useState(false);
+  // Track the "Saved!" feedback timer so it can be cleared on unmount —
+  // rows unmount frequently in the virtualized list, and a pending timeout
+  // would otherwise fire setBookmarkSaved on a dead instance.
+  const bookmarkTimerRef = useRef<number | null>(null);
+  useEffect(
+    () => () => {
+      if (bookmarkTimerRef.current !== null) {
+        window.clearTimeout(bookmarkTimerRef.current);
+      }
+    },
+    [],
+  );
   // Click on the relative-time chip toggles into the absolute date.
   // Hover always shows both timestamps via the `title` tooltip
   // regardless of toggle state — keeps the affordance discoverable
@@ -613,7 +625,13 @@ export const HistoryItem = memo(function HistoryItem({
             e.stopPropagation();
             onSaveAsNote();
             setBookmarkSaved(true);
-            setTimeout(() => setBookmarkSaved(false), 1500);
+            if (bookmarkTimerRef.current !== null) {
+              window.clearTimeout(bookmarkTimerRef.current);
+            }
+            bookmarkTimerRef.current = window.setTimeout(
+              () => setBookmarkSaved(false),
+              1500,
+            );
           }}
           title={bookmarkSaved ? "Saved!" : "Save as note"}
           className={

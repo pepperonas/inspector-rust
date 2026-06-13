@@ -58,11 +58,14 @@ export function HistoryList({
   // NOT emit `popup-hidden`, and the modal correctly stays open across
   // a sample.
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
-    listen("popup-hidden", () => setPickerOpen(false)).then((u) => {
-      unlisten = u;
+    void listen("popup-hidden", () => setPickerOpen(false)).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
     });
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   }, []);

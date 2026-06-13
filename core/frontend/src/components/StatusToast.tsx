@@ -42,6 +42,8 @@ export function StatusToast() {
     const un = listen("status-toast-changed", refresh);
     return () => {
       alive = false;
+      // Always unlisten — even if the listen() promise only resolves after
+      // unmount — so a re-mounted toast window never accrues stale listeners.
       void un.then((f) => f());
     };
   }, []);

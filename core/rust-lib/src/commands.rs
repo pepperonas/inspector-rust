@@ -1552,18 +1552,21 @@ pub fn totp_export(db: State<'_, DbHandle>) -> Result<String, String> {
 pub fn trigger_expand_at_cursor(app: AppHandle) -> Result<(), String> {
     hotkey::hide_popup(&app);
     let app2 = app.clone();
-    app.run_on_main_thread(move || {
-        // Give macOS a moment to hand key focus back to the prior app
-        // before we start synthesizing keystrokes.
+    // The focus-settle delay must NOT run on the main thread — sleeping the
+    // AppKit run loop for 250 ms freezes the whole UI. Wait on a worker, then
+    // dispatch only the enigo synthesis to the main thread (enigo's macOS TSM
+    // mapping asserts main-thread).
+    std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(250));
-        if let Some(db) = app2.try_state::<DbHandle>() {
-            let watcher = app2.try_state::<WatcherState>();
-            if let Err(e) = expander::expand_at_cursor(&db, watcher.as_deref()) {
-                tracing::warn!("expand_at_cursor failed: {e:#}");
+        let _ = app2.clone().run_on_main_thread(move || {
+            if let Some(db) = app2.try_state::<DbHandle>() {
+                let watcher = app2.try_state::<WatcherState>();
+                if let Err(e) = expander::expand_at_cursor(&db, watcher.as_deref()) {
+                    tracing::warn!("expand_at_cursor failed: {e:#}");
+                }
             }
-        }
-    })
-    .map_err(|e| format!("dispatch to main thread: {e}"))?;
+        });
+    });
     Ok(())
 }
 
@@ -1581,15 +1584,22 @@ pub fn diagnose_expand_at_cursor(
     hotkey::hide_popup(&app);
     let app2 = app.clone();
     let (tx, rx) = std::sync::mpsc::channel();
-    app.run_on_main_thread(move || {
+    // Focus-settle delay off the main thread (see `trigger_expand_at_cursor`);
+    // only the capture itself is dispatched onto the main thread.
+    std::thread::spawn(move || {
         std::thread::sleep(std::time::Duration::from_millis(250));
-        let result = match app2.try_state::<DbHandle>() {
-            Some(db) => expander::diagnose_at_cursor(&db).map_err(|e| e.to_string()),
-            None => Err("db state not initialized".to_string()),
-        };
-        let _ = tx.send(result);
-    })
-    .map_err(|e| format!("dispatch to main thread: {e}"))?;
+        let tx2 = tx.clone();
+        let dispatched = app2.clone().run_on_main_thread(move || {
+            let result = match app2.try_state::<DbHandle>() {
+                Some(db) => expander::diagnose_at_cursor(&db).map_err(|e| e.to_string()),
+                None => Err("db state not initialized".to_string()),
+            };
+            let _ = tx2.send(result);
+        });
+        if let Err(e) = dispatched {
+            let _ = tx.send(Err(format!("dispatch to main thread: {e}")));
+        }
+    });
     rx.recv()
         .map_err(|e| format!("main thread didn't reply: {e}"))?
 }
@@ -1860,7 +1870,7 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
             let b64 = B64.encode(&png_bytes);
             let summary = format!("[ocr source · {} B]", png_bytes.len());
             let byte_size = png_bytes.len() as i64;
-            let _ = db::upsert_clip(
+            if let Err(e) = db::upsert_clip(
                 &db,
                 &crate::models::NewClip {
                     content_type: crate::models::ContentType::Image,
@@ -1868,12 +1878,14 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
                     content_data: b64,
                     byte_size,
                 },
-            );
+            ) {
+                tracing::warn!("OCR: failed to save source image to history: {e:#}");
+            }
         }
         // Then the recognised text — this becomes the most-recent
         // entry, matching what's on the clipboard and what Enter will
         // paste.
-        let _ = db::upsert_clip(
+        if let Err(e) = db::upsert_clip(
             &db,
             &crate::models::NewClip {
                 content_type: crate::models::ContentType::Text,
@@ -1881,7 +1893,9 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
                 content_data: trimmed.to_string(),
                 byte_size: trimmed.len() as i64,
             },
-        );
+        ) {
+            tracing::warn!("OCR: failed to save recognised text to history: {e:#}");
+        }
     }
     let _ = app.emit("clipboard-changed", ());
 
@@ -2488,7 +2502,7 @@ pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), Strin
         .map_err(|e| format!("set_text: {e:?}"))?;
 
     if let Some(db) = app.try_state::<DbHandle>() {
-        let _ = db::upsert_clip(
+        if let Err(e) = db::upsert_clip(
             &db,
             &crate::models::NewClip {
                 content_type: crate::models::ContentType::Text,
@@ -2496,7 +2510,9 @@ pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), Strin
                 content_data: text.clone(),
                 byte_size: text.len() as i64,
             },
-        );
+        ) {
+            tracing::warn!("transform: failed to save transformed text to history: {e:#}");
+        }
     }
     let _ = app.emit("clipboard-changed", ());
     Ok(())

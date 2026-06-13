@@ -68,22 +68,28 @@ export function ScreenshotPreview() {
         })
         .catch(() => undefined);
     void refresh();
+    let cancelled = false;
     void listen("screenshot-pending", refresh).then((u) => {
-      unlisten = u;
+      if (cancelled) u();
+      else unlisten = u;
     });
     return () => {
+      cancelled = true;
       unlisten?.();
     };
   }, []);
 
   // Cursor-follow polling — same shape as v0.28.7+. Re-positions the
-  // preview when the cursor crosses to a different monitor.
+  // preview when the cursor crosses to a different monitor. Only poll while a
+  // screenshot is actually staged; with nothing pending there's nothing to
+  // reposition, so the IPC round-trip would be pure waste.
   useEffect(() => {
+    if (!info) return;
     const id = window.setInterval(() => {
       void repositionPreviewToCursor().catch(() => undefined);
     }, 200);
     return () => window.clearInterval(id);
-  }, []);
+  }, [info]);
 
   const onSave = () => {
     void screenshotPreviewSave().catch(() => undefined);

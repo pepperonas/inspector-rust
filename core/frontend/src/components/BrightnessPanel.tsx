@@ -64,6 +64,15 @@ export function BrightnessPanel({
     }, 80);
   };
 
+  // Clear any pending debounce timers on unmount so a stale setMonitorBrightness
+  // can't fire after the user has already left brightness mode.
+  useEffect(() => {
+    const pending = timers.current;
+    return () => {
+      for (const t of Object.values(pending)) window.clearTimeout(t);
+    };
+  }, []);
+
   // Arrow / Enter / Esc handling while the sliders own the keyboard. Inlined
   // in the effect (re-subscribes on sel/controllable change) so it always
   // reads the current selection — no stale closure.

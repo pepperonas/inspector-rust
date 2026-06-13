@@ -1133,6 +1133,15 @@ mod platform {
         // it once; the loop keeps the hook alive. Re-enable is handled by the
         // RUNNING flag in `on_event` (the hook stays installed but no-ops when
         // RUNNING is false).
+        //
+        // A live hook already exists → nothing to do.
+        if HOOK.load(Ordering::SeqCst) != 0 {
+            return Ok(());
+        }
+        // Guard against a double spawn. CRUCIALLY: if `SetWindowsHookExW` fails
+        // (low privilege, AV interference, …) the thread resets this flag so a
+        // later `install()` — e.g. after the blocking condition clears — retries
+        // instead of silently no-op'ing forever.
         if THREAD_STARTED.swap(true, Ordering::SeqCst) {
             return Ok(());
         }
@@ -1145,8 +1154,13 @@ mod platform {
                     // Pump messages so the LL hook keeps receiving events.
                     while GetMessageW(&mut msg, None, 0, 0).as_bool() {}
                     let _ = UnhookWindowsHookEx(hook);
+                    HOOK.store(0, Ordering::SeqCst);
+                    THREAD_STARTED.store(false, Ordering::SeqCst);
                 }
-                Err(e) => tracing::warn!("auto_expand: SetWindowsHookExW failed: {e:?}"),
+                Err(e) => {
+                    tracing::warn!("auto_expand: SetWindowsHookExW failed: {e:?}");
+                    THREAD_STARTED.store(false, Ordering::SeqCst);
+                }
             }
         });
         Ok(())

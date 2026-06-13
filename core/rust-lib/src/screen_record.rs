@@ -428,13 +428,15 @@ fn spawn_segment(
     #[cfg(target_os = "windows")]
     {
         use std::os::windows::process::CommandExt;
-        // CREATE_NO_WINDOW (0x0800_0000) prevents the console window flash.
+        // CREATE_NO_WINDOW (0x0800_0000) hides the console; CREATE_NEW_PROCESS_GROUP
+        // (0x0000_0200) makes ffmpeg its own process-group leader so `finalize_child`
+        // can target it with a CTRL+BREAK without the signal leaking back to us.
         Command::new(ffmpeg)
             .args(&args)
             .stdin(Stdio::piped())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
-            .creation_flags(0x0800_0000)
+            .creation_flags(0x0800_0000 | 0x0000_0200)
             .spawn()
             .map_err(|e| format!("spawn ffmpeg: {e}"))
     }
@@ -451,18 +453,10 @@ fn spawn_segment(
     }
 }
 
-/// Cleanly finalize a running ffmpeg: send `q` + newline, wait up to 5 s for
-/// the moov atom to flush, else kill. The newline is needed on Windows where
-/// piped stdin is not line-buffered by default.
+/// Cleanly finalize a running ffmpeg: ask it to stop gracefully so it flushes
+/// the MP4 moov atom (trailer), wait up to 5 s, else hard-kill as a fallback.
 fn finalize_child(mut child: Child) {
-    use std::io::Write;
-    if let Some(stdin) = child.stdin.as_mut() {
-        let _ = stdin.write_all(b"q\n");
-        let _ = stdin.flush();
-    }
-    // Drop stdin so ffmpeg sees EOF — on Windows this is often what
-    // unblocks the read loop if `q` alone didn't trigger shutdown.
-    drop(child.stdin.take());
+    request_graceful_stop(&mut child);
     let mut waited = std::time::Duration::ZERO;
     let step = std::time::Duration::from_millis(100);
     loop {
@@ -477,6 +471,50 @@ fn finalize_child(mut child: Child) {
                 let _ = child.wait();
                 break;
             }
+        }
+    }
+}
+
+/// macOS/Linux: ffmpeg reads `q` from the piped stdin fd (the `HAVE_TERMIOS_H`
+/// keyboard path), which triggers a clean shutdown. Dropping stdin afterwards
+/// signals EOF.
+#[cfg(not(target_os = "windows"))]
+fn request_graceful_stop(child: &mut Child) {
+    use std::io::Write;
+    if let Some(stdin) = child.stdin.as_mut() {
+        let _ = stdin.write_all(b"q\n");
+        let _ = stdin.flush();
+    }
+    drop(child.stdin.take());
+}
+
+/// Windows: ffmpeg **ignores `q` on a piped stdin** — its keyboard poll uses
+/// conio `_kbhit`/`_getch`, which only read a real console, never a pipe. (That
+/// was the root cause of "stop not working on Windows": `q` was never seen, so
+/// the segment was only ever ended by a hard kill → a truncated MP4 with no moov
+/// atom.) Instead send a CTRL+BREAK to ffmpeg's process group; its console-ctrl
+/// handler catches it and exits cleanly, writing the trailer. The child is
+/// spawned with `CREATE_NEW_PROCESS_GROUP`, so its group id equals its pid and
+/// the event can't propagate back to us.
+#[cfg(target_os = "windows")]
+fn request_graceful_stop(child: &mut Child) {
+    use windows::Win32::Foundation::BOOL;
+    use windows::Win32::System::Console::{
+        AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, SetConsoleCtrlHandler,
+        CTRL_BREAK_EVENT,
+    };
+    drop(child.stdin.take()); // close stdin (EOF); harmless, ffmpeg won't read it
+    let pid = child.id();
+    unsafe {
+        // Attach to ffmpeg's (hidden) console so GenerateConsoleCtrlEvent targets
+        // it; detach from anything we currently hold first.
+        let _ = FreeConsole();
+        if AttachConsole(pid).is_ok() {
+            // Ignore the event ourselves while it's in flight, then restore.
+            let _ = SetConsoleCtrlHandler(None, BOOL(1));
+            let _ = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
+            let _ = FreeConsole();
+            let _ = SetConsoleCtrlHandler(None, BOOL(0));
         }
     }
 }
@@ -504,12 +542,23 @@ pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> R
 }
 
 /// Pause: finalize the current segment; the session stays alive.
+///
+/// `finalize_child` polls/waits up to 5 s, so it must run with the mutex
+/// **released** — otherwise a concurrent `resume`/`stop`/`is_recording` (each a
+/// synchronous IPC command) would block for that whole window. We take the
+/// child out under the lock, drop the guard, finalize, then re-lock briefly to
+/// record the finished segment — the same pattern `stop()` uses.
 pub fn pause(state: &RecordState) -> Result<(), String> {
-    let mut guard = state.inner.lock();
-    let s = guard.as_mut().ok_or("not recording")?;
-    if let Some((child, path)) = s.current.take() {
+    let current = {
+        let mut guard = state.inner.lock();
+        let s = guard.as_mut().ok_or("not recording")?;
+        s.current.take()
+    };
+    if let Some((child, path)) = current {
         finalize_child(child);
-        s.segments.push(path);
+        if let Some(s) = state.inner.lock().as_mut() {
+            s.segments.push(path);
+        }
     }
     Ok(())
 }
@@ -651,10 +700,11 @@ fn output_path() -> Result<PathBuf, String> {
 pub fn cleanup_orphans() {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     {
-        // `pkill -f` matches the full command line; our recording ffmpeg always
-        // writes into `…/InspectorRust/recordings/seg-*.mp4`.
+        // `pkill -f` matches the full command line against a regex; constrain it
+        // to an ffmpeg process whose args reference our recordings cache, so we
+        // never kill an unrelated process that merely mentions that path.
         let _ = std::process::Command::new("pkill")
-            .args(["-f", "InspectorRust/recordings"])
+            .args(["-f", "ffmpeg.*InspectorRust/recordings"])
             .status();
     }
     #[cfg(target_os = "windows")]

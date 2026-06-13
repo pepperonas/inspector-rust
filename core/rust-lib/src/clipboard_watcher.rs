@@ -227,7 +227,19 @@ impl Handler {
             let app = self.app.clone();
             let self_written = self.self_written.clone();
             thread::spawn(move || {
-                thread::sleep(Duration::from_secs(secs));
+                // Sleep in short chunks instead of one long sleep so a superseded
+                // timer exits within ~1 s of the next copy, rather than lingering
+                // for the full (up to 3600 s) window. This bounds the number of
+                // concurrently-sleeping auto-clear threads under rapid copying.
+                let mut remaining = secs;
+                while remaining > 0 {
+                    if clear_gen.load(Ordering::SeqCst) != my_gen {
+                        return; // a newer clip owns the clipboard now
+                    }
+                    let step = remaining.min(1);
+                    thread::sleep(Duration::from_secs(step));
+                    remaining -= step;
+                }
                 // A newer clip arrived → its own timer owns the clipboard now.
                 if clear_gen.load(Ordering::SeqCst) != my_gen {
                     return;

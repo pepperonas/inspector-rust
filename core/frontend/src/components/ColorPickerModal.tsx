@@ -68,8 +68,9 @@ export function ColorPickerModal({ open, onClose }: Props) {
   // string or null (user cancelled / picker failed).
   useEffect(() => {
     if (!open) return;
+    let cancelled = false;
     let unlisten: (() => void) | null = null;
-    listen<string | null>("color-picked", (event) => {
+    void listen<string | null>("color-picked", (event) => {
       setPicking(false);
       const hex = event.payload;
       if (typeof hex !== "string") return;
@@ -94,9 +95,11 @@ export function ColorPickerModal({ open, onClose }: Props) {
         })
         .catch((err) => console.error("auto-copy on pick failed", err));
     }).then((u) => {
-      unlisten = u;
+      if (cancelled) u();
+      else unlisten = u;
     });
     return () => {
+      cancelled = true;
       if (unlisten) unlisten();
     };
   }, [open]);

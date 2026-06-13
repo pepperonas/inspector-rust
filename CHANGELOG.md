@@ -4,6 +4,51 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.83.1] — 2026-06-13
+
+### Fixed — audit-driven correctness & resource-safety pass
+
+A code audit surfaced several real bugs (independent of platform); all fixed,
+all green on macOS (`cargo test` + `pnpm test`):
+
+- **Screen-record pause no longer blocks for up to 5 s.** `screen_record::pause`
+  held the session mutex across `finalize_child` (which waits up to 5 s for the
+  MP4 trailer to flush), stalling any concurrent `resume`/`stop`/`is_recording`.
+  It now takes the child out under the lock, finalizes with the lock released,
+  then re-locks briefly — the same pattern `stop` already used.
+- **No more UI freeze on text-expansion.** `trigger_expand_at_cursor` /
+  `diagnose_expand_at_cursor` ran a 250 ms focus-settle `sleep` *inside* the
+  main-thread closure, freezing the AppKit run loop on every expansion / "Test
+  now". The sleep now runs on a worker thread; only the enigo synthesis is
+  dispatched to the main thread.
+- **No startup panic on a missing tray icon.** The tray builder `.unwrap()`-ed
+  the default window icon; a stripped/misconfigured bundle would panic at launch.
+  It now falls back to an icon-less tray with a warning.
+- **Clipboard auto-clear no longer accumulates threads.** The per-copy timer
+  slept the full (up to 3600 s) window; under rapid copying that piled up
+  sleeping threads. It now sleeps in 1 s chunks and exits within ~1 s once a
+  newer copy supersedes it.
+- **OCR / text-transform history failures are logged, not swallowed.**
+  `db::upsert_clip` errors were discarded with `let _ =`, silently losing the
+  history entry; they now `warn!`.
+- **Windows auto-expand hook can recover.** If `SetWindowsHookExW` failed, the
+  `THREAD_STARTED` flag stayed set and every later `install()` silently no-op'd;
+  the flag now resets on failure so a retry can re-install. *(Windows
+  runtime-unverified.)*
+- **Orphan-cleanup `pkill` constrained to ffmpeg** (`ffmpeg.*InspectorRust/recordings`)
+  so it can't match an unrelated process referencing that path.
+- **Frontend listener & timer leaks.** Five Tauri event listeners
+  (`usePauseOnPopupHidden`, `ScreenshotPreview`, `HistoryList`,
+  `ColorPickerModal`, `StatusToast`) could orphan if the component unmounted
+  before `listen()` resolved — now guarded with a `cancelled` flag. The
+  `HistoryItem` "Saved!" timeout and `BrightnessPanel` debounce timers are now
+  cleared on unmount. `ScreenshotPreview`'s 200 ms cursor poll only runs while a
+  shot is staged. `RecordOverlay` re-arms its one-shot start guard so a retry
+  after an ffmpeg error actually records.
+- **Windows recording graceful-stop** via `CTRL+BREAK` to ffmpeg's own process
+  group (`CREATE_NEW_PROCESS_GROUP`) so the MP4 trailer flushes cleanly on stop.
+  *(Windows runtime-unverified.)*
+
 ## [0.83.0] — 2026-06-09
 
 ### Added — second, configurable "clipboard history" hotkey

@@ -131,6 +131,9 @@ export function RecordOverlay() {
   const startCountdown = () => {
     setError(null);
     setCount(3);
+    // Re-arm the one-shot start guard so a retry after an ffmpeg error (the
+    // user re-clicks "Record") actually fires again instead of no-op'ing.
+    startedRef.current = false;
     setPhase("countdown");
   };
 

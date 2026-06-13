@@ -21,12 +21,19 @@ export function usePauseOnPopupHidden(playing: boolean, engageGate: () => void) 
   }, [playing, engageGate]);
 
   useEffect(() => {
+    let cancelled = false;
     let unlisten: (() => void) | undefined;
     void listen("popup-hidden", () => {
       if (playingRef.current) engageRef.current();
     }).then((u) => {
-      unlisten = u;
+      // If the component already unmounted before the listener resolved, undo
+      // it immediately so we never leak an orphaned listener.
+      if (cancelled) u();
+      else unlisten = u;
     });
-    return () => unlisten?.();
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 }

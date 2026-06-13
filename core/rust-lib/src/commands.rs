@@ -2968,29 +2968,26 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     // screens. One monitor's physical position+size ARE self-consistent, so
     // covering just the cursor's monitor is exact. To record a different screen,
     // move the cursor there before triggering.
-    let target = win
-        .cursor_position()
-        .ok()
-        .and_then(|cursor| {
-            win.available_monitors().ok().and_then(|mons| {
-                mons.into_iter().find(|m| {
-                    let p = m.position();
-                    let s = m.size();
-                    let (cx, cy) = (cursor.x as i32, cursor.y as i32);
-                    cx >= p.x
-                        && cx < p.x + s.width as i32
-                        && cy >= p.y
-                        && cy < p.y + s.height as i32
-                })
-            })
-        })
-        .or_else(|| win.primary_monitor().ok().flatten());
-    let apply = |w: &tauri::WebviewWindow| {
-        if let Some(m) = &target {
+    //
+    // CRITICAL: pick the cursor's monitor via the GLOBAL cursor query
+    // (`screenshot_preview::pick_cursor_monitor_globally` → `CGEventGetLocation`),
+    // NOT `win.cursor_position()`. A freshly-built overlay window has never
+    // received a mouse event, so its `cursor_position()` is stale and always
+    // resolved to the primary monitor — which is why a selection on the
+    // secondary screen never worked. This reuses the proven detection the
+    // screenshot preview uses.
+    let monitors = win.available_monitors().unwrap_or_default();
+    let geom = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
+        .or_else(|| win.primary_monitor().ok().flatten())
+        .map(|m| {
             let p = m.position();
             let s = m.size();
-            let _ = w.set_position(tauri::PhysicalPosition::new(p.x, p.y));
-            let _ = w.set_size(tauri::PhysicalSize::new(s.width, s.height));
+            (p.x, p.y, s.width, s.height)
+        });
+    let apply = |w: &tauri::WebviewWindow| {
+        if let Some((x, y, ww, hh)) = geom {
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+            let _ = w.set_size(tauri::PhysicalSize::new(ww, hh));
         }
     };
     // Apply before show; some macOS configurations ignore sizing on a window
@@ -2999,12 +2996,66 @@ pub fn screen_record_open_overlay(app: AppHandle) -> Result<(), String> {
     let _ = win.show();
     apply(&win);
     let _ = win.set_focus();
+    // Esc must abort from anywhere — the transparent overlay doesn't reliably
+    // hold keyboard focus (the in-webview keydown listener needs a click first),
+    // so register a GLOBAL Esc that cancels. Disarmed on cancel / record-start.
+    arm_overlay_escape(&app);
+    // Deferred re-apply: `set_size(PhysicalSize)` converts physical→logical via
+    // the window's CURRENT scale factor, which can still be the OLD monitor's
+    // right after a move to a different-scale display (Retina ↔ non-Retina) —
+    // leaving the overlay half/double sized. Re-assert the geometry once the
+    // move + scale change have settled (off-main sleep → main-thread set).
+    if let Some((x, y, ww, hh)) = geom {
+        let app_defer = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(90));
+            let app_main = app_defer.clone();
+            let _ = app_defer.run_on_main_thread(move || {
+                if let Some(w) = app_main.get_webview_window(RECORD_OVERLAY_LABEL) {
+                    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    let _ = w.set_size(tauri::PhysicalSize::new(ww, hh));
+                }
+            });
+        });
+    }
     Ok(())
 }
 
-/// Esc / cancel from the overlay — just close it.
+/// Register a temporary global Esc shortcut that cancels the record overlay, so
+/// the user can abort the region selection without first clicking into the
+/// (focus-less) overlay. Idempotent; the in-webview Esc listener stays as a
+/// fallback if a bare-Escape global shortcut can't be registered on this OS.
+fn arm_overlay_escape(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
+    let esc = Shortcut::new(None, Code::Escape);
+    let _ = app.global_shortcut().unregister(esc); // clear any stale registration
+    let app2 = app.clone();
+    if let Err(e) = app.global_shortcut().on_shortcut(esc, move |_a, _sc, event| {
+        if event.state == ShortcutState::Pressed {
+            // Defer off the shortcut callback (closing a window + unregistering
+            // from inside the dispatch is best avoided).
+            let app3 = app2.clone();
+            std::thread::spawn(move || {
+                let _ = cancel_record_overlay(app3);
+            });
+        }
+    }) {
+        tracing::debug!("arm_overlay_escape: couldn't register global Esc: {e:#}");
+    }
+}
+
+/// Drop the temporary global Esc shortcut (overlay closed / recording started).
+fn disarm_overlay_escape(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut};
+    let _ = app
+        .global_shortcut()
+        .unregister(Shortcut::new(None, Code::Escape));
+}
+
+/// Esc / cancel from the overlay — close it and drop the global Esc shortcut.
 #[tauri::command]
 pub fn cancel_record_overlay(app: AppHandle) -> Result<(), String> {
+    disarm_overlay_escape(&app);
     if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
         let _ = w.close();
     }
@@ -3040,7 +3091,9 @@ pub async fn start_screen_record(
     // `async fn` so Tauri runs this OFF the main thread — `screen_record::start`
     // blocks ~0.5 s listing ffmpeg devices, which would otherwise freeze the UI.
     crate::screen_record::start(&state, region, audio)?;
-    // Close the overlay (not a window build, safe off-main).
+    // Recording started → drop the global Esc cancel + close the overlay
+    // (closing isn't a window build, so it's safe off-main).
+    disarm_overlay_escape(&app);
     if let Some(w) = app.get_webview_window(RECORD_OVERLAY_LABEL) {
         let _ = w.close();
     }

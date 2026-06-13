@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.7] — 2026-06-13
+
+### Fixed — recorder region selection on a secondary monitor (root cause)
+
+The real bug: `screen_record_open_overlay` picked the cursor's monitor with
+`WebviewWindow::cursor_position()`, which on a **freshly-built** window is stale
+(it only updates once that window receives a mouse event) — so it always
+resolved to the primary monitor, and the overlay never moved to the secondary.
+Now it uses the same **global** cursor query the screenshot preview uses
+(`pick_cursor_monitor_globally` → `CGEventGetLocation`, point-space bounds-check
+that handles mixed-DPI). The overlay geometry is also **re-applied ~90 ms after
+show** because `set_size(PhysicalSize)` converts through the window's current
+scale factor, which lags a move to a different-scale display (Retina ↔
+non-Retina) and would otherwise leave the overlay half/double sized.
+
+### Added — Esc aborts region selection globally
+
+Esc now cancels the recording region selection from anywhere via a temporary
+**global Esc shortcut** registered while the overlay is open (disarmed on
+cancel / record-start) — you no longer have to click into the transparent,
+focus-less overlay first. (Screenshot region selection on macOS already cancels
+with Esc natively via `screencapture -i`.)
+
 ## [0.84.6] — 2026-06-13
 
 ### Fixed — recorder selection on a secondary monitor (mixed-DPI)

@@ -374,7 +374,11 @@ fn cursor_monitor_target(win: &WebviewWindow) -> Option<(PhysicalPosition<i32>, 
 /// returned a stale position until the user clicked on a new monitor.
 /// Returns `None` if the cursor query fails or no monitor contains
 /// the cursor.
-fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri::Monitor> {
+///
+/// `pub` so the screen-record overlay can reuse this proven multi-monitor
+/// cursor detection (a freshly-built overlay window's `cursor_position()` is
+/// stale → it always resolved to the primary monitor).
+pub fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri::Monitor> {
     #[cfg(target_os = "macos")]
     {
         let (cx_pt, cy_pt) = cg_cursor::position_in_points()?;

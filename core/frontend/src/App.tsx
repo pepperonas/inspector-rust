@@ -23,6 +23,7 @@ import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
 import {
   commandSuggestions,
+  isCommandAvailable,
   isFlappyTrigger,
   isSpaceInvadersTrigger,
   isGetShakyTrigger,
@@ -294,12 +295,16 @@ function App() {
 
   // Power-command palette: parse the query into either a complete
   // command (runnable on Enter) or autocomplete suggestions.
-  const parsedCommand: ParsedCommand | null = useMemo(
-    () => parseCommand(query),
-    [query],
-  );
+  // Gate commands by OS: a command whose backend doesn't exist on this
+  // platform (e.g. `freeze` off macOS) is dropped here so it never surfaces as
+  // a runnable row or a suggestion — the user can't trigger a guaranteed
+  // failure. On macOS every command is available, so this is a no-op there.
+  const parsedCommand: ParsedCommand | null = useMemo(() => {
+    const parsed = parseCommand(query);
+    return parsed && isCommandAvailable(parsed.spec) ? parsed : null;
+  }, [query]);
   const commandSuggestionList = useMemo(
-    () => commandSuggestions(query),
+    () => commandSuggestions(query).filter((c) => isCommandAvailable(c)),
     [query],
   );
 
@@ -798,8 +803,9 @@ function App() {
     const q = query.trim().toLowerCase();
     if (q.length < 1 || installedApps.length === 0) return null;
     // Don't fight for the top slot with a complete power command
-    // (e.g. `kill safari` should kill, not launch Safari).
-    if (parseCommand(query)) return null;
+    // (e.g. `kill safari` should kill, not launch Safari). Reuse the already-
+    // memoised parse instead of calling parseCommand again.
+    if (parsedCommand) return null;
     // Exact prefix match first; then substring match; abandon if
     // neither hits — too risky to launch something the user wasn't
     // unambiguously asking for.
@@ -820,7 +826,7 @@ function App() {
       kind: "app",
       data: { name: match.name, path: match.path, score },
     };
-  }, [query, installedApps]);
+  }, [query, installedApps, parsedCommand]);
 
   // Combine: in kill mode, the process picker takes over the entire
   // list (no point mixing clipboard history with process rows — they
@@ -831,7 +837,7 @@ function App() {
   // Re-evaluates on query / mode / seed change; password regenerates
   // each render because `generatePassword` calls CSPRNG.
   const pwgenEntry: ListEntry | null = useMemo(() => {
-    const parsed = parseCommand(query);
+    const parsed = parsedCommand;
     if (!parsed || parsed.spec.kind !== "pwgen") return null;
     // Bare `pwgen` → default length; an explicit `pwgen 16` overrides it.
     // An invalid arg (`pwgen abc`) yields no action row.
@@ -859,7 +865,7 @@ function App() {
     };
     // Seed dep so explicit re-rolls (Enter) regenerate even when
     // query + mode are unchanged; pwgenEdit dep folds in user edits.
-  }, [query, pwgenMode, pwgenSeed, pwgenEdit]);
+  }, [parsedCommand, query, pwgenMode, pwgenSeed, pwgenEdit]);
 
   // bpm trigger — exact `bpm` (whitespace + case tolerant) surfaces
   // a "Detect BPM" row at the top. Enter activates → bpmMode = true →
@@ -933,34 +939,59 @@ function App() {
     });
   }, [otpQuery, totpEntries, totpCodes]);
 
-  const combined: ListEntry[] = isKillMode
-    ? killTargetEntries
-    : isMemeMode
-    ? memeEntries
-    : [
-        // Custom commands have the HIGHEST priority. A complete command
-        // (commandEntry) takes the top slot, and partial command *suggestions*
-        // rank right below it — both above the app-launcher hit. Otherwise an
-        // app with the same name (typing `term` fuzzy-matches Terminal.app)
-        // would outrank the `terminal` command and you'd launch the app
-        // instead of opening a terminal in the current Finder folder.
-        ...(commandEntry ? [commandEntry] : []),
-        ...suggestionEntries,
-        ...(openerEntry ? [openerEntry] : []),
-        ...(appEntry ? [appEntry] : []),
-        ...(brunoEntry ? [brunoEntry] : []),
-        ...(pwgenEntry ? [pwgenEntry] : []),
-        ...(bpmEntry ? [bpmEntry] : []),
-        ...(totpManageEntry ? [totpManageEntry] : []),
-        ...totpAutocompleteEntries,
-        ...resizePresetEntries,
-        ...finderFileEntries,
-        ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
-        ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),
-        ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
-        ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
-        ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
-      ];
+  // Memoised so unrelated state changes (pwgen editing, brightness/sound focus,
+  // toast state, …) don't rebuild the whole list and hand a fresh array
+  // reference to HistoryList / the virtualizer every render. Every input below
+  // is itself memoised, so this only recomputes when the list truly changes.
+  const combined: ListEntry[] = useMemo(() => {
+    if (isKillMode) return killTargetEntries;
+    if (isMemeMode) return memeEntries;
+    return [
+      // Custom commands have the HIGHEST priority. A complete command
+      // (commandEntry) takes the top slot, and partial command *suggestions*
+      // rank right below it — both above the app-launcher hit. Otherwise an
+      // app with the same name (typing `term` fuzzy-matches Terminal.app)
+      // would outrank the `terminal` command and you'd launch the app
+      // instead of opening a terminal in the current Finder folder.
+      ...(commandEntry ? [commandEntry] : []),
+      ...suggestionEntries,
+      ...(openerEntry ? [openerEntry] : []),
+      ...(appEntry ? [appEntry] : []),
+      ...(brunoEntry ? [brunoEntry] : []),
+      ...(pwgenEntry ? [pwgenEntry] : []),
+      ...(bpmEntry ? [bpmEntry] : []),
+      ...(totpManageEntry ? [totpManageEntry] : []),
+      ...totpAutocompleteEntries,
+      ...resizePresetEntries,
+      ...finderFileEntries,
+      ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
+      ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),
+      ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
+      ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
+      ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
+    ];
+  }, [
+    isKillMode,
+    killTargetEntries,
+    isMemeMode,
+    memeEntries,
+    commandEntry,
+    suggestionEntries,
+    openerEntry,
+    appEntry,
+    brunoEntry,
+    pwgenEntry,
+    bpmEntry,
+    totpManageEntry,
+    totpAutocompleteEntries,
+    resizePresetEntries,
+    finderFileEntries,
+    calcResult,
+    convertResult,
+    colorResult,
+    matchingSnippets,
+    filteredClips,
+  ]);
 
   // ← / → cycle through openers while the opener row is selected. Only
   // wired when that's actually true so the search-bar input's normal

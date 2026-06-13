@@ -245,11 +245,11 @@ export function BpmDetector({ onExit }: Props) {
               size={48}
               className="text-[var(--color-accent)] opacity-80 [animation:bpmPulse_1s_ease-in-out_infinite]"
             />
-            <div className="text-[14px] font-medium">Mikrofon-Berechtigung anfragen…</div>
+            <div className="text-[14px] font-medium">Requesting microphone permission…</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              Falls macOS / dein OS keinen Prompt zeigt: Inspector
-              Rust hat eventuell schon eine Antwort. Prüfe System
-              Settings → Privacy &amp; Security → Microphone.
+              If your OS shows no prompt, Inspector Rust may already have an
+              answer on file. Check System Settings → Privacy &amp; Security →
+              Microphone.
             </div>
           </div>
         )}
@@ -257,12 +257,11 @@ export function BpmDetector({ onExit }: Props) {
         {state.phase === "denied" && (
           <div className="flex flex-col items-center gap-4 text-center">
             <MicOff size={48} className="text-amber-500" />
-            <div className="text-[14px] font-medium">Kein Audio-Input verfügbar</div>
+            <div className="text-[14px] font-medium">No audio input available</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              {state.errorMessage ??
-                "getUserMedia hat den Zugriff verweigert."}{" "}
-              Schalte das Mikrofon in den System-Einstellungen für
-              Inspector Rust frei und drücke „Retry“.
+              {state.errorMessage ?? "getUserMedia denied access."}{" "}
+              Grant Inspector Rust microphone access in System Settings and
+              press “Retry”.
             </div>
             <button
               onClick={() => setAttempt((n) => n + 1)}
@@ -293,8 +292,8 @@ export function BpmDetector({ onExit }: Props) {
             <div className="flex flex-col items-center gap-2">
               <div className="text-[11px] text-[var(--color-muted)]">
                 {state.estimate.bpm === 0
-                  ? "Listening… (Baseline-Kalibrierung ~3s, dann lock-in)"
-                  : `4-Sekunden-Mittel · Confidence: ${Math.round(state.estimate.confidence * 100)}%`}
+                  ? "Listening… (baseline calibration ~3s, then lock-in)"
+                  : `4-second average · Confidence: ${Math.round(state.estimate.confidence * 100)}%`}
               </div>
               <ConfidenceBar value={state.estimate.confidence} />
             </div>

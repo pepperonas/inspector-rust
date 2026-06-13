@@ -24,6 +24,7 @@
  */
 
 import { MEME_ENABLED } from "./meme";
+import { CURRENT_PLATFORM, type Platform } from "./platform";
 
 export type CommandKind =
   | "translate-en"
@@ -86,6 +87,21 @@ export interface CommandSpec {
    *  autocomplete suggestion list. Reserved for alias spellings that
    *  shouldn't clutter the list. */
   hidden?: boolean;
+  /** OSes on which this command actually works. Omitted = all platforms.
+   *  The UI (App.tsx) hides commands whose backend is unavailable on the
+   *  current OS so the user never triggers a guaranteed failure. The pure
+   *  parsers here stay platform-agnostic (so they're deterministically
+   *  testable) — gating happens at the render/dispatch layer. */
+  platform?: Platform[];
+}
+
+/** Whether `spec` is available on `platform` (default: the current OS).
+ *  A command with no `platform` list runs everywhere. */
+export function isCommandAvailable(
+  spec: CommandSpec,
+  platform: Platform = CURRENT_PLATFORM,
+): boolean {
+  return !spec.platform || spec.platform.includes(platform);
 }
 
 /**
@@ -264,6 +280,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description:
       "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
     requiresArg: false,
+    // Input-lock backend (CGEventTap) is macOS-only.
+    platform: ["mac"],
   },
   // ── Wakelock / caffeine (keep-awake) ──────────────────────────────
   // `wakelock on|off` and the `caffeine on|off` alias. The on/off arg
@@ -330,6 +348,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "touch <name>",
     description: "Create an empty file in the active Explorer/Finder window's folder",
     requiresArg: true,
+    // File-manager integration exists on macOS (Finder) + Windows (Explorer).
+    platform: ["mac", "win"],
   },
   {
     kind: "mkdir",
@@ -337,6 +357,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "mkdir <name>",
     description: "Create a new folder in the active Explorer/Finder window's folder",
     requiresArg: true,
+    platform: ["mac", "win"],
   },
   {
     kind: "terminal",
@@ -344,6 +365,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "terminal",
     description: "Open a terminal at the active Explorer/Finder window's folder",
     requiresArg: false,
+    platform: ["mac", "win"],
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────
   {
@@ -353,6 +375,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description:
       "Convert Markdown → PDF (same as Ctrl+Shift+M). Bare = file-manager selection; or `md2pdf <path>`",
     requiresArg: false,
+    // macOS: WKWebView (selection or path). Windows: Edge headless (path).
+    // Linux has no PDF backend yet.
+    platform: ["mac", "win"],
   },
   {
     kind: "shot-region",

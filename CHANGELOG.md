@@ -4,6 +4,33 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.1] — 2026-06-13
+
+### Changed — per-OS command gating + frontend performance
+
+- **Commands gate by platform.** A `CommandSpec` can declare which OSes it works
+  on; `isCommandAvailable` filters both the runnable command and the suggestion
+  list (App.tsx). Commands whose backend doesn't exist on the current OS no
+  longer surface — `freeze` only on macOS; `touch`/`mkdir`/`terminal`/`md2pdf`
+  only on macOS + Windows — so the user can't trigger a guaranteed failure. On
+  macOS nothing changes (every command is available). The pure parsers stay
+  platform-agnostic (unit-tested); gating is render-layer only.
+
+### Performance
+
+- **`combined` list is memoised** (App.tsx) — it was rebuilt on every render
+  (incl. unrelated state like toasts / focus), handing a fresh array to the
+  history list + virtualizer each time. Now recomputes only when the list
+  actually changes.
+- **`parseCommand` runs once per keystroke, not three times** — `appEntry` and
+  `pwgenEntry` reuse the memoised `parsedCommand` instead of re-parsing.
+- **PreviewPanel image `src` + themed HTML `srcDoc` are memoised** on the entry,
+  so the multi-MB base64 concat and the `getComputedStyle` + template assembly
+  no longer run on every parent render — only when the selection changes.
+- **Color preview copies via the Tauri clipboard plugin** instead of
+  `navigator.clipboard` (which can fail silently in the WKWebView).
+- **BpmDetector UI strings translated to English** (the rest of the app is EN).
+
 ## [0.84.0] — 2026-06-13
 
 ### Added — cross-platform feature parity (Windows + Linux)

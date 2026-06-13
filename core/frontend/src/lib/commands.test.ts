@@ -4,6 +4,7 @@ import {
   DEFAULT_PWGEN_LENGTH,
   RESIZE_PRESETS,
   commandSuggestions,
+  isCommandAvailable,
   fuzzyScore,
   parseAlarmArg,
   parseWakelockArg,
@@ -40,6 +41,27 @@ describe("COMMANDS catalogue", () => {
       expect(seen.has(c.keyword)).toBe(false);
       seen.add(c.keyword);
     }
+  });
+
+  it("gates platform-limited commands by OS via isCommandAvailable", () => {
+    const freeze = COMMANDS.find((c) => c.keyword === "freeze")!;
+    const touch = COMMANDS.find((c) => c.keyword === "touch")!;
+    const tren = COMMANDS.find((c) => c.keyword === "tren")!;
+
+    // freeze (input lock) is macOS-only.
+    expect(isCommandAvailable(freeze, "mac")).toBe(true);
+    expect(isCommandAvailable(freeze, "win")).toBe(false);
+    expect(isCommandAvailable(freeze, "linux")).toBe(false);
+
+    // touch/mkdir/terminal: macOS + Windows (file-manager integration).
+    expect(isCommandAvailable(touch, "mac")).toBe(true);
+    expect(isCommandAvailable(touch, "win")).toBe(true);
+    expect(isCommandAvailable(touch, "linux")).toBe(false);
+
+    // A command with no platform list runs everywhere.
+    expect(isCommandAvailable(tren, "mac")).toBe(true);
+    expect(isCommandAvailable(tren, "win")).toBe(true);
+    expect(isCommandAvailable(tren, "linux")).toBe(true);
   });
 
   it("wakelock + caffeine are on/off arg commands (no more =1/=0)", () => {

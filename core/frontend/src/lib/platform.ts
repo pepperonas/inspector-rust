@@ -15,6 +15,15 @@ export const IS_MAC: boolean =
 export const IS_LINUX: boolean =
   typeof navigator !== "undefined" && /Linux/i.test(navigator.userAgent || "");
 
+export const IS_WINDOWS: boolean =
+  typeof navigator !== "undefined" &&
+  (/Win/i.test(navigator.platform || "") || /Windows/i.test(navigator.userAgent || ""));
+
+/** Current platform as the discriminator used by command gating. */
+export type Platform = "mac" | "win" | "linux";
+
+export const CURRENT_PLATFORM: Platform = IS_MAC ? "mac" : IS_WINDOWS ? "win" : "linux";
+
 /**
  * Pretty-print a stored Tauri/global-shortcut spec — the `<Mod>+<Mod>+<Code>`
  * strings produced by `eventToShortcut` / persisted by the backend, e.g.

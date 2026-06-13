@@ -6,6 +6,7 @@ import {
   Phone, QrCode, Scissors, Type, Wand2, Zap,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
+import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
 import { qrPngBase64 } from "../lib/qr";
@@ -63,6 +64,62 @@ export function PreviewPanel({
     }
   }, [entry]);
 
+  // The base64 image `src` and the themed HTML `srcDoc` are expensive to build
+  // (a multi-MB string concat / a `getComputedStyle` + template assembly). They
+  // depend only on the selected entry, so memoise them keyed on `entry` —
+  // recompute only when the selection truly changes, not on every parent render
+  // (toast/focus/etc.). Hooks must run unconditionally, so compute here (top
+  // level) and consume in the branches below.
+  const imageSrc = useMemo<string | null>(
+    () =>
+      entry?.kind === "clip" && entry.data.content_type === "image"
+        ? `data:image/png;base64,${entry.data.content_data}`
+        : null,
+    [entry],
+  );
+  const htmlSrcDoc = useMemo<string | null>(() => {
+    if (entry?.kind !== "clip" || entry.data.content_type !== "html") return null;
+    const cs = getComputedStyle(document.documentElement);
+    const v = (n: string, fb: string) => cs.getPropertyValue(n).trim() || fb;
+    const fg = v("--color-fg", "#e0e0e0");
+    const bg = v("--color-surface", "#15171d");
+    const muted = v("--color-muted", "#9a9fac");
+    const accent = v("--color-accent", "#6366f1");
+    const border = v("--color-border", "#2b2e38");
+    return `<!doctype html><html><head><meta charset="utf-8"><style>
+      :root { color-scheme: dark; }
+      html, body {
+        margin: 0;
+        padding: 12px;
+        background: ${bg};
+        color: ${fg};
+        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      /* Override the pasted HTML's colour decisions so the preview
+         matches the app theme. Layout / sizing / images are left
+         alone — we only suppress colour clashes. */
+      body, body * {
+        background-color: transparent !important;
+        color: ${fg} !important;
+        border-color: ${border} !important;
+      }
+      a, body a * { color: ${accent} !important; }
+      code, pre {
+        background: rgba(127, 127, 127, 0.12) !important;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
+      }
+      img { max-width: 100%; height: auto; }
+      table { border-collapse: collapse; }
+      td, th { border: 1px solid ${border} !important; padding: 4px 8px; }
+      blockquote {
+        margin: 8px 0 8px 0;
+        padding-left: 12px;
+        border-left: 3px solid ${accent} !important;
+        color: ${muted} !important;
+      }
+    </style></head><body>${entry.data.content_data}</body></html>`;
+  }, [entry]);
+
   if (!entry) {
     return (
       <div className="flex h-full items-center justify-center text-[13px] text-[var(--color-muted)]">
@@ -75,8 +132,11 @@ export function PreviewPanel({
   if (entry.kind === "color") {
     const c = entry.data;
     const fg = readableForeground(c.r, c.g, c.b);
+    // Use the Tauri clipboard plugin (not the browser `navigator.clipboard`,
+    // which can fail silently in the WKWebView when the popup was just reshown
+    // without a fresh user gesture).
     const copy = (text: string) => {
-      void navigator.clipboard.writeText(text).catch(() => {});
+      void clipboardWriteText(text).catch(() => {});
     };
     return (
       <div className="flex h-full flex-col p-4">
@@ -614,13 +674,12 @@ export function PreviewPanel({
   );
 
   if (clip.content_type === "image") {
-    const src = `data:image/png;base64,${clip.content_data}`;
     return (
       <div className="flex h-full flex-col p-4">
         {meta}
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
           <img
-            src={src}
+            src={imageSrc ?? ""}
             alt="clipboard image"
             className="max-h-full max-w-full object-contain"
           />
@@ -658,61 +717,16 @@ export function PreviewPanel({
   }
 
   if (clip.content_type === "html") {
-    // Clipboard HTML usually arrives with the source page's own
-    // colours / fonts baked in as inline styles — copy from a dark-mode
-    // site, you get black backgrounds; copy from a light-mode site,
-    // you get a glaring white sheet on top of the app's dark theme.
-    // Neither matches Inspector Rust's UI. Inject a theme-aware base
-    // style into the iframe + override the source's background and
-    // text colours so the preview reads in the app's theme. Inline
-    // styles that aren't background / text colour (layout, sizing,
-    // borders' radius, image styling) survive — only the colour war
-    // is suppressed.
-    const cs = getComputedStyle(document.documentElement);
-    const v = (n: string, fb: string) => cs.getPropertyValue(n).trim() || fb;
-    const fg = v("--color-fg", "#e0e0e0");
-    const bg = v("--color-surface", "#15171d");
-    const muted = v("--color-muted", "#9a9fac");
-    const accent = v("--color-accent", "#6366f1");
-    const border = v("--color-border", "#2b2e38");
-    const themedSrcDoc = `<!doctype html><html><head><meta charset="utf-8"><style>
-      :root { color-scheme: dark; }
-      html, body {
-        margin: 0;
-        padding: 12px;
-        background: ${bg};
-        color: ${fg};
-        font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-      }
-      /* Override the pasted HTML's colour decisions so the preview
-         matches the app theme. Layout / sizing / images are left
-         alone — we only suppress colour clashes. */
-      body, body * {
-        background-color: transparent !important;
-        color: ${fg} !important;
-        border-color: ${border} !important;
-      }
-      a, body a * { color: ${accent} !important; }
-      code, pre {
-        background: rgba(127, 127, 127, 0.12) !important;
-        font-family: ui-monospace, SFMono-Regular, Menlo, monospace !important;
-      }
-      img { max-width: 100%; height: auto; }
-      table { border-collapse: collapse; }
-      td, th { border: 1px solid ${border} !important; padding: 4px 8px; }
-      blockquote {
-        margin: 8px 0 8px 0;
-        padding-left: 12px;
-        border-left: 3px solid ${accent} !important;
-        color: ${muted} !important;
-      }
-    </style></head><body>${clip.content_data}</body></html>`;
+    // Clipboard HTML usually arrives with the source page's own colours / fonts
+    // baked in as inline styles, which clash with Inspector Rust's theme. The
+    // theme-aware iframe `srcDoc` (built in `htmlSrcDoc` above, memoised on the
+    // entry) injects a base style + suppresses the source's colour decisions.
     return (
       <div className="flex h-full flex-col p-4">
         {meta}
         <iframe
           sandbox=""
-          srcDoc={themedSrcDoc}
+          srcDoc={htmlSrcDoc ?? ""}
           className="flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
           title="html preview"
         />

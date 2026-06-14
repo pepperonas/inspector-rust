@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.15] — 2026-06-14
+
+### Changed — BPM detector: premium beat-reactive visualization
+
+Replaced the BPM detector's plain number + two progress bars with a full
+beat-reactive `<canvas>` animation. A second AnalyserNode taps the *raw* mic
+(the detection chain stays bandpassed to the kick band) to drive a mirrored,
+slowly-rotating **spectrum ring** with an accent→white gradient and additive
+bloom; each detected beat fires an expanding **shockwave** and a **particle
+burst** sized by the kick intensity, a **core orb** breathes with the bass and
+springs on the beat, a **confidence arc** sweeps rose→amber→emerald, and the
+hero BPM number glows brighter on every beat. All colors come from the active
+theme and update live on a theme switch.
+
+Also a performance win: the animation is drawn from a `requestAnimationFrame`
+loop reading refs — **no React re-render per frame** (the old version called
+`setState` 60×/s); only a throttled ~7 Hz update drives the top-bar level label.
+The pure visual helpers (`lib/bpm-visual.ts`: log-spaced spectrum binning,
+attack/release bar smoothing, color mixing, easing) are unit-tested.
+
 ## [0.84.14] — 2026-06-14
 
 ### Fixed — screen recording: mic audio plays too fast / silent tail (the real fix)

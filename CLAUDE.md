@@ -18,7 +18,17 @@ pnpm build:win        # → target/release/bundle/msi/*.msi + target/release/ins
 pnpm build:macos      # → target/release/bundle/dmg/*.dmg
 pnpm build:linux      # → .deb + AppImage (AppImage may fail locally; use build:linux:deb)
 pnpm build:linux:deb  # → .deb only (recommended on Ubuntu)
+```
 
+**`scripts/install-macos.sh` self-cleans `target/` (v0.84.17)** so the Cargo build
+dir can't balloon (it had grown to ~32 GB). After a successful install it: deletes
+`target/debug` (dev-only artifacts), keeps only the newest `.dmg`, and — because
+Cargo never GCs the rlibs of *old* dependency versions in `release/deps` — runs a
+one-off `cargo clean` if `target/` is past a size cap (`IR_TARGET_CAP_GB`, default
+12 GB; `0` disables). The release build cache is otherwise preserved so normal
+rebuilds stay fast/incremental.
+
+```bash
 ### Hidden game easter eggs (search bar)
 
 Exact match in the popup search field (case-insensitive, no autocomplete):

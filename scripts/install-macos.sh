@@ -440,6 +440,38 @@ open "${INSTALL_PATH}"
 echo
 echo "✓ Installed $(defaults read "${INSTALL_PATH}/Contents/Info.plist" CFBundleShortVersionString) at ${INSTALL_PATH}"
 echo
+
+# ── 4) housekeeping: keep target/ from ballooning (balanced strategy) ─────────
+# The app is now installed in /Applications, so target/ is disposable. We keep
+# the *release* build cache (so the next rebuild stays fast/incremental) but:
+#   1) drop target/debug — dev (`pnpm dev:macos`) artifacts, never needed for a
+#      release install, and the single biggest hog if you ever ran the dev server;
+#   2) keep only the newest .dmg (they pile up one per version);
+#   3) hard-cap the total — over many builds, Cargo never garbage-collects the
+#      rlibs of *old* dependency versions in release/deps, so it can creep up.
+#      Past the cap, a one-off `cargo clean` resets it (next build is full). This
+#      is what stops it ever reaching tens of GB again. Tune/disable via
+#      IR_TARGET_CAP_GB (default 12; set 0 to disable).
+TARGET_DIR="${REPO_ROOT}/target"
+if [[ -d "${TARGET_DIR}" ]]; then
+  rm -rf "${TARGET_DIR}/debug" 2>/dev/null || true
+  DMG_DIR="${TARGET_DIR}/release/bundle/dmg"
+  if [[ -d "${DMG_DIR}" ]]; then
+    # newest first; delete everything after the first
+    ls -t "${DMG_DIR}"/*.dmg 2>/dev/null | tail -n +2 | while IFS= read -r old; do
+      rm -f "${old}"
+    done
+  fi
+  CAP_GB="${IR_TARGET_CAP_GB:-12}"
+  if [[ "${CAP_GB}" != "0" ]]; then
+    SIZE_GB="$(du -sg "${TARGET_DIR}" 2>/dev/null | awk '{print $1}')"
+    if [[ -n "${SIZE_GB}" && "${SIZE_GB}" -ge "${CAP_GB}" ]]; then
+      echo "▸ target/ is ~${SIZE_GB} GB (≥ ${CAP_GB} GB cap) — running 'cargo clean' (next build will be a full compile)"
+      ( cd "${REPO_ROOT}" && cargo clean ) || true
+    fi
+  fi
+  echo "▸ Cleaned build dir → target/ now $(du -sh "${TARGET_DIR}" 2>/dev/null | awk '{print $1}')"
+fi
 if [[ "${SIGN_ID}" != "-" ]]; then
   echo "Signed with the stable self-signed cert — you grant permissions ONCE:"
   echo "  • If this is the first build since the switch to stable signing, you"

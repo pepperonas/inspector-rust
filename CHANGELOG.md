@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.17] — 2026-06-15
+
+### Changed — build tooling: `target/` no longer balloons
+
+The Cargo build dir had grown to ~32 GB. `scripts/install-macos.sh` now self-cleans
+after a successful install (the app is already in `/Applications`, so `target/` is
+disposable): it deletes `target/debug` (dev-server artifacts, never needed for a
+release install — the biggest hog if `pnpm dev:macos` was ever run), keeps only the
+newest `.dmg`, and runs a one-off `cargo clean` if `target/` is past a size cap
+(`IR_TARGET_CAP_GB`, default 12 GB; `0` disables) — needed because Cargo never
+garbage-collects the rlibs of *old* dependency versions in `release/deps`, which
+creep up over many builds. The release build cache is otherwise kept so normal
+rebuilds stay fast/incremental. (App behaviour unchanged.)
+
 ## [0.84.16] — 2026-06-14
 
 ### Fixed — popup overlay loads slowly (huge perf win)

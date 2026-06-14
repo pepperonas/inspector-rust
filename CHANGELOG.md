@@ -4,6 +4,33 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.14] — 2026-06-14
+
+### Fixed — screen recording: mic audio plays too fast / silent tail (the real fix)
+
+Definitively diagnosed and corrected the recording-audio desync that 0.84.12 and
+0.84.13 only chased. The root cause: **avfoundation systematically under-delivers
+audio samples.** A capture whose *video* spans N seconds (steady CFR frames) ends
+up with only ~85–90 % of `N × sample_rate` audio samples — verified empirically (a
+real 9.27 s recording held just 8.14 s of actual samples). The samples are
+continuous (no silence gaps), so the audio is *time-compressed*: it plays ~1.15×
+too fast and runs out before the video ends.
+
+The trap that defeated the earlier attempts: the MP4 muxer writes **stretched PTS**
+for the under-delivered audio, so the audio stream's reported `duration` metadata
+reads ≈ the video length (a lie). The ground truth is the decoded **sample count**
+(`astats`), which is immune to PTS.
+
+The fix measures each finished recording (true audio sample count vs. video
+duration) and, when they diverge by more than 2 %, re-syncs with a single
+pitch-preserving `atempo` stretch (video stream copied untouched, no inline
+resampler → no stutter/crackle). The correction factor is computed **per recording**
+(the shortfall varies per run), and the pass is a no-op when audio is already in
+sync — so it's safe on every platform (Windows/Linux capture paths that don't
+under-deliver simply skip it). Verified: the 8.14 s-of-audio / 9.27 s-of-video clip
+came out with audio filling the full 9.27 s, A/V in sync. The pure ratio math
+(`atempo_ratio`) is unit-tested.
+
 ## [0.84.13] — 2026-06-14
 
 ### Fixed — recording audio stutter/crackle (regression from 0.84.12)

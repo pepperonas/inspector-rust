@@ -13,8 +13,8 @@
 //! a real Windows box).
 
 use parking_lot::Mutex;
-use std::path::PathBuf;
-use std::process::Child;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command};
 
 /// A capture rectangle in **physical pixels** of the target display (the
 /// frontend overlay multiplies CSS px by `devicePixelRatio` before sending).
@@ -45,10 +45,14 @@ const MIC_GAIN: &str = "10dB";
 /// the full video; `-shortest` then bounds the (now-infinite) audio to the video
 /// length. This is **NOT** a resampler: it never touches the sample rate, so it
 /// can't introduce stutter/crackle. (v0.84.12 used `aresample=async=1` to
-/// "stretch" the audio, but avfoundation's audio is actually *continuous* — the
-/// resampler was over-processing it and produced audible artifacts; v0.84.13.)
-/// Single-input cases don't need it: the audio shares the screen input's clock,
-/// so it already matches the video length.
+/// "stretch" the audio inline, which over-processed it and produced audible
+/// artifacts; v0.84.13 reverted that.)
+///
+/// `apad` only fills a missing *tail*. It does **not** fix the real avfoundation
+/// defect — that the captured audio is time-*compressed* (too few samples for the
+/// wallclock window, so it plays ~1.15× too fast). That's corrected after capture
+/// by the measured `atempo` pass in [`fix_audio_sync`] (see its module note),
+/// which is why no inline resampler is used here.
 const AUDIO_PAD: &str = "apad";
 
 // ── Device-list parsers (pure, unit-tested) ──────────────────────────────────
@@ -516,6 +520,148 @@ pub fn ffmpeg_path() -> Option<PathBuf> {
     extra.iter().map(PathBuf::from).find(|p| p.is_file())
 }
 
+/// Locate `ffprobe` — it ships alongside `ffmpeg`, so try the resolved ffmpeg's
+/// own directory first, then PATH.
+fn ffprobe_path(ffmpeg: &Path) -> Option<PathBuf> {
+    let exe = if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" };
+    if let Some(dir) = ffmpeg.parent() {
+        let cand = dir.join(exe);
+        if cand.is_file() {
+            return Some(cand);
+        }
+    }
+    if let Ok(path) = std::env::var("PATH") {
+        for dir in std::env::split_paths(&path) {
+            let cand = dir.join(exe);
+            if cand.is_file() {
+                return Some(cand);
+            }
+        }
+    }
+    None
+}
+
+// ── Audio-sync post-process (avfoundation under-delivery correction) ──────────
+//
+// avfoundation's audio capture systematically under-delivers samples: a recording
+// whose *video* spans N seconds (steady CFR frames) ends up with only ~85-90% of
+// `N × sample_rate` audio samples — verified empirically (a `-t 10` mic capture
+// yields ~8.1-8.8 s of samples). Those samples are continuous (no silence gaps),
+// so the audio is *time-compressed*: it plays ~1.15× too fast and runs out before
+// the video ends ("silence at the end"). The shortfall ratio varies per run, so it
+// can't be a fixed constant — it must be measured from each finished recording and
+// corrected with a pitch-preserving `atempo` stretch.
+//
+// **Why sample count, not stream duration:** the MP4 muxer writes *stretched* PTS
+// for the under-delivered audio, so the audio stream's reported `duration`
+// metadata reads ~= the video length (a lie). The ground truth is the decoded
+// sample count (`astats`), which is immune to PTS.
+
+/// The `atempo` factor that stretches `audio_samples` (captured over the recording
+/// window) to span `video_seconds`. `< 1` slows audio down (the common case:
+/// avfoundation delivered too few samples). Returns `None` when no meaningful
+/// correction is warranted (within 2 %) or the inputs are degenerate. `atempo`
+/// only accepts `[0.5, 2.0]`, so the result is clamped.
+pub fn atempo_ratio(audio_samples: u64, sample_rate: u32, video_seconds: f64) -> Option<f64> {
+    if audio_samples == 0 || sample_rate == 0 || !video_seconds.is_finite() || video_seconds <= 0.0
+    {
+        return None;
+    }
+    let audio_seconds = audio_samples as f64 / sample_rate as f64;
+    let ratio = audio_seconds / video_seconds;
+    if !ratio.is_finite() || ratio <= 0.0 {
+        return None;
+    }
+    if (ratio - 1.0).abs() <= 0.02 {
+        return None; // already in sync — don't pay for a needless re-encode
+    }
+    Some(ratio.clamp(0.5, 2.0))
+}
+
+/// Read a single `default=noprint_wrappers=1:nokey=1` numeric field via ffprobe.
+fn ffprobe_field(ffprobe: &Path, stream: &str, entry: &str, file: &Path) -> Option<String> {
+    let out = Command::new(ffprobe)
+        .args([
+            "-v",
+            "error",
+            "-select_streams",
+            stream,
+            "-show_entries",
+            entry,
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+        ])
+        .arg(file)
+        .output()
+        .ok()?;
+    let s = String::from_utf8_lossy(&out.stdout);
+    let v = s.trim().lines().next()?.trim().to_string();
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
+}
+
+/// Decode the audio fully and read the **true** sample count (`astats` Overall —
+/// the last "Number of samples" line, which immune to container PTS).
+fn count_audio_samples(ffmpeg: &Path, file: &Path) -> Option<u64> {
+    let out = Command::new(ffmpeg)
+        .args(["-hide_banner", "-nostats", "-i"])
+        .arg(file)
+        .args(["-map", "0:a", "-af", "astats=metadata=1:reset=0", "-f", "null", "-"])
+        .output()
+        .ok()?;
+    let err = String::from_utf8_lossy(&out.stderr);
+    err.lines()
+        .rev()
+        .find_map(|l| l.split("Number of samples:").nth(1))
+        .and_then(|v| v.trim().parse::<u64>().ok())
+}
+
+/// Correct the avfoundation audio time-compression in `file` **in place**: measure
+/// the true audio length vs the video length and, if they diverge, re-encode the
+/// audio through an `atempo` stretch (video stream copied untouched). Best-effort —
+/// any probe/encode failure leaves the original file intact.
+fn fix_audio_sync(ffmpeg: &Path, file: &Path) {
+    let Some(ffprobe) = ffprobe_path(ffmpeg) else { return };
+    let Some(video_s) = ffprobe_field(&ffprobe, "v:0", "stream=duration", file)
+        .and_then(|s| s.parse::<f64>().ok())
+        .filter(|v| *v > 0.0)
+    else {
+        return;
+    };
+    let Some(rate) = ffprobe_field(&ffprobe, "a:0", "stream=sample_rate", file)
+        .and_then(|s| s.parse::<u32>().ok())
+    else {
+        return;
+    };
+    let Some(samples) = count_audio_samples(ffmpeg, file) else { return };
+    let Some(ratio) = atempo_ratio(samples, rate, video_s) else { return };
+
+    let tmp = file.with_extension("synced.mp4");
+    let status = Command::new(ffmpeg)
+        .args(["-y", "-hide_banner", "-loglevel", "error", "-i"])
+        .arg(file)
+        .args([
+            "-filter:a",
+            &format!("atempo={ratio}"),
+            "-c:v",
+            "copy",
+            "-c:a",
+            "aac",
+            "-movflags",
+            "+faststart",
+        ])
+        .arg(&tmp)
+        .status();
+    if matches!(status, Ok(s) if s.success()) && tmp.is_file() {
+        let _ = std::fs::rename(&tmp, file);
+    } else {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
 // ── Recording state + start/pause/resume/stop ────────────────────────────────
 //
 // Pause/resume is implemented as **segment + concat**: ffmpeg can't truly
@@ -739,6 +885,12 @@ pub fn stop(state: &RecordState) -> Result<PathBuf, String> {
         for seg in &session.segments {
             let _ = std::fs::remove_file(seg);
         }
+    }
+    // avfoundation under-delivers audio samples → the recorded audio is
+    // time-compressed (plays too fast, silence at the end). Measure & correct it
+    // with an `atempo` stretch. Only runs when a track was captured.
+    if session.audio.system || session.audio.mic {
+        fix_audio_sync(&session.ffmpeg, &out);
     }
     Ok(out)
 }
@@ -1240,5 +1392,34 @@ mod tests {
         assert_eq!(devs, vec!["Microphone (Realtek)", "Stereo Mix (Realtek)"]);
         assert_eq!(pick_dshow_mic(&devs).as_deref(), Some("Microphone (Realtek)"));
         assert_eq!(pick_dshow_system(&devs).as_deref(), Some("Stereo Mix (Realtek)"));
+    }
+
+    #[test]
+    fn atempo_ratio_corrects_under_delivery() {
+        // Real measured case: 390845 samples @ 48 kHz over a 9.2667 s video.
+        let r = atempo_ratio(390845, 48000, 9.266667).unwrap();
+        assert!((r - 0.8787).abs() < 0.001, "ratio was {r}");
+        // Stretching by this factor brings audio length back to the video length.
+        let corrected = (390845.0 / 48000.0) / r;
+        assert!((corrected - 9.266667).abs() < 0.01, "corrected {corrected}");
+    }
+
+    #[test]
+    fn atempo_ratio_skips_when_in_sync() {
+        // Within 2 % → no correction (avoid a needless re-encode).
+        assert_eq!(atempo_ratio(480000, 48000, 10.0), None); // exact
+        assert_eq!(atempo_ratio(475000, 48000, 10.0), None); // 1.04 % short
+        assert!(atempo_ratio(470000, 48000, 10.0).is_some()); // 2.08 % short → fix
+    }
+
+    #[test]
+    fn atempo_ratio_rejects_degenerate_and_clamps() {
+        assert_eq!(atempo_ratio(0, 48000, 10.0), None);
+        assert_eq!(atempo_ratio(480000, 0, 10.0), None);
+        assert_eq!(atempo_ratio(480000, 48000, 0.0), None);
+        assert_eq!(atempo_ratio(480000, 48000, -1.0), None);
+        // Absurd over-delivery is clamped into atempo's valid [0.5, 2.0] range.
+        assert_eq!(atempo_ratio(4_800_000, 48000, 10.0), Some(2.0));
+        assert_eq!(atempo_ratio(48_000, 48000, 10.0), Some(0.5));
     }
 }

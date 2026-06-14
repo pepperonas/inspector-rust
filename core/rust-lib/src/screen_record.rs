@@ -41,6 +41,15 @@ const FPS: u32 = 30;
 /// untouched (it's already at proper level).
 const MIC_GAIN: &str = "10dB";
 
+/// Audio A/V-sync filter. Live captures (avfoundation especially) deliver audio
+/// slightly *slower* than wall-clock, so without compensation the audio stream
+/// ends up ~10% short of the video — it plays too fast and the tail of the
+/// recording has no sound. `aresample=async=1` pads/stretches the audio to the
+/// capture timeline (and `first_pts=0` aligns its start to the video), keeping
+/// audio and video in sync for the whole recording. Verified on macOS: an 8 s
+/// capture went from ~7.1 s of audio (331 AAC frames) to a full 8.0 s (376).
+const AUDIO_SYNC: &str = "aresample=async=1:first_pts=0";
+
 // ── Device-list parsers (pure, unit-tested) ──────────────────────────────────
 
 /// One `(index, name)` device row.
@@ -266,23 +275,35 @@ pub fn build_args_macos(
     }
 
     if second_audio.is_some() {
-        // crop video + boost the mic (input 1) + mix the two audio inputs.
+        // crop video + A/V-sync each audio input + boost the mic (input 1) +
+        // mix the two. Each input is async-resampled to the timeline BEFORE the
+        // mix so neither drifts / ends early.
         a.push("-filter_complex".into());
+        // Each input synced to the timeline; the mix is `apad`-ded and
+        // `-shortest`-bounded so the audio always spans the full video (a short
+        // input — e.g. a silent/unrouted loopback — can't truncate it).
         a.push(format!(
-            "[0:v]{crop}[v];[1:a]volume={MIC_GAIN}[m];[0:a][m]amix=inputs=2:duration=longest[a]"
+            "[0:v]{crop}[v];\
+             [0:a]{AUDIO_SYNC}[s];\
+             [1:a]volume={MIC_GAIN},{AUDIO_SYNC}[m];\
+             [s][m]amix=inputs=2:duration=longest,apad[a]"
         ));
         a.push("-map".into());
         a.push("[v]".into());
         a.push("-map".into());
         a.push("[a]".into());
+        a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
     } else if primary_audio.is_some() {
         a.push("-vf".into());
         a.push(crop);
+        // Always A/V-sync the audio; boost it too when it's the mic.
+        a.push("-af".into());
         if primary_is_mic {
-            a.push("-af".into());
-            a.push(format!("volume={MIC_GAIN}"));
+            a.push(format!("volume={MIC_GAIN},{AUDIO_SYNC}"));
+        } else {
+            a.push(AUDIO_SYNC.to_string());
         }
         a.push("-c:a".into());
         a.push("aac".into());
@@ -337,9 +358,12 @@ pub fn build_args_windows(
             a.push("0:v".into());
             a.push("-map".into());
             a.push("1:a".into());
+            // Always A/V-sync; boost too when it's the mic.
+            a.push("-af".into());
             if single_is_mic {
-                a.push("-af".into());
-                a.push(format!("volume={MIC_GAIN}"));
+                a.push(format!("volume={MIC_GAIN},{AUDIO_SYNC}"));
+            } else {
+                a.push(AUDIO_SYNC.to_string());
             }
             a.push("-c:a".into());
             a.push("aac".into());
@@ -347,12 +371,15 @@ pub fn build_args_windows(
         _ => {
             a.push("-filter_complex".into());
             a.push(format!(
-                "[2:a]volume={MIC_GAIN}[m];[1:a][m]amix=inputs=2:duration=longest[a]"
+                "[1:a]{AUDIO_SYNC}[s];\
+                 [2:a]volume={MIC_GAIN},{AUDIO_SYNC}[m];\
+                 [s][m]amix=inputs=2:duration=longest,apad[a]"
             ));
             a.push("-map".into());
             a.push("0:v".into());
             a.push("-map".into());
             a.push("[a]".into());
+            a.push("-shortest".into());
             a.push("-c:a".into());
             a.push("aac".into());
         }
@@ -400,15 +427,18 @@ pub fn build_args_linux(
     }
 
     if system && mic {
-        // 0=video, 1=system, 2=mic → boost mic, mix both audio inputs.
+        // 0=video, 1=system, 2=mic → A/V-sync each, boost mic, mix both.
         a.push("-filter_complex".into());
         a.push(format!(
-            "[2:a]volume={MIC_GAIN}[m];[1:a][m]amix=inputs=2:duration=longest[a]"
+            "[1:a]{AUDIO_SYNC}[s];\
+             [2:a]volume={MIC_GAIN},{AUDIO_SYNC}[m];\
+             [s][m]amix=inputs=2:duration=longest,apad[a]"
         ));
         a.push("-map".into());
         a.push("0:v".into());
         a.push("-map".into());
         a.push("[a]".into());
+        a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
     } else if system {
@@ -416,6 +446,8 @@ pub fn build_args_linux(
         a.push("0:v".into());
         a.push("-map".into());
         a.push("1:a".into());
+        a.push("-af".into());
+        a.push(AUDIO_SYNC.to_string());
         a.push("-c:a".into());
         a.push("aac".into());
     } else if mic {
@@ -424,7 +456,7 @@ pub fn build_args_linux(
         a.push("-map".into());
         a.push("1:a".into());
         a.push("-af".into());
-        a.push(format!("volume={MIC_GAIN}"));
+        a.push(format!("volume={MIC_GAIN},{AUDIO_SYNC}"));
         a.push("-c:a".into());
         a.push("aac".into());
     } else {
@@ -1045,7 +1077,10 @@ mod tests {
         assert!(j.contains("-i :3")); // mic-only second input
         assert!(j.contains("amix=inputs=2"));
         assert!(j.contains("[0:v]crop=640:480:100:200[v]"));
-        assert!(j.contains("[1:a]volume=10dB[m]")); // mic boosted, system isn't
+        assert!(j.contains(&format!("[1:a]volume=10dB,{AUDIO_SYNC}[m]"))); // mic boosted + synced
+        assert!(j.contains(&format!("[0:a]{AUDIO_SYNC}[s]"))); // system synced, not boosted
+        assert!(j.contains("amix=inputs=2:duration=longest,apad[a]")); // padded to full length
+        assert!(j.contains("-shortest")); // bound to video length
         assert!(j.contains("-map [v]"));
         assert!(j.contains("-map [a]"));
     }
@@ -1083,8 +1118,10 @@ mod tests {
         let j = args.join(" ");
         assert!(j.contains("audio=Stereo Mix"));
         assert!(j.contains("audio=Mic"));
-        // mic (input 2) is boosted, then mixed with system (input 1).
-        assert!(j.contains("[2:a]volume=10dB[m];[1:a][m]amix=inputs=2"));
+        // mic (input 2) boosted + synced, system (input 1) synced, then mixed.
+        assert!(j.contains(&format!("[2:a]volume=10dB,{AUDIO_SYNC}[m]")));
+        assert!(j.contains(&format!("[1:a]{AUDIO_SYNC}[s]")));
+        assert!(j.contains("amix=inputs=2"));
         assert!(j.contains("-map 0:v"));
     }
 
@@ -1172,7 +1209,8 @@ mod tests {
         let j = args.join(" ");
         assert!(j.contains("-i default.monitor"));
         assert!(j.contains("-i default"));
-        assert!(j.contains(&format!("[2:a]volume={MIC_GAIN}[m]")));
+        assert!(j.contains(&format!("[2:a]volume={MIC_GAIN},{AUDIO_SYNC}[m]")));
+        assert!(j.contains(&format!("[1:a]{AUDIO_SYNC}[s]")));
         assert!(j.contains("amix=inputs=2"));
         assert!(j.contains("-map 0:v"));
     }

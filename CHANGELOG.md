@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.12] — 2026-06-14
+
+### Fixed — screen recording: mic audio played too fast / silent tail; A/V sync
+
+avfoundation delivers audio slightly slower than wall-clock, so the recorded
+audio came out ~10% short of the video — it played too fast and the end of the
+clip had no sound. Every audio path now runs through `aresample=async=1:first_pts=0`,
+which pads/aligns the audio to the capture timeline (verified: an 8 s capture
+went from ~7.1 s of audio to a full 8.0 s). The system+mic mix additionally uses
+`amix … ,apad` + `-shortest` so a short or silent input (e.g. an unrouted
+loopback) can't truncate the track. Applied to macOS/Windows/Linux builders.
+
+**System audio note:** capturing system audio on macOS requires the output to
+be routed through a loopback (BlackHole) — e.g. a Multi-Output Device combining
+your speakers + BlackHole, or using Background Music as the output. With output
+set directly to speakers, BlackHole receives nothing and the system track is
+silent (a macOS limitation, not a recorder bug).
+
 ## [0.84.11] — 2026-06-14
 
 ### Fixed — abbreviation hotkey (Alt+1) opened the popup instead of expanding

@@ -18,6 +18,10 @@ garbage-collects the rlibs of *old* dependency versions in `release/deps`, which
 creep up over many builds. The release build cache is otherwise kept so normal
 rebuilds stay fast/incremental. (App behaviour unchanged.)
 
+The script is also **self-healing**: if `node_modules` is missing (a disk cleaner
+can wipe it), it runs `pnpm install` before building instead of failing with
+`tauri: command not found`.
+
 ## [0.84.16] — 2026-06-14
 
 ### Fixed — popup overlay loads slowly (huge perf win)

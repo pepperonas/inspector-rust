@@ -344,8 +344,19 @@ echo "  ⚠ cdhash WILL change — TCC Accessibility grant must be re-given"
 echo "    (the app's Settings panel auto-detects this and walks you"
 echo "     through the steps; takes ~30 seconds)"
 
-echo "▸ Building InspectorRust.app (release, --bundles app)…"
 cd "${REPO_ROOT}"
+
+# Self-heal missing dependencies. A disk cleaner (or `cargo clean`'s sibling
+# habit of nuking node_modules in "inactive" projects) can wipe node_modules,
+# which makes the Tauri CLI vanish → `tauri build` dies with "command not found".
+# `pnpm install` is idempotent and fast (~3 s) when the store cache is warm, so
+# just run it whenever node_modules is absent.
+if [[ ! -d "${REPO_ROOT}/node_modules" || ! -d "${REPO_ROOT}/core/frontend/node_modules" ]]; then
+  echo "▸ node_modules missing — restoring dependencies (pnpm install)…"
+  pnpm install
+fi
+
+echo "▸ Building InspectorRust.app (release, --bundles app)…"
 pnpm --filter inspector-rust-macos tauri build --bundles app
 
 if [[ ! -d "${BUILD_OUT}" ]]; then

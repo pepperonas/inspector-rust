@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.13] — 2026-06-14
+
+### Fixed — recording audio stutter/crackle (regression from 0.84.12)
+
+0.84.12 added `aresample=async=1` to "stretch" the mic audio to the video
+length. But a WAV silence-scan showed avfoundation's captured audio is actually
+**continuous** (no real dropouts — the apparent shortfall is just irregular
+packet timestamps), so the resampler was needlessly resampling clean audio and
+introduced stutter/crackle. The resampler is **removed** from all paths. The
+single-input case (mic shares the screen-capture input's clock) already matches
+the video length; the two-input system+mic mix keeps only `amix … ,apad` +
+`-shortest` (silence-pad to the video length, no resampling), so a short/silent
+loopback still can't truncate the track. Verified: matched audio/video durations
+with no resampling.
+
 ## [0.84.12] — 2026-06-14
 
 ### Fixed — screen recording: mic audio played too fast / silent tail; A/V sync

@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.11] — 2026-06-14
+
+### Fixed — abbreviation hotkey (Alt+1) opened the popup instead of expanding
+
+In a terminal, the buffer-backed `try_hotkey_expand` is what expands (the
+AX/clipboard path can't, and falls back to opening the popup). It was failing
+because the passive keystroke monitor's tap only treated **Cmd/Ctrl**-modified
+keys as non-text — **Option/Alt was not checked**, so the `Alt+1` keypress
+itself was decoded as a character and appended to the tracked buffer, clobbering
+the abbreviation's suffix right before the hotkey read it. The tap now leaves
+the buffer untouched for Option/Alt-modified keys, so the hotkey expands the
+abbreviation you just typed (in terminals too). Added breadcrumb logs to
+`try_hotkey_expand` for future diagnosis.
+
 ## [0.84.10] — 2026-06-14
 
 ### Fixed — deadlock that froze the whole app (no hotkeys after using the recorder)

@@ -738,6 +738,7 @@ pub fn try_hotkey_expand() -> bool {
         return false;
     };
     if !RUNNING.load(Ordering::SeqCst) {
+        tracing::info!("auto_expand: hotkey — passive monitor not tracking (RUNNING=false)");
         return false; // monitor not tracking → no buffer to expand from
     }
     let action = rt.engine.lock().match_buffer_now();
@@ -747,8 +748,10 @@ pub fn try_hotkey_expand() -> bool {
         trailing,
     } = action
     else {
+        tracing::info!("auto_expand: hotkey — no abbreviation matched in the tracked buffer");
         return false;
     };
+    tracing::info!(snippet_id, backspaces, "auto_expand: hotkey expanding from buffer");
     if !pre_inject_ok() {
         // A password field / our own popup etc. — don't expand here; let the
         // caller decide (the AX path applies its own, identical guards).
@@ -872,6 +875,11 @@ mod platform {
     // Modifier flags we treat as "this is a shortcut, not text" → reset.
     const FLAG_MASK_COMMAND: u64 = 0x0010_0000;
     const FLAG_MASK_CONTROL: u64 = 0x0004_0000;
+    // Option/Alt — the abbreviation hotkey (default `Alt+1`) uses it. We must
+    // leave the tracked buffer UNTOUCHED for these (not reset, not append), so
+    // the hotkey's own keypress doesn't clobber the abbreviation `try_hotkey_expand`
+    // is about to expand from the buffer.
+    const FLAG_MASK_ALTERNATE: u64 = 0x0008_0000;
 
     static TAP_PORT: OnceLock<usize> = OnceLock::new(); // CFMachPortRef as usize
     static TAP_INSTALLED: AtomicBool = AtomicBool::new(false);
@@ -971,7 +979,14 @@ mod platform {
             EVT_KEY_DOWN => {
                 let kc = unsafe { CGEventGetIntegerValueField(event, KEYCODE_FIELD) };
                 let flags = unsafe { CGEventGetFlags(event) };
-                if (flags & (FLAG_MASK_COMMAND | FLAG_MASK_CONTROL)) != 0 {
+                if (flags & FLAG_MASK_ALTERNATE) != 0 {
+                    // Option/Alt-modified key — this is (or could be) the
+                    // abbreviation hotkey (default Alt+1). Leave the buffer
+                    // exactly as it is so `try_hotkey_expand` can still match
+                    // the abbreviation the user just typed; don't append the
+                    // hotkey char and don't reset. Pass the event through.
+                    false
+                } else if (flags & (FLAG_MASK_COMMAND | FLAG_MASK_CONTROL)) != 0 {
                     // A shortcut (Cmd/Ctrl+key) — not text; reset.
                     on_event(KeyEvent::Reset)
                 } else if kc == KEYCODE_DELETE {

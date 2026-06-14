@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
 import {
-  Calculator, Check, Copy, Download, ExternalLink, Mail, MapPin, Palette,
+  Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Palette,
   Phone, QrCode, Scissors, Type, Wand2, Zap,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
@@ -19,6 +19,7 @@ import {
   commitTransformedText,
   cutOutImageEntry,
   cutOutImageFile,
+  getClip,
   imageChromaticity,
   qrCopyPng,
   recolorImageEntry,
@@ -64,19 +65,13 @@ export function PreviewPanel({
     }
   }, [entry]);
 
-  // The base64 image `src` and the themed HTML `srcDoc` are expensive to build
-  // (a multi-MB string concat / a `getComputedStyle` + template assembly). They
-  // depend only on the selected entry, so memoise them keyed on `entry` —
-  // recompute only when the selection truly changes, not on every parent render
-  // (toast/focus/etc.). Hooks must run unconditionally, so compute here (top
-  // level) and consume in the branches below.
-  const imageSrc = useMemo<string | null>(
-    () =>
-      entry?.kind === "clip" && entry.data.content_type === "image"
-        ? `data:image/png;base64,${entry.data.content_data}`
-        : null,
-    [entry],
-  );
+  // The themed HTML `srcDoc` is expensive to build (a `getComputedStyle` +
+  // template assembly). It depends only on the selected entry, so memoise it
+  // keyed on `entry` — recompute only when the selection truly changes, not on
+  // every parent render (toast/focus/etc.). Hooks must run unconditionally, so
+  // compute here (top level) and consume in the branches below. (The image
+  // `src` is now fetched on demand by <ImagePreview> — the slim history list
+  // omits image blobs, so they aren't in `entry.data.content_data` anymore.)
   const htmlSrcDoc = useMemo<string | null>(() => {
     if (entry?.kind !== "clip" || entry.data.content_type !== "html") return null;
     const cs = getComputedStyle(document.documentElement);
@@ -678,11 +673,7 @@ export function PreviewPanel({
       <div className="flex h-full flex-col p-4">
         {meta}
         <div className="flex flex-1 items-center justify-center overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
-          <img
-            src={imageSrc ?? ""}
-            alt="clipboard image"
-            className="max-h-full max-w-full object-contain"
-          />
+          <ImagePreview entryId={clip.id} inline={clip.content_data} />
         </div>
         <CutoutButton source={{ kind: "entry", entryId: clip.id }} />
         <SaveImageButton entryId={clip.id} />
@@ -765,6 +756,52 @@ export function PreviewPanel({
       <SmartActionsBar text={clip.content_text} />
       <TransformBar text={clip.content_text} />
     </div>
+  );
+}
+
+/**
+ * Image preview that fetches the bitmap on demand. The slim history list omits
+ * image blobs (they're multi-MB and the list never renders them), so a selected
+ * image clip's `content_data` is empty — we pull the full payload by id via
+ * `get_clip`. If `inline` data is already present (a freshly-captured entry that
+ * still carries it), we use it directly and skip the round-trip. A tiny spinner
+ * shows during the (single-row, fast) fetch.
+ */
+function ImagePreview({ entryId, inline }: { entryId: number; inline: string }) {
+  const [src, setSrc] = useState<string | null>(
+    inline ? `data:image/png;base64,${inline}` : null,
+  );
+  useEffect(() => {
+    if (inline) {
+      setSrc(`data:image/png;base64,${inline}`);
+      return;
+    }
+    let cancelled = false;
+    setSrc(null);
+    void getClip(entryId)
+      .then((e) => {
+        if (!cancelled && e && e.content_data) {
+          setSrc(`data:image/png;base64,${e.content_data}`);
+        }
+      })
+      .catch(() => {
+        // Row vanished / decode failed — leave the placeholder.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [entryId, inline]);
+
+  if (!src) {
+    return (
+      <div className="flex items-center gap-2 text-[12px] text-[var(--color-muted)]">
+        <Loader2 size={14} className="animate-spin" />
+        Loading image…
+      </div>
+    );
+  }
+  return (
+    <img src={src} alt="clipboard image" className="max-h-full max-w-full object-contain" />
   );
 }
 

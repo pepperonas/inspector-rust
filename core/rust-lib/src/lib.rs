@@ -336,6 +336,7 @@ pub fn run(context: tauri::Context<Wry>) {
         })
         .invoke_handler(tauri::generate_handler![
             commands::get_history,
+            commands::get_clip,
             commands::search_history,
             commands::paste_entry,
             commands::paste_entry_formatted,

@@ -37,7 +37,17 @@ pub fn get_history(
     limit: usize,
     offset: usize,
 ) -> Result<Vec<ClipEntry>, String> {
-    db::list(&db, limit, offset).map_err(map_err)
+    // Slim list: omits the (multi-MB) image blobs the list view never renders.
+    // The PreviewPanel fetches a selected image's data on demand via `get_clip`.
+    db::list_slim(&db, limit, offset).map_err(map_err)
+}
+
+/// Fetch a single history entry **with its full payload** (including the image
+/// blob the slim list omits). Used by the preview when an image clip is
+/// selected.
+#[tauri::command]
+pub fn get_clip(db: State<'_, DbHandle>, id: i64) -> Result<Option<ClipEntry>, String> {
+    db::get(&db, id).map_err(map_err)
 }
 
 #[tauri::command]
@@ -46,7 +56,7 @@ pub fn search_history(
     query: String,
     limit: usize,
 ) -> Result<Vec<ClipEntry>, String> {
-    let all = db::list(&db, 1000, 0).map_err(map_err)?;
+    let all = db::list_slim(&db, 1000, 0).map_err(map_err)?;
     let q = query.to_lowercase();
     if q.is_empty() {
         return Ok(all.into_iter().take(limit).collect());

@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.16] — 2026-06-14
+
+### Fixed — popup overlay loads slowly (huge perf win)
+
+The popup felt slow to open because every show (and every clipboard change)
+fetched the **full** history — including the multi-MB base64 PNG of every image
+clip — decrypted each, JSON-serialised it, and marshalled it all across the
+IPC boundary into the webview. On a real library that was **~143 MB** of image
+blobs the list never even renders (image rows show an icon, not the bitmap).
+
+The history-list query now omits the image blob (`db::list_slim`): the same
+real library drops from **142.6 MB → 2.1 MB** per fetch (~68×). When an image
+clip is selected, the preview fetches its pixels on demand by id (`get_clip`);
+paste, cut-out, save and recolor already worked by id, so nothing else changed.
+The full-payload query (`db::list`) is unchanged and still used by the backup
+export, which needs every byte. Measured on the maintainer's Mac; the native
+window-show path was already fast (6–16 ms in the logs) — the lag was entirely
+this payload.
+
 ## [0.84.15] — 2026-06-14
 
 ### Changed — BPM detector: premium beat-reactive visualization

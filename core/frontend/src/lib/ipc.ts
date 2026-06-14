@@ -7,6 +7,13 @@ export function getHistory(limit = 500, offset = 0): Promise<ClipEntry[]> {
   return invoke("get_history", { limit, offset });
 }
 
+/** Fetch one entry with its **full** payload — including the image blob the
+ *  slim history list omits. Used by the preview when an image clip is
+ *  selected. Returns null if the row no longer exists. */
+export function getClip(id: number): Promise<ClipEntry | null> {
+  return invoke("get_clip", { id });
+}
+
 export function searchHistory(query: string, limit = 500): Promise<ClipEntry[]> {
   return invoke("search_history", { query, limit });
 }

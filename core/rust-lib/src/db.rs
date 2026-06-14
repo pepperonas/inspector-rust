@@ -159,6 +159,39 @@ pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>
     Ok(out)
 }
 
+/// Like [`list`], but **omits the `content_data` blob for `image` rows**
+/// (returns an empty string for them). This is the query the popup's history
+/// **view** uses — the list rows render an icon, not the bitmap, and image
+/// actions (cutout / save / recolor) + paste all re-read the row by id, so the
+/// view never needs the pixels. Image clips routinely hold multi-MB base64
+/// PNGs; sending the full set on every popup-open / clipboard-change meant
+/// decrypting + JSON-serialising + marshalling **hundreds of MB** across the
+/// IPC boundary, which is what made the overlay feel slow to load. Skipping the
+/// blob for images (the `CASE` returns the literal `''` so the encrypted column
+/// is never read/decrypted) collapses the payload to a few MB.
+///
+/// `list` (full, with image data) is still used by the backup export, which
+/// genuinely needs every byte.
+pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare(
+        r#"
+        SELECT id, content_type, content_text,
+               CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
+               hash, byte_size, created_at, last_used_at, pinned
+        FROM entries
+        ORDER BY pinned DESC, last_used_at DESC
+        LIMIT ?1 OFFSET ?2
+        "#,
+    )?;
+    let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_entry)?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r?);
+    }
+    Ok(out)
+}
+
 pub fn touch(db: &DbHandle, id: i64) -> Result<()> {
     let now = Utc::now().timestamp_millis();
     let conn = db.lock();
@@ -275,6 +308,37 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].content_text, "hello");
         assert_eq!(entries[0].content_type, ContentType::Text);
+    }
+
+    fn image_clip(data: &str) -> NewClip {
+        NewClip {
+            content_type: ContentType::Image,
+            content_text: String::new(),
+            content_data: data.to_string(),
+            byte_size: data.len() as i64,
+        }
+    }
+
+    #[test]
+    fn list_slim_omits_image_data_but_keeps_text_and_other_fields() {
+        let db = test_db();
+        upsert_clip(&db, &image_clip("BIGBASE64IMAGEBLOB")).unwrap();
+        upsert_clip(&db, &text_clip("hello world")).unwrap();
+
+        // Full list keeps everything (what backup relies on).
+        let full = list(&db, 10, 0).unwrap();
+        let full_img = full.iter().find(|e| e.content_type == ContentType::Image).unwrap();
+        assert_eq!(full_img.content_data, "BIGBASE64IMAGEBLOB");
+
+        // Slim list blanks ONLY the image blob; text + metadata are intact.
+        let slim = list_slim(&db, 10, 0).unwrap();
+        assert_eq!(slim.len(), 2);
+        let slim_img = slim.iter().find(|e| e.content_type == ContentType::Image).unwrap();
+        assert_eq!(slim_img.content_data, "", "image blob must be stripped");
+        assert_eq!(slim_img.byte_size, "BIGBASE64IMAGEBLOB".len() as i64); // metadata kept
+        let slim_txt = slim.iter().find(|e| e.content_type == ContentType::Text).unwrap();
+        assert_eq!(slim_txt.content_text, "hello world"); // text untouched
+        assert_eq!(slim_txt.content_data, "hello world"); // non-image data untouched
     }
 
     #[test]

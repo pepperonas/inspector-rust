@@ -3224,6 +3224,101 @@ fn reveal_in_file_manager(path: &std::path::Path) {
     }
 }
 
+// ── Audio swap (replace / overlay a video's audio) ───────────────────────────
+
+/// Window label for the audio-swap overlay.
+pub const AUDIO_SWAP_LABEL: &str = "audio-swap";
+
+/// Holds the Finder-selected video for the audio-swap overlay to pick up on
+/// open (the hotkey reads the selection on a worker thread, then opens the UI).
+#[derive(Default)]
+pub struct AudioSwapState {
+    pub video: parking_lot::Mutex<Option<std::path::PathBuf>>,
+}
+
+/// Build the audio-swap overlay window (centered, decorated). Must run on the
+/// main thread (dispatched via `run_on_main_thread` from the hotkey worker).
+pub fn build_audio_swap_overlay(app: &AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(existing) = app.get_webview_window(AUDIO_SWAP_LABEL) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let win = WebviewWindowBuilder::new(app, AUDIO_SWAP_LABEL, WebviewUrl::App("index.html".into()))
+        .title("Replace / overlay audio")
+        .inner_size(560.0, 660.0)
+        .min_inner_size(460.0, 540.0)
+        .resizable(true)
+        .always_on_top(true)
+        .center()
+        .visible(true)
+        .build()
+        .map_err(|e| format!("build audio-swap overlay: {e}"))?;
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn open_audio_swap_overlay(app: AppHandle) -> Result<(), String> {
+    build_audio_swap_overlay(&app)
+}
+
+/// The Finder-selected video path (if any) the overlay should preload.
+#[tauri::command]
+pub fn audio_swap_get_selected_video(state: State<'_, AudioSwapState>) -> Option<String> {
+    state.video.lock().clone().map(|p| p.to_string_lossy().into_owned())
+}
+
+/// Media duration in seconds (video or audio), for the overlay's timeline.
+#[tauri::command]
+pub fn audio_swap_probe(path: String) -> Option<f64> {
+    crate::audio_swap::probe_duration(std::path::Path::new(&path))
+}
+
+/// Whether `yt-dlp` is installed (gates the YouTube field in the overlay).
+#[tauri::command]
+pub fn audio_swap_ytdlp_available() -> bool {
+    crate::audio_swap::yt_dlp_path().is_some()
+}
+
+/// Download a URL's audio (m4a) via yt-dlp; returns the produced file path.
+/// `async` → Tauri runs it off the main thread (yt-dlp can take a while).
+#[tauri::command]
+pub async fn audio_swap_download_youtube(url: String) -> Result<String, String> {
+    let dir = dirs::cache_dir()
+        .map(|d| d.join("InspectorRust").join("audioswap"))
+        .ok_or("no cache dir")?;
+    let p = crate::audio_swap::download_youtube_audio(&url, &dir)?;
+    Ok(p.to_string_lossy().into_owned())
+}
+
+/// Mux the chosen audio into the video per `spec`; returns the output path and
+/// reveals it in Finder/Explorer. `async` → runs off the main thread (ffmpeg).
+#[tauri::command]
+pub async fn audio_swap_apply(
+    app: AppHandle,
+    video: String,
+    audio: String,
+    spec: crate::audio_swap::SwapSpec,
+) -> Result<String, String> {
+    let out = crate::audio_swap::apply_swap(
+        std::path::Path::new(&video),
+        std::path::Path::new(&audio),
+        spec,
+    )?;
+    reveal_in_file_manager(&out);
+    let s = out.to_string_lossy().into_owned();
+    let _ = app.emit("audio-swap-done", s.clone());
+    Ok(s)
+}
+
+#[tauri::command]
+pub fn audio_swap_cancel_overlay(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(AUDIO_SWAP_LABEL) {
+        let _ = w.close();
+    }
+}
+
 /// Window label for the brightness slider overlay.
 pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
 

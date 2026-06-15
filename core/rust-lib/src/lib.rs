@@ -2,6 +2,7 @@
 
 mod app_launcher;
 mod audio;
+mod audio_swap;
 mod auto_expand;
 mod backup;
 mod brightness;
@@ -161,6 +162,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
             app.manage(screen_record::RecordState::default());
+            app.manage(commands::AudioSwapState::default());
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.
             wakelock::cleanup_orphans();
@@ -495,6 +497,13 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::resume_screen_record,
             commands::stop_screen_record,
             commands::is_recording,
+            commands::open_audio_swap_overlay,
+            commands::audio_swap_get_selected_video,
+            commands::audio_swap_probe,
+            commands::audio_swap_ytdlp_available,
+            commands::audio_swap_download_youtube,
+            commands::audio_swap_apply,
+            commands::audio_swap_cancel_overlay,
             commands::brightness_open,
             commands::brightness_close,
             commands::get_screen_recording_status,

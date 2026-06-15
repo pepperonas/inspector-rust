@@ -126,6 +126,11 @@ export function FeaturesPanel() {
           note: "Drag a region → pick audio (system / mic / none) → 3 s countdown → MP4 to Downloads. Floating bar with pause/resume + stop; needs ffmpeg.",
         },
         {
+          name: "Replace / overlay audio",
+          trigger: formatHotkey("Ctrl+Shift+Alt+M"),
+          note: "Select a video in Finder → overlay opens. Replace or mix in a local audio file or a yt-dlp'd YouTube track at a chosen start position; saves a sibling -audioswap.mp4. Needs ffmpeg (+ yt-dlp for YouTube).",
+        },
+        {
           name: "Finder selection",
           trigger: formatHotkey("Ctrl+Shift+F"),
           note: "Pull the files selected in Finder into the popup (resize / optimise / cut-out).",

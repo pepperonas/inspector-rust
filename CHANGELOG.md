@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.22] — 2026-06-16
+
+### Added — replace / overlay a video's audio (`Ctrl+Shift+Alt+M`)
+
+Select a video in Finder and press **`Ctrl+Shift+Alt+M`** to open an overlay that
+swaps or layers in a new audio track:
+
+- **Audio source:** a local file (native open dialog) or a **YouTube track**
+  downloaded via `yt-dlp` (`-x --audio-format m4a`; found on PATH like ffmpeg, with
+  an install hint if missing).
+- **Placement:** set the **start position** in the video and optionally **trim** the
+  audio (in/out) with sliders.
+- **Mode:** **Replace** (drop the original audio; the new audio plays from the start
+  position, silence elsewhere) or **Mix** (keep the original and overlay the new
+  audio, with volume sliders for each).
+- Output is a non-destructive sibling **`<name>-audioswap.mp4`** (video stream-copied,
+  so it's fast and lossless — only the audio is re-encoded), revealed in Finder.
+
+Needs ffmpeg (and yt-dlp for the YouTube option). The ffmpeg/yt-dlp argument
+builders are pure and unit-tested; the filter graphs are verified end-to-end.
+macOS-first (Finder selection); the overlay also lets you pick the video manually.
+
 ## [0.84.21] — 2026-06-16
 
 ### Fixed — screen recording: system audio now actually records (macOS)

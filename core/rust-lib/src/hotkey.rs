@@ -174,12 +174,16 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
     let finder = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF);
     let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
+    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS);
+    let aswap = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM);
     let reserved = [
         (ocr, "OCR region (Ctrl+Shift+O)"),
         (screenshot, "Screenshot region (Ctrl+Shift+S)"),
         (color, "Eyedropper (Ctrl+Shift+C)"),
         (finder, "Finder selection (Ctrl+Shift+F)"),
         (markdown, "Markdown → PDF (Ctrl+Shift+M)"),
+        (record, "Screen recording (Ctrl+Shift+Alt+S)"),
+        (aswap, "Audio swap (Ctrl+Shift+Alt+M)"),
     ];
     for (sc, name) in reserved {
         if shortcut == sc {
@@ -272,6 +276,7 @@ pub fn register_history_hotkey(
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF), "Finder selection (Ctrl+Shift+F)"),
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM), "Markdown → PDF (Ctrl+Shift+M)"),
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS), "Screen recording (Ctrl+Shift+Alt+S)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM), "Audio swap (Ctrl+Shift+Alt+M)"),
     ];
     for (sc, name) in reserved {
         if shortcut == sc {
@@ -484,6 +489,40 @@ pub fn register(app: &AppHandle) -> Result<()> {
             });
         })
         .context("failed to register screen-record hotkey")?;
+
+    // Audio swap — Ctrl+Shift+Alt+M (⌃⇧⌥M). Reads the Finder selection,
+    // finds the first video, and opens the audio-swap overlay (replace /
+    // overlay the video's audio with a local file or a yt-dlp'd YouTube track).
+    // The extra Alt distinguishes it from Ctrl+Shift+M (markdown→PDF). The
+    // selection read (slow osascript) runs on a worker thread; the window build
+    // is dispatched to the main thread (same pattern as the recorder).
+    let aswap = Shortcut::new(
+        Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT),
+        Code::KeyM,
+    );
+    let app_for_aswap = app.clone();
+    app.global_shortcut()
+        .on_shortcut(aswap, move |_app, sc, event| {
+            if event.state != ShortcutState::Pressed || *sc != aswap {
+                return;
+            }
+            let app = app_for_aswap.clone();
+            std::thread::spawn(move || {
+                let video = crate::finder_selection::read()
+                    .ok()
+                    .and_then(|paths| paths.into_iter().find(|p| crate::audio_swap::is_video_path(p)));
+                if let Some(state) = app.try_state::<crate::commands::AudioSwapState>() {
+                    *state.video.lock() = video;
+                }
+                let app_main = app.clone();
+                let _ = app.run_on_main_thread(move || {
+                    if let Err(e) = crate::commands::open_audio_swap_overlay(app_main.clone()) {
+                        tracing::warn!("audio-swap overlay: {e}");
+                    }
+                });
+            });
+        })
+        .context("failed to register audio-swap hotkey")?;
 
     // Markdown → PDF (standalone) — Ctrl+Shift+M. Reads the Finder
     // selection (same osascript path as Ctrl+Shift+F), filters to
@@ -720,6 +759,8 @@ pub fn register_direct_slots(
     let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
     let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
     let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
+    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS);
+    let aswap = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM);
     let abbr_hotkey: Option<Shortcut> = *state.current.lock();
     // The optional second (clipboard-history) popup hotkey, if armed.
     let history_hotkey: Option<Shortcut> =
@@ -734,11 +775,13 @@ pub fn register_direct_slots(
             || sc == screenshot
             || sc == color
             || sc == markdown
+            || sc == record
+            || sc == aswap
             || abbr_hotkey == Some(sc)
             || history_hotkey == Some(sc)
         {
             return Err(anyhow!(
-                "hotkey {} is reserved (popup / clipboard-history / OCR / screenshot / color picker / markdown / text-expander) — pick another",
+                "hotkey {} is reserved (popup / clipboard-history / OCR / screenshot / color picker / markdown / recording / audio-swap / text-expander) — pick another",
                 slot.hotkey
             ));
         }

@@ -1163,6 +1163,50 @@ export function isRecording(): Promise<boolean> {
   return invoke("is_recording");
 }
 
+// ── Audio swap (replace / overlay a video's audio) ───────────────────────────
+
+export type SwapMode = "replace" | "mix";
+
+/** ffmpeg mux spec (camelCase → Rust `SwapSpec`). Times in seconds. */
+export interface SwapSpec {
+  mode: SwapMode;
+  startSeconds: number;
+  audioIn: number;
+  audioOut: number | null;
+  overlayVolume: number;
+  originalVolume: number;
+  videoSeconds: number;
+}
+
+/** Sentinels surfaced by the audio-swap commands. */
+export const ERR_NO_YTDLP = "audioswap.no_ytdlp";
+export const ERR_NO_FFMPEG_SWAP = "audioswap.no_ffmpeg";
+
+/** The Finder-selected video the overlay should preload (or null). */
+export function audioSwapGetSelectedVideo(): Promise<string | null> {
+  return invoke("audio_swap_get_selected_video");
+}
+/** Media duration in seconds (video or audio), or null if unreadable. */
+export function audioSwapProbe(path: string): Promise<number | null> {
+  return invoke("audio_swap_probe", { path });
+}
+/** Whether yt-dlp is installed (gates the YouTube field). */
+export function audioSwapYtdlpAvailable(): Promise<boolean> {
+  return invoke("audio_swap_ytdlp_available");
+}
+/** Download a URL's audio via yt-dlp; returns the produced file path. */
+export function audioSwapDownloadYoutube(url: string): Promise<string> {
+  return invoke("audio_swap_download_youtube", { url });
+}
+/** Mux the audio into the video; returns the output path (revealed in Finder). */
+export function audioSwapApply(video: string, audio: string, spec: SwapSpec): Promise<string> {
+  return invoke("audio_swap_apply", { video, audio, spec });
+}
+/** Close the audio-swap overlay window. */
+export function audioSwapCancelOverlay(): Promise<void> {
+  return invoke("audio_swap_cancel_overlay");
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

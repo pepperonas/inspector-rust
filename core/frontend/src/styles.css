@@ -161,6 +161,18 @@
   display: inline-flex;
 }
 
+/* Calculator result lock-in — a quick spring pop + accent flash the instant the
+   slot-machine digits settle on the final value. */
+@keyframes md3NumLock {
+  0%   { transform: scale(1.14); color: var(--color-accent); }
+  55%  { transform: scale(0.98); }
+  100% { transform: scale(1); color: inherit; }
+}
+.md3-num-lock {
+  display: inline-block;
+  animation: md3NumLock var(--md3-medium2) var(--md3-spring-bounce);
+}
+
 /* Banners / inline alerts drop in from the top. */
 @keyframes md3BannerIn {
   from { opacity: 0; transform: translateY(-10px); }
@@ -181,6 +193,7 @@
   .md3-overlay-in,
   .md3-cmd-enter,
   .md3-cmd-icon,
+  .md3-num-lock,
   .fade-in,
   .recordPulse {
     animation: none !important;

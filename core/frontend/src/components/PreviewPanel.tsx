@@ -9,6 +9,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
+import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
@@ -185,7 +186,7 @@ export function PreviewPanel({
             {entry.data.expression}
           </div>
           <div className="text-center font-[var(--font-mono)] text-[28px] font-semibold leading-tight">
-            = {entry.data.display}
+            = <AnimatedNumber value={entry.data.display} />
           </div>
         </div>
       </div>

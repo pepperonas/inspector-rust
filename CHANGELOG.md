@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.20] — 2026-06-16
+
+### Added — calculator result "slot-machine" reveal
+
+The calculator's big result (in the preview pane) now spins like a slot machine
+before locking in. For ~0.5 s the digit characters roll through random values,
+then settle **left→right** in a cascade, finishing with a spring "pop" + accent
+flash the instant the final value locks. Only digits spin — signs, decimal
+points, separators, hex/unit letters (`0xff`, `5 km`) and dates stay legible, so
+it works for every result type.
+
+The settle deadline is pushed forward on each keystroke, so the digits keep
+rolling *while you type the expression* and lock in 0.5 s after you stop —
+smooth at any typing speed, no restart flicker. Honours **prefers-reduced-motion**
+(renders the value instantly). The per-frame roll/cascade math (`lib/scramble.ts`)
+is pure and unit-tested.
+
 ## [0.84.19] — 2026-06-15
 
 ### Added — more Material 3 Expressive motion (focus: custom commands)

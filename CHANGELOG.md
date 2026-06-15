@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.23] — 2026-06-16
+
+### Security — audio-swap YouTube URL hardening
+
+Hardened the `yt-dlp` invocation against argv flag-smuggling: the audio-swap
+overlay's YouTube field could otherwise pass a value starting with `-` straight
+to yt-dlp as an **option** (yt-dlp has dangerous flags like `--exec`).
+`download_youtube_audio` now rejects any URL that doesn't start with `http://` or
+`https://` before spawning, and `build_ytdlp_args` inserts a `--` end-of-options
+guard immediately before the URL. Unit-tested.
+
 ## [0.84.22] — 2026-06-16
 
 ### Added — replace / overlay a video's audio (`Ctrl+Shift+Alt+M`)

@@ -164,6 +164,10 @@ pub fn build_ytdlp_args(url: &str, ffmpeg_dir: &str, out_template: &str) -> Vec<
         "after_move:filepath".into(),
         "-o".into(),
         out_template.into(),
+        // `--` ends option parsing so a `url` starting with `-` can't be smuggled
+        // in as a yt-dlp flag (e.g. `--exec`). `download_youtube_audio` also
+        // rejects non-http(s) URLs up front.
+        "--".into(),
         url.into(),
     ]
 }
@@ -238,12 +242,18 @@ pub fn has_audio_stream(file: &Path) -> bool {
 /// Download a YouTube (or any yt-dlp-supported) URL's audio as m4a into `dir`.
 /// Returns the produced file path.
 pub fn download_youtube_audio(url: &str, dir: &Path) -> Result<PathBuf, String> {
+    // Only accept real web URLs — blocks argv flag-smuggling (a `-…` "URL"
+    // becoming a yt-dlp option) and local-file/scheme abuse before we spawn.
+    let u = url.trim();
+    if !(u.starts_with("http://") || u.starts_with("https://")) {
+        return Err("invalid URL — must start with http:// or https://".into());
+    }
     let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
     let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
     let template = dir.join("ytaudio.%(ext)s");
-    let args = build_ytdlp_args(url, &ffmpeg_dir, &template.to_string_lossy());
+    let args = build_ytdlp_args(u, &ffmpeg_dir, &template.to_string_lossy());
     let out = Command::new(yt).args(&args).output().map_err(|e| format!("yt-dlp: {e}"))?;
     if !out.status.success() {
         let err = String::from_utf8_lossy(&out.stderr);
@@ -388,6 +398,17 @@ mod tests {
         assert!(a.contains(&"-x".to_string()));
         assert!(a.windows(2).any(|w| w[0] == "--ffmpeg-location" && w[1] == "/opt/homebrew/bin"));
         assert!(a.windows(2).any(|w| w[0] == "--print" && w[1] == "after_move:filepath"));
+        // `--` must immediately precede the URL so a `-…` url can't smuggle a flag.
+        assert_eq!(a[a.len() - 2], "--");
         assert_eq!(a.last().unwrap(), "https://youtu.be/x");
+    }
+
+    #[test]
+    fn download_rejects_non_http_urls() {
+        // No subprocess is spawned for a bad scheme (argv-injection guard).
+        let dir = std::env::temp_dir();
+        for bad in ["--exec=rm -rf ~", "-x", "file:///etc/passwd", "ftp://x", "javascript:1"] {
+            assert!(download_youtube_audio(bad, &dir).is_err(), "should reject {bad}");
+        }
     }
 }

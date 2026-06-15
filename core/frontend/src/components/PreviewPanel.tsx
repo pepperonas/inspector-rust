@@ -557,7 +557,7 @@ export function PreviewPanel({
         <div className="flex items-center justify-between">
           <button
             onClick={() => onPwgenReroll?.()}
-            className="rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+            className="md3-press rounded-md border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
           >
             ↻ Regenerate
           </button>
@@ -837,7 +837,7 @@ function SmartActionsBar({ text }: { text: string }) {
           <button
             key={`${a.kind}-${a.href}`}
             onClick={() => run(a.kind, a.href)}
-            className="flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-fg)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            className="md3-press flex items-center gap-1.5 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-fg)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
           >
             <Icon size={12} />
             {a.label}
@@ -853,7 +853,7 @@ function CopyButton({ onClick }: { onClick: () => void }) {
     <button
       onClick={onClick}
       title="Copy"
-      className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+      className="md3-press rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
     >
       <Copy size={11} />
     </button>
@@ -935,7 +935,7 @@ function CutoutButton({ source }: { source: CutoutSource }) {
         disabled={busy}
         title="Remove background and save to Downloads (Cmd/Ctrl+B)"
         className={
-          "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
+          "md3-press flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
           (busy
             ? "cursor-wait bg-[var(--color-bg)] text-[var(--color-muted)]"
             : "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90")
@@ -1017,7 +1017,7 @@ function SaveImageButton({ entryId }: { entryId: number }) {
         disabled={busy}
         title="Save current image to Downloads (Cmd/Ctrl+S)"
         className={
-          "flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
+          "md3-press flex items-center gap-1.5 rounded px-2 py-1 text-[11px] font-medium " +
           (busy
             ? "cursor-wait bg-[var(--color-bg)] text-[var(--color-muted)]"
             : "bg-[var(--color-accent)] text-[var(--color-accent-fg)] hover:opacity-90")
@@ -1133,7 +1133,7 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
             onClick={() => void apply(p.hex)}
             disabled={busy}
             title={`${p.label} (${p.hex})`}
-            className="h-5 w-5 shrink-0 rounded border border-[var(--color-border)] disabled:opacity-50"
+            className="md3-press h-5 w-5 shrink-0 rounded border border-[var(--color-border)] disabled:opacity-50"
             style={{ backgroundColor: p.hex }}
             aria-label={`Recolor to ${p.label}`}
           />
@@ -1249,7 +1249,7 @@ function TransformBar({ text }: { text: string }) {
               key={t.kind}
               onClick={() => void run(t.kind)}
               title={badge ?? undefined}
-              className="flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+              className="md3-press flex items-center gap-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
             >
               {badge && (
                 <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">

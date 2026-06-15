@@ -84,6 +84,87 @@
   }
 }
 
+/* ── Material 3 Expressive motion tokens ───────────────────────────────────
+   Easing curves + a duration scale from the M3 spec, exposed as custom
+   properties so transitions/animations across the app share one motion
+   language. `--md3-spring-bounce` is a small-amplitude overshoot bezier used
+   as a lightweight stand-in for an expressive *spatial* spring on tiny UI
+   (button press), where a full WAAPI spring would be overkill. Genuine spring
+   physics (the popup entrance) is generated in `lib/md3-motion.ts`. */
+:root {
+  --md3-emphasized: cubic-bezier(0.2, 0, 0, 1);
+  --md3-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --md3-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --md3-standard: cubic-bezier(0.2, 0, 0, 1);
+  --md3-spring-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --md3-short1: 50ms;
+  --md3-short2: 100ms;
+  --md3-short4: 200ms;
+  --md3-medium2: 300ms;
+  --md3-medium4: 400ms;
+}
+
+/* Tactile press: scale down quickly under the finger, spring back with a
+   small overshoot on release. `transition` (not Tailwind's transition-colors)
+   so it composes cleanly on buttons that only need press feedback. */
+.md3-press {
+  transition: transform var(--md3-short4) var(--md3-spring-bounce);
+}
+.md3-press:active {
+  transform: scale(0.93);
+  transition-duration: var(--md3-short1);
+}
+
+/* Tab content swap — fade + slide in on the emphasized-decelerate curve. */
+@keyframes md3TabEnter {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.md3-tab-enter {
+  animation: md3TabEnter var(--md3-medium2) var(--md3-emphasized-decelerate);
+}
+
+/* Modal panel — scale up with a small spring overshoot; its backdrop fades. */
+@keyframes md3PopIn {
+  from { opacity: 0; transform: scale(0.9); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.md3-pop-in {
+  animation: md3PopIn var(--md3-medium2) var(--md3-spring-bounce);
+}
+@keyframes md3FadeIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.md3-overlay-in {
+  animation: md3FadeIn var(--md3-short4) var(--md3-standard);
+}
+
+/* Banners / inline alerts drop in from the top. */
+@keyframes md3BannerIn {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.md3-banner-in {
+  animation: md3BannerIn var(--md3-medium2) var(--md3-emphasized-decelerate);
+}
+
+/* Accessibility: honour "reduce motion" for the app-chrome animations (the
+   game easter-egg intros are deliberately left alone — they're opt-in). The
+   JS spring entrance is separately gated by `prefersReducedMotion()`. */
+@media (prefers-reduced-motion: reduce) {
+  .md3-press,
+  .md3-tab-enter,
+  .md3-banner-in,
+  .md3-pop-in,
+  .md3-overlay-in,
+  .fade-in,
+  .recordPulse {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
 html,
 body,
 #root {

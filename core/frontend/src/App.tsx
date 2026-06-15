@@ -18,6 +18,7 @@ import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
+import { playEntrance, MD3_SPRING } from "./lib/md3-motion";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
@@ -227,6 +228,7 @@ function App() {
   // nav so typing edits the password instead of moving the selection.
   const [pwgenEditing, setPwgenEditing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const shellRef = useRef<HTMLDivElement>(null);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
   // Failure (e.g. browser dev preview without Tauri context) is silent —
@@ -1163,6 +1165,13 @@ function App() {
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
+      // MD3 expressive "pop-in" — a real spring (overshoot baked into the
+      // keyframes), re-played on every open. Fast spatial scheme keeps it
+      // snappy for a launcher; no-op under prefers-reduced-motion.
+      playEntrance(shellRef.current, MD3_SPRING.spatial.expressive.fast, {
+        fromScale: 0.97,
+        riseY: 8,
+      });
     });
   });
 
@@ -1949,13 +1958,13 @@ function App() {
 
   return (
     <div className="flex h-screen w-screen p-2">
-      <div className="app-shell fade-in flex h-full w-full flex-col">
+      <div ref={shellRef} className="app-shell fade-in flex h-full w-full flex-col">
 
         {/* Paste-failure banner — sticky at the top, click-to-dismiss. */}
         {pasteError && (
           <div
             className={
-              "flex items-start gap-2 border-b px-4 py-2 text-[12px] " +
+              "md3-banner-in flex items-start gap-2 border-b px-4 py-2 text-[12px] " +
               (pasteError === "ax"
                 ? "border-amber-500/40 bg-amber-500/10"
                 : "border-red-500/40 bg-red-500/10")
@@ -1995,7 +2004,7 @@ function App() {
         )}
 
         {ocrPermissionMissing && (
-          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>OCR failed — macOS Screen Recording access not granted.</b>{" "}
               Without it, <code>screencapture</code> is denied and the
@@ -2013,7 +2022,7 @@ function App() {
         )}
 
         {expanderPermissionMissing && (
-          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Text expansion failed — macOS Accessibility access not granted.</b>{" "}
               Inspector Rust can&apos;t read the focused field or type the snippet
@@ -2031,7 +2040,7 @@ function App() {
         )}
 
         {finderAutomationDenied && (
-          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Finder selection unavailable — macOS Automation access not granted.</b>{" "}
               Open <b>System Settings → Privacy &amp; Security → Automation → Inspector Rust</b>{" "}
@@ -2048,7 +2057,7 @@ function App() {
         )}
 
         {expanderBlocked && (
-          <div className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               {expanderBlocked === "password" ? (
                 <>
@@ -2088,7 +2097,7 @@ function App() {
         )}
 
         {timerFiredLabel && (
-          <div className="flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
+          <div className="md3-banner-in flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
             <span className="flex-1">
               ⏰ <b>Timer done — {timerFiredLabel}</b>{" "}
               <span className="text-[var(--color-muted)]">
@@ -2152,7 +2161,9 @@ function App() {
           </div>
         </div>
 
-        {/* Content */}
+        {/* Content — keyed on the active tab so it replays the MD3
+            emphasized-decelerate enter transition on every tab switch. */}
+        <div key={activeTab} className="md3-tab-enter flex min-h-0 flex-1 flex-col">
         {activeTab === "history" ? (
           <div className="flex min-h-0 flex-1">
             <div className="w-2/5 border-r border-[var(--color-border)]">
@@ -2232,6 +2243,7 @@ function App() {
             }}
           />
         )}
+        </div>
 
         <Footer
           index={selected}
@@ -2266,9 +2278,12 @@ function TabButton({
     <button
       onClick={onClick}
       className={
-        "rounded px-2 py-1 text-[11px] font-medium transition-colors whitespace-nowrap " +
+        // `transition` (all props) + an expressive overshoot easing: the active
+        // tab rests slightly enlarged and pops in with a tiny bounce; any tab
+        // scales down under the press (active:scale-90).
+        "rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 " +
         (active
-          ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+          ? "scale-[1.04] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
           : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]")
       }
     >

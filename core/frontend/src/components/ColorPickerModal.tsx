@@ -188,14 +188,14 @@ export function ColorPickerModal({ open, onClose }: Props) {
         // Click on the backdrop (not on the modal content) closes.
         if (e.target === e.currentTarget) onClose();
       }}
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="md3-overlay-in fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
     >
       {/* max-h-[calc(100vh-2rem)] + overflow-y-auto so the modal
           stays inside the popup window and scrolls if the content
           is taller than the available space (rare — the picker is
           ~450 px — but keeps the rounded corners visible on the
           smallest possible window). */}
-      <div className="flex max-h-[calc(100vh-2rem)] w-[380px] max-w-[92vw] flex-col overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
+      <div className="md3-pop-in flex max-h-[calc(100vh-2rem)] w-[380px] max-w-[92vw] flex-col overflow-y-auto rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-3 shadow-2xl">
         {/* Header */}
         <div className="mb-2 flex items-center justify-between">
           <h2 className="text-[14px] font-semibold">Color picker</h2>

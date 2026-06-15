@@ -4,6 +4,31 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.18] — 2026-06-15
+
+### Added — Material 3 Expressive motion
+
+Introduced a Material Design 3 *Expressive* motion layer at the app's key
+interaction points, tuned to stay snappy for a keyboard-first launcher:
+
+- **Popup open** — a real spring "pop-in" (the spring's overshoot/bounce is
+  simulated and baked into the keyframes, played via the Web Animations API so
+  it re-triggers on every open) using the MD3 *expressive spatial* token.
+- **Tab switch** — content fades + slides in on the emphasized-decelerate curve.
+- **Tab buttons** — press scales them down; the active tab rests slightly
+  enlarged and pops in with a small overshoot.
+- **Inline banners** (paste/permission/timer alerts) — drop in from the top.
+- **Colour-picker modal** — springy scale-in with a fading backdrop.
+- **Action buttons** (preview pane: cut-out, save, recolour, copy, transforms,
+  smart actions, regenerate) — tactile press feedback.
+
+Motion tokens (the MD3 easing curves + duration scale) are shared as CSS custom
+properties; the spring token table + the second-order spring simulator that
+generates the entrance keyframes live in `lib/md3-motion.ts` and are unit-tested
+(overshoot for under-damped springs, no overshoot for critically-damped effects
+springs, faster settle for stiffer springs). All of it honours the OS
+**prefers-reduced-motion** setting.
+
 ## [0.84.17] — 2026-06-15
 
 ### Changed — build tooling: `target/` no longer balloons

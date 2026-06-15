@@ -72,6 +72,36 @@ pub fn set_output(id: &str) -> Result<(), String> {
     }
 }
 
+/// The current default output device id (for save/restore around a recording).
+/// macOS only; other platforms don't need output rerouting to capture system audio.
+pub fn current_default_output_id() -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::current_default_output_id()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// For system-audio screen recording on macOS: returns `Ok(None)` if the system
+/// output already routes to a loopback (record as-is), `Ok(Some(id))` if the
+/// default output should be temporarily switched to that Multi-Output device
+/// (which carries both a loopback and a real output) for the recording, or
+/// `Err` if no loopback-capable output exists. On non-macOS this is always
+/// `Ok(None)` — those backends capture system audio without rerouting.
+pub fn loopback_capture_target() -> Result<Option<String>, String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::loopback_capture_target()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(None)
+    }
+}
+
 /// Parse the `Name:` / `Description:` pairs out of `pactl list sinks` (long
 /// form). Each sink block starts with a `Sink #N` header. Pure so it's
 /// unit-testable without a running PulseAudio/PipeWire server. Returns
@@ -321,7 +351,7 @@ mod macos {
         }
         let mut buf = [0i8; 256];
         let ok = unsafe { CFStringGetCString(cfstr, buf.as_mut_ptr(), 256, CF_UTF8) };
-        unsafe { CFRelease(cfstr as *const c_void) };
+        unsafe { CFRelease(cfstr) };
         if !ok {
             return None;
         }
@@ -436,6 +466,174 @@ mod macos {
             return Err(format!("set default output failed: {st}"));
         }
         Ok(())
+    }
+
+    // ── System-audio loopback routing (for screen recording) ─────────────────
+    //
+    // avfoundation can only *capture* a loopback device (BlackHole/...). For the
+    // recording to actually contain system audio, the system OUTPUT must be
+    // routed through that loopback. If the user's default output is a plain
+    // speaker, we temporarily switch it (for the recording) to a Multi-Output /
+    // Aggregate device that contains BOTH the loopback AND a real output — so
+    // the audio is captured *and* still audible — then restore it on stop.
+
+    const PROP_DEVICE_UID: u32 = u32_fourcc(b"uid "); // kAudioDevicePropertyDeviceUID
+    const PROP_AGG_SUBLIST: u32 = u32_fourcc(b"grup"); // kAudioAggregateDevicePropertyFullSubDeviceList
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFArrayGetCount(arr: *const c_void) -> isize;
+        fn CFArrayGetValueAtIndex(arr: *const c_void, idx: isize) -> *const c_void;
+    }
+
+    fn is_loopback_name(name: &str) -> bool {
+        let l = name.to_lowercase();
+        l.contains("blackhole") || l.contains("loopback") || l.contains("soundflower")
+    }
+
+    fn device_uid(dev: AudioObjectID) -> Option<String> {
+        let a = addr(PROP_DEVICE_UID, SCOPE_GLOBAL);
+        let mut cfstr: CFStringRef = std::ptr::null();
+        let mut size = std::mem::size_of::<CFStringRef>() as u32;
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                dev,
+                &a,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut cfstr as *mut _ as *mut c_void,
+            )
+        };
+        if st != 0 || cfstr.is_null() {
+            return None;
+        }
+        let mut buf = [0i8; 256];
+        let ok = unsafe { CFStringGetCString(cfstr, buf.as_mut_ptr(), 256, CF_UTF8) };
+        unsafe { CFRelease(cfstr) };
+        if !ok {
+            return None;
+        }
+        Some(unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned())
+    }
+
+    /// The UID strings of an aggregate/multi-output device's sub-devices. Empty
+    /// for a normal (non-aggregate) device.
+    fn aggregate_sub_uids(dev: AudioObjectID) -> Vec<String> {
+        let a = addr(PROP_AGG_SUBLIST, SCOPE_GLOBAL);
+        let mut size: u32 = 0;
+        let st = unsafe { AudioObjectGetPropertyDataSize(dev, &a, 0, std::ptr::null(), &mut size) };
+        if st != 0 || size == 0 {
+            return Vec::new();
+        }
+        let mut arr: *const c_void = std::ptr::null();
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                dev,
+                &a,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut arr as *mut _ as *mut c_void,
+            )
+        };
+        if st != 0 || arr.is_null() {
+            return Vec::new();
+        }
+        let count = unsafe { CFArrayGetCount(arr) };
+        let mut out = Vec::new();
+        for i in 0..count {
+            let cfstr = unsafe { CFArrayGetValueAtIndex(arr, i) };
+            if cfstr.is_null() {
+                continue;
+            }
+            let mut buf = [0i8; 256];
+            if unsafe { CFStringGetCString(cfstr, buf.as_mut_ptr(), 256, CF_UTF8) } {
+                out.push(unsafe { std::ffi::CStr::from_ptr(buf.as_ptr()) }.to_string_lossy().into_owned());
+            }
+        }
+        unsafe { CFRelease(arr) };
+        out
+    }
+
+    /// (id, name, uid, is_loopback, has_output) for every audio device.
+    fn all_devices() -> Vec<(AudioObjectID, String, Option<String>, bool, bool)> {
+        let a = addr(PROP_DEVICES, SCOPE_GLOBAL);
+        let mut size: u32 = 0;
+        if unsafe { AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size) }
+            != 0
+        {
+            return Vec::new();
+        }
+        let count = (size as usize) / std::mem::size_of::<AudioObjectID>();
+        let mut ids = vec![0u32; count];
+        if unsafe {
+            AudioObjectGetPropertyData(
+                SYSTEM_OBJECT,
+                &a,
+                0,
+                std::ptr::null(),
+                &mut size,
+                ids.as_mut_ptr() as *mut c_void,
+            )
+        } != 0
+        {
+            return Vec::new();
+        }
+        ids.into_iter()
+            .map(|d| {
+                let name = device_name(d).unwrap_or_default();
+                let lb = is_loopback_name(&name);
+                (d, name, device_uid(d), lb, has_output(d))
+            })
+            .collect()
+    }
+
+    pub fn current_default_output_id() -> Option<String> {
+        let d = default_output();
+        if d == 0 {
+            None
+        } else {
+            Some(d.to_string())
+        }
+    }
+
+    /// Decide how to make system audio reachable by the loopback capture:
+    ///   `Ok(None)`      — the default output already routes to a loopback; record as-is.
+    ///   `Ok(Some(id))`  — switch the default output to device `id` for the recording.
+    ///   `Err(msg)`      — no loopback-capable output exists (system audio can't be captured).
+    pub fn loopback_capture_target() -> Result<Option<String>, String> {
+        let devs = all_devices();
+        let uid_is_loopback =
+            |uid: &str| devs.iter().any(|(_, _, u, lb, _)| *lb && u.as_deref() == Some(uid));
+        let uid_is_real_output = |uid: &str| {
+            devs.iter()
+                .any(|(_, _, u, lb, out)| *out && !*lb && u.as_deref() == Some(uid))
+        };
+
+        // Already routing system audio to a loopback?
+        let def = default_output();
+        let def_name = device_name(def).unwrap_or_default();
+        let def_subs = aggregate_sub_uids(def);
+        if is_loopback_name(&def_name) || def_subs.iter().any(|u| uid_is_loopback(u)) {
+            return Ok(None);
+        }
+
+        // Find a multi-output/aggregate that carries BOTH a loopback and a real
+        // (audible) output, so switching to it captures audio *and* stays audible.
+        for (id, _name, _uid, _lb, out) in &devs {
+            if !*out {
+                continue;
+            }
+            let subs = aggregate_sub_uids(*id);
+            if subs.is_empty() {
+                continue; // not an aggregate
+            }
+            if subs.iter().any(|u| uid_is_loopback(u)) && subs.iter().any(|u| uid_is_real_output(u)) {
+                return Ok(Some(id.to_string()));
+            }
+        }
+        Err("no Multi-Output device containing a loopback (e.g. BlackHole) — system audio can't be captured".into())
     }
 }
 

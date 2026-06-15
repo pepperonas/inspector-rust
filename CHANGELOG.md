@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.21] — 2026-06-16
+
+### Fixed — screen recording: system audio now actually records (macOS)
+
+macOS avfoundation can only *capture* a loopback device (BlackHole), and it's
+silent unless the system **output** is routed through that loopback — so
+recordings with "System" audio came out silent even with BlackHole installed,
+because the default output was the plain speakers.
+
+The recorder now arranges this automatically: when you record with system audio,
+it checks whether the default output already routes to a loopback and, if not,
+**temporarily switches the default output to a Multi-Output device that contains
+both the loopback and a real output** (so the audio is captured *and* still
+audible), then **restores the original output when the recording stops**. The
+suitable device is found by inspecting each output's CoreAudio aggregate
+sub-device list for a BlackHole/loopback member — no guessing. Verified
+end-to-end: the captured BlackHole track went from −91 dB (silence) to −18 dB
+(real audio) with the auto-switch.
+
+If no Multi-Output device containing a loopback exists, recording proceeds as
+before (the system track is silent) and a warning is logged — set one up in
+Audio MIDI Setup (BlackHole + your speakers) and it'll be picked up automatically.
+
 ## [0.84.20] — 2026-06-16
 
 ### Added — calculator result "slot-machine" reveal

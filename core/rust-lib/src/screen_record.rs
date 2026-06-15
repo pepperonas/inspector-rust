@@ -689,6 +689,9 @@ struct Session {
     current: Option<(Child, PathBuf)>,
     /// Monotonic segment counter (names the temp files).
     seq: u32,
+    /// macOS: if we temporarily switched the default output device to route
+    /// system audio through a loopback, the previous device id to restore on stop.
+    restore_output: Option<String>,
 }
 
 impl RecordState {
@@ -813,6 +816,12 @@ pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> R
     let ffmpeg = ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let final_out = output_path()?;
     let seg0 = segment_path(0)?;
+
+    // System audio (macOS) only reaches ffmpeg through a loopback the system
+    // output is routed to. Arrange that *before* spawning ffmpeg so BlackHole is
+    // already carrying audio when the capture opens it.
+    let restore_output = arrange_system_audio(audio);
+
     let child = spawn_segment(&ffmpeg, region, audio, &seg0)?;
 
     *state.inner.lock() = Some(Session {
@@ -823,8 +832,39 @@ pub fn start(state: &RecordState, region: RecordRegion, audio: AudioChoice) -> R
         segments: Vec::new(),
         current: Some((child, seg0)),
         seq: 0,
+        restore_output,
     });
     Ok(final_out)
+}
+
+/// If `audio.system` is requested, make sure the system output reaches a
+/// loopback ffmpeg can capture. Returns the previous default-output id to
+/// restore on stop, if we switched it. macOS-only effect (other platforms
+/// return `Ok(None)` from `loopback_capture_target`, so this is a no-op).
+fn arrange_system_audio(audio: AudioChoice) -> Option<String> {
+    if !audio.system {
+        return None;
+    }
+    match crate::audio::loopback_capture_target() {
+        Ok(None) => None, // already routes to a loopback — capture as-is
+        Ok(Some(target)) => {
+            let prev = crate::audio::current_default_output_id();
+            if crate::audio::set_output(&target).is_ok() {
+                tracing::info!(
+                    "screen_record: routed system audio via output {target} (restore {prev:?})"
+                );
+                // Let the new routing settle before ffmpeg opens the loopback.
+                std::thread::sleep(std::time::Duration::from_millis(150));
+                prev
+            } else {
+                None
+            }
+        }
+        Err(e) => {
+            tracing::warn!("screen_record: system audio requested but {e}");
+            None
+        }
+    }
 }
 
 /// Pause: finalize the current segment; the session stays alive.
@@ -870,6 +910,12 @@ pub fn stop(state: &RecordState) -> Result<PathBuf, String> {
     if let Some((child, path)) = session.current.take() {
         finalize_child(child);
         session.segments.push(path);
+    }
+    // Capture has stopped — restore the default output device if we switched it
+    // to route system audio through a loopback. (Done before the early returns
+    // below so the user's audio routing is always put back.)
+    if let Some(prev) = session.restore_output.take() {
+        let _ = crate::audio::set_output(&prev);
     }
     // Drop segments that ffmpeg never actually wrote (e.g. instant pause).
     session.segments.retain(|p| p.is_file());

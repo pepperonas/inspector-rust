@@ -350,6 +350,9 @@ export const HistoryItem = memo(function HistoryItem({
       onDoubleClick={onDoubleClick}
       className={
         "group flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] " +
+        // Custom-command rows fade in when they surface (opacity-only — the row
+        // root holds the virtualizer's translateY transform).
+        (isCustomCommand ? "md3-cmd-enter " : "") +
         (isCustomCommand
           ? selected
             ? "bg-rose-600 text-white"
@@ -362,6 +365,11 @@ export const HistoryItem = memo(function HistoryItem({
       <span
         className={
           "shrink-0 " +
+          // When a command row is selected, its icon does a one-shot spring pop
+          // — a small "ready to run" affordance (re-fires each time it's
+          // re-selected; the key for `command` rows is stable so typing args
+          // doesn't replay it).
+          (isCustomCommand && selected ? "md3-cmd-icon " : "") +
           (selected
             ? "text-white/80"
             : isCustomCommand

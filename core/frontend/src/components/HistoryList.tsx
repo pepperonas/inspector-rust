@@ -148,7 +148,11 @@ export function HistoryList({
                     : entry.kind === "color"
                       ? `color-${entry.data.hex}`
                       : entry.kind === "command"
-                        ? `cmd-${entry.data.commandKind}-${entry.data.rawInput}`
+                        ? // Stable across keystrokes (no `rawInput`): typing an
+                          // argument updates the row in place instead of
+                          // remounting it, so its entrance/icon-pop animations
+                          // fire once when the command appears, not per key.
+                          `cmd-${entry.data.commandKind}`
                         : entry.kind === "command-suggestion"
                           ? `sug-${entry.data.keyword}`
                           : entry.kind === "kill-target"

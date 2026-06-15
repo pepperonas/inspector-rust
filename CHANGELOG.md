@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.19] — 2026-06-15
+
+### Added — more Material 3 Expressive motion (focus: custom commands)
+
+Extended the motion layer, especially around the keyword-triggered custom
+commands (the reddish/rose rows):
+
+- **Command rows** fade in when they surface as you type (opacity-only — the row
+  carries the virtual list's transform, so animating transform there would fight
+  the virtualizer). The `command` row's React key was made stable (no longer keyed
+  on the raw input) so typing an argument updates it in place instead of
+  remounting — the entrance fires once when the command appears, not per keystroke.
+- **Selected command icon** does a one-shot spring "pop" — a small *ready to run*
+  affordance that re-fires each time the row is re-selected.
+- **Command-mode takeovers** now spring in: the **2FA** overlay (`2fa`), the **BPM**
+  detector (`bpm`), and the inline **brightness** / **sound** panels scale in with
+  the MD3 pop-in instead of a plain fade.
+
+All of it still honours **prefers-reduced-motion**.
+
 ## [0.84.18] — 2026-06-15
 
 ### Added — Material 3 Expressive motion

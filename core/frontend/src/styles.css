@@ -140,6 +140,27 @@
   animation: md3FadeIn var(--md3-short4) var(--md3-standard);
 }
 
+/* Custom-command rows. The row root carries the virtual list's inline
+   `transform: translateY(...)`, so the entrance is **opacity-only** (animating
+   transform there would fight the virtualizer). The icon pop targets the inner
+   icon span, which has no virtualizer transform, so a scale is safe. */
+@keyframes md3CmdEnter {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.md3-cmd-enter {
+  animation: md3CmdEnter var(--md3-short4) var(--md3-emphasized-decelerate);
+}
+@keyframes md3IconPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+.md3-cmd-icon {
+  animation: md3IconPop var(--md3-medium2) var(--md3-spring-bounce);
+  display: inline-flex;
+}
+
 /* Banners / inline alerts drop in from the top. */
 @keyframes md3BannerIn {
   from { opacity: 0; transform: translateY(-10px); }
@@ -158,6 +179,8 @@
   .md3-banner-in,
   .md3-pop-in,
   .md3-overlay-in,
+  .md3-cmd-enter,
+  .md3-cmd-icon,
   .fade-in,
   .recordPulse {
     animation: none !important;

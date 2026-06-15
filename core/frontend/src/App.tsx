@@ -1932,7 +1932,7 @@ function App() {
     };
     return (
       <div className="flex h-screen w-screen p-2">
-        <div className="app-shell fade-in flex h-full w-full flex-col">
+        <div className="app-shell md3-pop-in flex h-full w-full flex-col">
           <BpmDetector onExit={exitBpm} />
         </div>
       </div>
@@ -1949,7 +1949,7 @@ function App() {
     };
     return (
       <div className="flex h-screen w-screen p-2">
-        <div className="app-shell fade-in flex h-full w-full flex-col">
+        <div className="app-shell md3-pop-in flex h-full w-full flex-col">
           <TotpOverlay onExit={exitTotp} />
         </div>
       </div>
@@ -2180,27 +2180,31 @@ function App() {
             </div>
             <div className="w-3/5 min-w-0">
               {brightnessMode ? (
-                <BrightnessPanel
-                  focused={brightnessFocus}
-                  onUnfocus={() => {
-                    setBrightnessFocus(false);
-                    requestAnimationFrame(() => searchRef.current?.focus());
-                  }}
-                  onExit={() => {
-                    setBrightnessMode(false);
-                    setBrightnessFocus(false);
-                    requestAnimationFrame(() => searchRef.current?.focus());
-                  }}
-                />
+                <div className="md3-pop-in h-full">
+                  <BrightnessPanel
+                    focused={brightnessFocus}
+                    onUnfocus={() => {
+                      setBrightnessFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                    onExit={() => {
+                      setBrightnessMode(false);
+                      setBrightnessFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
               ) : soundMode ? (
-                <SoundPanel
-                  focused={soundFocus}
-                  onExit={() => {
-                    setSoundMode(false);
-                    setSoundFocus(false);
-                    requestAnimationFrame(() => searchRef.current?.focus());
-                  }}
-                />
+                <div className="md3-pop-in h-full">
+                  <SoundPanel
+                    focused={soundFocus}
+                    onExit={() => {
+                      setSoundMode(false);
+                      setSoundFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
               ) : (
               <PreviewPanel
                 entry={current}

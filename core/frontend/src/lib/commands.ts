@@ -61,6 +61,7 @@ export type CommandKind =
   | "clean"
   | "brightness"
   | "hue"
+  | "disco"
   | "random"
   | "meme"
   | "websearch"
@@ -539,6 +540,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
     requiresArg: false,
   },
+  {
+    kind: "disco",
+    keyword: "disco",
+    syntax: "disco 1|0",
+    description: "Beat-sync Hue lamps to the mic — disco 1 = on, disco 0 = off (bare = toggle). Keeps running after the popup closes",
+    requiresArg: false,
+  },
   ...SEARCH_BANG_COMMANDS,
 ];
 
@@ -626,6 +634,25 @@ export function parseWakelockArg(arg: string): boolean | null {
       return false;
     default:
       return null;
+  }
+}
+
+/** Parse the `disco` argument. `1`/`on`/`true` → on, `0`/`off`/`false` → off,
+ *  empty/anything else → `null` meaning "toggle". */
+export function parseDiscoArg(arg: string): boolean | null {
+  switch (arg.trim().toLowerCase()) {
+    case "on":
+    case "1":
+    case "true":
+    case "an":
+      return true;
+    case "off":
+    case "0":
+    case "false":
+    case "aus":
+      return false;
+    default:
+      return null; // toggle
   }
 }
 

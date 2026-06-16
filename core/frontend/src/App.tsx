@@ -11,6 +11,7 @@ import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
+import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SnippetsPanel } from "./components/SnippetsPanel";
@@ -46,6 +47,7 @@ import {
   parseRandomArg,
   randomInt,
   parseWakelockArg,
+  parseDiscoArg,
   formatBytes,
   resizePresetSuggestions,
   translateUrl,
@@ -82,6 +84,7 @@ import {
   saveClipAsNote,
   systemLock,
   adjustVolume,
+  setSuppressHide,
   toggleMute,
   startInputLock,
   systemReboot,
@@ -649,6 +652,15 @@ function App() {
         label = "Control Philips Hue lamps";
         hint = "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
         break;
+      case "disco": {
+        const on = parseDiscoArg(arg);
+        const willRun = on === null ? !discoEngine.isRunning() : on;
+        label = willRun ? "Beat-sync Hue lamps to the mic" : "Stop the Hue beat-sync";
+        hint = willRun
+          ? "Pulses your lamps to music; keeps running after the popup closes"
+          : "disco 1 = on · disco 0 = off · bare disco = toggle";
+        break;
+      }
       case "random": {
         const r = parseRandomArg(arg);
         label = r
@@ -1715,6 +1727,17 @@ function App() {
         setHueMode(true);
         setHueFocus(true);
         return true;
+      } else if (commandKind === "disco") {
+        // Toggle the persistent beat-sync engine (runs even after the popup
+        // closes). `disco 1`/`0` force on/off; bare `disco` toggles. Fire-and-
+        // forget; the engine surfaces its own error (e.g. no bridge) in the
+        // hue panel. Close the popup so the lights take the stage.
+        const on = parseDiscoArg(arg);
+        const want = on === null ? !discoEngine.isRunning() : on;
+        if (want) void discoEngine.start();
+        else discoEngine.stop();
+        await hidePopup();
+        return true;
       } else if (commandKind === "random") {
         // Roll a random number and show it in the (longer-lasting) toast.
         const r = parseRandomArg(arg);
@@ -2027,6 +2050,8 @@ function App() {
       setBpmMode(false);
       setQuery("");
       setSelected(0);
+      // Drop any pin so click-outside dismiss works normally again.
+      void setSuppressHide(false).catch(() => undefined);
       requestAnimationFrame(() => searchRef.current?.focus());
     };
     return (

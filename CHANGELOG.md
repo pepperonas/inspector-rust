@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.46] — 2026-06-17
+
+### Added
+
+- **Disco persists + `disco` command.** The Hue beat-sync was lifted out of the
+  `HueBeatSync` component into a **module-level singleton** (`lib/disco-engine.ts`)
+  that keeps running after the popup is dismissed, until explicitly stopped.
+  Detection now runs in a **`ScriptProcessorNode`** (audio-render thread) instead
+  of `requestAnimationFrame`, so it isn't frozen by the hidden window's rAF
+  throttling. New **`disco`** command toggles it (`disco 1` = on · `disco 0` =
+  off · bare = toggle). `AudioContext` keeps `latencyHint:"playback"` (the
+  mic-open output-stutter fix).
+- **Pin the BPM detector.** In `bpm`, **Enter** pins the detector — click-outside
+  no longer closes it (`set_suppress_hide`), and the whole visualizer recolours
+  **red** with a "pinned" label. Enter again / Esc unpins.
+
+### Changed
+
+- **Hue: selected lamp auto-scrolls to centre.** Tab/↑↓ now keeps the selected
+  row vertically centred in the preview (`scrollIntoView({block:"center"})`), so
+  navigating a long lamp list keeps the selection in view.
+
 ## [0.84.45] — 2026-06-16
 
 ### Fixed

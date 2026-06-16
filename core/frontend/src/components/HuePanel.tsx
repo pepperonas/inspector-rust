@@ -72,6 +72,11 @@ export function HuePanel({
   const [status, setStatus] = useState<HueStatus | null>(null);
   const [lights, setLights] = useState<HueLight[] | null>(null);
   const [sel, setSel] = useState(0);
+  // Row DOM refs so Tab/↑↓ can keep the selected lamp centred in the scroll view.
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  useEffect(() => {
+    rowRefs.current[sel]?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, [sel]);
 
   // Local optimistic overrides so the UI reacts instantly. Keyed by row key.
   const [onMap, setOnMap] = useState<Record<string, boolean>>({});
@@ -403,6 +408,9 @@ export function HuePanel({
             return (
               <div
                 key={row.key}
+                ref={(el) => {
+                  rowRefs.current[i] = el;
+                }}
                 onClick={() => setSel(i)}
                 className={
                   "rounded-lg border px-3 py-2 transition-colors " +
@@ -486,7 +494,7 @@ export function HuePanel({
             )}
           </p>
 
-          {lights && lights.length > 0 && <HueBeatSync lamps={lights} />}
+          {lights && lights.length > 0 && <HueBeatSync />}
         </div>
       )}
     </div>

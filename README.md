@@ -141,7 +141,7 @@
   <!-- ── Features (numerical) ────────────────────────────────── -->
   [![Tests](https://img.shields.io/badge/tests-1164%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-189-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-58-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-59-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -340,7 +340,8 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Alarm** *(v0.55.0+)* | Type `alarm 3:00` / `alarm 15:15` → fires at that clock time (next occurrence) | core |
 | **Markdown → PDF command** *(v0.55.0+)* | Type `md2pdf` (file-manager selection) or `md2pdf <path>` → same as `Ctrl+Shift+M`. macOS + Windows (Windows: pass a path; Edge headless) | macOS / Windows |
 | **Password generator** | Type `pwgen` or `pwgen 16` → Enter copies; Alt+Enter = alphanumeric only; dict + leet modes in preview pane | core |
-| **BPM detector** | Type `bpm` → Enter starts live beat detection via microphone | Microphone *(macOS)* |
+| **BPM detector** | Type `bpm` → Enter starts live beat detection via microphone; **Enter again pins it** (click-outside won't close; visualizer turns red) | Microphone *(macOS)* |
+| **Disco — beat-sync lamps** *(v0.84.46+)* | Type `disco 1` (on) / `disco 0` (off) / bare `disco` (toggle) → mic-driven beat-sync of your Hue lamps; **keeps running after the popup closes** (same engine as the hue panel's Beat-sync) | Microphone + Hue |
 | **Features tab** | History · Snippets · Notes · **Features** · Settings tabs; Features tab lists all shortcuts and capabilities with live hotkey display | core |
 | **Overlay size setting** | Settings → Appearance → popup size: Small / Medium / Large | core |
 | **Status toast** *(v0.51.0+)* | Centred on-screen toast confirms wakelock on/off (and other state changes) with animated ring | core |

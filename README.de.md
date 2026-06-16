@@ -141,7 +141,7 @@
   <!-- ── Features (numerical) ────────────────────────────────── -->
   [![Tests](https://img.shields.io/badge/tests-1164%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-189-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-58-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-59-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -338,7 +338,8 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Alarm** *(v0.55.0+)* | `alarm 3:00` / `alarm 15:15` tippen → löst zur Uhrzeit aus (nächstes Vorkommen) | core |
 | **Markdown → PDF Command** *(v0.55.0+)* | `md2pdf` (Dateimanager-Auswahl) oder `md2pdf <pfad>` → wie `Ctrl+Shift+M`. macOS + Windows (Windows: Pfad angeben; Edge headless) | macOS / Windows |
 | **Passwort-Generator** | `pwgen` oder `pwgen 16` tippen → Enter kopiert; Alt+Enter = nur alphanumerisch; Dict- + Leet-Modi im Preview-Panel | core |
-| **BPM-Detektor** | `bpm` tippen → Enter startet Live-Takterkennung via Mikrofon | Mikrofon *(macOS)* |
+| **BPM-Detektor** | `bpm` tippen → Enter startet Live-Takterkennung via Mikrofon; **nochmal Enter pinnt** (Klick außerhalb schließt nicht mehr; Visualizer wird rot) | Mikrofon *(macOS)* |
+| **Disco — Lampen im Takt** *(v0.84.46+)* | `disco 1` (an) / `disco 0` (aus) / bare `disco` (toggle) → Mikrofon-getriebener Beat-Sync der Hue-Lampen; **läuft weiter, nachdem das Popup schließt** (gleiche Engine wie die Beat-Sync-Sektion im hue-Panel) | Mikrofon + Hue |
 | **Features-Tab** | History · Snippets · Notes · **Features** · Settings Tabs; Features-Tab listet alle Shortcuts und Fähigkeiten mit Live-Hotkey-Anzeige | core |
 | **Overlay-Größen-Einstellung** | Settings → Appearance → Popup-Größe: Small / Medium / Large | core |
 | **Status-Toast** *(v0.51.0+)* | Zentrierter Bildschirm-Toast bestätigt wakelock an/aus (und andere Zustandsänderungen) mit animiertem Ring | core |

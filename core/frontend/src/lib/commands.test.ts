@@ -8,6 +8,7 @@ import {
   fuzzyScore,
   parseAlarmArg,
   parseWakelockArg,
+  parseDiscoArg,
   isGetShakyTrigger,
   isOpenerTrigger,
   isSpaceInvadersTrigger,
@@ -32,7 +33,7 @@ describe("COMMANDS catalogue", () => {
   it("has 57 commands (+5 dev-tools, +9 web-search bangs, +qr, +sound, +audio alias, +trim)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(58);
+    expect(COMMANDS.length).toBe(59);
   });
 
   it("every keyword is unique", () => {
@@ -1034,6 +1035,20 @@ describe("parseWakelockArg", () => {
     expect(parseWakelockArg("")).toBeNull();
     expect(parseWakelockArg("yes")).toBeNull();
     expect(parseWakelockArg("2")).toBeNull();
+  });
+});
+
+describe("parseDiscoArg", () => {
+  it("maps 1/on/true → on, 0/off/false → off", () => {
+    expect(parseDiscoArg("1")).toBe(true);
+    expect(parseDiscoArg("on")).toBe(true);
+    expect(parseDiscoArg(" TRUE ")).toBe(true);
+    expect(parseDiscoArg("0")).toBe(false);
+    expect(parseDiscoArg("off")).toBe(false);
+  });
+  it("returns null (= toggle) for empty / unknown", () => {
+    expect(parseDiscoArg("")).toBeNull();
+    expect(parseDiscoArg("maybe")).toBeNull();
   });
 });
 

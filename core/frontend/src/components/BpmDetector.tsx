@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Mic, MicOff, RefreshCw, X } from "lucide-react";
+import { Mic, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { BpmAnalyzer } from "../lib/bpm";
+import { setSuppressHide } from "../lib/ipc";
 import {
   clamp01,
   confidenceColor,
@@ -91,6 +92,10 @@ export function BpmDetector({ onExit }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Throttled, low-frequency mirror of the live level for the top-bar label.
   const [levelLabel, setLevelLabel] = useState<string>("silence");
+  // Pinned = click-outside won't dismiss (via suppress_hide); the viz also
+  // recolours red. `pinnedRef` is the canonical value the keydown/palette read.
+  const [pinned, setPinned] = useState(false);
+  const pinnedRef = useRef(false);
 
   // Audio graph + analysis (refs so re-renders don't recreate the AudioContext).
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -126,7 +131,11 @@ export function BpmDetector({ onExit }: Props) {
   const refreshPalette = () => {
     const el = canvasRef.current ?? document.documentElement;
     const cs = getComputedStyle(el);
-    const accent = parseColor(cs.getPropertyValue("--color-accent")) ?? FALLBACK_ACCENT;
+    // While pinned, the whole visualizer goes red instead of the theme accent —
+    // a clear "this is pinned / floating" signal.
+    const accent: Rgb = pinnedRef.current
+      ? { r: 244, g: 63, b: 94 }
+      : (parseColor(cs.getPropertyValue("--color-accent")) ?? FALLBACK_ACCENT);
     const bg = parseColor(cs.getPropertyValue("--color-bg")) ?? { r: 10, g: 10, b: 14 };
     const v = vizRef.current;
     v.bg = bg;
@@ -136,18 +145,48 @@ export function BpmDetector({ onExit }: Props) {
     v.hot = mixRgb(accent, { r: 255, g: 255, b: 255 }, 0.72);
   };
 
-  // Esc to exit (capture phase so it beats the popup's global handler).
+  // Toggle pin: suppress the popup's hide-on-blur so click-outside keeps the
+  // detector floating, and recolour the viz. `pinnedRef` is canonical (the
+  // keydown closure + palette read it without re-subscribing).
+  const togglePin = () => {
+    const next = !pinnedRef.current;
+    pinnedRef.current = next;
+    setPinned(next);
+    void setSuppressHide(next).catch(() => undefined);
+    refreshPalette();
+  };
+
+  // Esc to exit, Enter to pin/unpin (capture phase so they beat the popup's
+  // global handler).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
+        // Always release the pin on exit so normal dismiss resumes.
+        if (pinnedRef.current) {
+          pinnedRef.current = false;
+          void setSuppressHide(false).catch(() => undefined);
+        }
         onExit();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        e.stopPropagation();
+        togglePin();
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onExit]);
+
+  // Safety: clear suppress_hide if the detector unmounts while pinned.
+  useEffect(
+    () => () => {
+      void setSuppressHide(false).catch(() => undefined);
+    },
+    [],
+  );
 
   // Throttled top-bar level label (~7 Hz) — keeps React churn off the hot path.
   useEffect(() => {
@@ -308,14 +347,30 @@ export function BpmDetector({ onExit }: Props) {
           {phase === "listening" && (
             <span className="text-[var(--color-muted)]">· {levelLabel}</span>
           )}
+          {pinned && <span className="font-semibold text-rose-500">· pinned</span>}
         </div>
-        <button
-          onClick={onExit}
-          className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-0.5 text-[10px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-        >
-          <X size={11} />
-          Esc
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={togglePin}
+            title="Pin (Enter) — keep open when clicking away"
+            className={
+              "flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] " +
+              (pinned
+                ? "border-rose-500 bg-rose-500/10 text-rose-500"
+                : "border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]")
+            }
+          >
+            <Pin size={11} className={pinned ? "fill-rose-500" : ""} />
+            {pinned ? "Pinned" : "Pin"}
+          </button>
+          <button
+            onClick={onExit}
+            className="flex items-center gap-1 rounded border border-[var(--color-border)] px-2 py-0.5 text-[10px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          >
+            <X size={11} />
+            Esc
+          </button>
+        </div>
       </div>
 
       {/* Body */}

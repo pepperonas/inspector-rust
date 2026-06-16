@@ -22,6 +22,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
   - Refreshed counts: **1158 tests (466 Rust + 692 frontend)**, **181 IPC
     commands**, and the dev-section test numbers.
 
+### Added
+
+- **Meme starter pack.** A curated set of **351 reaction GIFs (14 categories,
+  ~126 MB)** for the `meme` picker now ships in the repo under [`memes/`](./memes)
+  and as a downloadable **`inspector-rust-memes.zip`** release asset. Both READMEs
+  gained a step-by-step install guide (extract to the default `~/My Drive/media/memes`
+  path, or point Settings → Meme library at any folder).
+
 ## [0.84.38] — 2026-06-16
 
 ### Fixed (CI green)

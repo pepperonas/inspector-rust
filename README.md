@@ -467,6 +467,23 @@ Each banner:
 - **Download social media** — paste/copy a **YouTube / Instagram / TikTok / Facebook** URL; it's auto-detected (in a clip or the search bar) and the preview offers **Download video** (all) + **Download audio** (YouTube). H.264 is preferred so files play in QuickTime; on YouTube's "confirm you're not a bot" gate it transparently retries with your browser cookies (Chrome / Firefox / Brave / Edge). Files land in `~/Downloads` with the **download timestamp** (so they sort newest-first). Powered by yt-dlp.
 - **Trim** (`trim` command) — pick a local audio/video file, set start/end on a timeline, and cut it **lossless & fast** (`-c copy`, snaps to keyframes) or **frame-accurate** (re-encode). Saves a sibling `-trim` copy.
 
+### Meme library (v0.70.0) — type `meme [query]`
+
+`meme [query]` fuzzy-browses a folder of GIFs/images, shows an animated preview, and copies the selected one to the clipboard on Enter (as a file-URL on macOS, so the animation is preserved when you paste into a chat). The folder is **not bundled into the app** — point it at your own collection, or grab the curated starter pack below.
+
+**📦 Download the starter pack:** **[`inspector-rust-memes.zip`](https://github.com/pepperonas/inspector-rust/releases/latest/download/inspector-rust-memes.zip)** (~126 MB, 351 reaction GIFs in 14 categories) — also browsable in the repo under [`memes/`](./memes).
+
+**Install (3 steps):**
+1. **Download** `inspector-rust-memes.zip` from the [latest release](https://github.com/pepperonas/inspector-rust/releases/latest) (or copy the [`memes/`](./memes) folder from a repo clone).
+2. **Unzip it** — it expands to a `memes/` folder with category subfolders (`feels/`, `deal-with-it/`, …).
+3. **Put it where the app looks**, either:
+   - **Default path** *(recommended — enables the animated preview)*: move the contents so they live at
+     - macOS / Linux: `~/My Drive/media/memes`
+     - Windows: `%USERPROFILE%\My Drive\media\memes` (or `G:\My Drive\media\memes` if Google Drive runs in streaming mode)
+   - **Any path**: drop the folder anywhere and set it in **Settings → Meme library** (or leave the field blank to reset to the default). A custom folder still lists + copies fine; the *animated* in-app preview only renders inside the default path (asset-protocol scope).
+
+Then open the popup and type `meme` (optionally `meme cat` to filter). Subfolder names become categories; the file name (minus extension) is the searchable label. Supported: `gif · png · jpg · jpeg · webp · bmp · apng`. The whole feature can be compiled out with `pnpm build:{macos,win,linux}:nomeme`.
+
 ### Finder selection actions (v0.30.0, macOS)
 - **`Ctrl+Shift+F`** — `osascript` reads the current Finder selection (with TCC Automation → Finder grant, prompted on first use). The popup opens with the selected files listed at top, each with a `finder` chip.
 - **Multi-file `rz`** — typing `rz 1200x800` in finder-mode resizes every selected image, writes `<name>-1200x800.<ext>` next to source (format preserved). Originals untouched.
@@ -560,6 +577,7 @@ inspector-rust/
 │   ├── ir-w1024.png         # Brand artwork — README hero + inline image (1024×1024, ~1.9 MB)
 │   └── examples/
 │       └── snippets/        # 5 themed JSON examples + their own README
+├── memes/                   # Starter meme pack — 351 reaction GIFs in 14 category folders (also the v* release's inspector-rust-memes.zip)
 ├── scripts/
 │   ├── check.sh                      # cargo clippy + tsc + eslint
 │   ├── install-macos.sh              # idempotent build + stable-cert re-sign + install (preserves TCC grants across rebuilds)

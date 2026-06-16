@@ -462,6 +462,23 @@ Jedes Banner:
 - **Social-Media-Download** — **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren; auto-erkannt (in Clip oder Suchleiste), die Preview bietet **Video laden** (alle) + **Audio laden** (YouTube). H.264 wird bevorzugt, damit die Datei in QuickTime spielt; bei YouTubes „confirm you're not a bot"-Sperre wird transparent mit deinen Browser-Cookies (Chrome / Firefox / Brave / Edge) erneut versucht. Dateien landen in `~/Downloads` mit dem **Download-Zeitstempel** (sortieren also neueste-zuerst). Per yt-dlp.
 - **Trimmen** (`trim`-Command) — lokale Audio-/Videodatei wählen, Start/Ende auf einer Timeline setzen, und schneiden — **verlustfrei & schnell** (`-c copy`, snapt auf Keyframes) oder **frame-genau** (re-encode). Speichert eine `-trim`-Kopie.
 
+### Meme-Bibliothek (v0.70.0) — `meme [query]` tippen
+
+`meme [query]` durchsucht fuzzy einen Ordner mit GIFs/Bildern, zeigt eine animierte Vorschau und kopiert das gewählte Meme bei Enter ins Clipboard (auf macOS als Datei-URL, damit die Animation beim Einfügen in einen Chat erhalten bleibt). Der Ordner ist **nicht in die App eingebaut** — zeig auf deine eigene Sammlung oder schnapp dir das kuratierte Starter-Pack unten.
+
+**📦 Starter-Pack herunterladen:** **[`inspector-rust-memes.zip`](https://github.com/pepperonas/inspector-rust/releases/latest/download/inspector-rust-memes.zip)** (~126 MB, 351 Reaction-GIFs in 14 Kategorien) — auch im Repo unter [`memes/`](./memes) durchsuchbar.
+
+**Installation (3 Schritte):**
+1. **Lade** `inspector-rust-memes.zip` vom [neuesten Release](https://github.com/pepperonas/inspector-rust/releases/latest) (oder kopiere den [`memes/`](./memes)-Ordner aus einem Repo-Clone).
+2. **Entpacke** es — es entsteht ein `memes/`-Ordner mit Kategorie-Unterordnern (`feels/`, `deal-with-it/`, …).
+3. **Leg es dorthin, wo die App sucht**, entweder:
+   - **Standard-Pfad** *(empfohlen — aktiviert die animierte Vorschau)*: verschiebe den Inhalt hierhin:
+     - macOS / Linux: `~/My Drive/media/memes`
+     - Windows: `%USERPROFILE%\My Drive\media\memes` (oder `G:\My Drive\media\memes`, falls Google Drive im Streaming-Modus läuft)
+   - **Beliebiger Pfad**: leg den Ordner irgendwohin und trage ihn unter **Settings → Meme library** ein (oder lass das Feld leer, um auf den Standard zurückzusetzen). Ein eigener Ordner listet + kopiert problemlos; die *animierte* In-App-Vorschau rendert nur innerhalb des Standard-Pfads (Asset-Protocol-Scope).
+
+Dann das Popup öffnen und `meme` tippen (optional `meme katze` zum Filtern). Unterordner-Namen werden zu Kategorien; der Dateiname (ohne Endung) ist das durchsuchbare Label. Unterstützt: `gif · png · jpg · jpeg · webp · bmp · apng`. Das ganze Feature lässt sich mit `pnpm build:{macos,win,linux}:nomeme` herauskompilieren.
+
 ### Finder-Selection-Actions (v0.30.0, macOS)
 - **`Ctrl+Shift+F`** — `osascript` liest die Finder-Selection (mit TCC-Automation→Finder-Grant, beim ersten Mal angefragt). Popup öffnet sich mit den selektierten Dateien an der Spitze, jede mit `finder`-Chip.
 - **Multi-File-`rz`** — `rz 1200x800` im Finder-Mode skaliert jedes selektierte Bild, schreibt `<name>-1200x800.<ext>` neben Quelle (Format bleibt). Originale unangetastet.

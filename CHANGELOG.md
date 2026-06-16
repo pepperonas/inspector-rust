@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.36] — 2026-06-16
+
+### Added
+
+- **Bruno net-pay result animates like the calculator.** The two **Netto / Monat**
+  and **Netto / Jahr** headline rows now slot-machine-roll their digits and settle
+  left→right (via the existing `AnimatedNumber`), re-rolling while you type the
+  gross — exactly the calculator-result reveal. The other breakdown rows stay
+  static so the panel doesn't get noisy. (`BrunoRow` was hoisted to module scope so
+  the animated rows keep a stable identity and don't restart on unrelated renders.)
+- **Opener switch is animated.** Cycling openers with **← / →** now slides the new
+  opener in from the direction of the switch (from the right for *next*, from the
+  left for *prev*) with a fade — a small MD3 carousel. The switch direction is
+  tracked in `App.tsx` and carried on the opener entry; the preview keys the text
+  on its value so each press replays the slide. New CSS keyframes
+  `md3-opener-in-right` / `md3-opener-in-left`, `prefers-reduced-motion`-aware.
+
 ## [0.84.35] — 2026-06-16
 
 ### Fixed

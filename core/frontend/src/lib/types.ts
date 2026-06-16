@@ -116,6 +116,10 @@ export interface KillTargetView {
 export interface OpenerEntryView {
   /** The German opener text — pre-rolled by `pickOpener(query)`. */
   text: string;
+  /** Last ←/→ switch direction (`1` = next/right, `-1` = prev/left), used to
+   *  pick the directional slide-in animation in the preview. Absent on the
+   *  initial seeded pick (renders as a neutral slide-from-right). */
+  dir?: 1 | -1;
 }
 
 /** Installed-app match surfaced as a top entry when the user's query

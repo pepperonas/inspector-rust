@@ -51,6 +51,36 @@ interface Props {
   onPwgenCommit?: () => void;
 }
 
+/** One label/value line in the Bruno (net-pay) breakdown. Module-level so its
+ *  identity is stable across PreviewPanel re-renders — otherwise the animated
+ *  Netto rows would remount (and restart their slot-machine roll) on every
+ *  unrelated render. `animate` rolls the digits like the calculator result. */
+function BrunoRow({
+  k,
+  v,
+  accent,
+  animate,
+}: {
+  k: string;
+  v: string;
+  accent?: boolean;
+  animate?: boolean;
+}) {
+  return (
+    <div
+      className={
+        "flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5 last:border-b-0 " +
+        (accent ? "font-semibold text-[var(--color-fg)]" : "text-[var(--color-muted)]")
+      }
+    >
+      <span>{k}</span>
+      <span className="font-[var(--font-mono)] tabular-nums">
+        {animate ? <AnimatedNumber value={v} /> : v}
+      </span>
+    </div>
+  );
+}
+
 export function PreviewPanel({
   entry,
   pwgenMode,
@@ -313,13 +343,18 @@ export function PreviewPanel({
   }
 
   if (entry.kind === "opener") {
+    // Keyed on the text so each ←/→ switch remounts → replays the directional
+    // slide-in (from the right for "next", from the left for "prev").
+    const slide = entry.data.dir === -1 ? "md3-opener-in-left" : "md3-opener-in-right";
     return (
       <div className="flex h-full flex-col gap-3 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
           Random opener · ← → switches
         </div>
-        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <div className="text-[14px] italic leading-snug">{entry.data.text}</div>
+        <div className="overflow-hidden rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div key={entry.data.text} className={`text-[14px] italic leading-snug ${slide}`}>
+            {entry.data.text}
+          </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
             ⏎ Enter pastes into the focused app &nbsp;·&nbsp; ← → cycles to the
             previous / next opener
@@ -345,17 +380,6 @@ export function PreviewPanel({
       maximumFractionDigits: 1,
     });
     const d = entry.data;
-    const Row = ({ k, v, accent }: { k: string; v: string; accent?: boolean }) => (
-      <div
-        className={
-          "flex items-baseline justify-between border-b border-[var(--color-border)] py-1.5 last:border-b-0 " +
-          (accent ? "font-semibold text-[var(--color-fg)]" : "text-[var(--color-muted)]")
-        }
-      >
-        <span>{k}</span>
-        <span className="font-[var(--font-mono)] tabular-nums">{v}</span>
-      </div>
-    );
     const STATE_LABELS: Record<string, string> = {
       bw: "Baden-Württemberg", by: "Bayern", be: "Berlin", bb: "Brandenburg",
       hb: "Bremen", hh: "Hamburg", he: "Hessen", mv: "Mecklenburg-Vorp.",
@@ -383,23 +407,23 @@ export function PreviewPanel({
         </div>
 
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-          <Row k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
-          <Row k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
-          <Row k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
-          <Row k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
-          <Row k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
-          <Row k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
-          <Row k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
-          {d.soli > 0 && <Row k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
-          {d.churchTax > 0 && <Row k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
-          <Row k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
-          <Row k="Abgabenquote" v={pct.format(d.deductionRate)} />
-          <Row k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+          <BrunoRow k="Brutto / Jahr" v={eur.format(d.yearlyGross)} />
+          <BrunoRow k="Brutto / Monat" v={eur.format(d.yearlyGross / 12)} />
+          <BrunoRow k="Krankenversicherung" v={"− " + eurExact.format(d.social.health)} />
+          <BrunoRow k="Pflegeversicherung" v={"− " + eurExact.format(d.social.care)} />
+          <BrunoRow k="Rentenversicherung" v={"− " + eurExact.format(d.social.pension)} />
+          <BrunoRow k="Arbeitslosenversicherung" v={"− " + eurExact.format(d.social.unemployment)} />
+          <BrunoRow k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <BrunoRow k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <BrunoRow k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
+          <BrunoRow k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
+          <BrunoRow k="Abgabenquote" v={pct.format(d.deductionRate)} />
+          <BrunoRow k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
         </div>
 
         <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
-          <Row k="Netto / Monat" v={eurExact.format(d.netMonth)} accent />
-          <Row k="Netto / Jahr" v={eurExact.format(d.netYear)} accent />
+          <BrunoRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent animate />
+          <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
         </div>
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">

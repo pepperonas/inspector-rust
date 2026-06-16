@@ -210,6 +210,22 @@
   .md3-dl-ring { opacity: 0.25; }
 }
 
+/* Opener carousel — the new opener slides in from the ←/→ direction of the
+   switch (keyed on the text so each ←/→ press replays it). */
+@keyframes md3OpenerInRight {
+  from { opacity: 0; transform: translateX(18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes md3OpenerInLeft {
+  from { opacity: 0; transform: translateX(-18px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+.md3-opener-in-right { animation: md3OpenerInRight var(--md3-medium2) var(--md3-emphasized-decelerate) both; }
+.md3-opener-in-left  { animation: md3OpenerInLeft  var(--md3-medium2) var(--md3-emphasized-decelerate) both; }
+@media (prefers-reduced-motion: reduce) {
+  .md3-opener-in-right, .md3-opener-in-left { animation: none !important; }
+}
+
 /* Banners / inline alerts drop in from the top. */
 @keyframes md3BannerIn {
   from { opacity: 0; transform: translateY(-10px); }

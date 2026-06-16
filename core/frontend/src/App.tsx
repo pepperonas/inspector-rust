@@ -660,6 +660,8 @@ function App() {
   // the trigger still matches do NOT re-seed, so cycling state is
   // preserved as the user adds extra characters.
   const [openerIndex, setOpenerIndex] = useState<number | null>(null);
+  // Last ←/→ switch direction, fed into the preview's directional slide-in.
+  const [openerDir, setOpenerDir] = useState<1 | -1>(1);
   const openerActiveRef = useRef(false);
   useEffect(() => {
     const isActive = isOpenerTrigger(query);
@@ -674,8 +676,8 @@ function App() {
 
   const openerEntry: ListEntry | null = useMemo(() => {
     if (openerIndex === null) return null;
-    return { kind: "opener", data: { text: TOP_OPENERS[openerIndex] } };
-  }, [openerIndex]);
+    return { kind: "opener", data: { text: TOP_OPENERS[openerIndex], dir: openerDir } };
+  }, [openerIndex, openerDir]);
 
   const suggestionEntries: ListEntry[] = useMemo(
     () =>
@@ -1022,6 +1024,7 @@ function App() {
       e.stopPropagation();
       const delta = e.key === "ArrowRight" ? 1 : -1;
       const n = TOP_OPENERS.length;
+      setOpenerDir(delta);
       setOpenerIndex((cur) => (cur === null ? 0 : ((cur + delta) % n + n) % n));
     };
     window.addEventListener("keydown", onKey, true);

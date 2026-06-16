@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/ir.png?v=5" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
+  <img src="docs/ir.png?v=6" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
 
   # Inspector Rust 🕵️‍♂️
 

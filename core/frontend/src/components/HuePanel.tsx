@@ -36,7 +36,7 @@ import {
  * Everything is also clickable (toggle pill, swatches, row select).
  */
 
-const STEP = 5;
+const STEP = 10;
 
 /** 8 colour presets shown as round swatches (the Rust side converts the hex to
  *  the bulb's xy colour space). First is a warm white for the "back to normal". */
@@ -64,11 +64,9 @@ interface Row {
 
 export function HuePanel({
   focused,
-  onUnfocus,
   onExit,
 }: {
   focused: boolean;
-  onUnfocus: () => void;
   onExit: () => void;
 }) {
   const [status, setStatus] = useState<HueStatus | null>(null);
@@ -193,8 +191,17 @@ export function HuePanel({
   useEffect(() => {
     if (!focused || !status?.connected || rows.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
-      const row = rows[Math.min(sel, rows.length - 1)];
+      const n = rows.length;
+      const row = rows[Math.min(sel, n - 1)];
       switch (e.key) {
+        // Tab → next lamp, Shift+Tab → previous; both wrap around the ends
+        // (the "All lamps" master is the top row).
+        case "Tab":
+          e.preventDefault();
+          e.stopPropagation();
+          setSel((s) => (e.shiftKey ? (s - 1 + n) % n : (s + 1) % n));
+          break;
+        // ↑ / ↓ also move the selection (no wrap), as a convenience.
         case "ArrowUp":
           e.preventDefault();
           e.stopPropagation();
@@ -203,8 +210,9 @@ export function HuePanel({
         case "ArrowDown":
           e.preventDefault();
           e.stopPropagation();
-          setSel((s) => Math.min(rows.length - 1, s + 1));
+          setSel((s) => Math.min(n - 1, s + 1));
           break;
+        // ← / → → 10% dimmer / brighter on the selected lamp.
         case "ArrowLeft":
           if (!row?.dimmable) return;
           e.preventDefault();
@@ -217,15 +225,12 @@ export function HuePanel({
           e.stopPropagation();
           applyBrightness(row.key, row.brightness + STEP);
           break;
+        // Enter (and Space) → toggle the current selection on/off.
+        case "Enter":
         case " ":
           e.preventDefault();
           e.stopPropagation();
           if (row) applyOn(row.key, !row.on);
-          break;
-        case "Enter":
-          e.preventDefault();
-          e.stopPropagation();
-          onUnfocus();
           break;
         case "Escape":
           e.preventDefault();
@@ -243,7 +248,7 @@ export function HuePanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, status, rows, sel, applyOn, applyBrightness, applyColor, onUnfocus, onExit]);
+  }, [focused, status, rows, sel, applyOn, applyBrightness, applyColor, onExit]);
 
   // ── Connect actions ───────────────────────────────────────────────────────
   const discover = async () => {
@@ -475,7 +480,7 @@ export function HuePanel({
 
           <p className="mt-1 text-[11px] text-[var(--color-muted)]">
             {focused ? (
-              <>↑↓ select · ←→ brightness · Space on/off · 1–8 colour · Enter back · Esc close</>
+              <>Tab next lamp · ←→ ±10% · Enter on/off · 1–8 colour · Esc close</>
             ) : (
               <>Press Enter on the hue row to control the lamps with the keyboard.</>
             )}

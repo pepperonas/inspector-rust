@@ -2308,10 +2308,6 @@ function App() {
                 <div className="md3-pop-in h-full">
                   <HuePanel
                     focused={hueFocus}
-                    onUnfocus={() => {
-                      setHueFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
                     onExit={() => {
                       setHueMode(false);
                       setHueFocus(false);

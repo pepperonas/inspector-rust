@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.44] — 2026-06-16
+
+### Changed
+
+- **Hue panel keyboard model.** In the lamp controls: **Tab** jumps to the next
+  lamp (Shift+Tab previous; both wrap, the "All lamps" master is the top row),
+  **← / →** dim / brighten the selected lamp by **10%**, and **Enter** (or Space)
+  toggles the selected lamp on/off. Esc still closes; 1–8 still pick a colour;
+  ↑/↓ still move the selection. (Enter previously handed the arrows back to the
+  list — that's dropped in favour of on/off toggle.)
+
 ## [0.84.43] — 2026-06-16
 
 ### Added

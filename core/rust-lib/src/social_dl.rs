@@ -53,8 +53,13 @@ pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &s
     let mut a: Vec<String> = vec![];
     match mode {
         DlMode::Video => {
-            // best video+audio, merged to a widely-compatible mp4.
-            a.extend(["-f".into(), "bv*+ba/b".into()]);
+            // Prefer **H.264** video + AAC/m4a audio so the result plays in macOS
+            // QuickTime. Instagram/TikTok/etc. also serve VP9 (higher res) — but
+            // VP9 can't be muxed into a playable mp4 and QuickTime can't decode it,
+            // so the download looked "audio-only / broken". Sorting H.264 to the
+            // top makes yt-dlp pick the H.264 rendition when one exists (no
+            // re-encode); `--merge-output-format mp4` sets the container.
+            a.extend(["-S".into(), "vcodec:h264,res,acodec:m4a".into()]);
             a.extend(["--merge-output-format".into(), "mp4".into()]);
         }
         DlMode::Audio => {
@@ -139,7 +144,8 @@ mod tests {
     #[test]
     fn video_args_merge_to_mp4_with_guard() {
         let a = build_dl_args("https://youtu.be/x", DlMode::Video, "/opt/homebrew/bin", "/d/%(id)s.%(ext)s");
-        assert!(a.windows(2).any(|w| w[0] == "-f" && w[1] == "bv*+ba/b"));
+        // prefer H.264 (Mac-playable) via sort, not a raw best-video filter
+        assert!(a.windows(2).any(|w| w[0] == "-S" && w[1] == "vcodec:h264,res,acodec:m4a"));
         assert!(a.windows(2).any(|w| w[0] == "--merge-output-format" && w[1] == "mp4"));
         assert!(a.windows(2).any(|w| w[0] == "--ffmpeg-location" && w[1] == "/opt/homebrew/bin"));
         // `--` immediately precedes the URL (argv flag-smuggling guard).

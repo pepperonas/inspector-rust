@@ -243,11 +243,14 @@ Everything else (snippets management, notes, settings, image tools) lives in the
 | Shortcut | Action | Requires (macOS) |
 |----------|--------|------------------|
 | `Ctrl+Space` | Open popup over the active monitor | — |
+| `Ctrl+Shift+V` *(v0.83.0+, configurable)* | Second **clipboard-history** hotkey — also opens the popup | — |
 | `Ctrl+Shift+O` | Screen-region **OCR** → text on clipboard + History | Screen Recording |
 | `Ctrl+Shift+S` *(v0.15.0+)* | Screen-region **screenshot** → PNG on clipboard + History (no OCR); press **`S`** during overlay to save to file instead (green border) *(v0.19.2+)* | Screen Recording *(macOS)* |
+| `Ctrl+Shift+Alt+S` *(v0.81.0+)* | **Screen recording** → region select → audio (system / mic / both) → 3-2-1 → MP4 to Downloads. Floating stop bar with pause/resume. Multi-monitor; ffmpeg | Screen Recording *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → hex (`#RRGGBB`) on clipboard + History | — |
 | `Ctrl+Shift+F` *(v0.30.0+)* | **Finder selection** → popup with the currently-selected files + actions (Resize, Optim, Cut-out, …) | Automation → Finder |
 | `Ctrl+Shift+M` *(v0.46.0+, macOS)* | **Markdown → PDF** — convert the `.md` files selected in Finder to PDF in-process | Automation → Finder |
+| `Ctrl+Shift+Alt+M` *(v0.84.22+, macOS)* | **Replace / overlay audio** — select a video in Finder → overlay to swap or mix in a local audio file or a yt-dlp'd YouTube track at a chosen position | Automation → Finder |
 | `Alt+1` *(default, configurable, opt-in)* | Expand snippet abbreviation in place | Accessibility |
 | *(user-configurable)* | **Direct hotkey → snippet** — paste a specific snippet body | Accessibility |
 
@@ -279,7 +282,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | Snippet search-as-you-type | Type a snippet abbreviation in the popup search | [text-expander.md](./docs/text-expander.md) |
 | Abbreviation expander (system-wide) | Type the abbreviation in any text field → `Alt+1` (default) | [text-expander.md](./docs/text-expander.md) |
 | Direct hotkey → snippet *(v0.13.0+)* | User-bound global hotkey | [text-expander.md](./docs/text-expander.md) |
-| 25 bundled AI prompt snippets (`ai*`) | Snippets tab; search / abbreviation / direct-slot | [ai-prompts.md](./docs/ai-prompts.md) |
+| 27 bundled AI prompt snippets (`ai*`) | Snippets tab; search / abbreviation / direct-slot | [ai-prompts.md](./docs/ai-prompts.md) |
 | Snippets CRUD + JSON import | Snippets tab → form / Import button | [snippets-import.md](./docs/snippets-import.md) |
 | Notes — categorized persistent bookmarks | Notes tab (tray: *Manage Notes*) | [notes.md](./docs/notes.md) |
 | Save clip as note | Hover any History row → bookmark icon | [notes.md](./docs/notes.md) |
@@ -333,6 +336,24 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Features tab** | History · Snippets · Notes · **Features** · Settings tabs; Features tab lists all shortcuts and capabilities with live hotkey display | core |
 | **Overlay size setting** | Settings → Appearance → popup size: Small / Medium / Large | core |
 | **Status toast** *(v0.51.0+)* | Centred on-screen toast confirms wakelock on/off (and other state changes) with animated ring | core |
+| **Screen recording** *(v0.81.0+, macOS)* | `Ctrl+Shift+Alt+S` → region select → audio (system / mic / both, mic +10 dB) → 3-2-1 → MP4 (H.264) to Downloads. Floating stop bar with **pause/resume**. Multi-monitor; system-audio auto-routes through a BlackHole multi-output and restores after; `adeclick` + 256 k AAC for clean audio. Needs ffmpeg | core |
+| **Replace / overlay audio** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — select a video in Finder → overlay to **replace** or **mix** in a local audio file or a **yt-dlp'd YouTube track** at a chosen start position + trim. Writes a sibling `-audioswap.mp4`. Needs ffmpeg (+ yt-dlp) | core |
+| **Download social media** *(v0.84.28+)* | Paste / copy a **YouTube / Instagram / TikTok / Facebook** URL → auto-detected in the search bar or a clip → preview offers **Download video** (all) + **Download audio** (YouTube) → Downloads. H.264-preferred (Mac-playable). Needs yt-dlp | core |
+| **Trim audio / video** *(v0.84.28+)* | Type `trim` → pick a local file → set start/end → **lossless & fast** (`-c copy`) or **frame-accurate** (re-encode) → sibling `-trim` copy. Needs ffmpeg | core |
+| **Monitor brightness** *(v0.62.0+)* | Type `brightness` (alias `bri`) → inline per-monitor slider overlay (software gamma dimming on macOS/Windows, DDC/CI on Linux) | core |
+| **Audio-output picker** *(v0.80.0+)* | Type `sound` (alias `audio`) → inline picker to switch the system default output device | core |
+| **Disk cleaner** *(v0.60.0+)* | Type `clean` (alias `cleanup`) → scans an allow-listed set of cache/log/temp roots → confirm → delete; Safe / Standard / Aggressive levels in Settings | core |
+| **Dev quick-tools** *(v0.76.0+)* | `uuid [n]` · `slug <t>` · `hash <t>` · `json` · `jwt` — random UUIDs · slugify · SHA-256 · pretty-print clipboard JSON · decode clipboard JWT → clipboard | core |
+| **Web-search bangs** *(v0.76.0+)* | `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` → open a site's search | core |
+| **QR code** *(v0.76.0+)* | `qr <text>` → live preview in the panel; Enter copies the PNG to the clipboard | core |
+| **Inline converter** *(v0.76.0+)* | `5 km in mi` · `72 f to c` · `2 gb in mb` · `0xff in dec` · `1717000000 as date` — units / number-base / epoch→ISO | core |
+| **Smart preview actions** *(v0.76.0+)* | A selected text clip detects URLs / emails / phone numbers / `lat,lng` / short values → one-tap Open link · Compose email · Call · Open in Maps · Make QR | core |
+| **Random roll** *(v0.68.0+)* | `rnd` / `random [n]` / `random <min> <max>` → CSPRNG roll shown in a status toast | core |
+| **Second clipboard hotkey** *(v0.83.0+)* | A second configurable popup hotkey (default `Ctrl+Shift+V`) | core |
+| **Encrypted backups** *(v0.79.0+)* | Settings → Backup → optional password (Argon2id + AES-256-GCM) | [backup.md](./docs/backup.md) |
+| **Material 3 Expressive motion** *(v0.84.18+)* | Spring popup entrance, tab/command/calc transitions, tactile button press, modal/toast springs — honours `prefers-reduced-motion` | core |
+| **Calculator slot-machine reveal** *(v0.84.20+)* | The calc result spins its digits and settles left→right; the input + result row highlight rose like a command | core |
+| **Meme picker** *(v0.70.0+)* | `meme [query]` browses a folder of GIFs/images and copies the selected one (animation preserved on macOS) | core |
 
 ## Features
 

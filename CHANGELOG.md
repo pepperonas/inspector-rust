@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.30] — 2026-06-16
+
+### Fixed — Instagram (and VP9) video download was unplayable on macOS
+
+Instagram/TikTok/etc. serve **VP9** video, which can't be muxed into a playable
+mp4 and which macOS QuickTime can't decode — so a "video" download came out
+audio-only / errored. The downloader now **prefers H.264** (`-S
+vcodec:h264,res,acodec:m4a`); yt-dlp picks the H.264 rendition when one exists
+(e.g. Instagram's combined format) → a Mac-playable mp4, no re-encode. Verified
+on a real Instagram reel (h264 + aac).
+
+### Docs
+
+Thoroughly refreshed `README.md` + `README.de.md`: screen recording, audio swap,
+social download, trim, brightness/sound/clean commands, dev-tools, web-search
+bangs, QR, second clipboard hotkey, MD3 motion, the calc reveal, encrypted
+backups, and the new hotkeys; AI-prompt count 25 → 27.
+
 ## [0.84.29] — 2026-06-16
 
 ### Fixed — social download: wrong file timestamp + YouTube SABR failures

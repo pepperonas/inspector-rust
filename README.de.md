@@ -31,7 +31,7 @@
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
   - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `sound` (Audio-Ausgabegerät), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
-  - 📓 **Snippets** (25 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
+  - 📓 **Snippets** (27 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — fünf Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
@@ -241,11 +241,14 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
 | Shortcut | Aktion | Benötigt (macOS) |
 |----------|--------|------------------|
 | `Ctrl+Space` | Popup auf dem aktiven Monitor öffnen | — |
+| `Ctrl+Shift+V` *(v0.83.0+, konfigurierbar)* | Zweiter **Clipboard-History**-Hotkey — öffnet ebenfalls das Popup | — |
 | `Ctrl+Shift+O` | Bildschirm-Region-**OCR** → Text auf Clipboard + History | Bildschirmaufnahme |
 | `Ctrl+Shift+S` *(v0.15.0+)* | Bildschirm-Region-**Screenshot** → PNG auf Clipboard + History (kein OCR); **`S`** während Overlay → als Datei speichern (grüner Rahmen) *(v0.19.2+)* | Bildschirmaufnahme *(macOS)* |
+| `Ctrl+Shift+Alt+S` *(v0.81.0+)* | **Bildschirmaufnahme** → Bereich → Audio (System / Mic / beides) → 3-2-1 → MP4 nach Downloads. Schwebende Stop-Leiste mit Pause/Resume. Multi-Monitor; ffmpeg | Bildschirmaufnahme *(macOS)* |
 | `Ctrl+Shift+C` *(v0.17.0+)* | **Eyedropper** → Hex (`#RRGGBB`) auf Clipboard + History | — |
 | `Ctrl+Shift+F` *(v0.30.0+)* | **Finder-Selektion** → Popup mit gerade selektierten Dateien + Actions (Resize, Optim, Cut-Out, …) | Automation → Finder |
 | `Ctrl+Shift+M` *(v0.46.0+, macOS)* | **Markdown → PDF** — im Finder gewählte `.md`-Dateien in-process zu PDF konvertieren | Automation → Finder |
+| `Ctrl+Shift+Alt+M` *(v0.84.22+, macOS)* | **Audio ersetzen / überlagern** — Video im Finder wählen → Overlay zum Ersetzen oder Mischen einer lokalen Audiodatei oder eines yt-dlp-YouTube-Tracks an gewählter Position | Automation → Finder |
 | `Alt+1` *(Default, konfigurierbar, opt-in)* | Snippet-Abbreviation in-place expandieren | Bedienungshilfen |
 | *(user-konfigurierbar)* | **Direct hotkey → snippet** — bestimmten Snippet-Body pasten | Bedienungshilfen |
 
@@ -277,7 +280,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | Snippet-Search-as-you-type | Snippet-Abbreviation im Popup-Suchfeld tippen | [text-expander.md](./docs/text-expander.md) |
 | Abbreviation-Expander (system-weit) | Abbreviation in irgendein Textfeld tippen → `Alt+1` (Default) | [text-expander.md](./docs/text-expander.md) |
 | Direct hotkey → snippet *(v0.13.0+)* | User-bound globaler Hotkey | [text-expander.md](./docs/text-expander.md) |
-| 25 gebündelte AI-Prompt-Snippets (`ai*`) | Snippets-Tab; Search / Abbreviation / Direct-Slot | [ai-prompts.md](./docs/ai-prompts.md) |
+| 27 gebündelte AI-Prompt-Snippets (`ai*`) | Snippets-Tab; Search / Abbreviation / Direct-Slot | [ai-prompts.md](./docs/ai-prompts.md) |
 | Snippets CRUD + JSON-Import | Snippets-Tab → Formular / Import-Button | [snippets-import.md](./docs/snippets-import.md) |
 | Notes — kategorisierte persistente Bookmarks | Notes-Tab (Tray: *Manage Notes*) | [notes.md](./docs/notes.md) |
 | Clip als Note speichern | Hover über History-Zeile → Bookmark-Icon | [notes.md](./docs/notes.md) |
@@ -331,6 +334,22 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Features-Tab** | History · Snippets · Notes · **Features** · Settings Tabs; Features-Tab listet alle Shortcuts und Fähigkeiten mit Live-Hotkey-Anzeige | core |
 | **Overlay-Größen-Einstellung** | Settings → Appearance → Popup-Größe: Small / Medium / Large | core |
 | **Status-Toast** *(v0.51.0+)* | Zentrierter Bildschirm-Toast bestätigt wakelock an/aus (und andere Zustandsänderungen) mit animiertem Ring | core |
+| **Bildschirmaufnahme** *(v0.81.0+, macOS)* | `Ctrl+Shift+Alt+S` → Bereich → Audio (System / Mic / beides, Mic +10 dB) → 3-2-1 → MP4 (H.264) nach Downloads. Schwebende Stop-Leiste mit **Pause/Resume**. Multi-Monitor; System-Audio routet automatisch über ein BlackHole-Multi-Output und stellt danach zurück; `adeclick` + 256 k AAC für sauberen Ton. ffmpeg nötig | core |
+| **Audio ersetzen / überlagern** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — Video im Finder wählen → Overlay zum **Ersetzen** oder **Mischen** einer lokalen Audiodatei oder eines **yt-dlp-YouTube-Tracks** an gewählter Startposition + Trim. Schreibt `-audioswap.mp4` daneben. ffmpeg (+ yt-dlp) nötig | core |
+| **Social-Media-Download** *(v0.84.28+)* | **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren → in Suchleiste oder Clip auto-erkannt → Preview bietet **Video laden** (alle) + **Audio laden** (YouTube) → Downloads. H.264-bevorzugt (Mac-spielbar). yt-dlp nötig | core |
+| **Audio/Video trimmen** *(v0.84.28+)* | `trim` tippen → lokale Datei wählen → Start/Ende setzen → **verlustfrei & schnell** (`-c copy`) oder **frame-genau** (re-encode) → `-trim`-Kopie. ffmpeg nötig | core |
+| **Monitor-Helligkeit** *(v0.62.0+)* | `brightness` (Alias `bri`) → Inline-Slider-Overlay pro Monitor (Software-Gamma-Dimming auf macOS/Windows, DDC/CI auf Linux) | core |
+| **Audio-Ausgabegerät** *(v0.80.0+)* | `sound` (Alias `audio`) → Inline-Picker zum Umschalten des Standard-Ausgabegeräts | core |
+| **Aufräum-Tool** *(v0.60.0+)* | `clean` (Alias `cleanup`) → scannt eine Allowlist von Cache-/Log-/Temp-Verzeichnissen → bestätigen → löschen; Safe / Standard / Aggressive in Settings | core |
+| **Dev-Quick-Tools** *(v0.76.0+)* | `uuid [n]` · `slug <t>` · `hash <t>` · `json` · `jwt` — UUIDs · slugify · SHA-256 · Clipboard-JSON formatieren · Clipboard-JWT dekodieren → Clipboard | core |
+| **Web-Such-Bangs** *(v0.76.0+)* | `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` → Site-Suche im Browser öffnen | core |
+| **QR-Code** *(v0.76.0+)* | `qr <text>` → Live-Vorschau im Panel; Enter kopiert das PNG in die Zwischenablage | core |
+| **Inline-Konverter** *(v0.76.0+)* | `5 km in mi` · `72 f to c` · `0xff in dec` · `1717000000 as date` — Einheiten / Zahlenbasis / Epoch→ISO | core |
+| **Smart-Preview-Actions** *(v0.76.0+)* | Text-Clip erkennt URLs / E-Mails / Telefonnummern / `lat,lng` → One-Tap Link öffnen · E-Mail · Anrufen · Karte · QR | core |
+| **Zweiter Clipboard-Hotkey** *(v0.83.0+)* | Zweiter konfigurierbarer Popup-Hotkey (Default `Ctrl+Shift+V`) | core |
+| **Verschlüsselte Backups** *(v0.79.0+)* | Settings → Backup → optionales Passwort (Argon2id + AES-256-GCM) | [backup.md](./docs/backup.md) |
+| **Material-3-Expressive-Motion** *(v0.84.18+)* | Feder-Popup-Entrance, Tab-/Command-/Calc-Übergänge, taktiles Button-Press, Modal-/Toast-Federn — respektiert `prefers-reduced-motion` | core |
+| **Calculator Slot-Machine-Reveal** *(v0.84.20+)* | Das Calc-Ergebnis lässt die Ziffern rollen und rastet links→rechts ein; Eingabe + Ergebnis-Zeile rot hervorgehoben wie ein Command | core |
 
 ## Features
 
@@ -353,7 +372,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 - **Funktioniert überall, inkl. Terminals (v0.64.0)** — ist der Hotkey aktiv, merkt sich ein passiver Tastatur-Tracker die gerade getippte Abkürzung, sodass `Alt+1` sie aus diesem Puffer expandiert (Blind-Backspace + Paste), **ohne** das fokussierte Feld zu lesen. Die AX/UIA-In-Place-Pfade bleiben als Fallback. Image-/Files-Snippets werden nicht expandiert (nur Text).
 - Volle Referenz: [`docs/text-expander.md`](./docs/text-expander.md).
 
-### 25 gebündelte AI-Prompt-Snippets (v0.5.0, überarbeitet v0.12.0)
+### 27 gebündelte AI-Prompt-Snippets (v0.5.0, überarbeitet v0.12.0)
 First-Launch seedet deine Snippet-Tabelle mit `ai*`-prefixed Prompts über Programmierung, Web, IT-Security, Business, Daten und API-Design (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aithumb`, `aithreat`, `aipentest`, `aibrief`, `aiml`, `aiapi`, …). Jeder Prompt ist die **strukturierte Anweisungs-Hälfte only** — keine `[REQUIREMENT]`-artigen Fill-in-Slots (entfernt in v0.12.0). Du hängst ihn an deinen eigenen Prompt / Code / Kontext an und das LLM nimmt das Thema von dort auf. Idempotent (gelöschte Prompts bleiben gelöscht), wiederherstellbar von der Snippets-Sidebar — existierende Installs klicken *Restore defaults*, um den v0.12.0-Stil aufzugreifen. Komplette Liste: [`docs/ai-prompts.md`](./docs/ai-prompts.md).
 
 ### Inline-Taschenrechner (v0.2.5)

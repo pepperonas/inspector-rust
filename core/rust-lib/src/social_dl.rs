@@ -65,6 +65,16 @@ pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &s
     a.extend([
         "--no-playlist".into(),
         "--no-progress".into(),
+        // Stamp the file with the *download* time, not the video's upload date —
+        // otherwise it sorts to the wrong place when the user sorts Downloads by
+        // date (yt-dlp's default `--mtime` uses the metadata timestamp).
+        "--no-mtime".into(),
+        // Work around YouTube's "SABR streaming" format restriction on the
+        // default web client (formats come back without URLs → "requested format
+        // not available"). The ios / web_safari clients still expose real URLs.
+        // YouTube-scoped, so it's a harmless no-op for the other platforms.
+        "--extractor-args".into(),
+        "youtube:player_client=default,ios,web_safari".into(),
         "--ffmpeg-location".into(),
         ffmpeg_dir.into(),
         "--print".into(),
@@ -135,6 +145,11 @@ mod tests {
         // `--` immediately precedes the URL (argv flag-smuggling guard).
         assert_eq!(a[a.len() - 2], "--");
         assert_eq!(a.last().unwrap(), "https://youtu.be/x");
+        // download time, not the video's upload date
+        assert!(a.contains(&"--no-mtime".to_string()));
+        // SABR workaround
+        assert!(a.windows(2).any(|w| w[0] == "--extractor-args"
+            && w[1] == "youtube:player_client=default,ios,web_safari"));
     }
 
     #[test]

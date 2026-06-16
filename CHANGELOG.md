@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.29] — 2026-06-16
+
+### Fixed — social download: wrong file timestamp + YouTube SABR failures
+
+- The downloaded file now gets the **download time**, not the video's upload date
+  (`--no-mtime`). yt-dlp's default stamps the file with the metadata timestamp, so
+  a download of an old video sorted to the wrong place when you sort Downloads by
+  date — it now appears at the top as expected.
+- Work around YouTube's new **"SABR streaming"** restriction (`--extractor-args
+  youtube:player_client=default,ios,web_safari`) — without it, many videos failed
+  with "Requested format is not available". Verified: both audio and video now
+  download. Files save to `~/Downloads` (unchanged).
+
 ## [0.84.28] — 2026-06-16
 
 ### Added — social-media download + trim command

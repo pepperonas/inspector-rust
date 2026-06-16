@@ -1,6 +1,6 @@
 # Bundled AI prompt snippets
 
-Inspector Rust ships with **25 curated AI-prompt snippets** that get seeded into your snippet table on first launch. Type the abbreviation in the search field (or use the text expander), press Enter, and the structured instruction lands in your destination app.
+Inspector Rust ships with **27 curated AI-prompt snippets** that get seeded into your snippet table on first launch. Type the abbreviation in the search field (or use the text expander), press Enter, and the structured instruction lands in your destination app.
 
 Introduced in **v0.5.0**. Reworked in **v0.12.0** to drop the `[REQUIREMENT]` / `[CODE]` / `[CHANGE]` … fill-in placeholders — see [How they're meant to be used](#how-theyre-meant-to-be-used).
 
@@ -26,9 +26,9 @@ You can edit, delete, or extend them — they're regular snippets stored in the 
 
 - **Bundled in the binary** via `include_str!` of [`core/rust-lib/src/seed/ai_prompts.json`](../core/rust-lib/src/seed/ai_prompts.json). No external file needed at runtime.
 - **Seeded on first launch** by [`core/rust-lib/src/seed.rs`](../core/rust-lib/src/seed.rs)::`maybe_seed_defaults`. The `seed.default_snippets_v1` flag in the settings table tracks whether the seed has run; subsequent launches don't re-import (so user-deleted prompts stay deleted).
-- **Restorable** via the Snippets-tab sidebar's **Restore defaults** button (rotate-counter-clockwise icon, next to Import). That re-imports all 25 with upsert-by-abbreviation semantics: your edits to a default get overwritten, but custom snippets with different abbreviations are untouched.
+- **Restorable** via the Snippets-tab sidebar's **Restore defaults** button (rotate-counter-clockwise icon, next to Import). That re-imports all 27 with upsert-by-abbreviation semantics: your edits to a default get overwritten, but custom snippets with different abbreviations are untouched.
 
-## The 25 prompts
+## The 27 prompts
 
 Each row links you to its full source body in [`ai_prompts.json`](../core/rust-lib/src/seed/ai_prompts.json). The "What you get back" column summarises the structured output the prompt asks the LLM for — every prompt enforces sections, bullets, and a final output-format directive.
 
@@ -86,6 +86,8 @@ Each row links you to its full source body in [`ai_prompts.json`](../core/rust-l
 | Abbreviation | Title | What you get back |
 |---|---|---|
 | `aiapi` | REST API design | Resources, endpoint table (verbs/paths/auth/rate limits), error model, idempotency, versioning, OpenAPI 3.1 outline. |
+| `aifrontend` | AAA premium frontend (Material 3 Expressive) | A full design brief for an award-worthy UI: dynamic-colour tokens, expressive type/shape, physics-based spring motion, every interaction state, accessibility — plus an anti-pattern list and a "state the direction first" workflow. |
+| `aibanana` | OG thumbnail generator (Nano Banana / Gemini) | An agent pipeline that reads the project's identity, picks one cheeky art direction, writes the image prompt, generates a 16:9 thumbnail with the Gemini image API ("Nano Banana"), crops to 1200×630, optimises, and emits the Open Graph meta tags. |
 
 ## Using a prompt
 
@@ -110,7 +112,7 @@ Common customisations:
 - Tighten or drop section requirements that don't apply to your work
 - Note: the bundled prompts deliberately have **no fill-in placeholders** — the subject comes from your surrounding text. If you'd rather have an explicit slot, add one yourself (e.g. `--- INPUT ---` at the end), but most users find appending the snippet to existing context cleaner.
 
-If you wreck a prompt and want it back, click **Restore defaults** in the sidebar — it'll upsert all 25 to their bundled versions while leaving your custom snippets alone.
+If you wreck a prompt and want it back, click **Restore defaults** in the sidebar — it'll upsert all 27 to their bundled versions while leaving your custom snippets alone.
 
 ## Adding your own AI prompts
 

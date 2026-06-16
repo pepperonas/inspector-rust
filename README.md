@@ -31,7 +31,7 @@
   - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
   - ⚙️ **Power commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (translate via Google Translate), `rz` / `optim` (image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `clean` (free disk), `brightness` / `bri` (monitor brightness), `sound` (audio output device), `meme [query]` (browse & copy memes), `timer`, `alarm <HH:MM>`, `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
-  - 📓 **Snippets** (25 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
+  - 📓 **Snippets** (27 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
   - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
   - 🎮 **Hidden games** — five Easter-egg trigger words. You'll find them.
 
@@ -134,7 +134,7 @@
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-73-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
+  [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
   [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
@@ -338,7 +338,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Status toast** *(v0.51.0+)* | Centred on-screen toast confirms wakelock on/off (and other state changes) with animated ring | core |
 | **Screen recording** *(v0.81.0+, macOS)* | `Ctrl+Shift+Alt+S` → region select → audio (system / mic / both, mic +10 dB) → 3-2-1 → MP4 (H.264) to Downloads. Floating stop bar with **pause/resume**. Multi-monitor; system-audio auto-routes through a BlackHole multi-output and restores after; `adeclick` + 256 k AAC for clean audio. Needs ffmpeg | core |
 | **Replace / overlay audio** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — select a video in Finder → overlay to **replace** or **mix** in a local audio file or a **yt-dlp'd YouTube track** at a chosen start position + trim. Writes a sibling `-audioswap.mp4`. Needs ffmpeg (+ yt-dlp) | core |
-| **Download social media** *(v0.84.28+)* | Paste / copy a **YouTube / Instagram / TikTok / Facebook** URL → auto-detected in the search bar or a clip → preview offers **Download video** (all) + **Download audio** (YouTube) → Downloads. H.264-preferred (Mac-playable). Needs yt-dlp | core |
+| **Download social media** *(v0.84.28+)* | Paste / copy a **YouTube / Instagram / TikTok / Facebook** URL → auto-detected in the search bar or a clip → preview offers **Download video** (all) + **Download audio** (YouTube) → Downloads. Prefers **H.264** so the file plays in QuickTime; on YouTube's anti-bot gate it retries with your browser cookies (Chrome/Firefox/…). Needs yt-dlp | core |
 | **Trim audio / video** *(v0.84.28+)* | Type `trim` → pick a local file → set start/end → **lossless & fast** (`-c copy`) or **frame-accurate** (re-encode) → sibling `-trim` copy. Needs ffmpeg | core |
 | **Monitor brightness** *(v0.62.0+)* | Type `brightness` (alias `bri`) → inline per-monitor slider overlay (software gamma dimming on macOS/Windows, DDC/CI on Linux) | core |
 | **Audio-output picker** *(v0.80.0+)* | Type `sound` (alias `audio`) → inline picker to switch the system default output device | core |
@@ -376,7 +376,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 - **Works everywhere, including terminals (v0.64.0)** — when the hotkey is enabled, a passive keystroke tracker remembers the abbreviation you just typed, so `Alt+1` expands it from that buffer (blind-Backspace + paste) without ever reading the focused field. The AX/UIA in-place paths remain as a fallback. Image/file snippets aren't expanded (text only).
 - Full reference: [`docs/text-expander.md`](./docs/text-expander.md).
 
-### 25 bundled AI prompt snippets (v0.5.0, reworked v0.12.0)
+### 27 bundled AI prompt snippets (v0.5.0, reworked v0.12.0)
 First-launch seeds your snippet table with `ai*`-prefixed prompts across programming, web, IT security, business, data, and API design (`aiplan`, `aireview`, `airefactor`, `airegex`, `aisql`, `aitest`, `aimigration`, `aithumb`, `aithreat`, `aipentest`, `aibrief`, `aiml`, `aiapi`, …). Each prompt is the **structured-instruction half only** — no `[REQUIREMENT]`-style fill-in slots (removed in v0.12.0). You append it to your own prompt / code / context and the LLM picks up the subject from there. Idempotent (deleted prompts stay deleted), restorable from the Snippets sidebar — existing installs click *Restore defaults* to pick up the v0.12.0 style. Full list: [`docs/ai-prompts.md`](./docs/ai-prompts.md).
 
 ### Inline calculator (v0.2.5)
@@ -503,7 +503,7 @@ inspector-rust/
 │           ├── snippets.rs           # snippets table, JSON upsert, exact-abbreviation lookup
 │           ├── seed.rs               # default AI-prompt snippets — first-launch seeder + `Restore defaults` IPC
 │           ├── seed/
-│           │   └── ai_prompts.json   # 25 bundled AI prompts (~35 KB) — read at compile time via include_str!
+│           │   └── ai_prompts.json   # 27 bundled AI prompts (~35 KB) — read at compile time via include_str!
 │           ├── notes.rs              # notes table, categories, save_from_clip
 │           ├── backup.rs             # full-app export/import (versioned JSON)
 │           ├── settings.rs           # key/value store (expander hotkey + future prefs)
@@ -541,7 +541,7 @@ inspector-rust/
 │   ├── backup.md            # Full-app export/import — schema, merge semantics, jq recipes
 │   ├── text-expander.md     # System-wide expander — workflow, hotkey format, per-OS caveats
 │   ├── colors.md            # Inline hex preview + custom HSV picker + system eyedropper
-│   ├── ai-prompts.md        # 25 bundled default AI prompt snippets
+│   ├── ai-prompts.md        # 27 bundled default AI prompt snippets
 │   ├── encryption.md        # AES-256-GCM at-rest encryption — threat model, key storage, migration
 │   ├── RELEASING.md         # Release procedure
 │   ├── ir-w1024.png         # Brand artwork — README hero + inline image (1024×1024, ~1.9 MB)

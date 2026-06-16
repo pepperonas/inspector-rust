@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.32] — 2026-06-16
+
+### Docs
+
+Careful documentation pass: `docs/ai-prompts.md` updated to **27 prompts** with the
+two new templates (`aifrontend`, `aibanana`) added to the table; every stale
+"25 prompts" reference fixed across `README.md` / `README.de.md` (intro, badge,
+heading, source-tree comments). The social-download feature note (README matrices
++ in-app Features tab) now mentions H.264 (QuickTime-playable) and the YouTube
+browser-cookie fallback.
+
 ## [0.84.31] — 2026-06-16
 
 ### Fixed — YouTube "confirm you're not a bot" download failures

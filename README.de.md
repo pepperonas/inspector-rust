@@ -134,7 +134,7 @@
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-73-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![Snippets](https://img.shields.io/badge/AI%20prompts-25%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
+  [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
   [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
@@ -336,7 +336,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Status-Toast** *(v0.51.0+)* | Zentrierter Bildschirm-Toast bestätigt wakelock an/aus (und andere Zustandsänderungen) mit animiertem Ring | core |
 | **Bildschirmaufnahme** *(v0.81.0+, macOS)* | `Ctrl+Shift+Alt+S` → Bereich → Audio (System / Mic / beides, Mic +10 dB) → 3-2-1 → MP4 (H.264) nach Downloads. Schwebende Stop-Leiste mit **Pause/Resume**. Multi-Monitor; System-Audio routet automatisch über ein BlackHole-Multi-Output und stellt danach zurück; `adeclick` + 256 k AAC für sauberen Ton. ffmpeg nötig | core |
 | **Audio ersetzen / überlagern** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — Video im Finder wählen → Overlay zum **Ersetzen** oder **Mischen** einer lokalen Audiodatei oder eines **yt-dlp-YouTube-Tracks** an gewählter Startposition + Trim. Schreibt `-audioswap.mp4` daneben. ffmpeg (+ yt-dlp) nötig | core |
-| **Social-Media-Download** *(v0.84.28+)* | **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren → in Suchleiste oder Clip auto-erkannt → Preview bietet **Video laden** (alle) + **Audio laden** (YouTube) → Downloads. H.264-bevorzugt (Mac-spielbar). yt-dlp nötig | core |
+| **Social-Media-Download** *(v0.84.28+)* | **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren → in Suchleiste oder Clip auto-erkannt → Preview bietet **Video laden** (alle) + **Audio laden** (YouTube) → Downloads. Bevorzugt **H.264** (in QuickTime spielbar); bei YouTubes Bot-Schutz erneuter Versuch mit deinen Browser-Cookies (Chrome/Firefox/…). yt-dlp nötig | core |
 | **Audio/Video trimmen** *(v0.84.28+)* | `trim` tippen → lokale Datei wählen → Start/Ende setzen → **verlustfrei & schnell** (`-c copy`) oder **frame-genau** (re-encode) → `-trim`-Kopie. ffmpeg nötig | core |
 | **Monitor-Helligkeit** *(v0.62.0+)* | `brightness` (Alias `bri`) → Inline-Slider-Overlay pro Monitor (Software-Gamma-Dimming auf macOS/Windows, DDC/CI auf Linux) | core |
 | **Audio-Ausgabegerät** *(v0.80.0+)* | `sound` (Alias `audio`) → Inline-Picker zum Umschalten des Standard-Ausgabegeräts | core |
@@ -498,7 +498,7 @@ inspector-rust/
 │           ├── snippets.rs           # snippets-Table, JSON-Upsert, Exakt-Abbreviation-Lookup
 │           ├── seed.rs               # Default-AI-Prompt-Snippets — First-Launch-Seeder + `Restore defaults`-IPC
 │           ├── seed/
-│           │   └── ai_prompts.json   # 25 gebündelte AI-Prompts (~35 KB) — zur Compile-Zeit via include_str! eingelesen
+│           │   └── ai_prompts.json   # 27 gebündelte AI-Prompts (~35 KB) — zur Compile-Zeit via include_str! eingelesen
 │           ├── notes.rs              # notes-Table, Kategorien, save_from_clip
 │           ├── backup.rs             # Full-App-Export/Import (versioniertes JSON)
 │           ├── settings.rs           # Key/Value-Store (Expander-Hotkey + Zukunfts-Prefs)
@@ -536,7 +536,7 @@ inspector-rust/
 │   ├── backup.md            # Full-App-Export/Import — Schema, Merge-Semantik, jq-Rezepte
 │   ├── text-expander.md     # System-weiter Expander — Workflow, Hotkey-Format, Per-OS-Caveats
 │   ├── colors.md            # Inline-Hex-Preview + Custom-HSV-Picker + System-Eyedropper
-│   ├── ai-prompts.md        # 25 gebündelte Default-AI-Prompt-Snippets
+│   ├── ai-prompts.md        # 27 gebündelte Default-AI-Prompt-Snippets
 │   ├── encryption.md        # AES-256-GCM At-Rest-Encryption — Threat-Model, Key-Storage, Migration
 │   ├── RELEASING.md         # Release-Procedure
 │   ├── ir-w1024.png         # Brand-Artwork — README-Hero + Inline-Image (1024×1024, ~1,9 MB)

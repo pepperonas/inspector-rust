@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.43] — 2026-06-16
+
+### Added
+
+- **Beat-sync for Hue lamps** (mic-driven "disco", ported in spirit from the
+  raspi3 `disco-controller`). The `hue` panel gains a **Beat sync** section: it
+  listens to the laptop mic, detects beats with IR's own `BpmAnalyzer` (reusing
+  the `bpm` detector's mic graph), and pulses the lamps on the beat — a
+  **round-robin chase** via `hue_set_light` (punch the next lamp bright + colour,
+  settle the previous). Round-robin individual lamps is deliberate: the Hue
+  *group* endpoint is rate-limited to ~1 cmd/s. Three modes (rainbow / pulse /
+  strobe), a sensitivity slider, and a live BPM + level readout. Lamp state is
+  snapshotted on start and restored on stop; the mic + audio graph tear down on
+  stop and on dismiss (a hidden popup never keeps the mic open). Frontend-only —
+  new `HueBeatSync.tsx` + a runtime `BpmAnalyzer.setSensitivity()` (the `bpm`
+  command's analyzer is unaffected).
+
 ## [0.84.42] — 2026-06-16
 
 ### Fixed

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Lightbulb, Loader2, Power, RefreshCw, Wifi } from "lucide-react";
+import { HueBeatSync } from "./HueBeatSync";
 import {
   HUE_LINK_BUTTON,
   hueDiscover,
@@ -479,6 +480,8 @@ export function HuePanel({
               <>Press Enter on the hue row to control the lamps with the keyboard.</>
             )}
           </p>
+
+          {lights && lights.length > 0 && <HueBeatSync lamps={lights} />}
         </div>
       )}
     </div>

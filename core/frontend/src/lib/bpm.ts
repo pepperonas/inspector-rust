@@ -124,12 +124,25 @@ export class BpmAnalyzer {
    *  the previous EMA `smoothedBpm`. */
   private displayBpm = 0;
   private justFiredBeat = false;
+  /** Per-instance onset threshold (multiple of the moving-average energy).
+   *  Defaults to the shared `ONSET_THRESHOLD` so the BPM detector is
+   *  unaffected; the Hue beat-sync's sensitivity slider tunes it via
+   *  `setSensitivity()`. */
+  private onsetThreshold: number = BPM_CONFIG.ONSET_THRESHOLD;
   /** Wall-clock of the last `estimate()` that actually produced a
    *  fresh raw BPM (had ≥ MIN_ONSETS_FOR_ESTIMATE onsets in window).
    *  Used to decay `displayBpm → 0` after STALE_RESET_MS of silence
    *  so the display drops back to "—" when the music stops, instead
    *  of misleadingly showing the last detected tempo forever. */
   private lastValidEstimateAt = -Infinity;
+
+  /** Tune onset sensitivity at runtime (Hue beat-sync slider). `s` ∈ [0,1]:
+   *  0 = strict (fewer, only-strong beats), 1 = sensitive. Mapped so the
+   *  mid-point (0.5) lands on the shared default threshold (1.4). */
+  setSensitivity(s: number): void {
+    const clamped = Math.max(0, Math.min(1, s));
+    this.onsetThreshold = 1.75 - 0.7 * clamped;
+  }
 
   /** Feed one chunk of (lowpass-filtered) audio samples.
    *  `samples` are float in [-1, 1]; `nowMs` is monotonically
@@ -173,7 +186,7 @@ export class BpmAnalyzer {
       this.energyHistory.length;
 
     const triggered =
-      energy > avg * BPM_CONFIG.ONSET_THRESHOLD &&
+      energy > avg * this.onsetThreshold &&
       nowMs - this.lastOnset >= BPM_CONFIG.ONSET_REFRACTORY_MS;
 
     if (triggered) {

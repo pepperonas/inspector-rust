@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.25] — 2026-06-16
+
+### Fixed — screen-recording audio: de-click the residual crackle
+
+Diagnosed the remaining crackle precisely: the capture path is silent-clean, but
+system audio captured through a BlackHole loopback clicks because the playing app
+and ffmpeg read/write the virtual device on **different clocks** (periodic
+over/underruns). The stop-time audio post-process now always runs `adeclick` —
+which removes the impulse noise and, verified, leaves clean audio untouched (a
+pristine sine stays crest 1.414), so it's safe for mic recordings too — plus the
+existing `atempo` time-stretch when needed, in one re-encode (256 kbps / 48 kHz).
+Measured: the worst click jumps roughly halved. (A complete fix for loopback
+crackle would need native ScreenCaptureKit capture — a larger, macOS-only change.)
+
 ## [0.84.24] — 2026-06-16
 
 ### Fixed — screen-recording audio quality (low bitrate / crackle)

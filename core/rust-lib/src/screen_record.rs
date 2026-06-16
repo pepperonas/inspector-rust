@@ -659,25 +659,39 @@ fn count_audio_samples(ffmpeg: &Path, file: &Path) -> Option<u64> {
         .and_then(|v| v.trim().parse::<u64>().ok())
 }
 
-/// Correct the avfoundation audio time-compression in `file` **in place**: measure
-/// the true audio length vs the video length and, if they diverge, re-encode the
-/// audio through an `atempo` stretch (video stream copied untouched). Best-effort —
-/// any probe/encode failure leaves the original file intact.
+/// Post-process the recorded audio in `file` **in place** (video stream copied
+/// untouched). Two corrections, applied in one re-encode:
+///
+/// 1. **De-click** (`adeclick`) — system-audio captured through a BlackHole
+///    loopback clicks/crackles because the playing app and ffmpeg read/write the
+///    virtual device on **different clocks** → periodic over/underruns. (Diagnosed:
+///    the capture path is silent-clean; clicks only appear with audio flowing.)
+///    `adeclick` removes the impulse noise and — verified — leaves *clean* audio
+///    untouched (a pristine sine stays crest 1.414), so it's always safe to run.
+/// 2. **Time-stretch** (`atempo`, conditional) — avfoundation under-delivers
+///    audio samples, so the track is time-compressed; stretch it back to the
+///    video length when they diverge >2 % (see [`atempo_ratio`]).
+///
+/// Best-effort — any encode failure leaves the original file intact.
 fn fix_audio_sync(ffmpeg: &Path, file: &Path) {
-    let Some(ffprobe) = ffprobe_path(ffmpeg) else { return };
-    let Some(video_s) = ffprobe_field(&ffprobe, "v:0", "stream=duration", file)
-        .and_then(|s| s.parse::<f64>().ok())
-        .filter(|v| *v > 0.0)
-    else {
-        return;
+    let ffprobe = ffprobe_path(ffmpeg);
+    // atempo ratio is conditional; de-click always runs.
+    let ratio = ffprobe.as_ref().and_then(|ffprobe| {
+        let video_s = ffprobe_field(ffprobe, "v:0", "stream=duration", file)?
+            .parse::<f64>()
+            .ok()
+            .filter(|v| *v > 0.0)?;
+        let rate = ffprobe_field(ffprobe, "a:0", "stream=sample_rate", file)?
+            .parse::<u32>()
+            .ok()?;
+        let samples = count_audio_samples(ffmpeg, file)?;
+        atempo_ratio(samples, rate, video_s)
+    });
+
+    let filter = match ratio {
+        Some(r) => format!("adeclick,atempo={r}"),
+        None => "adeclick".to_string(),
     };
-    let Some(rate) = ffprobe_field(&ffprobe, "a:0", "stream=sample_rate", file)
-        .and_then(|s| s.parse::<u32>().ok())
-    else {
-        return;
-    };
-    let Some(samples) = count_audio_samples(ffmpeg, file) else { return };
-    let Some(ratio) = atempo_ratio(samples, rate, video_s) else { return };
 
     let tmp = file.with_extension("synced.mp4");
     let status = Command::new(ffmpeg)
@@ -685,7 +699,7 @@ fn fix_audio_sync(ffmpeg: &Path, file: &Path) {
         .arg(file)
         .args([
             "-filter:a",
-            &format!("atempo={ratio}"),
+            &filter,
             "-c:v",
             "copy",
             "-c:a",

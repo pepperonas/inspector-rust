@@ -645,6 +645,10 @@ function App() {
         label = "Pick the audio output device";
         hint = "Enter → device list in the preview; ↑↓ select, Enter switches output";
         break;
+      case "hue":
+        label = "Control Philips Hue lamps";
+        hint = "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
+        break;
       case "random": {
         const r = parseRandomArg(arg);
         label = r

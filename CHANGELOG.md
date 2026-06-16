@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.42] — 2026-06-16
+
+### Fixed
+
+- **`hue` command now surfaces.** The command-row label builder's `switch` had no
+  `case "hue"`, so it fell through to the `default` that returns `null` — the row
+  was silently dropped and typing `hue` did nothing. Added the label/hint case
+  (the backend + panel from v0.84.40 were already wired).
+
 ## [0.84.41] — 2026-06-16
 
 ### Changed

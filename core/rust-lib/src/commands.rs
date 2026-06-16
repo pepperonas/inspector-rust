@@ -3319,6 +3319,97 @@ pub fn audio_swap_cancel_overlay(app: AppHandle) {
     }
 }
 
+// ── Social-media download (YouTube / Instagram / TikTok / Facebook) ───────────
+
+/// Whether yt-dlp is available (shared by the social downloader + audio-swap).
+#[tauri::command]
+pub fn social_ytdlp_available() -> bool {
+    crate::social_dl::yt_dlp_path().is_some()
+}
+
+/// Download a social-media URL's video/audio into ~/Downloads; reveals it.
+/// `async` → runs off the main thread (yt-dlp can take a while).
+#[tauri::command]
+pub async fn social_download(
+    app: AppHandle,
+    url: String,
+    mode: crate::social_dl::DlMode,
+) -> Result<String, String> {
+    let dir = dirs::download_dir().ok_or("no Downloads folder")?;
+    let out = crate::social_dl::download(&url, mode, &dir)?;
+    reveal_in_file_manager(&out);
+    let s = out.to_string_lossy().into_owned();
+    let _ = app.emit("social-download-done", s.clone());
+    Ok(s)
+}
+
+// ── Trim (local audio/video) ─────────────────────────────────────────────────
+
+/// Window label for the trim overlay.
+pub const TRIM_LABEL: &str = "trim-overlay";
+
+/// Build the trim overlay window (centered). Opened by the `trim` command.
+#[tauri::command]
+pub fn trim_open_overlay(app: AppHandle) -> Result<(), String> {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(existing) = app.get_webview_window(TRIM_LABEL) {
+        let _ = existing.set_focus();
+        return Ok(());
+    }
+    let win = WebviewWindowBuilder::new(&app, TRIM_LABEL, WebviewUrl::App("index.html".into()))
+        .title("Trim audio / video")
+        .inner_size(520.0, 480.0)
+        .min_inner_size(440.0, 420.0)
+        .resizable(true)
+        .always_on_top(true)
+        .center()
+        .visible(true)
+        .build()
+        .map_err(|e| format!("build trim overlay: {e}"))?;
+    let _ = win.set_focus();
+    Ok(())
+}
+
+#[tauri::command]
+pub fn trim_cancel_overlay(app: AppHandle) {
+    if let Some(w) = app.get_webview_window(TRIM_LABEL) {
+        let _ = w.close();
+    }
+}
+
+/// `{ duration, isVideo }` for the picked file (drives the overlay's timeline).
+#[derive(serde::Serialize)]
+pub struct TrimFileInfo {
+    pub duration: f64,
+    pub is_video: bool,
+}
+
+#[tauri::command]
+pub fn trim_file_info(path: String) -> Option<TrimFileInfo> {
+    let p = std::path::Path::new(&path);
+    let duration = crate::audio_swap::probe_duration(p)?;
+    Some(TrimFileInfo {
+        duration,
+        is_video: crate::media_trim::has_video_stream(p),
+    })
+}
+
+/// Trim a file; returns the output path (revealed). `async` → off main thread.
+#[tauri::command]
+pub async fn trim_apply(
+    app: AppHandle,
+    input: String,
+    start: f64,
+    end: f64,
+    lossless: bool,
+) -> Result<String, String> {
+    let out = crate::media_trim::apply_trim(std::path::Path::new(&input), start, end, lossless)?;
+    reveal_in_file_manager(&out);
+    let s = out.to_string_lossy().into_owned();
+    let _ = app.emit("trim-done", s.clone());
+    Ok(s)
+}
+
 /// Window label for the brightness slider overlay.
 pub const BRIGHTNESS_OVERLAY_LABEL: &str = "brightness-overlay";
 

@@ -1,5 +1,6 @@
 import type { MemeEntry } from "./meme";
 import type { CommandKind } from "./commands";
+import type { SocialTarget } from "./social";
 
 export type ContentType = "text" | "rtf" | "html" | "image" | "files";
 
@@ -178,7 +179,8 @@ export type ListEntry =
   | { kind: "bpm"; data: BpmTriggerView }
   | { kind: "totp-manage"; data: { label: string } }
   | { kind: "totp"; data: TotpListView }
-  | { kind: "meme"; data: MemeEntry };
+  | { kind: "meme"; data: MemeEntry }
+  | { kind: "social"; data: SocialTarget };
 
 /** Single TOTP autocomplete row — shows issuer + account + live
  *  6-digit code with countdown. Activate (Enter) → code is copied to

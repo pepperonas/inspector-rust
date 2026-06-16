@@ -178,7 +178,9 @@ export function HistoryList({
                                             ? `totp-${entry.data.id}`
                                             : entry.kind === "meme"
                                               ? `meme-${entry.data.path}`
-                                              : `c-${entry.data.id}`;
+                                              : entry.kind === "social"
+                                                ? `social`
+                                                : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

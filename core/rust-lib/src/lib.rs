@@ -4,6 +4,8 @@ mod app_launcher;
 mod audio;
 mod audio_swap;
 mod auto_expand;
+mod media_trim;
+mod social_dl;
 mod backup;
 mod brightness;
 mod bruno;
@@ -504,6 +506,12 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::audio_swap_download_youtube,
             commands::audio_swap_apply,
             commands::audio_swap_cancel_overlay,
+            commands::social_ytdlp_available,
+            commands::social_download,
+            commands::trim_open_overlay,
+            commands::trim_cancel_overlay,
+            commands::trim_file_info,
+            commands::trim_apply,
             commands::brightness_open,
             commands::brightness_close,
             commands::get_screen_recording_status,

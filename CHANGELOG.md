@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.28] — 2026-06-16
+
+### Added — social-media download + trim command
+
+- **Download social media** (YouTube / Instagram / TikTok / Facebook via yt-dlp).
+  IR auto-detects a social URL — in a copied clip **or** typed/pasted into the
+  search bar (query params like `&list=…&index=…` are kept) — and the preview
+  offers **Download video** (all platforms) + **Download audio** (YouTube only);
+  files land in `~/Downloads` and are revealed. Needs yt-dlp (install hint shown
+  if missing). URLs are scheme-checked + `--`-guarded against argv injection.
+- **Trim** (`trim` search-bar command). Pick a local audio/video file, set
+  start/end, and cut it **lossless & fast** (`-c copy`, keyframe-snapped) or
+  **frame-accurate** (re-encode) in an overlay; saves a sibling `<name>-trim.<ext>`.
+
+The platform detector, yt-dlp arg builder, and trim arg builders are pure and
+unit-tested; the trim filter graphs are verified end-to-end.
+
 ## [0.84.27] — 2026-06-16
 
 ### Changed — calculator input is highlighted + animated like a command

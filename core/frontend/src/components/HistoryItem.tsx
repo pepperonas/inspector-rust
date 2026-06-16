@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -47,6 +47,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
       : <Files size={size} className={cls} />;
   }
   if (entry.kind === "meme") return <Laugh size={size} className={cls} />;
+  if (entry.kind === "social") return <Download size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -96,6 +97,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isTotp = entry.kind === "totp";
   const isKillTarget = entry.kind === "kill-target";
   const isMeme = entry.kind === "meme";
+  const isSocial = entry.kind === "social";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
   // app. This covers EVERY row reached by typing a command keyword —
@@ -115,6 +117,7 @@ export const HistoryItem = memo(function HistoryItem({
     isTotp ||
     isKillTarget ||
     isMeme ||
+    isSocial ||
     // Calculator / converter results: highlighted + animated like a command
     // (v0.84.27) — typing an expression should feel as "active" as a keyword.
     isCalc;
@@ -127,9 +130,11 @@ export const HistoryItem = memo(function HistoryItem({
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
       : isMeme && entry.kind === "meme"
         ? entry.data.name
-        : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
-          ? ""
-          : truncateOneLine(entry.data.content_text || "(empty)", 80);
+        : isSocial && entry.kind === "social"
+          ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
+            ? ""
+            : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
   const right = isSnippet ? (
     <span

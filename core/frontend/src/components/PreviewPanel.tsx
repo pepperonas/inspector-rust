@@ -2,13 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
 import {
-  Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Palette,
+  Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
   Phone, QrCode, Scissors, Type, Wand2, Zap,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
+import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
@@ -25,6 +26,8 @@ import {
   qrCopyPng,
   recolorImageEntry,
   saveImageEntryToDownloads,
+  socialDownload,
+  socialYtdlpAvailable,
 } from "../lib/ipc";
 
 interface Props {
@@ -125,6 +128,22 @@ export function PreviewPanel({
   }
 
   // ── Color preview ──────────────────────────────────────────────────────────
+  // ── Social download (URL typed/pasted into the search bar) ──────────────────
+  if (entry.kind === "social") {
+    return (
+      <div className="flex h-full flex-col p-4">
+        <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          <Download size={12} className="text-rose-500" />
+          <span>{platformLabel(entry.data.platform)} download</span>
+        </div>
+        <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          {entry.data.url}
+        </div>
+        <SocialDownloadBar target={entry.data} />
+      </div>
+    );
+  }
+
   if (entry.kind === "color") {
     const c = entry.data;
     const fg = readableForeground(c.r, c.g, c.b);
@@ -755,6 +774,10 @@ export function PreviewPanel({
         {clip.content_data}
       </pre>
       <SmartActionsBar text={clip.content_text} />
+      {(() => {
+        const social = detectSocial(clip.content_text);
+        return social ? <SocialDownloadBar target={social} /> : null;
+      })()}
       <TransformBar text={clip.content_text} />
     </div>
   );
@@ -803,6 +826,74 @@ function ImagePreview({ entryId, inline }: { entryId: number; inline: string }) 
   }
   return (
     <img src={src} alt="clipboard image" className="max-h-full max-w-full object-contain" />
+  );
+}
+
+/** Download buttons for a detected social-media URL — video (all platforms) +
+ *  audio (YouTube only). Used by the `social` preview and by clip URLs. */
+function SocialDownloadBar({ target }: { target: SocialTarget }) {
+  const [available, setAvailable] = useState(true);
+  const [busy, setBusy] = useState<null | "video" | "audio">(null);
+  const [done, setDone] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    void socialYtdlpAvailable().then(setAvailable).catch(() => setAvailable(false));
+  }, []);
+
+  const run = async (mode: "video" | "audio") => {
+    if (busy) return;
+    setBusy(mode);
+    setError(null);
+    setDone(null);
+    try {
+      const out = await socialDownload(target.url, mode);
+      setDone(out.split(/[/\\]/).pop() || out);
+    } catch (e) {
+      const msg = String(e);
+      setError(msg.includes("no_ytdlp") ? "yt-dlp not installed — run: brew install yt-dlp" : `Failed: ${msg}`);
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  if (!available) {
+    return (
+      <div className="mt-3 text-[12px] text-[var(--color-muted)]">
+        yt-dlp not installed — <code className="rounded bg-[var(--color-surface)] px-1">brew install yt-dlp</code> to download {platformLabel(target.platform)} content.
+      </div>
+    );
+  }
+  const isYt = target.platform === "youtube";
+  return (
+    <div className="mt-3 flex flex-col gap-2">
+      <div className="flex gap-2">
+        <button
+          onClick={() => run("video")}
+          disabled={!!busy}
+          className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-50"
+        >
+          {busy === "video" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
+          {busy === "video" ? "Downloading…" : "Download video"}
+        </button>
+        {isYt && (
+          <button
+            onClick={() => run("audio")}
+            disabled={!!busy}
+            className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)] disabled:opacity-50"
+          >
+            {busy === "audio" ? <Loader2 size={13} className="animate-spin" /> : <Music size={13} />}
+            {busy === "audio" ? "Downloading…" : "Download audio"}
+          </button>
+        )}
+      </div>
+      {error && <div className="text-[11px] text-rose-400">{error}</div>}
+      {done && (
+        <div className="md3-banner-in flex items-center gap-1 text-[11px] text-emerald-400">
+          <Check size={12} /> Saved <b>{done}</b> to Downloads.
+        </div>
+      )}
+    </div>
   );
 }
 

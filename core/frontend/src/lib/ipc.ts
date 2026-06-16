@@ -1207,6 +1207,40 @@ export function audioSwapCancelOverlay(): Promise<void> {
   return invoke("audio_swap_cancel_overlay");
 }
 
+// ── Social download + trim ───────────────────────────────────────────────────
+
+export type DlMode = "video" | "audio";
+
+/** Whether yt-dlp is installed (gates the download buttons). */
+export function socialYtdlpAvailable(): Promise<boolean> {
+  return invoke("social_ytdlp_available");
+}
+/** Download a social-media URL (video/audio) → Downloads; returns the path. */
+export function socialDownload(url: string, mode: DlMode): Promise<string> {
+  return invoke("social_download", { url, mode });
+}
+
+export interface TrimFileInfo {
+  duration: number;
+  is_video: boolean;
+}
+/** Open the trim overlay window. */
+export function trimOpenOverlay(): Promise<void> {
+  return invoke("trim_open_overlay");
+}
+/** Close the trim overlay window. */
+export function trimCancelOverlay(): Promise<void> {
+  return invoke("trim_cancel_overlay");
+}
+/** Duration + whether the file has video, for the trim timeline. */
+export function trimFileInfo(path: string): Promise<TrimFileInfo | null> {
+  return invoke("trim_file_info", { path });
+}
+/** Trim a file to [start, end] (seconds); returns the output path (revealed). */
+export function trimApply(input: string, start: number, end: number, lossless: boolean): Promise<string> {
+  return invoke("trim_apply", { input, start, end, lossless });
+}
+
 /** Fire the eyedropper (macOS NSColorSampler loupe / Windows GDI overlay)
  *  *without* opening the popup or modal. The picked hex (`#RRGGBB`) lands
  *  on the system clipboard and as a Text History entry. Backend dispatches

@@ -175,6 +175,8 @@ export function FeaturesPanel() {
       blurb: "Type these into the popup's search field.",
       rows: [
         { name: "AI prompt templates", trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, note: "27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Manage in the Snippets tab." },
+        { name: "Download social media", trigger: "paste a YouTube / Instagram / TikTok / Facebook URL", typed: true, note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Needs yt-dlp." },
+        { name: "Trim audio / video", trigger: "trim", typed: true, note: "Pick a local file → set start/end → lossless-fast (keyframe) or frame-accurate cut → saves a -trim copy next to it. Needs ffmpeg." },
         { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },
         { name: "Unit / base / time converter", trigger: "5 km in mi · 0xff in dec · 1700000000 as date", typed: true, note: "Conversions right in the search box (length/mass/data/temp · number base · epoch→date)." },
         { name: "Colour converter", trigger: "#hex · rgb(…) · hsl(…)", typed: true, note: "Parse any colour format; Enter pastes the canonical hex." },

@@ -69,7 +69,8 @@ export type CommandKind =
   | "json"
   | "jwt"
   | "qr"
-  | "sound";
+  | "sound"
+  | "trim";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -366,6 +367,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Open a terminal at the active Explorer/Finder window's folder",
     requiresArg: false,
     platform: ["mac", "win"],
+  },
+  {
+    kind: "trim",
+    keyword: "trim",
+    syntax: "trim",
+    description: "Trim a local audio/video file — pick a file, set start/end, save",
+    requiresArg: false,
   },
   // ── Markdown → PDF ─────────────────────────────────────────────────
   {

@@ -19,6 +19,7 @@ import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
 import { playEntrance, MD3_SPRING } from "./lib/md3-motion";
+import { detectSocial } from "./lib/social";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
@@ -101,6 +102,8 @@ import {
   cleanerExecute,
   listMemes,
   copyMeme,
+  socialDownload,
+  trimOpenOverlay,
   qrCopyPng,
   showStatusToast,
   brunoGetDefaults,
@@ -941,6 +944,13 @@ function App() {
     });
   }, [otpQuery, totpEntries, totpCodes]);
 
+  // Pasting a social-media URL (YouTube / IG / TikTok / FB) into the search bar
+  // surfaces a download suggestion at the top; the preview offers video/audio.
+  const socialEntry = useMemo<ListEntry | null>(() => {
+    const t = detectSocial(query);
+    return t ? { kind: "social", data: t } : null;
+  }, [query]);
+
   // Memoised so unrelated state changes (pwgen editing, brightness/sound focus,
   // toast state, …) don't rebuild the whole list and hand a fresh array
   // reference to HistoryList / the virtualizer every render. Every input below
@@ -957,6 +967,7 @@ function App() {
       // instead of opening a terminal in the current Finder folder.
       ...(commandEntry ? [commandEntry] : []),
       ...suggestionEntries,
+      ...(socialEntry ? [socialEntry] : []),
       ...(openerEntry ? [openerEntry] : []),
       ...(appEntry ? [appEntry] : []),
       ...(brunoEntry ? [brunoEntry] : []),
@@ -979,6 +990,7 @@ function App() {
     memeEntries,
     commandEntry,
     suggestionEntries,
+    socialEntry,
     openerEntry,
     appEntry,
     brunoEntry,
@@ -1550,6 +1562,17 @@ function App() {
           return true;
         }
         await hidePopup();
+      } else if (commandKind === "trim") {
+        // Open the trim overlay (it has the file picker + timeline). Hide the
+        // popup so the overlay window takes focus.
+        try {
+          await trimOpenOverlay();
+        } catch (e) {
+          setPasteError("other");
+          console.error("trim overlay failed", e);
+          return true;
+        }
+        await hidePopup();
       } else if (commandKind === "timer") {
         const t = parseTimerArg(arg);
         if (!t) {
@@ -1800,6 +1823,14 @@ function App() {
           return;
         }
         await hidePopup();
+      } else if (target.kind === "social") {
+        // Default = download the video; the preview also offers audio for
+        // YouTube. Fire-and-forget (the backend reveals the file in Finder on
+        // completion); keep the popup open so the audio option stays reachable.
+        void socialDownload(target.data.url, "video").catch((e) =>
+          console.error("social download failed", e),
+        );
+        return;
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting
         // and forces the original content type (HTML/RTF formatted paste).

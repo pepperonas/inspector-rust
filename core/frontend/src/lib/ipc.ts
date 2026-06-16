@@ -1118,6 +1118,69 @@ export function setAudioOutput(id: string): Promise<void> {
   return invoke("set_audio_output", { id });
 }
 
+// ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
+
+export interface HueStatus {
+  /** Bridge IP + username stored AND the bridge answered a light list. */
+  connected: boolean;
+  /** Stored bridge IP, if any. */
+  bridge_ip: string | null;
+  /** A username exists (paired) — may still be unreachable. */
+  paired: boolean;
+}
+
+export interface HueLight {
+  id: string;
+  name: string;
+  on: boolean;
+  /** 0–100. */
+  brightness: number;
+  reachable: boolean;
+  /** Render the colour swatches for this lamp. */
+  supports_color: boolean;
+  /** Render the brightness slider for this lamp. */
+  dimmable: boolean;
+}
+
+/** Sentinel from `huePair` when the bridge link button wasn't pressed. */
+export const HUE_LINK_BUTTON = "hue.link_button";
+
+export function hueStatus(): Promise<HueStatus> {
+  return invoke("hue_status");
+}
+/** Best-effort local SSDP bridge discovery (~3 s); returns an IP or null. */
+export function hueDiscover(): Promise<string | null> {
+  return invoke("hue_discover");
+}
+export function hueSetBridgeIp(ip: string): Promise<void> {
+  return invoke("hue_set_bridge_ip", { ip });
+}
+/** Pair with the bridge at `ip` — the link button must be pressed first. */
+export function huePair(ip: string): Promise<void> {
+  return invoke("hue_pair", { ip });
+}
+export function hueForget(): Promise<void> {
+  return invoke("hue_forget");
+}
+export function hueListLights(): Promise<HueLight[]> {
+  return invoke("hue_list_lights");
+}
+export function hueSetLight(
+  id: string,
+  on: boolean,
+  brightness: number | null,
+  hex: string | null,
+): Promise<void> {
+  return invoke("hue_set_light", { id, on, brightness, hex });
+}
+export function hueSetAll(
+  on: boolean,
+  brightness: number | null,
+  hex: string | null,
+): Promise<void> {
+  return invoke("hue_set_all", { on, brightness, hex });
+}
+
 /** Screen-recording region in **physical** pixels (CSS-rect × devicePixelRatio). */
 export interface RecordRegion {
   x: number;

@@ -202,6 +202,7 @@ export function FeaturesPanel() {
         { name: "Clean caches/logs", trigger: "clean", typed: true, note: "Dry-run preview + confirm before deleting. Level/categories in Settings. Allowlist-only, no symlinks." },
         { name: "Monitor brightness", trigger: "brightness · bri", typed: true, note: "Enter → sliders in the preview; ↑↓ pick monitor, ←→ adjust, Enter back to list. Built-in + external. Software dimming on macOS/Windows, DDC on Linux." },
         { name: "Audio output device", trigger: "sound", typed: true, note: "Enter → device list in the preview; ↑↓ select, Enter switches the system output. macOS + Windows." },
+        { name: "Philips Hue lamps", trigger: "hue", typed: true, note: "Enter → lamp controls in the preview: all-lamps switch + brightness, plus per-lamp on/off, brightness (←→), and 8 colour swatches (1–8) on colour bulbs. First run: discover or enter the bridge IP, press its link button, Connect. Local LAN only." },
         { name: "Random number", trigger: "rnd · random [max] [min max]", typed: true, note: "Rolls a number (default 1–6; `rnd 100` = 1–100, `rnd 5 500` = 5–500), shown big on screen." },
         { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
         { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export." },

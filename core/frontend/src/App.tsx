@@ -10,6 +10,7 @@ import { PreviewPanel } from "./components/PreviewPanel";
 import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
+import { HuePanel } from "./components/HuePanel";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
 import { SnippetsPanel } from "./components/SnippetsPanel";
@@ -151,6 +152,11 @@ function App() {
   // the arrow keys drive the picker (true) or the left list (false).
   const [soundMode, setSoundMode] = useState(false);
   const [soundFocus, setSoundFocus] = useState(false);
+  // Hue mode — Enter on the `hue` command row renders the Philips Hue lamp
+  // controls in the right preview column; `hueFocus` is whether the arrow keys
+  // drive the panel (true) or the left list (false).
+  const [hueMode, setHueMode] = useState(false);
+  const [hueFocus, setHueFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -436,6 +442,15 @@ function App() {
       setSoundFocus(false);
     }
   }, [isSoundCmd, soundMode]);
+
+  // Same auto-exit for hue mode.
+  const isHueCmd = parsedCommand?.spec.kind === "hue";
+  useEffect(() => {
+    if (!isHueCmd && hueMode) {
+      setHueMode(false);
+      setHueFocus(false);
+    }
+  }, [isHueCmd, hueMode]);
 
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
@@ -1677,6 +1692,14 @@ function App() {
         setSoundMode(true);
         setSoundFocus(true);
         return true;
+      } else if (commandKind === "hue") {
+        // Inline Philips Hue lamp controls in the preview column (like
+        // brightness/sound). Canonicalise the query so a partial-suggestion
+        // Enter doesn't immediately trip the auto-exit effect.
+        setQuery("hue");
+        setHueMode(true);
+        setHueFocus(true);
+        return true;
       } else if (commandKind === "random") {
         // Roll a random number and show it in the (longer-lasting) toast.
         const r = parseRandomArg(arg);
@@ -1948,7 +1971,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus,
+      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2262,6 +2285,21 @@ function App() {
                     onExit={() => {
                       setSoundMode(false);
                       setSoundFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
+              ) : hueMode ? (
+                <div className="md3-pop-in h-full">
+                  <HuePanel
+                    focused={hueFocus}
+                    onUnfocus={() => {
+                      setHueFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                    onExit={() => {
+                      setHueMode(false);
+                      setHueFocus(false);
                       requestAnimationFrame(() => searchRef.current?.focus());
                     }}
                   />

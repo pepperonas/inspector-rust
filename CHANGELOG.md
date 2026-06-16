@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.40] — 2026-06-16
+
+### Added
+
+- **Philips Hue control (`hue` command).** Type `hue` to control your lamps
+  inline in the preview column (same arrow-key model as `brightness`/`sound`):
+  an **All lamps** master (on/off + brightness + colour) plus a row per lamp with
+  on/off, brightness (←→), and **8 colour-preset swatches** (1–8) on colour-capable
+  bulbs. First run pairs the bridge — **local SSDP discovery** (or manual IP) →
+  press the bridge's link button → Connect. All traffic is **LAN-only plain HTTP**
+  (no Philips cloud, no TLS); bridge IP + username persist in settings.
+  - New `hue.rs` module (pure, unit-tested: `hex_to_rgb`, `rgb_to_xy`,
+    `percent_to_bri`/`bri_to_percent`, `build_state_body`, link-button error
+    mapping, light parsing) + `HuePanel.tsx`. IPC: `hue_status` · `hue_discover`
+    · `hue_set_bridge_ip` · `hue_pair` · `hue_forget` · `hue_list_lights` ·
+    `hue_set_light` · `hue_set_all`. Adds a minimal `ureq` HTTP dependency.
+  - Documented in both READMEs + the in-app Features tab.
+
 ## [0.84.39] — 2026-06-16
 
 ### Docs

@@ -2368,7 +2368,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.84.39"
+version = "0.84.40"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2405,12 +2405,13 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "ureq 2.12.1",
  "windows 0.61.3",
 ]
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.84.39"
+version = "0.84.40"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2424,7 +2425,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.84.39"
+version = "0.84.40"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2438,7 +2439,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.84.39"
+version = "0.84.40"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3535,7 +3536,7 @@ dependencies = [
  "ort-sys",
  "smallvec",
  "tracing",
- "ureq",
+ "ureq 3.3.0",
 ]
 
 [[package]]
@@ -3546,7 +3547,7 @@ checksum = "d7b497d21a8b6fbb4b5a544f8fadb77e801a09ae0add9e411d31c6f89e3c1e90"
 dependencies = [
  "hmac-sha256",
  "lzma-rust2",
- "ureq",
+ "ureq 3.3.0",
 ]
 
 [[package]]
@@ -6042,6 +6043,18 @@ checksum = "fc1de2c688dc15305988b563c3854064043356019f97a4b46276fe734c4f07ea"
 dependencies = [
  "crypto-common",
  "subtle",
+]
+
+[[package]]
+name = "ureq"
+version = "2.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "02d1a66277ed75f640d608235660df48c8e3c19f3b4edb6a263315626cc3c01d"
+dependencies = [
+ "base64 0.22.1",
+ "log",
+ "once_cell",
+ "url",
 ]
 
 [[package]]

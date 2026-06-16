@@ -32,7 +32,7 @@ describe("COMMANDS catalogue", () => {
   it("has 57 commands (+5 dev-tools, +9 web-search bangs, +qr, +sound, +audio alias, +trim)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(57);
+    expect(COMMANDS.length).toBe(58);
   });
 
   it("every keyword is unique", () => {

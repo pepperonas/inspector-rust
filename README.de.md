@@ -24,6 +24,7 @@
   - 🎬 **Media-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab schaltet bei YouTube um); **Audio-Swap** (`Ctrl+Shift+Alt+M`) zum Ersetzen oder Mischen der Tonspur eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** für Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - 💡 **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau (eingebaute *und* externe Displays); Enter zum Steuern, **↑↓** Monitor wählen, **←→** anpassen. Software-Dimming (Gamma) auf macOS + Windows, Hardware-DDC/CI auf Linux.
   - 🔊 **Audio-Ausgabe** (`sound` / `audio`) — Inline-Picker zum Umschalten des System-Standard-Ausgabegeräts (macOS · Windows · Linux).
+  - 💡 **Philips Hue** (`hue`) — Lampen inline steuern: Alle-Lampen-Schalter + Helligkeit, Helligkeit pro Lampe und 8 Farb-Presets als runde Buttons bei Farb-Lampen. Koppelt sich im LAN mit deiner Bridge (Discovery oder IP + Link-Button); keine Cloud.
   - 🧹 **Cleaning** (`clean`) — Speicher freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannten sicheren Ordnern. Dry-Run-Vorschau + Bestätigung; strikte Allowlist, Symlinks werden nie verfolgt; Stufen Safe/Standard/Aggressive.
   - 🎨 **Color Picker** (`Ctrl+Shift+C`) — `NSColorSampler`-Lupe / GDI-Overlay / Hex direkt ins Clipboard.
   - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Cut-Out / Open auf was auch immer du im Finder selektiert hast.
@@ -44,7 +45,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1158 Unit-Tests (466 Rust + 692 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1164 Unit-Tests (472 Rust + 692 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
@@ -63,7 +64,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1158%20(466%20Rust%20%2B%20692%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1164%20(472%20Rust%20%2B%20692%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -138,9 +139,9 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1158%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-181-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-57-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-1164%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-189-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-58-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -347,6 +348,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Audio/Video trimmen** *(v0.84.28+)* | `trim` tippen → lokale Datei wählen → Start/Ende setzen → **verlustfrei & schnell** (`-c copy`) oder **frame-genau** (re-encode) → `-trim`-Kopie. ffmpeg nötig | core |
 | **Monitor-Helligkeit** *(v0.62.0+)* | `brightness` (Alias `bri`) → Inline-Slider-Overlay pro Monitor (Software-Gamma-Dimming auf macOS/Windows, DDC/CI auf Linux) | core |
 | **Audio-Ausgabegerät** *(v0.80.0+)* | `sound` (Alias `audio`) → Inline-Picker zum Umschalten des Standard-Ausgabegeräts | core |
+| **Philips-Hue-Steuerung** *(v0.84.40+)* | `hue` tippen → Inline-Lampensteuerung in der Vorschau: **Alle-Lampen**-Schalter + Helligkeit, plus eine Zeile pro Lampe mit An/Aus, Helligkeit (←→) und **8 Farb-Presets** (1–8) bei Farb-Lampen. Beim ersten Mal wird die Bridge gekoppelt (lokale SSDP-Discovery oder IP → Link-Button drücken → Connect); nur LAN, keine Philips-Cloud | core |
 | **Aufräum-Tool** *(v0.60.0+)* | `clean` (Alias `cleanup`) → scannt eine Allowlist von Cache-/Log-/Temp-Verzeichnissen → bestätigen → löschen; Safe / Standard / Aggressive in Settings | core |
 | **Dev-Quick-Tools** *(v0.76.0+)* | `uuid [n]` · `slug <t>` · `hash <t>` · `json` · `jwt` — UUIDs · slugify · SHA-256 · Clipboard-JSON formatieren · Clipboard-JWT dekodieren → Clipboard | core |
 | **Web-Such-Bangs** *(v0.76.0+)* | `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` → Site-Suche im Browser öffnen | core |

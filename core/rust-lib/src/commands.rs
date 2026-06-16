@@ -2941,6 +2941,93 @@ pub fn set_audio_output(id: String) -> Result<(), String> {
     crate::audio::set_output(&id)
 }
 
+// ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
+
+/// Connection status: do we have a bridge IP + paired username, and does the
+/// bridge answer? Drives the connect-vs-control branch in the Hue panel.
+#[tauri::command]
+pub fn hue_status(db: State<'_, DbHandle>) -> crate::hue::HueStatus {
+    let bridge_ip = crate::hue::bridge_ip(&db);
+    let user = crate::hue::username(&db);
+    let paired = bridge_ip.is_some() && user.is_some();
+    // "connected" = we can actually list lights right now.
+    let connected = match (&bridge_ip, &user) {
+        (Some(ip), Some(u)) => crate::hue::list_lights(ip, u).is_ok(),
+        _ => false,
+    };
+    crate::hue::HueStatus { connected, bridge_ip, paired }
+}
+
+/// Best-effort local SSDP discovery of a bridge IP (no cloud). May take ~3 s;
+/// the frontend calls it on a button press, not on mount.
+#[tauri::command]
+pub fn hue_discover() -> Option<String> {
+    crate::hue::discover_bridge()
+}
+
+/// Persist a manually-entered bridge IP (discovery fallback).
+#[tauri::command]
+pub fn hue_set_bridge_ip(db: State<'_, DbHandle>, ip: String) -> Result<(), String> {
+    settings::set(&db, crate::hue::KEY_BRIDGE_IP, ip.trim()).map_err(map_err)
+}
+
+/// Pair with the bridge at `ip` (the user must have pressed the link button).
+/// On success the created username is stored; the IP is stored too. Returns the
+/// `hue.link_button` sentinel if the button wasn't pressed.
+#[tauri::command]
+pub fn hue_pair(db: State<'_, DbHandle>, ip: String) -> Result<(), String> {
+    let ip = ip.trim().to_string();
+    let user = crate::hue::pair(&ip)?;
+    settings::set(&db, crate::hue::KEY_BRIDGE_IP, &ip).map_err(map_err)?;
+    settings::set(&db, crate::hue::KEY_USERNAME, &user).map_err(map_err)?;
+    Ok(())
+}
+
+/// Forget the stored bridge + username (re-pair from scratch).
+#[tauri::command]
+pub fn hue_forget(db: State<'_, DbHandle>) -> Result<(), String> {
+    settings::set(&db, crate::hue::KEY_BRIDGE_IP, "").map_err(map_err)?;
+    settings::set(&db, crate::hue::KEY_USERNAME, "").map_err(map_err)
+}
+
+fn hue_creds(db: &DbHandle) -> Result<(String, String), String> {
+    let ip = crate::hue::bridge_ip(db).ok_or("hue.not_connected")?;
+    let user = crate::hue::username(db).ok_or("hue.not_connected")?;
+    Ok((ip, user))
+}
+
+/// List all lamps with their current state.
+#[tauri::command]
+pub fn hue_list_lights(db: State<'_, DbHandle>) -> Result<Vec<crate::hue::HueLight>, String> {
+    let (ip, user) = hue_creds(&db)?;
+    crate::hue::list_lights(&ip, &user)
+}
+
+/// Set a single lamp: on/off, optional brightness %, optional hex colour.
+#[tauri::command]
+pub fn hue_set_light(
+    db: State<'_, DbHandle>,
+    id: String,
+    on: bool,
+    brightness: Option<u8>,
+    hex: Option<String>,
+) -> Result<(), String> {
+    let (ip, user) = hue_creds(&db)?;
+    crate::hue::set_light(&ip, &user, &id, on, brightness, hex.as_deref())
+}
+
+/// Set **all** lamps at once (group 0): on/off, optional brightness %, colour.
+#[tauri::command]
+pub fn hue_set_all(
+    db: State<'_, DbHandle>,
+    on: bool,
+    brightness: Option<u8>,
+    hex: Option<String>,
+) -> Result<(), String> {
+    let (ip, user) = hue_creds(&db)?;
+    crate::hue::set_all(&ip, &user, on, brightness, hex.as_deref())
+}
+
 // ── Screen recording (Ctrl+Shift+R, v0.81.0) ────────────────────────────────
 
 pub const RECORD_OVERLAY_LABEL: &str = "record-overlay";

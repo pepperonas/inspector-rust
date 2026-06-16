@@ -24,6 +24,7 @@
   - 🎬 **Media tools** — **download** YouTube / Instagram / TikTok / Facebook (video or audio — just paste a URL; Tab toggles on YouTube); **audio swap** (`Ctrl+Shift+Alt+M`) to replace or mix a video's audio with a local file or a YouTube track; **trim** audio/video (`trim`) lossless-fast or frame-accurate. Need ffmpeg / yt-dlp.
   - 💡 **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview (built-in *and* external displays); Enter to control them, **↑↓** pick a monitor, **←→** adjust. Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux.
   - 🔊 **Audio output** (`sound` / `audio`) — inline picker to switch the system default output device (macOS · Windows · Linux).
+  - 💡 **Philips Hue** (`hue`) — control your lamps inline: all-lamps on/off + brightness, per-lamp brightness, and 8 colour-preset swatches on colour bulbs. Pairs to your bridge on the LAN (discover or enter IP + link button); no cloud.
   - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. Dry-run preview + confirm; strict allowlist, symlinks never followed; Safe/Standard/Aggressive levels.
   - 🎨 **Color picker** (`Ctrl+Shift+C`) — `NSColorSampler` loupe / GDI overlay / hex straight to clipboard.
   - 📁 **Finder selection actions** (`Ctrl+Shift+F`, macOS) — multi-file batch resize / optim / cut-out / open on whatever you have selected in Finder.
@@ -44,7 +45,7 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1158 unit tests (466 Rust + 692 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1164 unit tests (472 Rust + 692 frontend).** MIT-licensed.
 
   <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
   <p>
@@ -63,7 +64,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1158%20(466%20Rust%20%2B%20692%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1164%20(472%20Rust%20%2B%20692%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -138,9 +139,9 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1158%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-181-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-57-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-1164%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-189-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-58-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -349,6 +350,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Trim audio / video** *(v0.84.28+)* | Type `trim` → pick a local file → set start/end → **lossless & fast** (`-c copy`) or **frame-accurate** (re-encode) → sibling `-trim` copy. Needs ffmpeg | core |
 | **Monitor brightness** *(v0.62.0+)* | Type `brightness` (alias `bri`) → inline per-monitor slider overlay (software gamma dimming on macOS/Windows, DDC/CI on Linux) | core |
 | **Audio-output picker** *(v0.80.0+)* | Type `sound` (alias `audio`) → inline picker to switch the system default output device | core |
+| **Philips Hue control** *(v0.84.40+)* | Type `hue` → inline lamp controls in the preview: an **all-lamps** on/off + brightness master, plus a row per lamp with on/off, brightness (←→), and **8 colour-preset swatches** (1–8) on colour bulbs. First run pairs the bridge (local SSDP discovery or manual IP → press the bridge link button → Connect); LAN-only, no Philips cloud | core |
 | **Disk cleaner** *(v0.60.0+)* | Type `clean` (alias `cleanup`) → scans an allow-listed set of cache/log/temp roots → confirm → delete; Safe / Standard / Aggressive levels in Settings | core |
 | **Dev quick-tools** *(v0.76.0+)* | `uuid [n]` · `slug <t>` · `hash <t>` · `json` · `jwt` — random UUIDs · slugify · SHA-256 · pretty-print clipboard JSON · decode clipboard JWT → clipboard | core |
 | **Web-search bangs** *(v0.76.0+)* | `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` → open a site's search | core |

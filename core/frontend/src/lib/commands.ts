@@ -60,6 +60,7 @@ export type CommandKind =
   | "shot-last"
   | "clean"
   | "brightness"
+  | "hue"
   | "random"
   | "meme"
   | "websearch"
@@ -530,6 +531,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Alias for sound",
     requiresArg: false,
     hidden: true,
+  },
+  {
+    kind: "hue",
+    keyword: "hue",
+    syntax: "hue",
+    description: "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
+    requiresArg: false,
   },
   ...SEARCH_BANG_COMMANDS,
 ];

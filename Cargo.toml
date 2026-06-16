@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.84.39"
+version = "0.84.40"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -42,6 +42,11 @@ keyring = "3"
 clipboard-rs = "0.2"
 enigo = "0.3"
 dirs = "5"
+# Minimal blocking HTTP/1.1 client for the LAN-only Philips Hue Bridge API
+# (`hue` command). default-features=false drops TLS/gzip — the Hue local API
+# is plain HTTP on port 80, and bridge discovery is local SSDP (UDP), so no
+# cloud calls and no TLS stack are pulled in (keeps the "local-first" promise).
+ureq = { version = "2", default-features = false }
 # Image decode/encode for the recolor / cutout features. Output is
 # always PNG (alpha-preserving), but inputs can be any of the formats
 # users routinely have on disk: JPG/WEBP/GIF/BMP from screenshots,

@@ -21,6 +21,7 @@ mod db;
 mod desktop_shortcuts;
 mod expander;
 mod hotkey;
+mod hue;
 mod image_ops;
 mod logging;
 mod md_to_pdf;
@@ -492,6 +493,14 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_monitor_brightness,
             commands::list_audio_outputs,
             commands::set_audio_output,
+            commands::hue_status,
+            commands::hue_discover,
+            commands::hue_set_bridge_ip,
+            commands::hue_pair,
+            commands::hue_forget,
+            commands::hue_list_lights,
+            commands::hue_set_light,
+            commands::hue_set_all,
             commands::screen_record_open_overlay,
             commands::cancel_record_overlay,
             commands::start_screen_record,

@@ -152,7 +152,9 @@ export function HueBeatSync({ lamps }: { lamps: HueLight[] }) {
           return;
         }
         streamRef.current = stream;
-        const ctx = new AudioContext();
+        // "playback" latency hint → larger output buffer; avoids glitching
+        // other apps' audio when the mic opens (see BpmDetector for the why).
+        const ctx = new AudioContext({ latencyHint: "playback" });
         ctxRef.current = ctx;
         const source = ctx.createMediaStreamSource(stream);
         const hp = ctx.createBiquadFilter();

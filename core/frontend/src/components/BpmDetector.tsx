@@ -194,7 +194,12 @@ export function BpmDetector({ onExit }: Props) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
-        const ctx = new AudioContext();
+        // `latencyHint: "playback"` requests a comfortable output buffer
+        // instead of the tiny "interactive" default. Opening the mic on macOS
+        // reconfigures the shared CoreAudio device; with the small interactive
+        // buffer that glitches other apps' audio for the first few seconds —
+        // the larger playback buffer avoids fighting the running output.
+        const ctx = new AudioContext({ latencyHint: "playback" });
         const source = ctx.createMediaStreamSource(stream);
 
         // — detection chain: HP 30 → LP 100 (Q 1.5) → analyser —

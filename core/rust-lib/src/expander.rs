@@ -790,6 +790,7 @@ pub fn expand_at_cursor(
                         // Honour a `{cursor}` marker (best-effort — after an
                         // AX value set the caret is typically at the end).
                         let _ = crate::paste::move_cursor_left(rendered.cursor_back);
+                        crate::sound::play_paste();
                         return Ok(());
                     }
                     Ok(ReplaceOutcome::SelectionActive) => {
@@ -940,6 +941,8 @@ fn expand_via_clipboard(
     write_clipboard_text(&text)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
+    // The body is now pasted — play the expand click.
+    crate::sound::play_paste();
     // Honour a `{cursor}` marker — reposition the caret into the body.
     let _ = crate::paste::move_cursor_left(rendered.cursor_back);
 
@@ -992,6 +995,8 @@ fn paste_over_selection(
     write_clipboard_text(text)?;
     thread::sleep(Duration::from_millis(50));
     send_paste()?;
+    // The body is now pasted over the selection — play the expand click.
+    crate::sound::play_paste();
     // Honour a `{cursor}` marker — reposition the caret into the body.
     let _ = crate::paste::move_cursor_left(rendered.cursor_back);
 

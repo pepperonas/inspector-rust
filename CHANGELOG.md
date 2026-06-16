@@ -4,6 +4,27 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.45] — 2026-06-16
+
+### Fixed
+
+- **BPM detector / Hue beat-sync no longer stutter other apps' audio** for the
+  first few seconds. Opening the mic reconfigures the shared macOS CoreAudio
+  device; the default `latencyHint: "interactive"` AudioContext uses a tiny
+  output buffer that glitches running playback while the device settles. Both
+  mic graphs now create the `AudioContext` with `latencyHint: "playback"` (a
+  comfortable buffer) — detection is unaffected (it reads the input).
+
+### Added
+
+- **Expand sound.** Expanding a snippet via the abbreviation hotkey (`Alt+1` &
+  co.) now plays a short mechanical-keyboard click for tactile feedback. New
+  `sound.rs` embeds a WAV (low-latency, no decode) and plays it off-thread via
+  the per-OS CLI player (macOS `afplay` · Windows PowerShell `SoundPlayer` ·
+  Linux `paplay`/`aplay`). It fires only on a *real* expansion (in-place AX
+  replace, paste-over-selection, or the clipboard cycle) — never on a no-match,
+  and passive auto-expansion stays silent.
+
 ## [0.84.44] — 2026-06-16
 
 ### Changed

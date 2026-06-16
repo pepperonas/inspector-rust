@@ -689,6 +689,7 @@ pub fn register_expander(
                 // focused field. Falls through to the legacy AX/UIA read path
                 // when the monitor isn't tracking or the buffer didn't match.
                 if crate::auto_expand::try_hotkey_expand() {
+                    crate::sound::play_paste();
                     return;
                 }
                 if let Some(db) = app_in_closure.try_state::<DbHandle>() {

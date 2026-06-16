@@ -45,6 +45,7 @@ mod seed;
 mod settings;
 mod snippet_template;
 mod snippets;
+mod sound;
 mod status_toast;
 mod system_commands;
 mod finder_selection;

@@ -174,6 +174,7 @@ export function FeaturesPanel() {
       icon: <Terminal size={14} />,
       blurb: "Type these into the popup's search field.",
       rows: [
+        { name: "AI prompt templates", trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, note: "27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Manage in the Snippets tab." },
         { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },
         { name: "Unit / base / time converter", trigger: "5 km in mi · 0xff in dec · 1700000000 as date", typed: true, note: "Conversions right in the search box (length/mass/data/temp · number base · epoch→date)." },
         { name: "Colour converter", trigger: "#hex · rgb(…) · hsl(…)", typed: true, note: "Parse any colour format; Enter pastes the canonical hex." },

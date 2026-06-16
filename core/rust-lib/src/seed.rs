@@ -1,6 +1,6 @@
 //! First-run seeding of curated default snippets.
 //!
-//! Bundles a JSON document of ~25 hand-written AI-prompt templates
+//! Bundles a JSON document of 27 hand-written AI-prompt templates
 //! (`ai_prompts.json`) directly into the binary via `include_str!`.
 //! On first launch we check the `seed.default_snippets_v1` flag in the
 //! settings table — if false, we run the existing JSON-import pipeline
@@ -83,9 +83,9 @@ mod tests {
     #[test]
     fn embedded_json_parses_and_has_25_prompts() {
         let v: Vec<serde_json::Value> = serde_json::from_str(DEFAULT_PROMPTS_JSON).unwrap();
-        // Sanity: we shipped exactly 25 curated prompts. If you change the
+        // Sanity: we shipped exactly 27 curated prompts. If you change the
         // count deliberately, update this test.
-        assert_eq!(v.len(), 25, "expected 25 default prompts");
+        assert_eq!(v.len(), 27, "expected 27 default prompts");
         for entry in &v {
             assert!(entry.get("abbreviation").is_some());
             assert!(entry.get("title").is_some());

@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.26] — 2026-06-16
+
+### Added — two new curated AI-prompt snippets
+
+Added two prompt templates to the seeded AI-prompt library (now 27):
+`aifrontend` — an "AAA premium frontend" Material 3 Expressive design brief; and
+`aibanana` — an agent pipeline to auto-generate a creative Open Graph thumbnail
+with Nano Banana (Gemini image API). Type the abbreviation in the popup to expand
+the full prompt. Both ship in `seed/ai_prompts.json` (fresh installs) and were
+added to the existing database; the Features tab lists them.
+
 ## [0.84.25] — 2026-06-16
 
 ### Fixed — screen-recording audio: de-click the residual crackle

@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.48] — 2026-06-17
+
+### Changed
+
+- **Disco detection is much stronger / the gauge actually swings.** Three fixes,
+  bringing it in line with the raspi3 disco-controller:
+  - **Loudness-gated punches, not confidence-gated.** The lights now flash on
+    *every* onset while music is playing (gate on the level), instead of only
+    when a confident tempo had locked — the old behaviour dropped most punches on
+    irregular music or before the lock.
+  - **Full-band dBFS gauge.** The level meter was reading only the 30–100 Hz bass
+    band (tiny on a laptop mic) ×8; it now meters the **whole mix** as a VU-style
+    dBFS meter with attack/release smoothing, so it swings with the music.
+  - **Input gain + higher default sensitivity** (`INPUT_GAIN` 4×, sensitivity
+    0.5 → 0.65) lift quiet laptop-mic signals above the noise floor.
+
 ## [0.84.47] — 2026-06-17
 
 ### Fixed

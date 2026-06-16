@@ -52,15 +52,29 @@ const WARM_WHITE = "#FFCB8E";
 const PUNCH_BRI = 100; // % on the beat
 const FLOOR_RAINBOW = 22; // % the previous lamp settles to
 const FLOOR_STROBE = 1; // near-dark between beats → hard blink
-const MIN_CONFIDENCE = 0.15; // ignore low-confidence onsets (disco uses 0.15)
+// Punch the lights on every onset *while music is playing* (loudness-gated) —
+// like the disco-controller, which fires on each onset rather than waiting for a
+// confident tempo lock. Confidence still drives the displayed BPM. This is the
+// big "stronger detection" lever: gating by confidence (the old behaviour)
+// dropped most punches on irregular music / before the tempo locked.
+const LOUD_GATE = 0.12; // min full-band gauge level (0..1) for "music present"
 const MIN_BEAT_GAP_MS = 90; // transient double-trigger guard
 const READOUT_MS = 140; // ~7 Hz UI refresh
+
+// Input boost — laptop mics picking up speaker music are quiet; lift the signal
+// so it sits well above the noise floor (helps both onset SNR and the gauge).
+const INPUT_GAIN = 4;
+// Gauge = a VU-style dBFS meter of the *full-band* (not bass-only) level, so it
+// swings with the whole mix, not just the kick. Mapped from this dB window.
+const GAUGE_FLOOR_DB = -50;
+const GAUGE_CEIL_DB = -10;
+const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 class DiscoEngine {
   private state: DiscoState = {
     running: false,
     mode: "rainbow",
-    sensitivity: 0.5,
+    sensitivity: 0.65,
     fixedHex: FIXED_SWATCHES[0],
     bpm: 0,
     level: 0,
@@ -76,6 +90,8 @@ class DiscoEngine {
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
   private processor: ScriptProcessorNode | null = null;
+  private levelAnalyser: AnalyserNode | null = null;
+  private displayLevel = 0; // smoothed gauge level (0..1)
   private analyzer = new BpmAnalyzer();
 
   // Beat-chase bookkeeping.
@@ -150,6 +166,10 @@ class DiscoEngine {
       this.analyzer.setSensitivity(this.state.sensitivity);
 
       const source = ctx.createMediaStreamSource(stream);
+      // Input boost first — everything downstream (detection band + level tap)
+      // benefits from the lifted signal.
+      const gain = ctx.createGain();
+      gain.gain.value = INPUT_GAIN;
       const hp = ctx.createBiquadFilter();
       hp.type = "highpass";
       hp.frequency.value = 30;
@@ -165,25 +185,44 @@ class DiscoEngine {
       const processor = ctx.createScriptProcessor(1024, 1, 1);
       const silent = ctx.createGain();
       silent.gain.value = 0;
-      source.connect(hp);
+      // Full-band level tap (gauge) — read off the gained signal *before* the
+      // bass filter, so the meter swings with the whole mix, not just the kick.
+      const levelAnalyser = ctx.createAnalyser();
+      levelAnalyser.fftSize = 1024;
+      const levelBuf = new Float32Array(levelAnalyser.fftSize);
+
+      source.connect(gain);
+      gain.connect(hp); // detection path: gain → HP → LP → processor
       hp.connect(lp);
       lp.connect(processor);
       processor.connect(silent);
       silent.connect(ctx.destination);
+      gain.connect(levelAnalyser); // level path: gain → analyser
       this.processor = processor;
+      this.levelAnalyser = levelAnalyser;
 
       processor.onaudioprocess = (e) => {
         const now = performance.now();
-        // The input is the HP+LP-filtered bass band — exactly what BpmAnalyzer
-        // expects. Copy out (the buffer is reused across callbacks).
+        // Detection: the input is the gained HP+LP bass band — what BpmAnalyzer
+        // expects (relative onset detection, so the gain doesn't bias it).
         const samples = e.inputBuffer.getChannelData(0);
         this.analyzer.push(samples as Float32Array, now);
         const est = this.analyzer.estimate(now);
-        const level = this.analyzer.currentEnergy();
+
+        // Gauge: full-band RMS → dBFS → fixed window → attack/release smoothing.
+        levelAnalyser.getFloatTimeDomainData(levelBuf);
+        let sum = 0;
+        for (let i = 0; i < levelBuf.length; i++) sum += levelBuf[i] * levelBuf[i];
+        const rms = Math.sqrt(sum / levelBuf.length);
+        const db = rms > 1e-5 ? 20 * Math.log10(rms) : -120;
+        const target = clamp01((db - GAUGE_FLOOR_DB) / (GAUGE_CEIL_DB - GAUGE_FLOOR_DB));
+        // Fast attack (jumps on transients), slower release (smooth decay).
+        const a = target > this.displayLevel ? 0.55 : 0.12;
+        this.displayLevel += (target - this.displayLevel) * a;
 
         if (
           est.beatJustFired &&
-          est.confidence >= MIN_CONFIDENCE &&
+          this.displayLevel > LOUD_GATE &&
           now - this.lastBeat >= MIN_BEAT_GAP_MS
         ) {
           this.lastBeat = now;
@@ -193,7 +232,7 @@ class DiscoEngine {
           this.lastReadout = now;
           this.set({
             bpm: Math.round(est.bpm),
-            level: Math.min(1, level * 8),
+            level: this.displayLevel,
             beat: now - this.lastBeat < 120,
           });
         }
@@ -222,6 +261,9 @@ class DiscoEngine {
       this.processor.disconnect();
       this.processor = null;
     }
+    this.levelAnalyser?.disconnect();
+    this.levelAnalyser = null;
+    this.displayLevel = 0;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null;
     void this.ctx?.close().catch(() => undefined);

@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.31] — 2026-06-16
+
+### Fixed — YouTube "confirm you're not a bot" download failures
+
+YouTube increasingly blocks anonymous downloads with an anti-bot check. The
+downloader now retries automatically with **`--cookies-from-browser`** (Chrome →
+Firefox → Brave → Edge; first that works wins) when it hits that gate, so a
+download succeeds using your logged-in browser session. The first time, macOS may
+prompt to allow reading Chrome's keychain cookie key — click Allow. (Safari is
+skipped: macOS sandboxing blocks reading its cookie store without Full Disk
+Access.)
+
 ## [0.84.30] — 2026-06-16
 
 ### Fixed — Instagram (and VP9) video download was unplayable on macOS

@@ -92,7 +92,39 @@ pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &s
     a
 }
 
+/// Browsers tried (in order) for `--cookies-from-browser` when YouTube's
+/// anti-bot check blocks an anonymous download. Safari is omitted — macOS
+/// sandboxing blocks reading its `Cookies.binarycookies` without Full Disk
+/// Access. yt-dlp fast-fails on a browser that isn't installed, so the loop
+/// just moves on.
+const COOKIE_BROWSERS: &[&str] = &["chrome", "firefox", "brave", "edge"];
+
+/// True if the yt-dlp error is YouTube's "confirm you're not a bot" gate, which
+/// is bypassed by passing the user's logged-in browser cookies.
+fn is_bot_block(stderr: &str) -> bool {
+    let l = stderr.to_lowercase();
+    l.contains("not a bot") || l.contains("sign in to confirm") || l.contains("--cookies-from-browser")
+}
+
+/// Run yt-dlp once. On success returns the produced file path (from
+/// `--print after_move:filepath`); on failure returns the full stderr.
+fn run_ytdlp(yt: &Path, args: &[String]) -> Result<PathBuf, String> {
+    let out = Command::new(yt).args(args).output().map_err(|e| format!("yt-dlp: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    }
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .rev()
+        .find(|l| !l.trim().is_empty())
+        .map(|l| PathBuf::from(l.trim()))
+        .filter(|p| p.is_file())
+        .ok_or_else(|| "download produced no file".into())
+}
+
 /// Download `url` (video or audio) into `dir`. Returns the produced file path.
+/// Falls back to browser cookies if YouTube's anti-bot check blocks the
+/// anonymous request.
 pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> {
     let u = url.trim();
     if detect_platform(u).is_none() {
@@ -103,20 +135,25 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
     let template = dir.join("%(title).100B [%(id)s].%(ext)s");
-    let args = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy());
-    let out = Command::new(yt).args(&args).output().map_err(|e| format!("yt-dlp: {e}"))?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        return Err(format!("download failed: {}", err.lines().last().unwrap_or("unknown error")));
+    let base = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy());
+
+    match run_ytdlp(&yt, &base) {
+        Ok(p) => Ok(p),
+        Err(stderr) if is_bot_block(&stderr) => {
+            // Retry with each browser's cookies; first success wins.
+            for br in COOKIE_BROWSERS {
+                let mut args = vec!["--cookies-from-browser".to_string(), (*br).to_string()];
+                args.extend(base.iter().cloned());
+                if let Ok(p) = run_ytdlp(&yt, &args) {
+                    return Ok(p);
+                }
+            }
+            Err("YouTube blocked the download with its anti-bot check, and no usable \
+                 browser cookies were found. Log into YouTube in Chrome or Firefox and retry."
+                .into())
+        }
+        Err(stderr) => Err(format!("download failed: {}", stderr.lines().last().unwrap_or("unknown error"))),
     }
-    let stdout = String::from_utf8_lossy(&out.stdout);
-    stdout
-        .lines()
-        .rev()
-        .find(|l| !l.trim().is_empty())
-        .map(|l| PathBuf::from(l.trim()))
-        .filter(|p| p.is_file())
-        .ok_or_else(|| "download produced no file".into())
 }
 
 #[cfg(test)]
@@ -164,6 +201,16 @@ mod tests {
         assert!(a.contains(&"-x".to_string()));
         assert!(a.windows(2).any(|w| w[0] == "--audio-format" && w[1] == "m4a"));
         assert!(!a.windows(2).any(|w| w[0] == "--merge-output-format"));
+    }
+
+    #[test]
+    fn detects_youtube_bot_block() {
+        let real = "ERROR: [youtube] -fWw7FE9tTo: Sign in to confirm you're not a bot. \
+                    Use --cookies-from-browser or --cookies for the authentication.";
+        assert!(is_bot_block(real));
+        assert!(is_bot_block("Please use --cookies-from-browser"));
+        assert!(!is_bot_block("ERROR: Requested format is not available"));
+        assert!(!is_bot_block("Video unavailable"));
     }
 
     #[test]

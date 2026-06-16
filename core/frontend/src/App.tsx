@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
@@ -19,7 +19,7 @@ import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
-import { playEntrance, MD3_SPRING } from "./lib/md3-motion";
+import { playEntrance, playExit, MD3_SPRING } from "./lib/md3-motion";
 import { detectSocial } from "./lib/social";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
@@ -69,7 +69,7 @@ import {
   deleteEntry,
   setClipPinned,
   findSnippets,
-  hidePopup,
+  hidePopup as hidePopupRaw,
   killProcess,
   listProcesses,
   optimizeClipboardImage,
@@ -237,6 +237,17 @@ function App() {
   const [pwgenEditing, setPwgenEditing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+
+  // Dismiss = the reverse of the summon (§ signature transition): play a short
+  // accelerate-away exit on the shell, *then* hide the OS window — so closing
+  // mirrors the spring entrance instead of snapping out. Under reduced motion /
+  // no WAAPI, `playExit` resolves instantly, so there's no added dismiss
+  // latency. (The Rust focus-loss path hides without this on purpose — clicking
+  // away should be immediate.) All `hidePopup()` callers route through here.
+  const hidePopup = useCallback(async () => {
+    await playExit(shellRef.current);
+    await hidePopupRaw();
+  }, []);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
   // Failure (e.g. browser dev preview without Tauri context) is silent —

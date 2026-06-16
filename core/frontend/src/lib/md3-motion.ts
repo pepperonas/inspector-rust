@@ -191,6 +191,43 @@ export function playEntrance(
   opts: { fromScale?: number; riseY?: number } = {},
 ): void {
   if (!el || typeof el.animate !== "function" || prefersReducedMotion()) return;
+  // Clear any `forwards`-filled exit animation still applied from the last
+  // dismiss, so the entrance starts from a clean state (no stuck opacity:0).
+  el.getAnimations?.().forEach((a) => a.cancel());
   const { keyframes, durationMs } = popInKeyframes(token, opts);
   el.animate(keyframes, { duration: durationMs, easing: "linear", fill: "none" });
+}
+
+/** Duration (ms) of the dismiss animation — short + within the feedback budget,
+ *  shorter than the springy entrance (exits accelerate away). */
+export const EXIT_MS = 130;
+
+/**
+ * Play the dismiss animation — the **reverse of [`playEntrance`]**: the panel
+ * accelerates away (fades out while dropping + scaling down) on the MD3
+ * emphasized-accelerate curve. Resolves when the animation finishes (so the
+ * caller can hide the OS window only after it has played), or **immediately**
+ * when motion is unavailable / reduced (no added dismiss latency then).
+ *
+ * Uses `fill: "forwards"` so the panel stays invisible until the window is
+ * actually hidden — `playEntrance` cancels it on the next summon.
+ */
+export function playExit(
+  el: HTMLElement | null,
+  opts: { toScale?: number; dropY?: number } = {},
+): Promise<void> {
+  if (!el || typeof el.animate !== "function" || prefersReducedMotion()) {
+    return Promise.resolve();
+  }
+  el.getAnimations?.().forEach((a) => a.cancel());
+  const toScale = opts.toScale ?? 0.96;
+  const dropY = opts.dropY ?? 8;
+  const anim = el.animate(
+    [
+      { opacity: 1, transform: "translateY(0px) scale(1)" },
+      { opacity: 0, transform: `translateY(${dropY}px) scale(${toScale})` },
+    ],
+    { duration: EXIT_MS, easing: "cubic-bezier(0.3, 0, 0.8, 0.15)", fill: "forwards" },
+  );
+  return anim.finished.then(() => undefined).catch(() => undefined);
 }

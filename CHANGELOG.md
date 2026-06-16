@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.41] — 2026-06-16
+
+### Changed
+
+- **Dismiss now reverses the summon.** Closing the popup (Esc, or after running a
+  command) plays a short accelerate-away exit — fade + drop + scale-down on the
+  MD3 emphasized-accelerate curve — *before* the OS window hides, mirroring the
+  spring entrance instead of snapping out. New `playExit` (reverse of
+  `playEntrance`) in `lib/md3-motion.ts`; all frontend `hidePopup()` callers route
+  through a wrapper that plays it first. Honors `prefers-reduced-motion` (resolves
+  instantly → no added dismiss latency), and the Rust focus-loss/click-away path
+  stays immediate on purpose.
+
 ## [0.84.40] — 2026-06-16
 
 ### Added

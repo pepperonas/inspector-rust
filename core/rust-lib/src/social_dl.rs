@@ -171,6 +171,35 @@ mod tests {
     }
 
     #[test]
+    fn detects_real_world_url_variants() {
+        // shapes the apps actually produce
+        assert_eq!(detect_platform("https://www.youtube.com/shorts/abc123"), Some(Platform::YouTube));
+        assert_eq!(detect_platform("https://m.youtube.com/watch?v=x"), Some(Platform::YouTube));
+        assert_eq!(detect_platform("https://youtu.be/x?t=42"), Some(Platform::YouTube));
+        assert_eq!(detect_platform("https://www.instagram.com/p/DZYTeeHtPZL/"), Some(Platform::Instagram));
+        assert_eq!(detect_platform("https://www.instagram.com/tv/x/"), Some(Platform::Instagram));
+        assert_eq!(detect_platform("https://vm.tiktok.com/ZMabc/"), Some(Platform::TikTok));
+        assert_eq!(detect_platform("https://www.facebook.com/reel/123"), Some(Platform::Facebook));
+        assert_eq!(detect_platform("https://fb.com/watch/?v=1"), Some(Platform::Facebook));
+    }
+
+    #[test]
+    fn audio_args_also_have_timestamp_and_sabr_flags() {
+        let a = build_dl_args("https://youtu.be/x", DlMode::Audio, "/d", "/d/%(id)s.%(ext)s");
+        assert!(a.contains(&"--no-mtime".to_string()), "audio must download with current time too");
+        assert!(a.windows(2).any(|w| w[0] == "--extractor-args"
+            && w[1] == "youtube:player_client=default,ios,web_safari"));
+        assert_eq!(a[a.len() - 2], "--"); // flag-smuggling guard before the URL
+    }
+
+    #[test]
+    fn cookie_browser_fallback_list_is_sane() {
+        assert!(!COOKIE_BROWSERS.is_empty());
+        assert_eq!(COOKIE_BROWSERS[0], "chrome"); // most common + most cookies on macOS
+        assert!(!COOKIE_BROWSERS.contains(&"safari")); // sandbox-blocked, deliberately skipped
+    }
+
+    #[test]
     fn rejects_non_social_and_non_http() {
         assert_eq!(detect_platform("https://example.com/x"), None);
         assert_eq!(detect_platform("youtube.com/x"), None); // no scheme

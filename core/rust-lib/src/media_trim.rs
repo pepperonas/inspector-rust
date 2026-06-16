@@ -143,6 +143,32 @@ mod tests {
     }
 
     #[test]
+    fn both_modes_set_faststart_and_target_out() {
+        for lossless in [true, false] {
+            let a = build_trim_args("/v/clip.mp4", 0.0, 5.0, lossless, true, "/v/out.mp4");
+            let j = a.join(" ");
+            assert!(j.contains("-movflags +faststart"), "faststart missing (lossless={lossless})");
+            assert_eq!(a.last().unwrap(), "/v/out.mp4");
+            assert_eq!(a[0], "-y");
+        }
+    }
+
+    #[test]
+    fn lossless_audio_keeps_container_and_copies() {
+        let a = build_trim_args("/a/song.mp3", 10.0, 40.0, true, false, "/a/song-trim.mp3");
+        let j = a.join(" ");
+        assert!(j.contains("-ss 10 -to 40 -i /a/song.mp3"));
+        assert!(j.contains("-c copy"));
+        assert!(!j.contains("-c:a aac")); // no re-encode in lossless mode
+    }
+
+    #[test]
+    fn trim_times_format_without_trailing_zeros() {
+        let a = build_trim_args("/v/c.mp4", 1.5, 12.0, true, true, "/v/o.mp4").join(" ");
+        assert!(a.contains("-ss 1.5 -to 12 ")); // 12.0 → "12", 1.5 stays
+    }
+
+    #[test]
     fn output_paths() {
         assert_eq!(output_path_for(Path::new("/v/My Clip.mkv"), true, true), PathBuf::from("/v/My Clip-trim.mkv"));
         assert_eq!(output_path_for(Path::new("/v/My Clip.mkv"), false, true), PathBuf::from("/v/My Clip-trim.mp4"));

@@ -131,13 +131,17 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-73-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Tests](https://img.shields.io/badge/tests-1157%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-166-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-57-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
-  [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
-  [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
-  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
+  [![Media](https://img.shields.io/badge/media-record%20·%20download%20·%20trim%20·%20swap-CE422B?style=flat-square)](#)
+  [![Motion](https://img.shields.io/badge/motion-Material%203%20Expressive-blueviolet?style=flat-square)](#)
+  [![Tabs](https://img.shields.io/badge/popup%20tabs-5-blueviolet?style=flat-square)](#)
+  [![DB tables](https://img.shields.io/badge/SQLite%20tables-5-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
+  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-11-blueviolet?style=flat-square)](#)
   [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-4-blueviolet?style=flat-square)](./docs/text-expander.md)
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
 
@@ -453,6 +457,12 @@ Each banner:
 - **App-name baked into filename** — the frontmost app is read *before* the region picker fires; saved file becomes `Safari-20260524-153012.png`. Edited variants use `-edited`.
 - **Annotation editor** — Pencil opens a separate Tauri window with nine tools: **Arrow / Line / Text / Rectangle / Ellipse / Highlight / Blur** (mosaic, samples the source so undo is non-destructive) **/ Redact** (opaque block) **/ Step** (auto-numbered badges). 4 colour presets, 2–16 px stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` save, `Esc` cancel, single-key tool switches (`A`/`L`/`T`/`R`/`E`/`H`/`B`/`X`/`N`). Full-resolution canvas. Geometry lives in a pure, unit-tested module.
 - **Pin to screen** — float a capture as its own persistent, draggable, always-on-top window; multiple pins coexist, close per pin. (Distinct from the HUD's **Pin** toggle, which only keeps the preview across the next shot.)
+
+### Media tools — record · download · trim · swap (v0.81.0 → v0.84.x, ffmpeg)
+- **Screen recording** (`Ctrl+Shift+Alt+S`, macOS) — region select → pick audio (system / mic / both, mic boosted +10 dB) → 3-2-1 countdown → MP4 (H.264) to Downloads, with a floating stop bar that **pauses/resumes** (segment + lossless concat). Multi-monitor (records the screen under the cursor). System audio auto-routes through a BlackHole multi-output device and restores your default afterwards; the captured audio is de-clicked (`adeclick`), time-corrected (`atempo`), and encoded at 256 k AAC / 48 kHz. The arg builders + audio-sync math are pure and unit-tested.
+- **Replace / overlay audio** (`Ctrl+Shift+Alt+M`, macOS) — select a video in Finder → an overlay to **replace** the audio track or **mix** a new one over it, at a chosen start position with optional trim and per-track volume. The new audio is a local file or a **yt-dlp'd YouTube track**. Video is stream-copied (fast/lossless), output is a sibling `-audioswap.mp4`.
+- **Download social media** — paste/copy a **YouTube / Instagram / TikTok / Facebook** URL; it's auto-detected (in a clip or the search bar) and the preview offers **Download video** (all) + **Download audio** (YouTube). H.264 is preferred so files play in QuickTime; on YouTube's "confirm you're not a bot" gate it transparently retries with your browser cookies (Chrome / Firefox / Brave / Edge). Files land in `~/Downloads` with the **download timestamp** (so they sort newest-first). Powered by yt-dlp.
+- **Trim** (`trim` command) — pick a local audio/video file, set start/end on a timeline, and cut it **lossless & fast** (`-c copy`, snaps to keyframes) or **frame-accurate** (re-encode). Saves a sibling `-trim` copy.
 
 ### Finder selection actions (v0.30.0, macOS)
 - **`Ctrl+Shift+F`** — `osascript` reads the current Finder selection (with TCC Automation → Finder grant, prompted on first use). The popup opens with the selected files listed at top, each with a `finder` chip.

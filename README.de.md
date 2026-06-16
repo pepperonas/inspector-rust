@@ -131,13 +131,17 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-73-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Tauri events](https://img.shields.io/badge/events-11-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-24-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Tests](https://img.shields.io/badge/tests-1157%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-166-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-57-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
-  [![Tabs](https://img.shields.io/badge/popup%20tabs-4-blueviolet?style=flat-square)](#)
-  [![DB tables](https://img.shields.io/badge/SQLite%20tables-4-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
-  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-4-blueviolet?style=flat-square)](#)
+  [![Media](https://img.shields.io/badge/media-record%20·%20download%20·%20trim%20·%20swap-CE422B?style=flat-square)](#)
+  [![Motion](https://img.shields.io/badge/motion-Material%203%20Expressive-blueviolet?style=flat-square)](#)
+  [![Tabs](https://img.shields.io/badge/popup%20tabs-5-blueviolet?style=flat-square)](#)
+  [![DB tables](https://img.shields.io/badge/SQLite%20tables-5-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
+  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-11-blueviolet?style=flat-square)](#)
   [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-4-blueviolet?style=flat-square)](./docs/text-expander.md)
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
 
@@ -448,6 +452,12 @@ Jedes Banner:
 - **App-Name im Dateinamen** — `osascript` liest die Frontmost-App *bevor* der Region-Picker startet; gespeicherte Datei wird `Safari-20260524-153012.png`. Alphabetische Sortierung im Finder gruppiert nach App. Bearbeitete Varianten bekommen `-edited` Suffix.
 - **Annotations-Editor** — Stift öffnet ein separates Tauri-Fenster mit fünf Tools: **Pfeil / Text / Rect / Highlight / Blur** (Mosaik-Pixelung, sampled aus der Quelle, also Undo non-destruktiv). 4 Farb-Presets, 2–16 px Stroke. Hotkeys: `⌘Z`/`⌘⇧Z` undo/redo, `⌘S` speichern, `Esc` abbrechen, Tool-Switches per Einzel-Taste (`A`/`T`/`R`/`H`/`B`). Canvas ist in nativer Pixel-Auflösung des Screenshots, das gespeicherte PNG also full-resolution.
 - **Pin-Verhalten** — solange gepinnt, schreibt der nächste Screenshot zwar weiterhin in Clipboard + History, ersetzt aber nicht die sichtbare Vorschau. Nützlich für Batch-Capture-and-Annotate-Workflows.
+
+### Media-Tools — aufnehmen · downloaden · trimmen · tauschen (v0.81.0 → v0.84.x, ffmpeg)
+- **Bildschirmaufnahme** (`Ctrl+Shift+Alt+S`, macOS) — Bereich wählen → Audio (System / Mic / beides, Mic +10 dB) → 3-2-1 → MP4 (H.264) nach Downloads, mit schwebender Stop-Leiste die **pausieren/fortsetzen** kann (Segmente + verlustfreies Concat). Multi-Monitor (nimmt den Bildschirm unter dem Cursor auf). System-Audio routet automatisch über ein BlackHole-Multi-Output und stellt deinen Default danach wieder her; der Ton wird ent-klickt (`adeclick`), zeitkorrigiert (`atempo`) und mit 256 k AAC / 48 kHz kodiert. Arg-Builder + Audio-Sync-Mathematik sind pure + unit-getestet.
+- **Audio ersetzen / überlagern** (`Ctrl+Shift+Alt+M`, macOS) — Video im Finder wählen → Overlay zum **Ersetzen** der Tonspur oder **Mischen** einer neuen darüber, an gewählter Startposition mit optionalem Trim + Lautstärke pro Spur. Die neue Audio ist eine lokale Datei oder ein **yt-dlp-YouTube-Track**. Video wird stream-kopiert (schnell/verlustfrei), Ausgabe ist ein `-audioswap.mp4` daneben.
+- **Social-Media-Download** — **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren; auto-erkannt (in Clip oder Suchleiste), die Preview bietet **Video laden** (alle) + **Audio laden** (YouTube). H.264 wird bevorzugt, damit die Datei in QuickTime spielt; bei YouTubes „confirm you're not a bot"-Sperre wird transparent mit deinen Browser-Cookies (Chrome / Firefox / Brave / Edge) erneut versucht. Dateien landen in `~/Downloads` mit dem **Download-Zeitstempel** (sortieren also neueste-zuerst). Per yt-dlp.
+- **Trimmen** (`trim`-Command) — lokale Audio-/Videodatei wählen, Start/Ende auf einer Timeline setzen, und schneiden — **verlustfrei & schnell** (`-c copy`, snapt auf Keyframes) oder **frame-genau** (re-encode). Speichert eine `-trim`-Kopie.
 
 ### Finder-Selection-Actions (v0.30.0, macOS)
 - **`Ctrl+Shift+F`** — `osascript` liest die Finder-Selection (mit TCC-Automation→Finder-Grant, beim ersten Mal angefragt). Popup öffnet sich mit den selektierten Dateien an der Spitze, jede mit `finder`-Chip.

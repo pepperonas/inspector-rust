@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.33] — 2026-06-16
+
+### Docs & tests
+
+- **README badges** refreshed + extended: corrected stale counts (IPC commands 166,
+  events 26, Rust modules 51, global hotkeys 11, SQLite tables 5, popup tabs 5) and
+  added **tests (1157 passing)**, **search-bar commands (57)**, a **media**
+  (record · download · trim · swap) and a **Material 3 Expressive motion** badge.
+- New **"Media tools"** prose section in `README.md` / `README.de.md` covering
+  screen recording, audio swap, social download, and trim.
+- **More unit tests** for the new media features: real-world social-URL variants +
+  audio-mode flags + the cookie-fallback list (`social_dl`), faststart / lossless-
+  audio / time formatting (`media_trim`), and extra `detectSocial` shapes (frontend).
+
 ## [0.84.32] — 2026-06-16
 
 ### Docs

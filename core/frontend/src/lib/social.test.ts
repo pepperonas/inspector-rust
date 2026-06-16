@@ -23,8 +23,17 @@ describe("detectSocial", () => {
     expect(detectSocial("just some text")).toBeNull();
     expect(detectSocial("youtube.com/x")).toBeNull(); // no scheme
   });
-  it("labels platforms", () => {
+  it("classifies real-world URL shapes", () => {
+    expect(detectSocial("https://www.youtube.com/shorts/abc")?.platform).toBe("youtube");
+    expect(detectSocial("https://m.youtube.com/watch?v=x")?.platform).toBe("youtube");
+    expect(detectSocial("https://www.instagram.com/tv/x/")?.platform).toBe("instagram");
+    expect(detectSocial("https://vm.tiktok.com/ZMabc/")?.platform).toBe("tiktok");
+    expect(detectSocial("https://www.facebook.com/reel/1")?.platform).toBe("facebook");
+  });
+  it("labels every platform", () => {
     expect(platformLabel("youtube")).toBe("YouTube");
+    expect(platformLabel("instagram")).toBe("Instagram");
     expect(platformLabel("tiktok")).toBe("TikTok");
+    expect(platformLabel("facebook")).toBe("Facebook");
   });
 });

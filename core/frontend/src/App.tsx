@@ -102,7 +102,6 @@ import {
   cleanerExecute,
   listMemes,
   copyMeme,
-  socialDownload,
   trimOpenOverlay,
   qrCopyPng,
   showStatusToast,
@@ -1009,6 +1008,35 @@ function App() {
     filteredClips,
   ]);
 
+  // Social download: Tab toggles video↔audio for a selected YouTube `social`
+  // row; the global Enter bumps `socialRunSignal` so the preview bar runs the
+  // chosen mode (and shows its progress animation). `socialMode` drives the
+  // highlighted button in the preview.
+  const [socialMode, setSocialMode] = useState<"video" | "audio">("video");
+  const [socialRunSignal, setSocialRunSignal] = useState(0);
+  const selectedSocial = combined[selected]?.kind === "social" ? combined[selected] : null;
+  const selectedSocialUrl =
+    selectedSocial?.kind === "social" ? selectedSocial.data.url : null;
+  const selectedSocialIsYt =
+    selectedSocial?.kind === "social" && selectedSocial.data.platform === "youtube";
+  // Reset to video whenever the selected social URL changes (new suggestion).
+  useEffect(() => {
+    setSocialMode("video");
+  }, [selectedSocialUrl]);
+  // Tab (capture phase, before useKeyboardNav's bubble handler) flips the mode.
+  useEffect(() => {
+    if (!selectedSocialIsYt || gameMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSocialMode((m) => (m === "video" ? "audio" : "video"));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedSocialIsYt, gameMode]);
+
   // ← / → cycle through openers while the opener row is selected. Only
   // wired when that's actually true so the search-bar input's normal
   // cursor-movement on Left/Right still works for every other row.
@@ -1827,12 +1855,11 @@ function App() {
         }
         await hidePopup();
       } else if (target.kind === "social") {
-        // Default = download the video; the preview also offers audio for
-        // YouTube. Fire-and-forget (the backend reveals the file in Finder on
-        // completion); keep the popup open so the audio option stays reachable.
-        void socialDownload(target.data.url, "video").catch((e) =>
-          console.error("social download failed", e),
-        );
+        // Download the Tab-selected mode (video by default; YouTube also offers
+        // audio — Tab flips it). Routed through the preview bar via a run signal
+        // so its progress animation shows; the popup stays open and the backend
+        // reveals the file in Finder on completion.
+        setSocialRunSignal((n) => n + 1);
         return;
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting
@@ -2260,6 +2287,9 @@ function App() {
                   await writeText(current.data.password);
                   await hidePopup();
                 }}
+                socialMode={socialMode}
+                onSocialModeChange={setSocialMode}
+                socialRunSignal={socialRunSignal}
               />
               )}
             </div>

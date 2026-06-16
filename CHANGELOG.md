@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.37] — 2026-06-16
+
+### Added
+
+- **Tab switches video / audio on a YouTube download suggestion.** When a YouTube
+  `social` row is selected, **Tab** now flips the download target between
+  **Download video** and **Download audio** (the selected one is highlighted), and
+  **Enter** downloads the chosen one. The Enter path is routed through the preview
+  bar so it shows the same progress animation as a click. Non-YouTube platforms
+  (video-only) are unaffected. (`socialMode` + a run-signal in `App.tsx`;
+  `SocialDownloadBar` becomes controllable.)
+
+### Verified
+
+- **`wakelock` / `caffeine` are enterable on every OS.** Neither command carries a
+  platform gate, and the keep-awake backend has macOS (`caffeinate`), Windows
+  (`SetThreadExecutionState` + F15 nudge) and Linux (`systemd-inhibit`) impls — so
+  the same command triggers the equivalent logic everywhere. Locked in with a
+  cross-OS `isCommandAvailable` regression test.
+
 ## [0.84.36] — 2026-06-16
 
 ### Added

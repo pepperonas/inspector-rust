@@ -49,6 +49,12 @@ interface Props {
   onPwgenEditingChange?: (editing: boolean) => void;
   /** Enter in the password field — copy the (possibly edited) password. */
   onPwgenCommit?: () => void;
+  /** Tab-selected download mode for the selected `social` (YouTube) row. */
+  socialMode?: "video" | "audio";
+  /** A social download button was clicked — sync the Tab selection. */
+  onSocialModeChange?: (m: "video" | "audio") => void;
+  /** Bumped by the global Enter key to trigger a download of `socialMode`. */
+  socialRunSignal?: number;
 }
 
 /** One label/value line in the Bruno (net-pay) breakdown. Module-level so its
@@ -89,6 +95,9 @@ export function PreviewPanel({
   onPwgenEdit,
   onPwgenEditingChange,
   onPwgenCommit,
+  socialMode,
+  onSocialModeChange,
+  socialRunSignal,
 }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -169,7 +178,12 @@ export function PreviewPanel({
         <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           {entry.data.url}
         </div>
-        <SocialDownloadBar target={entry.data} />
+        <SocialDownloadBar
+          target={entry.data}
+          mode={socialMode}
+          onModeChange={onSocialModeChange}
+          runSignal={socialRunSignal}
+        />
       </div>
     );
   }
@@ -882,7 +896,28 @@ function DownloadAnimation({ label }: { label: string }) {
   );
 }
 
-function SocialDownloadBar({ target }: { target: SocialTarget }) {
+/**
+ * Download bar for a detected social URL.
+ *
+ * When the row is the selected `social` entry, App.tsx drives it as a
+ * **controlled** component: `mode` is the Tab-selected target (video/audio,
+ * highlighted), `onModeChange` reports button clicks back up, and bumping
+ * `runSignal` triggers a download of the current `mode` from the global Enter
+ * key — so the keyboard path shows the same in-bar progress animation as a
+ * click. In the clip-preview path the controlled props are omitted and the bar
+ * works standalone (video is the visual default; YouTube also offers audio).
+ */
+function SocialDownloadBar({
+  target,
+  mode,
+  onModeChange,
+  runSignal,
+}: {
+  target: SocialTarget;
+  mode?: "video" | "audio";
+  onModeChange?: (m: "video" | "audio") => void;
+  runSignal?: number;
+}) {
   const [available, setAvailable] = useState(true);
   const [busy, setBusy] = useState<null | "video" | "audio">(null);
   const [done, setDone] = useState<string | null>(null);
@@ -892,13 +927,13 @@ function SocialDownloadBar({ target }: { target: SocialTarget }) {
     void socialYtdlpAvailable().then(setAvailable).catch(() => setAvailable(false));
   }, []);
 
-  const run = async (mode: "video" | "audio") => {
+  const run = async (m: "video" | "audio") => {
     if (busy) return;
-    setBusy(mode);
+    setBusy(m);
     setError(null);
     setDone(null);
     try {
-      const out = await socialDownload(target.url, mode);
+      const out = await socialDownload(target.url, m);
       setDone(out.split(/[/\\]/).pop() || out);
     } catch (e) {
       const msg = String(e);
@@ -907,6 +942,17 @@ function SocialDownloadBar({ target }: { target: SocialTarget }) {
       setBusy(null);
     }
   };
+
+  // Global Enter (handled in App.tsx) bumps `runSignal` → download the
+  // Tab-selected mode here, so the progress animation shows.
+  const prevSignal = useRef(runSignal ?? 0);
+  useEffect(() => {
+    if (runSignal === undefined || runSignal === prevSignal.current) return;
+    prevSignal.current = runSignal;
+    void run(mode ?? "video");
+    // `run` is stable enough for this fire-on-signal; mode read at call time.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runSignal]);
 
   if (!available) {
     return (
@@ -923,26 +969,46 @@ function SocialDownloadBar({ target }: { target: SocialTarget }) {
       />
     );
   }
+  // Highlight the active (Tab-selected) button when controlled; otherwise video
+  // keeps the standalone "primary" look.
+  const controlled = mode !== undefined;
+  const videoActive = controlled ? mode === "video" : true;
+  const audioActive = controlled ? mode === "audio" : false;
+  const accentBtn =
+    "md3-press flex flex-1 items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 text-[12px] font-medium text-[var(--color-accent-fg)]";
+  const outlineBtn =
+    "md3-press flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)]";
   return (
     <div className="mt-3 flex flex-col gap-2">
       <div className="flex gap-2">
         <button
-          onClick={() => run("video")}
-          className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 text-[12px] font-medium text-[var(--color-accent-fg)]"
+          onClick={() => {
+            onModeChange?.("video");
+            void run("video");
+          }}
+          className={videoActive ? accentBtn : outlineBtn}
         >
           <Download size={13} />
           Download video
         </button>
         {isYt && (
           <button
-            onClick={() => run("audio")}
-            className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)]"
+            onClick={() => {
+              onModeChange?.("audio");
+              void run("audio");
+            }}
+            className={audioActive ? accentBtn : outlineBtn}
           >
             <Music size={13} />
             Download audio
           </button>
         )}
       </div>
+      {isYt && controlled && (
+        <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          ⇥ Tab switches video / audio &nbsp;·&nbsp; ⏎ Enter downloads the selected one
+        </div>
+      )}
       {error && <div className="text-[11px] text-rose-400">{error}</div>}
       {done && (
         <div className="md3-banner-in flex items-center gap-1 text-[11px] text-emerald-400">

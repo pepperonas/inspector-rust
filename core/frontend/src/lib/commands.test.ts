@@ -64,6 +64,19 @@ describe("COMMANDS catalogue", () => {
     expect(isCommandAvailable(tren, "linux")).toBe(true);
   });
 
+  it("wakelock + caffeine are enterable on every OS (cross-platform backend)", () => {
+    // The keep-awake backend has macOS (caffeinate), Windows
+    // (SetThreadExecutionState + F15) and Linux (systemd-inhibit) impls, so
+    // neither keyword carries a platform gate — both surface everywhere.
+    for (const kw of ["wakelock", "caffeine"]) {
+      const spec = COMMANDS.find((c) => c.keyword === kw)!;
+      expect(spec.platform).toBeUndefined();
+      expect(isCommandAvailable(spec, "mac")).toBe(true);
+      expect(isCommandAvailable(spec, "win")).toBe(true);
+      expect(isCommandAvailable(spec, "linux")).toBe(true);
+    }
+  });
+
   it("wakelock + caffeine are on/off arg commands (no more =1/=0)", () => {
     const wl = COMMANDS.filter((c) => c.kind === "wakelock");
     expect(wl.map((c) => c.keyword).sort()).toEqual(["caffeine", "wakelock"]);

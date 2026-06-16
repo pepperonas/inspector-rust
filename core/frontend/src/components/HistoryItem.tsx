@@ -114,7 +114,10 @@ export const HistoryItem = memo(function HistoryItem({
     isBpm ||
     isTotp ||
     isKillTarget ||
-    isMeme;
+    isMeme ||
+    // Calculator / converter results: highlighted + animated like a command
+    // (v0.84.27) — typing an expression should feel as "active" as a keyword.
+    isCalc;
   const isOpener = entry.kind === "opener";
   const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";

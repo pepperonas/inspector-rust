@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.27] — 2026-06-16
+
+### Changed — calculator input is highlighted + animated like a command
+
+Using the calculator/converter now feels as "active" as a keyword command: the
+search input turns **rose** with a pulsing calculator icon while computing, and
+the result row gets the same reddish accent + entrance/icon-pop animation as the
+command rows (previously it stayed neutral). The calc row's React key was made
+stable so the animation fires once when the result appears, not on every keystroke.
+
 ## [0.84.26] — 2026-06-16
 
 ### Added — two new curated AI-prompt snippets

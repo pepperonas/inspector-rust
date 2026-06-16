@@ -144,7 +144,10 @@ export function HistoryList({
                 entry.kind === "snippet"
                   ? `s-${entry.data.id}`
                   : entry.kind === "calc"
-                    ? `calc-${entry.data.expression}`
+                    ? // Stable across keystrokes (no expression in the key): the row
+                      // updates in place as you type, so its command-style entrance
+                      // + icon-pop fire once when the result appears, not per key.
+                      `calc`
                     : entry.kind === "color"
                       ? `color-${entry.data.hex}`
                       : entry.kind === "command"

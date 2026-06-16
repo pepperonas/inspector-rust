@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { RefObject } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
@@ -492,7 +493,7 @@ export function ScreenshotEditor() {
               />
               {textInput && (
                 <TextInputOverlay
-                  canvas={canvasRef.current}
+                  canvasRef={canvasRef}
                   input={textInput}
                   color={color}
                   fontSize={Math.max(14, strokeWidth * 4)}
@@ -641,7 +642,7 @@ function IconButton({
 // ── Inline text input overlay ──────────────────────────────────────
 
 function TextInputOverlay({
-  canvas,
+  canvasRef,
   input,
   color,
   fontSize,
@@ -649,7 +650,7 @@ function TextInputOverlay({
   onCommit,
   onCancel,
 }: {
-  canvas: HTMLCanvasElement | null;
+  canvasRef: RefObject<HTMLCanvasElement | null>;
   input: { x: number; y: number; value: string };
   color: string;
   fontSize: number;
@@ -658,17 +659,27 @@ function TextInputOverlay({
   onCancel: () => void;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
+  // Read the canvas geometry in a layout effect (refs must not be read during
+  // render) — runs before paint, so the input is positioned with no flash.
+  const [geom, setGeom] = useState<{ left: number; top: number; fontPx: number } | null>(null);
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    const cssScaleX = rect.width / canvas.width;
+    const cssScaleY = rect.height / canvas.height;
+    setGeom({
+      left: input.x * cssScaleX,
+      // Center the input vertically on the click point, like the bake-out
+      // text-y position (which uses fillText baseline=middle).
+      top: input.y * cssScaleY - (fontSize * cssScaleY) / 2,
+      fontPx: fontSize * cssScaleY,
+    });
+  }, [canvasRef, input.x, input.y, fontSize]);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-  if (!canvas) return null;
-  const rect = canvas.getBoundingClientRect();
-  const cssScaleX = rect.width / canvas.width;
-  const cssScaleY = rect.height / canvas.height;
-  const left = input.x * cssScaleX;
-  // Center the input vertically on the click point, like the bake-out
-  // text-y position (which uses fillText baseline=middle).
-  const top = input.y * cssScaleY - (fontSize * cssScaleY) / 2;
+  if (!geom) return null;
   return (
     <input
       ref={inputRef}
@@ -690,9 +701,9 @@ function TextInputOverlay({
       }}
       style={{
         position: "absolute",
-        left,
-        top,
-        fontSize: fontSize * cssScaleY,
+        left: geom.left,
+        top: geom.top,
+        fontSize: geom.fontPx,
         color,
         background: "rgba(0,0,0,0.4)",
         border: "1px dashed rgba(255,255,255,0.5)",

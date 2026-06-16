@@ -35,7 +35,6 @@ export function useTauriEvent<T = unknown>(
   handler: EventCallback<T>,
   deps: React.DependencyList = [],
 ): void {
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     let cancelled = false;
     let unlisten: UnlistenFn | undefined;

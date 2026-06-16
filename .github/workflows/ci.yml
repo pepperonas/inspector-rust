@@ -24,7 +24,8 @@ jobs:
             patchelf \
             libxdo-dev \
             libxcb-shape0-dev \
-            libxcb-xfixes0-dev
+            libxcb-xfixes0-dev \
+            libudev-dev
 
       - uses: dtolnay/rust-toolchain@stable
 

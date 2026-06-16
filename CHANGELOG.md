@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.38] — 2026-06-16
+
+### Fixed (CI green)
+
+- **Rust CI build failed on Linux** — `ddc-hi` (Linux DDC/CI brightness) pulls
+  `udev` → `libudev-sys`, whose build needs `libudev-dev`. Added it to the CI
+  workflow's apt install step.
+- **Frontend lint failed CI** — two issues: `ScreenshotEditor`'s `TextInputOverlay`
+  read `canvasRef.current` during render (`react-hooks/refs` error) — it now takes
+  the ref object and reads the canvas geometry in a `useLayoutEffect` (positioned
+  before paint, no flash); and a stale, unused `eslint-disable` directive in
+  `useTauriEvent` was removed.
+
 ## [0.84.37] — 2026-06-16
 
 ### Added

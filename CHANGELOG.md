@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.47] — 2026-06-17
+
+### Fixed
+
+- **BPM detector no longer stutters other apps' audio on start.** `latencyHint:
+  "playback"` (v0.84.45) wasn't enough on its own: the AAA visualizer's per-frame
+  canvas/GPU work piled onto the ~1 s window where macOS reconfigures the shared
+  input/output device on mic-open. The detector now runs only the cheap detection
+  during a 900 ms warm-up and **defers the heavy spectrum read + particles +
+  `drawScene`** until the device has settled (the viz fades in a beat late;
+  detection is unaffected — `BpmAnalyzer` needs ~3 s of baseline anyway).
+
 ## [0.84.46] — 2026-06-17
 
 ### Added

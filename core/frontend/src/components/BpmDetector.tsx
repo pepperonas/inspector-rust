@@ -276,46 +276,56 @@ export function BpmDetector({ onExit }: Props) {
 
         const timeBuf = new Float32Array(detect.fftSize);
         const freqBuf = new Uint8Array(viz.frequencyBinCount);
+        // Opening the mic makes macOS reconfigure the shared input/output audio
+        // device; for ~1 s the output can stutter while it settles. The AAA
+        // visualizer's per-frame canvas/GPU work piles onto that exact window,
+        // so we run only the *cheap* detection during a short warm-up and defer
+        // the heavy spectrum read + particles + drawScene until the device has
+        // settled. Detection isn't hurt (BpmAnalyzer needs ~3 s of baseline
+        // anyway), and the user just sees the viz fade in a beat late.
+        const startT = performance.now();
+        const WARMUP_MS = 900;
 
         const tick = () => {
           if (cancelled || !detectAnalyserRef.current || !vizAnalyserRef.current) return;
           const now = performance.now();
 
-          // — detection —
+          // — detection (always; cheap) —
           detectAnalyserRef.current.getFloatTimeDomainData(timeBuf);
           analyzerRef.current.push(timeBuf, now);
           const est = analyzerRef.current.estimate(now);
           const energy = analyzerRef.current.currentEnergy();
           levelRef.current = energy;
 
-          // — spectrum —
-          vizAnalyserRef.current.getByteFrequencyData(freqBuf);
-
           const v = vizRef.current;
           const dt = Math.min(0.05, Math.max(0.001, (now - v.lastT) / 1000));
           v.lastT = now;
 
-          const intensity = clamp01(energy * 8); // bass kick → [0,1]
-          smoothBars(v.bars, spectrumBars(freqBuf, BAR_COUNT, 0.62), dt, 0.55, 5);
-          v.smoothEnergy = lerp(v.smoothEnergy, intensity, clamp01(dt * 9));
-          v.bpm = est.bpm;
-          v.confidence = est.confidence;
-          v.hasBeat = est.bpm > 0;
+          // — heavy viz, deferred until the audio device has settled —
+          if (now - startT >= WARMUP_MS) {
+            vizAnalyserRef.current.getByteFrequencyData(freqBuf);
+            const intensity = clamp01(energy * 8); // bass kick → [0,1]
+            smoothBars(v.bars, spectrumBars(freqBuf, BAR_COUNT, 0.62), dt, 0.55, 5);
+            v.smoothEnergy = lerp(v.smoothEnergy, intensity, clamp01(dt * 9));
+            v.bpm = est.bpm;
+            v.confidence = est.confidence;
+            v.hasBeat = est.bpm > 0;
 
-          if (est.beatJustFired) {
-            v.beatFlash = Math.max(v.beatFlash, 0.55 + intensity * 0.45);
-            v.coreKick = 1;
-            v.shocks.push({ age: 0, intensity });
-            spawnParticles(v, intensity);
+            if (est.beatJustFired) {
+              v.beatFlash = Math.max(v.beatFlash, 0.55 + intensity * 0.45);
+              v.coreKick = 1;
+              v.shocks.push({ age: 0, intensity });
+              spawnParticles(v, intensity);
+            }
+            // decays (frame-rate corrected) + slow living rotation
+            v.beatFlash *= Math.exp(-6 * dt);
+            v.coreKick *= Math.exp(-9 * dt);
+            v.rotation += dt * (0.06 + v.smoothEnergy * 0.22);
+            stepParticles(v, dt);
+            stepShocks(v, dt);
+
+            drawScene(canvasRef.current, v);
           }
-          // decays (frame-rate corrected) + slow living rotation
-          v.beatFlash *= Math.exp(-6 * dt);
-          v.coreKick *= Math.exp(-9 * dt);
-          v.rotation += dt * (0.06 + v.smoothEnergy * 0.22);
-          stepParticles(v, dt);
-          stepShocks(v, dt);
-
-          drawScene(canvasRef.current, v);
           rafRef.current = requestAnimationFrame(tick);
         };
         rafRef.current = requestAnimationFrame(tick);

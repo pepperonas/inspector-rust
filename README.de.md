@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — keyboard-first Clipboard-Toolkit" width="600" />
+  <img src="docs/ir.png?v=5" alt="Inspector Rust — keyboard-first Clipboard-Toolkit" width="600" />
 
   # Inspector Rust 🕵️‍♂️
 
@@ -235,10 +235,6 @@ Literal Control auf jedem OS — dieselbe Taste auf Windows und macOS. OCR + Scr
 Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben Popup hinter Tabs oben rechts — es gibt kein separates Fenster zum Alt-Tabben. **Settings → Keyboard shortcuts** trägt das komplette Cheat-Sheet.
 
 ## Features & Shortcuts auf einen Blick
-
-<div align="center">
-  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — Keyboard-first Clipboard-Toolkit" width="600" />
-</div>
 
 ### 🔥🔥🔥 Globale Hotkeys — fire and forget, von überall 🔥🔥🔥
 

@@ -5,7 +5,7 @@
 </div>
 
 <div align="center">
-  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
+  <img src="docs/ir.png?v=5" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
 
   # Inspector Rust 🕵️‍♂️
 
@@ -237,10 +237,6 @@ Literal Control on every OS — same key on Windows and macOS. OCR + screenshot 
 Everything else (snippets management, notes, settings, image tools) lives in the same popup behind tabs in the top-right — there's no separate window to alt-tab to. **Settings → Keyboard shortcuts** carries the full cheat sheet.
 
 ## Features & shortcuts at a glance
-
-<div align="center">
-  <img src="docs/ir-w1024.png?v=4" alt="Inspector Rust — keyboard-first clipboard toolkit" width="600" />
-</div>
 
 ### 🔥🔥🔥 Global hotkeys — fire and forget, from anywhere 🔥🔥🔥
 

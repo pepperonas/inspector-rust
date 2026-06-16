@@ -1753,13 +1753,17 @@ pub fn qr_copy_png(
     let bytes = B64
         .decode(png_b64.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
-    // Arm the watcher to skip the round-trip, then put the image on the
-    // clipboard via the shared helper.
-    watcher.mark_self_write(crate::models::ContentType::Image, &png_b64);
-    crate::image_ops::write_clipboard_png(&bytes).map_err(map_err)?;
+    // Put the QR image on the clipboard. The canonical b64 it returns is the PNG
+    // re-encoded through clipboard-rs's encoder — exactly what the watcher reads
+    // back — so we arm the fuse + store *that* payload. Otherwise the watcher's
+    // read-back b64 wouldn't match the frontend-canvas b64 and a duplicate
+    // `[image W×H]` entry would land next to the intended `[qr · …]` one.
+    let canon_b64 = crate::image_ops::write_clipboard_png_canonical(&bytes).map_err(map_err)?;
+    watcher.mark_self_write(crate::models::ContentType::Image, &canon_b64);
 
+    let byte_size = (canon_b64.len() * 3 / 4) as i64; // decoded bytes ≈ b64 len × 3/4
     let summary = if label.trim().is_empty() {
-        format!("[qr · {} B]", bytes.len())
+        format!("[qr · {byte_size} B]")
     } else {
         format!("[qr · {}]", label.trim())
     };
@@ -1768,8 +1772,8 @@ pub fn qr_copy_png(
         &crate::models::NewClip {
             content_type: crate::models::ContentType::Image,
             content_text: summary,
-            content_data: png_b64,
-            byte_size: bytes.len() as i64,
+            content_data: canon_b64,
+            byte_size,
         },
     )
     .map_err(map_err)?;

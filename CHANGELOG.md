@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.35] — 2026-06-16
+
+### Fixed
+
+- **`qr <text>` Enter → clean clipboard copy.** Pressing Enter on the QR command
+  already put the PNG on the system clipboard, but the watcher then re-captured
+  it as a second `[image W×H]` row next to the intended `[qr · …]` entry (its
+  read-back PNG bytes differed from the frontend-canvas bytes, so the
+  self-write fuse never matched). `qr_copy_png` now writes via the new
+  `image_ops::write_clipboard_png_canonical`, which re-encodes through
+  clipboard-rs's own PNG encoder and returns that **canonical** base64 — used
+  for both the `mark_self_write` fuse and the stored history payload. Result:
+  one clean QR entry, and the stored clip is byte-identical to what's on the
+  clipboard (paste-ready).
+
 ## [0.84.34] — 2026-06-16
 
 ### Added

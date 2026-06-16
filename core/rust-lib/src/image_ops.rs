@@ -277,6 +277,28 @@ pub fn write_clipboard_png(bytes: &[u8]) -> Result<()> {
     Ok(())
 }
 
+/// Like [`write_clipboard_png`], but also returns the **canonical** PNG base64 —
+/// the bytes re-encoded through clipboard-rs's own PNG encoder, which is exactly
+/// what the watcher will read back off the clipboard. Callers (e.g. `qr_copy_png`)
+/// use this for the `mark_self_write` fuse + the stored history payload so the
+/// watcher recognises our own write and doesn't create a duplicate `[image …]`
+/// entry alongside the intended one.
+pub fn write_clipboard_png_canonical(bytes: &[u8]) -> Result<String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    let ctx = ClipboardContext::new()
+        .map_err(|e| anyhow!("clipboard ctx init failed: {e:?}"))?;
+    let img = RustImageData::from_bytes(bytes)
+        .map_err(|e| anyhow!("decode PNG for clipboard write: {e:?}"))?;
+    // Canonicalise through the same encoder the watcher uses on read-back.
+    let canon = img
+        .to_png()
+        .map_err(|e| anyhow!("re-encode PNG for clipboard write: {e:?}"))?;
+    let canon_b64 = B64.encode(canon.get_bytes());
+    ctx.set_image(img)
+        .map_err(|e| anyhow!("clipboard set_image failed: {e:?}"))?;
+    Ok(canon_b64)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

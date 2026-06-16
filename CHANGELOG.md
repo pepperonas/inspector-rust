@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.24] — 2026-06-16
+
+### Fixed — screen-recording audio quality (low bitrate / crackle)
+
+Recorded audio was poor and crackly because ffmpeg's native AAC encoder, with no
+explicit bitrate, defaulted to a very low rate (~62 kbps measured) — which sounds
+like artefacts/crackle on music and system audio. Every audio path (and the
+`atempo` sync re-encode, which would otherwise silently downgrade it again) now
+encodes at **256 kbps AAC** at a standardised **48 kHz**, and the avfoundation /
+dshow / pulse capture inputs get a generous **`-thread_queue_size 1024`** so the
+capture doesn't drop packets (clicks) under load. Measured: the audio bitrate
+went from ~62 kbps to a proper 256/170 kbps; no encoder warnings.
+
 ## [0.84.23] — 2026-06-16
 
 ### Security — audio-swap YouTube URL hardening

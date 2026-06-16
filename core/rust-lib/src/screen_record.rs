@@ -35,6 +35,19 @@ pub struct AudioChoice {
 
 const FPS: u32 = 30;
 
+/// AAC bitrate for the recorded audio. Without an explicit `-b:a`, ffmpeg's
+/// native AAC encoder defaults to a very low rate (~62 kbps was measured), which
+/// sounds poor / "crackly" on music + system audio. 256 kbps is transparent for
+/// stereo. Applied on every audio path **and** the `atempo` re-encode (else that
+/// pass would silently downgrade the quality back to the default).
+const AUDIO_BITRATE: &str = "256k";
+/// Output audio sample rate. Standardises the BlackHole loopback's 44.1 kHz and
+/// the mic's 48 kHz onto one rate so the encoder/mix don't resample unevenly.
+const AUDIO_RATE: &str = "48000";
+/// avfoundation/dshow/x11grab capture buffer (frames). Too small a queue makes
+/// ffmpeg drop audio packets under load → clicks/crackle. Set generously.
+const THREAD_QUEUE: &str = "1024";
+
 /// Gain applied to the (typically quiet) microphone input. macOS built-in mics
 /// record well below line level; +10 dB lifts speech to a usable range while
 /// staying clear of clipping for normal voice. System/loopback audio is left
@@ -260,6 +273,8 @@ pub fn build_args_macos(
     // inside the filter graph; system-only is never boosted.
     let primary_is_mic = system.is_none() && mic.is_some();
 
+    a.push("-thread_queue_size".into());
+    a.push(THREAD_QUEUE.into());
     a.push("-f".into());
     a.push("avfoundation".into());
     a.push("-capture_cursor".into());
@@ -273,6 +288,8 @@ pub fn build_args_macos(
     ));
 
     if let Some(m) = second_audio {
+        a.push("-thread_queue_size".into());
+        a.push(THREAD_QUEUE.into());
         a.push("-f".into());
         a.push("avfoundation".into());
         a.push("-i".into());
@@ -299,6 +316,7 @@ pub fn build_args_macos(
         a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
+        push_audio_quality(&mut a);
     } else if primary_audio.is_some() {
         a.push("-vf".into());
         a.push(crop);
@@ -310,6 +328,7 @@ pub fn build_args_macos(
         }
         a.push("-c:a".into());
         a.push("aac".into());
+        push_audio_quality(&mut a);
     } else {
         a.push("-vf".into());
         a.push(crop);
@@ -345,6 +364,8 @@ pub fn build_args_windows(
 
     let audios: Vec<&str> = [system, mic].into_iter().flatten().collect();
     for dev in &audios {
+        a.push("-thread_queue_size".into());
+        a.push(THREAD_QUEUE.into());
         a.push("-f".into());
         a.push("dshow".into());
         a.push("-i".into());
@@ -372,6 +393,7 @@ pub fn build_args_windows(
             a.push("-shortest".into());
             a.push("-c:a".into());
             a.push("aac".into());
+            push_audio_quality(&mut a);
         }
         _ => {
             a.push("-filter_complex".into());
@@ -386,6 +408,7 @@ pub fn build_args_windows(
             a.push("-shortest".into());
             a.push("-c:a".into());
             a.push("aac".into());
+            push_audio_quality(&mut a);
         }
     }
     push_video_out(&mut a, out);
@@ -418,12 +441,16 @@ pub fn build_args_linux(
     // Audio inputs (PulseAudio / PipeWire-pulse): input 1 = system monitor (if
     // requested), then the mic. Indices below assume this order.
     if system {
+        a.push("-thread_queue_size".into());
+        a.push(THREAD_QUEUE.into());
         a.push("-f".into());
         a.push("pulse".into());
         a.push("-i".into());
         a.push("default.monitor".into());
     }
     if mic {
+        a.push("-thread_queue_size".into());
+        a.push(THREAD_QUEUE.into());
         a.push("-f".into());
         a.push("pulse".into());
         a.push("-i".into());
@@ -444,6 +471,7 @@ pub fn build_args_linux(
         a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
+        push_audio_quality(&mut a);
     } else if system {
         a.push("-map".into());
         a.push("0:v".into());
@@ -454,6 +482,7 @@ pub fn build_args_linux(
         a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
+        push_audio_quality(&mut a);
     } else if mic {
         a.push("-map".into());
         a.push("0:v".into());
@@ -464,12 +493,23 @@ pub fn build_args_linux(
         a.push("-shortest".into());
         a.push("-c:a".into());
         a.push("aac".into());
+        push_audio_quality(&mut a);
     } else {
         a.push("-an".into());
     }
 
     push_video_out(&mut a, out);
     a
+}
+
+/// Audio quality tail — explicit bitrate + sample rate. Pushed right after the
+/// `-c:a aac` on every audio-bearing path (and mirrored in the `atempo`
+/// re-encode), so the recording isn't stuck at ffmpeg's low default AAC rate.
+fn push_audio_quality(a: &mut Vec<String>) {
+    a.push("-b:a".into());
+    a.push(AUDIO_BITRATE.into());
+    a.push("-ar".into());
+    a.push(AUDIO_RATE.into());
 }
 
 /// Shared H.264 / MP4 output tail. `-r FPS` locks the output to constant frame
@@ -650,6 +690,12 @@ fn fix_audio_sync(ffmpeg: &Path, file: &Path) {
             "copy",
             "-c:a",
             "aac",
+            // Keep the recording's quality — without these the re-encode would
+            // fall back to ffmpeg's low default AAC bitrate.
+            "-b:a",
+            AUDIO_BITRATE,
+            "-ar",
+            AUDIO_RATE,
             "-movflags",
             "+faststart",
         ])
@@ -1297,6 +1343,25 @@ mod tests {
     fn output_is_locked_to_cfr() {
         let args = build_args_macos(RGN, 2, None, None, "/tmp/o.mp4").join(" ");
         assert!(args.contains("-r 30"));
+    }
+
+    #[test]
+    fn audio_paths_set_explicit_quality_and_buffer() {
+        // every audio-bearing path carries an explicit bitrate + sample rate
+        // (avoids ffmpeg's low ~62 kbps default) and a generous input queue.
+        for args in [
+            build_args_macos(RGN, 2, Some(1), None, "/tmp/o.mp4"),   // system-only
+            build_args_macos(RGN, 2, None, Some(3), "/tmp/o.mp4"),   // mic-only
+            build_args_macos(RGN, 2, Some(1), Some(3), "/tmp/o.mp4"), // both
+        ] {
+            let j = args.join(" ");
+            assert!(j.contains("-b:a 256k"), "missing bitrate: {j}");
+            assert!(j.contains("-ar 48000"), "missing sample rate: {j}");
+            assert!(j.contains("-thread_queue_size 1024"), "missing queue: {j}");
+        }
+        // the no-audio path has none of it (it's `-an`).
+        let none = build_args_macos(RGN, 2, None, None, "/tmp/o.mp4").join(" ");
+        assert!(!none.contains("-b:a"));
     }
 
     #[test]

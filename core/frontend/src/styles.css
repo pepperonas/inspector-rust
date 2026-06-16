@@ -173,6 +173,43 @@
   animation: md3NumLock var(--md3-medium2) var(--md3-spring-bounce);
 }
 
+/* ── Social-download animation ─────────────────────────────────────────────
+   Shown in the preview while a YouTube/Instagram/… download runs: a pulsing
+   download icon with two expanding accent rings + an MD3 "wavy" indeterminate
+   progress wave scrolling underneath. */
+@keyframes md3DlRing {
+  0%   { transform: scale(0.45); opacity: 0.5; }
+  100% { transform: scale(1.75); opacity: 0; }
+}
+.md3-dl-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--color-accent);
+  animation: md3DlRing 1.8s var(--md3-emphasized-decelerate) infinite;
+}
+@keyframes md3DlBob {
+  0%, 100% { transform: translateY(-2px); }
+  50%      { transform: translateY(3px); }
+}
+.md3-dl-icon {
+  animation: md3DlBob 1.2s var(--md3-standard) infinite;
+}
+@keyframes md3DlWave {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.md3-dl-wave {
+  animation: md3DlWave 1.1s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md3-dl-ring, .md3-dl-icon, .md3-dl-wave {
+    animation: none !important;
+  }
+  .md3-dl-ring { opacity: 0.25; }
+}
+
 /* Banners / inline alerts drop in from the top. */
 @keyframes md3BannerIn {
   from { opacity: 0; transform: translateY(-10px); }

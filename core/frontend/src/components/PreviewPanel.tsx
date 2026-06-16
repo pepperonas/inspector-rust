@@ -831,6 +831,33 @@ function ImagePreview({ entryId, inline }: { entryId: number; inline: string }) 
 
 /** Download buttons for a detected social-media URL — video (all platforms) +
  *  audio (YouTube only). Used by the `social` preview and by clip URLs. */
+/** A "schöne Animation" shown while a social-media download runs: bobbing
+ *  download glyph inside two expanding MD3 accent rings, over a scrolling
+ *  wavy indeterminate-progress line. Respects prefers-reduced-motion (CSS). */
+function DownloadAnimation({ label }: { label: string }) {
+  return (
+    <div className="md3-banner-in flex flex-col items-center justify-center gap-5 py-9">
+      <div className="relative flex h-16 w-16 items-center justify-center">
+        <span className="md3-dl-ring" />
+        <span className="md3-dl-ring" style={{ animationDelay: "0.9s" }} />
+        <Download size={30} className="md3-dl-icon text-[var(--color-accent)]" />
+      </div>
+      <div className="text-[12px] font-medium text-[var(--color-fg)]">{label}</div>
+      <div className="h-4 w-48 overflow-hidden">
+        <svg viewBox="0 0 96 16" className="md3-dl-wave h-full w-[200%]" preserveAspectRatio="none">
+          <path
+            d="M0 8 Q 6 2, 12 8 T 24 8 T 36 8 T 48 8 T 60 8 T 72 8 T 84 8 T 96 8"
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth="2"
+            strokeLinecap="round"
+          />
+        </svg>
+      </div>
+    </div>
+  );
+}
+
 function SocialDownloadBar({ target }: { target: SocialTarget }) {
   const [available, setAvailable] = useState(true);
   const [busy, setBusy] = useState<null | "video" | "audio">(null);
@@ -865,25 +892,30 @@ function SocialDownloadBar({ target }: { target: SocialTarget }) {
     );
   }
   const isYt = target.platform === "youtube";
+  if (busy) {
+    return (
+      <DownloadAnimation
+        label={`Downloading ${platformLabel(target.platform)} ${busy === "audio" ? "audio" : "video"}…`}
+      />
+    );
+  }
   return (
     <div className="mt-3 flex flex-col gap-2">
       <div className="flex gap-2">
         <button
           onClick={() => run("video")}
-          disabled={!!busy}
-          className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-50"
+          className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded bg-[var(--color-accent)] px-3 py-2 text-[12px] font-medium text-[var(--color-accent-fg)]"
         >
-          {busy === "video" ? <Loader2 size={13} className="animate-spin" /> : <Download size={13} />}
-          {busy === "video" ? "Downloading…" : "Download video"}
+          <Download size={13} />
+          Download video
         </button>
         {isYt && (
           <button
             onClick={() => run("audio")}
-            disabled={!!busy}
-            className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)] disabled:opacity-50"
+            className="md3-press flex flex-1 items-center justify-center gap-1.5 rounded border border-[var(--color-border)] px-3 py-2 text-[12px] hover:border-[var(--color-accent)]"
           >
-            {busy === "audio" ? <Loader2 size={13} className="animate-spin" /> : <Music size={13} />}
-            {busy === "audio" ? "Downloading…" : "Download audio"}
+            <Music size={13} />
+            Download audio
           </button>
         )}
       </div>

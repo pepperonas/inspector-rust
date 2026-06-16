@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.34] — 2026-06-16
+
+### Added
+
+- **Animated download progress** in the preview panel. While a YouTube / Instagram /
+  TikTok / Facebook clip is being fetched, the `SocialDownloadBar` now plays a
+  Material 3 Expressive flourish — a bobbing download glyph inside two expanding
+  accent rings, over a scrolling wavy indeterminate-progress line (`DownloadAnimation`,
+  CSS keyframes `md3-dl-ring` / `md3-dl-icon` / `md3-dl-wave`) — instead of a plain
+  spinner. Respects `prefers-reduced-motion`.
+
 ## [0.84.33] — 2026-06-16
 
 ### Docs & tests

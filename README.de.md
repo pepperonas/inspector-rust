@@ -16,28 +16,35 @@
   ### ✨ Was es kann (in kurz)
 
   - 📋 **Clipboard-History** — Text, RTF, HTML, PNG, Datei-Listen; 1 000 Einträge per SHA-256 dedupliziert; Fuzzy-Suche while-you-type.
-  - 🧮 **Inline-Rechner** (`2+2`, `sqrt(144)`, Hex/Bit-Ops) und **Farb-Konverter** (`#hex` / `rgb()` / `hsl()` in jede Richtung).
+  - 🧮 **Inline-Rechner** (`2+2`, `sqrt(144)`, Hex/Bit-Ops; Slot-Machine-Ergebnis-Reveal), **Einheiten- / Basis- / Zeit-Konverter** (`5 km in mi`, `0xff in dec`, `1700000000 as date`) und **Farb-Konverter** (`#hex` / `rgb()` / `hsl()` in jede Richtung).
   - 🎯 **Text-Expander — 4 Modi**: passive **Auto-Expansion** (aText-Stil — expandiert beim Tippen, ohne Hotkey) · In-Popup-Suche · System-Hotkey (AX/UIA-In-Place-Replace + Electron-Fallback) · Direct hotkey → snippet slots (funktioniert auch in Terminals). **Dynamische Platzhalter** beim Einfügen: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (Cursor-Position), `{{`/`}}` für literale Klammern.
   - 🔍 **Bildschirm-Region-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade Texterkennung ins Clipboard.
   - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Self-Timer · Repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rect / Ellipse / Highlight / Blur / Redact / nummerierte Step-Badges); **Pin to screen** (Screenshot als eigenes Always-on-top-Fenster anheften). Dateinamen enthalten den Quell-App-Namen.
+  - 🎥 **Bildschirm-Aufnahme** (`Ctrl+Shift+Alt+S`) — Region ziehen → Audio wählen (System / Mikro / beides) → 3-2-1 → **MP4 (H.264)** in Downloads; schwebende Leiste mit **Pause/Resume**; Multi-Monitor; System-Audio wird automatisch über ein Loopback geroutet. Braucht ffmpeg.
+  - 🎬 **Media-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab schaltet bei YouTube um); **Audio-Swap** (`Ctrl+Shift+Alt+M`) zum Ersetzen oder Mischen der Tonspur eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** für Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - 💡 **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau (eingebaute *und* externe Displays); Enter zum Steuern, **↑↓** Monitor wählen, **←→** anpassen. Software-Dimming (Gamma) auf macOS + Windows, Hardware-DDC/CI auf Linux.
+  - 🔊 **Audio-Ausgabe** (`sound` / `audio`) — Inline-Picker zum Umschalten des System-Standard-Ausgabegeräts (macOS · Windows · Linux).
   - 🧹 **Cleaning** (`clean`) — Speicher freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannten sicheren Ordnern. Dry-Run-Vorschau + Bestätigung; strikte Allowlist, Symlinks werden nie verfolgt; Stufen Safe/Standard/Aggressive.
   - 🎨 **Color Picker** (`Ctrl+Shift+C`) — `NSColorSampler`-Lupe / GDI-Overlay / Hex direkt ins Clipboard.
   - 📁 **Finder-Selection-Actions** (`Ctrl+Shift+F`, macOS) — Multi-File-Batch-Resize / Optim / Cut-Out / Open auf was auch immer du im Finder selektiert hast.
   - 📄 **Markdown → PDF** (`Ctrl+Shift+M`, macOS) — konvertiert die im Finder ausgewählten `.md`-Dateien in-process zu PDF; keine externen CLI-Tools nötig.
   - 🔐 **2FA / TOTP-Manager** — tippe `2fa`, um den TOTP-Tresor zu öffnen; tippe `otp <Aussteller>` für sofortiges OTP-Autocomplete mit lebendem 30-Sekunden-Countdown.
   - 🖼️ **Image-Tools** — Recolor (Logo-Einfärbung), ML-Cut-Out (U²-Net ONNX, 4,5 MB embedded), Lanczos3-Resize mit Preset-Autocomplete.
+  - 🔳 **QR-Code** (`qr <text>`) — Live-Vorschau im Panel; Enter kopiert das PNG ins Clipboard.
+  - 🛠️ **Dev-Quick-Tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (Clipboard pretty-printen) · `jwt` (Clipboard decodieren) → Clipboard.
+  - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
+  - 🎚️ **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung übers Mikrofon mit animiertem Visualizer.
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` (Image), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `sound` (Audio-Ausgabegerät), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` / `qr` (Image), `uuid` / `slug` / `hash` / `json` / `jwt` (Dev-Tools), `g` / `ddg` / `gh` / `yt` / `npm` / `crates` / `so` / `mdn` / `wiki` (Web-Suche), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten — alle OSe), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `trim` (Audio/Video schneiden), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `sound` / `audio` (Ausgabegerät), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `rnd` / `random` (Würfelwurf), `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (27 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — fünf Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1058 Unit-Tests (408 Rust + 650 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1158 Unit-Tests (466 Rust + 692 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
@@ -56,7 +63,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1040%20(392%20Rust%20%2B%20648%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1158%20(466%20Rust%20%2B%20692%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -131,8 +138,8 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1157%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-166-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-1158%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-181-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-57-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
@@ -297,7 +304,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | History löschen (mit Bestätigung) | Tray → *Clear History…* | core |
 | **AES-256-GCM at-rest** (alle Bodies) *(v0.6.0+)* | Automatisch; Key im OS-Keychain | [encryption.md](./docs/encryption.md) |
 | Per-Monitor-Popup-Placement | Automatisch (öffnet auf Monitor mit Cursor) | core |
-| Multi-Tab-UI | Popup oben-rechts Tabs: History · Snippets · Notes · Settings | core |
+| Multi-Tab-UI | Popup oben-rechts Tabs: History · Snippets · Notes · Features · Settings | core |
 | Permissions-UX (TCC-Banner + 1-s-Polling + `tccutil reset`-Recovery) | Settings → Permissions-Sektion *(macOS)* | core |
 | Keyboard-Shortcuts-Cheat-Sheet | Settings → *Keyboard shortcuts* (OS-adaptive Glyphen) | core |
 | About-Dialog | Settings → About | core |
@@ -309,10 +316,10 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Power-Command — `optim`** *(v0.18.0+)* | Suchfeld | Clipboard-PNG optimieren → `~/Downloads/inspector-rust-optim-<ts>.png` (lossless oxipng) |
 | **Power-Command — `rmvvls <text>`** *(v0.18.0+)* | Suchfeld | Vokale entfernen (aeiou + AEIOU + ä/ö/ü) → Clipboard |
 | **System-Command — `kill [-9] [pattern]`** *(v0.19.0+)* | Suchfeld — Live-Prozess-Picker | Laufende Prozesse filtern, Enter → Bestätigung → SIGTERM (oder SIGKILL mit `-9`) |
-| **System-Command — `reboot`** *(v0.19.0+)* | Suchfeld | System neu starten (macOS — Confirm zuerst, kein sudo) |
-| **System-Command — `shutdown`** *(v0.19.0+)* | Suchfeld | System herunterfahren (macOS — Confirm zuerst, kein sudo) |
-| **System-Command — `lock`** *(v0.19.0+)* | Suchfeld | Bildschirm sperren (macOS — sofort, kein Confirm) |
-| **System-Command — `mute`** *(v0.23.0+)* | Suchfeld | System-Stummschaltung an/aus toggeln (macOS) |
+| **System-Command — `reboot`** *(v0.19.0+; Linux/Windows v0.84.0)* | Suchfeld | System neu starten — Confirm zuerst, kein sudo (macOS Apple Events · Windows `shutdown /r` · Linux `systemctl reboot`) |
+| **System-Command — `shutdown`** *(v0.19.0+; Linux/Windows v0.84.0)* | Suchfeld | System herunterfahren — Confirm zuerst, kein sudo (macOS · Windows `shutdown /s` · Linux `systemctl poweroff`) |
+| **System-Command — `lock`** *(v0.19.0+; Linux/Windows v0.84.0)* | Suchfeld | Bildschirm sperren — sofort, kein Confirm (macOS `pmset` · Windows `LockWorkStation` · Linux `loginctl lock-session`) |
+| **System-Command — `mute`** *(v0.23.0+; Linux/Windows v0.84.0)* | Suchfeld | System-Stummschaltung an/aus toggeln (macOS · Windows VK-Taste · Linux `wpctl`/`pactl`) |
 | **System-Command — `freeze`** *(v0.28.0+)* | Suchfeld | Tastatur + Maus blocken — entsperren mit konfiguriertem Chord (Default `i + r`) — natives CGEventTap, kein rdev |
 | **`wakelock on` / `wakelock off`** *(Alias `caffeine on/off`, v0.52.0+)* | Suchfeld | Computer wachhalten — pausiert Sleep + Bildschirmsperre. macOS `caffeinate`; Windows `SetThreadExecutionState` + unsichtbarer F15-Tastendruck; Linux X11 Cursor-Jiggle. Ein zentrierter Status-Toast bestätigt An/Aus |
 | **`touch <name>` / `mkdir <name>` / `terminal`** *(v0.53.0+, macOS)* | Suchfeld | Datei / Ordner anlegen oder Terminal (iTerm2 → Terminal.app) öffnen — im Ordner des vordersten Finder-Fensters (oder Desktop). Braucht Automation → Finder |
@@ -320,7 +327,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Resize-Preset-Autocomplete** *(v0.31.0+)* | `rz` oder `rz <partial>` tippen | Beschriftete Preset-Zeilen (Full HD, HD, XGA, SVGA, …); Enter führt aus, Tab / → füllt ins Suchfeld vor dem Ausführen |
 | **`bruno <€>[m|j]`** *(v0.33.0+)* | Suchfeld — `bruno 60000` (jährlich) oder `bruno 5000m` (monatlich) | Deutscher Brutto→Netto-Rechner (Steuerjahr 2025); Preview-Panel zeigt volle Aufteilung (KV/PV/RV/AV/ESt/Soli/Kirche/Abgabenquote/Grenzsteuersatz); Enter kopiert Netto-Betrag ins Clipboard. Persönliche Defaults (Steuerklasse, Bundesland, Kinder, Kirche, KV-Zusatz) in Settings → Bruno |
 | **Screenshot-Vorschau-HUD** *(v0.32.0+)* | Nach `Ctrl+Shift+S` | CleanShot-X-Style schwebende Karte mit X / Pin / Copy / Save / Edit / Cloud Buttons über dem PNG. Pin behält die Vorschau über den nächsten Screenshot |
-| **Annotations-Editor** *(v0.32.0+)* | Vorschau-HUD → Stift-Button | Neues Fenster mit 5 Tools: Pfeil / Text / Rect / Highlight / Blur (Mosaik-Pixelung). 4 Farb-Presets, 2–16 px Stroke, ⌘Z/⌘⇧Z undo/redo, ⌘S speichern, Esc abbrechen. Save backt zu `<App>-<ts>-edited.png` |
+| **Annotations-Editor** *(v0.32.0+)* | Vorschau-HUD → Stift-Button | Neues Fenster mit 9 Tools: Pfeil / Linie / Text / Rect / Ellipse / Highlight / Blur (Mosaik-Pixelung) / Redact (deckender Block) / nummerierte Step-Badge. 4 Farb-Presets, 2–16 px Stroke, ⌘Z/⌘⇧Z undo/redo, ⌘S speichern, Esc abbrechen. Save backt zu `<App>-<ts>-edited.png` |
 | **App-Name in Screenshot-Dateinamen** *(v0.32.0+)* | Automatisch | `osascript`-gefangener Frontmost-App-Name im gespeicherten Dateinamen: `Safari-20260524-153012.png`. Bearbeitete Varianten bekommen `-edited`-Suffix |
 | Power-Command-Autocomplete (Fuzzy-Command-Matching) | Teil-Keyword tippen (`tre`, `rm`, `reb`, `bru`, `tim`, `pw`, …) → Vorschlag als `hint`-Zeile | core |
 | **Markdown → PDF** *(v0.46.0+, macOS)* | `Ctrl+Shift+M` mit im Finder ausgewählten `.md`-Dateien | Automation → Finder |
@@ -621,8 +628,8 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 ### Tests
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 516 Tests
-cargo test --workspace  # Rust-Unit-Tests — 110 Tests (db, snippets, notes, backup, settings, expander, text_field, seed, hotkey-Parser, clipboard_watcher, models, recolor, cutout, cutout_ml)
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 692 Tests
+cargo test --workspace  # Rust-Unit-Tests — 466 Tests (db, snippets, notes, backup, settings, expander, text_field, seed, hotkey-Parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, …)
 ```
 
 Die gleichen Commands laufen in [GitHub-Actions-CI](./.github/workflows/ci.yml) bei jedem Push und PR.

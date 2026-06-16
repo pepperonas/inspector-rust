@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.39] — 2026-06-16
+
+### Docs
+
+- **Audited every function and reconciled the docs.** Updated `README.md`,
+  `README.de.md` and the in-app **Features** tab so they reflect the current
+  feature set:
+  - Added to the READMEs' "what it does" list: **screen recording**, **media
+    tools** (social download + audio swap + trim), **audio-output picker**,
+    **QR code**, **dev quick-tools**, **web-search bangs**, **BPM detector**, and
+    the **unit/base/time converter**; expanded the power-commands line accordingly.
+  - Corrected stale facts: the annotation editor now lists **9 tools** (was 5);
+    **`reboot`/`shutdown`/`lock`/`mute` are cross-platform** (macOS · Windows ·
+    Linux), not macOS-only — fixed in both READMEs and the in-app note; the
+    multi-tab list now includes the **Features** tab.
+  - Refreshed counts: **1158 tests (466 Rust + 692 frontend)**, **181 IPC
+    commands**, and the dev-section test numbers.
+
 ## [0.84.38] — 2026-06-16
 
 ### Fixed (CI green)

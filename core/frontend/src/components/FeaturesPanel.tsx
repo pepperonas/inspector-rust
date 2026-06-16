@@ -188,7 +188,7 @@ export function FeaturesPanel() {
         { name: "Optimise PNG", trigger: "optim", typed: true, note: "Lossless oxipng of the clipboard PNG → Downloads." },
         { name: "Remove vowels", trigger: "rmvvls <text>", typed: true },
         { name: "Kill process", trigger: "kill [-9] [name | pid]", typed: true, note: "Live picker by name or PID (kill 1234); Enter kills (confirm first)." },
-        { name: "Reboot / Shut down / Lock", trigger: "reboot · shutdown · lock", typed: true, note: "macOS only. reboot/shutdown confirm first." },
+        { name: "Reboot / Shut down / Lock", trigger: "reboot · shutdown · lock", typed: true, note: "macOS · Windows · Linux. reboot/shutdown confirm first; lock is instant." },
         { name: "Mute system", trigger: "mute", typed: true },
         { name: "Input lock", trigger: "freeze", typed: true, note: `Blocks all input until the unlock chord (${chord.map((k) => k.toUpperCase()).join(" + ") || "i + r"}). ⌥⌘Esc always frees.` },
         { name: "Keep awake", trigger: "wakelock on / off", typed: true, note: "Alias: caffeine on/off. Pauses sleep + screen lock; a status toast confirms." },

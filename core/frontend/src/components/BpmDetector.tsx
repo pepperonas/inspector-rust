@@ -227,6 +227,30 @@ export function BpmDetector({ onExit }: Props) {
 
     (async () => {
       try {
+        // ── Order matters for the audio-stutter fix. ──────────────────────────
+        // A capture-only AudioContext makes WebKit/macOS use a record-oriented
+        // session that reconfigures the shared device on mic-open, glitching
+        // other apps. We therefore:
+        //   1) create the context + a muted gain → destination and RESUME it,
+        //      so a play-and-record session with a running output unit exists,
+        //   2) let it settle briefly, THEN
+        //   3) open the mic — so macOS *adds input to a running session* instead
+        //      of reconfiguring from a record-only state (the residual stutter).
+        // `latencyHint:"playback"` keeps a comfortable (glitch-resistant) buffer.
+        const ctx = new AudioContext({ latencyHint: "playback" });
+        audioCtxRef.current = ctx;
+        const silentOut = ctx.createGain();
+        silentOut.gain.value = 0; // never monitor the mic through the speakers
+        silentOut.connect(ctx.destination);
+        await ctx.resume().catch(() => undefined);
+        // Let the output unit stabilise before the mic opens.
+        await new Promise((r) => setTimeout(r, 80));
+        if (cancelled) {
+          void ctx.close().catch(() => undefined);
+          audioCtxRef.current = null;
+          return;
+        }
+
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: false,
@@ -236,14 +260,10 @@ export function BpmDetector({ onExit }: Props) {
         });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
+          void ctx.close().catch(() => undefined);
+          audioCtxRef.current = null;
           return;
         }
-        // `latencyHint: "playback"` requests a comfortable output buffer
-        // instead of the tiny "interactive" default. Opening the mic on macOS
-        // reconfigures the shared CoreAudio device; with the small interactive
-        // buffer that glitches other apps' audio for the first few seconds —
-        // the larger playback buffer avoids fighting the running output.
-        const ctx = new AudioContext({ latencyHint: "playback" });
         const source = ctx.createMediaStreamSource(stream);
 
         // — detection chain: HP 30 → LP 100 (Q 1.5) → analyser —
@@ -267,21 +287,9 @@ export function BpmDetector({ onExit }: Props) {
         viz.fftSize = 2048; // 1024 freq bins
         viz.smoothingTimeConstant = 0.78; // visually smooth, the punch comes from beats
         source.connect(viz);
-
-        // — Keep an active (silent) output unit running. THIS is the audio-
-        //   stutter fix: a *capture-only* AudioContext (analysers, nothing wired
-        //   to destination) makes WebKit/macOS use a record-oriented audio
-        //   session that re-routes/reconfigures the shared device on mic-open,
-        //   glitching other apps' playback for a few seconds. Routing a muted
-        //   gain to destination forces a stable play-and-record session whose
-        //   output unit is already running — the same setup as the disco engine,
-        //   which doesn't stutter. (Gain 0 → we never monitor the mic.)
-        const silentOut = ctx.createGain();
-        silentOut.gain.value = 0;
+        // Tie the mic into the running play-and-record session (still silent).
         source.connect(silentOut);
-        silentOut.connect(ctx.destination);
 
-        audioCtxRef.current = ctx;
         streamRef.current = stream;
         detectAnalyserRef.current = detect;
         vizAnalyserRef.current = viz;
@@ -291,10 +299,6 @@ export function BpmDetector({ onExit }: Props) {
 
         setErrorMessage(null);
         setPhase("listening");
-        // The context is created after the async getUserMedia, so it can start
-        // suspended (outside the user-gesture window) — resume it so the silent
-        // output unit actually runs (that's what stabilises the audio session).
-        void ctx.resume().catch(() => undefined);
 
         const timeBuf = new Float32Array(detect.fftSize);
         const freqBuf = new Uint8Array(viz.frequencyBinCount);
@@ -429,25 +433,33 @@ export function BpmDetector({ onExit }: Props) {
           (() => {
             const accent = pinned ? "#f43f5e" : "var(--color-accent)";
             const norm = db === null ? 0 : Math.max(0, Math.min(1, (db + 60) / 54));
+            // Sits in the lower third — clear of both the centred BPM hero and
+            // the canvas status line at the very bottom. Present but still
+            // quieter than the hero: medium number + a wide glowing meter that
+            // tracks the level, scale/opacity easing up with loudness.
             return (
-              <div className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-1.5">
+              <div className="pointer-events-none absolute inset-x-0 bottom-[15%] flex flex-col items-center gap-2">
                 <div
-                  className="font-[var(--font-mono)] text-[13px] font-medium tabular-nums transition-all duration-150"
+                  className="flex items-baseline gap-1 font-[var(--font-mono)] tabular-nums transition-all duration-150"
                   style={{
                     color: db === null ? "var(--color-muted)" : accent,
-                    textShadow: db === null ? "none" : `0 0 ${4 + norm * 12}px ${accent}`,
-                    opacity: 0.45 + norm * 0.55,
+                    textShadow: db === null ? "none" : `0 0 ${6 + norm * 16}px ${accent}`,
+                    transform: `scale(${1 + norm * 0.06})`,
+                    opacity: 0.6 + norm * 0.4,
                   }}
                 >
-                  {db === null ? "— dB" : `${db} dB`}
+                  <span className="text-[26px] font-semibold leading-none">
+                    {db === null ? "—" : db}
+                  </span>
+                  <span className="text-[12px] font-medium opacity-70">dB</span>
                 </div>
-                <div className="h-[3px] w-40 overflow-hidden rounded-full bg-[var(--color-border)]/50">
+                <div className="h-[4px] w-56 max-w-[70%] overflow-hidden rounded-full bg-[var(--color-border)]/50">
                   <div
                     className="h-full rounded-full transition-[width] duration-150"
                     style={{
                       width: `${Math.round(norm * 100)}%`,
                       background: accent,
-                      boxShadow: `0 0 ${norm * 8}px ${accent}`,
+                      boxShadow: `0 0 ${2 + norm * 12}px ${accent}`,
                     }}
                   />
                 </div>

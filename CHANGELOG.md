@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.50] — 2026-06-17
+
+### Changed
+
+- **BPM detector: further reduced the brief mic-open stutter.** The silent output
+  unit is now established and resumed **before** `getUserMedia` (with an 80 ms
+  settle), so macOS *adds input to an already-running play-and-record session*
+  rather than reconfiguring the device from a record-only state — shrinking the
+  residual glitch left after v0.84.49.
+- **dB readout repositioned + more present.** It no longer overlaps the canvas
+  status line: moved into the lower third (clear of the BPM hero and the bottom
+  status), enlarged (26 px number + "dB" unit + a wide glowing meter bar that
+  eases up in scale/opacity/glow with the level). Still quieter than the BPM
+  hero; red while pinned.
+
 ## [0.84.49] — 2026-06-17
 
 ### Fixed

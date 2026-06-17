@@ -203,6 +203,10 @@ pub fn run(context: tauri::Context<Wry>) {
             // show_and_position recentres it with the new dimensions.
             commands::apply_window_size(&app.handle(), &db_handle);
 
+            // Seed the in-process feedback-sound toggle from settings (default
+            // on) so the hot path never has to read the DB.
+            sound::set_enabled(settings::get_bool(&db_handle, "sound.enabled", true).unwrap_or(true));
+
             if let Err(e) = hotkey::register(&app.handle()) {
                 tracing::warn!(
                     "global shortcut registration failed: {e:#} — use tray menu or CLI flags (linux/README.md)"
@@ -474,6 +478,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::commit_transformed_text,
             commands::get_theme_preference,
             commands::set_theme_preference,
+            commands::get_sound_enabled,
+            commands::set_sound_enabled,
             commands::get_clipboard_privacy,
             commands::set_clipboard_privacy,
             commands::get_window_size_preference,

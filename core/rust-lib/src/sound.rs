@@ -1,55 +1,131 @@
-//! Tiny one-shot sound effects (v0.84.45).
+//! Tiny one-shot sound effects.
 //!
-//! Currently just the **paste/expand click** — a mechanical-keyboard clack
-//! played when a snippet is expanded via the abbreviation hotkey (`Alt+1` &
-//! co.), so the expansion has tactile feedback even though it happens in
-//! another app with no popup visible.
+//! Originally just the **paste/expand click** (v0.84.45); generalised to a
+//! small palette of UI feedback sounds (v0.84.57): expand, OCR-recognised,
+//! screenshot, record start/stop, copy-to-clipboard. Each is a short WAV
+//! embedded with `include_bytes!`, materialised once to the cache dir, and
+//! played via the per-OS CLI player (macOS `afplay`, Windows PowerShell
+//! `SoundPlayer`, Linux `paplay`/`aplay`) on a **worker thread**,
+//! fire-and-forget — playback must never block the calling path (expansion
+//! runs on the main thread on macOS). WAV (not MP3) is used deliberately: no
+//! decoder spin-up, so the cue is instant and low-latency.
 //!
-//! The WAV is embedded (`include_bytes!`) and written once to the cache dir;
-//! playback shells out to the per-OS CLI player (macOS `afplay`, Windows
-//! PowerShell `SoundPlayer`, Linux `paplay`/`aplay`) on a **worker thread**,
-//! fire-and-forget — it must never block the expansion path (which runs on the
-//! main thread on macOS). WAV (not MP3) is used deliberately: no decoder
-//! spin-up, so the click is instant and low-latency.
+//! A single global toggle (`set_enabled`, settings key `sound.enabled`,
+//! default on) gates every cue. It's an in-process `AtomicBool` seeded from
+//! the settings DB at startup and updated by the `set_sound_enabled` IPC, so
+//! the hot path never touches the DB.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Mutex, OnceLock};
 
-/// The embedded expand/paste click (mono 16-bit PCM WAV, ~35 KB).
-const PASTE_WAV: &[u8] = include_bytes!("../assets/paste_mechkey.wav");
+/// Master on/off for all feedback sounds. Defaults to `true` (the pre-toggle
+/// behaviour — the expand click always played). Seeded from settings at
+/// startup via [`set_enabled`].
+static SOUND_ENABLED: AtomicBool = AtomicBool::new(true);
 
-/// Cache path the WAV is materialised to (so the CLI players can read a file).
-fn cache_path() -> Option<PathBuf> {
-    let dir = dirs::cache_dir()?.join("InspectorRust");
-    Some(dir.join("paste_mechkey.wav"))
+/// Set the master sound toggle. Called at startup from the persisted setting
+/// and by the `set_sound_enabled` IPC.
+pub fn set_enabled(enabled: bool) {
+    SOUND_ENABLED.store(enabled, Ordering::Relaxed);
 }
 
-/// Ensure the embedded WAV exists on disk; return its path. Written once.
-fn ensure_file() -> Option<PathBuf> {
-    static PATH: OnceLock<Option<PathBuf>> = OnceLock::new();
-    PATH.get_or_init(|| {
-        let path = cache_path()?;
+/// Whether feedback sounds are currently enabled.
+pub fn is_enabled() -> bool {
+    SOUND_ENABLED.load(Ordering::Relaxed)
+}
+
+/// A UI feedback sound. Each variant maps to an embedded WAV + a stable
+/// cache filename (so the CLI players can read a real file).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// Snippet expansion / paste — a mechanical-keyboard clack.
+    Expand,
+    /// OCR finished and text landed on the clipboard.
+    Ocr,
+    /// A screen-region / window / fullscreen screenshot was captured.
+    Screenshot,
+    /// Screen recording started.
+    RecordStart,
+    /// Screen recording stopped (file saved).
+    RecordStop,
+    /// A value was copied to the clipboard (eyedropper hex, …).
+    Copy,
+}
+
+impl Sound {
+    /// The embedded WAV bytes for this cue.
+    fn bytes(self) -> &'static [u8] {
+        match self {
+            Sound::Expand => include_bytes!("../assets/paste_mechkey.wav"),
+            Sound::Ocr => include_bytes!("../assets/ocr.wav"),
+            Sound::Screenshot => include_bytes!("../assets/screenshot.wav"),
+            Sound::RecordStart => include_bytes!("../assets/record_start.wav"),
+            Sound::RecordStop => include_bytes!("../assets/record_stop.wav"),
+            Sound::Copy => include_bytes!("../assets/copy.wav"),
+        }
+    }
+
+    /// Stable cache filename (one per cue).
+    fn file_name(self) -> &'static str {
+        match self {
+            Sound::Expand => "paste_mechkey.wav",
+            Sound::Ocr => "ocr.wav",
+            Sound::Screenshot => "screenshot.wav",
+            Sound::RecordStart => "record_start.wav",
+            Sound::RecordStop => "record_stop.wav",
+            Sound::Copy => "copy.wav",
+        }
+    }
+}
+
+/// Cache directory the WAVs are materialised into.
+fn cache_dir() -> Option<PathBuf> {
+    Some(dirs::cache_dir()?.join("InspectorRust"))
+}
+
+/// Ensure the embedded WAV for `sound` exists on disk; return its path.
+/// Each cue is written at most once (memoised in a process-wide map).
+fn ensure_file(sound: Sound) -> Option<PathBuf> {
+    static CACHE: OnceLock<Mutex<HashMap<&'static str, Option<PathBuf>>>> = OnceLock::new();
+    let map = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let mut guard = map.lock().ok()?;
+    if let Some(entry) = guard.get(sound.file_name()) {
+        return entry.clone();
+    }
+    let resolved = (|| {
+        let path = cache_dir()?.join(sound.file_name());
         if !path.exists() {
             if let Some(parent) = path.parent() {
                 let _ = std::fs::create_dir_all(parent);
             }
-            if std::fs::write(&path, PASTE_WAV).is_err() {
+            if std::fs::write(&path, sound.bytes()).is_err() {
                 return None;
             }
         }
         Some(path)
-    })
-    .clone()
+    })();
+    guard.insert(sound.file_name(), resolved.clone());
+    resolved
 }
 
-/// Play the expand/paste click. Non-blocking: spawns a worker that
-/// materialises the file (once) and shells out to the OS player. Any failure
-/// is silently ignored — feedback sound is best-effort.
-pub fn play_paste() {
-    std::thread::spawn(|| {
-        let Some(path) = ensure_file() else { return };
+/// Play a feedback `sound`. No-op when sounds are disabled. Non-blocking:
+/// spawns a worker that materialises the file (once) and shells out to the OS
+/// player. Any failure is silently ignored — feedback sound is best-effort.
+pub fn play(sound: Sound) {
+    if !is_enabled() {
+        return;
+    }
+    std::thread::spawn(move || {
+        let Some(path) = ensure_file(sound) else { return };
         play_file(&path);
     });
+}
+
+/// Back-compat shorthand for the expand/paste click.
+pub fn play_paste() {
+    play(Sound::Expand);
 }
 
 #[cfg(target_os = "macos")]
@@ -105,10 +181,46 @@ mod tests {
     use super::*;
 
     #[test]
-    fn embedded_wav_is_a_riff_wave() {
-        // Sanity: the asset is a real WAV (RIFF…WAVE) and non-trivial.
-        assert!(PASTE_WAV.len() > 1000, "embedded WAV too small");
-        assert_eq!(&PASTE_WAV[0..4], b"RIFF");
-        assert_eq!(&PASTE_WAV[8..12], b"WAVE");
+    fn all_embedded_wavs_are_riff_wave() {
+        // Sanity: every cue's asset is a real WAV (RIFF…WAVE) and non-trivial.
+        for sound in [
+            Sound::Expand,
+            Sound::Ocr,
+            Sound::Screenshot,
+            Sound::RecordStart,
+            Sound::RecordStop,
+            Sound::Copy,
+        ] {
+            let bytes = sound.bytes();
+            assert!(bytes.len() > 1000, "{sound:?} WAV too small");
+            assert_eq!(&bytes[0..4], b"RIFF", "{sound:?} not RIFF");
+            assert_eq!(&bytes[8..12], b"WAVE", "{sound:?} not WAVE");
+        }
+    }
+
+    #[test]
+    fn cue_filenames_are_unique() {
+        let names = [
+            Sound::Expand.file_name(),
+            Sound::Ocr.file_name(),
+            Sound::Screenshot.file_name(),
+            Sound::RecordStart.file_name(),
+            Sound::RecordStop.file_name(),
+            Sound::Copy.file_name(),
+        ];
+        let mut seen = std::collections::HashSet::new();
+        for n in names {
+            assert!(seen.insert(n), "duplicate cue filename: {n}");
+        }
+    }
+
+    #[test]
+    fn toggle_round_trips() {
+        let prev = is_enabled();
+        set_enabled(false);
+        assert!(!is_enabled());
+        set_enabled(true);
+        assert!(is_enabled());
+        set_enabled(prev);
     }
 }

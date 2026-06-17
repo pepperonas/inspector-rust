@@ -364,6 +364,19 @@ export function setThemePreference(theme: string): Promise<void> {
   return invoke("set_theme_preference", { theme });
 }
 
+/** Master toggle for UI feedback sounds (expand click, OCR, screenshot,
+ *  record start/stop, copy). Defaults to `true`. Backend:
+ *  `commands::get_sound_enabled`. */
+export function getSoundEnabled(): Promise<boolean> {
+  return invoke("get_sound_enabled");
+}
+
+/** Persist + apply the feedback-sound toggle (takes effect immediately,
+ *  no relaunch). Backend: `commands::set_sound_enabled`. */
+export function setSoundEnabled(enabled: boolean): Promise<void> {
+  return invoke("set_sound_enabled", { enabled });
+}
+
 /** Popup overlay size — one of `"small"`, `"medium"`, `"large"`. Defaults
  *  to `"medium"` (the 700×500 the window ships with). Backend:
  *  `commands::get_window_size_preference`. */

@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.57] — 2026-06-18
+
+### Added
+
+- **Feedback sounds for more actions + a master toggle.** The expand/paste
+  click is now joined by short cues for **OCR recognised**, **screenshot
+  captured**, **recording started / stopped**, and **copy to clipboard**
+  (eyedropper). A new **Settings → Sounds** toggle (at the very top) turns all
+  feedback cues on or off; it takes effect immediately (no relaunch) and
+  defaults to on. The `sound.rs` module grew from the single hard-coded click
+  into a small `Sound` palette (each cue an embedded WAV played fire-and-forget
+  on a worker thread), gated by an in-process `AtomicBool` seeded from the
+  `sound.enabled` setting at startup so the hot path never touches the DB.
+  IPC: `get_sound_enabled` / `set_sound_enabled`.
+
+### Tests
+
+- **+4 unit tests**: Rust — every embedded cue is a valid RIFF/WAVE, cue
+  filenames are unique, and the enable/disable toggle round-trips
+  (`sound.rs`); frontend — the `getSoundEnabled` / `setSoundEnabled` IPC
+  wrappers round-trip (`ipc.test.ts`).
+
 ## [0.84.56] — 2026-06-17
 
 ### Fixed

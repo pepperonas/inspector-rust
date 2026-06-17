@@ -186,6 +186,20 @@ describe("ipc — settings + capture wrappers", () => {
       theme: "light",
     });
   });
+
+  it("getSoundEnabled / setSoundEnabled round-trip the sound toggle", async () => {
+    mockInvoke.mockResolvedValue(true);
+    const on = await ipc.getSoundEnabled();
+    expect(on).toBe(true);
+    expect(mockInvoke).toHaveBeenCalledWith("get_sound_enabled");
+
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue(undefined);
+    await ipc.setSoundEnabled(false);
+    expect(mockInvoke).toHaveBeenCalledWith("set_sound_enabled", {
+      enabled: false,
+    });
+  });
 });
 
 describe("ipc — expander wrappers", () => {

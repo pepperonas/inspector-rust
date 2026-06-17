@@ -461,6 +461,28 @@ pub fn set_theme_preference(
     settings::set(&db, KEY_THEME, normalised).map_err(map_err)
 }
 
+// ── Feedback sounds (v0.84.57) ─────────────────────────────────────────
+
+const KEY_SOUND_ENABLED: &str = "sound.enabled";
+
+/// Read the persisted master sound toggle. Defaults to `true` (sounds on) on
+/// a fresh install — the long-standing behaviour where the expand click
+/// always played.
+#[tauri::command]
+pub fn get_sound_enabled(db: State<'_, DbHandle>) -> Result<bool, String> {
+    settings::get_bool(&db, KEY_SOUND_ENABLED, true).map_err(map_err)
+}
+
+/// Persist the master sound toggle and apply it in-process immediately (so
+/// the change takes effect without a relaunch).
+#[tauri::command]
+pub fn set_sound_enabled(db: State<'_, DbHandle>, enabled: bool) -> Result<(), String> {
+    settings::set(&db, KEY_SOUND_ENABLED, if enabled { "true" } else { "false" })
+        .map_err(map_err)?;
+    crate::sound::set_enabled(enabled);
+    Ok(())
+}
+
 // ── Clipboard privacy (v0.76.0) ────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]
@@ -1912,6 +1934,7 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
         }
     }
     let _ = app.emit("clipboard-changed", ());
+    crate::sound::play(crate::sound::Sound::Ocr);
 
     let chars = trimmed.chars().count();
     Ok(OcrResult { text: trimmed.to_string(), cancelled: false, chars })
@@ -2076,6 +2099,7 @@ pub fn run_capture_pipeline(
     }
 
     let _ = app.emit("clipboard-changed", ());
+    crate::sound::play(crate::sound::Sound::Screenshot);
 
     Ok(ScreenshotResult { cancelled: false, bytes: png_bytes.len() })
 }
@@ -2689,6 +2713,7 @@ fn write_eyedropper_result(app: &AppHandle, hex: &str) {
         );
     }
     let _ = app.emit("clipboard-changed", ());
+    crate::sound::play(crate::sound::Sound::Copy);
 }
 
 /// Cleanup variant for the global eyedropper flow — clears the
@@ -3200,6 +3225,7 @@ pub async fn start_screen_record(
     // `async fn` so Tauri runs this OFF the main thread — `screen_record::start`
     // blocks ~0.5 s listing ffmpeg devices, which would otherwise freeze the UI.
     crate::screen_record::start(&state, region, audio)?;
+    crate::sound::play(crate::sound::Sound::RecordStart);
     // Recording started → drop the global Esc cancel + close the overlay
     // (closing isn't a window build, so it's safe off-main).
     disarm_overlay_escape(&app);
@@ -3284,6 +3310,7 @@ pub fn stop_screen_record(
         let _ = w.close();
     }
     reveal_in_file_manager(&path);
+    crate::sound::play(crate::sound::Sound::RecordStop);
     let s = path.to_string_lossy().to_string();
     let _ = app.emit("recording-saved", s.clone());
     Ok(s)

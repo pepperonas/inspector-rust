@@ -22,6 +22,7 @@ import {
   SunMoon,
   Trash2,
   Upload,
+  Volume2,
   Wand2,
   Zap,
 } from "lucide-react";
@@ -55,6 +56,8 @@ import {
   getHistoryHotkeyDefault,
   setHistoryHotkey,
   getScreenRecordingStatus,
+  getSoundEnabled,
+  setSoundEnabled,
   getThemePreference,
   getClipboardPrivacy,
   setClipboardPrivacy,
@@ -281,6 +284,27 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       console.error("autostart toggle failed", e);
     } finally {
       setAutostartBusy(false);
+    }
+  };
+
+  // ── Feedback sounds (v0.84.57) ───────────────────────────────────────────
+  const [soundEnabled, setSoundEnabledState] = useState<boolean | null>(null);
+  const [soundBusy, setSoundBusy] = useState(false);
+  useEffect(() => {
+    getSoundEnabled()
+      .then(setSoundEnabledState)
+      .catch(() => setSoundEnabledState(true));
+  }, []);
+  const toggleSound = async (next: boolean) => {
+    setSoundBusy(true);
+    setSoundEnabledState(next); // optimistic — the IPC applies instantly
+    try {
+      await setSoundEnabled(next);
+    } catch (e) {
+      console.error("sound toggle failed", e);
+      setSoundEnabledState(!next);
+    } finally {
+      setSoundBusy(false);
     }
   };
 
@@ -946,6 +970,35 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       )}
 
       <div className="w-full">
+        {/* Sound — master toggle for UI feedback cues. At the top so it's
+            easy to silence the app. */}
+        <div className="mb-6">
+          <Section
+            icon={<Volume2 size={16} className="text-[var(--color-accent)]" />}
+            title="Sounds"
+            subtitle="Play short feedback cues for actions: snippet expansion, OCR recognised, screenshot captured, recording start/stop, and copy to clipboard."
+          >
+            <Row label="Feedback sounds">
+              <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={soundEnabled ?? true}
+                  disabled={soundEnabled === null || soundBusy}
+                  onChange={(e) => void toggleSound(e.target.checked)}
+                  className="accent-[var(--color-accent)]"
+                />
+                <span className="text-[var(--color-muted)]">
+                  {soundEnabled === null
+                    ? "Loading…"
+                    : soundEnabled
+                      ? "On — actions play a short sound"
+                      : "Off — the app stays silent"}
+                </span>
+              </label>
+            </Row>
+          </Section>
+        </div>
+
         {/* Popup hotkey — the global shortcut that opens the search popup. */}
         <PopupHotkeySection />
 

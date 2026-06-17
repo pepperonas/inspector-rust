@@ -3,6 +3,7 @@ import { Mic, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { BpmAnalyzer } from "../lib/bpm";
 import { setSuppressHide } from "../lib/ipc";
 import { attachMic, warmContext } from "../lib/warm-audio";
+import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "../lib/audio-level";
 import {
   clamp01,
   confidenceColor,
@@ -316,14 +317,9 @@ export function BpmDetector({ onExit }: Props) {
           levelRef.current = energy;
 
           // — full-band dBFS (always; cheap) for the subtle dB readout —
-          vizAnalyserRef.current.getFloatTimeDomainData(vizTimeBuf);
-          let sq = 0;
-          for (let i = 0; i < vizTimeBuf.length; i++) sq += vizTimeBuf[i] * vizTimeBuf[i];
-          const fbRms = Math.sqrt(sq / vizTimeBuf.length);
-          const fbDb = fbRms > 1e-5 ? 20 * Math.log10(fbRms) : -120;
           // Attack fast, release slow — a calm meter that still catches peaks.
-          const prevDb = dbRef.current;
-          dbRef.current = fbDb > prevDb ? prevDb + (fbDb - prevDb) * 0.5 : prevDb + (fbDb - prevDb) * 0.12;
+          vizAnalyserRef.current.getFloatTimeDomainData(vizTimeBuf);
+          dbRef.current = smoothStep(dbRef.current, rmsToDbfs(rms(vizTimeBuf)), 0.5, 0.12);
 
           const v = vizRef.current;
           const dt = Math.min(0.05, Math.max(0.001, (now - v.lastT) / 1000));
@@ -423,7 +419,7 @@ export function BpmDetector({ onExit }: Props) {
         {phase === "listening" &&
           (() => {
             const accent = pinned ? "#f43f5e" : "var(--color-accent)";
-            const norm = db === null ? 0 : Math.max(0, Math.min(1, (db + 60) / 54));
+            const norm = db === null ? 0 : dbfsToLevel(db, -60, -6);
             // Sits in the lower third — clear of both the centred BPM hero and
             // the canvas status line at the very bottom. Present but still
             // quieter than the hero: medium number + a wide glowing meter that

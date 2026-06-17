@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { BPM_CONFIG, BpmAnalyzer } from "./bpm";
+import { BPM_CONFIG, BpmAnalyzer, onsetThresholdForSensitivity } from "./bpm";
+
+describe("onsetThresholdForSensitivity", () => {
+  it("maps the mid-point to the shared default threshold", () => {
+    expect(onsetThresholdForSensitivity(0.5)).toBeCloseTo(BPM_CONFIG.ONSET_THRESHOLD, 6);
+  });
+  it("is strict at 0 and sensitive at 1, monotonically decreasing", () => {
+    expect(onsetThresholdForSensitivity(0)).toBeCloseTo(1.75, 6);
+    expect(onsetThresholdForSensitivity(1)).toBeCloseTo(1.05, 6);
+    expect(onsetThresholdForSensitivity(0.25)).toBeGreaterThan(onsetThresholdForSensitivity(0.75));
+  });
+  it("clamps out-of-range input", () => {
+    expect(onsetThresholdForSensitivity(-5)).toBeCloseTo(1.75, 6);
+    expect(onsetThresholdForSensitivity(5)).toBeCloseTo(1.05, 6);
+  });
+});
 
 /** Synthesize a single audio chunk at a given RMS level. */
 function chunk(rms: number, n = 128): Float32Array {

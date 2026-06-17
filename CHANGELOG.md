@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.53] — 2026-06-17
+
+### Tests & docs
+
+- **Extracted the audio/disco maths into pure, unit-tested helpers** (and reused
+  them across the BPM detector + disco engine): `lib/audio-level.ts` (`rms`,
+  `rmsToDbfs`, `dbfsToLevel`, `smoothStep`), `lib/disco-math.ts` (`beatColor`,
+  `floorBrightness`, `nextIndex`), and `bpm.ts`'s `onsetThresholdForSensitivity`.
+  **+25 frontend tests (692 → 717).**
+- Docs/badges refreshed: **1190 tests (473 Rust + 717 frontend)**, dev-section
+  counts, and the disco-engine notes (rAF + AnalyserNode, pure helpers).
+
 ## [0.84.52] — 2026-06-17
 
 ### Fixed

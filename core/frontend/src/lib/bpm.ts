@@ -106,6 +106,14 @@ export const BPM_CONFIG = {
   DISPLAY_AVG_WINDOW_MS: 4000,
 } as const;
 
+/** Map a 0..1 sensitivity to the onset energy threshold (multiple of the
+ *  moving-average energy). 0 → strict (1.75), 1 → sensitive (1.05); the
+ *  mid-point (0.5) lands on the shared default (1.4). Pure + unit-tested. */
+export function onsetThresholdForSensitivity(s: number): number {
+  const clamped = s < 0 ? 0 : s > 1 ? 1 : s;
+  return 1.75 - 0.7 * clamped;
+}
+
 interface EnergyChunk {
   time: number;
   energy: number;
@@ -137,11 +145,9 @@ export class BpmAnalyzer {
   private lastValidEstimateAt = -Infinity;
 
   /** Tune onset sensitivity at runtime (Hue beat-sync slider). `s` ∈ [0,1]:
-   *  0 = strict (fewer, only-strong beats), 1 = sensitive. Mapped so the
-   *  mid-point (0.5) lands on the shared default threshold (1.4). */
+   *  0 = strict (fewer, only-strong beats), 1 = sensitive. */
   setSensitivity(s: number): void {
-    const clamped = Math.max(0, Math.min(1, s));
-    this.onsetThreshold = 1.75 - 0.7 * clamped;
+    this.onsetThreshold = onsetThresholdForSensitivity(s);
   }
 
   /** Feed one chunk of (lowpass-filtered) audio samples.

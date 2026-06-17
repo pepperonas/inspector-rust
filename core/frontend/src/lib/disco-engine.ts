@@ -22,8 +22,10 @@
 import { useSyncExternalStore } from "react";
 import { BpmAnalyzer } from "./bpm";
 import { hueListLights, hueSetLight } from "./ipc";
+import { beatColor, floorBrightness, nextIndex, type DiscoMode } from "./disco-math";
+import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
 
-export type DiscoMode = "rainbow" | "pulse" | "strobe";
+export type { DiscoMode };
 
 export interface DiscoState {
   running: boolean;
@@ -68,7 +70,6 @@ const INPUT_GAIN = 4;
 // swings with the whole mix, not just the kick. Mapped from this dB window.
 const GAUGE_FLOOR_DB = -50;
 const GAUGE_CEIL_DB = -10;
-const clamp01 = (x: number) => (x < 0 ? 0 : x > 1 ? 1 : x);
 
 class DiscoEngine {
   private state: DiscoState = {
@@ -217,13 +218,8 @@ class DiscoEngine {
 
         // Gauge: full-band RMS → dBFS → fixed window → attack/release smoothing.
         this.levelAnalyser.getFloatTimeDomainData(levelBuf);
-        let sum = 0;
-        for (let i = 0; i < levelBuf.length; i++) sum += levelBuf[i] * levelBuf[i];
-        const rms = Math.sqrt(sum / levelBuf.length);
-        const dbv = rms > 1e-5 ? 20 * Math.log10(rms) : -120;
-        const target = clamp01((dbv - GAUGE_FLOOR_DB) / (GAUGE_CEIL_DB - GAUGE_FLOOR_DB));
-        const a = target > this.displayLevel ? 0.55 : 0.12;
-        this.displayLevel += (target - this.displayLevel) * a;
+        const target = dbfsToLevel(rmsToDbfs(rms(levelBuf)), GAUGE_FLOOR_DB, GAUGE_CEIL_DB);
+        this.displayLevel = smoothStep(this.displayLevel, target, 0.55, 0.12);
 
         if (
           est.beatJustFired &&
@@ -289,21 +285,16 @@ class DiscoEngine {
     const n = ids.length;
     if (n === 0) return;
     const id = ids[this.rr % n];
-    this.rr = (this.rr + 1) % n;
+    this.rr = nextIndex(this.rr, n);
 
     const m = this.state.mode;
-    let hex: string;
-    if (m === "rainbow") {
-      hex = RAINBOW_HEX[this.pal % RAINBOW_HEX.length];
-      this.pal = (this.pal + 1) % RAINBOW_HEX.length;
-    } else {
-      hex = this.state.fixedHex;
-    }
+    const { hex, nextPal } = beatColor(m, this.state.fixedHex, this.pal, RAINBOW_HEX);
+    this.pal = nextPal;
 
     void hueSetLight(id, true, PUNCH_BRI, hex).catch(() => undefined);
     const prev = this.prevId;
     if (prev && prev !== id) {
-      const floor = m === "strobe" ? FLOOR_STROBE : FLOOR_RAINBOW;
+      const floor = floorBrightness(m, FLOOR_RAINBOW, FLOOR_STROBE);
       void hueSetLight(prev, true, floor, m === "rainbow" ? null : hex).catch(() => undefined);
     }
     this.prevId = id;

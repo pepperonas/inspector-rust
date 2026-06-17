@@ -506,6 +506,11 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
             .shadow(false)
             .visible(false)
             .focused(false)
+            // Non-activating window (focused=false) — without this, the first
+            // click only makes it key and the button needs a second click.
+            // accept_first_mouse routes that first click straight to the webview
+            // so Close/Save/Edit/Pin fire immediately (macOS acceptsFirstMouse).
+            .accept_first_mouse(true)
             .build()?
     };
 

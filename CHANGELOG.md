@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.56] — 2026-06-17
+
+### Fixed
+
+- **Screenshot-preview buttons now act on the first click.** The floating preview
+  (bottom-left after a capture) is a non-activating window (`focused=false`), so
+  on macOS the first click only made it key — Close/Save/Edit/Pin needed a second
+  click. Added `accept_first_mouse(true)` so that first click routes straight to
+  the webview and the button fires immediately.
+
 ## [0.84.55] — 2026-06-17
 
 ### Fixed

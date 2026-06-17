@@ -21,6 +21,9 @@ import {
   randomInt,
   parseShotDelay,
   parseTimerArg,
+  parseOtpQuery,
+  isBpmTrigger,
+  isFlappyTrigger,
   formatBytes,
   resizePresetSuggestions,
   translateUrl,
@@ -30,7 +33,7 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 57 commands (+5 dev-tools, +9 web-search bangs, +qr, +sound, +audio alias, +trim)", () => {
+  it("has 59 commands (translate ×9, dev-tools ×5, web-search bangs ×9, qr, sound+audio, trim, hue, disco, meme, …)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     expect(COMMANDS.length).toBe(59);
@@ -1074,5 +1077,38 @@ describe("bare pwgen surfaces the action (not a suggestion)", () => {
   it("exposes a sane default length", () => {
     expect(DEFAULT_PWGEN_LENGTH).toBeGreaterThanOrEqual(4);
     expect(DEFAULT_PWGEN_LENGTH).toBeLessThanOrEqual(128);
+  });
+});
+
+describe("parseOtpQuery", () => {
+  it("returns the issuer filter for `otp <issuer>` (trimmed)", () => {
+    expect(parseOtpQuery("otp")).toBe("");
+    expect(parseOtpQuery("otp ")).toBe("");
+    expect(parseOtpQuery("otp amazon")).toBe("amazon");
+    expect(parseOtpQuery("OTP  GitHub ")).toBe("GitHub");
+    expect(parseOtpQuery("otp google work")).toBe("google work");
+  });
+  it("returns null when the query isn't an otp query", () => {
+    expect(parseOtpQuery("")).toBeNull();
+    expect(parseOtpQuery("otpfoo")).toBeNull(); // no boundary
+    expect(parseOtpQuery("2fa")).toBeNull();
+    expect(parseOtpQuery("note otp")).toBeNull();
+  });
+});
+
+describe("hidden game/word triggers (exact word, case-insensitive)", () => {
+  it("isBpmTrigger matches only the exact word `bpm`", () => {
+    expect(isBpmTrigger("bpm")).toBe(true);
+    expect(isBpmTrigger("  BPM ")).toBe(true);
+    expect(isBpmTrigger("bpms")).toBe(false);
+    expect(isBpmTrigger("bpm detector")).toBe(false);
+    expect(isBpmTrigger("")).toBe(false);
+  });
+  it("isFlappyTrigger matches only the exact word `learningtofly`", () => {
+    expect(isFlappyTrigger("learningtofly")).toBe(true);
+    expect(isFlappyTrigger("LearningToFly")).toBe(true);
+    expect(isFlappyTrigger(" learningtofly ")).toBe(true);
+    expect(isFlappyTrigger("learning")).toBe(false);
+    expect(isFlappyTrigger("learningtofly!")).toBe(false);
   });
 });

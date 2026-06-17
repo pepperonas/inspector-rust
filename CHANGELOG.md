@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.55] — 2026-06-17
+
+### Fixed
+
+- **About-footer alignment.** The GitHub link / "made with ♥ by Martin Pfeffer"
+  icons sat slightly high — added `leading-none` so the icons and text share the
+  same optical centre.
+
+### Tests & docs
+
+- **New unit tests** (+8): a pure, extracted **`monitor_index_for_point`**
+  (`screenshot_preview.rs`) covering the multi-monitor cursor-hit logic
+  (half-open bounds, shared edges, negative origins, out-of-bounds) — the
+  per-OS `pick_cursor_monitor_globally` branches now share it; and frontend
+  coverage for `parseOtpQuery`, `isBpmTrigger`, `isFlappyTrigger`. **1198 tests
+  (477 Rust + 721 frontend).** Docs/badges refreshed.
+
 ## [0.84.54] — 2026-06-17
 
 ### Added

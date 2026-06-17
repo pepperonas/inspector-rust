@@ -378,75 +378,111 @@ fn cursor_monitor_target(win: &WebviewWindow) -> Option<(PhysicalPosition<i32>, 
 /// `pub` so the screen-record overlay can reuse this proven multi-monitor
 /// cursor detection (a freshly-built overlay window's `cursor_position()` is
 /// stale → it always resolved to the primary monitor).
+/// Index of the first monitor whose bounds contain `(px, py)`, or `None`.
+/// `bounds` is `(x, y, w, h)` per monitor in the SAME coordinate space + units
+/// as the point (points on macOS, physical pixels on Windows/Linux). The
+/// containment is **half-open** — `[x, x+w) × [y, y+h)` — so two adjacent
+/// monitors never both claim a shared edge. Pure + unit-tested; the per-OS
+/// branches below differ only in how they obtain the cursor + build `bounds`.
+pub fn monitor_index_for_point(bounds: &[(f64, f64, f64, f64)], px: f64, py: f64) -> Option<usize> {
+    bounds
+        .iter()
+        .position(|&(x, y, w, h)| px >= x && px < x + w && py >= y && py < y + h)
+}
+
 pub fn pick_cursor_monitor_globally(monitors: &[tauri::Monitor]) -> Option<tauri::Monitor> {
     #[cfg(target_os = "macos")]
     {
         let (cx_pt, cy_pt) = cg_cursor::position_in_points()?;
-        // Bounds-check in POINTS — convert each monitor's physical
-        // pixel bounds via its own scale factor (handles mixed-scale
-        // multi-monitor setups correctly).
-        monitors
+        // Bounds-check in POINTS — convert each monitor's physical pixel bounds
+        // via its own scale factor (handles mixed-scale multi-monitor setups).
+        let bounds: Vec<(f64, f64, f64, f64)> = monitors
             .iter()
-            .find(|m| {
-                let scale = m.scale_factor();
-                let mp = m.position();
-                let ms = m.size();
-                let pt_x = mp.x as f64 / scale;
-                let pt_y = mp.y as f64 / scale;
-                let pt_w = ms.width as f64 / scale;
-                let pt_h = ms.height as f64 / scale;
-                cx_pt >= pt_x
-                    && cx_pt < pt_x + pt_w
-                    && cy_pt >= pt_y
-                    && cy_pt < pt_y + pt_h
+            .map(|m| {
+                let s = m.scale_factor();
+                let p = m.position();
+                let z = m.size();
+                (p.x as f64 / s, p.y as f64 / s, z.width as f64 / s, z.height as f64 / s)
             })
-            .cloned()
+            .collect();
+        monitor_index_for_point(&bounds, cx_pt, cy_pt).map(|i| monitors[i].clone())
     }
     #[cfg(target_os = "windows")]
     {
-        // Windows `GetCursorPos` returns physical pixels in the
-        // virtual-screen coord system — same units as
-        // `Monitor::position`/`Monitor::size`, so we bounds-check
-        // directly without a scale conversion.
+        // Windows `GetCursorPos` returns physical pixels in the virtual-screen
+        // coord system — same units as `Monitor::position`/`size`, no scaling.
         let (cx, cy) = win_cursor::position_in_pixels()?;
-        monitors
+        let bounds: Vec<(f64, f64, f64, f64)> = monitors
             .iter()
-            .find(|m| {
-                let mp = m.position();
-                let ms = m.size();
-                cx >= mp.x
-                    && cx < mp.x + ms.width as i32
-                    && cy >= mp.y
-                    && cy < mp.y + ms.height as i32
+            .map(|m| {
+                let p = m.position();
+                let z = m.size();
+                (p.x as f64, p.y as f64, z.width as f64, z.height as f64)
             })
-            .cloned()
+            .collect();
+        monitor_index_for_point(&bounds, cx as f64, cy as f64).map(|i| monitors[i].clone())
     }
     #[cfg(target_os = "linux")]
     {
-        // X11 only — Wayland deliberately denies global cursor queries.
-        // On Wayland we return None and let the caller fall back to
-        // `primary_monitor`.
+        // X11 only — Wayland deliberately denies global cursor queries; return
+        // None and let the caller fall back to `primary_monitor`.
         if x11_cursor::is_wayland() {
             let _ = monitors;
             return None;
         }
         let (cx, cy) = x11_cursor::position_in_pixels()?;
-        monitors
+        let bounds: Vec<(f64, f64, f64, f64)> = monitors
             .iter()
-            .find(|m| {
-                let mp = m.position();
-                let ms = m.size();
-                cx >= mp.x
-                    && cx < mp.x + ms.width as i32
-                    && cy >= mp.y
-                    && cy < mp.y + ms.height as i32
+            .map(|m| {
+                let p = m.position();
+                let z = m.size();
+                (p.x as f64, p.y as f64, z.width as f64, z.height as f64)
             })
-            .cloned()
+            .collect();
+        monitor_index_for_point(&bounds, cx as f64, cy as f64).map(|i| monitors[i].clone())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         let _ = monitors;
         None
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::monitor_index_for_point;
+
+    #[test]
+    fn picks_the_monitor_containing_the_point() {
+        // Two side-by-side 1000-wide monitors.
+        let b = [(0.0, 0.0, 1000.0, 800.0), (1000.0, 0.0, 1200.0, 900.0)];
+        assert_eq!(monitor_index_for_point(&b, 500.0, 400.0), Some(0));
+        assert_eq!(monitor_index_for_point(&b, 1500.0, 400.0), Some(1));
+    }
+
+    #[test]
+    fn half_open_bounds_avoid_double_claim_on_a_shared_edge() {
+        let b = [(0.0, 0.0, 1000.0, 800.0), (1000.0, 0.0, 1000.0, 800.0)];
+        // The shared edge x=1000 belongs to the right monitor only.
+        assert_eq!(monitor_index_for_point(&b, 1000.0, 100.0), Some(1));
+        assert_eq!(monitor_index_for_point(&b, 999.999, 100.0), Some(0));
+    }
+
+    #[test]
+    fn handles_negative_origins_and_returns_first_match() {
+        // A monitor to the left of the primary (negative x), e.g. a left-placed
+        // external display.
+        let b = [(0.0, 0.0, 1440.0, 900.0), (-1920.0, -120.0, 1920.0, 1080.0)];
+        assert_eq!(monitor_index_for_point(&b, -10.0, 0.0), Some(1));
+        assert_eq!(monitor_index_for_point(&b, 0.0, 0.0), Some(0));
+    }
+
+    #[test]
+    fn returns_none_outside_every_monitor() {
+        let b = [(0.0, 0.0, 100.0, 100.0)];
+        assert_eq!(monitor_index_for_point(&b, 200.0, 50.0), None);
+        assert_eq!(monitor_index_for_point(&b, 50.0, -1.0), None);
+        assert_eq!(monitor_index_for_point(&[], 0.0, 0.0), None);
     }
 }
 

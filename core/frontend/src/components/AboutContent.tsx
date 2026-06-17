@@ -74,18 +74,18 @@ export function AboutContent({ version }: Props) {
       </div>
 
       {/* Links */}
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-2.5 text-[11px] text-[var(--color-muted)]">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[var(--color-border)] pt-2.5 text-[11px] leading-none text-[var(--color-muted)]">
         <a
           href="https://github.com/pepperonas/inspector-rust"
           target="_blank"
           rel="noopener noreferrer"
-          className="flex items-center gap-1 hover:text-[var(--color-accent)]"
+          className="flex items-center gap-1 leading-none hover:text-[var(--color-accent)]"
         >
-          <ExternalLink size={11} />
+          <ExternalLink size={11} className="shrink-0" />
           github.com/pepperonas/inspector-rust
         </a>
-        <span className="flex items-center gap-1">
-          made with <Heart size={10} className="text-red-400" /> by Martin Pfeffer
+        <span className="flex items-center gap-1 leading-none">
+          made with <Heart size={10} className="shrink-0 text-red-400" /> by Martin Pfeffer
         </span>
       </div>
     </div>

@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.52] — 2026-06-17
+
+### Fixed
+
+- **Disco didn't drive the lamps at all.** Detection ran in a `ScriptProcessorNode`
+  whose `onaudioprocess` never fired reliably in WKWebView → no beats, frozen
+  gauge, dead lamps. Switched to the proven **rAF + `AnalyserNode`** path (the
+  same one the BPM detector uses), so beats fire and the lamps pulse again.
+  **Caveat:** rAF is throttled while the window is hidden, so disco now **pauses
+  while the popup is closed** — true run-while-hidden needs an AudioWorklet
+  (audio-thread), planned as a follow-up.
+
+### Changed
+
+- **BPM detector uses a shared "warm" AudioContext (option C).** One process-wide
+  context with a silent output unit kept open between uses, so the output device
+  is already running when the mic opens (smaller mic-open glitch). The mic is
+  wired while the context is **suspended**, then resumed — input+output come up
+  together, avoiding the v0.84.50 ducking. (`lib/warm-audio.ts`.)
+
 ## [0.84.51] — 2026-06-17
 
 ### Fixed

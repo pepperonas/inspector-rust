@@ -89,8 +89,9 @@ class DiscoEngine {
   // Audio graph.
   private ctx: AudioContext | null = null;
   private stream: MediaStream | null = null;
-  private processor: ScriptProcessorNode | null = null;
+  private detectAnalyser: AnalyserNode | null = null;
   private levelAnalyser: AnalyserNode | null = null;
+  private rafId: number | null = null;
   private displayLevel = 0; // smoothed gauge level (0..1)
   private analyzer = new BpmAnalyzer();
 
@@ -178,45 +179,49 @@ class DiscoEngine {
       lp.type = "lowpass";
       lp.frequency.value = 100;
       lp.Q.value = 1.5;
-      // ScriptProcessorNode runs onaudioprocess on the audio thread (not
-      // rAF) → keeps firing while the popup is hidden. It must reach
-      // destination to be pulled, so route it through a muted gain.
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      const processor = ctx.createScriptProcessor(1024, 1, 1);
-      const silent = ctx.createGain();
-      silent.gain.value = 0;
-      // Full-band level tap (gauge) — read off the gained signal *before* the
-      // bass filter, so the meter swings with the whole mix, not just the kick.
+      // Detection band (gain → HP → LP) into an analyser; we read it from a rAF
+      // loop. (The previous ScriptProcessorNode never fired reliably in WKWebView
+      // → no beats, frozen gauge, dead lamps. The rAF + AnalyserNode path is the
+      // same one the BPM detector uses, which works.)
+      const detectAnalyser = ctx.createAnalyser();
+      detectAnalyser.fftSize = 1024;
+      detectAnalyser.smoothingTimeConstant = 0;
+      // Full-band level tap (gauge) — off the gained signal *before* the bass
+      // filter, so the meter swings with the whole mix, not just the kick.
       const levelAnalyser = ctx.createAnalyser();
       levelAnalyser.fftSize = 1024;
-      const levelBuf = new Float32Array(levelAnalyser.fftSize);
+      // Keep a silent output unit running (anti-stutter; same as BPM detector).
+      const silent = ctx.createGain();
+      silent.gain.value = 0;
 
       source.connect(gain);
-      gain.connect(hp); // detection path: gain → HP → LP → processor
+      gain.connect(hp);
       hp.connect(lp);
-      lp.connect(processor);
-      processor.connect(silent);
+      lp.connect(detectAnalyser);
+      gain.connect(levelAnalyser);
+      source.connect(silent);
       silent.connect(ctx.destination);
-      gain.connect(levelAnalyser); // level path: gain → analyser
-      this.processor = processor;
+      this.detectAnalyser = detectAnalyser;
       this.levelAnalyser = levelAnalyser;
 
-      processor.onaudioprocess = (e) => {
+      const detectBuf = new Float32Array(detectAnalyser.fftSize);
+      const levelBuf = new Float32Array(levelAnalyser.fftSize);
+      const loop = () => {
+        if (!this.detectAnalyser || !this.levelAnalyser) return;
         const now = performance.now();
-        // Detection: the input is the gained HP+LP bass band — what BpmAnalyzer
-        // expects (relative onset detection, so the gain doesn't bias it).
-        const samples = e.inputBuffer.getChannelData(0);
-        this.analyzer.push(samples as Float32Array, now);
+
+        // Detection: gained HP+LP bass band → BpmAnalyzer (relative onset).
+        this.detectAnalyser.getFloatTimeDomainData(detectBuf);
+        this.analyzer.push(detectBuf, now);
         const est = this.analyzer.estimate(now);
 
         // Gauge: full-band RMS → dBFS → fixed window → attack/release smoothing.
-        levelAnalyser.getFloatTimeDomainData(levelBuf);
+        this.levelAnalyser.getFloatTimeDomainData(levelBuf);
         let sum = 0;
         for (let i = 0; i < levelBuf.length; i++) sum += levelBuf[i] * levelBuf[i];
         const rms = Math.sqrt(sum / levelBuf.length);
-        const db = rms > 1e-5 ? 20 * Math.log10(rms) : -120;
-        const target = clamp01((db - GAUGE_FLOOR_DB) / (GAUGE_CEIL_DB - GAUGE_FLOOR_DB));
-        // Fast attack (jumps on transients), slower release (smooth decay).
+        const dbv = rms > 1e-5 ? 20 * Math.log10(rms) : -120;
+        const target = clamp01((dbv - GAUGE_FLOOR_DB) / (GAUGE_CEIL_DB - GAUGE_FLOOR_DB));
         const a = target > this.displayLevel ? 0.55 : 0.12;
         this.displayLevel += (target - this.displayLevel) * a;
 
@@ -236,11 +241,11 @@ class DiscoEngine {
             beat: now - this.lastBeat < 120,
           });
         }
+        this.rafId = requestAnimationFrame(loop);
       };
 
-      // Created from a user gesture so it should auto-run, but resume defensively
-      // (a suspended context never fires onaudioprocess).
       void ctx.resume().catch(() => undefined);
+      this.rafId = requestAnimationFrame(loop);
       this.set({ running: true, error: null });
     } catch {
       this.teardownAudio();
@@ -256,11 +261,12 @@ class DiscoEngine {
   }
 
   private teardownAudio() {
-    if (this.processor) {
-      this.processor.onaudioprocess = null;
-      this.processor.disconnect();
-      this.processor = null;
+    if (this.rafId !== null) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
     }
+    this.detectAnalyser?.disconnect();
+    this.detectAnalyser = null;
     this.levelAnalyser?.disconnect();
     this.levelAnalyser = null;
     this.displayLevel = 0;

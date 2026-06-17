@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { BpmAnalyzer } from "../lib/bpm";
 import { setSuppressHide } from "../lib/ipc";
+import { attachMic, warmContext } from "../lib/warm-audio";
 import {
   clamp01,
   confidenceColor,
@@ -103,6 +104,7 @@ export function BpmDetector({ onExit }: Props) {
 
   // Audio graph + analysis (refs so re-renders don't recreate the AudioContext).
   const audioCtxRef = useRef<AudioContext | null>(null);
+  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const detectAnalyserRef = useRef<AnalyserNode | null>(null);
   const vizAnalyserRef = useRef<AnalyserNode | null>(null);
@@ -211,10 +213,15 @@ export function BpmDetector({ onExit }: Props) {
       streamRef.current.getTracks().forEach((t) => t.stop());
       streamRef.current = null;
     }
-    if (audioCtxRef.current) {
-      void audioCtxRef.current.close().catch(() => undefined);
-      audioCtxRef.current = null;
-    }
+    // The AudioContext is the *shared warm* context — never close it; just
+    // detach our nodes so it (and its silent output unit) stays warm for next
+    // time. Disconnecting the source drops its links to the filters/analysers
+    // and the silent output.
+    sourceRef.current?.disconnect();
+    sourceRef.current = null;
+    detectAnalyserRef.current?.disconnect();
+    vizAnalyserRef.current?.disconnect();
+    audioCtxRef.current = null;
     detectAnalyserRef.current = null;
     vizAnalyserRef.current = null;
     analyzerRef.current.reset();
@@ -227,10 +234,10 @@ export function BpmDetector({ onExit }: Props) {
 
     (async () => {
       try {
-        // Mic FIRST, then add the silent output. Establishing the output unit
-        // *before* the mic (v0.84.50) made macOS treat the context as a
-        // full-duplex "communication" session and DUCK other apps' audio
-        // (super-quiet) — so the order here is deliberate.
+        // Open the mic, then attach it to the SHARED WARM context (kept open
+        // between uses so the output device is already running — smaller
+        // mic-open glitch). `attachMic` suspends → wires the mic → resumes, so
+        // input+output come up together and macOS doesn't duck other audio.
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: false,
@@ -242,8 +249,13 @@ export function BpmDetector({ onExit }: Props) {
           stream.getTracks().forEach((t) => t.stop());
           return;
         }
-        const ctx = new AudioContext({ latencyHint: "playback" });
-        const source = ctx.createMediaStreamSource(stream);
+        const ctx = warmContext();
+        const source = await attachMic(stream);
+        if (cancelled) {
+          source.disconnect();
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
 
         // — detection chain: HP 30 → LP 100 (Q 1.5) → analyser —
         const highpass = ctx.createBiquadFilter();
@@ -267,16 +279,8 @@ export function BpmDetector({ onExit }: Props) {
         viz.smoothingTimeConstant = 0.78; // visually smooth, the punch comes from beats
         source.connect(viz);
 
-        // — Silent output unit: a muted gain → destination keeps a stable
-        //   play-and-record session, which has less mic-open stutter than a
-        //   capture-only context (analysers don't reach destination). Gain 0 →
-        //   we never monitor the mic through the speakers.
-        const silentOut = ctx.createGain();
-        silentOut.gain.value = 0;
-        source.connect(silentOut);
-        silentOut.connect(ctx.destination);
-
         audioCtxRef.current = ctx;
+        sourceRef.current = source;
         streamRef.current = stream;
         detectAnalyserRef.current = detect;
         vizAnalyserRef.current = viz;
@@ -286,9 +290,6 @@ export function BpmDetector({ onExit }: Props) {
 
         setErrorMessage(null);
         setPhase("listening");
-        // Created after the async getUserMedia → may start suspended; resume so
-        // the silent output unit runs.
-        void ctx.resume().catch(() => undefined);
 
         const timeBuf = new Float32Array(detect.fftSize);
         const freqBuf = new Uint8Array(viz.frequencyBinCount);

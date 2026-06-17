@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.49] — 2026-06-17
+
+### Fixed
+
+- **BPM detector audio stutter — real root cause.** The warm-up defer (v0.84.47)
+  wasn't it. A **capture-only** `AudioContext` (only analysers, nothing wired to
+  `destination`) makes WebKit/macOS use a record-oriented audio session that
+  re-routes/reconfigures the shared device on mic-open, glitching other apps'
+  playback for a few seconds. The detector now routes a **muted gain to
+  `destination`** (+ `ctx.resume()`) — a stable play-and-record session with an
+  already-running output unit, the exact setup the disco engine uses (which
+  doesn't stutter). The viz warm-up is trimmed to 300 ms.
+
+### Added
+
+- **dB readout in the BPM detector.** A subtle, animated full-band **dBFS meter**
+  (smoothed number + thin level bar with a soft glow that tracks the level,
+  attack-fast/release-slow) under the BPM hero — deliberately quieter than the
+  big BPM number. Goes red while pinned to match the visualizer.
+
 ## [0.84.48] — 2026-06-17
 
 ### Changed

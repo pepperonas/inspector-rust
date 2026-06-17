@@ -92,6 +92,10 @@ export function BpmDetector({ onExit }: Props) {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   // Throttled, low-frequency mirror of the live level for the top-bar label.
   const [levelLabel, setLevelLabel] = useState<string>("silence");
+  // Live dBFS readout (full-band) for the subtle level display. `dbRef` is the
+  // smoothed value the hot loop writes; `db` is the throttled UI mirror.
+  const [db, setDb] = useState<number | null>(null);
+  const dbRef = useRef(-100);
   // Pinned = click-outside won't dismiss (via suppress_hide); the viz also
   // recolours red. `pinnedRef` is the canonical value the keydown/palette read.
   const [pinned, setPinned] = useState(false);
@@ -193,6 +197,7 @@ export function BpmDetector({ onExit }: Props) {
     const id = window.setInterval(() => {
       refreshPalette();
       setLevelLabel(energyDescriptor(levelRef.current));
+      setDb(dbRef.current <= -90 ? null : Math.round(dbRef.current));
     }, 140);
     return () => window.clearInterval(id);
   }, []);
@@ -263,6 +268,19 @@ export function BpmDetector({ onExit }: Props) {
         viz.smoothingTimeConstant = 0.78; // visually smooth, the punch comes from beats
         source.connect(viz);
 
+        // — Keep an active (silent) output unit running. THIS is the audio-
+        //   stutter fix: a *capture-only* AudioContext (analysers, nothing wired
+        //   to destination) makes WebKit/macOS use a record-oriented audio
+        //   session that re-routes/reconfigures the shared device on mic-open,
+        //   glitching other apps' playback for a few seconds. Routing a muted
+        //   gain to destination forces a stable play-and-record session whose
+        //   output unit is already running — the same setup as the disco engine,
+        //   which doesn't stutter. (Gain 0 → we never monitor the mic.)
+        const silentOut = ctx.createGain();
+        silentOut.gain.value = 0;
+        source.connect(silentOut);
+        silentOut.connect(ctx.destination);
+
         audioCtxRef.current = ctx;
         streamRef.current = stream;
         detectAnalyserRef.current = detect;
@@ -273,9 +291,14 @@ export function BpmDetector({ onExit }: Props) {
 
         setErrorMessage(null);
         setPhase("listening");
+        // The context is created after the async getUserMedia, so it can start
+        // suspended (outside the user-gesture window) — resume it so the silent
+        // output unit actually runs (that's what stabilises the audio session).
+        void ctx.resume().catch(() => undefined);
 
         const timeBuf = new Float32Array(detect.fftSize);
         const freqBuf = new Uint8Array(viz.frequencyBinCount);
+        const vizTimeBuf = new Float32Array(viz.fftSize); // full-band, for dBFS
         // Opening the mic makes macOS reconfigure the shared input/output audio
         // device; for ~1 s the output can stutter while it settles. The AAA
         // visualizer's per-frame canvas/GPU work piles onto that exact window,
@@ -284,7 +307,7 @@ export function BpmDetector({ onExit }: Props) {
         // settled. Detection isn't hurt (BpmAnalyzer needs ~3 s of baseline
         // anyway), and the user just sees the viz fade in a beat late.
         const startT = performance.now();
-        const WARMUP_MS = 900;
+        const WARMUP_MS = 300;
 
         const tick = () => {
           if (cancelled || !detectAnalyserRef.current || !vizAnalyserRef.current) return;
@@ -296,6 +319,16 @@ export function BpmDetector({ onExit }: Props) {
           const est = analyzerRef.current.estimate(now);
           const energy = analyzerRef.current.currentEnergy();
           levelRef.current = energy;
+
+          // — full-band dBFS (always; cheap) for the subtle dB readout —
+          vizAnalyserRef.current.getFloatTimeDomainData(vizTimeBuf);
+          let sq = 0;
+          for (let i = 0; i < vizTimeBuf.length; i++) sq += vizTimeBuf[i] * vizTimeBuf[i];
+          const fbRms = Math.sqrt(sq / vizTimeBuf.length);
+          const fbDb = fbRms > 1e-5 ? 20 * Math.log10(fbRms) : -120;
+          // Attack fast, release slow — a calm meter that still catches peaks.
+          const prevDb = dbRef.current;
+          dbRef.current = fbDb > prevDb ? prevDb + (fbDb - prevDb) * 0.5 : prevDb + (fbDb - prevDb) * 0.12;
 
           const v = vizRef.current;
           const dt = Math.min(0.05, Math.max(0.001, (now - v.lastT) / 1000));
@@ -388,6 +421,39 @@ export function BpmDetector({ onExit }: Props) {
         {phase === "listening" && (
           <canvas ref={canvasRef} className="absolute inset-0 h-full w-full" />
         )}
+
+        {/* Subtle dB readout — secondary to the big BPM hero on the canvas: a
+            small monospace number whose glow + a thin meter bar track the live
+            level, smoothed. Goes red while pinned to match the viz. */}
+        {phase === "listening" &&
+          (() => {
+            const accent = pinned ? "#f43f5e" : "var(--color-accent)";
+            const norm = db === null ? 0 : Math.max(0, Math.min(1, (db + 60) / 54));
+            return (
+              <div className="pointer-events-none absolute inset-x-0 bottom-4 flex flex-col items-center gap-1.5">
+                <div
+                  className="font-[var(--font-mono)] text-[13px] font-medium tabular-nums transition-all duration-150"
+                  style={{
+                    color: db === null ? "var(--color-muted)" : accent,
+                    textShadow: db === null ? "none" : `0 0 ${4 + norm * 12}px ${accent}`,
+                    opacity: 0.45 + norm * 0.55,
+                  }}
+                >
+                  {db === null ? "— dB" : `${db} dB`}
+                </div>
+                <div className="h-[3px] w-40 overflow-hidden rounded-full bg-[var(--color-border)]/50">
+                  <div
+                    className="h-full rounded-full transition-[width] duration-150"
+                    style={{
+                      width: `${Math.round(norm * 100)}%`,
+                      background: accent,
+                      boxShadow: `0 0 ${norm * 8}px ${accent}`,
+                    }}
+                  />
+                </div>
+              </div>
+            );
+          })()}
 
         {phase === "requesting" && (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">

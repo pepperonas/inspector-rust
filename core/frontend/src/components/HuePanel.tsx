@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type PointerEvent } from "react";
 import { Lightbulb, Loader2, Power, RefreshCw, Wifi } from "lucide-react";
 import { HueBeatSync } from "./HueBeatSync";
 import {
@@ -181,6 +181,17 @@ export function HuePanel({
       void call.catch(() => undefined);
     }, 120);
   }, []);
+
+  // Map a pointer x-position on a slider track to a 0–100 % and apply it
+  // (drives the mouse click / drag on the brightness bars).
+  const setBrightnessFromPointer = useCallback(
+    (e: PointerEvent<HTMLDivElement>, key: string) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      const frac = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+      applyBrightness(key, Math.round(Math.max(0, Math.min(1, frac)) * 100));
+    },
+    [applyBrightness],
+  );
 
   const applyColor = useCallback((key: string, hex: string) => {
     setOnMap((m) => ({ ...m, [key]: true }));
@@ -452,12 +463,34 @@ export function HuePanel({
 
                 {row.dimmable && (
                   <div className="mt-1.5 flex items-center gap-2">
-                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-[var(--color-border)]">
-                      <span
-                        className="block h-full rounded-full bg-[var(--color-accent)] transition-[width]"
-                        style={{ width: `${row.on ? row.brightness : 0}%` }}
-                      />
-                    </span>
+                    {/* Click / drag anywhere on the track to set brightness. The
+                        outer div is the hit area (taller than the visual bar so
+                        it's easy to grab); pointer capture keeps the drag alive
+                        outside the bar. */}
+                    <div
+                      role="slider"
+                      aria-label={`${row.name} brightness`}
+                      aria-valuenow={row.brightness}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      className="group flex h-5 flex-1 cursor-pointer items-center"
+                      onPointerDown={(e) => {
+                        e.stopPropagation();
+                        setSel(i);
+                        e.currentTarget.setPointerCapture(e.pointerId);
+                        setBrightnessFromPointer(e, row.key);
+                      }}
+                      onPointerMove={(e) => {
+                        if (e.buttons === 1) setBrightnessFromPointer(e, row.key);
+                      }}
+                    >
+                      <span className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-border)] transition-[height] group-hover:h-2.5">
+                        <span
+                          className="block h-full rounded-full bg-[var(--color-accent)] transition-[width]"
+                          style={{ width: `${row.on ? row.brightness : 0}%` }}
+                        />
+                      </span>
+                    </div>
                     <span className="w-9 text-right text-[11px] tabular-nums text-[var(--color-muted)]">
                       {row.brightness}%
                     </span>

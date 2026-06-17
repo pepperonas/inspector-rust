@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.54] — 2026-06-17
+
+### Added
+
+- **Draggable Hue brightness sliders.** The per-lamp (and "All lamps") brightness
+  bars in the `hue` preview are now click-and-drag sliders — set the brightness
+  directly with the mouse (pointer-capture keeps the drag alive outside the bar;
+  the track grows slightly on hover). The keyboard ←→ ±10 % still works.
+
 ## [0.84.53] — 2026-06-17
 
 ### Tests & docs

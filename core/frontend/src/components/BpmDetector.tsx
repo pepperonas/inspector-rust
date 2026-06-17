@@ -227,30 +227,10 @@ export function BpmDetector({ onExit }: Props) {
 
     (async () => {
       try {
-        // ── Order matters for the audio-stutter fix. ──────────────────────────
-        // A capture-only AudioContext makes WebKit/macOS use a record-oriented
-        // session that reconfigures the shared device on mic-open, glitching
-        // other apps. We therefore:
-        //   1) create the context + a muted gain → destination and RESUME it,
-        //      so a play-and-record session with a running output unit exists,
-        //   2) let it settle briefly, THEN
-        //   3) open the mic — so macOS *adds input to a running session* instead
-        //      of reconfiguring from a record-only state (the residual stutter).
-        // `latencyHint:"playback"` keeps a comfortable (glitch-resistant) buffer.
-        const ctx = new AudioContext({ latencyHint: "playback" });
-        audioCtxRef.current = ctx;
-        const silentOut = ctx.createGain();
-        silentOut.gain.value = 0; // never monitor the mic through the speakers
-        silentOut.connect(ctx.destination);
-        await ctx.resume().catch(() => undefined);
-        // Let the output unit stabilise before the mic opens.
-        await new Promise((r) => setTimeout(r, 80));
-        if (cancelled) {
-          void ctx.close().catch(() => undefined);
-          audioCtxRef.current = null;
-          return;
-        }
-
+        // Mic FIRST, then add the silent output. Establishing the output unit
+        // *before* the mic (v0.84.50) made macOS treat the context as a
+        // full-duplex "communication" session and DUCK other apps' audio
+        // (super-quiet) — so the order here is deliberate.
         const stream = await navigator.mediaDevices.getUserMedia({
           audio: {
             echoCancellation: false,
@@ -260,10 +240,9 @@ export function BpmDetector({ onExit }: Props) {
         });
         if (cancelled) {
           stream.getTracks().forEach((t) => t.stop());
-          void ctx.close().catch(() => undefined);
-          audioCtxRef.current = null;
           return;
         }
+        const ctx = new AudioContext({ latencyHint: "playback" });
         const source = ctx.createMediaStreamSource(stream);
 
         // — detection chain: HP 30 → LP 100 (Q 1.5) → analyser —
@@ -287,9 +266,17 @@ export function BpmDetector({ onExit }: Props) {
         viz.fftSize = 2048; // 1024 freq bins
         viz.smoothingTimeConstant = 0.78; // visually smooth, the punch comes from beats
         source.connect(viz);
-        // Tie the mic into the running play-and-record session (still silent).
-        source.connect(silentOut);
 
+        // — Silent output unit: a muted gain → destination keeps a stable
+        //   play-and-record session, which has less mic-open stutter than a
+        //   capture-only context (analysers don't reach destination). Gain 0 →
+        //   we never monitor the mic through the speakers.
+        const silentOut = ctx.createGain();
+        silentOut.gain.value = 0;
+        source.connect(silentOut);
+        silentOut.connect(ctx.destination);
+
+        audioCtxRef.current = ctx;
         streamRef.current = stream;
         detectAnalyserRef.current = detect;
         vizAnalyserRef.current = viz;
@@ -299,6 +286,9 @@ export function BpmDetector({ onExit }: Props) {
 
         setErrorMessage(null);
         setPhase("listening");
+        // Created after the async getUserMedia → may start suspended; resume so
+        // the silent output unit runs.
+        void ctx.resume().catch(() => undefined);
 
         const timeBuf = new Float32Array(detect.fftSize);
         const freqBuf = new Uint8Array(viz.frequencyBinCount);

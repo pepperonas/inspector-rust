@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.51] — 2026-06-17
+
+### Fixed
+
+- **BPM detector made the music go super-quiet (regression from v0.84.50).**
+  Establishing the silent output unit *before* opening the mic made macOS treat
+  the context as a full-duplex "communication" session and **duck** other apps'
+  audio. Reverted to the v0.84.49 order — mic first, silent output added after —
+  which keeps the reduced-stutter benefit without ducking. (The remaining brief
+  mic-open glitch is the inherent CoreAudio device-reconfiguration; fully
+  removing it needs native capture — see notes.) The v0.84.50 dB-readout
+  reposition/enlarge is kept.
+
 ## [0.84.50] — 2026-06-17
 
 ### Changed

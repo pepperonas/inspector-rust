@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.64] — 2026-06-20
+
+### Added
+
+- **`uptime` command — a live, animated uptime readout.** Typing `uptime`
+  renders the system uptime in the right preview column as a **continuous
+  odometer**: the uptime in seconds with **6 decimals (down to microseconds)**,
+  where each digit is a vertical 0–9 strip translated every animation frame to
+  its continuous value — so the sub-second digits scroll/blur nonstop and the
+  slower places tick, motion always visible. A human-readable `Dd HH:MM:SS` line
+  + boot timestamp sit below; a per-second pop and breathing accent glow add
+  polish (reduced-motion disables them). Driven by one `requestAnimationFrame`
+  loop writing `transform` to DOM refs (no per-frame React render; compositor-
+  only). Base uptime via a cheap new IPC `get_uptime_secs`, anchored to
+  `performance.now()`. Pure odometer maths unit-tested (`lib/uptime.ts`). Esc
+  closes. (Followed the new add-a-command checklist: catalogue, dispatch,
+  priority/red, Features tab, docs + README.)
+
 ## [0.84.63] — 2026-06-20
 
 ### Fixed

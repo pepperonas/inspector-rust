@@ -510,6 +510,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_audio_outputs,
             commands::set_audio_output,
             commands::get_system_stats,
+            commands::get_uptime_secs,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

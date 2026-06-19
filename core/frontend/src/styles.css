@@ -509,3 +509,64 @@ code {
   84%  { opacity: 1; transform: scale(1.03); }
   100% { opacity: 0; transform: scale(1.4); letter-spacing: 0.3em; }
 }
+
+/* ── Live uptime odometer (`uptime` command) ──────────────────────────────────
+   Each digit is a vertical strip (0–9–0) translated every animation frame to a
+   *continuous* value, so fast places scroll/blur and slow places tick — a
+   smooth mechanical odometer. Strips animate via `transform` only (compositor),
+   so the constant 60 fps motion is cheap. */
+.uptime-odo {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1;
+  display: inline-flex;
+  align-items: baseline;
+}
+.uptime-cell {
+  display: inline-block;
+  width: 1ch;
+  height: 1em;
+  overflow: hidden;
+  vertical-align: top;
+}
+.uptime-strip {
+  display: flex;
+  flex-direction: column;
+  will-change: transform;
+}
+.uptime-strip > span {
+  height: 1em;
+  line-height: 1;
+  text-align: center;
+}
+/* The fractional (µs) digits are the star — accent-coloured with a soft,
+   breathing glow so the constant motion reads as "alive". */
+.uptime-frac {
+  color: var(--color-accent);
+  text-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 55%, transparent);
+}
+.uptime-dot,
+.uptime-unit {
+  color: var(--color-accent);
+}
+.uptime-hero {
+  animation: uptimeBreathe 3.2s ease-in-out infinite;
+}
+@keyframes uptimeBreathe {
+  0%, 100% { filter: drop-shadow(0 0 6px color-mix(in srgb, var(--color-accent) 18%, transparent)); }
+  50%      { filter: drop-shadow(0 0 16px color-mix(in srgb, var(--color-accent) 38%, transparent)); }
+}
+/* A quick pop on the whole hero each time the integer-seconds digit ticks. */
+.uptime-tick {
+  animation: uptimeTick 420ms var(--md3-spring-bounce, ease-out);
+}
+@keyframes uptimeTick {
+  0%   { transform: scale(1); }
+  30%  { transform: scale(1.035); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .uptime-hero, .uptime-tick { animation: none; }
+}

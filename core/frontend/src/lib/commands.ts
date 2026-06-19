@@ -73,6 +73,7 @@ export type CommandKind =
   | "qr"
   | "sound"
   | "stats"
+  | "uptime"
   | "trim";
 
 /** Static metadata for one power command. */
@@ -546,6 +547,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "stats",
     syntax: "stats",
     description: "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
+    requiresArg: false,
+  },
+  {
+    kind: "uptime",
+    keyword: "uptime",
+    syntax: "uptime",
+    description: "Live system uptime — animated to the microsecond in the preview",
     requiresArg: false,
   },
   {

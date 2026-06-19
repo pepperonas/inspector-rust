@@ -12,6 +12,7 @@ import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -166,6 +167,10 @@ function App() {
   // just routes Esc to the panel; there's no selection model.
   const [statsMode, setStatsMode] = useState(false);
   const [statsFocus, setStatsFocus] = useState(false);
+  // Uptime mode — Enter on the `uptime` row renders the live, microsecond-
+  // animated uptime odometer in the right preview column.
+  const [uptimeMode, setUptimeMode] = useState(false);
+  const [uptimeFocus, setUptimeFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -481,6 +486,15 @@ function App() {
     }
   }, [isStatsCmd, statsMode]);
 
+  // Same auto-exit for uptime mode.
+  const isUptimeCmd = parsedCommand?.spec.kind === "uptime";
+  useEffect(() => {
+    if (!isUptimeCmd && uptimeMode) {
+      setUptimeMode(false);
+      setUptimeFocus(false);
+    }
+  }, [isUptimeCmd, uptimeMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -670,6 +684,10 @@ function App() {
       case "stats":
         label = "Live system stats";
         hint = "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        break;
+      case "uptime":
+        label = "Live system uptime";
+        hint = "Enter → uptime animated to the microsecond in the preview";
         break;
       case "trim":
         label = arg ? `Trim media: "${arg}"` : "Trim a video / audio file";
@@ -1768,6 +1786,12 @@ function App() {
         setStatsMode(true);
         setStatsFocus(true);
         return true;
+      } else if (commandKind === "uptime") {
+        // Inline live animated uptime odometer in the preview column.
+        setQuery("uptime");
+        setUptimeMode(true);
+        setUptimeFocus(true);
+        return true;
       } else if (commandKind === "disco") {
         // Toggle the persistent beat-sync engine (runs even after the popup
         // closes). `disco 1`/`0` force on/off; bare `disco` toggles. Fire-and-
@@ -2050,7 +2074,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus,
+      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !uptimeFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2388,6 +2412,17 @@ function App() {
                     onExit={() => {
                       setStatsMode(false);
                       setStatsFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
+              ) : uptimeMode ? (
+                <div className="md3-pop-in h-full">
+                  <UptimePanel
+                    focused={uptimeFocus}
+                    onExit={() => {
+                      setUptimeMode(false);
+                      setUptimeFocus(false);
                       requestAnimationFrame(() => searchRef.current?.focus());
                     }}
                   />

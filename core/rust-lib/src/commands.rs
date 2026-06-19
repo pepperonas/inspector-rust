@@ -2966,6 +2966,14 @@ pub fn set_audio_output(id: String) -> Result<(), String> {
     crate::audio::set_output(&id)
 }
 
+/// System uptime in whole seconds for the live `uptime` command. Cheap (a
+/// single sysctl/proc read, no `System` instance). The frontend anchors this to
+/// a high-resolution timer and animates the sub-second digits down to µs.
+#[tauri::command]
+pub fn get_uptime_secs() -> u64 {
+    sysinfo::System::uptime()
+}
+
 /// One live snapshot of system stats for the `stats` command (CPU / memory /
 /// disks / network / temps / fans / battery). Blocks ~200 ms (CPU sample
 /// window) — Tauri runs sync commands off the main thread, so the popup UI

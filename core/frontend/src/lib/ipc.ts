@@ -1194,6 +1194,12 @@ export function getSystemStats(): Promise<SystemStats> {
   return invoke("get_system_stats");
 }
 
+/** System uptime in whole seconds (the live `uptime` command anchors this to a
+ * high-resolution timer and animates the sub-second digits). */
+export function getUptimeSecs(): Promise<number> {
+  return invoke("get_uptime_secs");
+}
+
 // ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
 
 export interface HueStatus {

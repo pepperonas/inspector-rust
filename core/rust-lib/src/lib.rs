@@ -334,8 +334,16 @@ pub fn run(context: tauri::Context<Wry>) {
                     if let WindowEvent::Focused(false) = ev {
                         // Don't auto-hide if a modal (e.g., file dialog) is
                         // owning focus — the popup needs to stay visible
-                        // until the modal closes.
-                        if !suppress_hide.load(Ordering::Relaxed) {
+                        // until the modal closes. Also ignore a focus-loss that
+                        // lands within the post-show grace window: on Windows,
+                        // `show()` + `set_focus()` can emit a spurious
+                        // `Focused(false)` right after the popup appears, which
+                        // made it "open briefly then close by itself" until a
+                        // restart (see `hotkey::LAST_SHOWN_AT`). A genuine
+                        // click-away arrives well after the grace period.
+                        if !suppress_hide.load(Ordering::Relaxed)
+                            && !hotkey::within_show_grace()
+                        {
                             hotkey::hide_popup(&app_handle);
                         }
                     }

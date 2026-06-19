@@ -3,6 +3,7 @@ use parking_lot::Mutex;
 use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, WebviewWindow};
 use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut, ShortcutState};
 
@@ -10,6 +11,44 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut,
 /// A second Ctrl+Shift+S press while the region picker is open is just
 /// ignored — there's nothing useful a "second" capture could do.
 static SCREENSHOT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
+
+/// Wall-clock of the most recent popup `show_and_position`. Read by the
+/// `WindowEvent::Focused(false)` auto-hide handler to ignore a **spurious**
+/// focus-loss that arrives in the first few hundred ms after the popup is
+/// shown. On Windows, `show()` + `set_focus()` can emit a transient
+/// `Focused(false)` immediately after the window appears (a focus flicker
+/// that becomes reliable once another transient always-on-top window — the
+/// status toast, the record overlay — has perturbed the foreground z-order
+/// during the session), which made the popup "open briefly then close by
+/// itself" until the app was restarted. Guarding the auto-hide with a short
+/// grace window neutralises that without affecting genuine click-away
+/// dismissals (which arrive well after the grace period). Harmless on macOS,
+/// where the Accessory-app focus model doesn't produce the spurious event.
+static LAST_SHOWN_AT: Mutex<Option<Instant>> = Mutex::new(None);
+
+/// Grace window after a popup show during which a `Focused(false)` is treated
+/// as a spurious post-show flicker and ignored.
+const SHOW_GRACE: Duration = Duration::from_millis(300);
+
+/// Pure core of the post-show grace check (testable without timers/globals).
+fn is_within_grace(last: Option<Instant>, now: Instant, grace: Duration) -> bool {
+    match last {
+        Some(t) => now.duration_since(t) < grace,
+        None => false,
+    }
+}
+
+/// True if the popup was shown within the last [`SHOW_GRACE`] — the auto-hide
+/// handler should skip a focus-loss while this holds.
+pub fn within_show_grace() -> bool {
+    is_within_grace(*LAST_SHOWN_AT.lock(), Instant::now(), SHOW_GRACE)
+}
+
+/// Stamp "popup shown now" so the auto-hide grace window starts. Called at the
+/// tail of every show path ([`show_and_position`]).
+fn mark_shown() {
+    *LAST_SHOWN_AT.lock() = Some(Instant::now());
+}
 
 use crate::db::DbHandle;
 use crate::expander;
@@ -878,6 +917,25 @@ mod tests {
     use super::*;
 
     #[test]
+    fn show_grace_ignores_focus_loss_only_right_after_show() {
+        let now = Instant::now();
+        // No show recorded yet → never in grace (auto-hide allowed).
+        assert!(!is_within_grace(None, now, SHOW_GRACE));
+        // Shown 100 ms ago, 300 ms grace → still in grace (spurious flicker).
+        assert!(is_within_grace(
+            Some(now - Duration::from_millis(100)),
+            now,
+            SHOW_GRACE
+        ));
+        // Shown 400 ms ago → past grace → a genuine click-away hides.
+        assert!(!is_within_grace(
+            Some(now - Duration::from_millis(400)),
+            now,
+            SHOW_GRACE
+        ));
+    }
+
+    #[test]
     fn parse_shortcut_accepts_alt_backquote() {
         let s = parse_shortcut("Alt+Backquote").expect("should parse");
         // Modifiers tolerate any case — verify via a different mod casing.
@@ -1197,6 +1255,10 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
             tracing::debug!("clamp_into_monitor: {e:#}");
         }
     }
+    // Start the post-show grace window: a `Focused(false)` arriving in the next
+    // SHOW_GRACE is a spurious post-show focus flicker (see LAST_SHOWN_AT) and
+    // must not auto-hide the popup we just opened.
+    mark_shown();
     Ok(())
 }
 

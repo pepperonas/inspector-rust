@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.58] — 2026-06-19
+
+### Fixed
+
+- **Popup that "opens briefly then closes by itself" (Windows).** After some
+  time of use the clipboard overlay would flash open and immediately dismiss on
+  every hotkey press, only recovering after killing and restarting the app. The
+  cause was the focus-loss auto-hide (`WindowEvent::Focused(false)` →
+  `hide_popup`): on Windows, `show()` + `set_focus()` can emit a **spurious**
+  `Focused(false)` the instant the popup appears — a focus flicker that becomes
+  reliable once another transient always-on-top window (the status toast, the
+  record overlay) has perturbed the foreground z-order during the session, which
+  is why it only started after a while and cleared on restart. The auto-hide now
+  honours a short **post-show grace window** (`hotkey::within_show_grace`,
+  300 ms): a focus-loss arriving immediately after a show is treated as the
+  flicker and ignored, while a genuine click-away (well after the grace period)
+  still dismisses. The same auto-hide path exists on macOS; its Accessory-app
+  focus model doesn't produce the spurious event, so the bug wasn't observed
+  there, but the guard protects it too. Pure core (`is_within_grace`) unit-tested.
+
 ## [0.84.57] — 2026-06-18
 
 ### Added

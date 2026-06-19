@@ -483,7 +483,9 @@ Both modules share the 16 MP hard cap and the multi-format `image` 0.25 dependen
 
 ### `UiState` and modal focus
 
-`UiState.suppress_hide` (AtomicBool, Tauri state) prevents the popup's "hide on focus-loss" handler from firing while a native file dialog is open. The frontend toggles it via `set_suppress_hide` before/after calling `tauri-plugin-dialog` commands (`dialog:allow-open`, `dialog:allow-save`).
+`UiState.suppress_hide` (AtomicBool, Tauri state) prevents the popup's "hide on focus-loss" handler (`lib.rs` `WindowEvent::Focused(false)` → `hotkey::hide_popup`) from firing while a native file dialog is open. The frontend toggles it via `set_suppress_hide` before/after calling `tauri-plugin-dialog` commands (`dialog:allow-open`, `dialog:allow-save`).
+
+**Post-show grace window (v0.84.58).** The same focus-loss handler also skips when `hotkey::within_show_grace()` is true — a 300 ms window stamped by `hotkey::mark_shown()` at the tail of every `show_and_position`. On **Windows**, `show()` + `set_focus()` can emit a **spurious** `Focused(false)` the instant the popup appears (a focus flicker that becomes reliable once another transient always-on-top window — the status toast, the record overlay — has perturbed the foreground z-order during the session), which made the popup "open briefly then close by itself" on every hotkey press until the app was restarted. The grace guard treats an immediate post-show focus-loss as the flicker and ignores it; a genuine click-away arrives well after the grace and still dismisses. macOS shares the path but its Accessory-app focus model doesn't produce the spurious event (so the bug wasn't seen there). Pure core `hotkey::is_within_grace(last, now, grace)` is unit-tested.
 
 ### Platform-specific behaviour in shared code
 

@@ -4,6 +4,36 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.59] — 2026-06-19
+
+### Added
+
+- **`stats` command — live system stats in the preview column.** Typing `stats`
+  renders a read-only, auto-refreshing dashboard in the right preview pane (same
+  inline family as `brightness` / `sound` / `hue`; Esc closes): **CPU** (overall
+  + per-core usage bars, brand, frequency, core count, load average), **memory**
+  (used / available + swap), **disks** (per-mount usage), **network** (live
+  up/down throughput), **temperatures**, **fans**, and **battery & power draw**
+  (charge %, state, time remaining, **instantaneous watts**, health, cycle count,
+  temperature). New Rust module `system_stats.rs` + IPC `get_system_stats`,
+  polled every 1.5 s.
+  - **Cross-platform, best-effort per OS.** CPU / memory / disks / network /
+    uptime / load come from `sysinfo` (reliable on macOS, Windows, Linux).
+    Battery & power draw come from `starship-battery` (IOKit / WMI / sysfs) —
+    `energy_rate` is the live system power in watts. Temperatures come from
+    `sysinfo::Components` (hwmon on Linux, SMC on Intel macOS, WMI on Windows)
+    and are **summarised** from the raw (often dozens of cryptic, duplicated)
+    sensors into clean **CPU / GPU / Battery / SSD** rows. Fans are read directly
+    where there's an API: **macOS via a self-contained SMC reader** (`F<n>Ac`
+    keys, decoding the `flt`/`fpe2`/`sp78`/`ui*` value formats — verified live on
+    Apple Silicon: 2 fans, ~1600 rpm), **Linux via `/sys/class/hwmon`**; Windows
+    has no rootless fan API (none shown). On Apple Silicon, where `Components`
+    can be sparse, the SMC reader also supplies a CPU temperature by averaging
+    the per-core thermal sensors. Every source degrades gracefully — missing
+    sensors are simply omitted, never faked.
+  - Pure cores unit-tested: the SMC value decoders, the temperature summariser,
+    and the frontend byte/rate/duration formatters (`lib/format-stats.ts`).
+
 ## [0.84.58] — 2026-06-19
 
 ### Fixed

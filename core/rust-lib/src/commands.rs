@@ -2966,6 +2966,15 @@ pub fn set_audio_output(id: String) -> Result<(), String> {
     crate::audio::set_output(&id)
 }
 
+/// One live snapshot of system stats for the `stats` command (CPU / memory /
+/// disks / network / temps / fans / battery). Blocks ~200 ms (CPU sample
+/// window) — Tauri runs sync commands off the main thread, so the popup UI
+/// stays responsive; the frontend polls this on an interval.
+#[tauri::command]
+pub fn get_system_stats() -> crate::system_stats::SystemStats {
+    crate::system_stats::gather()
+}
+
 // ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
 
 /// Connection status: do we have a bridge IP + paired username, and does the

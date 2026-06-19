@@ -72,6 +72,7 @@ export type CommandKind =
   | "jwt"
   | "qr"
   | "sound"
+  | "stats"
   | "trim";
 
 /** Static metadata for one power command. */
@@ -538,6 +539,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "hue",
     syntax: "hue",
     description: "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
+    requiresArg: false,
+  },
+  {
+    kind: "stats",
+    keyword: "stats",
+    syntax: "stats",
+    description: "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
     requiresArg: false,
   },
   {

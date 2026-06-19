@@ -1131,6 +1131,69 @@ export function setAudioOutput(id: string): Promise<void> {
   return invoke("set_audio_output", { id });
 }
 
+// ── System stats (`stats` command) ──────────────────────────────────────────
+
+export interface DiskStat {
+  name: string;
+  mount: string;
+  fs: string;
+  total: number;
+  available: number;
+  removable: boolean;
+  kind: string;
+}
+export interface TempStat {
+  label: string;
+  celsius: number;
+}
+export interface FanStat {
+  label: string;
+  rpm: number;
+}
+export interface BatteryStat {
+  percent: number;
+  state: string;
+  /** Instantaneous power draw in watts (discharge while on battery), if reported. */
+  power_watts: number | null;
+  time_to_empty_secs: number | null;
+  time_to_full_secs: number | null;
+  health_percent: number | null;
+  cycle_count: number | null;
+  temperature_c: number | null;
+  vendor: string | null;
+  model: string | null;
+}
+export interface SystemStats {
+  host_name: string | null;
+  os_name: string | null;
+  kernel: string | null;
+  cpu_arch: string | null;
+  uptime_secs: number;
+  cpu_brand: string;
+  cpu_usage: number;
+  cpu_freq_mhz: number;
+  physical_cores: number | null;
+  logical_cores: number;
+  per_core: number[];
+  /** `[1m, 5m, 15m]` — Unix only (null on Windows). */
+  load_avg: [number, number, number] | null;
+  mem_total: number;
+  mem_used: number;
+  mem_available: number;
+  swap_total: number;
+  swap_used: number;
+  disks: DiskStat[];
+  net_rx_per_sec: number;
+  net_tx_per_sec: number;
+  temps: TempStat[];
+  fans: FanStat[];
+  battery: BatteryStat | null;
+}
+/** One live snapshot of system stats (CPU/mem/disks/net/temps/fans/battery). */
+export function getSystemStats(): Promise<SystemStats> {
+  return invoke("get_system_stats");
+}
+
 // ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
 
 export interface HueStatus {

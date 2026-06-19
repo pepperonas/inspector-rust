@@ -11,6 +11,7 @@ import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
 import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
+import { StatsPanel } from "./components/StatsPanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -160,6 +161,11 @@ function App() {
   // drive the panel (true) or the left list (false).
   const [hueMode, setHueMode] = useState(false);
   const [hueFocus, setHueFocus] = useState(false);
+  // Stats mode — Enter on the `stats` command row renders the live
+  // system-stats panel in the right preview column. Read-only, so `statsFocus`
+  // just routes Esc to the panel; there's no selection model.
+  const [statsMode, setStatsMode] = useState(false);
+  const [statsFocus, setStatsFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -465,6 +471,15 @@ function App() {
       setHueFocus(false);
     }
   }, [isHueCmd, hueMode]);
+
+  // Same auto-exit for stats mode.
+  const isStatsCmd = parsedCommand?.spec.kind === "stats";
+  useEffect(() => {
+    if (!isStatsCmd && statsMode) {
+      setStatsMode(false);
+      setStatsFocus(false);
+    }
+  }, [isStatsCmd, statsMode]);
 
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
@@ -1727,6 +1742,12 @@ function App() {
         setHueMode(true);
         setHueFocus(true);
         return true;
+      } else if (commandKind === "stats") {
+        // Inline live system-stats panel in the preview column (read-only).
+        setQuery("stats");
+        setStatsMode(true);
+        setStatsFocus(true);
+        return true;
       } else if (commandKind === "disco") {
         // Toggle the persistent beat-sync engine (runs even after the popup
         // closes). `disco 1`/`0` force on/off; bare `disco` toggles. Fire-and-
@@ -2009,7 +2030,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus,
+      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2336,6 +2357,17 @@ function App() {
                     onExit={() => {
                       setHueMode(false);
                       setHueFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
+              ) : statsMode ? (
+                <div className="md3-pop-in h-full">
+                  <StatsPanel
+                    focused={statsFocus}
+                    onExit={() => {
+                      setStatsMode(false);
+                      setStatsFocus(false);
                       requestAnimationFrame(() => searchRef.current?.focus());
                     }}
                   />

@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.84.58"
+version = "0.84.59"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -68,10 +68,15 @@ ndarray = "0.17"
 # CLI tool required.
 oxipng = { version = "9", default-features = false, features = ["zopfli"] }
 # Cross-platform process inspection — drives the `kill` power command's
-# live picker. Cheap (~10 ms full refresh on a typical desktop with
-# 200+ processes). The default features pull in network/disk modules
-# we don't need.
-sysinfo = { version = "0.32", default-features = false, features = ["system"] }
+# live picker plus the `stats` command (CPU/mem/disk/net/temps). `disk`,
+# `component` (temperatures) and `network` (throughput) are needed by
+# `system_stats`; `system` covers CPU/memory/processes.
+sysinfo = { version = "0.32", default-features = false, features = ["system", "disk", "component", "network"] }
+
+# Cross-platform battery + power-draw info for the `stats` command (IOKit on
+# macOS, WMI on Windows, sysfs on Linux). `energy_rate` is the live power in W.
+# Imported under the `battery` name (its lib name) for clean call sites.
+battery = { package = "starship-battery", version = "0.10" }
 
 # Observability / errors / concurrency
 anyhow = "1"

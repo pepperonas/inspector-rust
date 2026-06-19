@@ -48,6 +48,7 @@ mod snippets;
 mod sound;
 mod status_toast;
 mod system_commands;
+mod system_stats;
 mod finder_selection;
 #[cfg(target_os = "macos")]
 mod osascript_util;
@@ -508,6 +509,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_monitor_brightness,
             commands::list_audio_outputs,
             commands::set_audio_output,
+            commands::get_system_stats,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

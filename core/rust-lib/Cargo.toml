@@ -39,6 +39,7 @@ ort = { workspace = true }
 ndarray = { workspace = true }
 oxipng = { workspace = true }
 sysinfo = { workspace = true }
+battery = { workspace = true }
 # Markdown parser for the standalone Markdown → PDF feature (v0.46.0+).
 # Pulldown-cmark is the CommonMark + GFM reference for Rust — pure,
 # ~150 KB binary impact, zero unsafe. We pair it with platform-native

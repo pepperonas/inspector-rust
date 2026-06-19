@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.65] — 2026-06-20
+
+### Fixed
+
+- **`uptime` looked broken.** The v0.84.64 odometer translated each digit by its
+  *continuous* value, so every cell showed two half-digits smeared together. It
+  now renders **clean tabular monospace digits** (exactly one glyph each) and
+  conveys the constant motion with a **"heat" glow**: a digit flares to the
+  accent colour the instant it changes and cools back over ~0.6 s, so the fast
+  sub-second digits stay lit/shimmering while the slower ones pulse as they tick.
+  Still one rAF loop, paint-only (`color`/`text-shadow`), no per-frame re-render.
+
+### Changed
+
+- **Screenshot preview: controls reveal on hover (CleanShot X behaviour).** The
+  bottom-left capture preview is now just a clean thumbnail at rest; its
+  darkening overlay + all action buttons (Close / Pin / Copy / Save / Pin-to-
+  screen / Edit / Cloud) fade in only while the cursor is over it.
+
 ## [0.84.64] — 2026-06-20
 
 ### Added

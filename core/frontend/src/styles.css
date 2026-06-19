@@ -510,46 +510,36 @@ code {
   100% { opacity: 0; transform: scale(1.4); letter-spacing: 0.3em; }
 }
 
-/* ── Live uptime odometer (`uptime` command) ──────────────────────────────────
-   Each digit is a vertical strip (0–9–0) translated every animation frame to a
-   *continuous* value, so fast places scroll/blur and slow places tick — a
-   smooth mechanical odometer. Strips animate via `transform` only (compositor),
-   so the constant 60 fps motion is cheap. */
+/* ── Live uptime readout (`uptime` command) ───────────────────────────────────
+   Clean tabular monospace digits updated each animation frame. A digit "heats"
+   (accent + glow) the instant its value changes and cools back over ~0.6 s —
+   so fast (sub-second) digits stay lit/shimmering and slow ones pulse as they
+   tick. Only `color`/`text-shadow` change (paint-only), so the 60 fps motion is
+   cheap and every digit always shows exactly one clean glyph. */
 .uptime-odo {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
   font-weight: 700;
-  letter-spacing: 0.01em;
+  letter-spacing: 0.02em;
   line-height: 1;
-  display: inline-flex;
-  align-items: baseline;
 }
-.uptime-cell {
+.uptime-digit {
   display: inline-block;
-  width: 1ch;
-  height: 1em;
-  overflow: hidden;
-  vertical-align: top;
+  color: var(--color-fg);
+  transition: color 600ms ease, text-shadow 600ms ease;
 }
-.uptime-strip {
-  display: flex;
-  flex-direction: column;
-  will-change: transform;
-}
-.uptime-strip > span {
-  height: 1em;
-  line-height: 1;
-  text-align: center;
-}
-/* The fractional (µs) digits are the star — accent-coloured with a soft,
-   breathing glow so the constant motion reads as "alive". */
-.uptime-frac {
+.uptime-digit.hot {
   color: var(--color-accent);
-  text-shadow: 0 0 10px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  text-shadow: 0 0 12px color-mix(in srgb, var(--color-accent) 60%, transparent);
+  transition: none; /* flare instantly, then the cooled state transitions back */
 }
-.uptime-dot,
+.uptime-dot {
+  color: var(--color-accent);
+}
 .uptime-unit {
-  color: var(--color-accent);
+  margin-left: 0.35ch;
+  font-size: 0.5em;
+  color: var(--color-muted);
 }
 .uptime-hero {
   animation: uptimeBreathe 3.2s ease-in-out infinite;

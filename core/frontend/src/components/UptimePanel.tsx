@@ -9,17 +9,18 @@ import {
 } from "../lib/uptime";
 
 /**
- * Live system-uptime readout in the right preview column — entered with the
- * `uptime` command. The hero is the uptime in **seconds with 6 decimals (down
- * to microseconds)** rendered as a continuous **odometer**: every digit is a
- * vertical 0–9 strip translated each animation frame to its *continuous* value,
- * so the fast (sub-second) digits scroll/blur nonstop while the slower ones
- * tick — the motion is always visible, exactly as asked.
+ * Live system-uptime readout in the right preview column (`uptime` command).
+ * The hero is the uptime in **seconds with 6 decimals (down to microseconds)**,
+ * rendered as clean, tabular monospace digits that update every animation frame.
+ * Each digit gets a "heat" treatment: when its value changes it flares to the
+ * accent colour with a glow and cools back over ~0.6 s — so the fast (sub-second)
+ * digits stay permanently lit and shimmering while the slower ones pulse as they
+ * tick. The motion is always visible, but every digit shows exactly one clean
+ * glyph (no half-digit smearing).
  *
- * Driven entirely by a `requestAnimationFrame` loop writing `transform` to DOM
- * refs (no React re-render per frame). The base uptime is fetched once and
- * anchored to `performance.now()` so the value flows smoothly from there. Esc
- * leaves (`onExit`); read-only otherwise.
+ * Driven by one `requestAnimationFrame` loop writing `textContent` + a CSS class
+ * to DOM refs (no React re-render per frame). The base uptime is fetched once
+ * and anchored to `performance.now()` so the value flows smoothly. Esc leaves.
  */
 const FRAC_DIGITS = 6; // microseconds
 
@@ -34,8 +35,7 @@ export function UptimePanel({
   const [error, setError] = useState<string | null>(null);
   const [sinceText, setSinceText] = useState("");
   const anchorPerf = useRef(0);
-  const stripRefs = useRef<(HTMLSpanElement | null)[]>([]);
-  const cellRefs = useRef<(HTMLSpanElement | null)[]>([]);
+  const digitRefs = useRef<(HTMLSpanElement | null)[]>([]);
   const humanRef = useRef<HTMLSpanElement>(null);
   const sinceRef = useRef<HTMLSpanElement>(null);
   const heroRef = useRef<HTMLDivElement>(null);
@@ -48,8 +48,7 @@ export function UptimePanel({
       .then((s) => {
         if (cancelled) return;
         anchorPerf.current = performance.now();
-        // Boot wall-clock = now − uptime (computed here, in an async callback,
-        // not during render — `Date.now()` is impure).
+        // Boot wall-clock = now − uptime (in this async callback, not render).
         setSinceText(new Date(Date.now() - s * 1000).toLocaleString());
         setBase(s);
       })
@@ -61,8 +60,8 @@ export function UptimePanel({
     };
   }, []);
 
-  // Digit powers (high → low) once the base width is known. One headroom digit
-  // so a power-of-ten rollover mid-view can't overflow.
+  // Digit powers (high → low). One headroom integer digit so a power-of-ten
+  // rollover mid-view can't overflow.
   const powers = useMemo(() => {
     if (base === null) return [];
     const intDigits = Math.max(2, integerDigitCount(base) + 1);
@@ -77,24 +76,25 @@ export function UptimePanel({
     const loop = () => {
       const t = base + (performance.now() - anchorPerf.current) / 1000;
 
-      // Position every odometer strip + dim leading-zero integer cells.
+      // Leading-zero count (integer part), to dim them.
       const intLen = Math.max(1, Math.floor(Math.log10(Math.max(1, Math.floor(t)))) + 1);
       const leading = intDigits - intLen;
+
       for (let i = 0; i < powers.length; i++) {
-        const strip = stripRefs.current[i];
-        if (strip) {
-          const cv = odometerValue(t, powers[i]);
-          strip.style.transform = `translateY(${-cv}em)`;
+        const el = digitRefs.current[i];
+        if (!el) continue;
+        const ch = String(Math.floor(odometerValue(t, powers[i])));
+        if (el.textContent !== ch) {
+          el.textContent = ch;
+          el.classList.add("hot"); // flare on change; CSS cools it back
+        } else {
+          el.classList.remove("hot");
         }
-        const cell = cellRefs.current[i];
-        if (cell) {
-          // Integer cells before the first significant digit are leading zeros.
-          const isLeadingZero = powers[i] >= 0 && i < leading;
-          cell.style.opacity = isLeadingZero ? "0.18" : "1";
-        }
+        const isLeadingZero = powers[i] >= 0 && i < leading;
+        el.style.opacity = isLeadingZero ? "0.16" : "";
       }
 
-      // Human-readable breakdown + boot time (cheap textContent writes).
+      // Human-readable breakdown (cheap textContent write).
       const { days, hours, minutes, seconds } = uptimeBreakdown(t);
       const pad = (n: number) => String(n).padStart(2, "0");
       if (humanRef.current) {
@@ -109,8 +109,7 @@ export function UptimePanel({
         const hero = heroRef.current;
         if (hero) {
           hero.classList.remove("uptime-tick");
-          // Force reflow so the animation restarts.
-          void hero.offsetWidth;
+          void hero.offsetWidth; // restart the animation
           hero.classList.add("uptime-tick");
         }
       }
@@ -139,10 +138,8 @@ export function UptimePanel({
     return () => window.removeEventListener("keydown", onKey, true);
   }, [focused, onExit]);
 
-  const DIGITS = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "0"];
-
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-6 overflow-hidden p-4 text-[var(--color-fg)]">
+    <div className="flex h-full flex-col items-center justify-center gap-5 overflow-hidden p-4 text-[var(--color-fg)]">
       <div className="flex items-center gap-2 self-start text-[13px] font-medium">
         <Timer size={15} className="text-[var(--color-accent)]" /> Uptime
       </div>
@@ -155,35 +152,23 @@ export function UptimePanel({
         <div className="flex flex-1 flex-col items-center justify-center gap-3">
           <div ref={heroRef} className="uptime-hero">
             <div
-              className="uptime-odo text-[clamp(22px,5.5vw,40px)]"
+              className="uptime-odo whitespace-nowrap text-[clamp(20px,4.4vw,32px)]"
               aria-label="Live uptime in seconds"
             >
-              {powers.map((p, i) => {
-                const isFrac = p < 0;
-                return (
-                  <Fragment key={p}>
-                    {p === -1 && <span className="uptime-dot">.</span>}
-                    <span
-                      className={"uptime-cell" + (isFrac ? " uptime-frac" : "")}
-                      ref={(el) => {
-                        cellRefs.current[i] = el;
-                      }}
-                    >
-                      <span
-                        className="uptime-strip"
-                        ref={(el) => {
-                          stripRefs.current[i] = el;
-                        }}
-                      >
-                        {DIGITS.map((d, j) => (
-                          <span key={j}>{d}</span>
-                        ))}
-                      </span>
-                    </span>
-                  </Fragment>
-                );
-              })}
-              <span className="uptime-unit ml-1 text-[0.5em]">s</span>
+              {powers.map((p, i) => (
+                <Fragment key={p}>
+                  {p === -1 && <span className="uptime-dot">.</span>}
+                  <span
+                    className="uptime-digit"
+                    ref={(el) => {
+                      digitRefs.current[i] = el;
+                    }}
+                  >
+                    0
+                  </span>
+                </Fragment>
+              ))}
+              <span className="uptime-unit">s</span>
             </div>
           </div>
 

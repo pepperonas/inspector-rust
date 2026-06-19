@@ -52,6 +52,9 @@ export function ScreenshotPreview() {
   // a snappy optimistic update.
   const [pinned, setPinned] = useState(false);
   const [copied, setCopied] = useState(false);
+  // CleanShot-X-style: the preview shows just the clean thumbnail; the
+  // darkening overlay + action buttons fade in only while the cursor is over it.
+  const [hovered, setHovered] = useState(false);
   // v0.35.2 — track the 1.4 s "Copied" toast timer so we can clear it on
   // unmount; otherwise the timeout fires its setCopied(false) on a
   // stale component instance and React logs a warning.
@@ -153,7 +156,18 @@ export function ScreenshotPreview() {
           backgroundPosition: "center",
           backgroundColor: "#1a1a1a",
         }}
+        onMouseEnter={() => setHovered(true)}
+        onMouseLeave={() => setHovered(false)}
       >
+        {/* Controls layer — hidden until hover (CleanShot X style): the
+            preview is just a clean thumbnail at rest; the darkening overlay +
+            all action buttons fade in only while the cursor is over it. */}
+        <div
+          className={
+            "absolute inset-0 flex transition-opacity duration-150 ease-out " +
+            (hovered ? "opacity-100" : "opacity-0 pointer-events-none")
+          }
+        >
         {/* Darkening overlay — keeps the buttons readable on top of any
             background (light/dark/colourful screenshots). */}
         <div className="absolute inset-0 bg-black/40 backdrop-blur-[1px]" />
@@ -239,6 +253,7 @@ export function ScreenshotPreview() {
         >
           <Cloud size={14} />
         </CornerButton>
+        </div>
       </div>
     </div>
   );

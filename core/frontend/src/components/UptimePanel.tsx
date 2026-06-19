@@ -105,6 +105,11 @@ export function UptimePanel({
       for (let i = 0; i < clock.length; i++) {
         setDigit(clockRefs.current[i], String(clock[i]));
       }
+      // Milliseconds tail (indices 6,7,8) — the first three sub-second digits,
+      // changing every frame → a constant heat shimmer on the hero.
+      setDigit(clockRefs.current[6], String(Math.floor(odometerValue(t, -1))));
+      setDigit(clockRefs.current[7], String(Math.floor(odometerValue(t, -2))));
+      setDigit(clockRefs.current[8], String(Math.floor(odometerValue(t, -3))));
 
       // ── Subtle converted line: total seconds with µs (constant shimmer)
       const intLen = Math.max(1, Math.floor(Math.log10(Math.max(1, Math.floor(t)))) + 1);
@@ -185,6 +190,21 @@ export function UptimePanel({
                   </span>
                 </Fragment>
               ))}
+              {/* Animated milliseconds tail */}
+              <span className="uptime-ms">
+                <span className="uptime-dot">.</span>
+                {[6, 7, 8].map((i) => (
+                  <span
+                    key={i}
+                    className="uptime-digit"
+                    ref={(el) => {
+                      clockRefs.current[i] = el;
+                    }}
+                  >
+                    0
+                  </span>
+                ))}
+              </span>
             </div>
           </div>
 

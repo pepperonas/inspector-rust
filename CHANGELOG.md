@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.67] — 2026-06-20
+
+### Changed
+
+- **`uptime` hero now shows animated milliseconds** — `Dd HH:MM:SS.mmm`. The
+  three ms digits are a smaller tail that changes every frame, so they shimmer
+  constantly (heat-glow) while the readable clock stays dominant.
+
 ## [0.84.66] — 2026-06-20
 
 ### Changed

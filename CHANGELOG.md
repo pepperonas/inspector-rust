@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.61] — 2026-06-20
+
+### Fixed
+
+- **`stats` panel janked while scrolling.** The CPU / per-core / memory / disk /
+  battery usage bars animated `width`/`height`, which are layout-triggering
+  transitions; with the panel polling every 1.5 s, ~15 bars ran a 500 ms layout
+  animation on the main thread roughly a third of the time, fighting scroll. The
+  bars now animate `transform: scaleX/scaleY` (GPU-composited — no layout/paint
+  during scroll), and each card gets CSS `contain: content` so scroll repaints
+  are isolated. Scrolling is smooth now.
+
 ## [0.84.60] — 2026-06-20
 
 ### Fixed

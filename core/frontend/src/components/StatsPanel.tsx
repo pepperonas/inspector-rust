@@ -127,11 +127,13 @@ function loadColor(pct: number): string {
 
 function Bar({ pct, color }: { pct: number; color?: string }) {
   const p = clampPct(pct);
+  // Animate via `transform: scaleX` (GPU-composited) rather than `width`
+  // (layout-triggering) so the periodic 1.5 s updates don't fight scrolling.
   return (
-    <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+    <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
       <div
-        className="h-full rounded-full transition-[width] duration-500"
-        style={{ width: `${p}%`, backgroundColor: color ?? loadColor(p) }}
+        className="absolute inset-0 origin-left rounded-full transition-transform duration-500 will-change-transform"
+        style={{ transform: `scaleX(${p / 100})`, backgroundColor: color ?? loadColor(p) }}
       />
     </div>
   );
@@ -149,7 +151,7 @@ function Card({
   children: React.ReactNode;
 }) {
   return (
-    <div className="rounded-xl border border-[var(--color-border)] p-3">
+    <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <div className="mb-2 flex items-center justify-between">
         <div className="flex items-center gap-1.5 text-[12px] font-medium">
           <span className="text-[var(--color-accent)]">{icon}</span>
@@ -200,11 +202,11 @@ function CpuSection({ s }: { s: SystemStats }) {
             <div
               key={i}
               title={`Core ${i}: ${u.toFixed(0)}%`}
-              className="flex h-7 items-end overflow-hidden rounded-sm bg-[var(--color-border)]"
+              className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
             >
               <div
-                className="w-full transition-[height] duration-500"
-                style={{ height: `${clampPct(u)}%`, backgroundColor: loadColor(u) }}
+                className="absolute inset-0 origin-bottom transition-transform duration-500 will-change-transform"
+                style={{ transform: `scaleY(${clampPct(u) / 100})`, backgroundColor: loadColor(u) }}
               />
             </div>
           ))}

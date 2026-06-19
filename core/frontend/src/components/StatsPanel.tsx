@@ -44,6 +44,7 @@ export function StatsPanel({
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     alive.current = true;
@@ -67,14 +68,57 @@ export function StatsPanel({
     };
   }, []);
 
-  // Esc leaves stats mode. Read-only panel → no arrow/Enter handling.
+  // While the panel owns the keyboard: ↑/↓ (and PageUp/Down, Home/End) scroll
+  // the panel, Esc leaves. Read-only otherwise (no selection/Enter). Scroll is
+  // an instant `scrollBy` (not smooth) so held-key repeat steps responsively
+  // instead of queueing momentum.
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onExit();
+      const el = scrollRef.current;
+      const STEP = 64;
+      switch (e.key) {
+        case "ArrowDown":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollBy({ top: STEP });
+          break;
+        case "ArrowUp":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollBy({ top: -STEP });
+          break;
+        case "PageDown":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollBy({ top: el.clientHeight * 0.85 });
+          break;
+        case "PageUp":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollBy({ top: -el.clientHeight * 0.85 });
+          break;
+        case "Home":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollTo({ top: 0 });
+          break;
+        case "End":
+          if (!el) break;
+          e.preventDefault();
+          e.stopPropagation();
+          el.scrollTo({ top: el.scrollHeight });
+          break;
+        case "Escape":
+          e.preventDefault();
+          e.stopPropagation();
+          onExit();
+          break;
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -82,7 +126,10 @@ export function StatsPanel({
   }, [focused, onExit]);
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]">
+    <div
+      ref={scrollRef}
+      className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]"
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[13px] font-medium">
           <Activity size={15} className="text-[var(--color-accent)]" /> System stats
@@ -108,7 +155,9 @@ export function StatsPanel({
           <NetworkSection s={stats} />
           <HostSection s={stats} />
           {focused && (
-            <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc close</p>
+            <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
+              ↑ ↓ scroll · Esc close
+            </p>
           )}
         </>
       )}
@@ -127,12 +176,14 @@ function loadColor(pct: number): string {
 
 function Bar({ pct, color }: { pct: number; color?: string }) {
   const p = clampPct(pct);
-  // Animate via `transform: scaleX` (GPU-composited) rather than `width`
-  // (layout-triggering) so the periodic 1.5 s updates don't fight scrolling.
+  // Size via `transform: scaleX` (no layout) and **snap** to the new value each
+  // poll — no `transition`/`will-change`, which would otherwise leave ~15
+  // permanent compositor layers (one per bar) that the compositor must blend on
+  // every scroll frame → scroll jank. A stats readout doesn't need bar tweening.
   return (
     <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
       <div
-        className="absolute inset-0 origin-left rounded-full transition-transform duration-500 will-change-transform"
+        className="absolute inset-0 origin-left rounded-full"
         style={{ transform: `scaleX(${p / 100})`, backgroundColor: color ?? loadColor(p) }}
       />
     </div>
@@ -205,7 +256,7 @@ function CpuSection({ s }: { s: SystemStats }) {
               className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
             >
               <div
-                className="absolute inset-0 origin-bottom transition-transform duration-500 will-change-transform"
+                className="absolute inset-0 origin-bottom"
                 style={{ transform: `scaleY(${clampPct(u) / 100})`, backgroundColor: loadColor(u) }}
               />
             </div>

@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.62] — 2026-06-20
+
+### Fixed
+
+- **`stats` panel still janked while scrolling.** The v0.84.61 `will-change:
+  transform` left ~15 permanent compositor layers (one per usage bar) that the
+  compositor had to blend on every scroll frame — itself a scroll-jank cause.
+  Removed `will-change` **and** the bar transitions: the bars now snap to each
+  poll's value via `transform: scaleX/scaleY` (no layout, no persistent layers,
+  no per-frame blending), which a stats readout doesn't need to tween.
+
+### Added
+
+- **Arrow-key scrolling in the `stats` panel.** While the panel is active,
+  **↑ / ↓** scroll it (plus **PageUp / PageDown** and **Home / End**); Esc still
+  closes. Instant `scrollBy` so held keys step responsively.
+
 ## [0.84.61] — 2026-06-20
 
 ### Fixed

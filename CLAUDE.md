@@ -81,6 +81,18 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 3. Register it in the `invoke_handler![]` macro in `core/rust-lib/src/lib.rs`.
 4. Add a typed `invoke("command_name", { ...args })` wrapper in `core/frontend/src/lib/ipc.ts`.
 
+### Adding a new search-bar (custom) command — REQUIRED checklist
+
+Custom commands must **always** outrank clipboard history (spliced above fuzzy clips) **and** render with the red (`rose`) accent, **and** be discoverable in the docs + the app's Features tab. When adding one, do **all** of:
+
+1. **Catalogue** — add the `CommandKind` + a `CommandSpec` entry to `core/frontend/src/lib/commands.ts` (keyword, syntax, description, `requiresArg`, optional `platform` gating). Update the `COMMANDS.length` assertion in `commands.test.ts`.
+2. **Dispatch** — handle the kind in `App.tsx`'s `dispatchCommand` (run it / enter its inline mode).
+3. **Priority + red accent** — the command surfaces as a `command` `ListEntry` via the `commandEntry` `switch` in `App.tsx`. Add a tailored `case` for a nice label/hint; if you forget, the `default` arm now builds a **generic runnable row** anyway (v0.84.63) so the command still outranks clips and is red (`isCustomCommand` keys off `entry.kind === "command"` in `HistoryItem.tsx`). Only kinds with their **own** dedicated `ListEntry` (`pwgen`, `bruno`) `return null` there; whole-list takeovers (`kill`, `meme`) are handled before the switch. (This invariant exists because forgetting it caused the v0.84.59 `stats`/`trim` bug: no row → a clip won Enter.)
+4. **App Features tab** — add a row to `core/frontend/src/components/FeaturesPanel.tsx` (the user-facing catalogue) under the right group.
+5. **Docs** — document it in this file (`CLAUDE.md`) and add it to the README command lists (`README.md` + `README.de.md`: the *Power commands* bullet + the `search-bar commands` count badge).
+
+Steps 4 + 5 are not optional: **every new custom command must appear in both the project docs and the app's Features tab.**
+
 ### Database — five tables in one SQLite file
 
 `DbHandle = Arc<Mutex<Connection>>` (rusqlite + parking_lot). Managed as Tauri state. File location:

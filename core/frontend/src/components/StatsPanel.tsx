@@ -45,10 +45,19 @@ export function StatsPanel({
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const tickRef = useRef<() => void>(() => {});
+  // True while a wheel/trackpad scroll is in flight — see `onScroll`.
+  const scrollingRef = useRef(false);
+  const scrollEndRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     alive.current = true;
     const tick = () => {
+      // Skip the re-render while the user is actively wheel/trackpad-scrolling:
+      // a reconciliation landing mid-momentum stutters the scroll (the arrow-key
+      // path doesn't hit this because each press is a discrete jump). We refresh
+      // the instant scrolling settles (see `onScroll`) and on the normal tick.
+      if (scrollingRef.current) return;
       getSystemStats()
         .then((s) => {
           if (alive.current) {
@@ -60,13 +69,27 @@ export function StatsPanel({
           if (alive.current) setError(String(e));
         });
     };
+    tickRef.current = tick;
     tick();
     const id = window.setInterval(tick, POLL_MS);
     return () => {
       alive.current = false;
       window.clearInterval(id);
+      window.clearTimeout(scrollEndRef.current);
     };
   }, []);
+
+  // Mark "scrolling" on each scroll event and clear it ~200 ms after the last
+  // one (momentum settled), then refresh once. Cheap: only touches refs +
+  // a debounce timer — no per-frame re-render.
+  const onScroll = () => {
+    scrollingRef.current = true;
+    if (scrollEndRef.current) window.clearTimeout(scrollEndRef.current);
+    scrollEndRef.current = window.setTimeout(() => {
+      scrollingRef.current = false;
+      tickRef.current();
+    }, 200);
+  };
 
   // While the panel owns the keyboard: ↑/↓ (and PageUp/Down, Home/End) scroll
   // the panel, Esc leaves. Read-only otherwise (no selection/Enter). Scroll is
@@ -128,7 +151,12 @@ export function StatsPanel({
   return (
     <div
       ref={scrollRef}
-      className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]"
+      onScroll={onScroll}
+      // `translateZ(0)` + `contain: paint` promote the scrollport to its own GPU
+      // compositor layer, so wheel/trackpad scrolling is a cheap GPU translate
+      // instead of a main-thread repaint per frame (the trackpad-lag fix).
+      style={{ transform: "translateZ(0)" }}
+      className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]"
     >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[13px] font-medium">

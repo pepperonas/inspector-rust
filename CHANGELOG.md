@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.63] — 2026-06-20
+
+### Fixed
+
+- **`stats` panel: laggy wheel/trackpad scrolling.** Arrow-key scrolling was
+  already smooth (discrete jumps), but continuous wheel/trackpad scrolling
+  repainted on the main thread each frame. The scrollport is now promoted to its
+  own GPU compositor layer (`transform: translateZ(0)` + `contain: paint`), so
+  scrolling is a cheap GPU translate; and the 1.5 s stats refresh is **paused
+  while a scroll is in flight** (resumes ~200 ms after it settles), so a
+  mid-momentum re-render can't stutter it.
+
+### Changed
+
+- **Custom commands are robustly always-highest-priority + red now.** The
+  `commandEntry` `default` arm in `App.tsx` builds a generic runnable command
+  row instead of returning null, so any command kind (even one missing a
+  tailored case) still outranks clipboard history and gets the red accent —
+  preventing a recurrence of the v0.84.59 `stats`/`trim` "clip won Enter" class
+  of bug. Documented a **required checklist** in CLAUDE.md for adding a new
+  custom command (catalogue → dispatch → priority/red → **Features tab** →
+  **docs + README**); added `stats` to both READMEs' command list + count badge.
+
 ## [0.84.62] — 2026-06-20
 
 ### Fixed

@@ -692,27 +692,27 @@ function App() {
         hint = r ? "Shown big on screen (CSPRNG)" : "e.g. rnd · rnd 100 · rnd 5 500";
         break;
       }
-      case "pwgen": {
-        // Pwgen is rendered as its own ListEntry kind further down
-        // (with `mode` + `password` baked in). Return null here so we
-        // don't render the generic `command` row above the pwgen row.
+      case "pwgen":
+        // Pwgen is rendered as its own ListEntry kind further down (with `mode`
+        // + `password` baked in) — opt out of the generic command row.
         return null;
-      }
+      case "bruno":
+        // Bruno has its own `bruno` ListEntry (live net-pay calc) — opt out.
+        return null;
       default:
-        // INVARIANT: every command kind that runs from a single command row
-        // MUST have a `case` above so a `commandEntry` is built — that's what
-        // splices the runnable command to the TOP of `combined` (above fuzzy
-        // clips), giving commands their always-highest priority. Reaching this
-        // `default` returns null → NO command row → a clip whose text fuzzy-
-        // matches the keyword wins instead (the v0.84.59 `stats` / `trim` bug:
-        // typing `stats` pasted a clip containing "stats"). The only kinds that
-        // intentionally fall through here are those rendered as their OWN
-        // dedicated `ListEntry` elsewhere — `pwgen` (explicit null above),
-        // `bruno` (brunoEntry) — or whole-list/whole-popup takeovers handled
-        // before this switch (`kill`, `meme`). When you add a new single-row
-        // command kind, ALSO add its `case` here, not just a `dispatchCommand`
-        // branch.
-        return null;
+        // ROBUST FALLBACK (v0.84.63): any command kind WITHOUT a tailored case
+        // above still gets a runnable command row, so every custom command keeps
+        // its always-highest priority (spliced above fuzzy clips) and its red
+        // accent — even if someone forgets to add a tailored case. (This is what
+        // the v0.84.59 `stats`/`trim` bug was: `default` used to `return null`,
+        // so a forgotten kind produced NO row and a clip won Enter.) Only kinds
+        // with a DEDICATED `ListEntry` opt out via an explicit `return null`
+        // above (`pwgen`, `bruno`); whole-list takeovers (`kill`, `meme`) are
+        // handled before this switch. Tailored cases above just give nicer
+        // labels/hints than this generic fallback.
+        label = arg ? `${spec.keyword} ${arg}` : spec.syntax;
+        hint = spec.description;
+        break;
     }
     return {
       kind: "command",

@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.66] — 2026-06-20
+
+### Changed
+
+- **`uptime` readout redesigned around the readable time.** The hero is now the
+  uptime in a normal clock format — **`Dd HH:MM:SS`** (big, clean) — with each
+  digit pulsing (accent heat-glow) as it ticks. The converted total-seconds /
+  microseconds representation is demoted to a **small, dimmed** line below, but
+  kept animated (its sub-second digits shimmer constantly). Boot timestamp under
+  both. (Earlier versions made the µs seconds the giant hero, which looked
+  noisy.)
+
 ## [0.84.65] — 2026-06-20
 
 ### Fixed

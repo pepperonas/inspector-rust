@@ -536,10 +536,37 @@ code {
 .uptime-dot {
   color: var(--color-accent);
 }
+.uptime-colon {
+  color: var(--color-muted);
+  margin: 0 0.04em;
+}
+.uptime-days {
+  margin-right: 0.35em;
+  color: var(--color-fg);
+}
+.uptime-days:empty {
+  margin-right: 0;
+}
 .uptime-unit {
   margin-left: 0.35ch;
-  font-size: 0.5em;
+  font-size: 0.7em;
   color: var(--color-muted);
+}
+/* The converted (total-seconds.µs) line is deliberately subdued — muted base,
+   accent only on the heat flare — so it reads as a quiet, shimmering footnote. */
+.uptime-sub {
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  opacity: 0.85;
+}
+.uptime-sub .uptime-digit {
+  color: var(--color-muted);
+  transition: color 700ms ease, text-shadow 700ms ease;
+}
+.uptime-sub .uptime-digit.hot {
+  color: var(--color-accent);
+  text-shadow: 0 0 8px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  transition: none;
 }
 .uptime-hero {
   animation: uptimeBreathe 3.2s ease-in-out infinite;

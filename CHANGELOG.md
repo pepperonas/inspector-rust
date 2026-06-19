@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.60] — 2026-06-20
+
+### Fixed
+
+- **`stats` (and `trim`) pasted a matching clip instead of running the command.**
+  Commands must always outrank clipboard history, but typing `stats` copied a
+  clip whose text contained "stats". Root cause: a runnable single-row command
+  only surfaces (spliced to the top of the list, above fuzzy clips) if it has a
+  `case` in `App.tsx`'s `commandEntry` `switch`; `stats` and `trim` were wired
+  into `dispatchCommand` but **missing** from that switch, so they hit the
+  `default` arm (`return null`) → no command row → a fuzzy-matching clip won
+  Enter. Added the missing `case`s and documented the invariant (CLAUDE.md +
+  an in-code comment on the `default` arm): a new single-row command needs
+  **both** a `dispatchCommand` branch **and** a `commandEntry` case.
+
 ## [0.84.59] — 2026-06-19
 
 ### Added

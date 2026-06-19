@@ -667,6 +667,14 @@ function App() {
         label = "Control Philips Hue lamps";
         hint = "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
         break;
+      case "stats":
+        label = "Live system stats";
+        hint = "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        break;
+      case "trim":
+        label = arg ? `Trim media: "${arg}"` : "Trim a video / audio file";
+        hint = "Opens a file picker → set in/out points (lossless or re-encode)";
+        break;
       case "disco": {
         const on = parseDiscoArg(arg);
         const willRun = on === null ? !discoEngine.isRunning() : on;
@@ -691,7 +699,19 @@ function App() {
         return null;
       }
       default:
-        // kill is handled above; this guards against future additions.
+        // INVARIANT: every command kind that runs from a single command row
+        // MUST have a `case` above so a `commandEntry` is built — that's what
+        // splices the runnable command to the TOP of `combined` (above fuzzy
+        // clips), giving commands their always-highest priority. Reaching this
+        // `default` returns null → NO command row → a clip whose text fuzzy-
+        // matches the keyword wins instead (the v0.84.59 `stats` / `trim` bug:
+        // typing `stats` pasted a clip containing "stats"). The only kinds that
+        // intentionally fall through here are those rendered as their OWN
+        // dedicated `ListEntry` elsewhere — `pwgen` (explicit null above),
+        // `bruno` (brunoEntry) — or whole-list/whole-popup takeovers handled
+        // before this switch (`kill`, `meme`). When you add a new single-row
+        // command kind, ALSO add its `case` here, not just a `dispatchCommand`
+        // branch.
         return null;
     }
     return {

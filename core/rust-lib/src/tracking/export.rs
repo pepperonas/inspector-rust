@@ -182,8 +182,9 @@ pub fn html(
     let mut by_cat: HashMap<String, i64> = HashMap::new();
     let mut by_day: HashMap<String, i64> = HashMap::new();
     let mut claude_secs: HashMap<String, i64> = HashMap::new();
-    // Per browser app → per host → (seconds, visits).
-    let mut browser: HashMap<String, HashMap<String, (i64, i64)>> = HashMap::new();
+    // Per app → (total seconds, source, detail label → (seconds, count)).
+    type DetailStats = HashMap<String, (i64, i64)>;
+    let mut apps_detail: HashMap<String, (i64, String, DetailStats)> = HashMap::new();
     for e in events {
         let d = effective_dur_s(e, now);
         if d == 0 {
@@ -207,16 +208,21 @@ pub fn html(
             *by_cat
                 .entry(e.category.clone().unwrap_or_else(|| "Uncategorized".into()))
                 .or_default() += d;
-            if e.source == "browser" {
-                let host = e
-                    .host
+            let label = if e.source == "browser" {
+                e.host
                     .clone()
                     .or_else(|| e.window_title.clone())
-                    .unwrap_or_else(|| "(unknown)".into());
-                let site = browser.entry(e.app_name.clone()).or_default().entry(host).or_insert((0, 0));
-                site.0 += d;
-                site.1 += 1;
-            }
+                    .unwrap_or_else(|| "(unknown)".into())
+            } else {
+                e.window_title.clone().unwrap_or_else(|| "(no title)".into())
+            };
+            let group = apps_detail
+                .entry(e.app_name.clone())
+                .or_insert_with(|| (0, e.source.clone(), HashMap::new()));
+            group.0 += d;
+            let det = group.2.entry(label).or_insert((0, 0));
+            det.0 += d;
+            det.1 += 1;
         }
     }
     let apps = buckets_sorted(by_app);
@@ -265,31 +271,27 @@ pub fn html(
         format!("<div class=card><h2>Claude Code</h2>{body}</div>")
     };
 
-    // Browser history — one collapsible <details> per browser (native expand,
-    // no JS, so it stays self-contained). Each shows the visited hosts.
-    let browser_card = if browser.is_empty() {
+    // By app (detailed) — one collapsible <details> per app (native expand, no
+    // JS, so it stays self-contained). Browsers list visited hosts; other apps
+    // list window titles.
+    let browser_card = if apps_detail.is_empty() {
         String::new()
     } else {
-        let mut apps_h: Vec<_> = browser.into_iter().collect();
-        // Sort browsers by total time desc.
-        apps_h.sort_by(|a, b| {
-            let ta: i64 = a.1.values().map(|v| v.0).sum();
-            let tb: i64 = b.1.values().map(|v| v.0).sum();
-            tb.cmp(&ta).then(a.0.cmp(&b.0))
-        });
+        let mut apps_h: Vec<_> = apps_detail.into_iter().collect();
+        apps_h.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(&b.0)));
         let mut blocks = String::new();
-        for (app, hosts) in &apps_h {
-            let total: i64 = hosts.values().map(|v| v.0).sum();
-            let mut sites: Vec<(&String, &(i64, i64))> = hosts.iter().collect();
-            sites.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
-            let mut rows = String::from(
-                "<table><thead><tr><th>Site</th><th class=r>Visits</th><th class=r>Time</th></tr></thead><tbody>",
+        for (app, (total, source, details)) in &apps_h {
+            let mut det: Vec<(&String, &(i64, i64))> = details.iter().collect();
+            det.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
+            let col = if source == "browser" { "Site" } else { "Window" };
+            let mut rows = format!(
+                "<table><thead><tr><th>{col}</th><th class=r>Count</th><th class=r>Time</th></tr></thead><tbody>"
             );
-            for (host, (secs, visits)) in &sites {
+            for (label, (secs, count)) in &det {
                 rows.push_str(&format!(
                     "<tr><td>{}</td><td class=r>{}</td><td class=r>{}</td></tr>",
-                    esc(host),
-                    visits,
+                    esc(label),
+                    count,
                     fmt_dur(*secs)
                 ));
             }
@@ -297,11 +299,11 @@ pub fn html(
             blocks.push_str(&format!(
                 "<details><summary><span>{}</span><span class=dur>{}</span></summary>{}</details>",
                 esc(app),
-                fmt_dur(total),
+                fmt_dur(*total),
                 rows
             ));
         }
-        format!("<div class=card><h2>Browser history</h2>{blocks}</div>")
+        format!("<div class=card><h2>By app (detailed)</h2>{blocks}</div>")
     };
 
     format!(
@@ -468,14 +470,17 @@ mod tests {
     }
 
     #[test]
-    fn html_browser_history_is_collapsible_details() {
-        let mut e = ev("Google Chrome", 0, 120_000, false, Some("github.com"), Some("PR"));
-        e.source = "browser".into();
-        let out = html(&[e], &HashMap::new(), 0, 86_400_000, 200_000);
-        assert!(out.contains("Browser history"));
+    fn html_app_details_are_collapsible_for_all_apps() {
+        let mut chrome = ev("Google Chrome", 0, 120_000, false, Some("github.com"), Some("PR"));
+        chrome.source = "browser".into();
+        let code = ev("Code", 120_000, 300_000, false, None, Some("main.rs"));
+        let out = html(&[chrome, code], &HashMap::new(), 0, 86_400_000, 400_000);
+        assert!(out.contains("By app (detailed)"));
         assert!(out.contains("<details>")); // native expand, no JS
+        // Browser → host detail; other app → window-title detail.
         assert!(out.contains("Google Chrome"));
         assert!(out.contains("github.com"));
+        assert!(out.contains("main.rs"));
         assert!(!out.contains("http://")); // still self-contained
     }
 }

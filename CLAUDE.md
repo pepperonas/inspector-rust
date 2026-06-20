@@ -397,11 +397,15 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   an `idle` span). Browsers (`is_browser`) get the extension's `last_tab`
   host/title and split on tab-URL change. The privacy **denylist** strips
   title/url/host (`is_denied`/`parse_denylist`). `day_report`/`aggregate_day`
-  build the tab + export aggregations, including the **browser history**
-  (`DayReport.browser_history`: per-browser-app, grouped by host with time +
-  visit count) — a sub-view of the browser time already in `by_app`, surfaced as
-  an expandable row in the tab and a native `<details>` block in the HTML export
-  (v0.84.86).
+  build the tab + export aggregations, including the **per-app breakdown**
+  (`DayReport.app_breakdown`: every app grouped, with total time + an expandable
+  detail list — browsers → hosts, other apps → window titles, each with time +
+  count) — a sub-view of the active time already in `by_app` (not double-counted;
+  idle + Claude excluded). The tab's events area has a **By app ↔ Timeline**
+  toggle: *By app* shows the expandable grouped breakdown, *Timeline* the
+  editable chronological event list (merge/edit/delete). The HTML export renders
+  it as a native `<details>` block per app ("By app (detailed)", no-JS). (browser
+  history was the v0.84.86 special case; generalised to all apps in v0.84.87.)
 - **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
   `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
   `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +

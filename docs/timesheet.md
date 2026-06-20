@@ -102,10 +102,14 @@ in the UI until the other OSes are runtime-verified.
   `date,start,end,duration_min,app,category,project,host,title,source,idle`.
 - **HTML** — a single self-contained file (CSS + inline-SVG charts, zero external
   requests), dark-themed, with daily totals, app donut, category + top-host bars,
-  a **Browser history** section (one collapsible `<details>` per browser — native
-  expand, no JS — listing visited hosts with time + visit count), a Claude-Code
-  section, and the event table. Footer: `© 2026 Martin Pfeffer | celox.io`.
+  a **By app (detailed)** section (one collapsible `<details>` per app — native
+  expand, no JS — browsers list visited hosts, other apps list window titles,
+  each with count + time), a Claude-Code section, and the event table. Footer:
+  `© 2026 Martin Pfeffer | celox.io`.
 
-In the **Timesheet tab**, the same browser history shows as an expandable
-"Browser history" card: click a browser (e.g. Google Chrome) to reveal its
-visited sites (host · visits · time).
+In the **Timesheet tab**, the events area has a **By app ↔ Timeline** toggle:
+- **By app** — every app grouped with its total usage; click an app (e.g. Google
+  Chrome) to expand its detail/history (visited hosts for browsers, window titles
+  for other apps, each with time + count).
+- **Timeline** — the editable chronological event list (inline edit · merge ·
+  delete · category · idle).

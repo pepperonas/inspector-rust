@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.87] — 2026-06-21
+
+### Changed
+
+- **Timesheet — expandable detail for every app + a view toggle.** The
+  expand-to-detail idea (was browser-only) now covers **all apps**: the events
+  area has a **By app ↔ Timeline** toggle. *By app* groups every app with its
+  total usage and expands each to its detail/history — browsers list visited
+  hosts, other apps list window titles (time + count). *Timeline* is the previous
+  editable chronological event list (edit · merge · delete). The HTML export's
+  "Browser history" section is likewise generalised to **By app (detailed)** —
+  one native `<details>` per app. `DayReport.browser_history` →
+  `app_breakdown` (`AppBreakdown`/`AppDetail`); still a sub-view of the active
+  time already in `by_app` (not double-counted; idle + Claude excluded).
+
 ## [0.84.86] — 2026-06-21
 
 ### Added

@@ -1297,6 +1297,15 @@ export function trackSetCategory(appName: string, category: string): Promise<voi
 export function trackClearAll(): Promise<void> {
   return invoke("track_clear_all");
 }
+/** Export `[from, to)` (unix ms) to ~/Downloads as `csv` or self-contained
+ *  `html`; reveals the file. Returns the written path. */
+export function trackExport(
+  format: "csv" | "html",
+  from: number,
+  to: number,
+): Promise<string> {
+  return invoke("track_export", { format, from, to });
+}
 
 // ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
 

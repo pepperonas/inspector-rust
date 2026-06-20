@@ -533,6 +533,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::track_merge_events,
             commands::track_set_category,
             commands::track_clear_all,
+            commands::track_export,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

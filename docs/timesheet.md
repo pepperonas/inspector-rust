@@ -7,7 +7,7 @@ usage), auto-pauses on inactivity, and a second command opens a day-navigable,
 editable timesheet view with **CSV** and **self-contained HTML** export.
 
 > **Status — incremental delivery.** This is built in the delivery order below;
-> each step is a green-gated commit. **Done so far:** Steps 1–6 — data layer, tracker core (focus + idle, macOS), IPC + `track on/off`, the Timesheet tab (charts), and **inline editing** (relabel · category · merge · delete · idle · times). Next: CSV + HTML export (step 7).
+> each step is a green-gated commit. **Done so far:** Steps 1–7 — data layer, tracker core (focus + idle, macOS), IPC + `track on/off`, the Timesheet tab (charts), inline editing, and **CSV + self-contained HTML export**. Next: the Claude-Code watcher (step 8).
 
 ## Privacy & security (by design)
 
@@ -72,7 +72,7 @@ the range query (`events_in_range`, title/url decrypted), Claude turns, and
 4. IPC commands + search-bar `track on/off` + toast. ✅ done (footer LED/tray pending)
 5. Timesheet tab (read-only: day navigation + charts). ✅ done
 6. Inline editing. ✅ done
-7. CSV + HTML export.
+7. CSV + HTML export. ✅ done
 8. Claude watcher.
 9. Browser bridge (loopback WS) + extension + options page.
 10. Settings (idle, denylist, retention, bridge token) + docs + remaining OS modules.

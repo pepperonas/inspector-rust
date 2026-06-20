@@ -9,6 +9,7 @@ import {
   GitMerge,
   Pause,
   Pencil,
+  Download,
   Trash2,
   X,
 } from "lucide-react";
@@ -19,6 +20,7 @@ import {
   trackDeleteEvent,
   trackMergeEvents,
   trackSetCategory,
+  trackExport,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -196,6 +198,13 @@ export function TimesheetPanel() {
     refresh();
   };
 
+  const doExport = (format: "csv" | "html") => {
+    const from = dayStart;
+    void trackExport(format, from, from + 86_400_000).catch((e) =>
+      console.error("export failed", e),
+    );
+  };
+
   const mergeSelected = async () => {
     const ids = [...selected];
     if (ids.length < 2) return;
@@ -244,6 +253,27 @@ export function TimesheetPanel() {
         >
           Today
         </button>
+
+        {report && report.events.length > 0 && (
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => doExport("csv")}
+              className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+              title="Export this day as CSV → Downloads"
+            >
+              <Download size={13} /> CSV
+            </button>
+            <button
+              type="button"
+              onClick={() => doExport("html")}
+              className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+              title="Export this day as a self-contained HTML report → Downloads"
+            >
+              <Download size={13} /> HTML
+            </button>
+          </div>
+        )}
 
         <div className="ml-auto flex items-center gap-1 text-[12px]">
           {status?.active ? (

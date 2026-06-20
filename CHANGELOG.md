@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.81] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 7: CSV + HTML export.** The Timesheet tab gets **CSV** and
+  **HTML** export buttons (the viewed day → `~/Downloads`, revealed). CSV is a
+  flat `date,start,end,duration_min,app,category,project,host,title,source,idle`.
+  HTML is a **single self-contained file** (CSS + server-rendered inline-SVG
+  charts, **zero external requests**, offline-viewable, dark theme): totals
+  header + top-3 apps, active-time-per-day bars, an app donut, category + top-
+  host bars, and the full event table. Footer `© 2026 Martin Pfeffer | celox.io`.
+  Pure builders (`tracking/export.rs`) unit-tested (CSV escaping, self-contained
+  HTML, empty-day). IPC `track_export`.
+
 ## [0.84.80] — 2026-06-20
 
 ### Added

@@ -383,6 +383,35 @@ pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)
 }
 
+/// Export the events in `[from, to)` (unix ms) to `~/Downloads` as `csv` or a
+/// self-contained `html` report; reveals the file. Returns the written path.
+#[tauri::command]
+pub fn track_export(
+    db: State<'_, DbHandle>,
+    format: String,
+    from: i64,
+    to: i64,
+) -> Result<String, String> {
+    use chrono::TimeZone;
+    let events = crate::tracking::db::events_in_range(&db, from, to).map_err(map_err)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let (content, ext) = if format == "html" {
+        (crate::tracking::export::html(&events, from, to, now), "html")
+    } else {
+        (crate::tracking::export::csv(&events, now), "csv")
+    };
+    let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
+    let stamp = chrono::Local
+        .timestamp_millis_opt(from)
+        .single()
+        .map(|d| d.format("%Y%m%d").to_string())
+        .unwrap_or_else(|| from.to_string());
+    let path = dir.join(format!("timesheet-{stamp}.{ext}"));
+    std::fs::write(&path, content).map_err(|e| format!("write export: {e}"))?;
+    reveal_in_file_manager(&path);
+    Ok(path.display().to_string())
+}
+
 // ── App launcher (Spotlight-like) ─────────────────────────────────────
 
 /// Return the cached app index. Frontend fuzzy-matches against this

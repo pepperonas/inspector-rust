@@ -168,15 +168,29 @@ fn bars_svg(buckets: &[(String, i64)], total: i64) -> String {
 }
 
 /// Build the self-contained HTML report for `events` over `[from, to)`.
-pub fn html(events: &[TrackEvent], from: i64, to: i64, now: i64) -> String {
+/// `claude_tokens` maps project → (tokens_in, tokens_out) for the same range.
+pub fn html(
+    events: &[TrackEvent],
+    claude_tokens: &HashMap<String, (i64, i64)>,
+    from: i64,
+    to: i64,
+    now: i64,
+) -> String {
     let (mut active, mut idle) = (0i64, 0i64);
     let mut by_app: HashMap<String, i64> = HashMap::new();
     let mut by_host: HashMap<String, i64> = HashMap::new();
     let mut by_cat: HashMap<String, i64> = HashMap::new();
     let mut by_day: HashMap<String, i64> = HashMap::new();
+    let mut claude_secs: HashMap<String, i64> = HashMap::new();
     for e in events {
         let d = effective_dur_s(e, now);
         if d == 0 {
+            continue;
+        }
+        if e.source == "claude" {
+            *claude_secs
+                .entry(e.project.clone().unwrap_or_else(|| "(unknown)".into()))
+                .or_default() += d;
             continue;
         }
         if e.is_idle {
@@ -215,6 +229,29 @@ pub fn html(events: &[TrackEvent], from: i64, to: i64, now: i64) -> String {
     let app_donut = donut_svg(&apps);
     let host_bars = bars_svg(&hosts, active);
     let cat_bars = bars_svg(&cats, active);
+
+    // Claude-Code usage per project (time + tokens) — its own section.
+    let claude_card = if claude_secs.is_empty() {
+        String::new()
+    } else {
+        let mut rows: Vec<(String, i64)> = claude_secs.into_iter().collect();
+        rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        let mut body = String::from(
+            "<table><thead><tr><th>Project</th><th class=r>Time</th><th class=r>Tokens in</th><th class=r>Tokens out</th></tr></thead><tbody>",
+        );
+        for (proj, secs) in &rows {
+            let (tin, tout) = claude_tokens.get(proj).copied().unwrap_or((0, 0));
+            body.push_str(&format!(
+                "<tr><td>{}</td><td class=r>{}</td><td class=r>{}</td><td class=r>{}</td></tr>",
+                esc(proj),
+                fmt_dur(*secs),
+                tin,
+                tout
+            ));
+        }
+        body.push_str("</tbody></table>");
+        format!("<div class=card><h2>Claude Code</h2>{body}</div>")
+    };
 
     format!(
         r#"<!doctype html><html lang=en><head><meta charset=utf-8>
@@ -266,6 +303,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
   <div class=card><h2>By category</h2>{cat_bars}</div>
 </div>
 <div class=card><h2>Top hosts</h2>{host_bars}</div>
+{claude_card}
 <div class=card><h2>Events</h2>{table}</div>
 <footer>{footer}</footer>
 </body></html>"#,
@@ -278,6 +316,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
         app_donut = app_donut,
         cat_bars = cat_bars,
         host_bars = host_bars,
+        claude_card = claude_card,
         table = events_table(events, now),
         footer = FOOTER,
     )
@@ -344,7 +383,7 @@ mod tests {
             ev("Safari", 600_000, 900_000, false, Some("github.com"), None),
             ev("Code", 900_000, 1_500_000, true, None, None),
         ];
-        let out = html(&events, 0, 86_400_000, 2_000_000);
+        let out = html(&events, &HashMap::new(), 0, 86_400_000, 2_000_000);
         assert!(out.starts_with("<!doctype html>"));
         assert!(out.contains(FOOTER));
         // No external resource references (offline self-contained).
@@ -361,7 +400,7 @@ mod tests {
 
     #[test]
     fn html_handles_empty() {
-        let out = html(&[], 0, 86_400_000, 0);
+        let out = html(&[], &HashMap::new(), 0, 86_400_000, 0);
         assert!(out.contains(FOOTER));
         assert!(out.contains("No active time."));
     }

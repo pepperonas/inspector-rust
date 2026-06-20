@@ -10,6 +10,7 @@
 // consumers land in later delivery steps — allow dead_code meanwhile.
 #![allow(dead_code)]
 
+pub mod claude;
 pub mod db;
 pub mod export;
 pub mod os;
@@ -49,6 +50,7 @@ pub struct Runtime {
     open_key: Option<String>,
     open_started_at: i64,
     stop: Option<Arc<AtomicBool>>,
+    claude_stop: Option<Arc<AtomicBool>>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,10 +81,20 @@ pub fn start(
     let now = now_ms();
     let sid = tdb::start_session(db, label.as_deref(), now).map_err(|e| e.to_string())?;
     let stop = Arc::new(AtomicBool::new(false));
+    // Claude-Code watcher (default on; settings-gated) — its own stop flag.
+    let claude_stop = if crate::settings::get_or(db, "track.claude_watcher", "1")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+    {
+        Some(claude::start(db.clone(), sid))
+    } else {
+        None
+    };
     *rt = Runtime {
         session_id: Some(sid),
         session_started: Some(now),
         stop: Some(stop.clone()),
+        claude_stop,
         ..Default::default()
     };
     drop(rt);
@@ -99,6 +111,9 @@ pub fn stop(app: &AppHandle, db: &DbHandle, state: &TrackerState) -> Result<(), 
         return Ok(());
     };
     if let Some(s) = &rt.stop {
+        s.store(true, Ordering::SeqCst);
+    }
+    if let Some(s) = &rt.claude_stop {
         s.store(true, Ordering::SeqCst);
     }
     let now = now_ms();
@@ -257,6 +272,14 @@ pub struct Bucket {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct ClaudeAgg {
+    pub project: String,
+    pub seconds: i64,
+    pub tokens_in: i64,
+    pub tokens_out: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DayReport {
     pub date: String,
     pub events: Vec<tdb::TrackEvent>,
@@ -266,6 +289,10 @@ pub struct DayReport {
     pub by_app: Vec<Bucket>,
     pub by_category: Vec<Bucket>,
     pub by_host: Vec<Bucket>,
+    /// Claude-Code usage per project (time + tokens) — a separate dimension,
+    /// **not** included in `total_active_s`/`by_app` (those are focus/browser,
+    /// to avoid double-counting time you spent in the terminal *and* Claude).
+    pub claude: Vec<ClaudeAgg>,
 }
 
 fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
@@ -294,7 +321,17 @@ pub fn day_report(db: &DbHandle, date: &str) -> Result<DayReport, String> {
         .timestamp_millis();
     let to = from + 86_400_000;
     let events = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
-    Ok(aggregate_day(date.to_string(), events, from, to, now_ms()))
+    let mut report = aggregate_day(date.to_string(), events, from, to, now_ms());
+    // Merge token totals (per project) onto the time-only claude aggregation.
+    if let Ok(tokens) = tdb::claude_tokens_by_project(db, from, to) {
+        for c in &mut report.claude {
+            if let Some((tin, tout)) = tokens.get(&c.project) {
+                c.tokens_in = *tin;
+                c.tokens_out = *tout;
+            }
+        }
+    }
+    Ok(report)
 }
 
 /// Pure aggregation core (no DB/clock) for testability.
@@ -311,12 +348,20 @@ fn aggregate_day(
     let mut by_app: HashMap<String, i64> = HashMap::new();
     let mut by_host: HashMap<String, i64> = HashMap::new();
     let mut by_cat: HashMap<String, i64> = HashMap::new();
+    let mut claude_secs: HashMap<String, i64> = HashMap::new();
     for e in &events {
         sessions.insert(e.session_id);
         let end = e.ended_at.unwrap_or(now).min(to);
         let start = e.started_at.max(from);
         let dur = ((end - start).max(0)) / 1000;
         if dur == 0 {
+            continue;
+        }
+        if e.source == "claude" {
+            // Separate dimension — not part of the focus/browser active total
+            // (you're also focused in the terminal during that time).
+            let proj = e.project.clone().unwrap_or_else(|| "(unknown)".to_string());
+            *claude_secs.entry(proj).or_default() += dur;
             continue;
         }
         if e.is_idle {
@@ -331,6 +376,16 @@ fn aggregate_day(
             *by_cat.entry(cat).or_default() += dur;
         }
     }
+    let mut claude: Vec<ClaudeAgg> = claude_secs
+        .into_iter()
+        .map(|(project, seconds)| ClaudeAgg {
+            project,
+            seconds,
+            tokens_in: 0,
+            tokens_out: 0,
+        })
+        .collect();
+    claude.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.project.cmp(&b.project)));
     DayReport {
         date,
         events,
@@ -340,6 +395,7 @@ fn aggregate_day(
         by_app: to_buckets(by_app),
         by_category: to_buckets(by_cat),
         by_host: to_buckets(by_host),
+        claude,
     }
 }
 

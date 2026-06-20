@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.82] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 8: Claude-Code usage detection.** While tracking, a
+  `notify` file-watcher on `~/.claude/projects/**/*.jsonl` records active Claude
+  Code usage as its own `claude` intervals **per project** (the `cwd` basename),
+  extending an interval per appended assistant turn and starting a new one after
+  a 3-minute gap — with per-turn **token usage** (model · in/out). Claude time is
+  a **separate dimension**: it's excluded from the focus/browser "active" total
+  and `by_app` (so terminal + Claude time isn't double-counted) and shown in its
+  own **Claude Code** card (project · time · tokens) in the tab + HTML export.
+  Defensive JSONL parsing (only `type`/`timestamp`/`cwd`/`message.model`/
+  `usage.*`); only new appends after `track on` are counted. New `tracking/
+  claude.rs` (+4 tests); `notify` dependency.
+
 ## [0.84.81] — 2026-06-20
 
 ### Added

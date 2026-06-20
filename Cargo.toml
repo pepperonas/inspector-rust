@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.84.81"
+version = "0.84.82"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -42,6 +42,11 @@ keyring = "3"
 clipboard-rs = "0.2"
 enigo = "0.3"
 dirs = "5"
+# File-system watcher for the timesheet Claude-Code detector — watches
+# ~/.claude/projects/**/*.jsonl for appends (active Claude usage). Cross-platform
+# (FSEvents/inotify/ReadDirectoryChangesW). default-features keeps the debounced
+# recommended backend.
+notify = "6"
 # Minimal blocking HTTP/1.1 client for the LAN-only Philips Hue Bridge API
 # (`hue` command). default-features=false drops TLS/gzip — the Hue local API
 # is plain HTTP on port 80, and bridge discovery is local SSDP (UDP), so no

@@ -396,7 +396,8 @@ pub fn track_export(
     let events = crate::tracking::db::events_in_range(&db, from, to).map_err(map_err)?;
     let now = chrono::Utc::now().timestamp_millis();
     let (content, ext) = if format == "html" {
-        (crate::tracking::export::html(&events, from, to, now), "html")
+        let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
+        (crate::tracking::export::html(&events, &tokens, from, to, now), "html")
     } else {
         (crate::tracking::export::csv(&events, now), "csv")
     };

@@ -332,6 +332,31 @@ export function TimesheetPanel() {
             </Card>
           )}
 
+          {report.claude.length > 0 && (
+            <Card title="Claude Code">
+              <div className="flex flex-col">
+                <div className="flex items-center gap-2 border-b border-[var(--color-border)]/60 pb-1 text-[11px] text-[var(--color-muted)]">
+                  <span className="min-w-0 flex-1">Project</span>
+                  <span className="w-[58px] text-right">Time</span>
+                  <span className="w-[70px] text-right">Tokens in</span>
+                  <span className="w-[70px] text-right">Tokens out</span>
+                </div>
+                {report.claude.map((c) => (
+                  <div key={c.project} className="flex items-center gap-2 py-1 text-[12px]">
+                    <span className="min-w-0 flex-1 truncate font-medium">{c.project}</span>
+                    <span className="w-[58px] text-right tabular-nums">{formatDuration(c.seconds)}</span>
+                    <span className="w-[70px] text-right tabular-nums text-[var(--color-muted)]">
+                      {c.tokens_in.toLocaleString()}
+                    </span>
+                    <span className="w-[70px] text-right tabular-nums text-[var(--color-muted)]">
+                      {c.tokens_out.toLocaleString()}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          )}
+
           {/* Event list — selectable (merge) + inline-editable */}
           <Card title={`Events (${report.events.length})`}>
             {selected.size >= 2 && (

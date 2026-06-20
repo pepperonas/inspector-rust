@@ -1249,6 +1249,12 @@ export interface TrackBucket {
   key: string;
   seconds: number;
 }
+export interface ClaudeAgg {
+  project: string;
+  seconds: number;
+  tokens_in: number;
+  tokens_out: number;
+}
 export interface DayReport {
   date: string;
   events: TrackEvent[];
@@ -1258,6 +1264,8 @@ export interface DayReport {
   by_app: TrackBucket[];
   by_category: TrackBucket[];
   by_host: TrackBucket[];
+  /** Claude-Code usage per project (separate from the focus/browser totals). */
+  claude: ClaudeAgg[];
 }
 export interface TrackEventPatch {
   app_name?: string;

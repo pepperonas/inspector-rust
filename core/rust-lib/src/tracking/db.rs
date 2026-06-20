@@ -418,6 +418,31 @@ pub fn insert_claude_turn(
     Ok(())
 }
 
+/// Sum Claude token usage per project for turns in `[from, to)`.
+pub fn claude_tokens_by_project(
+    db: &DbHandle,
+    from_ms: i64,
+    to_ms: i64,
+) -> rusqlite::Result<std::collections::HashMap<String, (i64, i64)>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare(
+        "SELECT COALESCE(e.project, '(unknown)') AS project, \
+                COALESCE(SUM(t.tokens_in), 0), COALESCE(SUM(t.tokens_out), 0) \
+         FROM track_claude_turns t JOIN track_events e ON e.id = t.event_id \
+         WHERE t.ts >= ?1 AND t.ts < ?2 AND e.source = 'claude' \
+         GROUP BY project",
+    )?;
+    let rows = stmt.query_map(params![from_ms, to_ms], |r| {
+        Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)?, r.get::<_, i64>(2)?)))
+    })?;
+    let mut map = std::collections::HashMap::new();
+    for row in rows {
+        let (p, t) = row?;
+        map.insert(p, t);
+    }
+    Ok(map)
+}
+
 /// Delete all timesheet data (Settings → "Clear timesheet data").
 pub fn clear_all(db: &DbHandle) -> rusqlite::Result<()> {
     let conn = db.lock();

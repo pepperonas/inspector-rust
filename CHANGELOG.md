@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.71] — 2026-06-20
+
+### Changed
+
+- **`optim` now compresses the image(s) selected in Finder/Explorer.** Typing
+  `optim` reads the **live** Finder/Explorer selection (you no longer have to
+  open finder-mode first) and writes a compressed `<name>-optim.<ext>` next to
+  each selected image — **PNG** lossless via oxipng, **JPEG** re-encoded at
+  quality 85 (kept only if it's actually smaller). When nothing usable is
+  selected (or Automation isn't granted), it falls back to the old behaviour:
+  optimise the clipboard PNG to ~/Downloads. (Previously `optim` only touched
+  the selection if you were already in finder-mode, and was PNG-only.)
+
 ## [0.84.70] — 2026-06-20
 
 ### Changed

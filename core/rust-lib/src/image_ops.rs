@@ -172,36 +172,31 @@ pub struct OptimResult {
     pub after_bytes: usize,
 }
 
-/// Read a PNG file from disk, run it through oxipng (lossless), and
-/// write the result next to the source as `<stem>-optim.png`. Source
-/// is NOT touched. Returns the output path + before/after sizes.
+/// JPEG re-encode quality for the optimiser (lossy). 85 is visually close to
+/// the source while giving real savings; the result is only kept if it's
+/// actually smaller than the original.
+const OPTIM_JPEG_QUALITY: u8 = 85;
+
+/// Optimise an image file from disk, writing the result next to the source as
+/// `<stem>-optim.<ext>`. The source is NOT touched. Returns the output path +
+/// before/after sizes.
 ///
-/// PNG-only by design — oxipng only handles PNG. JPEG support would
-/// need `mozjpeg` (a separate native lib); we defer that to a later
-/// PR rather than silently no-op-ing on non-PNG files. Caller is
-/// expected to filter to PNGs before invoking (the frontend already
-/// does, via the `is_image` + extension check on `FinderItem`).
+/// - **PNG** → `oxipng` max-compression (lossless).
+/// - **JPEG** (`jpg`/`jpeg`) → re-encode at quality 85 (lossy) — strips
+///   metadata, recompresses; **kept only if smaller** than the source (else the
+///   original bytes are written, so the sibling is never larger).
+///
+/// Other formats error (the caller filters to png/jpg/jpeg first).
 pub fn optimize_file_to_neighbor(src: &std::path::Path) -> Result<OptimResult> {
     let ext_lower = src
         .extension()
         .and_then(|s| s.to_str())
         .map(|s| s.to_ascii_lowercase())
         .unwrap_or_default();
-    if ext_lower != "png" {
-        return Err(anyhow!(
-            "oxipng only supports PNG files; got `.{ext_lower}` for {}",
-            src.display()
-        ));
-    }
 
     let bytes = std::fs::read(src)
         .with_context(|| format!("read source {}", src.display()))?;
     let before_bytes = bytes.len();
-
-    let opts = oxipng::Options::max_compression();
-    let optimised = oxipng::optimize_from_memory(&bytes, &opts)
-        .with_context(|| format!("oxipng optimise {}", src.display()))?;
-    let after_bytes = optimised.len();
 
     let stem = src
         .file_stem()
@@ -210,15 +205,48 @@ pub fn optimize_file_to_neighbor(src: &std::path::Path) -> Result<OptimResult> {
     let dir = src
         .parent()
         .ok_or_else(|| anyhow!("source has no parent dir: {}", src.display()))?;
-    let out_path = dir.join(format!("{stem}-optim.png"));
 
-    std::fs::write(&out_path, &optimised)
-        .with_context(|| format!("write optim PNG to {}", out_path.display()))?;
+    let (out_name, out_bytes) = match ext_lower.as_str() {
+        "png" => {
+            let opts = oxipng::Options::max_compression();
+            let optimised = oxipng::optimize_from_memory(&bytes, &opts)
+                .with_context(|| format!("oxipng optimise {}", src.display()))?;
+            (format!("{stem}-optim.png"), optimised)
+        }
+        "jpg" | "jpeg" => {
+            let img = image::load_from_memory(&bytes)
+                .with_context(|| format!("decode jpeg {}", src.display()))?
+                .to_rgb8();
+            let (w, h) = (img.width(), img.height());
+            let mut buf: Vec<u8> = Vec::new();
+            {
+                let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(
+                    &mut buf,
+                    OPTIM_JPEG_QUALITY,
+                );
+                enc.encode(img.as_raw(), w, h, image::ExtendedColorType::Rgb8)
+                    .with_context(|| format!("re-encode jpeg {}", src.display()))?;
+            }
+            // Keep the re-encode only if it actually shrank the file.
+            let kept = if buf.len() < before_bytes { buf } else { bytes.clone() };
+            (format!("{stem}-optim.jpg"), kept)
+        }
+        _ => {
+            return Err(anyhow!(
+                "optim supports PNG + JPEG; got `.{ext_lower}` for {}",
+                src.display()
+            ));
+        }
+    };
+
+    let out_path = dir.join(out_name);
+    std::fs::write(&out_path, &out_bytes)
+        .with_context(|| format!("write optimised image to {}", out_path.display()))?;
 
     Ok(OptimResult {
         path: out_path,
+        after_bytes: out_bytes.len(),
         before_bytes,
-        after_bytes,
     })
 }
 
@@ -302,15 +330,65 @@ pub fn write_clipboard_png_canonical(bytes: &[u8]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use image::{ImageBuffer, Rgba};
+    use image::{ImageBuffer, Rgb, Rgba};
 
-    #[allow(dead_code)]
     fn make_png(w: u32, h: u32) -> Vec<u8> {
         let img: ImageBuffer<Rgba<u8>, Vec<u8>> =
             ImageBuffer::from_fn(w, h, |x, y| Rgba([(x % 256) as u8, (y % 256) as u8, 128, 255]));
         let mut buf = Vec::new();
         img.write_to(&mut Cursor::new(&mut buf), ImageFormat::Png).unwrap();
         buf
+    }
+
+    fn make_jpeg(w: u32, h: u32, quality: u8) -> Vec<u8> {
+        let img: ImageBuffer<Rgb<u8>, Vec<u8>> = ImageBuffer::from_fn(w, h, |x, y| {
+            Rgb([(x % 256) as u8, (y % 256) as u8, ((x + y) % 256) as u8])
+        });
+        let mut buf = Vec::new();
+        let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut buf, quality);
+        enc.encode(img.as_raw(), w, h, image::ExtendedColorType::Rgb8)
+            .unwrap();
+        buf
+    }
+
+    fn scratch_dir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ir-optim-{}-{}", std::process::id(), tag));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn optimize_file_png_writes_lossless_sibling() {
+        let dir = scratch_dir("png");
+        let src = dir.join("pic.png");
+        std::fs::write(&src, make_png(80, 80)).unwrap();
+        let r = optimize_file_to_neighbor(&src).unwrap();
+        assert!(r.path.ends_with("pic-optim.png"));
+        assert!(r.path.exists());
+        assert!(r.after_bytes <= r.before_bytes);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn optimize_file_jpeg_recompresses_smaller() {
+        let dir = scratch_dir("jpg");
+        let src = dir.join("photo.jpg");
+        // A high-quality JPEG → re-encode at 85 should shrink it.
+        std::fs::write(&src, make_jpeg(160, 160, 98)).unwrap();
+        let r = optimize_file_to_neighbor(&src).unwrap();
+        assert!(r.path.ends_with("photo-optim.jpg"));
+        assert!(r.path.exists());
+        assert!(r.after_bytes <= r.before_bytes);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn optimize_file_rejects_unsupported_format() {
+        let dir = scratch_dir("gif");
+        let src = dir.join("anim.gif");
+        std::fs::write(&src, b"GIF89a").unwrap();
+        assert!(optimize_file_to_neighbor(&src).is_err());
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]

@@ -230,7 +230,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "optim",
     keyword: "optim",
     syntax: "optim",
-    description: "Optimise clipboard PNG → Downloads (lossless oxipng)",
+    description: "Compress the selected image(s) in Finder/Explorer (PNG/JPEG → <name>-optim); else the clipboard PNG",
     requiresArg: false,
   },
   {

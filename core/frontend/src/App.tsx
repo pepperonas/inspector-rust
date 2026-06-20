@@ -98,6 +98,7 @@ import {
   type AppEntry,
   resizeFile,
   optimizeFile,
+  getFinderSelection,
   finderTouch,
   finderMkdir,
   finderOpenTerminal,
@@ -560,8 +561,8 @@ function App() {
         break;
       }
       case "optim":
-        label = "Optimise clipboard PNG → ~/Downloads";
-        hint = "Lossless oxipng (zopfli + filter selection)";
+        label = "Compress the selected image(s)";
+        hint = "Finder/Explorer selection → <name>-optim (PNG lossless · JPEG re-encoded); else the clipboard PNG";
         break;
       case "rmvvls": {
         const preview = arg.replace(/[aeiouAEIOUäöüÄÖÜ]/g, "");
@@ -1599,21 +1600,32 @@ function App() {
         }
         await hidePopup();
       } else if (commandKind === "optim") {
-        // In finder-mode, optimise each PNG in the selection (writes
-        // <stem>-optim.png next to source). Non-PNGs are skipped — oxipng
-        // is PNG-only. Otherwise fall back to the clipboard-PNG pipeline.
-        const finderPngs =
-          finderFiles?.filter((f) => f.is_image && /\.png$/i.test(f.path)) ?? [];
-        if (finderFiles && finderPngs.length > 0) {
-          await Promise.all(
-            finderPngs.map((f) =>
-              optimizeFile(f.path).catch((e) => {
-                console.error("optimize_file failed", f.path, e);
-                return null;
-              }),
-            ),
-          );
-        } else {
+        // Compress the image(s) currently selected in Finder/Explorer — writes
+        // <stem>-optim.<ext> next to each source (PNG lossless via oxipng; JPEG
+        // re-encoded, kept only if smaller). Reads the LIVE selection (you don't
+        // need to be in finder-mode). Falls back to the clipboard PNG when
+        // nothing usable is selected / the selection can't be read.
+        const optimizable = (path: string) => /\.(png|jpe?g)$/i.test(path);
+        let didSelection = false;
+        try {
+          const sel = finderFiles ?? (await getFinderSelection());
+          const imgs = sel.filter((f) => f.is_image && optimizable(f.path));
+          if (imgs.length > 0) {
+            const results = await Promise.all(
+              imgs.map((f) =>
+                optimizeFile(f.path).catch((e) => {
+                  console.error("optimize_file failed", f.path, e);
+                  return null;
+                }),
+              ),
+            );
+            didSelection = results.some(Boolean);
+          }
+        } catch (e) {
+          // No selection / Automation not granted → fall through to clipboard.
+          console.debug("optim: finder selection unavailable", e);
+        }
+        if (!didSelection) {
           await optimizeClipboardImage();
         }
         await hidePopup();

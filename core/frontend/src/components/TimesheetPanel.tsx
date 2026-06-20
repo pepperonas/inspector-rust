@@ -23,6 +23,7 @@ import {
   trackExport,
   trackBridgeInfo,
   trackBridgeRegenerate,
+  trackExportExtension,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -531,6 +532,7 @@ export function TimesheetPanel() {
 function BridgeFooter() {
   const [info, setInfo] = useState<{ port: number; token: string } | null>(null);
   const [open, setOpen] = useState(false);
+  const [savedPath, setSavedPath] = useState<string | null>(null);
   useEffect(() => {
     if (open && !info) trackBridgeInfo().then(setInfo).catch(() => undefined);
   }, [open, info]);
@@ -562,13 +564,28 @@ function BridgeFooter() {
               Copy
             </button>
           </div>
-          <button
-            type="button"
-            onClick={() => void trackBridgeRegenerate().then((t) => setInfo({ ...info, token: t }))}
-            className="md3-press mt-1 self-start rounded-full border border-[var(--color-border)] px-3 py-1"
-          >
-            Regenerate token
-          </button>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void trackBridgeRegenerate().then((t) => setInfo({ ...info, token: t }))}
+              className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
+            >
+              Regenerate token
+            </button>
+            <button
+              type="button"
+              onClick={() => void trackExportExtension().then(setSavedPath).catch(() => undefined)}
+              className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
+            >
+              Save extension to Downloads
+            </button>
+          </div>
+          <p className="text-[11px] text-[var(--color-muted)]">
+            Chrome can't auto-install it — save the folder, then in{" "}
+            <code className="rounded bg-[var(--color-surface)] px-1">chrome://extensions</code>{" "}
+            enable Developer mode → <strong>Load unpacked</strong> → pick the folder.
+            {savedPath && <span className="text-[var(--color-accent)]"> Saved ✓</span>}
+          </p>
         </div>
       ) : (
         <p className="mt-2 text-[var(--color-muted)]">Loading…</p>

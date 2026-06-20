@@ -14,6 +14,7 @@ pub mod bridge;
 pub mod claude;
 pub mod db;
 pub mod export;
+pub mod extension;
 pub mod os;
 
 use crate::db::DbHandle;

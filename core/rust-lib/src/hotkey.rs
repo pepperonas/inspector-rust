@@ -215,6 +215,7 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
     let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
     let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS);
     let aswap = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM);
+    let timesheet = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
     let reserved = [
         (ocr, "OCR region (Ctrl+Shift+O)"),
         (screenshot, "Screenshot region (Ctrl+Shift+S)"),
@@ -223,6 +224,7 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
         (markdown, "Markdown → PDF (Ctrl+Shift+M)"),
         (record, "Screen recording (Ctrl+Shift+Alt+S)"),
         (aswap, "Audio swap (Ctrl+Shift+Alt+M)"),
+        (timesheet, "Timesheet (Ctrl+Shift+T)"),
     ];
     for (sc, name) in reserved {
         if shortcut == sc {
@@ -316,6 +318,7 @@ pub fn register_history_hotkey(
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM), "Markdown → PDF (Ctrl+Shift+M)"),
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS), "Screen recording (Ctrl+Shift+Alt+S)"),
         (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM), "Audio swap (Ctrl+Shift+Alt+M)"),
+        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT), "Timesheet (Ctrl+Shift+T)"),
     ];
     for (sc, name) in reserved {
         if shortcut == sc {
@@ -625,6 +628,28 @@ pub fn register(app: &AppHandle) -> Result<()> {
             });
         })
         .context("failed to register Markdown→PDF hotkey")?;
+
+    // Timesheet — Ctrl+Shift+T. Opens the popup on the Timesheet tab (the
+    // time-tracking overview). Doesn't start/stop tracking — purely a view
+    // shortcut. show_popup + the tab-switch event run on the main thread; this
+    // touches no `global_shortcut` state, so there's no re-entrancy risk.
+    let timesheet = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
+    let app_for_timesheet = app.clone();
+    app.global_shortcut()
+        .on_shortcut(timesheet, move |_app, sc, event| {
+            if event.state != ShortcutState::Pressed || *sc != timesheet {
+                return;
+            }
+            let app = app_for_timesheet.clone();
+            let app_main = app.clone();
+            let _ = app.run_on_main_thread(move || {
+                if let Err(e) = show_popup(&app_main) {
+                    tracing::warn!("show popup for timesheet: {e:#}");
+                }
+                let _ = app_main.emit("open-timesheet-tab", ());
+            });
+        })
+        .context("failed to register Timesheet hotkey")?;
 
     Ok(())
 }

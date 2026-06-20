@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.85] — 2026-06-21
+
+### Added
+
+- **`Ctrl+Shift+T` → open the Timesheet** (macOS). A global hotkey opens the
+  popup on the Timesheet tab (the time-tracking overview); it doesn't start/stop
+  tracking. Added to the reserved-hotkey sets + the Features tab.
+- **Browser extension — save from the app.** The Timesheet tab's "Browser
+  extension" disclosure gains a **Save extension to Downloads** button
+  (`track_export_extension`) that writes the embedded extension to
+  `~/Downloads/inspector-rust-timesheet-extension/` and reveals it (Chrome can't
+  auto-install unpacked extensions, so: Developer mode → Load unpacked).
+
+### Changed
+
+- **Color loupe — bigger hex + airport split-flap.** The live hex under the
+  eyedropper loupe is larger (21 px) and each digit now **flips like an airport
+  split-flap board** (`rotateX` keyframe, `prefers-reduced-motion`-guarded) on
+  change, on top of the existing colour-heat flare.
+- **Docs/badges refreshed.** README LoC badge `~49k → ~68k`; tests
+  `1198 → 1261` (515 Rust + 746 TS); IPC commands `189 → 197`; search-bar
+  commands `61 → 64`; popup tabs `5 → 6`; global hotkeys `11 → 12`; Rust modules
+  `51 → 57`. New **Timesheet** + **Privacy (offline · no telemetry)** badges. The
+  Timesheet feature + `track` command + `Ctrl+Shift+T` are now documented across
+  README.md / README.de.md / CLAUDE.md / the Features tab.
+
 ## [0.84.84] — 2026-06-20
 
 ### Added

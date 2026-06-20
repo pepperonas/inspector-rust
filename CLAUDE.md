@@ -252,7 +252,7 @@ Triggered by **`Ctrl+Shift+Alt+S`** (⌃⇧⌥S — literal Control + Alt on eve
 
 Triggered by `Ctrl+Shift+C` or the tray's **Pick Color** menu. **macOS now uses a custom loupe** (`color_loupe.rs` + `commands::open_color_loupe`) instead of `NSColorSampler` — see *Color loupe* below — so the **live hex is shown right under the magnifier** (Apple's loupe can't render that). Windows still uses `screen_picker::pick_color_blocking` (GDI overlay). The eyedropper **does not open the popup** the way `pick_screen_color` (the in-modal entry point) does.
 
-**Color loupe (`color_loupe.rs`, `ColorLoupe.tsx`, v0.84.69).** Both eyedropper entry points (the `Ctrl+Shift+C` hotkey → clipboard+history; the modal *Pick from screen* → `color-picked` event) call `open_color_loupe(app, event_mode)` on macOS. It runs on a worker thread: pick the cursor's display index (`pick_cursor_monitor_globally` matched against `screen_record::cg_displays::physical_rects()` order), one-shot **snapshot** that display (`screencapture -x -D <n>`), stash it (base64) + the mode in `LoupeState`, build a fullscreen transparent `color-loupe` overlay on the cursor's monitor (same builder + multi-DPI caveats + worker-thread-arm-Esc pattern as the record overlay), and arm a global Esc. `ColorLoupe.tsx` loads the snapshot into an offscreen canvas, hides the OS cursor, and on a `requestAnimationFrame` loop draws a circular magnifier (nearest-neighbour zoom + pixel grid + centre reticle) that follows the mouse, reads the centre pixel via `getImageData` → hex, and renders the **live hex under the loupe** with a per-char "heat" flare animation as the colour changes. Click → `color_loupe_pick(hex)`; Esc/`color_loupe_cancel`. **Snapshot-based** (not per-frame capture) → smooth; **reuses the Screen-Recording grant** already needed for OCR/screenshots (the old NSColorSampler path needed none — this is the trade-off for the live hex). The NSColorSampler path (`screen_picker::pick_color_async`) is retained `#[allow(dead_code)]` as a revert fallback. IPC: `color_loupe_data` / `color_loupe_pick` / `color_loupe_cancel`; `color-loupe` window in each `capabilities/default.json`, routed in `main.tsx`. **macOS only** so far (Windows keeps the GDI picker; Linux unchanged). On result: the hex string is written to the system clipboard via `ClipboardContext::set_text`, marked self-write so the watcher skips it, and persisted as a Text history entry. Cleanup (`clear_eyedropper_no_popup`) defers `demote_to_accessory` + `suppress_hide` clear via a 500 ms thread so the macOS focus-loss event from the policy demote doesn't fire before we want it to. No Screen Recording TCC grant needed — NSColorSampler / GDI overlay don't go through `screencapture`. IPC: `eyedropper_to_clipboard`. `register_direct_slots` rejects `Ctrl+Shift+C` alongside the popup/OCR/screenshot/abbreviation hotkeys.
+**Color loupe (`color_loupe.rs`, `ColorLoupe.tsx`, v0.84.69).** Both eyedropper entry points (the `Ctrl+Shift+C` hotkey → clipboard+history; the modal *Pick from screen* → `color-picked` event) call `open_color_loupe(app, event_mode)` on macOS. It runs on a worker thread: pick the cursor's display index (`pick_cursor_monitor_globally` matched against `screen_record::cg_displays::physical_rects()` order), one-shot **snapshot** that display (`screencapture -x -D <n>`), stash it (base64) + the mode in `LoupeState`, build a fullscreen transparent `color-loupe` overlay on the cursor's monitor (same builder + multi-DPI caveats + worker-thread-arm-Esc pattern as the record overlay), and arm a global Esc. `ColorLoupe.tsx` loads the snapshot into an offscreen canvas, hides the OS cursor, and on a `requestAnimationFrame` loop draws a circular magnifier (nearest-neighbour zoom + pixel grid + centre reticle) that follows the mouse, reads the centre pixel via `getImageData` → hex, and renders the **live hex under the loupe** (enlarged 21 px mono; v0.84.85) with a per-char **airport split-flap** flip (`.loupe-flap` `rotateX` keyframe, `prefers-reduced-motion`-guarded) **plus** the "heat" colour flare each time a digit changes. Click → `color_loupe_pick(hex)`; Esc/`color_loupe_cancel`. **Snapshot-based** (not per-frame capture) → smooth; **reuses the Screen-Recording grant** already needed for OCR/screenshots (the old NSColorSampler path needed none — this is the trade-off for the live hex). The NSColorSampler path (`screen_picker::pick_color_async`) is retained `#[allow(dead_code)]` as a revert fallback. IPC: `color_loupe_data` / `color_loupe_pick` / `color_loupe_cancel`; `color-loupe` window in each `capabilities/default.json`, routed in `main.tsx`. **macOS only** so far (Windows keeps the GDI picker; Linux unchanged). On result: the hex string is written to the system clipboard via `ClipboardContext::set_text`, marked self-write so the watcher skips it, and persisted as a Text history entry. Cleanup (`clear_eyedropper_no_popup`) defers `demote_to_accessory` + `suppress_hide` clear via a 500 ms thread so the macOS focus-loss event from the policy demote doesn't fire before we want it to. No Screen Recording TCC grant needed — NSColorSampler / GDI overlay don't go through `screencapture`. IPC: `eyedropper_to_clipboard`. `register_direct_slots` rejects `Ctrl+Shift+C` alongside the popup/OCR/screenshot/abbreviation hotkeys.
 
 **Multi-screen note (v0.19.1+)**: before hiding the popup, both eyedropper entry points call `hotkey::park_on_cursor_monitor` — `NSColorSampler` renders its loupe on the calling app's *primary* screen, which macOS derives from the last-active window. Parking the hidden popup on the cursor's monitor anchors the activation there so the loupe appears under the cursor, not on the main display.
 
@@ -376,6 +376,54 @@ longer `sound`. IPC: `list_audio_outputs` / `set_audio_output` (`AudioDevice { i
 
 - **Cheap + smooth.** Base uptime comes from a single lightweight IPC `get_uptime_secs` (`sysinfo::System::uptime()`, no `System` instance), fetched **once** and anchored to `performance.now()` so the value flows smoothly from there (absolute value within ~1 s of true, irrelevant for the animation). Driven by **one `requestAnimationFrame` loop writing `textContent` + the `.hot` class to DOM refs** — no React re-render per frame; only `color`/`text-shadow` animate (paint-only), so 60 fps motion is cheap. A per-second hero "pop"; reduced-motion disables the decorative animation.
 - **Pure cores unit-tested** (`lib/uptime.ts`, `uptime.test.ts`): `uptimeBreakdown`, `odometerValue` (continuous digit value; the component floors it), `integerDigitCount`, `odometerPowers`. IPC: `get_uptime_secs`. No window/capabilities entry — renders inline.
+
+### Timesheet — time tracking (`tracking/` module, `TimesheetPanel.tsx`, v0.84.77–.85)
+
+Opt-in, **offline**, **encrypted-at-rest** time tracking. Full design + privacy
+model + delivery history in **`docs/timesheet.md`**; the browser extension in
+**`extension/`**. macOS is verified end-to-end; Windows/Linux active-window+idle
+modules are compile-validated but runtime-unverified, so the `track` command is
+**macOS-gated** in the UI (`CommandSpec.platform = ["mac"]`).
+
+- **Commands / entry points:** `track on` / `track off` (start/stop a session,
+  with a `track` status toast + a footer **REC** LED — green recording, amber
+  idle-paused); bare **`track`** *or* the global **`Ctrl+Shift+T`** hotkey
+  (`hotkey.rs`, emits `open-timesheet-tab`) opens the **Timesheet tab**.
+- **Tracker core (`tracking/mod.rs`):** `TrackerState` + a focus/idle `run_loop`
+  (~1.5 s tick) → the pure-tested `apply_tick(db, rt, sid, Tick{…})` state
+  machine. Gap-free, non-overlapping intervals; a focus change closes the open
+  one + opens the new; **retroactive idle auto-pause** (input idle past
+  `track.idle_seconds` closes the active interval at the real idle-start + marks
+  an `idle` span). Browsers (`is_browser`) get the extension's `last_tab`
+  host/title and split on tab-URL change. The privacy **denylist** strips
+  title/url/host (`is_denied`/`parse_denylist`). `day_report`/`aggregate_day`
+  build the tab + export aggregations.
+- **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
+  `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
+  `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +
+  `xprintidle`; Wayland → `None`, clean degrade).
+- **Persistence (`tracking/db.rs`):** `track_sessions`/`track_events`/
+  `track_claude_turns`/`track_categories`; `window_title`+`url` AES-256-GCM via
+  `crypto` (TEXT columns); plaintext app/host/category/project. `prune_before`
+  (retention), `claude_tokens_by_project`, `merge_events`, `update_event`
+  (`EventPatch`, `""`=clear), etc.
+- **Claude watcher (`tracking/claude.rs`):** `notify` on
+  `~/.claude/projects/**/*.jsonl` → per-project `claude` intervals + token turns
+  (a **separate** dimension, not in the focus/browser active total).
+- **Browser bridge (`tracking/bridge.rs`):** loopback-only (`127.0.0.1`),
+  token-authenticated WebSocket (sync `tungstenite`) the MV3 extension reports
+  the active tab to. **Token is read live per frame** so `regenerate_token`
+  revokes in-flight sockets (fail-closed). `track_export_extension` writes the
+  extension to `~/Downloads` (Chrome can't auto-install unpacked; load-unpacked).
+- **Export (`tracking/export.rs`):** flat **CSV** + a **self-contained HTML**
+  report (inline-SVG charts, zero external requests, footer
+  `© 2026 Martin Pfeffer | celox.io`).
+- **IPC:** `track_start/stop/status/get_day/update_event/delete_event/
+  merge_events/set_category/clear_all/export/bridge_info/bridge_regenerate/
+  export_extension`, `get_/set_timesheet_config`. Frontend chart/format helpers
+  in `lib/timesheet.ts` (unit-tested). Settings → **Timesheet** (idle/retention/
+  Claude toggle/denylist) + the tab's "Browser extension" disclosure
+  (port/token/regenerate/save-extension).
 
 ### Cleaning workflow (`cleaner.rs`, v0.60.0)
 

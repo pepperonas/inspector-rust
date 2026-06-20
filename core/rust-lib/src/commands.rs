@@ -435,6 +435,16 @@ pub fn track_bridge_regenerate(db: State<'_, DbHandle>) -> String {
     crate::tracking::bridge::regenerate_token(&db)
 }
 
+/// Write the browser extension to `~/Downloads/inspector-rust-timesheet-extension/`
+/// and reveal it (Chrome can't be auto-installed; the user loads it unpacked).
+/// Returns the folder path.
+#[tauri::command]
+pub fn track_export_extension() -> Result<String, String> {
+    let dir = crate::tracking::extension::write_to_downloads()?;
+    reveal_in_file_manager(&dir);
+    Ok(dir.display().to_string())
+}
+
 /// Export the events in `[from, to)` (unix ms) to `~/Downloads` as `csv` or a
 /// self-contained `html` report; reveals the file. Returns the written path.
 #[tauri::command]

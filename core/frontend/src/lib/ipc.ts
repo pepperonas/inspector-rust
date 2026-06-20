@@ -1327,6 +1327,11 @@ export function trackBridgeInfo(): Promise<BridgeInfo> {
 export function trackBridgeRegenerate(): Promise<string> {
   return invoke("track_bridge_regenerate");
 }
+/** Write the browser extension to ~/Downloads and reveal it (load unpacked in
+ *  Chrome). Returns the folder path. */
+export function trackExportExtension(): Promise<string> {
+  return invoke("track_export_extension");
+}
 
 export interface TimesheetConfig {
   idle_seconds: number;

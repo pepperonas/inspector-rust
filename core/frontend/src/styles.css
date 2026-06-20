@@ -642,27 +642,47 @@ code {
   white-space: nowrap;
 }
 .loupe-swatch {
-  width: 13px;
-  height: 13px;
-  border-radius: 4px;
+  width: 17px;
+  height: 17px;
+  border-radius: 5px;
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
 }
 .loupe-code {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
   font-variant-numeric: tabular-nums;
-  font-size: 14px;
+  font-size: 21px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  /* Perspective so each digit's split-flap rotateX reads as a 3D flip. */
+  perspective: 320px;
 }
 .loupe-digit {
   display: inline-block;
   color: #f2f3f5;
+  transform-origin: 50% 0;
+  backface-visibility: hidden;
   transition: color 450ms ease, text-shadow 450ms ease;
 }
 .loupe-digit.loupe-hot {
   color: var(--color-accent, #b3c5ff);
-  text-shadow: 0 0 9px color-mix(in srgb, var(--color-accent, #b3c5ff) 65%, transparent);
+  text-shadow: 0 0 11px color-mix(in srgb, var(--color-accent, #b3c5ff) 65%, transparent);
   transition: none;
+}
+/* Airport split-flap: the changed digit drops in from a folded-up position
+   with a small settle bounce. */
+.loupe-digit.loupe-flap {
+  animation: loupeFlap 260ms cubic-bezier(0.3, 0.7, 0.3, 1.2) both;
+}
+@keyframes loupeFlap {
+  0%   { transform: rotateX(-90deg); opacity: 0.2; }
+  55%  { transform: rotateX(14deg);  opacity: 1; }
+  78%  { transform: rotateX(-5deg); }
+  100% { transform: rotateX(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loupe-digit.loupe-flap {
+    animation: none;
+  }
 }
 
 /* ── Alarm overlay (`alarm-overlay` window) ───────────────────────────────────

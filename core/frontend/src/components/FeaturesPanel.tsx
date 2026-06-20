@@ -141,6 +141,11 @@ export function FeaturesPanel() {
           note: "Convert the .md files selected in Finder to PDF beside the source.",
         },
         {
+          name: "Timesheet",
+          trigger: formatHotkey("Ctrl+Shift+T"),
+          note: "Open the time-tracking overview (the Timesheet tab). Doesn't start/stop tracking — use `track on` / `track off` for that. macOS.",
+        },
+        {
           name: "Abbreviation expander",
           trigger: formatHotkey(expander.hotkey),
           note: expander.enabled

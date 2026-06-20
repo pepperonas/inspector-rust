@@ -36,21 +36,22 @@
   - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
   - 🎚️ **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung übers Mikrofon mit animiertem Visualizer.
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchfeld-Befehl. Smart Defaults + Per-User-Override in Settings.
+  - ⏱️ **Zeiterfassung / Timesheet** (`track on` / `track off`; `track` oder **`Ctrl+Shift+T`** öffnet sie; macOS) — opt-in, event-basierte App-Nutzungs-Erfassung nach Fenster-Fokus mit retroaktiver Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tagesnavigation, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Hosts), CSV- + self-contained-HTML-Export; erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); eine optionale **Browser-Extension** (nur Loopback-Socket) ordnet Browser-Zeit Host/Titel zu. Fenstertitel + URLs verschlüsselt at-rest; Privacy-Denylist + Retention in den Settings.
   - 🚀 **App-Launcher** (Spotlight-like, macOS) — App-Name antippen, echtes Icon in der Zeile, Enter startet. Aktiviert bereits laufende Instanz statt Duplikat zu spawnen.
   - 🟢 **Wakelock-LED + Status-Toast** — pulsierende rote LED + `wake` Label im Popup-Footer wenn Wachhalten aktiv ist; ein zentrierter Bildschirm-Toast bestätigt An/Aus.
-  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` / `qr` (Image), `uuid` / `slug` / `hash` / `json` / `jwt` (Dev-Tools), `g` / `ddg` / `gh` / `yt` / `npm` / `crates` / `so` / `mdn` / `wiki` (Web-Suche), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten — alle OSe), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `trim` (Audio/Video schneiden), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `sound` / `audio` (Ausgabegerät), `stats` (Live-System: CPU/RAM/Disk/Netz/Temp/Lüfter/Akku), `uptime` (Live-Uptime, µs-animiert), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `rnd` / `random` (Würfelwurf), `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
+  - ⚙️ **Power-Commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (übersetzen via Google Translate), `rz` / `optim` / `qr` (Image), `uuid` / `slug` / `hash` / `json` / `jwt` (Dev-Tools), `g` / `ddg` / `gh` / `yt` / `npm` / `crates` / `so` / `mdn` / `wiki` (Web-Suche), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (System), `wakelock on/off` (Alias `caffeine on/off`, Wachhalten — alle OSe), `touch` / `mkdir` / `terminal` (Datei/Ordner anlegen · Terminal im offenen Finder-Ordner öffnen), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (Screenshots), `trim` (Audio/Video schneiden), `clean` (Speicher freigeben), `brightness` / `bri` (Monitor-Helligkeit), `sound` / `audio` (Ausgabegerät), `stats` (Live-System: CPU/RAM/Disk/Netz/Temp/Lüfter/Akku), `uptime` (Live-Uptime, µs-animiert), `track on/off` (Zeiterfassung; `track` oder `Ctrl+Shift+T` öffnet das Timesheet — macOS), `meme [query]` (Memes durchsuchen & kopieren), `timer`, `alarm <HH:MM>`, `rnd` / `random` (Würfelwurf), `md2pdf [pfad]` (Markdown→PDF), `pwgen`, `rmvvls` (Text).
   - 📓 **Snippets** (27 gebündelte AI-Prompts) · **Notes** (persistente Lesezeichen) · **Backup** (Single-File-JSON-Export).
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account, Daten nur unter `~/Library/Application Support/InspectorRust/history.db`. Encryption-Keys verlassen nie deine Maschine.
   - 🎮 **Versteckte Games** — fünf Easter-Egg-Trigger-Wörter. Du findest sie schon.
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1198 Unit-Tests (477 Rust + 721 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1261 Unit-Tests (515 Rust + 746 Frontend).** MIT-lizenziert.
 
   <!-- ── Lines of Code — XXL dynamischer Badge ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~49k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="60" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~68k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="60" alt="Lines of code" />
     </a>
   </p>
 
@@ -64,7 +65,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1198%20(477%20Rust%20%2B%20721%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1261%20(515%20Rust%20%2B%20746%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -139,19 +140,21 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1198%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-189-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-61-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-1261%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-197-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-64-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-51-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-57-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Media](https://img.shields.io/badge/media-record%20·%20download%20·%20trim%20·%20swap-CE422B?style=flat-square)](#)
   [![Motion](https://img.shields.io/badge/motion-Material%203%20Expressive-blueviolet?style=flat-square)](#)
-  [![Tabs](https://img.shields.io/badge/popup%20tabs-5-blueviolet?style=flat-square)](#)
+  [![Tabs](https://img.shields.io/badge/popup%20tabs-6-blueviolet?style=flat-square)](#)
   [![DB tables](https://img.shields.io/badge/SQLite%20tables-5-003B57?style=flat-square&logo=sqlite&logoColor=white)](./docs/encryption.md)
-  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-11-blueviolet?style=flat-square)](#)
+  [![Global shortcuts](https://img.shields.io/badge/global%20hotkeys-12-blueviolet?style=flat-square)](#)
   [![Snippet expansion modes](https://img.shields.io/badge/expansion%20modes-4-blueviolet?style=flat-square)](./docs/text-expander.md)
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
+  [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
+  [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
 
   <!-- ── Standards / conventions ─────────────────────────────── -->
   [![SemVer](https://img.shields.io/badge/semver-2.0-blue?style=flat-square)](https://semver.org)
@@ -257,6 +260,7 @@ Alles andere (Snippets-Verwaltung, Notes, Settings, Image-Tools) lebt im selben 
 | `Ctrl+Shift+F` *(v0.30.0+)* | **Finder-Selektion** → Popup mit gerade selektierten Dateien + Actions (Resize, Optim, Cut-Out, …) | Automation → Finder |
 | `Ctrl+Shift+M` *(v0.46.0+, macOS)* | **Markdown → PDF** — im Finder gewählte `.md`-Dateien in-process zu PDF konvertieren | Automation → Finder |
 | `Ctrl+Shift+Alt+M` *(v0.84.22+, macOS)* | **Audio ersetzen / überlagern** — Video im Finder wählen → Overlay zum Ersetzen oder Mischen einer lokalen Audiodatei oder eines yt-dlp-YouTube-Tracks an gewählter Position | Automation → Finder |
+| `Ctrl+Shift+T` *(v0.84.85+, macOS)* | **Timesheet** — Zeiterfassungs-Übersicht öffnen (der Timesheet-Tab) | keine |
 | `Alt+1` *(Default, konfigurierbar, opt-in)* | Snippet-Abbreviation in-place expandieren | Bedienungshilfen |
 | *(user-konfigurierbar)* | **Direct hotkey → snippet** — bestimmten Snippet-Body pasten | Bedienungshilfen |
 

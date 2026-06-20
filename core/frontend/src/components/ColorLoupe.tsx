@@ -156,23 +156,24 @@ export function ColorLoupe() {
         // Position the loupe at the cursor; flip the hex label above near the
         // bottom edge so it's never clipped.
         wrap.style.transform = `translate(${mouse.current.x}px, ${mouse.current.y}px)`;
-        const flip = mouse.current.y > window.innerHeight - (LOUPE / 2 + 56);
+        const flip = mouse.current.y > window.innerHeight - (LOUPE / 2 + 68);
         if (hexBoxRef.current) {
           hexBoxRef.current.style.top = flip
-            ? `${-(LOUPE / 2 + 38)}px`
-            : `${LOUPE / 2 + 12}px`;
+            ? `${-(LOUPE / 2 + 46)}px`
+            : `${LOUPE / 2 + 14}px`;
         }
 
-        // Animated hex label: heat each char that changed.
+        // Animated hex label: each changed char does an airport split-flap
+        // flip (loupe-flap) + a colour heat flare (loupe-hot).
         if (hex !== lastHex.current) {
           for (let i = 0; i < HEX_CHARS; i++) {
             const cell = hexCells.current[i];
             const ch = hex[i] ?? "";
             if (cell && cell.textContent !== ch) {
               cell.textContent = ch;
-              cell.classList.remove("loupe-hot");
-              void cell.offsetWidth;
-              cell.classList.add("loupe-hot");
+              cell.classList.remove("loupe-hot", "loupe-flap");
+              void cell.offsetWidth; // reflow → restart both animations
+              cell.classList.add("loupe-hot", "loupe-flap");
             }
           }
           if (swatchRef.current) swatchRef.current.style.backgroundColor = hex;

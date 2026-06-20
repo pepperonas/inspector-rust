@@ -3,6 +3,7 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
 import { FeaturesPanel } from "./components/FeaturesPanel";
+import { TimesheetPanel } from "./components/TimesheetPanel";
 import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
 import { NotesPanel } from "./components/NotesPanel";
@@ -115,7 +116,6 @@ import {
   showStatusToast,
   trackStart,
   trackStop,
-  trackStatus,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -131,7 +131,7 @@ import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
 
-type Tab = "history" | "snippets" | "notes" | "features" | "settings";
+type Tab = "history" | "snippets" | "notes" | "timesheet" | "features" | "settings";
 
 function App() {
   const { entries, refresh: refreshHistory } = useClipboardHistory();
@@ -1767,13 +1767,9 @@ function App() {
             await trackStop();
             await showStatusToast("track", false, "Tracking off", "Session ended");
           } else if (m === "open") {
-            const s = await trackStatus();
-            await showStatusToast(
-              "track",
-              s.active,
-              s.active ? "Tracking active" : "Not tracking",
-              s.active_app ?? "",
-            );
+            // Bare `track` → open the Timesheet tab on today.
+            setQuery("");
+            setActiveTab("timesheet");
           } else {
             setPasteError("other");
           }
@@ -2157,7 +2153,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !uptimeFocus,
+      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !uptimeFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2402,9 +2398,11 @@ function App() {
                   ? "Snippets"
                   : activeTab === "notes"
                     ? "Notes"
-                    : activeTab === "features"
-                      ? "Features"
-                      : "Settings"}
+                    : activeTab === "timesheet"
+                      ? "Timesheet"
+                      : activeTab === "features"
+                        ? "Features"
+                        : "Settings"}
               </span>
             </div>
           )}
@@ -2423,6 +2421,9 @@ function App() {
               void refreshNotes();
             }}>
               Notes
+            </TabButton>
+            <TabButton active={activeTab === "timesheet"} onClick={() => setActiveTab("timesheet")}>
+              Timesheet
             </TabButton>
             <TabButton active={activeTab === "features"} onClick={() => setActiveTab("features")}>
               Features
@@ -2542,6 +2543,8 @@ function App() {
           <SnippetsPanel snippets={snippets} onRefresh={refreshSnippets} />
         ) : activeTab === "notes" ? (
           <NotesPanel notes={notes} categories={noteCategories} onRefresh={refreshNotes} />
+        ) : activeTab === "timesheet" ? (
+          <TimesheetPanel />
         ) : activeTab === "features" ? (
           <FeaturesPanel />
         ) : (

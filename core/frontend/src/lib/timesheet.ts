@@ -1,0 +1,137 @@
+/**
+ * Pure helpers for the Timesheet tab + (later) the HTML export — formatting,
+ * SVG geometry for the inline charts, day math, a stable colour palette. Kept
+ * dependency-free + unit-tested so the React tab and the self-contained HTML
+ * export share the same building blocks.
+ */
+
+/** Seconds → "2h 14m" / "45m" / "12s" (compact, human). */
+export function formatDuration(seconds: number): string {
+  const s = Math.max(0, Math.floor(seconds));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  if (h > 0) return m > 0 ? `${h}h ${m}m` : `${h}h`;
+  if (m > 0) return `${m}m`;
+  return `${s}s`;
+}
+
+/** Unix ms → local "HH:MM". */
+export function formatClock(ms: number): string {
+  const d = new Date(ms);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
+/** A local "YYYY-MM-DD" for a Date (default: now). */
+export function localDateStr(d: Date = new Date()): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+/** Shift a "YYYY-MM-DD" by `delta` days (local), returning a new "YYYY-MM-DD". */
+export function shiftDay(date: string, delta: number): string {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  dt.setDate(dt.getDate() + delta);
+  return localDateStr(dt);
+}
+
+/** Local midnight (unix ms) of a "YYYY-MM-DD". */
+export function dayStartMs(date: string): number {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0).getTime();
+}
+
+/** A fixed, dark-theme-friendly categorical palette (cycles for >N keys). */
+const PALETTE = [
+  "#b3c5ff", // accent-ish
+  "#7dd3fc", // sky
+  "#86efac", // green
+  "#fcd34d", // amber
+  "#f9a8d4", // pink
+  "#c4b5fd", // violet
+  "#fdba74", // orange
+  "#5eead4", // teal
+  "#a3e635", // lime
+  "#f87171", // red
+];
+export function paletteColor(i: number): string {
+  return PALETTE[((i % PALETTE.length) + PALETTE.length) % PALETTE.length];
+}
+
+/** Build a stable key→colour map from an ordered list of keys (top-first). */
+export function colorMap(keys: string[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  keys.forEach((k, i) => {
+    m[k] = paletteColor(i);
+  });
+  return m;
+}
+
+/** A point on a circle. Angle in degrees, 0° at 12 o'clock, clockwise. */
+function polar(cx: number, cy: number, r: number, angleDeg: number): [number, number] {
+  const a = ((angleDeg - 90) * Math.PI) / 180;
+  return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+
+/** SVG path for a donut segment (ring sector) between two angles (degrees). */
+export function donutSegmentPath(
+  cx: number,
+  cy: number,
+  rOuter: number,
+  rInner: number,
+  startDeg: number,
+  endDeg: number,
+): string {
+  // Avoid a zero/full-circle degenerate path.
+  const sweep = endDeg - startDeg;
+  const eps = sweep >= 360 ? -0.001 : 0;
+  const [ox0, oy0] = polar(cx, cy, rOuter, startDeg);
+  const [ox1, oy1] = polar(cx, cy, rOuter, endDeg + eps);
+  const [ix1, iy1] = polar(cx, cy, rInner, endDeg + eps);
+  const [ix0, iy0] = polar(cx, cy, rInner, startDeg);
+  const largeArc = sweep % 360 > 180 ? 1 : 0;
+  return [
+    `M ${ox0.toFixed(2)} ${oy0.toFixed(2)}`,
+    `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${ox1.toFixed(2)} ${oy1.toFixed(2)}`,
+    `L ${ix1.toFixed(2)} ${iy1.toFixed(2)}`,
+    `A ${rInner} ${rInner} 0 ${largeArc} 0 ${ix0.toFixed(2)} ${iy0.toFixed(2)}`,
+    "Z",
+  ].join(" ");
+}
+
+/** Cumulative donut segments (start/end degrees) for a list of values. */
+export function donutSegments(values: number[]): { start: number; end: number }[] {
+  const total = values.reduce((a, b) => a + b, 0);
+  if (total <= 0) return [];
+  let acc = 0;
+  return values.map((v) => {
+    const start = (acc / total) * 360;
+    acc += v;
+    const end = (acc / total) * 360;
+    return { start, end };
+  });
+}
+
+/** Map an event interval to a [left%, width%] band within a day window. Clips
+ *  to the day; open events (ended null) extend to `now`. Returns null for
+ *  zero-width. */
+export function timelineBand(
+  startedAt: number,
+  endedAt: number | null,
+  dayStart: number,
+  now: number,
+): { leftPct: number; widthPct: number } | null {
+  const DAY = 86_400_000;
+  const dayEnd = dayStart + DAY;
+  const s = Math.max(startedAt, dayStart);
+  const e = Math.min(endedAt ?? now, dayEnd);
+  if (e <= s) return null;
+  return {
+    leftPct: ((s - dayStart) / DAY) * 100,
+    widthPct: ((e - s) / DAY) * 100,
+  };
+}

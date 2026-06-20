@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.79] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 5: the Timesheet tab.** A new **Timesheet** tab visualises
+  tracked time: day navigation (← / → / Today / date picker, `t` = today), a
+  totals header (Active / Idle / Sessions), and dependency-free **inline-SVG
+  charts** — a 24 h day timeline (Gantt, app-coloured, idle dimmed), an app
+  donut, a category breakdown, and top hosts — plus a per-event list (time
+  range, app, host/title, source/idle badges, duration). While viewing *today*
+  with tracking active it refreshes live. Bare **`track`** opens this tab. Pure
+  chart/format helpers in `lib/timesheet.ts` (unit-tested).
+
+### Fixed
+
+- The popup's list keyboard-nav (↑/↓/Enter) is now gated to the **History** tab
+  only — previously it stayed armed on other tabs, so Enter could activate a
+  hidden History item from Snippets/Notes/Settings/etc.
+
 ## [0.84.78] — 2026-06-20
 
 ### Added

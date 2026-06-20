@@ -40,6 +40,8 @@ import {
   setMemeDir,
   getTimesheetConfig,
   setTimesheetConfig,
+  trackCategoryRules,
+  trackDeleteCategoryRule,
   forceResetFinderAutomationGrant,
   forceResetScreenRecordingGrant,
   getAccessibilityStatus,
@@ -2331,7 +2333,41 @@ function TimesheetSection() {
         {dirty && !busy && <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>}
         {savedOk && !dirty && <span className="text-[11px] text-[var(--color-muted)]">Saved</span>}
       </div>
+      <Row label="App → category rules" help="Auto-categorize future events. Set rules by assigning a category to an app in the Timesheet's “By app” view; remove them here.">
+        <CategoryRulesList />
+      </Row>
     </Section>
+  );
+}
+
+function CategoryRulesList() {
+  const [rules, setRules] = useState<[string, string][]>([]);
+  const reload = () => trackCategoryRules().then(setRules).catch(() => undefined);
+  useEffect(() => {
+    void reload();
+  }, []);
+  if (rules.length === 0) {
+    return <p className="text-[12px] text-[var(--color-muted)]">No rules yet.</p>;
+  }
+  return (
+    <div className="flex flex-col gap-1">
+      {rules.map(([app, cat]) => (
+        <div key={app} className="flex items-center gap-2 text-[12px]">
+          <span className="min-w-0 flex-1 truncate">{app}</span>
+          <span className="shrink-0 rounded-full bg-[var(--color-accent)]/15 px-1.5 text-[11px] text-[var(--color-accent)]">
+            {cat}
+          </span>
+          <button
+            type="button"
+            onClick={() => void trackDeleteCategoryRule(app).then(reload)}
+            className="shrink-0 rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-rose-400"
+            title="Delete rule"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      ))}
+    </div>
   );
 }
 

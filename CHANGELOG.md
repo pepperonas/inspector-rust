@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.91] — 2026-06-21
+
+### Added
+
+- **Timesheet — categories everywhere (UX overhaul, phase 1).** New events are
+  now **auto-categorized** from a saved app→category rule. In the "By app" view,
+  each app's expanded panel has a **category assign** field (datalist
+  autocomplete) that sets the category on **all** the app's events *and* saves the
+  rule for the future; the app's current category shows as a chip in the header.
+  Settings → Timesheet lists the **app → category rules** with one-click delete.
+  IPC: `track_category_rules` / `track_delete_category_rule` /
+  `track_distinct_categories` (+ `category_for_app` auto-apply in the tracker).
+
 ## [0.84.90] — 2026-06-21
 
 ### Fixed

@@ -24,6 +24,7 @@ import {
   trackBridgeInfo,
   trackBridgeRegenerate,
   trackExportExtension,
+  trackDistinctCategories,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -72,6 +73,8 @@ export function TimesheetPanel() {
   const [draft, setDraft] = useState<EventDraft | null>(null);
   // Events area view: "grouped" by app (expandable) vs "timeline" (editable list).
   const [eventsView, setEventsView] = useState<"grouped" | "timeline">("grouped");
+  // Known category names (for assign autocomplete).
+  const [knownCategories, setKnownCategories] = useState<string[]>([]);
 
   const load = useCallback((d: string) => {
     trackGetDay(d)
@@ -83,6 +86,7 @@ export function TimesheetPanel() {
     load(date);
     setNow(Date.now());
     trackStatus().then(setStatus).catch(() => undefined);
+    trackDistinctCategories().then(setKnownCategories).catch(() => undefined);
   }, [date, load]);
 
   const isToday = date === localDateStr();
@@ -407,6 +411,11 @@ export function TimesheetPanel() {
                             className="ts-chevron shrink-0 text-[var(--color-muted)] transition-transform"
                           />
                           <span className="min-w-0 flex-1 truncate text-left font-medium">{b.app}</span>
+                          {b.category && (
+                            <span className="shrink-0 rounded-full bg-[var(--color-accent)]/15 px-1.5 text-[10px] text-[var(--color-accent)]">
+                              {b.category}
+                            </span>
+                          )}
                           <span className="shrink-0 text-[var(--color-muted)]">
                             {b.details.length} {unit}
                             {b.details.length === 1 ? "" : "s"}
@@ -416,6 +425,13 @@ export function TimesheetPanel() {
                           </span>
                         </summary>
                         <div className="ml-6 flex flex-col border-l border-[var(--color-border)] pl-2">
+                          {/* Assign a category to the whole app (rule + back-fill). */}
+                          <CategoryAssign
+                            app={b.app}
+                            current={b.category}
+                            categories={knownCategories}
+                            onAssigned={refresh}
+                          />
                           {b.details.map((d) => (
                             <div
                               key={d.label}
@@ -675,6 +691,57 @@ function BridgeFooter() {
         <p className="mt-2 text-[var(--color-muted)]">Loading…</p>
       )}
     </details>
+  );
+}
+
+/** Assign a category to a whole app (sets the rule + back-fills every event).
+ *  An input with a datalist of known categories for fast, typo-free entry. */
+function CategoryAssign({
+  app,
+  current,
+  categories,
+  onAssigned,
+}: {
+  app: string;
+  current: string | null;
+  categories: string[];
+  onAssigned: () => void;
+}) {
+  const [value, setValue] = useState(current ?? "");
+  const listId = `cats-${app.replace(/[^a-z0-9]/gi, "")}`;
+  const dirty = value.trim() !== (current ?? "");
+  const assign = () => {
+    const v = value.trim();
+    if (!v) return;
+    void trackSetCategory(app, v).then(onAssigned).catch(() => undefined);
+  };
+  return (
+    <div className="flex items-center gap-1.5 py-1 text-[12px]">
+      <span className="text-[var(--color-muted)]">Category</span>
+      <input
+        list={listId}
+        value={value}
+        placeholder="e.g. Work"
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") assign();
+        }}
+        className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+      />
+      <datalist id={listId}>
+        {categories.map((c) => (
+          <option key={c} value={c} />
+        ))}
+      </datalist>
+      <button
+        type="button"
+        onClick={assign}
+        disabled={!dirty || value.trim() === ""}
+        className="md3-press rounded-full bg-[var(--color-accent)] px-2.5 py-0.5 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
+      >
+        Set
+      </button>
+    </div>
   );
 }
 

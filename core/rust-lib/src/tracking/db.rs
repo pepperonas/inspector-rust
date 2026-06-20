@@ -424,6 +424,45 @@ pub fn set_category(db: &DbHandle, app_name: &str, category: &str) -> rusqlite::
     Ok(())
 }
 
+/// The category rule for an app, if any (used to auto-categorize new events).
+pub fn category_for_app(db: &DbHandle, app_name: &str) -> rusqlite::Result<Option<String>> {
+    let conn = db.lock();
+    conn.query_row(
+        "SELECT category FROM track_categories WHERE app_name = ?1",
+        params![app_name],
+        |r| r.get::<_, String>(0),
+    )
+    .optional()
+}
+
+/// All app→category rules (Settings → Timesheet manager).
+pub fn list_category_rules(db: &DbHandle) -> rusqlite::Result<Vec<(String, String)>> {
+    let conn = db.lock();
+    let mut stmt =
+        conn.prepare("SELECT app_name, category FROM track_categories ORDER BY app_name")?;
+    let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
+    rows.collect()
+}
+
+/// Delete an app→category rule (does not un-categorize existing events).
+pub fn delete_category_rule(db: &DbHandle, app_name: &str) -> rusqlite::Result<()> {
+    let conn = db.lock();
+    conn.execute("DELETE FROM track_categories WHERE app_name = ?1", params![app_name])?;
+    Ok(())
+}
+
+/// Distinct category names ever used (rules ∪ events) — for assign autocomplete.
+pub fn distinct_categories(db: &DbHandle) -> rusqlite::Result<Vec<String>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare(
+        "SELECT category FROM track_categories \
+         UNION SELECT category FROM track_events WHERE category IS NOT NULL AND category != '' \
+         ORDER BY category",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
 /// All events overlapping `[from_ms, to_ms)`, ordered by start, title/url
 /// decrypted. Used by both the day view and the export (with a wider range).
 pub fn events_in_range(db: &DbHandle, from_ms: i64, to_ms: i64) -> rusqlite::Result<Vec<TrackEvent>> {

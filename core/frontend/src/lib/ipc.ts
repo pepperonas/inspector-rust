@@ -1265,6 +1265,8 @@ export interface AppBreakdown {
   seconds: number;
   /** "browser" → details are hosts; otherwise window titles. */
   source: string;
+  /** The app's current category (from its events), if any. */
+  category: string | null;
   details: AppDetail[];
 }
 export interface DayReport {
@@ -1315,6 +1317,17 @@ export function trackMergeEvents(ids: number[]): Promise<number | null> {
 }
 export function trackSetCategory(appName: string, category: string): Promise<void> {
   return invoke("track_set_category", { appName, category });
+}
+/** All app→category rules as [appName, category] pairs. */
+export function trackCategoryRules(): Promise<[string, string][]> {
+  return invoke("track_category_rules");
+}
+export function trackDeleteCategoryRule(appName: string): Promise<void> {
+  return invoke("track_delete_category_rule", { appName });
+}
+/** Distinct category names ever used — for assign autocomplete. */
+export function trackDistinctCategories(): Promise<string[]> {
+  return invoke("track_distinct_categories");
 }
 export function trackClearAll(): Promise<void> {
   return invoke("track_clear_all");

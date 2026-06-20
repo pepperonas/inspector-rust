@@ -406,6 +406,13 @@ fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
     if let Some(open_id) = rt.open_event_id.take() {
         let _ = tdb::close_event(db, open_id, close_at);
     }
+    // Auto-categorize from the saved app→category rule (idle spans stay
+    // uncategorized; they're not "work").
+    let category = if d.is_idle {
+        None
+    } else {
+        tdb::category_for_app(db, &d.app).ok().flatten()
+    };
     let ne = tdb::NewEvent {
         session_id: sid,
         app_name: d.app.clone(),
@@ -413,7 +420,7 @@ fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
         window_title: d.title.clone(),
         url: d.url.clone(),
         host: d.host.clone(),
-        category: None,
+        category,
         project: None,
         source: d.source.clone(),
         is_idle: d.is_idle,
@@ -471,6 +478,8 @@ pub struct AppBreakdown {
     pub seconds: i64,
     /// `"browser"` → details are hosts; otherwise window titles.
     pub source: String,
+    /// The app's current category (from its events), if any.
+    pub category: Option<String>,
     pub details: Vec<AppDetail>,
 }
 
@@ -575,9 +584,9 @@ fn aggregate_day(
     let mut by_host: HashMap<String, i64> = HashMap::new();
     let mut by_cat: HashMap<String, i64> = HashMap::new();
     let mut claude_secs: HashMap<String, i64> = HashMap::new();
-    // Per app → (total seconds, source, detail label → (seconds, count)).
+    // Per app → (total seconds, source, category, detail label → (seconds, count)).
     type DetailStats = HashMap<String, (i64, i64)>;
-    let mut apps_detail: HashMap<String, (i64, String, DetailStats)> = HashMap::new();
+    let mut apps_detail: HashMap<String, (i64, String, Option<String>, DetailStats)> = HashMap::new();
     for e in &events {
         sessions.insert(e.session_id);
         let end = e.ended_at.unwrap_or(now).min(to);
@@ -614,22 +623,29 @@ fn aggregate_day(
             };
             let group = apps_detail
                 .entry(e.app_name.clone())
-                .or_insert_with(|| (0, e.source.clone(), HashMap::new()));
+                .or_insert_with(|| (0, e.source.clone(), None, HashMap::new()));
             group.0 += dur;
-            let det = group.2.entry(label).or_insert((0, 0));
+            if group.2.is_none() {
+                if let Some(c) = &e.category {
+                    if !c.is_empty() {
+                        group.2 = Some(c.clone());
+                    }
+                }
+            }
+            let det = group.3.entry(label).or_insert((0, 0));
             det.0 += dur;
             det.1 += 1;
         }
     }
     let mut app_breakdown: Vec<AppBreakdown> = apps_detail
         .into_iter()
-        .map(|(app, (seconds, source, details))| {
+        .map(|(app, (seconds, source, category, details))| {
             let mut det: Vec<AppDetail> = details
                 .into_iter()
                 .map(|(label, (s, count))| AppDetail { label, seconds: s, count })
                 .collect();
             det.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.label.cmp(&b.label)));
-            AppBreakdown { app, seconds, source, details: det }
+            AppBreakdown { app, seconds, source, category, details: det }
         })
         .collect();
     app_breakdown.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.app.cmp(&b.app)));

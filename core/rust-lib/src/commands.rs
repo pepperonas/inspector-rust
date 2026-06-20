@@ -378,6 +378,23 @@ pub fn track_set_category(
     crate::tracking::db::set_category(&db, &app_name, &category).map_err(map_err)
 }
 
+/// All app→category rules, as `[appName, category]` pairs.
+#[tauri::command]
+pub fn track_category_rules(db: State<'_, DbHandle>) -> Result<Vec<(String, String)>, String> {
+    crate::tracking::db::list_category_rules(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn track_delete_category_rule(db: State<'_, DbHandle>, app_name: String) -> Result<(), String> {
+    crate::tracking::db::delete_category_rule(&db, &app_name).map_err(map_err)
+}
+
+/// Distinct category names ever used — for assign autocomplete.
+#[tauri::command]
+pub fn track_distinct_categories(db: State<'_, DbHandle>) -> Result<Vec<String>, String> {
+    crate::tracking::db::distinct_categories(&db).map_err(map_err)
+}
+
 #[tauri::command]
 pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)

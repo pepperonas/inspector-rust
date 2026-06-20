@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.88] — 2026-06-21
+
+### Fixed
+
+- **Timesheet "By app" groups now expand on click.** The grouped rows used a
+  React-state toggle (`expandedApps`) that didn't reliably open on click; switched
+  to **native `<details>`/`<summary>`** (browser-driven, no React state) — same
+  robust, no-JS approach as the HTML export. The chevron rotates via CSS when
+  open, and the expanded state now survives the tab's live-refresh re-renders.
+
 ## [0.84.87] — 2026-06-21
 
 ### Changed

@@ -70,8 +70,6 @@ export function TimesheetPanel() {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EventDraft | null>(null);
-  // Which apps are expanded to show their detail/history (grouped view).
-  const [expandedApps, setExpandedApps] = useState<Set<string>>(() => new Set());
   // Events area view: "grouped" by app (expandable) vs "timeline" (editable list).
   const [eventsView, setEventsView] = useState<"grouped" | "timeline">("grouped");
 
@@ -396,30 +394,17 @@ export function TimesheetPanel() {
               </Card>
             ) : (
               <Card title={`By app (${report.app_breakdown.length})`}>
+                {/* Native <details> so the toggle is browser-driven — no React
+                    state to lose across the live-refresh re-renders. */}
                 <div className="flex flex-col gap-1">
                   {report.app_breakdown.map((b) => {
-                    const open = expandedApps.has(b.app);
                     const unit = b.source === "browser" ? "site" : "window";
                     return (
-                      <div key={b.app}>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setExpandedApps((s) => {
-                              const n = new Set(s);
-                              if (n.has(b.app)) n.delete(b.app);
-                              else n.add(b.app);
-                              return n;
-                            })
-                          }
-                          className="md3-press flex w-full items-center gap-2 rounded-lg px-1 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-                        >
+                      <details key={b.app} className="ts-app-group">
+                        <summary className="md3-press flex w-full cursor-pointer list-none items-center gap-2 rounded-lg px-1 py-1 text-[12px] hover:bg-[var(--color-surface)]">
                           <ChevronRight
                             size={14}
-                            className={
-                              "shrink-0 text-[var(--color-muted)] transition-transform " +
-                              (open ? "rotate-90" : "")
-                            }
+                            className="ts-chevron shrink-0 text-[var(--color-muted)] transition-transform"
                           />
                           <span className="min-w-0 flex-1 truncate text-left font-medium">{b.app}</span>
                           <span className="shrink-0 text-[var(--color-muted)]">
@@ -429,27 +414,25 @@ export function TimesheetPanel() {
                           <span className="w-[58px] shrink-0 text-right tabular-nums">
                             {formatDuration(b.seconds)}
                           </span>
-                        </button>
-                        {open && (
-                          <div className="ml-6 flex flex-col border-l border-[var(--color-border)] pl-2">
-                            {b.details.map((d) => (
-                              <div
-                                key={d.label}
-                                className="flex items-center gap-2 py-0.5 text-[12px]"
-                                title={d.label}
-                              >
-                                <span className="min-w-0 flex-1 truncate">{d.label}</span>
-                                <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
-                                  ×{d.count}
-                                </span>
-                                <span className="w-[58px] shrink-0 text-right tabular-nums text-[var(--color-muted)]">
-                                  {formatDuration(d.seconds)}
-                                </span>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
+                        </summary>
+                        <div className="ml-6 flex flex-col border-l border-[var(--color-border)] pl-2">
+                          {b.details.map((d) => (
+                            <div
+                              key={d.label}
+                              className="flex items-center gap-2 py-0.5 text-[12px]"
+                              title={d.label}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{d.label}</span>
+                              <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
+                                ×{d.count}
+                              </span>
+                              <span className="w-[58px] shrink-0 text-right tabular-nums text-[var(--color-muted)]">
+                                {formatDuration(d.seconds)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      </details>
                     );
                   })}
                 </div>

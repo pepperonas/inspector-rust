@@ -110,6 +110,17 @@
 .md3-press {
   transition: transform var(--md3-short4) var(--md3-spring-bounce);
 }
+
+/* Timesheet "By app" groups — native <details>, chevron rotates when open. */
+.ts-app-group > summary {
+  list-style: none;
+}
+.ts-app-group > summary::-webkit-details-marker {
+  display: none;
+}
+.ts-app-group[open] > summary .ts-chevron {
+  transform: rotate(90deg);
+}
 .md3-press:active {
   transform: scale(0.93);
   transition-duration: var(--md3-short1);

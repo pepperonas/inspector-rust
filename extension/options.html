@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Timesheet Bridge — Options</title>
+    <style>
+      :root { color-scheme: dark light; }
+      body {
+        font: 14px/1.5 -apple-system, Segoe UI, Roboto, sans-serif;
+        max-width: 460px;
+        margin: 32px auto;
+        padding: 0 20px;
+        background: #0c0d11;
+        color: #f2f3f5;
+      }
+      h1 { font-size: 18px; }
+      p.hint { color: #9a9fac; font-size: 13px; }
+      label { display: block; margin: 14px 0 4px; font-weight: 600; }
+      input[type="text"], input[type="number"] {
+        width: 100%; padding: 8px; border-radius: 8px;
+        border: 1px solid #2b2e38; background: #17191f; color: #f2f3f5;
+        font: inherit;
+      }
+      .row { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+      button {
+        margin-top: 18px; padding: 8px 16px; border-radius: 999px; border: none;
+        background: #b3c5ff; color: #0c0d11; font-weight: 700; cursor: pointer;
+      }
+      .ok { color: #86efac; margin-left: 10px; font-size: 13px; }
+      code { background: #17191f; padding: 1px 5px; border-radius: 4px; }
+    </style>
+  </head>
+  <body>
+    <h1>Inspector Rust — Timesheet Bridge</h1>
+    <p class="hint">
+      Enter the <strong>port</strong> and <strong>token</strong> shown in the app under
+      <em>Timesheet → Browser extension</em> (Settings → Timesheet). The extension
+      connects only to <code>ws://127.0.0.1:&lt;port&gt;</code> on your machine.
+    </p>
+
+    <label for="port">Port</label>
+    <input id="port" type="number" min="1" max="65535" value="47823" />
+
+    <label for="token">Token</label>
+    <input id="token" type="text" placeholder="paste the token from the app" />
+
+    <div class="row">
+      <input id="hostOnly" type="checkbox" />
+      <label for="hostOnly" style="margin: 0; font-weight: 400;">
+        Send host only (e.g. <code>github.com</code>) instead of the full URL
+      </label>
+    </div>
+
+    <button id="save">Save</button>
+    <span id="status" class="ok"></span>
+
+    <script src="options.js"></script>
+  </body>
+</html>

@@ -1315,6 +1315,19 @@ export function trackExport(
   return invoke("track_export", { format, from, to });
 }
 
+export interface BridgeInfo {
+  port: number;
+  token: string;
+}
+/** Loopback-bridge connection info for the browser extension. */
+export function trackBridgeInfo(): Promise<BridgeInfo> {
+  return invoke("track_bridge_info");
+}
+/** Rotate the bridge token; returns the new token. */
+export function trackBridgeRegenerate(): Promise<string> {
+  return invoke("track_bridge_regenerate");
+}
+
 // ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
 
 export interface LoupeData {

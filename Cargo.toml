@@ -3,7 +3,7 @@ resolver = "2"
 members = ["core/rust-lib", "win/src-tauri", "macos/src-tauri", "linux/src-tauri"]
 
 [workspace.package]
-version = "0.84.82"
+version = "0.84.83"
 edition = "2021"
 authors = ["Martin Pfeffer <martinpaush@gmail.com>"]
 license = "MIT"
@@ -47,6 +47,10 @@ dirs = "5"
 # (FSEvents/inotify/ReadDirectoryChangesW). default-features keeps the debounced
 # recommended backend.
 notify = "6"
+# Synchronous WebSocket (no async runtime) for the timesheet browser bridge —
+# a loopback-only (127.0.0.1), token-authenticated server the browser extension
+# reports the active tab to. One blocking accept loop + per-connection threads.
+tungstenite = "0.21"
 # Minimal blocking HTTP/1.1 client for the LAN-only Philips Hue Bridge API
 # (`hue` command). default-features=false drops TLS/gzip — the Hue local API
 # is plain HTTP on port 80, and bridge discovery is local SSDP (UDP), so no

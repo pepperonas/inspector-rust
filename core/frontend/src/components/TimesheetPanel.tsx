@@ -21,6 +21,8 @@ import {
   trackMergeEvents,
   trackSetCategory,
   trackExport,
+  trackBridgeInfo,
+  trackBridgeRegenerate,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -519,7 +521,59 @@ export function TimesheetPanel() {
           </p>
         </div>
       )}
+      <BridgeFooter />
     </div>
+  );
+}
+
+/** Collapsible "Browser extension" footer — shows the loopback bridge port +
+ *  token (to paste into the extension's options) + a regenerate button. */
+function BridgeFooter() {
+  const [info, setInfo] = useState<{ port: number; token: string } | null>(null);
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    if (open && !info) trackBridgeInfo().then(setInfo).catch(() => undefined);
+  }, [open, info]);
+  return (
+    <details
+      className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]"
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
+      <summary className="cursor-pointer text-[var(--color-muted)]">Browser extension</summary>
+      {info ? (
+        <div className="mt-2 flex flex-col gap-1.5">
+          <p className="text-[var(--color-muted)]">
+            Paste these into the extension's Options (loopback only):
+          </p>
+          <div className="flex items-center gap-2">
+            <span className="w-[52px] text-[var(--color-muted)]">Port</span>
+            <code className="rounded bg-[var(--color-surface)] px-2 py-0.5">{info.port}</code>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="w-[52px] text-[var(--color-muted)]">Token</span>
+            <code className="min-w-0 flex-1 truncate rounded bg-[var(--color-surface)] px-2 py-0.5 font-[var(--font-mono)]">
+              {info.token}
+            </code>
+            <button
+              type="button"
+              onClick={() => void navigator.clipboard?.writeText(info.token)}
+              className="md3-press rounded-lg border border-[var(--color-border)] px-2 py-0.5"
+            >
+              Copy
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => void trackBridgeRegenerate().then((t) => setInfo({ ...info, token: t }))}
+            className="md3-press mt-1 self-start rounded-full border border-[var(--color-border)] px-3 py-1"
+          >
+            Regenerate token
+          </button>
+        </div>
+      ) : (
+        <p className="mt-2 text-[var(--color-muted)]">Loading…</p>
+      )}
+    </details>
   );
 }
 

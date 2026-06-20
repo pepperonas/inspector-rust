@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.83] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 9: browser bridge + extension.** A **loopback-only**
+  (`127.0.0.1`), token-authenticated WebSocket server (`tracking::bridge`, sync
+  `tungstenite`) runs while tracking; the new MV3 browser extension
+  (`extension/`, Chromium + Firefox) reports the **active tab** (URL + title, or
+  host-only) to it. The desktop stays the single clock — when a browser is
+  frontmost the open interval is enriched with the tab's host/title and a tab
+  change **splits** the interval (the tab URL is part of the interval key). The
+  bridge binds loopback only, rejects non-loopback peers, requires the token
+  before any frame, and never sends anything outbound. IPC `track_bridge_info`
+  (port + token, shown under the Timesheet tab's "Browser extension") +
+  `track_bridge_regenerate`. `host_from_url` unit-tested; `tungstenite` dep.
+
 ## [0.84.82] — 2026-06-20
 
 ### Added

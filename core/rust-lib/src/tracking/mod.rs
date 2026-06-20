@@ -10,6 +10,7 @@
 // consumers land in later delivery steps — allow dead_code meanwhile.
 #![allow(dead_code)]
 
+pub mod bridge;
 pub mod claude;
 pub mod db;
 pub mod export;
@@ -51,6 +52,26 @@ pub struct Runtime {
     open_started_at: i64,
     stop: Option<Arc<AtomicBool>>,
     claude_stop: Option<Arc<AtomicBool>>,
+    bridge_stop: Option<Arc<AtomicBool>>,
+    /// Most recent active browser tab reported by the extension (loopback WS).
+    /// Used to enrich the open interval while a browser is frontmost.
+    pub last_tab: Option<TabInfo>,
+}
+
+/// The active browser tab, pushed by the extension over the loopback bridge.
+#[derive(Debug, Clone, Default)]
+pub struct TabInfo {
+    pub host: Option<String>,
+    pub title: Option<String>,
+    pub url: Option<String>,
+}
+
+/// Is `app` a web browser (→ enrich its interval with the reported tab)?
+pub fn is_browser(app: &str) -> bool {
+    let a = app.to_ascii_lowercase();
+    ["chrome", "chromium", "safari", "firefox", "edge", "arc", "brave", "vivaldi", "opera"]
+        .iter()
+        .any(|b| a.contains(b))
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -90,11 +111,14 @@ pub fn start(
     } else {
         None
     };
+    // Browser bridge: loopback WS the extension reports the active tab to.
+    let bridge_stop = bridge::start(db.clone(), state.0.clone());
     *rt = Runtime {
         session_id: Some(sid),
         session_started: Some(now),
         stop: Some(stop.clone()),
         claude_stop,
+        bridge_stop: Some(bridge_stop),
         ..Default::default()
     };
     drop(rt);
@@ -114,6 +138,9 @@ pub fn stop(app: &AppHandle, db: &DbHandle, state: &TrackerState) -> Result<(), 
         s.store(true, Ordering::SeqCst);
     }
     if let Some(s) = &rt.claude_stop {
+        s.store(true, Ordering::SeqCst);
+    }
+    if let Some(s) = &rt.bridge_stop {
         s.store(true, Ordering::SeqCst);
     }
     let now = now_ms();
@@ -201,23 +228,46 @@ fn apply_tick(
             app,
             app_id: None,
             title: None,
+            host: None,
+            url: None,
+            source: "focus".to_string(),
             is_idle: true,
             started_at: begin,
         })
     } else if let Some(f) = &focus {
         rt.active_app = Some(f.app_name.clone());
-        Some(Desired {
-            key: format!(
-                "{}\u{0}{}\u{0}focus",
-                f.app_name,
-                f.window_title.as_deref().unwrap_or("")
-            ),
-            app: f.app_name.clone(),
-            app_id: f.app_id.clone(),
-            title: f.window_title.clone(),
-            is_idle: false,
-            started_at: now,
-        })
+        if is_browser(&f.app_name) {
+            // Browser frontmost → enrich with the extension-reported tab; the
+            // tab URL is part of the key so a tab change splits the interval.
+            let tab = rt.last_tab.clone().unwrap_or_default();
+            Some(Desired {
+                key: format!("{}\u{0}{}\u{0}browser", f.app_name, tab.url.clone().unwrap_or_default()),
+                app: f.app_name.clone(),
+                app_id: f.app_id.clone(),
+                title: tab.title.clone().or_else(|| f.window_title.clone()),
+                host: tab.host.clone(),
+                url: tab.url.clone(),
+                source: "browser".to_string(),
+                is_idle: false,
+                started_at: now,
+            })
+        } else {
+            Some(Desired {
+                key: format!(
+                    "{}\u{0}{}\u{0}focus",
+                    f.app_name,
+                    f.window_title.as_deref().unwrap_or("")
+                ),
+                app: f.app_name.clone(),
+                app_id: f.app_id.clone(),
+                title: f.window_title.clone(),
+                host: None,
+                url: None,
+                source: "focus".to_string(),
+                is_idle: false,
+                started_at: now,
+            })
+        }
     } else {
         None
     };
@@ -240,11 +290,11 @@ fn apply_tick(
         app_name: d.app.clone(),
         app_id: d.app_id.clone(),
         window_title: d.title.clone(),
-        url: None,
-        host: None,
+        url: d.url.clone(),
+        host: d.host.clone(),
         category: None,
         project: None,
-        source: "focus".to_string(),
+        source: d.source.clone(),
         is_idle: d.is_idle,
         started_at: d.started_at,
     };
@@ -259,6 +309,9 @@ struct Desired {
     app: String,
     app_id: Option<String>,
     title: Option<String>,
+    host: Option<String>,
+    url: Option<String>,
+    source: String,
     is_idle: bool,
     started_at: i64,
 }

@@ -383,6 +383,28 @@ pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)
 }
 
+/// Loopback-bridge connection info for the browser extension's options page.
+#[derive(serde::Serialize)]
+pub struct BridgeInfo {
+    port: u16,
+    token: String,
+}
+
+#[tauri::command]
+pub fn track_bridge_info(db: State<'_, DbHandle>) -> BridgeInfo {
+    BridgeInfo {
+        port: crate::tracking::bridge::bridge_port(&db),
+        token: crate::tracking::bridge::bridge_token(&db),
+    }
+}
+
+/// Generate a fresh bridge token (invalidates the old one — re-enter it in the
+/// extension). Returns the new token.
+#[tauri::command]
+pub fn track_bridge_regenerate(db: State<'_, DbHandle>) -> String {
+    crate::tracking::bridge::regenerate_token(&db)
+}
+
 /// Export the events in `[from, to)` (unix ms) to `~/Downloads` as `csv` or a
 /// self-contained `html` report; reveals the file. Returns the written path.
 #[tauri::command]

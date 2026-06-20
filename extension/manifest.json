@@ -1,0 +1,20 @@
+{
+  "manifest_version": 3,
+  "name": "Inspector Rust — Timesheet Bridge",
+  "version": "1.0.0",
+  "description": "Reports the active browser tab (URL + title) to Inspector Rust's local timesheet over a loopback WebSocket. Nothing leaves your machine.",
+  "permissions": ["tabs", "storage", "alarms"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "timesheet-bridge@celox.io",
+      "strict_min_version": "115.0"
+    }
+  }
+}

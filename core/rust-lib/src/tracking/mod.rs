@@ -389,6 +389,23 @@ pub struct ClaudeAgg {
     pub tokens_out: i64,
 }
 
+/// One visited site within a browser's history (grouped by host).
+#[derive(Debug, Clone, Serialize)]
+pub struct BrowserVisit {
+    pub host: String,
+    pub title: Option<String>,
+    pub seconds: i64,
+    pub visits: i64,
+}
+
+/// Per-browser-app browsing history (expandable in the tab + HTML export).
+#[derive(Debug, Clone, Serialize)]
+pub struct BrowserHistory {
+    pub app: String,
+    pub seconds: i64,
+    pub sites: Vec<BrowserVisit>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct DayReport {
     pub date: String,
@@ -403,6 +420,10 @@ pub struct DayReport {
     /// **not** included in `total_active_s`/`by_app` (those are focus/browser,
     /// to avoid double-counting time you spent in the terminal *and* Claude).
     pub claude: Vec<ClaudeAgg>,
+    /// Per-browser browsing history (grouped by host), so a browser row can be
+    /// expanded to show what was visited. A sub-view of the browser time that's
+    /// already in `by_app`/`total_active_s` (not double-counted).
+    pub browser_history: Vec<BrowserHistory>,
 }
 
 fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
@@ -459,6 +480,9 @@ fn aggregate_day(
     let mut by_host: HashMap<String, i64> = HashMap::new();
     let mut by_cat: HashMap<String, i64> = HashMap::new();
     let mut claude_secs: HashMap<String, i64> = HashMap::new();
+    // Per browser app → per host → (seconds, visits, representative title).
+    type HostStats = HashMap<String, (i64, i64, Option<String>)>;
+    let mut browser: HashMap<String, HostStats> = HashMap::new();
     for e in &events {
         sessions.insert(e.session_id);
         let end = e.ended_at.unwrap_or(now).min(to);
@@ -484,8 +508,39 @@ fn aggregate_day(
             }
             let cat = e.category.clone().unwrap_or_else(|| "Uncategorized".to_string());
             *by_cat.entry(cat).or_default() += dur;
+            // Browsing history: a sub-view of browser time, grouped by host.
+            if e.source == "browser" {
+                let host = e
+                    .host
+                    .clone()
+                    .or_else(|| e.window_title.clone())
+                    .unwrap_or_else(|| "(unknown)".to_string());
+                let site = browser
+                    .entry(e.app_name.clone())
+                    .or_default()
+                    .entry(host)
+                    .or_insert((0, 0, None));
+                site.0 += dur;
+                site.1 += 1;
+                if site.2.is_none() {
+                    site.2 = e.window_title.clone();
+                }
+            }
         }
     }
+    let mut browser_history: Vec<BrowserHistory> = browser
+        .into_iter()
+        .map(|(app, hosts)| {
+            let mut sites: Vec<BrowserVisit> = hosts
+                .into_iter()
+                .map(|(host, (seconds, visits, title))| BrowserVisit { host, title, seconds, visits })
+                .collect();
+            sites.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.host.cmp(&b.host)));
+            let total = sites.iter().map(|s| s.seconds).sum();
+            BrowserHistory { app, seconds: total, sites }
+        })
+        .collect();
+    browser_history.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.app.cmp(&b.app)));
     let mut claude: Vec<ClaudeAgg> = claude_secs
         .into_iter()
         .map(|(project, seconds)| ClaudeAgg {
@@ -506,6 +561,7 @@ fn aggregate_day(
         by_category: to_buckets(by_cat),
         by_host: to_buckets(by_host),
         claude,
+        browser_history,
     }
 }
 
@@ -621,6 +677,45 @@ mod tests {
         let dev = r.by_category.iter().find(|b| b.key == "Dev").unwrap();
         assert_eq!(dev.seconds, 10);
         assert_eq!(r.by_host.iter().find(|b| b.key == "github.com").unwrap().seconds, 30);
+    }
+
+    #[test]
+    fn aggregate_day_groups_browser_history_by_host() {
+        let mk = |app: &str, host: Option<&str>, title: Option<&str>, s: i64, e: i64| tdb::TrackEvent {
+            id: 0,
+            session_id: 1,
+            app_name: app.into(),
+            app_id: None,
+            window_title: title.map(|t| t.into()),
+            url: None,
+            host: host.map(|h| h.into()),
+            category: None,
+            project: None,
+            source: "browser".into(),
+            is_idle: false,
+            started_at: s,
+            ended_at: Some(e),
+            duration_s: Some((e - s) / 1000),
+        };
+        let events = vec![
+            mk("Google Chrome", Some("github.com"), Some("PR #1"), 0, 10_000), // 10s
+            mk("Google Chrome", Some("news.com"), Some("News"), 10_000, 16_000), // 6s
+            mk("Google Chrome", Some("github.com"), Some("PR #2"), 16_000, 36_000), // 20s → github 30s, 2 visits
+        ];
+        let r = aggregate_day("2026-06-20".into(), events, 0, 100_000, 9_999_999);
+        assert_eq!(r.browser_history.len(), 1);
+        let chrome = &r.browser_history[0];
+        assert_eq!(chrome.app, "Google Chrome");
+        assert_eq!(chrome.seconds, 36);
+        // Sites sorted by time desc: github.com (30s, 2 visits) before news.com.
+        assert_eq!(chrome.sites[0].host, "github.com");
+        assert_eq!(chrome.sites[0].seconds, 30);
+        assert_eq!(chrome.sites[0].visits, 2);
+        assert_eq!(chrome.sites[1].host, "news.com");
+        assert_eq!(chrome.sites[1].seconds, 6);
+        // Browser time is still counted in the active total + by_app.
+        assert_eq!(r.total_active_s, 36);
+        assert_eq!(r.by_app[0].key, "Google Chrome");
     }
 
     #[test]

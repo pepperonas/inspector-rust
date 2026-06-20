@@ -397,7 +397,11 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   an `idle` span). Browsers (`is_browser`) get the extension's `last_tab`
   host/title and split on tab-URL change. The privacy **denylist** strips
   title/url/host (`is_denied`/`parse_denylist`). `day_report`/`aggregate_day`
-  build the tab + export aggregations.
+  build the tab + export aggregations, including the **browser history**
+  (`DayReport.browser_history`: per-browser-app, grouped by host with time +
+  visit count) — a sub-view of the browser time already in `by_app`, surfaced as
+  an expandable row in the tab and a native `<details>` block in the HTML export
+  (v0.84.86).
 - **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
   `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
   `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +

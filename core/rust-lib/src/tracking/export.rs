@@ -182,6 +182,8 @@ pub fn html(
     let mut by_cat: HashMap<String, i64> = HashMap::new();
     let mut by_day: HashMap<String, i64> = HashMap::new();
     let mut claude_secs: HashMap<String, i64> = HashMap::new();
+    // Per browser app → per host → (seconds, visits).
+    let mut browser: HashMap<String, HashMap<String, (i64, i64)>> = HashMap::new();
     for e in events {
         let d = effective_dur_s(e, now);
         if d == 0 {
@@ -205,6 +207,16 @@ pub fn html(
             *by_cat
                 .entry(e.category.clone().unwrap_or_else(|| "Uncategorized".into()))
                 .or_default() += d;
+            if e.source == "browser" {
+                let host = e
+                    .host
+                    .clone()
+                    .or_else(|| e.window_title.clone())
+                    .unwrap_or_else(|| "(unknown)".into());
+                let site = browser.entry(e.app_name.clone()).or_default().entry(host).or_insert((0, 0));
+                site.0 += d;
+                site.1 += 1;
+            }
         }
     }
     let apps = buckets_sorted(by_app);
@@ -253,6 +265,45 @@ pub fn html(
         format!("<div class=card><h2>Claude Code</h2>{body}</div>")
     };
 
+    // Browser history — one collapsible <details> per browser (native expand,
+    // no JS, so it stays self-contained). Each shows the visited hosts.
+    let browser_card = if browser.is_empty() {
+        String::new()
+    } else {
+        let mut apps_h: Vec<_> = browser.into_iter().collect();
+        // Sort browsers by total time desc.
+        apps_h.sort_by(|a, b| {
+            let ta: i64 = a.1.values().map(|v| v.0).sum();
+            let tb: i64 = b.1.values().map(|v| v.0).sum();
+            tb.cmp(&ta).then(a.0.cmp(&b.0))
+        });
+        let mut blocks = String::new();
+        for (app, hosts) in &apps_h {
+            let total: i64 = hosts.values().map(|v| v.0).sum();
+            let mut sites: Vec<(&String, &(i64, i64))> = hosts.iter().collect();
+            sites.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
+            let mut rows = String::from(
+                "<table><thead><tr><th>Site</th><th class=r>Visits</th><th class=r>Time</th></tr></thead><tbody>",
+            );
+            for (host, (secs, visits)) in &sites {
+                rows.push_str(&format!(
+                    "<tr><td>{}</td><td class=r>{}</td><td class=r>{}</td></tr>",
+                    esc(host),
+                    visits,
+                    fmt_dur(*secs)
+                ));
+            }
+            rows.push_str("</tbody></table>");
+            blocks.push_str(&format!(
+                "<details><summary><span>{}</span><span class=dur>{}</span></summary>{}</details>",
+                esc(app),
+                fmt_dur(total),
+                rows
+            ));
+        }
+        format!("<div class=card><h2>Browser history</h2>{blocks}</div>")
+    };
+
     format!(
         r#"<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width,initial-scale=1">
@@ -288,6 +339,15 @@ th,td{{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}}
 th{{color:var(--muted);font-weight:500}}
 td.r,th.r{{text-align:right;font-variant-numeric:tabular-nums}}
 .badge{{background:var(--surface);color:var(--muted);border-radius:99px;padding:1px 7px;font-size:10px}}
+details{{border:1px solid var(--border);border-radius:10px;margin:6px 0;overflow:hidden}}
+details+details{{margin-top:8px}}
+summary{{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:9px 12px;font-weight:600;list-style:none}}
+summary::-webkit-details-marker{{display:none}}
+summary::before{{content:"▸";color:var(--muted);margin-right:8px;transition:transform .15s}}
+details[open] summary::before{{transform:rotate(90deg)}}
+summary span:first-of-type{{flex:1}}
+summary .dur{{color:var(--muted);font-variant-numeric:tabular-nums;font-weight:500}}
+details>table{{margin:0 12px 10px}}
 footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
 </style></head><body>
 <h1>Timesheet</h1>
@@ -303,6 +363,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
   <div class=card><h2>By category</h2>{cat_bars}</div>
 </div>
 <div class=card><h2>Top hosts</h2>{host_bars}</div>
+{browser_card}
 {claude_card}
 <div class=card><h2>Events</h2>{table}</div>
 <footer>{footer}</footer>
@@ -316,6 +377,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
         app_donut = app_donut,
         cat_bars = cat_bars,
         host_bars = host_bars,
+        browser_card = browser_card,
         claude_card = claude_card,
         table = events_table(events, now),
         footer = FOOTER,
@@ -403,5 +465,17 @@ mod tests {
         let out = html(&[], &HashMap::new(), 0, 86_400_000, 0);
         assert!(out.contains(FOOTER));
         assert!(out.contains("No active time."));
+    }
+
+    #[test]
+    fn html_browser_history_is_collapsible_details() {
+        let mut e = ev("Google Chrome", 0, 120_000, false, Some("github.com"), Some("PR"));
+        e.source = "browser".into();
+        let out = html(&[e], &HashMap::new(), 0, 86_400_000, 200_000);
+        assert!(out.contains("Browser history"));
+        assert!(out.contains("<details>")); // native expand, no JS
+        assert!(out.contains("Google Chrome"));
+        assert!(out.contains("github.com"));
+        assert!(!out.contains("http://")); // still self-contained
     }
 }

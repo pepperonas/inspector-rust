@@ -70,6 +70,8 @@ export function TimesheetPanel() {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EventDraft | null>(null);
+  // Which browser apps are expanded to show their history.
+  const [expandedBrowsers, setExpandedBrowsers] = useState<Set<string>>(() => new Set());
 
   const load = useCallback((d: string) => {
     trackGetDay(d)
@@ -356,6 +358,67 @@ export function TimesheetPanel() {
                     </span>
                   </div>
                 ))}
+              </div>
+            </Card>
+          )}
+
+          {/* Browser history — each browser expands to show visited sites */}
+          {report.browser_history.length > 0 && (
+            <Card title="Browser history">
+              <div className="flex flex-col gap-1">
+                {report.browser_history.map((b) => {
+                  const open = expandedBrowsers.has(b.app);
+                  return (
+                    <div key={b.app}>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setExpandedBrowsers((s) => {
+                            const n = new Set(s);
+                            if (n.has(b.app)) n.delete(b.app);
+                            else n.add(b.app);
+                            return n;
+                          })
+                        }
+                        className="md3-press flex w-full items-center gap-2 rounded-lg px-1 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+                      >
+                        <ChevronRight
+                          size={14}
+                          className={
+                            "shrink-0 text-[var(--color-muted)] transition-transform " +
+                            (open ? "rotate-90" : "")
+                          }
+                        />
+                        <span className="min-w-0 flex-1 truncate text-left font-medium">{b.app}</span>
+                        <span className="shrink-0 text-[var(--color-muted)]">
+                          {b.sites.length} site{b.sites.length === 1 ? "" : "s"}
+                        </span>
+                        <span className="w-[58px] shrink-0 text-right tabular-nums">
+                          {formatDuration(b.seconds)}
+                        </span>
+                      </button>
+                      {open && (
+                        <div className="ml-6 flex flex-col border-l border-[var(--color-border)] pl-2">
+                          {b.sites.map((s) => (
+                            <div
+                              key={s.host}
+                              className="flex items-center gap-2 py-0.5 text-[12px]"
+                              title={s.title ?? s.host}
+                            >
+                              <span className="min-w-0 flex-1 truncate">{s.host}</span>
+                              <span className="shrink-0 text-[10px] text-[var(--color-muted)]">
+                                ×{s.visits}
+                              </span>
+                              <span className="w-[58px] shrink-0 text-right tabular-nums text-[var(--color-muted)]">
+                                {formatDuration(s.seconds)}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </Card>
           )}

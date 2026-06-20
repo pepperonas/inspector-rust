@@ -1255,6 +1255,17 @@ export interface ClaudeAgg {
   tokens_in: number;
   tokens_out: number;
 }
+export interface BrowserVisit {
+  host: string;
+  title: string | null;
+  seconds: number;
+  visits: number;
+}
+export interface BrowserHistory {
+  app: string;
+  seconds: number;
+  sites: BrowserVisit[];
+}
 export interface DayReport {
   date: string;
   events: TrackEvent[];
@@ -1266,6 +1277,8 @@ export interface DayReport {
   by_host: TrackBucket[];
   /** Claude-Code usage per project (separate from the focus/browser totals). */
   claude: ClaudeAgg[];
+  /** Per-browser browsing history (grouped by host) — expandable. */
+  browser_history: BrowserHistory[];
 }
 export interface TrackEventPatch {
   app_name?: string;

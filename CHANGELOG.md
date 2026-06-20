@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.86] — 2026-06-21
+
+### Added
+
+- **Timesheet — expandable browser history.** Browser entries (e.g. Google
+  Chrome) in the Timesheet tab now expand to reveal **what was visited** — the
+  browsing history grouped by host with total time + visit count. The same
+  appears in the **HTML export** as a collapsible `<details>` section per browser
+  (native expand/collapse, still zero-JS / self-contained). Backed by
+  `DayReport.browser_history` (a sub-view of the browser time already counted in
+  `by_app` — not double-counted); `aggregate_day` + the export both group it. +2
+  unit tests.
+
 ## [0.84.85] — 2026-06-21
 
 ### Added

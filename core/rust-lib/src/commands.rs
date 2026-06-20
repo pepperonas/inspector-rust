@@ -2481,14 +2481,15 @@ pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, Stri
 /// the Automation→Finder TCC grant (returns the `finder.automation_denied`
 /// sentinel on a miss).
 #[tauri::command]
-pub fn finder_touch(name: String) -> Result<String, String> {
+pub fn finder_touch(name: String, content: Option<String>) -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        crate::finder_selection::create_file(&name).map(|p| p.display().to_string())
+        crate::finder_selection::create_file(&name, content.as_deref().unwrap_or(""))
+            .map(|p| p.display().to_string())
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
-        let _ = name;
+        let _ = (name, content);
         Err("touch needs Finder (macOS) or Explorer (Windows)".into())
     }
 }

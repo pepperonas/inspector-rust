@@ -336,12 +336,12 @@ export function optimizeFile(
   return invoke("optimize_file", { path });
 }
 
-/** Create an empty file named `name` in the frontmost Finder window's
- *  folder (or the Desktop if no window is open). Returns the absolute
- *  path created. Needs the Automation→Finder TCC grant. Backend:
- *  `commands::finder_touch`. */
-export function finderTouch(name: string): Promise<string> {
-  return invoke("finder_touch", { name });
+/** Create a file named `name` in the frontmost Finder/Explorer window's folder
+ *  (or the Desktop if no window is open), optionally with `content` written into
+ *  it (`touch <name> > <text>`). Returns the absolute path created. Needs the
+ *  Automation→Finder TCC grant on macOS. Backend: `commands::finder_touch`. */
+export function finderTouch(name: string, content = ""): Promise<string> {
+  return invoke("finder_touch", { name, content });
 }
 
 /** Create a folder named `name` in the frontmost Finder window's folder.

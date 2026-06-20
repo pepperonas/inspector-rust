@@ -275,7 +275,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 | `mute` | Toggle system mute (macOS) | IPC `toggle_mute` |
 | `freeze` | Input lock (block keyboard+mouse until unlock chord) | `input_lock` |
 | `wakelock on` / `wakelock off` (alias `caffeine on/off`) | Keep-awake on / off (arg parsed by `parseWakelockArg`; the old `=1`/`=0` syntax was removed v0.52.0) | `wakelock` |
-| `touch <name>` / `mkdir <name>` | Create a file / folder in the frontmost Finder (macOS) / Explorer (Windows) window's folder | `finder_selection::create_file`/`create_dir` |
+| `touch <name> [> text]` / `mkdir <name>` | Create a file / folder in the frontmost Finder (macOS) / Explorer (Windows) window's folder. **`touch` accepts inline content (v0.84.74):** `touch hallo.txt > das ist ein test` creates `hallo.txt` containing `das ist ein test` (the frontend splits on the first `>`; empty content = plain `touch`). | `finder_selection::create_file(name, content)`/`create_dir` |
 | `terminal` | Open a terminal at the frontmost Finder/Explorer folder — iTerm2/Terminal (macOS), Windows Terminal/PowerShell/cmd (Windows) | `finder_selection::open_terminal` |
 | `bruno <€>` | German net-pay calculator | `bruno` |
 | `timer <n>[s/min]` | Countdown timer (status toast on set) | `timer` |

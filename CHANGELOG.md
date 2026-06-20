@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.74] — 2026-06-20
+
+### Added
+
+- **`touch` can write file content inline.** `touch hallo.txt > das ist ein test`
+  creates `hallo.txt` containing `das ist ein test` in the active Finder/Explorer
+  folder (split on the first `>`; no `>` = an empty file as before).
+- **Command aliases:** `resize` now works as an alias for `rz`, and `optimize`
+  for `optim`.
+
 ## [0.84.73] — 2026-06-20
 
 ### Changed

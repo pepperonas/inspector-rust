@@ -227,11 +227,27 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: true,
   },
   {
+    kind: "resize",
+    keyword: "resize",
+    syntax: "resize <W>x<H>",
+    description: "Alias for rz",
+    requiresArg: true,
+    hidden: true,
+  },
+  {
     kind: "optim",
     keyword: "optim",
     syntax: "optim",
     description: "Compress the selected image(s) in Finder/Explorer (PNG/JPEG → <name>-optim); else the clipboard PNG",
     requiresArg: false,
+  },
+  {
+    kind: "optim",
+    keyword: "optimize",
+    syntax: "optimize",
+    description: "Alias for optim",
+    requiresArg: false,
+    hidden: true,
   },
   {
     kind: "rmvvls",
@@ -350,8 +366,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "touch",
     keyword: "touch",
-    syntax: "touch <name>",
-    description: "Create an empty file in the active Explorer/Finder window's folder",
+    syntax: "touch <name> [> text]",
+    description: "Create a file in the active Explorer/Finder folder — `touch hallo.txt > das ist ein test` writes that content",
     requiresArg: true,
     // File-manager integration exists on macOS (Finder) + Windows (Explorer).
     platform: ["mac", "win"],

@@ -606,10 +606,16 @@ function App() {
         }
         break;
       }
-      case "touch":
-        label = `Create file "${arg}" in the open folder`;
-        hint = "In the frontmost Explorer (Windows) / Finder (macOS) window's directory";
+      case "touch": {
+        const gt = arg.indexOf(">");
+        const tname = (gt >= 0 ? arg.slice(0, gt) : arg).trim();
+        const tcontent = gt >= 0 ? arg.slice(gt + 1).trim() : "";
+        label = tcontent
+          ? `Create "${tname}" with content in the open folder`
+          : `Create file "${tname}" in the open folder`;
+        hint = "Frontmost Explorer (Windows) / Finder (macOS) folder · `touch name > text` writes content";
         break;
+      }
       case "mkdir":
         label = `Create folder "${arg}" in the open folder`;
         hint = "In the frontmost Explorer (Windows) / Finder (macOS) window's directory";
@@ -1687,12 +1693,19 @@ function App() {
         await wakelockSet(on, source);
       } else if (commandKind === "touch" || commandKind === "mkdir") {
         // Create a file / folder in the active file-manager window's folder
-        // (Finder on macOS, Explorer on Windows).
+        // (Finder on macOS, Explorer on Windows). For `touch`, an optional
+        // `> <text>` writes that content into the new file:
+        //   touch hallo.txt > das ist ein test
         try {
-          const path =
-            commandKind === "touch"
-              ? await finderTouch(arg)
-              : await finderMkdir(arg);
+          let path: string;
+          if (commandKind === "touch") {
+            const gt = arg.indexOf(">");
+            const name = (gt >= 0 ? arg.slice(0, gt) : arg).trim();
+            const content = gt >= 0 ? arg.slice(gt + 1).trim() : "";
+            path = await finderTouch(name, content);
+          } else {
+            path = await finderMkdir(arg);
+          }
           console.info("created", path);
         } catch (e) {
           setPasteError("other");

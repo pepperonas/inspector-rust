@@ -171,13 +171,15 @@ fn reveal_in_finder(path: &std::path::Path) {
 /// Create an empty file `name` in the front Finder folder. Errors if it
 /// already exists. Returns the absolute path created.
 #[cfg(target_os = "macos")]
-pub fn create_file(name: &str) -> Result<PathBuf, String> {
+pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     let n = sanitize_name(name)?;
     let path = front_dir()?.join(n);
     if path.exists() {
         return Err(format!("already exists: {}", path.display()));
     }
-    std::fs::File::create(&path).map_err(|e| format!("create file failed: {e}"))?;
+    // `content` is empty for a plain `touch <name>`; non-empty when the user
+    // wrote `touch <name> > <text>`.
+    std::fs::write(&path, content).map_err(|e| format!("create file failed: {e}"))?;
     reveal_in_finder(&path);
     Ok(path)
 }
@@ -498,13 +500,15 @@ fn reveal_in_explorer(path: &std::path::Path) {
 /// Create an empty file `name` in the front Explorer folder. Errors if it
 /// already exists. Returns the absolute path created.
 #[cfg(target_os = "windows")]
-pub fn create_file(name: &str) -> Result<PathBuf, String> {
+pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     let n = sanitize_name(name)?;
     let path = front_dir()?.join(n);
     if path.exists() {
         return Err(format!("already exists: {}", path.display()));
     }
-    std::fs::File::create(&path).map_err(|e| format!("create file failed: {e}"))?;
+    // `content` is empty for a plain `touch <name>`; non-empty when the user
+    // wrote `touch <name> > <text>`.
+    std::fs::write(&path, content).map_err(|e| format!("create file failed: {e}"))?;
     reveal_in_explorer(&path);
     Ok(path)
 }

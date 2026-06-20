@@ -525,6 +525,19 @@ fn union_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
     total_ms / 1000
 }
 
+/// Local-day `[midnight, next-midnight)` in unix ms for a `"YYYY-MM-DD"`.
+pub fn day_bounds(date: &str) -> Result<(i64, i64), String> {
+    use chrono::{Local, NaiveDate, TimeZone};
+    let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    let midnight = d.and_hms_opt(0, 0, 0).ok_or_else(|| "invalid date".to_string())?;
+    let from = Local
+        .from_local_datetime(&midnight)
+        .single()
+        .ok_or_else(|| "ambiguous local date".to_string())?
+        .timestamp_millis();
+    Ok((from, from + 86_400_000))
+}
+
 fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
     let mut v: Vec<Bucket> = map
         .into_iter()
@@ -539,17 +552,7 @@ fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
 /// app/category/host breakdowns (active time only). Open events count up to
 /// "now". Pure aggregation over `events_in_range` — unit-tested.
 pub fn day_report(db: &DbHandle, date: &str) -> Result<DayReport, String> {
-    use chrono::{Local, NaiveDate, TimeZone};
-    let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
-    let midnight = d
-        .and_hms_opt(0, 0, 0)
-        .ok_or_else(|| "invalid date".to_string())?;
-    let from = Local
-        .from_local_datetime(&midnight)
-        .single()
-        .ok_or_else(|| "ambiguous local date".to_string())?
-        .timestamp_millis();
-    let to = from + 86_400_000;
+    let (from, to) = day_bounds(date)?;
     let events = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
     let mut report = aggregate_day(date.to_string(), events, from, to, now_ms());
     // Merge token totals (per project) onto the time-only claude aggregation.

@@ -400,6 +400,51 @@ pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)
 }
 
+/// Manually add a completed time entry (start/end in unix ms). Attaches to the
+/// active session if tracking, else a "Manual entries" container.
+#[allow(clippy::too_many_arguments)]
+#[tauri::command]
+pub fn track_add_event(
+    db: State<'_, DbHandle>,
+    app_name: String,
+    category: Option<String>,
+    project: Option<String>,
+    window_title: Option<String>,
+    started_at: i64,
+    ended_at: i64,
+) -> Result<i64, String> {
+    if ended_at <= started_at {
+        return Err("end must be after start".into());
+    }
+    let now = chrono::Utc::now().timestamp_millis();
+    let sid = crate::tracking::db::manual_session_id(&db, now).map_err(map_err)?;
+    let ev = crate::tracking::db::NewEvent {
+        session_id: sid,
+        app_name,
+        app_id: None,
+        window_title: window_title.filter(|s| !s.is_empty()),
+        url: None,
+        host: None,
+        category: category.filter(|s| !s.is_empty()),
+        project: project.filter(|s| !s.is_empty()),
+        source: "manual".to_string(),
+        is_idle: false,
+        started_at,
+    };
+    crate::tracking::db::insert_event(&db, &ev, ended_at).map_err(map_err)
+}
+
+/// Tidy a day: delete idle spans + sub-`min_seconds` fragments. Returns count.
+#[tauri::command]
+pub fn track_cleanup_day(
+    db: State<'_, DbHandle>,
+    date: String,
+    min_seconds: i64,
+) -> Result<usize, String> {
+    let (from, to) = crate::tracking::day_bounds(&date)?;
+    crate::tracking::db::cleanup_day(&db, from, to, min_seconds.max(0)).map_err(map_err)
+}
+
 /// Timesheet settings (Settings → Timesheet).
 #[derive(serde::Serialize, serde::Deserialize)]
 pub struct TimesheetConfig {

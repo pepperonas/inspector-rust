@@ -361,6 +361,69 @@ pub fn delete_event(db: &DbHandle, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// Insert a **complete** (already-ended) event — for manual time entry. Mirrors
+/// `open_event` but stamps `ended_at` + `duration_s`. `window_title`/`url`
+/// encrypted as usual. Returns the new id.
+pub fn insert_event(db: &DbHandle, ev: &NewEvent, ended_at: i64) -> rusqlite::Result<i64> {
+    let conn = db.lock();
+    let enc_title = ev.window_title.as_deref().map(crypto::encrypt);
+    let enc_url = ev.url.as_deref().map(crypto::encrypt);
+    let dur = ((ended_at - ev.started_at).max(0)) / 1000;
+    conn.execute(
+        "INSERT INTO track_events \
+         (session_id, app_name, app_id, window_title, url, host, category, project, source, is_idle, started_at, ended_at, duration_s) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            ev.session_id, ev.app_name, ev.app_id, enc_title, enc_url, ev.host,
+            ev.category, ev.project, ev.source, ev.is_idle as i64, ev.started_at, ended_at, dur,
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+/// A session id to attach manual entries to: the active one if tracking, else a
+/// reusable already-ended "Manual entries" container session (kept out of the
+/// resume path because it's `ended`).
+pub fn manual_session_id(db: &DbHandle, now: i64) -> rusqlite::Result<i64> {
+    if let Some(s) = active_session(db)? {
+        return Ok(s.id);
+    }
+    {
+        let conn = db.lock();
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM track_sessions WHERE label = 'Manual entries' ORDER BY id DESC LIMIT 1",
+                [],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = existing {
+            return Ok(id);
+        }
+        conn.execute(
+            "INSERT INTO track_sessions (label, started_at, ended_at, status) \
+             VALUES ('Manual entries', ?1, ?1, 'ended')",
+            params![now],
+        )?;
+        Ok(conn.last_insert_rowid())
+    }
+}
+
+/// Delete cleanup-able events in `[from, to)`: all `idle` spans plus any
+/// non-idle, non-claude event shorter than `min_seconds` (quick-switch noise).
+/// Returns rows deleted.
+pub fn cleanup_day(db: &DbHandle, from: i64, to: i64, min_seconds: i64) -> rusqlite::Result<usize> {
+    let conn = db.lock();
+    conn.execute(
+        "DELETE FROM track_events \
+         WHERE started_at >= ?1 AND started_at < ?2 \
+           AND ( is_idle = 1 \
+                 OR (source != 'claude' AND ended_at IS NOT NULL \
+                     AND (ended_at - started_at) / 1000 < ?3) )",
+        params![from, to, min_seconds],
+    )
+}
+
 /// Merge `ids` into the earliest event (by `started_at`): the survivor spans
 /// from the earliest start to the latest end; the others are deleted. Returns
 /// the surviving event id. No-op for < 2 ids.
@@ -639,6 +702,39 @@ mod tests {
         assert_eq!(evs[0].window_title.as_deref(), Some("Secret Page"));
         assert_eq!(evs[0].url.as_deref(), Some("https://example.com/secret"));
         assert_eq!(evs[0].host.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn insert_event_stamps_duration_and_cleanup_removes_idle_and_fragments() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        // A real 10-min entry (kept), a 5s fragment (removed), an idle span (removed).
+        let mut keep = ev(sid, "Code", 0);
+        keep.window_title = Some("main.rs".into());
+        let keep_id = insert_event(&db, &keep, 600_000).unwrap(); // 10 min
+        assert_eq!(events_in_range(&db, -1, 10_000_000).unwrap()
+            .iter().find(|e| e.id == keep_id).unwrap().duration_s, Some(600));
+        let frag = ev(sid, "Finder", 600_000);
+        insert_event(&db, &frag, 605_000).unwrap(); // 5 s fragment
+        let mut idle = ev(sid, "Code", 605_000);
+        idle.is_idle = true;
+        insert_event(&db, &idle, 900_000).unwrap(); // idle
+        assert_eq!(events_in_range(&db, -1, 10_000_000).unwrap().len(), 3);
+        // Clean up: idle + sub-15s → removes the fragment + the idle span.
+        let removed = cleanup_day(&db, -1, 10_000_000, 15).unwrap();
+        assert_eq!(removed, 2);
+        let left = events_in_range(&db, -1, 10_000_000).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].app_name, "Code");
+        assert!(!left[0].is_idle);
+    }
+
+    #[test]
+    fn manual_session_id_reuses_one_container_when_not_tracking() {
+        let db = test_db();
+        let a = manual_session_id(&db, 1_000).unwrap();
+        let b = manual_session_id(&db, 2_000).unwrap();
+        assert_eq!(a, b); // same reused "Manual entries" session
     }
 
     #[test]

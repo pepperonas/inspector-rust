@@ -115,6 +115,11 @@ in the UI until the other OSes are runtime-verified.
 In the **Timesheet tab**, the events area has a **By app ↔ Timeline** toggle:
 - **By app** — every app grouped with its total usage; click an app (e.g. Google
   Chrome) to expand its detail/history (visited hosts for browsers, window titles
-  for other apps, each with time + count).
-- **Timeline** — the editable chronological event list (inline edit · merge ·
-  delete · category · idle).
+  for other apps, each with time + count). Each app's panel has a **category
+  assign** field (datalist autocomplete) that sets the category on all its events
+  + saves an app→category rule (new events auto-categorize; manage rules in
+  Settings → Timesheet).
+- **Timeline** — the editable chronological event list: inline edit (Enter saves,
+  Esc cancels) · merge · delete · category · idle, plus **+ Add entry** (log
+  forgotten time by hand) and **Clean up** (delete the day's idle spans + sub-15s
+  fragments).

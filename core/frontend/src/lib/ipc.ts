@@ -1332,6 +1332,28 @@ export function trackDistinctCategories(): Promise<string[]> {
 export function trackClearAll(): Promise<void> {
   return invoke("track_clear_all");
 }
+/** Manually add a completed time entry (start/end in unix ms). */
+export function trackAddEvent(args: {
+  appName: string;
+  category?: string | null;
+  project?: string | null;
+  windowTitle?: string | null;
+  startedAt: number;
+  endedAt: number;
+}): Promise<number> {
+  return invoke("track_add_event", {
+    appName: args.appName,
+    category: args.category ?? null,
+    project: args.project ?? null,
+    windowTitle: args.windowTitle ?? null,
+    startedAt: args.startedAt,
+    endedAt: args.endedAt,
+  });
+}
+/** Tidy a day: delete idle spans + sub-`minSeconds` fragments. Returns count. */
+export function trackCleanupDay(date: string, minSeconds: number): Promise<number> {
+  return invoke("track_cleanup_day", { date, minSeconds });
+}
 /** Export `[from, to)` (unix ms) to ~/Downloads as `csv` or self-contained
  *  `html`; reveals the file. Returns the written path. */
 export function trackExport(

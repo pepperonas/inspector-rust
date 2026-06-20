@@ -10,6 +10,8 @@ import {
   Pause,
   Pencil,
   Download,
+  Plus,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
@@ -25,6 +27,8 @@ import {
   trackBridgeRegenerate,
   trackExportExtension,
   trackDistinctCategories,
+  trackAddEvent,
+  trackCleanupDay,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -75,6 +79,8 @@ export function TimesheetPanel() {
   const [eventsView, setEventsView] = useState<"grouped" | "timeline">("grouped");
   // Known category names (for assign autocomplete).
   const [knownCategories, setKnownCategories] = useState<string[]>([]);
+  // Manual "add entry" form open?
+  const [adding, setAdding] = useState(false);
 
   const load = useCallback((d: string) => {
     trackGetDay(d)
@@ -212,6 +218,15 @@ export function TimesheetPanel() {
     void trackExport(format, from, from + 86_400_000).catch((e) =>
       console.error("export failed", e),
     );
+  };
+
+  const doCleanup = async () => {
+    try {
+      const n = await trackCleanupDay(date, 15);
+      if (n > 0) refresh();
+    } catch (e) {
+      console.error("cleanup failed", e);
+    }
   };
 
   const mergeSelected = async () => {
@@ -458,6 +473,35 @@ export function TimesheetPanel() {
           {/* Timeline view — selectable (merge) + inline-editable event list */}
           {eventsView === "timeline" && (
           <Card title={`Events (${report.events.length})`}>
+            {/* Quick actions: add a manual entry · tidy idle/fragments */}
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAdding((a) => !a)}
+                className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+              >
+                <Plus size={13} /> Add entry
+              </button>
+              <button
+                type="button"
+                onClick={() => void doCleanup()}
+                className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+                title="Delete idle spans + sub-15s fragments for this day"
+              >
+                <Sparkles size={13} /> Clean up
+              </button>
+            </div>
+            {adding && (
+              <AddEntryForm
+                date={date}
+                categories={knownCategories}
+                onAdded={() => {
+                  setAdding(false);
+                  refresh();
+                }}
+                onCancel={() => setAdding(false)}
+              />
+            )}
             {selected.size >= 2 && (
               <div className="mb-2 flex items-center gap-2">
                 <button
@@ -523,7 +567,13 @@ export function TimesheetPanel() {
                   </div>
 
                   {editingId === e.id && draft && (
-                    <div className="mb-2 flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[12px]">
+                    <div
+                      className="mb-2 flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[12px]"
+                      onKeyDown={(ev) => {
+                        if (ev.key === "Enter") void saveEdit(e);
+                        else if (ev.key === "Escape") refresh();
+                      }}
+                    >
                       <div className="flex flex-wrap items-center gap-2">
                         <label className="flex items-center gap-1">
                           App
@@ -691,6 +741,114 @@ function BridgeFooter() {
         <p className="mt-2 text-[var(--color-muted)]">Loading…</p>
       )}
     </details>
+  );
+}
+
+/** Manual time-entry form (app · category · start · end on the viewed day). */
+function AddEntryForm({
+  date,
+  categories,
+  onAdded,
+  onCancel,
+}: {
+  date: string;
+  categories: string[];
+  onAdded: () => void;
+  onCancel: () => void;
+}) {
+  const [app, setApp] = useState("");
+  const [category, setCategory] = useState("");
+  const [start, setStart] = useState("09:00");
+  const [end, setEnd] = useState("10:00");
+  const [err, setErr] = useState<string | null>(null);
+  const dayStart = dayStartMs(date);
+
+  const submit = () => {
+    const s = timeInputToMs(dayStart, start);
+    const e = timeInputToMs(dayStart, end);
+    if (!app.trim()) return setErr("App name required");
+    if (s == null || e == null) return setErr("Invalid time");
+    if (e <= s) return setErr("End must be after start");
+    void trackAddEvent({
+      appName: app.trim(),
+      category: category.trim() || null,
+      startedAt: s,
+      endedAt: e,
+    })
+      .then(onAdded)
+      .catch((x) => {
+        console.error("add entry failed", x);
+        setErr("Failed to add");
+      });
+  };
+
+  return (
+    <div
+      className="mb-2 flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[12px]"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") submit();
+        else if (e.key === "Escape") onCancel();
+      }}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          autoFocus
+          value={app}
+          placeholder="App / activity"
+          onChange={(e) => setApp(e.target.value)}
+          className="w-[150px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+        />
+        <input
+          list="add-entry-cats"
+          value={category}
+          placeholder="Category"
+          onChange={(e) => setCategory(e.target.value)}
+          className="w-[110px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+        />
+        <datalist id="add-entry-cats">
+          {categories.map((c) => (
+            <option key={c} value={c} />
+          ))}
+        </datalist>
+        <label className="flex items-center gap-1">
+          Start
+          <input
+            type="time"
+            value={start}
+            onChange={(e) => setStart(e.target.value)}
+            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 tabular-nums"
+          />
+        </label>
+        <label className="flex items-center gap-1">
+          End
+          <input
+            type="time"
+            value={end}
+            onChange={(e) => setEnd(e.target.value)}
+            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 tabular-nums"
+          />
+        </label>
+      </div>
+      <div className="flex items-center gap-2">
+        {err && <span className="text-rose-400">{err}</span>}
+        <div className="ml-auto flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="md3-press rounded-full border border-[var(--color-border)] px-3 py-1"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
+          >
+            Add
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

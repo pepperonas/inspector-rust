@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.92] — 2026-06-21
+
+### Added
+
+- **Timesheet — fast editing (UX overhaul, phase 2).** The Timeline view gains
+  **+ Add entry** (manually log forgotten time — app · category · start · end on
+  the viewed day; `track_add_event`, attached to the active session or a reusable
+  "Manual entries" container) and **Clean up** (one click deletes the day's idle
+  spans + sub-15s fragments; `track_cleanup_day`). The inline event editor now
+  takes **Enter to save / Esc to cancel**. +3 unit tests.
+
 ## [0.84.91] — 2026-06-21
 
 ### Added

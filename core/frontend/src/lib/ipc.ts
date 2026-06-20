@@ -1200,6 +1200,26 @@ export function getUptimeSecs(): Promise<number> {
   return invoke("get_uptime_secs");
 }
 
+// ── Timer / alarm ────────────────────────────────────────────────────────────
+
+export type AlarmStyle = "overlay" | "notification";
+/** How a fired timer alerts: the loud dismiss-to-stop overlay (default) or the
+ *  legacy OS notification. */
+export function getAlarmStyle(): Promise<AlarmStyle> {
+  return invoke("get_alarm_style");
+}
+export function setAlarmStyle(style: AlarmStyle): Promise<void> {
+  return invoke("set_alarm_style", { style });
+}
+/** The fired-timer label for the alarm overlay (null if no alarm is active). */
+export function alarmOverlayLabel(): Promise<string | null> {
+  return invoke("alarm_overlay_label");
+}
+/** Silence + dismiss the active alarm (the overlay's Stop button). */
+export function stopAlarm(): Promise<void> {
+  return invoke("stop_alarm");
+}
+
 // ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
 
 export interface LoupeData {

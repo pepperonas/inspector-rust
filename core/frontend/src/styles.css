@@ -664,3 +664,37 @@ code {
   text-shadow: 0 0 9px color-mix(in srgb, var(--color-accent, #b3c5ff) 65%, transparent);
   transition: none;
 }
+
+/* ── Alarm overlay (`alarm-overlay` window) ───────────────────────────────────
+   The loud dismiss-to-stop alarm. A pulsing bell with expanding "ringing" rings;
+   the whole card is the dismiss button. */
+.alarm-card {
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+.alarm-bell {
+  animation: alarmBell 0.5s ease-in-out infinite;
+  transform-origin: 50% 12%;
+  z-index: 1;
+}
+@keyframes alarmBell {
+  0%, 100% { transform: rotate(-11deg); }
+  50%      { transform: rotate(11deg); }
+}
+.alarm-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 9999px;
+  border: 2px solid var(--color-accent);
+  animation: alarmRing 1.4s var(--md3-emphasized-decelerate) infinite;
+}
+.alarm-ring-2 {
+  animation-delay: 0.7s;
+}
+@keyframes alarmRing {
+  0%   { transform: scale(0.55); opacity: 0.55; }
+  100% { transform: scale(1.9); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .alarm-bell, .alarm-ring { animation: none !important; }
+  .alarm-ring { opacity: 0.3; }
+}

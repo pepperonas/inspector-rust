@@ -151,11 +151,27 @@ fn run_timer(
         reg.timers.lock().remove(&id);
     }
 
-    // Fire visual + audio notifications + the Tauri event in
-    // parallel — none of them should block the others.
-    notify_visual(&label);
-    notify_audio();
-    let _ = app.emit("timer-fired", serde_json::json!({ "id": id, "label": label }));
+    // Alarm style (default = the loud dismiss-to-stop overlay; legacy = the OS
+    // notification). Read from settings, defaulting to "overlay".
+    let style = app
+        .try_state::<crate::db::DbHandle>()
+        .map(|db| {
+            crate::settings::get_or(&db, "timer.alarm_style", "overlay")
+                .unwrap_or_else(|_| "overlay".to_string())
+        })
+        .unwrap_or_else(|| "overlay".to_string());
+
+    if style == "notification" {
+        // Legacy path: a native OS notification + a one-shot system sound, plus
+        // the in-popup banner (`timer-fired`).
+        notify_visual(&label);
+        notify_audio();
+        let _ = app.emit("timer-fired", serde_json::json!({ "id": id, "label": label }));
+    } else {
+        // Default: the loud overlay alarm (raises volume, loops the sound, and
+        // shows an overlay the user must dismiss).
+        crate::alarm::start(&app, label);
+    }
     let _ = app.emit("timers-changed", ());
 }
 

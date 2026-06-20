@@ -21,6 +21,7 @@ import {
   Sun,
   SunMoon,
   Trash2,
+  AlarmClock,
   Upload,
   Volume2,
   Wand2,
@@ -58,6 +59,9 @@ import {
   getScreenRecordingStatus,
   getSoundEnabled,
   setSoundEnabled,
+  getAlarmStyle,
+  setAlarmStyle,
+  type AlarmStyle,
   getThemePreference,
   getClipboardPrivacy,
   setClipboardPrivacy,
@@ -305,6 +309,24 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       setSoundEnabledState(!next);
     } finally {
       setSoundBusy(false);
+    }
+  };
+
+  // ── Timer alarm style (v0.84.76) ─────────────────────────────────────────
+  const [alarmStyle, setAlarmStyleState] = useState<AlarmStyle | null>(null);
+  useEffect(() => {
+    getAlarmStyle()
+      .then(setAlarmStyleState)
+      .catch(() => setAlarmStyleState("overlay"));
+  }, []);
+  const chooseAlarmStyle = async (next: AlarmStyle) => {
+    const prev = alarmStyle;
+    setAlarmStyleState(next); // optimistic
+    try {
+      await setAlarmStyle(next);
+    } catch (e) {
+      console.error("alarm style failed", e);
+      setAlarmStyleState(prev);
     }
   };
 
@@ -995,6 +1017,49 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       : "Off — the app stays silent"}
                 </span>
               </label>
+            </Row>
+          </Section>
+        </div>
+
+        {/* Timer alarm — overlay (loud, dismiss-to-stop) vs OS notification. */}
+        <div className="mb-6">
+          <Section
+            icon={<AlarmClock size={16} className="text-[var(--color-accent)]" />}
+            title="Timer alarm"
+            subtitle="How a finished timer / countdown / alarm alerts you."
+          >
+            <Row label="Style">
+              <div className="flex flex-col gap-1.5 text-[12px]">
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="radio"
+                    name="alarm-style"
+                    checked={alarmStyle === "overlay"}
+                    disabled={alarmStyle === null}
+                    onChange={() => void chooseAlarmStyle("overlay")}
+                    className="mt-0.5 accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    <span className="text-[var(--color-fg)]">Alarm overlay</span> (default)
+                    — a loud sound (system volume is raised while it rings) + a
+                    fullscreen overlay you click to stop.
+                  </span>
+                </label>
+                <label className="flex cursor-pointer items-start gap-2">
+                  <input
+                    type="radio"
+                    name="alarm-style"
+                    checked={alarmStyle === "notification"}
+                    disabled={alarmStyle === null}
+                    onChange={() => void chooseAlarmStyle("notification")}
+                    className="mt-0.5 accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    <span className="text-[var(--color-fg)]">OS notification</span> — the
+                    classic quiet system notification + a short sound.
+                  </span>
+                </label>
+              </div>
             </Row>
           </Section>
         </div>

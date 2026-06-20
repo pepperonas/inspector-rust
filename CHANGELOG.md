@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.76] — 2026-06-20
+
+### Added
+
+- **Loud dismiss-to-stop alarm overlay for timers/countdowns (new default).**
+  When a timer, countdown or `alarm` fires it now (by default) shows a focused,
+  always-on-top **overlay you must click** (or press Esc/Enter/Space) to stop —
+  and it's **much more audible** than the old OS notification: a new bell-
+  arpeggio alarm sound **loops** until dismissed, and the **system volume is
+  raised** while it rings (then restored). Settings → **Timer alarm** lets you
+  switch back to the classic **OS notification** style. New `alarm.rs` module
+  (volume raise/restore + looping player + overlay) + `AlarmOverlay.tsx`;
+  setting `timer.alarm_style` (`overlay` default / `notification`). (Volume
+  raise is macOS; the overlay + looping sound are cross-platform.)
+
 ## [0.84.75] — 2026-06-20
 
 ### Added

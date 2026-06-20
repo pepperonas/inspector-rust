@@ -278,6 +278,39 @@ pub fn list_timers(
     crate::timer::list(state.inner())
 }
 
+// ── Timer/alarm style + the overlay alarm ─────────────────────────────────
+
+const KEY_ALARM_STYLE: &str = "timer.alarm_style";
+
+/// Which alarm a fired timer shows: `"overlay"` (default — the loud
+/// dismiss-to-stop overlay) or `"notification"` (the legacy OS notification).
+#[tauri::command]
+pub fn get_alarm_style(db: State<'_, DbHandle>) -> Result<String, String> {
+    crate::settings::get_or(&db, KEY_ALARM_STYLE, "overlay").map_err(map_err)
+}
+
+#[tauri::command]
+pub fn set_alarm_style(db: State<'_, DbHandle>, style: String) -> Result<(), String> {
+    let v = if style == "notification" {
+        "notification"
+    } else {
+        "overlay"
+    };
+    crate::settings::set(&db, KEY_ALARM_STYLE, v).map_err(map_err)
+}
+
+/// The fired-timer label for the alarm overlay UI (`None` if no alarm active).
+#[tauri::command]
+pub fn alarm_overlay_label(app: AppHandle) -> Option<String> {
+    crate::alarm::current_label(&app)
+}
+
+/// Silence + dismiss the active alarm (the overlay's Stop button).
+#[tauri::command]
+pub fn stop_alarm(app: AppHandle) {
+    crate::alarm::stop(&app);
+}
+
 // ── App launcher (Spotlight-like) ─────────────────────────────────────
 
 /// Return the cached app index. Frontend fuzzy-matches against this

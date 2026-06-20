@@ -1,7 +1,7 @@
 {
   "identifier": "default",
   "description": "Capability for the Inspector Rust popup window",
-  "windows": ["popup", "screenshot-preview", "screenshot-editor", "status-toast", "screenshot-pin-*", "brightness-overlay", "record-overlay", "record-stop", "audio-swap", "trim-overlay", "color-loupe"],
+  "windows": ["popup", "screenshot-preview", "screenshot-editor", "status-toast", "screenshot-pin-*", "brightness-overlay", "record-overlay", "record-stop", "audio-swap", "trim-overlay", "color-loupe", "alarm-overlay"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

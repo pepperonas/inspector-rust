@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.77] — 2026-06-20
+
+### Added
+
+- **Timesheet (time tracking) — step 1/10: data layer.** Foundation for an
+  opt-in, offline time-tracking feature (search-bar `track on/off`, focus-based
+  interval recording, idle auto-pause, browser-tab via a loopback extension,
+  Claude-Code usage, a day-navigable editable timesheet tab with CSV + HTML
+  export — delivered incrementally; see `docs/timesheet.md`). This commit adds
+  the SQLite schema (`track_sessions` / `track_events` / `track_claude_turns` /
+  `track_categories`, created idempotently in `db::open`) and the persistence
+  layer (`tracking/db.rs`): session + event lifecycle, edit/merge/category,
+  range query, Claude turns, clear-all. `window_title` + `url` are encrypted at
+  rest via the existing AES-256-GCM path (no new crypto). 8 unit tests.
+
 ## [0.84.76] — 2026-06-20
 
 ### Added

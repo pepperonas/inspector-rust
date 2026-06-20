@@ -50,6 +50,10 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
         "ALTER TABLE entries ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         [],
     );
+    // Timesheet (time-tracking) tables — same idempotent CREATE-IF-NOT-EXISTS
+    // convention; never crash an existing DB.
+    crate::tracking::db::init_schema(&conn)
+        .with_context(|| "failed to create timesheet tables")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 

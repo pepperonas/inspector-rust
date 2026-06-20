@@ -48,6 +48,7 @@ mod snippets;
 mod sound;
 mod status_toast;
 mod alarm;
+mod tracking;
 mod color_loupe;
 mod system_commands;
 mod system_stats;

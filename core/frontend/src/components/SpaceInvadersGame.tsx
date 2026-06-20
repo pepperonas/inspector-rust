@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { usePauseOnPopupHidden } from "../hooks/usePauseOnPopupHidden";
 import {
   ALIEN_H,
+  ALIEN_ROWS,
   ALIEN_SHOOT_INTERVAL_MS,
   ALIEN_W,
   FIRE_COOLDOWN_MS,
@@ -26,6 +27,7 @@ import {
   type Alien,
   type Bullet,
 } from "../lib/space-invaders";
+import { parseColor, mixRgb, rgba, clamp01, type Rgb } from "../lib/bpm-visual";
 import {
   clearSavedGame,
   commitHighScore,
@@ -53,6 +55,112 @@ interface Props {
 
 type Phase = "intro" | "playing" | "over";
 
+// ── Pixel-art invader sprites (classic shapes), two animation frames each ─────
+const SQUID = [
+  [
+    "00011000",
+    "00111100",
+    "01111110",
+    "11011011",
+    "11111111",
+    "00100100",
+    "01011010",
+    "10100101",
+  ],
+  [
+    "00011000",
+    "00111100",
+    "01111110",
+    "11011011",
+    "11111111",
+    "01000010",
+    "10100101",
+    "01000010",
+  ],
+];
+const CRAB = [
+  [
+    "00100000100",
+    "00010001000",
+    "00111111100",
+    "01101110110",
+    "11111111111",
+    "10111111101",
+    "10100000101",
+    "00011011000",
+  ],
+  [
+    "00100000100",
+    "10010001001",
+    "10111111101",
+    "11101110111",
+    "11111111111",
+    "00111111100",
+    "00100000100",
+    "01000000010",
+  ],
+];
+const OCTOPUS = [
+  [
+    "000011110000",
+    "011111111110",
+    "111111111111",
+    "111001100111",
+    "111111111111",
+    "000110011000",
+    "001100001100",
+    "011000000110",
+  ],
+  [
+    "000011110000",
+    "011111111110",
+    "111111111111",
+    "111001100111",
+    "111111111111",
+    "001100001100",
+    "011000000110",
+    "001100001100",
+  ],
+];
+const PLAYER_BMP = [
+  "0000001000000",
+  "0000011100000",
+  "0000011100000",
+  "0111111111110",
+  "1111111111111",
+  "1111111111111",
+  "0111111111110",
+];
+
+function spriteFor(row: number, frame: number): string[] {
+  if (row === 0) return SQUID[frame];
+  if (row <= 2) return CRAB[frame];
+  return OCTOPUS[frame];
+}
+
+interface Sprite {
+  cv: HTMLCanvasElement;
+  coreW: number;
+}
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number;
+  maxLife: number;
+  color: Rgb;
+}
+interface Star {
+  x: number;
+  y: number;
+  size: number;
+  spd: number;
+  a: number;
+  tw: number;
+  phase: number;
+}
+
 function readThemeColors() {
   const cs = getComputedStyle(document.documentElement);
   const v = (name: string, fallback: string) =>
@@ -60,10 +168,9 @@ function readThemeColors() {
   return {
     bg: v("--color-bg", "#0c0d11"),
     fg: v("--color-fg", "#f2f3f5"),
-    accent: v("--color-accent", "#6366f1"),
+    accent: v("--color-accent", "#b3c5ff"),
     border: v("--color-border", "#2b2e38"),
     muted: v("--color-muted", "#9a9fac"),
-    danger: "#f87171",
   };
 }
 
@@ -231,11 +338,13 @@ export function SpaceInvadersGame({ onExit }: Props) {
     if (!ctx) return;
 
     const rect = canvas.getBoundingClientRect();
-    canvas.width = rect.width;
-    canvas.height = rect.height;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(rect.width * dpr);
+    canvas.height = Math.round(rect.height * dpr);
+    ctx.scale(dpr, dpr);
     const s = stateRef.current;
-    s.fieldW = canvas.width;
-    s.fieldH = canvas.height;
+    s.fieldW = rect.width;
+    s.fieldH = rect.height;
     if (keepResumedPos.current) {
       // First mount of a resumed game — the restored player position is
       // already in real field coords; don't snap it back to centre.
@@ -248,7 +357,97 @@ export function SpaceInvadersGame({ onExit }: Props) {
       }
     }
 
+    // ── Theme-derived palette ────────────────────────────────────────────────
     const colors = readThemeColors();
+    const accent = parseColor(colors.accent) ?? { r: 179, g: 197, b: 255 };
+    const fg = parseColor(colors.fg) ?? { r: 242, g: 243, b: 245 };
+    const muted = parseColor(colors.muted) ?? { r: 154, g: 159, b: 172 };
+    const bg = parseColor(colors.bg) ?? { r: 12, g: 13, b: 17 };
+    const white: Rgb = { r: 255, g: 255, b: 255 };
+    const danger: Rgb = { r: 255, g: 110, b: 120 };
+    const bgTop = mixRgb(bg, accent, 0.07);
+    const bgBot = mixRgb(bg, { r: 0, g: 0, b: 0 }, 0.25);
+    const accentBright = mixRgb(accent, white, 0.35);
+    const starColor = mixRgb(fg, muted, 0.4);
+    // Brighter near the top row (higher value), cooler toward the bottom.
+    const rowColor = (row: number): Rgb => {
+      const t = ALIEN_ROWS > 1 ? row / (ALIEN_ROWS - 1) : 0;
+      return mixRgb(mixRgb(accent, white, 0.4 * (1 - t)), muted, 0.32 * t);
+    };
+
+    // ── Pre-render sprites (glow baked in once, so the per-frame loop is just
+    //    cheap drawImage calls — no runtime shadowBlur over 55 aliens). ────────
+    const PX = 4;
+    const PAD = 7;
+    const makeSprite = (bmp: string[], fill: Rgb, glow: Rgb): Sprite => {
+      const rows = bmp.length;
+      const cols = bmp[0].length;
+      const cv = document.createElement("canvas");
+      cv.width = cols * PX + PAD * 2;
+      cv.height = rows * PX + PAD * 2;
+      const c = cv.getContext("2d");
+      if (c) {
+        const paint = () => {
+          for (let r = 0; r < rows; r++) {
+            for (let col = 0; col < cols; col++) {
+              if (bmp[r][col] === "1") {
+                c.fillRect(PAD + col * PX, PAD + r * PX, PX + 0.6, PX + 0.6);
+              }
+            }
+          }
+        };
+        // Pass 1: soft glow halo.
+        c.shadowColor = rgba(glow, 0.85);
+        c.shadowBlur = 7;
+        c.fillStyle = rgba(fill, 1);
+        paint();
+        // Pass 2: crisp body on top of its own glow.
+        c.shadowBlur = 0;
+        c.fillStyle = rgba(mixRgb(fill, white, 0.15), 1);
+        paint();
+      }
+      return { cv, coreW: cols * PX };
+    };
+
+    const sprites: Record<string, Sprite> = {};
+    for (let row = 0; row < ALIEN_ROWS; row++) {
+      const col = rowColor(row);
+      for (let f = 0; f < 2; f++) {
+        sprites[`${row}-${f}`] = makeSprite(spriteFor(row, f), col, col);
+      }
+    }
+    const playerSprite = makeSprite(PLAYER_BMP, accentBright, accent);
+
+    // ── Visual-only effects ──────────────────────────────────────────────────
+    const stars: Star[] = Array.from({ length: 70 }, () => ({
+      x: Math.random() * s.fieldW,
+      y: Math.random() * s.fieldH,
+      size: Math.random() < 0.8 ? 1 : 2,
+      spd: 0.3 + Math.random() * 1.4,
+      a: 0.25 + Math.random() * 0.5,
+      tw: 0.6 + Math.random() * 1.6,
+      phase: Math.random() * Math.PI * 2,
+    }));
+    let particles: Particle[] = [];
+    let hitFlash = 0;
+    let visLast = 0;
+
+    const spawnBurst = (x: number, y: number, color: Rgb, n: number) => {
+      for (let i = 0; i < n; i++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 0.6 + Math.random() * 3.2;
+        particles.push({
+          x,
+          y,
+          vx: Math.cos(ang) * spd,
+          vy: Math.sin(ang) * spd - 0.6,
+          life: 360 + Math.random() * 220,
+          maxLife: 360,
+          color,
+        });
+      }
+    };
+
     let raf = 0;
 
     // End the game: stop the loop, record win/loss, finalise the persisted
@@ -261,45 +460,130 @@ export function SpaceInvadersGame({ onExit }: Props) {
       setPhase("over");
     };
 
-    const drawAlien = (a: Alien) => {
-      if (!a.alive) return;
-      const cx = a.x + ALIEN_W / 2;
-      const cy = a.y + ALIEN_H / 2;
-      ctx.fillStyle = a.row < 2 ? colors.danger : colors.muted;
+    const capsule = (x: number, y: number, w: number, h: number) => {
+      const r = w / 2;
       ctx.beginPath();
-      ctx.ellipse(cx, cy, ALIEN_W / 2 - 2, ALIEN_H / 2 - 2, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = colors.bg;
-      ctx.fillRect(cx - 6, cy - 2, 4, 4);
-      ctx.fillRect(cx + 2, cy - 2, 4, 4);
+      ctx.moveTo(x, y + r);
+      ctx.arc(x + r, y + r, r, Math.PI, 0);
+      ctx.lineTo(x + w, y + h - r);
+      ctx.arc(x + r, y + h - r, r, 0, Math.PI);
+      ctx.closePath();
     };
 
-    const render = () => {
-      ctx.fillStyle = colors.bg;
-      ctx.fillRect(0, 0, s.fieldW, s.fieldH);
+    const render = (ts: number) => {
+      const vdt = visLast ? Math.min(60, ts - visLast) : 16;
+      visLast = ts;
+      const w = s.fieldW;
+      const h = s.fieldH;
 
-      for (const a of s.aliens) drawAlien(a);
+      // Background gradient.
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, h);
+      bgGrad.addColorStop(0, rgba(bgTop, 1));
+      bgGrad.addColorStop(1, rgba(bgBot, 1));
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, w, h);
 
-      ctx.fillStyle = colors.accent;
-      ctx.beginPath();
-      ctx.moveTo(s.playerX, s.playerY - PLAYER_H / 2);
-      ctx.lineTo(s.playerX - PLAYER_W / 2, s.playerY + PLAYER_H / 2);
-      ctx.lineTo(s.playerX + PLAYER_W / 2, s.playerY + PLAYER_H / 2);
-      ctx.closePath();
-      ctx.fill();
+      // Parallax starfield (drifts down, twinkles).
+      for (const st of stars) {
+        st.y += st.spd * vdt * 0.05;
+        if (st.y > h) {
+          st.y = 0;
+          st.x = Math.random() * w;
+        }
+        const tw = 0.45 + 0.55 * (0.5 + 0.5 * Math.sin(ts * 0.002 * st.tw + st.phase));
+        ctx.fillStyle = rgba(starColor, st.a * tw);
+        ctx.fillRect(st.x, st.y, st.size, st.size);
+      }
 
+      // Aliens (cached glowing sprites + a gentle bob + leg-frame animation).
+      const frame = Math.floor(ts / 420) % 2;
+      for (const a of s.aliens) {
+        if (!a.alive) continue;
+        const spr = sprites[`${a.row}-${frame}`];
+        const scale = ALIEN_W / spr.coreW;
+        const dw = spr.cv.width * scale;
+        const dh = spr.cv.height * scale;
+        const bob = Math.sin(ts * 0.004 + a.x * 0.045) * 1.6;
+        ctx.drawImage(spr.cv, a.x - PAD * scale, a.y + bob - PAD * scale, dw, dh);
+      }
+
+      // Player cannon + engine flame.
+      {
+        const scale = PLAYER_W / playerSprite.coreW;
+        const dw = playerSprite.cv.width * scale;
+        const dh = playerSprite.cv.height * scale;
+        const px = s.playerX - PLAYER_W / 2 - PAD * scale;
+        const py = s.playerY - PLAYER_H / 2 - PAD * scale;
+        // Flame (flickering, additive).
+        const flame = 6 + Math.random() * 6;
+        const fy = s.playerY + PLAYER_H / 2 - 2;
+        ctx.save();
+        ctx.globalCompositeOperation = "lighter";
+        const fGrad = ctx.createLinearGradient(0, fy, 0, fy + flame + 6);
+        fGrad.addColorStop(0, rgba(accentBright, 0.85));
+        fGrad.addColorStop(1, rgba(accent, 0));
+        ctx.fillStyle = fGrad;
+        ctx.beginPath();
+        ctx.moveTo(s.playerX - 5, fy);
+        ctx.lineTo(s.playerX, fy + flame + 6);
+        ctx.lineTo(s.playerX + 5, fy);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        ctx.drawImage(playerSprite.cv, px, py, dw, dh);
+      }
+
+      // Bullets — glowing capsules (player accent, alien danger).
       for (const b of s.bullets) {
         if (!b.active) continue;
-        ctx.fillStyle = b.fromPlayer ? colors.accent : colors.danger;
-        ctx.fillRect(b.x - 2, b.y - 6, 4, 10);
+        const col = b.fromPlayer ? accentBright : danger;
+        ctx.save();
+        ctx.shadowColor = rgba(col, 0.95);
+        ctx.shadowBlur = 9;
+        ctx.fillStyle = rgba(col, 1);
+        capsule(b.x - 2, b.y - 7, 4, 14);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Explosion particles (additive bloom, fading + gravity).
+      ctx.save();
+      ctx.globalCompositeOperation = "lighter";
+      for (const p of particles) {
+        p.life -= vdt;
+        if (p.life <= 0) continue;
+        p.x += p.vx * vdt * 0.06;
+        p.y += p.vy * vdt * 0.06;
+        p.vy += 0.02 * vdt;
+        const k = clamp01(p.life / p.maxLife);
+        ctx.fillStyle = rgba(p.color, k);
+        ctx.beginPath();
+        ctx.arc(p.x, p.y, 1 + 2.4 * k, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
+      particles = particles.filter((p) => p.life > 0);
+
+      // Vignette for depth.
+      const vg = ctx.createRadialGradient(w / 2, h / 2, h * 0.2, w / 2, h / 2, h * 0.78);
+      vg.addColorStop(0, "rgba(0,0,0,0)");
+      vg.addColorStop(1, "rgba(0,0,0,0.42)");
+      ctx.fillStyle = vg;
+      ctx.fillRect(0, 0, w, h);
+
+      // Player-hit flash.
+      if (hitFlash > 0) {
+        hitFlash = Math.max(0, hitFlash - vdt * 0.004);
+        ctx.fillStyle = rgba(danger, hitFlash * 0.3);
+        ctx.fillRect(0, 0, w, h);
       }
     };
 
     const step = (ts: number) => {
-      // Frozen behind the resume gate: render the held frame, don't advance.
+      // Frozen behind the resume gate: keep visuals alive, don't advance logic.
       if (resumeGateRef.current) {
         s.lastTs = ts;
-        render();
+        render(ts);
         if (s.running) raf = requestAnimationFrame(step);
         return;
       }
@@ -328,10 +612,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
         const shooter = pickShooter(s.aliens);
         if (shooter) {
           s.bullets.push(
-            spawnAlienBullet(
-              shooter.x + ALIEN_W / 2,
-              shooter.y + ALIEN_H,
-            ),
+            spawnAlienBullet(shooter.x + ALIEN_W / 2, shooter.y + ALIEN_H),
           );
           s.lastAlienShotAt = ts;
         }
@@ -342,14 +623,17 @@ export function SpaceInvadersGame({ onExit }: Props) {
       for (const b of s.bullets) {
         const idx = bulletHitsAlien(b, s.aliens);
         if (idx >= 0) {
-          const row = s.aliens[idx].row;
-          s.aliens[idx].alive = false;
+          const hit = s.aliens[idx];
+          spawnBurst(hit.x + ALIEN_W / 2, hit.y + ALIEN_H / 2, rowColor(hit.row), 12);
+          hit.alive = false;
           b.active = false;
-          scoreRef.current += alienScore(row);
+          scoreRef.current += alienScore(hit.row);
           setScore(scoreRef.current);
         }
         if (bulletHitsPlayer(b, s.playerX, s.playerY)) {
           b.active = false;
+          hitFlash = 1;
+          spawnBurst(s.playerX, s.playerY, { r: 255, g: 110, b: 120 }, 18);
           livesRef.current -= 1;
           setLives(livesRef.current);
           s.bullets = s.bullets.filter((x) => !x.active || x.fromPlayer);
@@ -372,7 +656,7 @@ export function SpaceInvadersGame({ onExit }: Props) {
         return;
       }
 
-      render();
+      render(ts);
       if (s.running) raf = requestAnimationFrame(step);
     };
 
@@ -399,10 +683,15 @@ export function SpaceInvadersGame({ onExit }: Props) {
           <span className="px-2 text-[var(--color-muted)]">·</span>
           <span className="text-[12px] text-[var(--color-muted)]">best {best}</span>
         </span>
-        <span className="text-[11px] text-[var(--color-muted)]">
-          Lives:{" "}
-          <span className="text-[var(--color-accent)]">{lives}</span>
-          &nbsp;·&nbsp;{" "}
+        <span className="flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+          {/* Lives as little ship glyphs */}
+          <span className="mr-0.5">Lives</span>
+          {Array.from({ length: Math.max(0, lives) }).map((_, i) => (
+            <span key={i} className="text-[13px] leading-none text-[var(--color-accent)]">
+              ▲
+            </span>
+          ))}
+          <span className="mx-1">·</span>
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
             Esc
           </kbd>{" "}

@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.68] — 2026-06-20
+
+### Changed
+
+- **Space Invaders (`spacer`) got a proper visual pass.** Replaced the plain
+  ellipse aliens / flat triangle ship with **classic pixel-art invader sprites**
+  (squid / crab / octopus, two animation frames each) pre-rendered with a baked
+  accent glow, a **player cannon with a flickering engine flame**, **glowing
+  laser bolts**, a **parallax twinkling starfield**, **explosion particle
+  bursts** + a player-hit flash, and a vignette — all reading the app's theme
+  colours (accent-bright top row → cooler bottom). Crisp on Retina (DPR-aware);
+  lives shown as ▲ ship glyphs. Game logic unchanged.
+
 ## [0.84.67] — 2026-06-20
 
 ### Changed

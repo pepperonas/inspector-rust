@@ -223,7 +223,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "resize",
     keyword: "rz",
     syntax: "rz <W>x<H>",
-    description: "Resize the selected image(s) in Finder/Explorer (Lanczos3) — e.g. rz 1200x800; else the clipboard image",
+    description: "Resize the selected image(s) in Finder/Explorer (Lanczos3) — e.g. rz 1200x800 or rz 1200 800; else the clipboard image",
     requiresArg: true,
   },
   {
@@ -828,7 +828,10 @@ export function translateUrl(kind: CommandKind, text: string): string {
  * caller can show a syntax-error suggestion instead of crashing.
  */
 export function parseResizeArg(arg: string): { width: number; height: number } | null {
-  const match = arg.trim().match(/^(\d+)\s*[xX]\s*(\d+)$/);
+  // Accept `200x200`, `200 x 200`, `200X200` — and also a plain space between
+  // the two numbers: `200 200`. The separator is either an x/X (optionally
+  // padded with spaces) or one-or-more spaces.
+  const match = arg.trim().match(/^(\d+)(?:\s*[xX]\s*|\s+)(\d+)$/);
   if (!match) return null;
   const width = parseInt(match[1], 10);
   const height = parseInt(match[2], 10);

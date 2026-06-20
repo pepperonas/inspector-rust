@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.73] — 2026-06-20
+
+### Changed
+
+- **`rz` accepts a plain space between the dimensions.** In addition to
+  `rz 200x200` and `rz 200 x 200`, you can now write **`rz 200 200`**
+  (space-separated). `parseResizeArg`'s separator is an `x`/`X` (optionally
+  padded) **or** whitespace.
+
 ## [0.84.72] — 2026-06-20
 
 ### Fixed

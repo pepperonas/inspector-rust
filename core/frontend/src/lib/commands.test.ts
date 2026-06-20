@@ -549,6 +549,16 @@ describe("parseResizeArg", () => {
     expect(parseResizeArg("  1200x800  ")).toEqual({ width: 1200, height: 800 });
   });
 
+  it("accepts a plain space between the numbers (no x)", () => {
+    expect(parseResizeArg("200 200")).toEqual({ width: 200, height: 200 });
+    expect(parseResizeArg("1200   800")).toEqual({ width: 1200, height: 800 });
+    expect(parseResizeArg("  200 200  ")).toEqual({ width: 200, height: 200 });
+  });
+
+  it("rejects a single number with no separator/second value", () => {
+    expect(parseResizeArg("200200")).toBeNull();
+  });
+
   it("rejects missing height", () => {
     expect(parseResizeArg("1200x")).toBeNull();
     expect(parseResizeArg("1200")).toBeNull();

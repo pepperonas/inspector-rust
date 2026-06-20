@@ -493,6 +493,9 @@ pub struct DayReport {
     pub by_app: Vec<Bucket>,
     pub by_category: Vec<Bucket>,
     pub by_host: Vec<Bucket>,
+    /// Time per **project** tag (manual entries + Claude projects). A cross-cut
+    /// that may overlap the active total (Claude runs alongside terminal focus).
+    pub by_project: Vec<Bucket>,
     /// Claude-Code usage per project (time + tokens) — a separate dimension,
     /// **not** included in `total_active_s`/`by_app` (those are focus/browser,
     /// to avoid double-counting time you spent in the terminal *and* Claude).
@@ -567,6 +570,76 @@ pub fn day_report(db: &DbHandle, date: &str) -> Result<DayReport, String> {
     Ok(report)
 }
 
+// ── Range / week report (multi-day overview) ─────────────────────────────────
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DaySummary {
+    pub date: String,
+    pub active_s: i64,
+    pub idle_s: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct RangeReport {
+    pub from: String,
+    pub to: String,
+    /// Per-day active/idle (chronological) for the bar chart.
+    pub days: Vec<DaySummary>,
+    pub total_active_s: i64,
+    pub total_idle_s: i64,
+    pub by_category: Vec<Bucket>,
+    pub by_app: Vec<Bucket>,
+    pub by_project: Vec<Bucket>,
+}
+
+/// Aggregate the inclusive local-day range `[from_date, to_date]` (each
+/// `"YYYY-MM-DD"`): per-day active/idle plus overall category/app/project
+/// breakdowns. Reuses `aggregate_day` per day so totals stay union-correct.
+pub fn range_report(db: &DbHandle, from_date: &str, to_date: &str) -> Result<RangeReport, String> {
+    use chrono::{Duration, NaiveDate};
+    let start = NaiveDate::parse_from_str(from_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    let end = NaiveDate::parse_from_str(to_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    if end < start {
+        return Err("range end before start".into());
+    }
+    let now = now_ms();
+    let mut days = Vec::new();
+    let (mut total_active, mut total_idle) = (0i64, 0i64);
+    let mut by_cat: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut by_app: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut by_project: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
+    let mut d = start;
+    while d <= end {
+        let ds = d.format("%Y-%m-%d").to_string();
+        let (from, to) = day_bounds(&ds)?;
+        let events = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
+        let r = aggregate_day(ds.clone(), events, from, to, now);
+        total_active += r.total_active_s;
+        total_idle += r.total_idle_s;
+        for b in &r.by_category {
+            *by_cat.entry(b.key.clone()).or_default() += b.seconds;
+        }
+        for b in &r.by_app {
+            *by_app.entry(b.key.clone()).or_default() += b.seconds;
+        }
+        for b in &r.by_project {
+            *by_project.entry(b.key.clone()).or_default() += b.seconds;
+        }
+        days.push(DaySummary { date: ds, active_s: r.total_active_s, idle_s: r.total_idle_s });
+        d += Duration::days(1);
+    }
+    Ok(RangeReport {
+        from: from_date.to_string(),
+        to: to_date.to_string(),
+        days,
+        total_active_s: total_active,
+        total_idle_s: total_idle,
+        by_category: to_buckets(by_cat),
+        by_app: to_buckets(by_app),
+        by_project: to_buckets(by_project),
+    })
+}
+
 /// Pure aggregation core (no DB/clock) for testability.
 fn aggregate_day(
     date: String,
@@ -586,6 +659,7 @@ fn aggregate_day(
     let mut by_app: HashMap<String, i64> = HashMap::new();
     let mut by_host: HashMap<String, i64> = HashMap::new();
     let mut by_cat: HashMap<String, i64> = HashMap::new();
+    let mut by_project: HashMap<String, i64> = HashMap::new();
     let mut claude_secs: HashMap<String, i64> = HashMap::new();
     // Per app → (total seconds, source, category, detail label → (seconds, count)).
     type DetailStats = HashMap<String, (i64, i64)>;
@@ -597,6 +671,14 @@ fn aggregate_day(
         let dur = ((end - start).max(0)) / 1000;
         if dur == 0 {
             continue;
+        }
+        // Project tag cross-cut (manual + Claude + any tagged event), incl. claude.
+        if !e.is_idle {
+            if let Some(p) = &e.project {
+                if !p.is_empty() {
+                    *by_project.entry(p.clone()).or_default() += dur;
+                }
+            }
         }
         if e.source == "claude" {
             // Separate dimension — not part of the focus/browser active total
@@ -671,6 +753,7 @@ fn aggregate_day(
         by_app: to_buckets(by_app),
         by_category: to_buckets(by_cat),
         by_host: to_buckets(by_host),
+        by_project: to_buckets(by_project),
         claude,
         app_breakdown,
     }

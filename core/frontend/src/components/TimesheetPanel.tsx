@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   Check,
@@ -44,9 +44,12 @@ import {
   msToTimeInput,
   paletteColor,
   shiftDay,
+  shiftWeek,
   timeInputToMs,
   timelineBand,
+  weekBounds,
 } from "../lib/timesheet";
+import { TimesheetWeek } from "./TimesheetWeek";
 
 /**
  * Timesheet tab — a day-navigable, charted view of tracked time (read-only in
@@ -67,6 +70,7 @@ interface EventDraft {
 
 export function TimesheetPanel() {
   const [date, setDate] = useState(() => localDateStr());
+  const [mode, setMode] = useState<"day" | "week">("day");
   const [report, setReport] = useState<DayReport | null>(null);
   const [status, setStatus] = useState<TrackStatus | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -121,6 +125,12 @@ export function TimesheetPanel() {
     };
   }, [date, load]);
 
+  // Keyboard nav reads the live mode without re-binding the listener.
+  const modeRef = useRef(mode);
+  useEffect(() => {
+    modeRef.current = mode;
+  }, [mode]);
+
   // Keyboard day-nav (ignore when typing in an input).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -128,10 +138,10 @@ export function TimesheetPanel() {
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
       if (e.key === "ArrowLeft") {
         e.preventDefault();
-        setDate((d) => shiftDay(d, -1));
+        setDate((d) => (modeRef.current === "week" ? shiftWeek(d, -1) : shiftDay(d, -1)));
       } else if (e.key === "ArrowRight") {
         e.preventDefault();
-        setDate((d) => shiftDay(d, 1));
+        setDate((d) => (modeRef.current === "week" ? shiftWeek(d, 1) : shiftDay(d, 1)));
       } else if (e.key === "t" || e.key === "T") {
         setDate(localDateStr());
       }
@@ -245,27 +255,51 @@ export function TimesheetPanel() {
     <div className="flex h-full flex-col overflow-hidden text-[var(--color-fg)]">
       {/* Day navigation + status */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4 py-2">
+        {/* Day ↔ Week mode */}
+        <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
+          {(["day", "week"] as const).map((mo) => (
+            <button
+              key={mo}
+              type="button"
+              onClick={() => setMode(mo)}
+              className={
+                "md3-press px-2.5 py-1 text-[12px] " +
+                (mode === mo
+                  ? "bg-[var(--color-accent)] font-semibold text-[var(--color-accent-fg)]"
+                  : "hover:bg-[var(--color-surface)]")
+              }
+            >
+              {mo === "day" ? "Day" : "Week"}
+            </button>
+          ))}
+        </div>
         <button
           type="button"
-          onClick={() => setDate((d) => shiftDay(d, -1))}
+          onClick={() => setDate((d) => (mode === "week" ? shiftWeek(d, -1) : shiftDay(d, -1)))}
           className="md3-press rounded-lg border border-[var(--color-border)] p-1 hover:bg-[var(--color-surface)]"
-          title="Previous day (←)"
+          title={mode === "week" ? "Previous week" : "Previous day (←)"}
         >
           <ChevronLeft size={16} />
         </button>
-        <input
-          type="date"
-          value={date}
-          max={localDateStr()}
-          onChange={(e) => e.target.value && setDate(e.target.value)}
-          className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] tabular-nums"
-        />
+        {mode === "day" ? (
+          <input
+            type="date"
+            value={date}
+            max={localDateStr()}
+            onChange={(e) => e.target.value && setDate(e.target.value)}
+            className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] tabular-nums"
+          />
+        ) : (
+          <span className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] tabular-nums">
+            {weekBounds(date).from} – {weekBounds(date).to}
+          </span>
+        )}
         <button
           type="button"
-          onClick={() => setDate((d) => shiftDay(d, 1))}
-          disabled={isToday}
+          onClick={() => setDate((d) => (mode === "week" ? shiftWeek(d, 1) : shiftDay(d, 1)))}
+          disabled={mode === "day" && isToday}
           className="md3-press rounded-lg border border-[var(--color-border)] p-1 enabled:hover:bg-[var(--color-surface)] disabled:opacity-40"
-          title="Next day (→)"
+          title={mode === "week" ? "Next week" : "Next day (→)"}
         >
           <ChevronRight size={16} />
         </button>
@@ -278,7 +312,7 @@ export function TimesheetPanel() {
           Today
         </button>
 
-        {report && report.events.length > 0 && (
+        {mode === "day" && report && report.events.length > 0 && (
           <div className="flex items-center gap-1">
             <button
               type="button"
@@ -317,7 +351,15 @@ export function TimesheetPanel() {
         </div>
       </div>
 
-      {!report || report.events.length === 0 ? (
+      {mode === "week" ? (
+        <TimesheetWeek
+          date={date}
+          onPickDay={(d) => {
+            setDate(d);
+            setMode("day");
+          }}
+        />
+      ) : !report || report.events.length === 0 ? (
         <div className="flex flex-1 flex-col items-center justify-center gap-2 text-center text-[var(--color-muted)]">
           <Clock size={28} className="opacity-50" />
           <p className="text-[13px]">No tracked time on this day.</p>
@@ -332,7 +374,16 @@ export function TimesheetPanel() {
           <div className="grid grid-cols-3 gap-3">
             <Stat label="Active" value={formatDuration(report.total_active_s)} accent />
             <Stat label="Idle" value={formatDuration(report.total_idle_s)} />
-            <Stat label="Sessions" value={String(report.session_count)} />
+            <Stat
+              label="Productive"
+              value={`${
+                report.total_active_s + report.total_idle_s > 0
+                  ? Math.round(
+                      (report.total_active_s / (report.total_active_s + report.total_idle_s)) * 100,
+                    )
+                  : 0
+              }%`}
+            />
           </div>
 
           {/* Day timeline (24h gantt) */}
@@ -353,6 +404,12 @@ export function TimesheetPanel() {
           {report.by_host.length > 0 && (
             <Card title="Top hosts">
               <Bars buckets={report.by_host.slice(0, 6)} total={report.total_active_s} />
+            </Card>
+          )}
+
+          {report.by_project.length > 0 && (
+            <Card title="By project">
+              <Bars buckets={report.by_project} total={report.total_active_s} />
             </Card>
           )}
 

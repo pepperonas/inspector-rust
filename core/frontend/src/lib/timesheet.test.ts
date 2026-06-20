@@ -9,6 +9,8 @@ import {
   paletteColor,
   msToTimeInput,
   timeInputToMs,
+  weekBounds,
+  shiftWeek,
 } from "./timesheet";
 
 describe("timesheet helpers", () => {
@@ -80,5 +82,14 @@ describe("timesheet helpers", () => {
     expect(m.Code).toBe(paletteColor(0));
     expect(m.Safari).toBe(paletteColor(1));
     expect(m.Slack).toBe(paletteColor(2));
+  });
+
+  it("weekBounds returns Mon–Sun containing the date", () => {
+    // 2026-06-17 is a Wednesday → week Mon 2026-06-15 .. Sun 2026-06-21.
+    expect(weekBounds("2026-06-17")).toEqual({ from: "2026-06-15", to: "2026-06-21" });
+    expect(weekBounds("2026-06-15").from).toBe("2026-06-15"); // Monday → itself
+    expect(weekBounds("2026-06-21").from).toBe("2026-06-15"); // Sunday → preceding Monday
+    expect(shiftWeek("2026-06-17", -1)).toBe("2026-06-10");
+    expect(shiftWeek("2026-06-17", 1)).toBe("2026-06-24");
   });
 });

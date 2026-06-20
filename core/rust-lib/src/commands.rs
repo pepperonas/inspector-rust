@@ -350,6 +350,16 @@ pub fn track_get_day(
     crate::tracking::day_report(&db, &date)
 }
 
+/// Range/week report over the inclusive local-day range `[from, to]`.
+#[tauri::command]
+pub fn track_get_range(
+    db: State<'_, DbHandle>,
+    from: String,
+    to: String,
+) -> Result<crate::tracking::RangeReport, String> {
+    crate::tracking::range_report(&db, &from, &to)
+}
+
 #[tauri::command]
 pub fn track_update_event(
     db: State<'_, DbHandle>,

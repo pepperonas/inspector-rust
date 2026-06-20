@@ -1278,10 +1278,27 @@ export interface DayReport {
   by_app: TrackBucket[];
   by_category: TrackBucket[];
   by_host: TrackBucket[];
+  /** Time per project tag (manual + Claude); a cross-cut, may overlap active. */
+  by_project: TrackBucket[];
   /** Claude-Code usage per project (separate from the focus/browser totals). */
   claude: ClaudeAgg[];
   /** Per-app usage with an expandable detail list (browser → hosts; else titles). */
   app_breakdown: AppBreakdown[];
+}
+export interface DaySummary {
+  date: string;
+  active_s: number;
+  idle_s: number;
+}
+export interface RangeReport {
+  from: string;
+  to: string;
+  days: DaySummary[];
+  total_active_s: number;
+  total_idle_s: number;
+  by_category: TrackBucket[];
+  by_app: TrackBucket[];
+  by_project: TrackBucket[];
 }
 export interface TrackEventPatch {
   app_name?: string;
@@ -1305,6 +1322,10 @@ export function trackStatus(): Promise<TrackStatus> {
 }
 export function trackGetDay(date: string): Promise<DayReport> {
   return invoke("track_get_day", { date });
+}
+/** Range/week report over the inclusive local-day range [from, to]. */
+export function trackGetRange(from: string, to: string): Promise<RangeReport> {
+  return invoke("track_get_range", { from, to });
 }
 export function trackUpdateEvent(id: number, patch: TrackEventPatch): Promise<void> {
   return invoke("track_update_event", { id, patch });

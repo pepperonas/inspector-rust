@@ -441,9 +441,18 @@ modules are compile-validated but runtime-unverified, so the `track` command is
 - **Export (`tracking/export.rs`):** flat **CSV** + a **self-contained HTML**
   report (inline-SVG charts, zero external requests, footer
   `© 2026 Martin Pfeffer | celox.io`).
-- **IPC:** `track_start/stop/status/get_day/update_event/delete_event/
-  merge_events/set_category/clear_all/export/bridge_info/bridge_regenerate/
-  export_extension`, `get_/set_timesheet_config`. Frontend chart/format helpers
+- **UX (v0.84.91–.93):** events **auto-categorize** from saved app→category
+  rules (`category_for_app`); the "By app" view assigns a category to a whole app
+  (rule + back-fill); Settings → Timesheet manages rules. Timeline supports
+  **manual add** (`insert_event`/`manual_session_id`), **clean up** (idle +
+  sub-15s fragments, `cleanup_day`), and Enter/Esc in the editor. A **Day ↔ Week**
+  toggle: week = per-day bars + category/app/project + productive% over the
+  Mon–Sun week (`range_report`); the day adds a **By project** card + Productive%.
+- **IPC:** `track_start/stop/status/get_day/get_range/update_event/delete_event/
+  merge_events/set_category/category_rules/delete_category_rule/
+  distinct_categories/add_event/cleanup_day/clear_all/export/bridge_info/
+  bridge_regenerate/export_extension`, `get_/set_timesheet_config`. Frontend
+  chart/format helpers
   in `lib/timesheet.ts` (unit-tested). Settings → **Timesheet** (idle/retention/
   Claude toggle/denylist) + the tab's "Browser extension" disclosure
   (port/token/regenerate/save-extension).

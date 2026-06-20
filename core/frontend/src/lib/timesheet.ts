@@ -45,6 +45,30 @@ export function dayStartMs(date: string): number {
   return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0).getTime();
 }
 
+/** The ISO week (Mon–Sun) containing `date` as `{from, to}` ("YYYY-MM-DD"). */
+export function weekBounds(date: string): { from: string; to: string } {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  const dow = (dt.getDay() + 6) % 7; // Mon=0 … Sun=6
+  const mon = new Date(dt);
+  mon.setDate(dt.getDate() - dow);
+  const sun = new Date(mon);
+  sun.setDate(mon.getDate() + 6);
+  return { from: localDateStr(mon), to: localDateStr(sun) };
+}
+
+/** Shift a date by `delta` weeks (returns a "YYYY-MM-DD"). */
+export function shiftWeek(date: string, delta: number): string {
+  return shiftDay(date, delta * 7);
+}
+
+/** "Mon, Jun 16" short label for a "YYYY-MM-DD". */
+export function shortDayLabel(date: string): string {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  const dt = new Date(y, (m || 1) - 1, d || 1);
+  return dt.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
+}
+
 /** Unix ms → "HH:MM" for a `<input type=time>` (local). */
 export function msToTimeInput(ms: number): string {
   const d = new Date(ms);

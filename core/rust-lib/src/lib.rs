@@ -535,6 +535,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::track_stop,
             commands::track_status,
             commands::track_get_day,
+            commands::track_get_range,
             commands::track_update_event,
             commands::track_delete_event,
             commands::track_merge_events,

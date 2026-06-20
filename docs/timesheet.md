@@ -112,7 +112,11 @@ in the UI until the other OSes are runtime-verified.
   each with count + time), a Claude-Code section, and the event table. Footer:
   `© 2026 Martin Pfeffer | celox.io`.
 
-In the **Timesheet tab**, the events area has a **By app ↔ Timeline** toggle:
+The tab has a **Day ↔ Week** toggle. **Week** shows the Mon–Sun week: per-day
+active/idle bars (click a day to open it), the week's category/app/project
+breakdowns, and a productive-vs-idle ratio (`track_get_range` → `range_report`).
+The **Day** view shows totals (Active / Idle / **Productive %**), charts, a
+**By project** breakdown, and the events area with a **By app ↔ Timeline** toggle:
 - **By app** — every app grouped with its total usage; click an app (e.g. Google
   Chrome) to expand its detail/history (visited hosts for browsers, window titles
   for other apps, each with time + count). Each app's panel has a **category

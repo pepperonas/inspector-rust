@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.93] — 2026-06-21
+
+### Added
+
+- **Timesheet — week overview + projects + productive% (UX overhaul, phase 3).**
+  The Timesheet tab gains a **Day ↔ Week** toggle. **Week** shows the Mon–Sun
+  week: per-day active/idle bars (click a day to open it), the week's
+  category / app / project breakdowns, and a productive-vs-idle ratio
+  (`track_get_range` → `range_report`). The **Day** view gains a **By project**
+  card and swaps the "Sessions" stat for **Productive %**. New `by_project`
+  breakdown (manual + Claude project tags) in the day report. Week helpers
+  (`weekBounds`/`shiftWeek`) + `range_report` unit-tested. Completes the
+  three-phase Timesheet UX overhaul (categories · fast editing · analysis).
+
 ## [0.84.92] — 2026-06-21
 
 ### Added

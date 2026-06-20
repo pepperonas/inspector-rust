@@ -136,6 +136,35 @@ export function hitsGround(by: number, r: number, fieldH: number): boolean {
   return by + r >= groundY(fieldH);
 }
 
+// ── AI autopilot (the "learning to fly" easter egg) ─────────────────────────
+// Engaged when the player holds the flap key as the bird hits the ground: the
+// bird becomes `invincible` and this controller keeps it threading the gaps
+// forever. Pure so it's unit-testable.
+
+/** Target y the autopilot aims for: the centre of the next gap ahead of the
+ *  bird, or mid-field when no pipe is in range. */
+export function aiTargetY(s: FlappyState, fieldW: number, fieldH: number): number {
+  const bx = birdX(fieldW);
+  let target = fieldH * 0.45;
+  let best = Infinity;
+  for (const p of s.pipes) {
+    if (p.x + PIPE_WIDTH > bx - 6) {
+      const ahead = p.x - bx;
+      if (ahead < best) {
+        best = ahead;
+        target = p.gapTop + PIPE_GAP / 2;
+      }
+    }
+  }
+  return target;
+}
+
+/** Autopilot flap decision: flap once the bird has sunk past the target and
+ *  isn't already rising — a stable sawtooth around `targetY`. */
+export function aiShouldFlap(birdY: number, vy: number, targetY: number): boolean {
+  return birdY > targetY && vy > -1.5;
+}
+
 /**
  * Advance one frame. Mutates and returns `s`. `dt` is the frame-scale from
  * `frameScale`; `nextGapTop` is the gap-top to use **iff** a pipe spawns this
@@ -149,6 +178,7 @@ export function step(
   fieldH: number,
   dt: number,
   nextGapTop: number,
+  invincible = false,
 ): FlappyState {
   if (!s.started || s.dead) return s;
 
@@ -156,10 +186,16 @@ export function step(
   s.vy = Math.min(s.vy + GRAVITY * dt, MAX_FALL_VY);
   s.birdY += s.vy * dt;
 
-  // Ceiling clamp — the bird can't leave the top, but doesn't die there.
+  // Ceiling: flying into the top edge ends the run (v0.84.70). When
+  // `invincible` (the AI autopilot), it just clamps so the bird stays on-screen.
   if (s.birdY < BIRD_R) {
     s.birdY = BIRD_R;
-    if (s.vy < 0) s.vy = 0;
+    if (invincible) {
+      if (s.vy < 0) s.vy = 0;
+    } else {
+      s.dead = true;
+      return s;
+    }
   }
 
   // Scroll pipes left + spawn at fixed spacing.
@@ -182,16 +218,23 @@ export function step(
     }
   }
 
-  // Collisions → death.
+  // Collisions → death (the AI autopilot is `invincible`: it clamps off the
+  // ground and passes through pipes, flying forever).
   if (hitsGround(s.birdY, BIRD_R, fieldH)) {
     s.birdY = groundY(fieldH) - BIRD_R;
-    s.dead = true;
-    return s;
-  }
-  for (const p of s.pipes) {
-    if (hitsPipe(bx, s.birdY, BIRD_R, p, fieldH)) {
+    if (invincible) {
+      if (s.vy > 0) s.vy = 0;
+    } else {
       s.dead = true;
       return s;
+    }
+  }
+  if (!invincible) {
+    for (const p of s.pipes) {
+      if (hitsPipe(bx, s.birdY, BIRD_R, p, fieldH)) {
+        s.dead = true;
+        return s;
+      }
     }
   }
   return s;

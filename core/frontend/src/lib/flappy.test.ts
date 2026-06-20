@@ -8,6 +8,8 @@ import {
   PIPE_SPACING,
   PIPE_SPEED,
   PIPE_WIDTH,
+  aiShouldFlap,
+  aiTargetY,
   birdX,
   clamp,
   flap,
@@ -101,14 +103,32 @@ describe("step — physics", () => {
     step(s, W, H, 1, 100);
     expect(s.vy).toBe(MAX_FALL_VY);
   });
-  it("clamps at the ceiling without dying", () => {
+  it("dies when it flies into the ceiling (v0.84.70)", () => {
     const s = fresh();
     s.birdY = 2;
     s.vy = -10;
     step(s, W, H, 1, 100);
     expect(s.birdY).toBe(BIRD_R);
+    expect(s.dead).toBe(true);
+  });
+
+  it("clamps at the ceiling without dying when invincible (AI autopilot)", () => {
+    const s = fresh();
+    s.birdY = 2;
+    s.vy = -10;
+    step(s, W, H, 1, 100, true);
+    expect(s.birdY).toBe(BIRD_R);
     expect(s.vy).toBe(0);
     expect(s.dead).toBe(false);
+  });
+
+  it("invincible step survives ground + pipes (flies forever)", () => {
+    const s = fresh();
+    s.birdY = groundY(H) + 50; // well into the ground
+    s.vy = 8;
+    step(s, W, H, 1, 100, true);
+    expect(s.dead).toBe(false);
+    expect(s.birdY).toBe(groundY(H) - BIRD_R); // clamped above the ground
   });
 });
 
@@ -206,5 +226,26 @@ describe("constants sanity", () => {
   it("a pipe gap fits within the playable height", () => {
     expect(PIPE_GAP + 2 * 38).toBeLessThan(groundY(H));
     expect(PIPE_SPACING).toBeGreaterThan(PIPE_WIDTH);
+  });
+});
+
+describe("AI autopilot", () => {
+  it("aiTargetY aims at the next gap centre ahead of the bird", () => {
+    const s = initialState(H);
+    // A pipe ahead of the bird with a known gap.
+    s.pipes = [{ x: birdX(W) + 100, gapTop: 120, scored: false }];
+    expect(aiTargetY(s, W, H)).toBe(120 + PIPE_GAP / 2);
+  });
+
+  it("aiTargetY falls back to mid-field with no pipe in range", () => {
+    const s = initialState(H);
+    s.pipes = [];
+    expect(aiTargetY(s, W, H)).toBeCloseTo(H * 0.45, 5);
+  });
+
+  it("aiShouldFlap only when below target and not already rising", () => {
+    expect(aiShouldFlap(200, 1, 150)).toBe(true); // below target, falling
+    expect(aiShouldFlap(100, 1, 150)).toBe(false); // above target
+    expect(aiShouldFlap(200, -5, 150)).toBe(false); // rising fast already
   });
 });

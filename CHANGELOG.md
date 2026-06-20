@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.70] — 2026-06-20
+
+### Changed
+
+- **Flappy Bird (`learningtofly`) controls.** Holding Space no longer makes the
+  bird climb continuously — a flap now fires only on a **fresh** key press (OS
+  auto-repeat is ignored). Flying into the **ceiling** now ends the run (it used
+  to clamp). And a new **AI autopilot easter egg**: if you're *holding* the flap
+  key the moment the bird hits the **ground**, the AI takes over — the bird
+  becomes invincible and flies forever (🤖 Autopilot). Pure AI controller
+  (`aiTargetY` / `aiShouldFlap`) + `step(..., invincible)` are unit-tested.
+
 ## [0.84.69] — 2026-06-20
 
 ### Added

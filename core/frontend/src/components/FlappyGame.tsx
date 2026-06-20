@@ -2,15 +2,19 @@ import { useEffect, useRef, useState } from "react";
 import { usePauseOnPopupHidden } from "../hooks/usePauseOnPopupHidden";
 import {
   BIRD_R,
+  FLAP_VY,
   GROUND_H,
   INTRO_MS,
   PIPE_GAP,
   PIPE_WIDTH,
+  aiShouldFlap,
+  aiTargetY,
   birdX,
   clamp,
   flap,
   frameScale,
   groundY,
+  hitsGround,
   initialState,
   randGapTop,
   step,
@@ -55,6 +59,13 @@ export function FlappyGame({ onExit }: Props) {
   // Render-safe mirror of `game.started` (don't read the ref during render):
   // drives the "click to fly" idle hint.
   const [flying, setFlying] = useState(saved?.started ?? false);
+  // AI autopilot: engaged when the player holds the flap key as the bird hits
+  // the ground — the bird becomes invincible and the AI flies it forever.
+  const [aiActive, setAiActive] = useState(false);
+  const aiRef = useRef(false);
+  const aiLastFlapRef = useRef(0);
+  // Whether the flap key (Space) is currently held — gates the AI takeover.
+  const flapHeldRef = useRef(false);
   const scoreRef = useRef(saved?.score ?? 0);
   // Resume gate: a resumed run starts frozen until the player presses a key /
   // clicks, so the loop doesn't advance before they're ready (and they don't
@@ -92,6 +103,8 @@ export function FlappyGame({ onExit }: Props) {
     scoreRef.current = 0;
     setScore(0);
     setFlying(false);
+    aiRef.current = false;
+    setAiActive(false);
     liftGate(); // a fresh match runs immediately
     setPhase("playing");
   };
@@ -111,13 +124,20 @@ export function FlappyGame({ onExit }: Props) {
       flap(stateRef.current.game);
       setFlying(true);
     };
+    const isFlapKey = (e: KeyboardEvent) =>
+      e.key === " " ||
+      e.code === "Space" ||
+      e.key === "ArrowUp" ||
+      e.key === "w" ||
+      e.key === "W";
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         const g = stateRef.current.game;
-        // Worth resuming only a started, still-alive run.
-        if (phase === "playing" && g.started && !g.dead) {
+        // Worth resuming only a started, still-alive, human-flown run (an AI
+        // autopilot run can't be restored, so don't persist it).
+        if (phase === "playing" && g.started && !g.dead && !aiRef.current) {
           saveGame<FlappyState>(STORAGE_KEY, g);
         } else {
           clearSavedGame(STORAGE_KEY);
@@ -137,19 +157,24 @@ export function FlappyGame({ onExit }: Props) {
         liftGate();
         return;
       }
-      if (
-        e.key === " " ||
-        e.code === "Space" ||
-        e.key === "ArrowUp" ||
-        e.key === "w" ||
-        e.key === "W"
-      ) {
+      if (isFlapKey(e)) {
         e.preventDefault();
-        if (phase === "playing") doFlap();
+        flapHeldRef.current = true; // track the hold for the AI takeover
+        // Flap only on a FRESH press, never on OS auto-repeat — holding the key
+        // must not make the bird climb continuously. The AI ignores manual
+        // flaps once it has the controls.
+        if (phase === "playing" && !e.repeat && !aiRef.current) doFlap();
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (isFlapKey(e)) flapHeldRef.current = false;
+    };
     window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
+    window.addEventListener("keyup", onKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("keyup", onKeyUp, true);
+    };
     // resetMatch / liftGate are intentionally not deps (stable enough for the
     // handler; re-subscribing on their identity would be churn).
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -257,7 +282,31 @@ export function FlappyGame({ onExit }: Props) {
       s.lastTs = ts;
 
       if (s.game.started && !s.game.dead) {
-        step(s.game, s.fieldW, s.fieldH, dt, randGapTop(s.fieldH));
+        if (aiRef.current) {
+          // Autopilot: aim for the next gap centre, flap on a cadence, and run
+          // the step invincibly so it flies forever.
+          const target = aiTargetY(s.game, s.fieldW, s.fieldH);
+          if (aiShouldFlap(s.game.birdY, s.game.vy, target) && ts - aiLastFlapRef.current > 110) {
+            flap(s.game);
+            aiLastFlapRef.current = ts;
+          }
+          step(s.game, s.fieldW, s.fieldH, dt, randGapTop(s.fieldH), true);
+        } else {
+          step(s.game, s.fieldW, s.fieldH, dt, randGapTop(s.fieldH));
+          // Holding the flap key when the bird hits the GROUND hands control to
+          // the AI (invincible autopilot) instead of dying. Ceiling / pipe
+          // deaths still end the run.
+          if (
+            s.game.dead &&
+            flapHeldRef.current &&
+            hitsGround(s.game.birdY, BIRD_R, s.fieldH)
+          ) {
+            s.game.dead = false;
+            s.game.vy = FLAP_VY; // bounce off the ground into the AI's hands
+            aiRef.current = true;
+            setAiActive(true);
+          }
+        }
         if (s.game.score !== scoreRef.current) {
           scoreRef.current = s.game.score;
           setScore(s.game.score);
@@ -282,6 +331,7 @@ export function FlappyGame({ onExit }: Props) {
         liftGate(); // first click just resumes
         return;
       }
+      if (aiRef.current) return; // the AI has the controls
       flap(stateRef.current.game);
       setFlying(true);
     } else if (phase === "over") {
@@ -334,6 +384,14 @@ export function FlappyGame({ onExit }: Props) {
           <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
             <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-surface)]/80 px-4 py-1.5 text-[13px] text-[var(--color-muted)] backdrop-blur-sm">
               Click or press Space to fly
+            </span>
+          </div>
+        )}
+
+        {phase === "playing" && aiActive && (
+          <div className="pointer-events-none absolute inset-x-0 top-3 flex justify-center">
+            <span className="rounded-full border border-[var(--color-accent)]/40 bg-[var(--color-surface)]/85 px-3 py-1 text-[12px] font-medium text-[var(--color-accent)] backdrop-blur-sm">
+              🤖 Autopilot — it learned to fly
             </span>
           </div>
         )}

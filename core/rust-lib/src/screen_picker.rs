@@ -17,7 +17,12 @@
 //!   thread, so the UI stays responsive. Press Escape to cancel.
 
 #[cfg(target_os = "macos")]
-pub use macos_impl::{demote_to_accessory, pick_color_async};
+pub use macos_impl::demote_to_accessory;
+// Retained as a fallback (the eyedropper now uses the custom snapshot loupe in
+// `color_loupe`/`commands::open_color_loupe`); kept compiled for easy revert.
+#[cfg(target_os = "macos")]
+#[allow(unused_imports)]
+pub use macos_impl::pick_color_async;
 
 #[cfg(target_os = "windows")]
 pub use windows_impl::pick_color_blocking;
@@ -33,6 +38,11 @@ mod macos_impl {
     /// Show the system color sampler. `on_result` is invoked once, on the
     /// main thread, with `Some(hex)` on success or `None` if the user
     /// cancelled. Must be called on the main thread.
+    ///
+    /// Retained as a fallback — the eyedropper now uses the custom snapshot
+    /// loupe (`crate::color_loupe` + `commands::open_color_loupe`) so the live
+    /// hex can be shown under the loupe (which NSColorSampler can't do).
+    #[allow(dead_code)]
     pub fn pick_color_async<F>(on_result: F) -> Result<(), String>
     where
         F: Fn(Option<String>) + Send + 'static,
@@ -103,6 +113,7 @@ mod macos_impl {
     /// Convert an NSColor to a `#RRGGBB` hex string in sRGB space.
     /// Returns `None` if the color can't be converted (extremely rare —
     /// would mean a non-RGB pattern color).
+    #[allow(dead_code)] // used only by the retained `pick_color_async` fallback
     unsafe fn extract_hex_from_nscolor(color: *mut AnyObject) -> Option<String> {
         let srgb_cls = AnyClass::get(c"NSColorSpace")?;
         let srgb_space: *mut AnyObject = msg_send![srgb_cls, sRGBColorSpace];

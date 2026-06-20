@@ -1,0 +1,48 @@
+- generic [active] [ref=e1]:
+  - generic:
+    - generic [ref=e3]:
+      - generic [ref=e4]: "-38 dB"
+      - generic [ref=e5]: 439 ♪
+    - combobox "Licht-Theme" [ref=e7] [cursor=pointer]:
+      - option "🪩 Neon" [selected]
+      - option "🌅 Sunset"
+      - option "🌌 Aurora"
+      - option "🌆 Vapor"
+      - option "🔥 Ember"
+      - option "🌊 Ocean"
+      - option "⚪ Mono"
+  - generic:
+    - generic: "127"
+    - generic: BPM
+    - generic: "-38 dB"
+    - generic: sucht Beat…
+  - generic [ref=e8]:
+    - button "Lichter ausschalten" [ref=e10] [cursor=pointer]
+    - generic [ref=e11]:
+      - button "Rainbow" [ref=e12] [cursor=pointer]
+      - button "Party" [ref=e13] [cursor=pointer]
+      - button "Random" [ref=e14] [cursor=pointer]
+      - button "Pulse" [ref=e15] [cursor=pointer]
+      - button "Solid" [ref=e16] [cursor=pointer]
+      - button "Strobe" [ref=e17] [cursor=pointer]
+    - generic [ref=e18]:
+      - text: ✨ Trance-FX
+      - generic [ref=e19]:
+        - button "🌀 Echo" [ref=e20] [cursor=pointer]
+        - button "🛸 Tunnel" [ref=e21] [cursor=pointer]
+        - button "🔮 Mirror" [ref=e22] [cursor=pointer]
+        - button "🌈 Hue" [ref=e23] [cursor=pointer]
+        - button "💥 Bloom" [ref=e24] [cursor=pointer]
+        - button "⚡ Strobe" [ref=e25] [cursor=pointer]
+    - generic [ref=e26]:
+      - generic [ref=e27]: Sens
+      - slider [ref=e28]: "50"
+      - generic [ref=e29]: 50%
+      - button "Auto" [ref=e30] [cursor=pointer]
+    - generic [ref=e31]:
+      - generic [ref=e32]: 🌟 LED-Strip (eigener Schalter)
+      - generic [ref=e33] [cursor=pointer]:
+        - checkbox
+    - generic [ref=e35]:
+      - generic [ref=e36]: 💡 Hue-Lampen (einzeln)
+      - button "Auswählen" [ref=e37] [cursor=pointer]

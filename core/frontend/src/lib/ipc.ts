@@ -1200,6 +1200,27 @@ export function getUptimeSecs(): Promise<number> {
   return invoke("get_uptime_secs");
 }
 
+// ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
+
+export interface LoupeData {
+  /** Base64 PNG snapshot of the cursor's display, magnified by the overlay. */
+  b64: string;
+  /** true = modal "pick from screen" flow; false = clipboard/history eyedropper. */
+  event_mode: boolean;
+}
+/** The loupe overlay fetches its snapshot + mode on mount. */
+export function colorLoupeData(): Promise<LoupeData | null> {
+  return invoke("color_loupe_data");
+}
+/** Commit the picked hex (clipboard+history or `color-picked` event per mode). */
+export function colorLoupePick(hex: string): Promise<void> {
+  return invoke("color_loupe_pick", { hex });
+}
+/** Dismiss the loupe without picking. */
+export function colorLoupeCancel(): Promise<void> {
+  return invoke("color_loupe_cancel");
+}
+
 // ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
 
 export interface HueStatus {

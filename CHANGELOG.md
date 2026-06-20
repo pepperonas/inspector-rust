@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.69] — 2026-06-20
+
+### Added
+
+- **Color-picker loupe with the live hex under it (macOS).** The eyedropper
+  (`Ctrl+Shift+C`, the tray *Pick Color*, and the modal *Pick from screen*) now
+  shows a **custom magnifier loupe** that follows the cursor with the **live hex
+  rendered right under it** — Apple's `NSColorSampler` can't show that, so it's
+  replaced by our own loupe. The hex animates (per-character accent "heat" flare)
+  as the colour under the cursor changes. Implemented via a one-shot snapshot of
+  the cursor's display magnified in a transparent overlay (smooth — no per-frame
+  capture); pixel grid + centre reticle; click picks, Esc cancels. Reuses the
+  Screen-Recording permission already granted for OCR/screenshots. Windows keeps
+  its GDI picker; the old NSColorSampler path is retained as a fallback.
+
 ## [0.84.68] — 2026-06-20
 
 ### Changed

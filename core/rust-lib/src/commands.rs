@@ -1282,20 +1282,10 @@ pub fn pick_screen_color(app: AppHandle) -> Result<(), String> {
 
     #[cfg(target_os = "macos")]
     {
-        let app_inner = app.clone();
-        app.run_on_main_thread(move || {
-            let app_for_event = app_inner.clone();
-            let app_for_restore = app_inner.clone();
-            if let Err(e) = crate::screen_picker::pick_color_async(move |hex| {
-                let _ = app_for_event.emit("color-picked", hex);
-                clear_pick_suppress_hide(&app_for_event);
-            }) {
-                tracing::warn!("pick_screen_color: pick_color_async err: {e}");
-                let _ = app_inner.emit("color-picked", Option::<String>::None);
-                clear_pick_suppress_hide(&app_for_restore);
-            }
-        })
-        .map_err(map_err)?;
+        // Custom loupe (snapshot magnified in an overlay) so the live hex is
+        // shown under the loupe; emits `color-picked` on pick/cancel, exactly
+        // like the old NSColorSampler path the modal listens for.
+        open_color_loupe(&app, true);
         Ok(())
     }
     #[cfg(target_os = "windows")]
@@ -2173,20 +2163,10 @@ pub fn run_eyedropper_pipeline(app: &AppHandle) {
 
     #[cfg(target_os = "macos")]
     {
-        let app_inner = app.clone();
-        let _ = app.run_on_main_thread(move || {
-            let app_for_cb = app_inner.clone();
-            let app_for_err = app_inner.clone();
-            if let Err(e) = crate::screen_picker::pick_color_async(move |hex_opt| {
-                if let Some(hex) = hex_opt {
-                    write_eyedropper_result(&app_for_cb, &hex);
-                }
-                clear_eyedropper_no_popup(&app_for_cb);
-            }) {
-                tracing::warn!("eyedropper pipeline: pick_color_async err: {e}");
-                clear_eyedropper_no_popup(&app_for_err);
-            }
-        });
+        // Custom loupe with the live hex under it (snapshot magnified in an
+        // overlay). On pick it writes the hex to clipboard + history; on cancel
+        // it just restores focus — same outcomes as the old NSColorSampler path.
+        open_color_loupe(app, false);
     }
     #[cfg(target_os = "windows")]
     {
@@ -2211,6 +2191,223 @@ pub fn run_eyedropper_pipeline(app: &AppHandle) {
 pub fn eyedropper_to_clipboard(app: AppHandle) -> Result<(), String> {
     run_eyedropper_pipeline(&app);
     Ok(())
+}
+
+// ── Custom screen loupe (eyedropper with live hex under the loupe) ─────────
+// macOS: a one-shot snapshot of the cursor's display, magnified in a fullscreen
+// overlay webview where the live hex is rendered under the loupe (Apple's
+// NSColorSampler can't show that). `event_mode` distinguishes the two callers:
+// the modal "pick from screen" (emits `color-picked`) vs. the hotkey/tray
+// eyedropper (writes the hex to clipboard + history).
+
+pub const LOUPE_LABEL: &str = "color-loupe";
+
+#[derive(serde::Serialize)]
+pub struct LoupeData {
+    b64: String,
+    event_mode: bool,
+}
+
+/// Capture the cursor's display + open the loupe overlay. The capture +
+/// window build run on a worker thread (screencapture blocks ~100 ms, and
+/// building a window from a worker lets Tauri marshal it onto the event loop —
+/// the proven pattern from the record stop bar).
+pub fn open_color_loupe(app: &AppHandle, event_mode: bool) {
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        let idx = cursor_display_index(&app2);
+        let b64 = match crate::color_loupe::capture_display_b64(idx) {
+            Ok(b) => b,
+            Err(e) => {
+                tracing::warn!("color loupe capture failed: {e:#}");
+                if event_mode {
+                    clear_pick_suppress_hide(&app2);
+                } else {
+                    clear_eyedropper_no_popup(&app2);
+                }
+                return;
+            }
+        };
+        if let Some(st) = app2.try_state::<crate::color_loupe::LoupeState>() {
+            *st.0.lock() = Some(crate::color_loupe::Session { b64, event_mode });
+        }
+        build_loupe_overlay(&app2);
+        let app_esc = app2.clone();
+        std::thread::spawn(move || arm_loupe_escape(&app_esc));
+    });
+}
+
+/// 1-based index (for `screencapture -D`) of the display under the cursor.
+/// Matches the cursor's monitor (via the proven global cursor query) against
+/// the active-display list order. macOS only; elsewhere returns 1 (the
+/// fullscreen fallback ignores it).
+fn cursor_display_index(app: &AppHandle) -> usize {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(w) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+            let monitors = w.available_monitors().unwrap_or_default();
+            if let Some(m) = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors) {
+                let p = m.position();
+                let rects = crate::screen_record::cg_displays::physical_rects();
+                if !rects.is_empty() {
+                    let mut best = 0usize;
+                    let mut best_d = i64::MAX;
+                    for (i, (rx, ry, _, _)) in rects.iter().enumerate() {
+                        let dx = (*rx - p.x) as i64;
+                        let dy = (*ry - p.y) as i64;
+                        let d = dx * dx + dy * dy;
+                        if d < best_d {
+                            best_d = d;
+                            best = i;
+                        }
+                    }
+                    return best + 1;
+                }
+            }
+        }
+    }
+    let _ = app;
+    1
+}
+
+fn build_loupe_overlay(app: &AppHandle) {
+    use tauri::{WebviewUrl, WebviewWindowBuilder};
+    if let Some(existing) = app.get_webview_window(LOUPE_LABEL) {
+        let _ = existing.close();
+    }
+    let win = match WebviewWindowBuilder::new(
+        app,
+        LOUPE_LABEL,
+        WebviewUrl::App("index.html".into()),
+    )
+    .title("Color loupe")
+    .decorations(false)
+    .transparent(true)
+    .always_on_top(true)
+    .skip_taskbar(true)
+    .visible(false)
+    .build()
+    {
+        Ok(w) => w,
+        Err(e) => {
+            tracing::warn!("build color loupe overlay: {e}");
+            return;
+        }
+    };
+    // Cover the cursor's monitor (same approach + caveats as the record overlay).
+    let monitors = win.available_monitors().unwrap_or_default();
+    let geom = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
+        .or_else(|| win.primary_monitor().ok().flatten())
+        .map(|m| {
+            let p = m.position();
+            let s = m.size();
+            (p.x, p.y, s.width, s.height)
+        });
+    let apply = |w: &tauri::WebviewWindow| {
+        if let Some((x, y, ww, hh)) = geom {
+            let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+            let _ = w.set_size(tauri::PhysicalSize::new(ww, hh));
+        }
+    };
+    apply(&win);
+    let _ = win.show();
+    apply(&win);
+    let _ = win.set_focus();
+    if let Some((x, y, ww, hh)) = geom {
+        let app_d = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(90));
+            let app_m = app_d.clone();
+            let _ = app_d.run_on_main_thread(move || {
+                if let Some(w) = app_m.get_webview_window(LOUPE_LABEL) {
+                    let _ = w.set_position(tauri::PhysicalPosition::new(x, y));
+                    let _ = w.set_size(tauri::PhysicalSize::new(ww, hh));
+                }
+            });
+        });
+    }
+}
+
+fn arm_loupe_escape(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut, ShortcutState};
+    let esc = Shortcut::new(None, Code::Escape);
+    let _ = app.global_shortcut().unregister(esc);
+    let app2 = app.clone();
+    if let Err(e) = app.global_shortcut().on_shortcut(esc, move |_a, _sc, event| {
+        if event.state == ShortcutState::Pressed {
+            let app3 = app2.clone();
+            std::thread::spawn(move || do_cancel_loupe(&app3));
+        }
+    }) {
+        tracing::debug!("arm_loupe_escape: couldn't register global Esc: {e:#}");
+    }
+}
+
+fn disarm_loupe_escape(app: &AppHandle) {
+    use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Shortcut};
+    let _ = app
+        .global_shortcut()
+        .unregister(Shortcut::new(None, Code::Escape));
+}
+
+fn finish_loupe(app: &AppHandle) {
+    disarm_loupe_escape(app);
+    if let Some(w) = app.get_webview_window(LOUPE_LABEL) {
+        let _ = w.close();
+    }
+}
+
+fn take_loupe_mode(app: &AppHandle) -> bool {
+    app.try_state::<crate::color_loupe::LoupeState>()
+        .and_then(|st| st.0.lock().take())
+        .map(|s| s.event_mode)
+        .unwrap_or(false)
+}
+
+fn do_pick_loupe(app: &AppHandle, hex: String) {
+    let event_mode = take_loupe_mode(app);
+    finish_loupe(app);
+    if event_mode {
+        let _ = app.emit("color-picked", hex);
+        clear_pick_suppress_hide(app);
+    } else {
+        write_eyedropper_result(app, &hex);
+        clear_eyedropper_no_popup(app);
+    }
+}
+
+fn do_cancel_loupe(app: &AppHandle) {
+    let event_mode = take_loupe_mode(app);
+    finish_loupe(app);
+    if event_mode {
+        let _ = app.emit("color-picked", Option::<String>::None);
+        clear_pick_suppress_hide(app);
+    } else {
+        clear_eyedropper_no_popup(app);
+    }
+}
+
+/// The loupe overlay fetches its snapshot + mode.
+#[tauri::command]
+pub fn color_loupe_data(
+    state: State<'_, crate::color_loupe::LoupeState>,
+) -> Option<LoupeData> {
+    state.0.lock().as_ref().map(|s| LoupeData {
+        b64: s.b64.clone(),
+        event_mode: s.event_mode,
+    })
+}
+
+/// The user clicked a pixel — commit the picked hex.
+#[tauri::command]
+pub fn color_loupe_pick(app: AppHandle, hex: String) {
+    do_pick_loupe(&app, hex);
+}
+
+/// The user dismissed the loupe (Esc / click-away).
+#[tauri::command]
+pub fn color_loupe_cancel(app: AppHandle) {
+    do_cancel_loupe(&app);
 }
 
 // ── Finder selection (macOS) ──────────────────────────────────────────

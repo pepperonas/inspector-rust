@@ -1135,7 +1135,7 @@ pub fn cleanup_orphans() {
 /// order (main display first), matching the order ffmpeg's avfoundation uses for
 /// its `Capture screen N` devices. Same FFI pattern as `brightness.rs`.
 #[cfg(target_os = "macos")]
-mod cg_displays {
+pub(crate) mod cg_displays {
     type CGDirectDisplayID = u32;
 
     #[repr(C)]

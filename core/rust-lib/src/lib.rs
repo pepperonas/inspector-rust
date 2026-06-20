@@ -47,6 +47,7 @@ mod snippet_template;
 mod snippets;
 mod sound;
 mod status_toast;
+mod color_loupe;
 mod system_commands;
 mod system_stats;
 mod finder_selection;
@@ -167,6 +168,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
             app.manage(screen_record::RecordState::default());
+            app.manage(color_loupe::LoupeState::default());
             app.manage(commands::AudioSwapState::default());
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.
@@ -511,6 +513,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_audio_output,
             commands::get_system_stats,
             commands::get_uptime_secs,
+            commands::color_loupe_data,
+            commands::color_loupe_pick,
+            commands::color_loupe_cancel,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

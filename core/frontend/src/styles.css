@@ -593,3 +593,74 @@ code {
 @media (prefers-reduced-motion: reduce) {
   .uptime-hero, .uptime-tick { animation: none; }
 }
+
+/* ── Color-picker loupe (`color-loupe` window) ────────────────────────────────
+   A circular magnifier that follows the cursor over a full-screen snapshot,
+   with the live hex shown right under it. The OS cursor is hidden so only the
+   loupe + reticle + hex read out. */
+.loupe-root {
+  position: fixed;
+  inset: 0;
+  cursor: none;
+  background: transparent;
+  overflow: hidden;
+}
+.loupe-anchor {
+  position: fixed;
+  left: 0;
+  top: 0;
+  will-change: transform;
+}
+.loupe-circle {
+  position: absolute;
+  width: 152px;
+  height: 152px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  overflow: hidden;
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.9),
+    0 0 0 4px rgba(0, 0, 0, 0.35),
+    0 12px 30px rgba(0, 0, 0, 0.5);
+}
+.loupe-circle canvas {
+  display: block;
+  width: 152px;
+  height: 152px;
+}
+.loupe-hex {
+  position: absolute;
+  left: 0;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border-radius: 9999px;
+  background: rgba(18, 18, 22, 0.92);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+}
+.loupe-swatch {
+  width: 13px;
+  height: 13px;
+  border-radius: 4px;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+.loupe-code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+.loupe-digit {
+  display: inline-block;
+  color: #f2f3f5;
+  transition: color 450ms ease, text-shadow 450ms ease;
+}
+.loupe-digit.loupe-hot {
+  color: var(--color-accent, #b3c5ff);
+  text-shadow: 0 0 9px color-mix(in srgb, var(--color-accent, #b3c5ff) 65%, transparent);
+  transition: none;
+}

@@ -11,6 +11,7 @@ import { RecordOverlay } from "./components/RecordOverlay";
 import { RecordStopBar } from "./components/RecordStopBar";
 import { AudioSwapOverlay } from "./components/AudioSwapOverlay";
 import { TrimOverlay } from "./components/TrimOverlay";
+import { ColorLoupe } from "./components/ColorLoupe";
 import "./styles.css";
 
 // Inspector Rust runs in three Tauri windows depending on what the
@@ -33,6 +34,7 @@ function Mount() {
   if (label === "record-stop") return <RecordStopBar />;
   if (label === "audio-swap") return <AudioSwapOverlay />;
   if (label === "trim-overlay") return <TrimOverlay />;
+  if (label === "color-loupe") return <ColorLoupe />;
   if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
   return <App />;
 }

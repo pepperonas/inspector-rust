@@ -63,6 +63,11 @@ the range query (`events_in_range`, title/url decrypted), Claude turns, and
    (default 300 s) retroactively closes the open interval as `idle`; input
    resumes a new interval. Idle is kept (visible/editable), not deleted, and not
    counted as active.
+6. **Survives restarts** — the open event is heartbeated (`db::touch_event`)
+   every tick, so a crash/quit/update leaves it ended at the last-alive moment
+   (no phantom offline time). At startup `resume_if_active` re-arms the loop +
+   watcher + bridge on the **same** session if it wasn't cleanly ended, so
+   recording continues; the offline gap is simply not recorded.
 
 ## Delivery order
 

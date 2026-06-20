@@ -169,6 +169,53 @@ pub fn start(
     Ok(sid)
 }
 
+/// Restore the last tracking state at startup: if a session wasn't cleanly
+/// ended (status != "ended"), re-arm the focus loop + Claude watcher + bridge on
+/// that **same** session so recording continues across an app restart/update.
+/// Any dangling open event is finalized (heartbeat already ended it at the
+/// last-alive tick), so the offline gap isn't counted; the loop opens fresh
+/// events from now. No-op if nothing was active. Called once from `lib.rs`.
+pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
+    let session = match tdb::active_session(db) {
+        Ok(Some(s)) => s,
+        _ => return,
+    };
+    let mut rt = state.0.lock();
+    if rt.session_id.is_some() {
+        return; // already running (shouldn't happen at startup)
+    }
+    let sid = session.id;
+    // Close any brand-new event that crashed before its first heartbeat.
+    let _ = tdb::finalize_open_events(db, sid);
+    // A resumed paused/active session is treated as active again.
+    let _ = tdb::set_session_status(db, sid, "active");
+
+    let stop = Arc::new(AtomicBool::new(false));
+    let claude_stop = if crate::settings::get_or(db, "track.claude_watcher", "1")
+        .map(|v| v != "0")
+        .unwrap_or(true)
+    {
+        Some(claude::start(db.clone(), sid))
+    } else {
+        None
+    };
+    let bridge_stop = bridge::start(db.clone(), state.0.clone());
+    *rt = Runtime {
+        session_id: Some(sid),
+        session_started: Some(session.started_at),
+        stop: Some(stop.clone()),
+        claude_stop,
+        bridge_stop: Some(bridge_stop),
+        ..Default::default()
+    };
+    drop(rt);
+
+    let (a, d, s) = (app.clone(), db.clone(), state.0.clone());
+    std::thread::spawn(move || run_loop(a, d, s, sid, stop));
+    let _ = app.emit("track-status-changed", ());
+    tracing::info!("timesheet: resumed active session {sid}");
+}
+
 pub fn stop(app: &AppHandle, db: &DbHandle, state: &TrackerState) -> Result<(), String> {
     let mut rt = state.0.lock();
     let Some(sid) = rt.session_id else {
@@ -219,7 +266,7 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
         let idle_s = os::idle_seconds().unwrap_or(0.0);
         let now = now_ms();
 
-        let paused_changed = {
+        let (paused_changed, heartbeat_id) = {
             let mut g = rt.lock();
             if g.session_id != Some(sid) {
                 break; // session ended / replaced
@@ -232,8 +279,14 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
                 threshold_s: threshold,
                 denylist: &denylist,
             });
-            g.paused != was_paused
+            (g.paused != was_paused, g.open_event_id)
         };
+        // Heartbeat the open event so a crash/quit leaves it ended at the last
+        // live tick — the offline gap is never recorded as phantom usage, which
+        // is what lets `resume_if_active` pick up cleanly after a restart.
+        if let Some(id) = heartbeat_id {
+            let _ = tdb::touch_event(&db, id, now);
+        }
         if paused_changed {
             let _ = app.emit("track-status-changed", ());
         }

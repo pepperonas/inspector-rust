@@ -406,6 +406,14 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   editable chronological event list (merge/edit/delete). The HTML export renders
   it as a native `<details>` block per app ("By app (detailed)", no-JS). (browser
   history was the v0.84.86 special case; generalised to all apps in v0.84.87.)
+- **Survives restarts (v0.84.89):** the open event is heartbeated every tick
+  (`db::touch_event` → fresh `ended_at`), so a crash/quit/update leaves it ended
+  at the last-alive moment (no phantom offline time). At startup `lib.rs` calls
+  `tracking::resume_if_active`, which — if a session wasn't cleanly ended
+  (`active_session` returns one) — finalizes any never-heartbeated dangling event
+  (`finalize_open_events`), flips it back to `active`, and re-arms the loop +
+  Claude watcher + bridge on the **same** session, so recording continues; the
+  offline gap is simply not recorded.
 - **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
   `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
   `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +

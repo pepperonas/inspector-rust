@@ -173,6 +173,13 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(color_loupe::LoupeState::default());
             app.manage(alarm::AlarmState::default());
             app.manage(tracking::TrackerState::default());
+            // Restore the last tracking state: if a session was still active
+            // when the app last closed (crash / quit / update), resume it so
+            // recording continues across the restart.
+            {
+                let ts = app.state::<tracking::TrackerState>();
+                tracking::resume_if_active(app.handle(), &db_handle, ts.inner());
+            }
             app.manage(commands::AudioSwapState::default());
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.

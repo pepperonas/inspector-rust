@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.89] — 2026-06-21
+
+### Fixed
+
+- **Timesheet tracking now survives an app restart / update.** Tracking state
+  lived only in memory, so restarting (or updating) the app silently dropped an
+  active session. Now: the open event is **heartbeated** every tick
+  (`db::touch_event`), so a crash/quit leaves it ended at the last-alive moment
+  (no phantom offline time); at startup **`resume_if_active`** re-arms the focus
+  loop + Claude watcher + browser bridge on the **same** session if it wasn't
+  cleanly ended, so recording continues across the restart. The offline gap is
+  simply not recorded. +2 unit tests.
+
 ## [0.84.88] — 2026-06-21
 
 ### Fixed

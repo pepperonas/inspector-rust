@@ -234,6 +234,34 @@ pub fn close_event(db: &DbHandle, id: i64, ended_at: i64) -> rusqlite::Result<()
     Ok(())
 }
 
+/// Heartbeat the currently-open event: keep its `ended_at` ≈ `now` (still open in
+/// the runtime, but persisted so a crash leaves it ended at the last-alive time —
+/// no phantom offline duration). Unlike `close_event` this updates even an
+/// already-stamped `ended_at`, because the event is still live.
+pub fn touch_event(db: &DbHandle, id: i64, now: i64) -> rusqlite::Result<()> {
+    let conn = db.lock();
+    conn.execute(
+        "UPDATE track_events \
+         SET ended_at = ?2, duration_s = MAX(0, (?2 - started_at) / 1000) \
+         WHERE id = ?1",
+        params![id, now],
+    )?;
+    Ok(())
+}
+
+/// Finalize any events of `session_id` that are still `ended_at IS NULL` (only
+/// brand-new ones that crashed before the first heartbeat) by ending them at
+/// their own `started_at` (≈0 duration — the lost time is < one heartbeat). Used
+/// on resume so a recovered session has no dangling open events. Returns rows.
+pub fn finalize_open_events(db: &DbHandle, session_id: i64) -> rusqlite::Result<usize> {
+    let conn = db.lock();
+    conn.execute(
+        "UPDATE track_events SET ended_at = started_at, duration_s = 0 \
+         WHERE session_id = ?1 AND ended_at IS NULL",
+        params![session_id],
+    )
+}
+
 /// Enrich the still-open event with browser tab metadata (host/title/url) — used
 /// while a browser is frontmost and the extension reports the active tab.
 pub fn enrich_event(
@@ -541,6 +569,35 @@ mod tests {
         assert_eq!(evs[0].window_title.as_deref(), Some("Secret Page"));
         assert_eq!(evs[0].url.as_deref(), Some("https://example.com/secret"));
         assert_eq!(evs[0].host.as_deref(), Some("example.com"));
+    }
+
+    #[test]
+    fn touch_event_heartbeats_ended_at_then_finalize_is_noop() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = open_event(&db, &ev(sid, "Code", 1_000)).unwrap();
+        // Heartbeat keeps ended_at fresh while the event is still live.
+        touch_event(&db, eid, 31_000).unwrap();
+        let evs = events_in_range(&db, 0, 1_000_000).unwrap();
+        assert_eq!(evs[0].ended_at, Some(31_000));
+        assert_eq!(evs[0].duration_s, Some(30));
+        // A later heartbeat overrides the earlier one (unlike close_event).
+        touch_event(&db, eid, 61_000).unwrap();
+        // Resume finalize: nothing dangling (heartbeat already ended it).
+        assert_eq!(finalize_open_events(&db, sid).unwrap(), 0);
+        assert_eq!(events_in_range(&db, 0, 1_000_000).unwrap()[0].ended_at, Some(61_000));
+    }
+
+    #[test]
+    fn finalize_open_events_closes_never_heartbeated_events() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = open_event(&db, &ev(sid, "Code", 5_000)).unwrap(); // crashed before any heartbeat
+        assert_eq!(finalize_open_events(&db, sid).unwrap(), 1);
+        let evs = events_in_range(&db, 0, 1_000_000).unwrap();
+        assert_eq!(evs[0].ended_at, Some(5_000)); // ended at its own start → 0 duration
+        assert_eq!(evs[0].duration_s, Some(0));
+        let _ = eid;
     }
 
     #[test]

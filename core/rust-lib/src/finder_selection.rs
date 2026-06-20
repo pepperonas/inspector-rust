@@ -107,19 +107,47 @@ pub fn read() -> Result<Vec<PathBuf>, String> {
 
 // ── touch / mkdir in the front Finder window's folder ────────────────────────
 
-/// Validate a user-supplied file/folder name: non-empty, no path
-/// separators or traversal, no NUL byte — so creation can't escape the
-/// target folder.
-#[cfg(target_os = "macos")]
-fn sanitize_name(name: &str) -> Result<&str, String> {
-    let n = name.trim();
-    if n.is_empty() {
+/// Validate a user-supplied **relative path** for file/folder creation and
+/// return it as a safe `PathBuf` relative to the target folder. Allows nested
+/// structure (`a/b/c.txt`, `mkdir a/b`) but can never escape the target folder:
+/// absolute paths, `..` traversal, NUL, and shell/Windows-reserved characters
+/// are rejected. `/` is the separator everywhere; `\` is also a separator on
+/// Windows. Empty components (`a//b`, trailing slash) are skipped. Pure +
+/// unit-tested.
+#[cfg(any(target_os = "macos", target_os = "windows", test))]
+fn sanitize_relpath(name: &str) -> Result<std::path::PathBuf, String> {
+    let trimmed = name.trim();
+    if trimmed.is_empty() {
         return Err("name is empty".into());
     }
-    if n.contains('/') || n.contains('\0') || n == "." || n == ".." {
-        return Err("name must be a plain file/folder name (no '/', '.', '..')".into());
+    if trimmed.contains('\0') {
+        return Err("name contains a NUL byte".into());
     }
-    Ok(n)
+    if trimmed.starts_with('/') || trimmed.starts_with('\\') {
+        return Err("path must be relative (no leading '/')".into());
+    }
+    let split = |c: char| c == '/' || (cfg!(target_os = "windows") && c == '\\');
+    let mut rel = std::path::PathBuf::new();
+    for raw in trimmed.split(split) {
+        let comp = raw.trim();
+        if comp.is_empty() {
+            continue; // skip a//b, trailing slash, etc.
+        }
+        if comp == "." || comp == ".." {
+            return Err("path components can't be '.' or '..'".into());
+        }
+        if comp
+            .chars()
+            .any(|c| matches!(c, ':' | '*' | '?' | '"' | '<' | '>' | '|'))
+        {
+            return Err(r#"name contains an invalid character (: * ? " < > |)"#.into());
+        }
+        rel.push(comp);
+    }
+    if rel.as_os_str().is_empty() {
+        return Err("name is empty".into());
+    }
+    Ok(rel)
 }
 
 /// POSIX path of the folder where Finder would create a new item — the
@@ -168,14 +196,19 @@ fn reveal_in_finder(path: &std::path::Path) {
     let _ = run_osascript(&script, Duration::from_secs(2));
 }
 
-/// Create an empty file `name` in the front Finder folder. Errors if it
-/// already exists. Returns the absolute path created.
+/// Create a file at relative path `name` in the front Finder folder, creating
+/// any intermediate directories (`touch a/b/c.txt`). Errors if the file already
+/// exists. Returns the absolute path created.
 #[cfg(target_os = "macos")]
 pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
-    let n = sanitize_name(name)?;
-    let path = front_dir()?.join(n);
+    let rel = sanitize_relpath(name)?;
+    let path = front_dir()?.join(&rel);
     if path.exists() {
         return Err(format!("already exists: {}", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create parent folders failed: {e}"))?;
     }
     // `content` is empty for a plain `touch <name>`; non-empty when the user
     // wrote `touch <name> > <text>`.
@@ -184,16 +217,14 @@ pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Create a folder `name` in the front Finder folder. Errors if it
-/// already exists. Returns the absolute path created.
+/// Create a folder at relative path `name` in the front Finder folder, creating
+/// any intermediate directories (`mkdir a/b`). Idempotent (no error if it
+/// already exists). Returns the absolute path created.
 #[cfg(target_os = "macos")]
 pub fn create_dir(name: &str) -> Result<PathBuf, String> {
-    let n = sanitize_name(name)?;
-    let path = front_dir()?.join(n);
-    if path.exists() {
-        return Err(format!("already exists: {}", path.display()));
-    }
-    std::fs::create_dir(&path).map_err(|e| format!("create folder failed: {e}"))?;
+    let rel = sanitize_relpath(name)?;
+    let path = front_dir()?.join(&rel);
+    std::fs::create_dir_all(&path).map_err(|e| format!("create folder failed: {e}"))?;
     reveal_in_finder(&path);
     Ok(path)
 }
@@ -208,26 +239,6 @@ pub fn create_dir(name: &str) -> Result<PathBuf, String> {
 // COM object — driven from PowerShell, mirroring the osascript shell-out. If
 // no Explorer window is open we fall back to the Desktop, exactly like Finder's
 // insertion-location → Desktop behaviour.
-
-/// Validate a user-supplied file/folder name on Windows: non-empty, not
-/// `.`/`..`, and free of the reserved path characters — so creation can't
-/// escape the target folder.
-#[cfg(target_os = "windows")]
-fn sanitize_name(name: &str) -> Result<&str, String> {
-    let n = name.trim();
-    if n.is_empty() {
-        return Err("name is empty".into());
-    }
-    if n == "." || n == ".." {
-        return Err("name must be a plain file/folder name (not '.' or '..')".into());
-    }
-    if n.chars().any(|c| {
-        matches!(c, '\\' | '/' | ':' | '*' | '?' | '"' | '<' | '>' | '|' | '\0')
-    }) {
-        return Err(r#"name contains an invalid character (\ / : * ? " < > |)"#.into());
-    }
-    Ok(n)
-}
 
 /// HWND (as `isize`) of the frontmost File Explorer window, or `None` when
 /// no Explorer window is open. Walks the top-level z-order from the top and
@@ -497,14 +508,19 @@ fn reveal_in_explorer(path: &std::path::Path) {
     let _ = Command::new("explorer.exe").raw_arg(arg).spawn();
 }
 
-/// Create an empty file `name` in the front Explorer folder. Errors if it
-/// already exists. Returns the absolute path created.
+/// Create a file at relative path `name` in the front Explorer folder, creating
+/// any intermediate directories (`touch a\b\c.txt`). Errors if the file already
+/// exists. Returns the absolute path created.
 #[cfg(target_os = "windows")]
 pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
-    let n = sanitize_name(name)?;
-    let path = front_dir()?.join(n);
+    let rel = sanitize_relpath(name)?;
+    let path = front_dir()?.join(&rel);
     if path.exists() {
         return Err(format!("already exists: {}", path.display()));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("create parent folders failed: {e}"))?;
     }
     // `content` is empty for a plain `touch <name>`; non-empty when the user
     // wrote `touch <name> > <text>`.
@@ -513,16 +529,14 @@ pub fn create_file(name: &str, content: &str) -> Result<PathBuf, String> {
     Ok(path)
 }
 
-/// Create a folder `name` in the front Explorer folder. Errors if it
-/// already exists. Returns the absolute path created.
+/// Create a folder at relative path `name` in the front Explorer folder,
+/// creating any intermediate directories (`mkdir a\b`). Idempotent (no error if
+/// it already exists). Returns the absolute path created.
 #[cfg(target_os = "windows")]
 pub fn create_dir(name: &str) -> Result<PathBuf, String> {
-    let n = sanitize_name(name)?;
-    let path = front_dir()?.join(n);
-    if path.exists() {
-        return Err(format!("already exists: {}", path.display()));
-    }
-    std::fs::create_dir(&path).map_err(|e| format!("create folder failed: {e}"))?;
+    let rel = sanitize_relpath(name)?;
+    let path = front_dir()?.join(&rel);
+    std::fs::create_dir_all(&path).map_err(|e| format!("create folder failed: {e}"))?;
     reveal_in_explorer(&path);
     Ok(path)
 }
@@ -642,92 +656,72 @@ pub fn open_terminal() -> Result<PathBuf, String> {
     Ok(dir)
 }
 
-#[cfg(all(test, target_os = "macos"))]
-mod tests {
-    use super::sanitize_name;
+#[cfg(test)]
+mod relpath_tests {
+    use super::sanitize_relpath;
+    use std::path::PathBuf;
 
     #[test]
     fn accepts_plain_names_and_trims() {
-        assert_eq!(sanitize_name("notes.txt").unwrap(), "notes.txt");
-        assert_eq!(sanitize_name("  spaced.md  ").unwrap(), "spaced.md");
-        assert_eq!(sanitize_name("My Folder").unwrap(), "My Folder");
-        // A dot inside the name (not the whole name) is fine.
-        assert_eq!(sanitize_name("archive.tar.gz").unwrap(), "archive.tar.gz");
+        assert_eq!(sanitize_relpath("notes.txt").unwrap(), PathBuf::from("notes.txt"));
+        assert_eq!(sanitize_relpath("  spaced.md  ").unwrap(), PathBuf::from("spaced.md"));
+        assert_eq!(sanitize_relpath("My Folder").unwrap(), PathBuf::from("My Folder"));
+        assert_eq!(sanitize_relpath("archive.tar.gz").unwrap(), PathBuf::from("archive.tar.gz"));
         // Leading dot (hidden file) is allowed — it's not "." or "..".
-        assert_eq!(sanitize_name(".gitignore").unwrap(), ".gitignore");
-        // Unicode is fine.
-        assert_eq!(sanitize_name("Über.txt").unwrap(), "Über.txt");
+        assert_eq!(sanitize_relpath(".gitignore").unwrap(), PathBuf::from(".gitignore"));
+        assert_eq!(sanitize_relpath("Über.txt").unwrap(), PathBuf::from("Über.txt"));
+    }
+
+    #[test]
+    fn accepts_nested_relative_paths() {
+        assert_eq!(
+            sanitize_relpath("a/b/c.txt").unwrap(),
+            PathBuf::from("a").join("b").join("c.txt")
+        );
+        assert_eq!(
+            sanitize_relpath("neuesVerzeichnis/neuesUnterverzeichnis").unwrap(),
+            PathBuf::from("neuesVerzeichnis").join("neuesUnterverzeichnis")
+        );
+        // Collapses empty components (double slash, trailing slash).
+        assert_eq!(sanitize_relpath("a//b/").unwrap(), PathBuf::from("a").join("b"));
+        // Per-component trimming.
+        assert_eq!(sanitize_relpath("a / b").unwrap(), PathBuf::from("a").join("b"));
     }
 
     #[test]
     fn rejects_empty_or_whitespace() {
-        assert!(sanitize_name("").is_err());
-        assert!(sanitize_name("   ").is_err());
-        assert!(sanitize_name("\t").is_err());
+        assert!(sanitize_relpath("").is_err());
+        assert!(sanitize_relpath("   ").is_err());
+        assert!(sanitize_relpath("\t").is_err());
+        assert!(sanitize_relpath("/").is_err());
     }
 
     #[test]
-    fn rejects_path_separators_so_creation_cant_escape_the_folder() {
-        assert!(sanitize_name("a/b").is_err());
-        assert!(sanitize_name("/etc/passwd").is_err());
-        assert!(sanitize_name("../secret").is_err());
-        assert!(sanitize_name("sub/dir/file").is_err());
+    fn rejects_absolute_and_traversal_so_creation_cant_escape() {
+        assert!(sanitize_relpath("/etc/passwd").is_err()); // absolute
+        assert!(sanitize_relpath("\\etc").is_err()); // absolute (backslash root)
+        assert!(sanitize_relpath("..").is_err());
+        assert!(sanitize_relpath("../secret").is_err());
+        assert!(sanitize_relpath("a/../../b").is_err()); // traversal mid-path
+        assert!(sanitize_relpath(".").is_err());
+        assert!(sanitize_relpath("  ..  ").is_err());
     }
 
     #[test]
-    fn rejects_dot_and_dotdot() {
-        assert!(sanitize_name(".").is_err());
-        assert!(sanitize_name("..").is_err());
-        // After trimming too.
-        assert!(sanitize_name("  ..  ").is_err());
+    fn rejects_reserved_characters() {
+        assert!(sanitize_relpath("C:evil").is_err()); // drive/stream colon
+        assert!(sanitize_relpath("na*me").is_err());
+        assert!(sanitize_relpath("na?me").is_err());
+        assert!(sanitize_relpath(r#"na"me"#).is_err());
+        assert!(sanitize_relpath("na<me").is_err());
+        assert!(sanitize_relpath("na>me").is_err());
+        assert!(sanitize_relpath("na|me").is_err());
     }
 
     #[test]
     fn rejects_nul_byte() {
-        assert!(sanitize_name("evil\0name").is_err());
-    }
-}
-
-#[cfg(all(test, target_os = "windows"))]
-mod win_tests {
-    use super::sanitize_name;
-
-    #[test]
-    fn accepts_plain_names_and_trims() {
-        assert_eq!(sanitize_name("notes.txt").unwrap(), "notes.txt");
-        assert_eq!(sanitize_name("  spaced.md  ").unwrap(), "spaced.md");
-        assert_eq!(sanitize_name("My Folder").unwrap(), "My Folder");
-        assert_eq!(sanitize_name("archive.tar.gz").unwrap(), "archive.tar.gz");
-        assert_eq!(sanitize_name(".gitignore").unwrap(), ".gitignore");
-        assert_eq!(sanitize_name("Über.txt").unwrap(), "Über.txt");
-    }
-
-    #[test]
-    fn rejects_empty_or_whitespace() {
-        assert!(sanitize_name("").is_err());
-        assert!(sanitize_name("   ").is_err());
-        assert!(sanitize_name("\t").is_err());
-    }
-
-    #[test]
-    fn rejects_reserved_windows_chars_so_creation_cant_escape() {
-        assert!(sanitize_name("a\\b").is_err()); // backslash separator
-        assert!(sanitize_name("a/b").is_err()); // forward slash
-        assert!(sanitize_name("C:evil").is_err()); // drive/stream colon
-        assert!(sanitize_name("na*me").is_err());
-        assert!(sanitize_name("na?me").is_err());
-        assert!(sanitize_name(r#"na"me"#).is_err());
-        assert!(sanitize_name("na<me").is_err());
-        assert!(sanitize_name("na>me").is_err());
-        assert!(sanitize_name("na|me").is_err());
-    }
-
-    #[test]
-    fn rejects_dot_and_dotdot_and_nul() {
-        assert!(sanitize_name(".").is_err());
-        assert!(sanitize_name("..").is_err());
-        assert!(sanitize_name("  ..  ").is_err());
-        assert!(sanitize_name("evil\0name").is_err());
+        assert!(sanitize_relpath("evil\0name").is_err());
+        assert!(sanitize_relpath("a/ev\0il/b").is_err());
     }
 }
 

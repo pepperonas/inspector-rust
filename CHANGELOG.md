@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.75] — 2026-06-20
+
+### Added
+
+- **`mkdir` and `touch` create nested structures.** `mkdir neuesVerzeichnis/neuesUnterverzeichnis`
+  and `touch neuesVerzeichnis/neuesUnterverzeichnis/neueHallo.txt` now create the
+  intermediate directories as needed (`create_dir_all`). Path validation was
+  reworked into `sanitize_relpath`, which allows `/` (and `\` on Windows) for
+  nesting but still rejects absolute paths, `..` traversal, NUL and reserved
+  characters, so creation can never escape the target folder.
+
 ## [0.84.74] — 2026-06-20
 
 ### Added

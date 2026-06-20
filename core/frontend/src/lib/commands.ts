@@ -367,7 +367,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "touch",
     keyword: "touch",
     syntax: "touch <name> [> text]",
-    description: "Create a file in the active Explorer/Finder folder — `touch hallo.txt > das ist ein test` writes that content",
+    description: "Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch hallo.txt > das ist ein test` writes that content",
     requiresArg: true,
     // File-manager integration exists on macOS (Finder) + Windows (Explorer).
     platform: ["mac", "win"],
@@ -376,7 +376,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "mkdir",
     keyword: "mkdir",
     syntax: "mkdir <name>",
-    description: "Create a new folder in the active Explorer/Finder window's folder",
+    description: "Create a folder (nested OK, e.g. mkdir a/b) in the active Explorer/Finder folder",
     requiresArg: true,
     platform: ["mac", "win"],
   },

@@ -410,10 +410,17 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   (`db::touch_event` → fresh `ended_at`), so a crash/quit/update leaves it ended
   at the last-alive moment (no phantom offline time). At startup `lib.rs` calls
   `tracking::resume_if_active`, which — if a session wasn't cleanly ended
-  (`active_session` returns one) — finalizes any never-heartbeated dangling event
-  (`finalize_open_events`), flips it back to `active`, and re-arms the loop +
-  Claude watcher + bridge on the **same** session, so recording continues; the
+  (`active_session` returns one) — flips it back to `active`, and re-arms the loop
+  + Claude watcher + bridge on the **same** session, so recording continues; the
   offline gap is simply not recorded.
+- **No over-count (v0.84.90):** resume FIRST runs `finalize_all_open_events`
+  (close every dangling `ended_at IS NULL` event from an unclean shutdown of an
+  older build — each would otherwise count to *now* and overlap every later
+  event) + `end_stale_sessions` (end leftover duplicate "active" sessions, keep
+  only the resumed one). And `aggregate_day`'s `total_active_s`/`total_idle_s` are
+  the **union** of intervals (`union_seconds`), not the raw sum — so overlapping
+  events can never make "today" exceed real wall-clock. (by_app/category/host
+  stay raw per-bucket sums.)
 - **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
   `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
   `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +

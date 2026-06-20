@@ -176,17 +176,28 @@ pub fn start(
 /// last-alive tick), so the offline gap isn't counted; the loop opens fresh
 /// events from now. No-op if nothing was active. Called once from `lib.rs`.
 pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
+    // Recover from any unclean shutdown FIRST: close every dangling open event
+    // (a still-NULL `ended_at` would otherwise count to *now* and overlap every
+    // later event — the "today shows >2h after 1h" bug). Heartbeats keep live
+    // events stamped, so this only catches truly-orphaned ones.
+    let _ = tdb::finalize_all_open_events(db);
+
     let session = match tdb::active_session(db) {
         Ok(Some(s)) => s,
-        _ => return,
+        _ => {
+            // Nothing to resume — still end any stale "active" sessions so they
+            // don't linger.
+            let _ = tdb::end_stale_sessions(db, None);
+            return;
+        }
     };
     let mut rt = state.0.lock();
     if rt.session_id.is_some() {
         return; // already running (shouldn't happen at startup)
     }
     let sid = session.id;
-    // Close any brand-new event that crashed before its first heartbeat.
-    let _ = tdb::finalize_open_events(db, sid);
+    // End all OTHER non-ended sessions (stale duplicates from older builds).
+    let _ = tdb::end_stale_sessions(db, Some(sid));
     // A resumed paused/active session is treated as active again.
     let _ = tdb::set_session_status(db, sid, "active");
 
@@ -483,6 +494,28 @@ pub struct DayReport {
     pub app_breakdown: Vec<AppBreakdown>,
 }
 
+/// Total seconds covered by the union of `intervals` (ms, may overlap). Merges
+/// overlapping/adjacent ranges so the result never exceeds real elapsed time.
+fn union_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
+    if intervals.is_empty() {
+        return 0;
+    }
+    intervals.sort_by_key(|iv| iv.0);
+    let mut total_ms = 0i64;
+    let (mut cur_s, mut cur_e) = intervals[0];
+    for &(s, e) in &intervals[1..] {
+        if s > cur_e {
+            total_ms += cur_e - cur_s;
+            cur_s = s;
+            cur_e = e;
+        } else if e > cur_e {
+            cur_e = e;
+        }
+    }
+    total_ms += cur_e - cur_s;
+    total_ms / 1000
+}
+
 fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
     let mut v: Vec<Bucket> = map
         .into_iter()
@@ -531,7 +564,12 @@ fn aggregate_day(
     now: i64,
 ) -> DayReport {
     use std::collections::{HashMap, HashSet};
-    let (mut active, mut idle) = (0i64, 0i64);
+    // Totals are the UNION of intervals (merged), not the raw sum — so even if
+    // events overlap in time (e.g. a leftover open event from a crashed run),
+    // the headline can never exceed real wall-clock. Per-app/category/host stay
+    // raw sums (an app rarely overlaps itself).
+    let mut active_iv: Vec<(i64, i64)> = Vec::new();
+    let mut idle_iv: Vec<(i64, i64)> = Vec::new();
     let mut sessions: HashSet<i64> = HashSet::new();
     let mut by_app: HashMap<String, i64> = HashMap::new();
     let mut by_host: HashMap<String, i64> = HashMap::new();
@@ -556,9 +594,9 @@ fn aggregate_day(
             continue;
         }
         if e.is_idle {
-            idle += dur;
+            idle_iv.push((start, end));
         } else {
-            active += dur;
+            active_iv.push((start, end));
             *by_app.entry(e.app_name.clone()).or_default() += dur;
             if let Some(h) = &e.host {
                 *by_host.entry(h.clone()).or_default() += dur;
@@ -608,8 +646,8 @@ fn aggregate_day(
     DayReport {
         date,
         events,
-        total_active_s: active,
-        total_idle_s: idle,
+        total_active_s: union_seconds(active_iv),
+        total_idle_s: union_seconds(idle_iv),
         session_count: sessions.len() as i64,
         by_app: to_buckets(by_app),
         by_category: to_buckets(by_cat),
@@ -731,6 +769,42 @@ mod tests {
         let dev = r.by_category.iter().find(|b| b.key == "Dev").unwrap();
         assert_eq!(dev.seconds, 10);
         assert_eq!(r.by_host.iter().find(|b| b.key == "github.com").unwrap().seconds, 30);
+    }
+
+    #[test]
+    fn union_seconds_merges_overlaps_never_exceeds_wallclock() {
+        assert_eq!(union_seconds(vec![]), 0);
+        assert_eq!(union_seconds(vec![(0, 10_000)]), 10); // 10s
+        // Two overlapping 60s spans over the same minute → 60s, not 120s.
+        assert_eq!(union_seconds(vec![(0, 60_000), (0, 60_000)]), 60);
+        // Partial overlap [0,40] ∪ [30,60] = [0,60] = 60s.
+        assert_eq!(union_seconds(vec![(0, 40_000), (30_000, 60_000)]), 60);
+        // Disjoint [0,10] + [20,30] = 20s.
+        assert_eq!(union_seconds(vec![(20_000, 30_000), (0, 10_000)]), 20);
+    }
+
+    #[test]
+    fn aggregate_day_totals_are_union_not_sum_for_overlapping_events() {
+        // Two overlapping active events (e.g. a leftover open event) over the
+        // same 60s → the headline total is 60s, not 120s.
+        let ev = |s: i64, e: i64| tdb::TrackEvent {
+            id: 0,
+            session_id: 1,
+            app_name: "Code".into(),
+            app_id: None,
+            window_title: None,
+            url: None,
+            host: None,
+            category: None,
+            project: None,
+            source: "focus".into(),
+            is_idle: false,
+            started_at: s,
+            ended_at: Some(e),
+            duration_s: Some((e - s) / 1000),
+        };
+        let r = aggregate_day("2026-06-21".into(), vec![ev(0, 60_000), ev(0, 60_000)], 0, 1_000_000, 9_999_999);
+        assert_eq!(r.total_active_s, 60); // union, not 120
     }
 
     #[test]

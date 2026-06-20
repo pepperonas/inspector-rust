@@ -171,6 +171,24 @@ pub fn end_session(db: &DbHandle, id: i64, now: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+/// End every non-`ended` session **except** `keep` (the one being resumed),
+/// stamping `ended_at` from its last event (else its own start). Cleans up
+/// stale duplicate "active" sessions left by older builds / unclean shutdowns.
+/// Returns rows changed.
+pub fn end_stale_sessions(db: &DbHandle, keep: Option<i64>) -> rusqlite::Result<usize> {
+    let conn = db.lock();
+    let keep = keep.unwrap_or(-1);
+    conn.execute(
+        "UPDATE track_sessions \
+         SET status = 'ended', \
+             ended_at = COALESCE( \
+                 (SELECT MAX(ended_at) FROM track_events WHERE session_id = track_sessions.id), \
+                 started_at) \
+         WHERE status != 'ended' AND id != ?1",
+        params![keep],
+    )
+}
+
 /// The newest still-`active` session, if any (used to resume after a relaunch
 /// or to refuse a double-start).
 pub fn active_session(db: &DbHandle) -> rusqlite::Result<Option<TrackSession>> {
@@ -259,6 +277,19 @@ pub fn finalize_open_events(db: &DbHandle, session_id: i64) -> rusqlite::Result<
         "UPDATE track_events SET ended_at = started_at, duration_s = 0 \
          WHERE session_id = ?1 AND ended_at IS NULL",
         params![session_id],
+    )
+}
+
+/// Finalize **every** dangling open event (any session) at its `started_at`.
+/// Run at startup: a still-`NULL` `ended_at` means an unclean shutdown left it
+/// open, and the day report counts such events up to *now* — which silently
+/// over-counts (overlapping all later events). Heartbeats keep live events
+/// stamped, so legitimately-running events are never NULL here. Returns rows.
+pub fn finalize_all_open_events(db: &DbHandle) -> rusqlite::Result<usize> {
+    let conn = db.lock();
+    conn.execute(
+        "UPDATE track_events SET ended_at = started_at, duration_s = 0 WHERE ended_at IS NULL",
+        [],
     )
 }
 

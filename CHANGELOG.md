@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.90] — 2026-06-21
+
+### Fixed
+
+- **Timesheet over-counted today's usage** (e.g. "2 h+" an hour into the day).
+  Two causes, both fixed: (1) **orphaned open events** left by unclean shutdowns
+  of older builds had `ended_at IS NULL` and the day report counted each up to
+  *now*, overlapping every later event → inflated totals. Startup now
+  `finalize_all_open_events` (closes every dangling open event) and
+  `end_stale_sessions` (ends leftover duplicate "active" sessions, keeping only
+  the resumed one). (2) **Totals are now the union of intervals**, not the raw
+  sum — so even if events ever overlap, "today's usage" can never exceed real
+  wall-clock time. `union_seconds` + the new DB cleanups are unit-tested.
+
 ## [0.84.89] — 2026-06-21
 
 ### Fixed

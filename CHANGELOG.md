@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.84] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 10: Settings + Windows/Linux modules + footer LED
+  (feature-complete).** Settings → **Timesheet** (macOS) exposes idle threshold,
+  retention (days; old data pruned on next `track on` via `db::prune_before`),
+  the Claude-watcher toggle, and a **privacy denylist** (apps/hosts for which
+  only the app name + time are stored — title/url/host stripped). A footer
+  indicator shows a pulsing **REC** dot while tracking (amber **PAUSED** while
+  idle). New per-OS active-window/idle modules: **Windows**
+  (`GetForegroundWindow` + `QueryFullProcessImageNameW` + `GetLastInputInfo`,
+  isolate-validated against `windows` 0.61 on `x86_64-pc-windows-gnu`) and
+  **Linux** (X11 `xdotool` + `xprintidle`; Wayland degrades cleanly). The
+  `track` command stays macOS-gated in the UI until the other OSes are
+  runtime-verified. IPC `get_/set_timesheet_config`. `parse_denylist` +
+  `prune_before` unit-tested (23 tracking tests total).
+
+  **Timesheet is now feature-complete** (steps 1–10): opt-in tracking, focus +
+  idle, Claude-Code usage, browser bridge + extension, charted day view with
+  inline editing, CSV/HTML export — all encrypted at rest, fully offline.
+
 ## [0.84.83] — 2026-06-20
 
 ### Added

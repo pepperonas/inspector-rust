@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Archive,
   Camera,
+  Clock,
   Lock,
   CheckCircle2,
   ClipboardType,
@@ -37,6 +38,8 @@ import {
   brunoSetDefaults,
   getMemeDir,
   setMemeDir,
+  getTimesheetConfig,
+  setTimesheetConfig,
   forceResetFinderAutomationGrant,
   forceResetScreenRecordingGrant,
   getAccessibilityStatus,
@@ -2028,6 +2031,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           </Section>
         </div>
 
+        {/* Timesheet (time tracking) — macOS for now (OS module is macOS-only) */}
+        {IS_MAC && (
+          <div className="mt-6">
+            <TimesheetSection />
+          </div>
+        )}
+
         {/* Bruno defaults — German income-tax calculator personal params */}
         <div className="mt-6">
           <BrunoSection />
@@ -2224,6 +2234,104 @@ function BackupCheckbox({
       />
       <span>{label}</span>
     </label>
+  );
+}
+
+function TimesheetSection() {
+  const [cfg, setCfg] = useState<{
+    idle_seconds: number;
+    retention_days: number;
+    claude_watcher: boolean;
+    denylist: string;
+  } | null>(null);
+  const [saved, setSaved] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  useEffect(() => {
+    getTimesheetConfig()
+      .then((c) => {
+        setCfg(c);
+        setSaved(JSON.stringify(c));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  if (!cfg) return null;
+  const dirty = saved !== JSON.stringify(cfg);
+
+  const save = async () => {
+    setBusy(true);
+    setSavedOk(false);
+    try {
+      await setTimesheetConfig(cfg);
+      setSaved(JSON.stringify(cfg));
+      setSavedOk(true);
+    } catch (e) {
+      console.error("save timesheet config", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={<Clock size={16} className="text-[var(--color-accent)]" />}
+      title="Timesheet"
+      subtitle="Opt-in time tracking (track on/off). Records app usage by focus; idle auto-pauses; window titles + URLs are encrypted at rest. Nothing leaves your machine (the browser extension uses a loopback socket only)."
+    >
+      <Row label="Idle threshold (seconds)" help="Inactivity beyond this retroactively pauses the active interval as idle.">
+        <input
+          type="number"
+          min={10}
+          value={cfg.idle_seconds}
+          onChange={(e) => setCfg({ ...cfg, idle_seconds: Number(e.target.value) || 300 })}
+          className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
+        />
+      </Row>
+      <Row label="Retention (days)" help="On the next “track on”, events older than this are deleted. 0 = keep forever.">
+        <input
+          type="number"
+          min={0}
+          value={cfg.retention_days}
+          onChange={(e) => setCfg({ ...cfg, retention_days: Number(e.target.value) || 0 })}
+          className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
+        />
+      </Row>
+      <Row label="Claude Code usage" help="Watch ~/.claude/projects for active Claude Code usage per project (time + tokens).">
+        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+          <input
+            type="checkbox"
+            checked={cfg.claude_watcher}
+            onChange={(e) => setCfg({ ...cfg, claude_watcher: e.target.checked })}
+            className="accent-[var(--color-accent)]"
+          />
+          <span className="text-[var(--color-muted)]">
+            {cfg.claude_watcher ? "On — track Claude Code time" : "Off"}
+          </span>
+        </label>
+      </Row>
+      <Row label="Privacy denylist" help="Comma/newline-separated app names or hostnames. For matches, only the app name + time are stored — no window title or URL.">
+        <textarea
+          value={cfg.denylist}
+          placeholder="1Password, KeePassXC, bank.com"
+          onChange={(e) => setCfg({ ...cfg, denylist: e.target.value })}
+          rows={2}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px]"
+        />
+      </Row>
+      <div className="mt-2 flex items-center gap-2">
+        <button
+          onClick={() => void save()}
+          disabled={!dirty || busy}
+          className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] font-medium text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {dirty && !busy && <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>}
+        {savedOk && !dirty && <span className="text-[11px] text-[var(--color-muted)]">Saved</span>}
+      </div>
+    </Section>
   );
 }
 

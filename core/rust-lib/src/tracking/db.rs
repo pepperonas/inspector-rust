@@ -443,6 +443,23 @@ pub fn claude_tokens_by_project(
     Ok(map)
 }
 
+/// Delete events (+ their claude turns + now-empty sessions) started before
+/// `cutoff_ms` (the retention setting). Returns the events deleted.
+pub fn prune_before(db: &DbHandle, cutoff_ms: i64) -> rusqlite::Result<usize> {
+    let conn = db.lock();
+    conn.execute(
+        "DELETE FROM track_claude_turns WHERE event_id IN \
+         (SELECT id FROM track_events WHERE started_at < ?1)",
+        params![cutoff_ms],
+    )?;
+    let n = conn.execute("DELETE FROM track_events WHERE started_at < ?1", params![cutoff_ms])?;
+    conn.execute(
+        "DELETE FROM track_sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM track_events)",
+        [],
+    )?;
+    Ok(n)
+}
+
 /// Delete all timesheet data (Settings → "Clear timesheet data").
 pub fn clear_all(db: &DbHandle) -> rusqlite::Result<()> {
     let conn = db.lock();

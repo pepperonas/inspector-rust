@@ -116,6 +116,7 @@ import {
   showStatusToast,
   trackStart,
   trackStop,
+  trackStatus,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -231,6 +232,12 @@ function App() {
   // the wakelock LED. Refreshed by `timers-changed` + `timer-fired`
   // events the backend emits. Also fetched once on mount.
   const [activeTimerCount, setActiveTimerCount] = useState(0);
+  // Timesheet tracking footer indicator — updated on mount + the
+  // `track-status-changed` event the tracker emits.
+  const [trackStatusState, setTrackStatusState] = useState<{ active: boolean; paused: boolean }>({
+    active: false,
+    paused: false,
+  });
   // Brief banner when a timer fires (4 s dwell) — separate from the
   // OS-native macOS notification so the user gets feedback even if
   // the popup is open at fire time.
@@ -1525,6 +1532,19 @@ function App() {
   useTauriEvent("timers-changed", () => {
     void listTimers().then((ts) => setActiveTimerCount(ts.length)).catch(() => undefined);
   });
+
+  // Timesheet tracking footer indicator — fetch on mount + on every
+  // tracker status change (start/stop/idle-pause emit `track-status-changed`).
+  useEffect(() => {
+    void trackStatus()
+      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused }))
+      .catch(() => undefined);
+  }, []);
+  useTauriEvent("track-status-changed", () => {
+    void trackStatus()
+      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused }))
+      .catch(() => undefined);
+  });
   useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {
     setTimerFiredLabel(e.payload?.label ?? "Timer done");
   });
@@ -2574,6 +2594,8 @@ function App() {
           version={version}
           wakelockActive={wakelockActive}
           activeTimerCount={activeTimerCount}
+          trackingActive={trackStatusState.active}
+          trackingPaused={trackStatusState.paused}
         />
       </div>
     </div>

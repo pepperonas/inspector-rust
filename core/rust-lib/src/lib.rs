@@ -536,6 +536,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::track_export,
             commands::track_bridge_info,
             commands::track_bridge_regenerate,
+            commands::get_timesheet_config,
+            commands::set_timesheet_config,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

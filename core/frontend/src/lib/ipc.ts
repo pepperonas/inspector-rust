@@ -1328,6 +1328,19 @@ export function trackBridgeRegenerate(): Promise<string> {
   return invoke("track_bridge_regenerate");
 }
 
+export interface TimesheetConfig {
+  idle_seconds: number;
+  retention_days: number;
+  claude_watcher: boolean;
+  denylist: string;
+}
+export function getTimesheetConfig(): Promise<TimesheetConfig> {
+  return invoke("get_timesheet_config");
+}
+export function setTimesheetConfig(config: TimesheetConfig): Promise<void> {
+  return invoke("set_timesheet_config", { config });
+}
+
 // ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
 
 export interface LoupeData {

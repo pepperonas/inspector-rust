@@ -57,7 +57,7 @@ fn gen_token() -> String {
 /// Start the bridge on a worker thread; returns its stop flag.
 pub fn start(db: DbHandle, rt: Arc<Mutex<Runtime>>) -> Arc<AtomicBool> {
     let stop = Arc::new(AtomicBool::new(false));
-    let token = bridge_token(&db);
+    let _ = bridge_token(&db); // ensure a token exists (generated on first use)
     let port = bridge_port(&db);
     let stop_ret = stop.clone();
     std::thread::spawn(move || {
@@ -75,8 +75,8 @@ pub fn start(db: DbHandle, rt: Arc<Mutex<Runtime>>) -> Arc<AtomicBool> {
                     if !addr.ip().is_loopback() {
                         continue; // defensive — bind is already loopback-only
                     }
-                    let (rt2, tok, stop2) = (rt.clone(), token.clone(), stop.clone());
-                    std::thread::spawn(move || handle_conn(stream, rt2, tok, stop2));
+                    let (rt2, db2, stop2) = (rt.clone(), db.clone(), stop.clone());
+                    std::thread::spawn(move || handle_conn(stream, rt2, db2, stop2));
                 }
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
                     std::thread::sleep(Duration::from_millis(200));
@@ -88,14 +88,16 @@ pub fn start(db: DbHandle, rt: Arc<Mutex<Runtime>>) -> Arc<AtomicBool> {
     stop_ret
 }
 
-fn handle_conn(stream: TcpStream, rt: Arc<Mutex<Runtime>>, token: String, stop: Arc<AtomicBool>) {
+fn handle_conn(stream: TcpStream, rt: Arc<Mutex<Runtime>>, db: DbHandle, stop: Arc<AtomicBool>) {
     // Read timeout so a blocked read wakes periodically to honour `stop`.
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
     let mut ws = match tungstenite::accept(stream) {
         Ok(w) => w,
         Err(_) => return,
     };
-    let mut authed = false;
+    // The token this socket authenticated with — so a `regenerate_token`
+    // (which writes the DB) immediately invalidates the connection below.
+    let mut authed_with: Option<String> = None;
     while !stop.load(Ordering::SeqCst) {
         match ws.read() {
             Ok(Message::Text(txt)) => {
@@ -104,17 +106,25 @@ fn handle_conn(stream: TcpStream, rt: Arc<Mutex<Runtime>>, token: String, stop: 
                     Err(_) => continue,
                 };
                 let typ = v.get("type").and_then(|t| t.as_str()).unwrap_or("");
-                if !authed {
+                // Read the *live* token every frame so rotation takes effect
+                // immediately — revocation doesn't wait for a session restart.
+                let current = bridge_token(&db);
+                if authed_with.is_none() {
                     if typ == "hello"
-                        && v.get("token").and_then(|t| t.as_str()) == Some(token.as_str())
+                        && v.get("token").and_then(|t| t.as_str()) == Some(current.as_str())
                     {
-                        authed = true;
+                        authed_with = Some(current);
                         let _ = ws.send(Message::Text("{\"type\":\"ok\"}".to_string()));
                     } else {
                         let _ = ws.close(None);
                         return;
                     }
                     continue;
+                }
+                // Token rotated since this socket authed → drop it (fail closed).
+                if authed_with.as_deref() != Some(current.as_str()) {
+                    let _ = ws.close(None);
+                    return;
                 }
                 match typ {
                     "tab" => {

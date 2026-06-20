@@ -74,6 +74,36 @@ pub fn is_browser(app: &str) -> bool {
         .any(|b| a.contains(b))
 }
 
+/// Parse the comma/newline-separated `track.denylist` setting into lowercase
+/// patterns (app names or hostnames). Pure + tested.
+pub fn parse_denylist(raw: &str) -> Vec<String> {
+    raw.split([',', '\n'])
+        .map(|s| s.trim().to_ascii_lowercase())
+        .filter(|s| !s.is_empty())
+        .collect()
+}
+
+fn load_denylist(db: &DbHandle) -> Vec<String> {
+    crate::settings::get_or(db, "track.denylist", "")
+        .map(|s| parse_denylist(&s))
+        .unwrap_or_default()
+}
+
+/// Does the desired interval match the privacy denylist (by app, host, or url)?
+fn is_denied(d: &Desired, denylist: &[String]) -> bool {
+    if denylist.is_empty() {
+        return false;
+    }
+    let app = d.app.to_ascii_lowercase();
+    let host = d.host.as_deref().unwrap_or("").to_ascii_lowercase();
+    let url = d.url.as_deref().unwrap_or("").to_ascii_lowercase();
+    denylist.iter().any(|p| {
+        app.contains(p.as_str())
+            || (!host.is_empty() && host.contains(p.as_str()))
+            || (!url.is_empty() && url.contains(p.as_str()))
+    })
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct TrackStatus {
     pub active: bool,
@@ -100,6 +130,15 @@ pub fn start(
         return Err("already tracking".into());
     }
     let now = now_ms();
+    // Retention: drop data older than N days (0 = keep forever).
+    if let Ok(days) = crate::settings::get_or(db, "track.retention_days", "0") {
+        if let Ok(d) = days.parse::<i64>() {
+            if d > 0 {
+                let cutoff = now - d * 86_400_000;
+                let _ = tdb::prune_before(db, cutoff);
+            }
+        }
+    }
     let sid = tdb::start_session(db, label.as_deref(), now).map_err(|e| e.to_string())?;
     let stop = Arc::new(AtomicBool::new(false));
     // Claude-Code watcher (default on; settings-gated) — its own stop flag.
@@ -174,6 +213,7 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
             .and_then(|s| s.parse::<f64>().ok())
             .filter(|v| *v > 0.0)
             .unwrap_or(DEFAULT_IDLE_SECONDS);
+        let denylist = load_denylist(&db);
         let focus = os::frontmost();
         let idle_s = os::idle_seconds().unwrap_or(0.0);
         let now = now_ms();
@@ -184,7 +224,13 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
                 break; // session ended / replaced
             }
             let was_paused = g.paused;
-            apply_tick(&db, &mut g, sid, now, focus, idle_s, threshold);
+            apply_tick(&db, &mut g, sid, Tick {
+                now,
+                focus,
+                idle_s,
+                threshold_s: threshold,
+                denylist: &denylist,
+            });
             g.paused != was_paused
         };
         if paused_changed {
@@ -200,19 +246,21 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
     }
 }
 
-/// The pure-ish per-tick state machine (no `AppHandle`, so it's unit-testable
-/// against an in-memory DB): decide the *desired* interval and, on change,
-/// close the open one + open the new. Idle transitions are retroactive — the
-/// idle interval starts at the moment input actually stopped.
-fn apply_tick(
-    db: &DbHandle,
-    rt: &mut Runtime,
-    sid: i64,
+/// Inputs sampled once per tick (bundled to keep `apply_tick`'s arity sane).
+struct Tick<'a> {
     now: i64,
     focus: Option<FocusInfo>,
     idle_s: f64,
     threshold_s: f64,
-) {
+    denylist: &'a [String],
+}
+
+/// The pure-ish per-tick state machine (no `AppHandle`, so it's unit-testable
+/// against an in-memory DB): decide the *desired* interval and, on change,
+/// close the open one + open the new. Idle transitions are retroactive — the
+/// idle interval starts at the moment input actually stopped.
+fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
+    let Tick { now, focus, idle_s, threshold_s, denylist } = t;
     let idle = threshold_s > 0.0 && idle_s >= threshold_s;
 
     // Desired interval for this tick (None = no info & not idle → keep current).
@@ -272,9 +320,17 @@ fn apply_tick(
         None
     };
 
-    let Some(d) = desired else {
+    let Some(mut d) = desired else {
         return;
     };
+    // Privacy denylist: for matching apps/hosts/urls, keep only the app + time —
+    // strip title/url/host and collapse the key so tabs don't even split by URL.
+    if !d.is_idle && is_denied(&d, denylist) {
+        d.title = None;
+        d.host = None;
+        d.url = None;
+        d.key = format!("{}\u{0}\u{0}{}", d.app, d.source);
+    }
     if rt.open_key.as_deref() == Some(d.key.as_str()) {
         return; // unchanged → leave the interval open
     }
@@ -481,9 +537,9 @@ mod tests {
             session_id: Some(sid),
             ..Default::default()
         };
-        apply_tick(&db, &mut rt, sid, 1_000, focus("Code", Some("a.rs")), 0.0, 300.0);
-        apply_tick(&db, &mut rt, sid, 2_500, focus("Code", Some("a.rs")), 0.0, 300.0); // same → no new
-        apply_tick(&db, &mut rt, sid, 4_000, focus("Safari", Some("Docs")), 0.0, 300.0); // switch
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_000, focus: focus("Code", Some("a.rs")), idle_s: 0.0, threshold_s: 300.0, denylist: &[] });
+        apply_tick(&db, &mut rt, sid, Tick { now: 2_500, focus: focus("Code", Some("a.rs")), idle_s: 0.0, threshold_s: 300.0, denylist: &[] }); // same → no new
+        apply_tick(&db, &mut rt, sid, Tick { now: 4_000, focus: focus("Safari", Some("Docs")), idle_s: 0.0, threshold_s: 300.0, denylist: &[] }); // switch
         let evs = tdb::events_in_range(&db, -1, 1_000_000).unwrap();
         assert_eq!(evs.len(), 2);
         assert_eq!(evs[0].app_name, "Code");
@@ -502,12 +558,12 @@ mod tests {
             ..Default::default()
         };
         // Active from t=4000.
-        apply_tick(&db, &mut rt, sid, 4_000, focus("Code", None), 0.0, 300.0);
+        apply_tick(&db, &mut rt, sid, Tick { now: 4_000, focus: focus("Code", None), idle_s: 0.0, threshold_s: 300.0, denylist: &[] });
         // At t=1_000_000 the user has been idle 400 s → idle began at 600_000.
-        apply_tick(&db, &mut rt, sid, 1_000_000, focus("Code", None), 400.0, 300.0);
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_000_000, focus: focus("Code", None), idle_s: 400.0, threshold_s: 300.0, denylist: &[] });
         assert!(rt.paused, "idle should pause");
         // Input resumes (idle 0) at t=1_200_000.
-        apply_tick(&db, &mut rt, sid, 1_200_000, focus("Code", None), 0.0, 300.0);
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_200_000, focus: focus("Code", None), idle_s: 0.0, threshold_s: 300.0, denylist: &[] });
         assert!(!rt.paused, "resume should unpause");
 
         let evs = tdb::events_in_range(&db, -1, 10_000_000).unwrap();
@@ -574,10 +630,56 @@ mod tests {
             session_id: Some(sid),
             ..Default::default()
         };
-        apply_tick(&db, &mut rt, sid, 1_000, focus("Code", None), 0.0, 300.0);
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_000, focus: focus("Code", None), idle_s: 0.0, threshold_s: 300.0, denylist: &[] });
         let before = rt.open_event_id;
-        apply_tick(&db, &mut rt, sid, 2_000, None, 0.0, 300.0); // no info
+        apply_tick(&db, &mut rt, sid, Tick { now: 2_000, focus: None, idle_s: 0.0, threshold_s: 300.0, denylist: &[] }); // no info
         assert_eq!(rt.open_event_id, before, "should not churn the interval");
         assert_eq!(tdb::events_in_range(&db, -1, 1_000_000).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn parse_denylist_splits_and_lowercases() {
+        let d = parse_denylist("1Password, KeePass\nbank.com\n , ");
+        assert_eq!(d, vec!["1password", "keepass", "bank.com"]);
+        assert!(parse_denylist("").is_empty());
+    }
+
+    #[test]
+    fn denylist_strips_title_host_url_keeps_app_and_time() {
+        let db = test_db();
+        let sid = tdb::start_session(&db, None, 0).unwrap();
+        let mut rt = Runtime {
+            session_id: Some(sid),
+            ..Default::default()
+        };
+        let deny = vec!["1password".to_string()];
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_000, focus: focus("1Password", Some("Secret vault")), idle_s: 0.0, threshold_s: 300.0, denylist: &deny });
+        let evs = tdb::events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].app_name, "1Password"); // app + time kept
+        assert_eq!(evs[0].window_title, None); // title stripped
+    }
+
+    #[test]
+    fn prune_before_drops_old_events_and_empty_sessions() {
+        let db = test_db();
+        let s_old = tdb::start_session(&db, None, 0).unwrap();
+        let s_new = tdb::start_session(&db, None, 10_000_000).unwrap();
+        let old = tdb::open_event(&db, &tdb::NewEvent {
+            session_id: s_old, app_name: "A".into(), app_id: None, window_title: None,
+            url: None, host: None, category: None, project: None, source: "focus".into(),
+            is_idle: false, started_at: 1_000,
+        }).unwrap();
+        tdb::close_event(&db, old, 2_000).unwrap();
+        tdb::open_event(&db, &tdb::NewEvent {
+            session_id: s_new, app_name: "B".into(), app_id: None, window_title: None,
+            url: None, host: None, category: None, project: None, source: "focus".into(),
+            is_idle: false, started_at: 10_001_000,
+        }).unwrap();
+        let n = tdb::prune_before(&db, 5_000_000).unwrap();
+        assert_eq!(n, 1);
+        let evs = tdb::events_in_range(&db, -1, 100_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].app_name, "B");
     }
 }

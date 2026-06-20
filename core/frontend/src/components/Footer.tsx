@@ -15,9 +15,21 @@ interface Props {
    *  badge surfaces in the footer to remind the user a timer is
    *  ticking. */
   activeTimerCount?: number;
+  /** Timesheet tracking state — when active, a pulsing dot + REC badge
+   *  surfaces (amber while idle-paused, green while recording). */
+  trackingActive?: boolean;
+  trackingPaused?: boolean;
 }
 
-export function Footer({ index, total, version, wakelockActive, activeTimerCount }: Props) {
+export function Footer({
+  index,
+  total,
+  version,
+  wakelockActive,
+  activeTimerCount,
+  trackingActive,
+  trackingPaused,
+}: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
   // from anywhere on the system without needing the popup open.
@@ -35,6 +47,7 @@ export function Footer({ index, total, version, wakelockActive, activeTimerCount
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {wakelockActive && <WakelockLed />}
+        {trackingActive && <TrackingLed paused={!!trackingPaused} />}
         {activeTimerCount != null && activeTimerCount > 0 && (
           <TimerBadge count={activeTimerCount} />
         )}
@@ -88,6 +101,35 @@ function TimerBadge({ count }: { count: number }) {
       className="flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
     >
       ⏰ {count}
+    </span>
+  );
+}
+
+/** Timesheet tracking indicator — green pulsing dot + REC while recording,
+ *  amber + PAUSED while idle-auto-paused. */
+function TrackingLed({ paused }: { paused: boolean }) {
+  const color = paused ? "245, 158, 11" : "34, 197, 94"; // amber / green
+  return (
+    <span
+      title={
+        paused
+          ? "Time tracking paused (idle). Type `track off` to stop, or `track` to open the timesheet."
+          : "Time tracking active. Type `track off` to stop, or `track` to open the timesheet."
+      }
+      className="flex shrink-0 items-center gap-1"
+    >
+      <span
+        aria-hidden
+        className="h-2 w-2 rounded-full"
+        style={{
+          backgroundColor: `rgb(${color})`,
+          boxShadow: `0 0 4px rgba(${color}, 0.85), 0 0 8px rgba(${color}, 0.45)`,
+          animation: paused ? undefined : "wakelockPulse 1.6s ease-in-out infinite",
+        }}
+      />
+      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+        {paused ? "paused" : "rec"}
+      </span>
     </span>
   );
 }

@@ -383,6 +383,36 @@ pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)
 }
 
+/// Timesheet settings (Settings → Timesheet).
+#[derive(serde::Serialize, serde::Deserialize)]
+pub struct TimesheetConfig {
+    idle_seconds: i64,
+    retention_days: i64,
+    claude_watcher: bool,
+    denylist: String,
+}
+
+#[tauri::command]
+pub fn get_timesheet_config(db: State<'_, DbHandle>) -> TimesheetConfig {
+    let g = |k: &str, d: &str| crate::settings::get_or(&db, k, d).unwrap_or_else(|_| d.to_string());
+    TimesheetConfig {
+        idle_seconds: g("track.idle_seconds", "300").parse().unwrap_or(300),
+        retention_days: g("track.retention_days", "0").parse().unwrap_or(0),
+        claude_watcher: g("track.claude_watcher", "1") != "0",
+        denylist: g("track.denylist", ""),
+    }
+}
+
+#[tauri::command]
+pub fn set_timesheet_config(db: State<'_, DbHandle>, config: TimesheetConfig) -> Result<(), String> {
+    let s = |k: &str, v: &str| crate::settings::set(&db, k, v).map_err(map_err);
+    s("track.idle_seconds", &config.idle_seconds.max(10).to_string())?;
+    s("track.retention_days", &config.retention_days.max(0).to_string())?;
+    s("track.claude_watcher", if config.claude_watcher { "1" } else { "0" })?;
+    s("track.denylist", &config.denylist)?;
+    Ok(())
+}
+
 /// Loopback-bridge connection info for the browser extension's options page.
 #[derive(serde::Serialize)]
 pub struct BridgeInfo {

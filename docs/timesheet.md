@@ -69,18 +69,38 @@ the range query (`events_in_range`, title/url decrypted), Claude turns, and
 1. **DB migration + schema + crypto + tests.** ✅ done
 2. Tracker core: session state, focus loop, per-OS active window. ✅ done (macOS)
 3. Idle detection + auto-pause. ✅ done (macOS)
-4. IPC commands + search-bar `track on/off` + toast. ✅ done (footer LED/tray pending)
+4. IPC commands + search-bar `track on/off` + toast + footer REC LED. ✅ done
 5. Timesheet tab (read-only: day navigation + charts). ✅ done
 6. Inline editing. ✅ done
 7. CSV + HTML export. ✅ done
 8. Claude watcher. ✅ done (macOS/all where ~/.claude/projects exists)
 9. Browser bridge (loopback WS) + extension + options page. ✅ done
-10. Settings (idle, denylist, retention, bridge token) + docs + remaining OS modules.
+10. Settings (idle, retention, denylist, Claude toggle, bridge token) + docs +
+    Windows/Linux OS modules. ✅ done
 
-## Export (planned)
+**Status: feature-complete.** macOS is verified end-to-end. Windows
+(`GetForegroundWindow`/`QueryFullProcessImageNameW`/`GetLastInputInfo`) and Linux
+(X11 `xdotool` + `xprintidle`) active-window/idle modules are compile-validated
+but **runtime-unverified** (the repo's accepted line for non-macOS code); Linux
+under Wayland degrades cleanly to "no data". The `track` command is macOS-gated
+in the UI until the other OSes are runtime-verified.
+
+## Settings (Settings → Timesheet, macOS)
+
+- **Idle threshold (seconds)** — `track.idle_seconds` (default 300).
+- **Retention (days)** — `track.retention_days` (default 0 = keep forever);
+  applied on the next `track on` (`db::prune_before`).
+- **Claude Code usage** — `track.claude_watcher` (default on).
+- **Privacy denylist** — `track.denylist` (comma/newline app names or hosts);
+  matches store only app + time (title/url/host stripped, no URL-split).
+- **Browser extension** — the loopback bridge port + token (in the Timesheet
+  tab's "Browser extension" disclosure), with copy + regenerate.
+
+## Export
 
 - **CSV** — flat rows, UTF-8:
   `date,start,end,duration_min,app,category,project,host,title,source,idle`.
-- **HTML** — a single self-contained file (CSS+JS+data inline, zero external
-  requests), dark-themed, with charts (daily totals, app donut, day Gantt, top
-  hosts, categories, Claude tokens). Footer: `© 2026 Martin Pfeffer | celox.io`.
+- **HTML** — a single self-contained file (CSS + inline-SVG charts, zero external
+  requests), dark-themed, with daily totals, app donut, category + top-host bars,
+  a Claude-Code section, and the event table. Footer:
+  `© 2026 Martin Pfeffer | celox.io`.

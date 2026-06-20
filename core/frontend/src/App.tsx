@@ -555,9 +555,11 @@ function App() {
       case "resize": {
         const dims = parseResizeArg(arg);
         label = dims
-          ? `Resize clipboard image → ${dims.width}×${dims.height}`
+          ? `Resize selected image(s) → ${dims.width}×${dims.height}`
           : `rz: invalid dimensions ("${arg}" — expected W×H, e.g. 1200x800)`;
-        hint = dims ? "Lanczos3 sampling · also pushed to History" : "Use format like 1200x800";
+        hint = dims
+          ? "Finder/Explorer selection → <name>-WxH (Lanczos3); else the clipboard image"
+          : "Use format like 1200x800";
         break;
       }
       case "optim":
@@ -1582,20 +1584,29 @@ function App() {
           setPasteError("other");
           return true;
         }
-        // In finder-mode, resize each selected image file (writes
-        // <name>-WxH.<ext> next to source). Otherwise fall back to the
-        // clipboard-image pipeline.
-        const finderImages = finderFiles?.filter((f) => f.is_image) ?? [];
-        if (finderFiles && finderImages.length > 0) {
-          await Promise.all(
-            finderImages.map((f) =>
-              resizeFile(f.path, dims.width, dims.height).catch((e) => {
-                console.error("resize_file failed", f.path, e);
-                return "";
-              }),
-            ),
-          );
-        } else {
+        // Resize the image(s) currently selected in Finder/Explorer — writes
+        // <name>-WxH.<ext> next to each source. Reads the LIVE selection (you
+        // don't need to be in finder-mode). Falls back to the clipboard image
+        // when nothing usable is selected / the selection can't be read.
+        let didSelection = false;
+        try {
+          const sel = finderFiles ?? (await getFinderSelection());
+          const imgs = sel.filter((f) => f.is_image);
+          if (imgs.length > 0) {
+            const results = await Promise.all(
+              imgs.map((f) =>
+                resizeFile(f.path, dims.width, dims.height).catch((e) => {
+                  console.error("resize_file failed", f.path, e);
+                  return "";
+                }),
+              ),
+            );
+            didSelection = results.some((r) => r);
+          }
+        } catch (e) {
+          console.debug("resize: finder selection unavailable", e);
+        }
+        if (!didSelection) {
           await resizeClipboardImage(dims.width, dims.height);
         }
         await hidePopup();

@@ -223,7 +223,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "resize",
     keyword: "rz",
     syntax: "rz <W>x<H>",
-    description: "Resize clipboard image (Lanczos3) — e.g. rz 1200x800",
+    description: "Resize the selected image(s) in Finder/Explorer (Lanczos3) — e.g. rz 1200x800; else the clipboard image",
     requiresArg: true,
   },
   {

@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.72] — 2026-06-20
+
+### Fixed
+
+- **`rz` (resize) now works on the image(s) selected in Finder/Explorer.** Like
+  `optim` in the previous release, `rz <W>x<H>` only acted on the selection if
+  you were already in finder-mode — otherwise it silently targeted the clipboard
+  image (a no-op when none was there), so it looked broken. It now reads the
+  **live** Finder/Explorer selection and writes a resized `<name>-WxH.<ext>`
+  next to each selected image (Lanczos3; PNG/JPEG/WebP/GIF/BMP), falling back to
+  the clipboard image when nothing usable is selected.
+
 ## [0.84.71] — 2026-06-20
 
 ### Changed

@@ -7,7 +7,10 @@ usage), auto-pauses on inactivity, and a second command opens a day-navigable,
 editable timesheet view with **CSV** and **self-contained HTML** export.
 
 > **Status — incremental delivery.** This is built in the delivery order below;
-> each step is a green-gated commit. **Done so far:** Step 1 — the data layer.
+> each step is a green-gated commit. **Done so far:** Steps 1–4 — the data
+> layer, the tracker core (focus loop + retroactive idle auto-pause, macOS), the
+> IPC commands, and the `track on` / `track off` search-bar command with a
+> status toast. Next: the Timesheet tab (step 5).
 
 ## Privacy & security (by design)
 
@@ -67,9 +70,9 @@ the range query (`events_in_range`, title/url decrypted), Claude turns, and
 ## Delivery order
 
 1. **DB migration + schema + crypto + tests.** ✅ done
-2. Tracker core: session state, focus loop, per-OS active window.
-3. Idle detection + auto-pause.
-4. IPC commands + search-bar commands + toast/LED/tray.
+2. Tracker core: session state, focus loop, per-OS active window. ✅ done (macOS)
+3. Idle detection + auto-pause. ✅ done (macOS)
+4. IPC commands + search-bar `track on/off` + toast. ✅ done (footer LED/tray pending)
 5. Timesheet tab (read-only: day navigation + charts).
 6. Inline editing.
 7. CSV + HTML export.

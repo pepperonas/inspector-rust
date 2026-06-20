@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.78] — 2026-06-20
+
+### Added
+
+- **Timesheet — steps 2–4: the tracker core + `track` command (macOS).** A
+  working opt-in time tracker. `track on` starts a session and a background
+  focus/idle loop; `track off` ends it (with a status toast). The loop records
+  **gap-free, non-overlapping app-focus intervals** (frontmost app + window
+  title via `osascript`, ~1.5 s tick), and on input inactivity past a threshold
+  (default 300 s) **retroactively** closes the active interval at the moment
+  input stopped and marks an `idle` span — resuming on input (idle is kept,
+  visible/editable, not counted as active). New `tracking/mod.rs` (state machine
+  + tick logic, unit-tested), `tracking/os/macos.rs` (frontmost +
+  `CGEventSourceSecondsSinceLastEventType` idle). IPC: `track_start/stop/status`,
+  `track_get_day` (events + totals + app/category/host breakdowns), plus
+  `track_update_event/delete_event/merge_events/set_category/clear_all`. 12
+  tracking unit tests. The Timesheet **tab** (visualisation + editing), exports,
+  Claude watcher and browser bridge land in the next steps (see
+  `docs/timesheet.md`). macOS-first; Windows/Linux OS modules are step 10.
+
 ## [0.84.77] — 2026-06-20
 
 ### Added

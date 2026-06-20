@@ -311,6 +311,78 @@ pub fn stop_alarm(app: AppHandle) {
     crate::alarm::stop(&app);
 }
 
+// ── Timesheet / time tracking ─────────────────────────────────────────────
+
+/// `track on` — start a tracking session + the focus/idle loop.
+#[tauri::command]
+pub fn track_start(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::tracking::TrackerState>,
+    label: Option<String>,
+) -> Result<i64, String> {
+    crate::tracking::start(&app, &db, &state, label)
+}
+
+/// `track off` — end the active session (closes the open interval).
+#[tauri::command]
+pub fn track_stop(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::tracking::TrackerState>,
+) -> Result<(), String> {
+    crate::tracking::stop(&app, &db, &state)
+}
+
+#[tauri::command]
+pub fn track_status(
+    state: State<'_, crate::tracking::TrackerState>,
+) -> crate::tracking::TrackStatus {
+    crate::tracking::status(&state)
+}
+
+/// Day report (`"YYYY-MM-DD"`, local): events + totals + breakdowns.
+#[tauri::command]
+pub fn track_get_day(
+    db: State<'_, DbHandle>,
+    date: String,
+) -> Result<crate::tracking::DayReport, String> {
+    crate::tracking::day_report(&db, &date)
+}
+
+#[tauri::command]
+pub fn track_update_event(
+    db: State<'_, DbHandle>,
+    id: i64,
+    patch: crate::tracking::db::EventPatch,
+) -> Result<(), String> {
+    crate::tracking::db::update_event(&db, id, &patch).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn track_delete_event(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+    crate::tracking::db::delete_event(&db, id).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn track_merge_events(db: State<'_, DbHandle>, ids: Vec<i64>) -> Result<Option<i64>, String> {
+    crate::tracking::db::merge_events(&db, &ids).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn track_set_category(
+    db: State<'_, DbHandle>,
+    app_name: String,
+    category: String,
+) -> Result<(), String> {
+    crate::tracking::db::set_category(&db, &app_name, &category).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
+    crate::tracking::db::clear_all(&db).map_err(map_err)
+}
+
 // ── App launcher (Spotlight-like) ─────────────────────────────────────
 
 /// Return the cached app index. Frontend fuzzy-matches against this

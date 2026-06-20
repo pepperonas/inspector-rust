@@ -74,6 +74,7 @@ export type CommandKind =
   | "sound"
   | "stats"
   | "uptime"
+  | "track"
   | "trim";
 
 /** Static metadata for one power command. */
@@ -573,6 +574,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
   },
   {
+    kind: "track",
+    keyword: "track",
+    syntax: "track on|off",
+    description: "Time tracking — `track on` / `track off`; bare `track` opens the timesheet",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
     kind: "disco",
     keyword: "disco",
     syntax: "disco 1|0",
@@ -667,6 +676,16 @@ export function parseWakelockArg(arg: string): boolean | null {
     default:
       return null;
   }
+}
+
+/** Parse the `track` argument: `on`/`start`/`1` → start, `off`/`stop`/`0` →
+ *  stop, **empty** → open the timesheet, anything else → `null` (invalid). */
+export function parseTrackArg(arg: string): "on" | "off" | "open" | null {
+  const a = arg.trim().toLowerCase();
+  if (a === "") return "open";
+  if (a === "on" || a === "start" || a === "1") return "on";
+  if (a === "off" || a === "stop" || a === "0") return "off";
+  return null;
 }
 
 /** Parse the `disco` argument. `1`/`on`/`true` → on, `0`/`off`/`false` → off,

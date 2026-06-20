@@ -1220,6 +1220,83 @@ export function stopAlarm(): Promise<void> {
   return invoke("stop_alarm");
 }
 
+// ── Timesheet / time tracking ────────────────────────────────────────────────
+
+export interface TrackStatus {
+  active: boolean;
+  session_id: number | null;
+  paused: boolean;
+  since: number | null;
+  active_app: string | null;
+}
+export interface TrackEvent {
+  id: number;
+  session_id: number;
+  app_name: string;
+  app_id: string | null;
+  window_title: string | null;
+  url: string | null;
+  host: string | null;
+  category: string | null;
+  project: string | null;
+  source: string;
+  is_idle: boolean;
+  started_at: number;
+  ended_at: number | null;
+  duration_s: number | null;
+}
+export interface TrackBucket {
+  key: string;
+  seconds: number;
+}
+export interface DayReport {
+  date: string;
+  events: TrackEvent[];
+  total_active_s: number;
+  total_idle_s: number;
+  session_count: number;
+  by_app: TrackBucket[];
+  by_category: TrackBucket[];
+  by_host: TrackBucket[];
+}
+export interface TrackEventPatch {
+  app_name?: string;
+  category?: string | null;
+  project?: string | null;
+  window_title?: string | null;
+  is_idle?: boolean;
+  started_at?: number;
+  ended_at?: number;
+}
+
+export function trackStart(label?: string): Promise<number> {
+  return invoke("track_start", { label: label ?? null });
+}
+export function trackStop(): Promise<void> {
+  return invoke("track_stop");
+}
+export function trackStatus(): Promise<TrackStatus> {
+  return invoke("track_status");
+}
+export function trackGetDay(date: string): Promise<DayReport> {
+  return invoke("track_get_day", { date });
+}
+export function trackUpdateEvent(id: number, patch: TrackEventPatch): Promise<void> {
+  return invoke("track_update_event", { id, patch });
+}
+export function trackDeleteEvent(id: number): Promise<void> {
+  return invoke("track_delete_event", { id });
+}
+export function trackMergeEvents(ids: number[]): Promise<number | null> {
+  return invoke("track_merge_events", { ids });
+}
+export function trackSetCategory(appName: string, category: string): Promise<void> {
+  return invoke("track_set_category", { appName, category });
+}
+export function trackClearAll(): Promise<void> {
+  return invoke("track_clear_all");
+}
+
 // ── Color loupe (custom eyedropper with live hex under the loupe) ────────────
 
 export interface LoupeData {

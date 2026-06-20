@@ -49,6 +49,7 @@ import {
   parseRandomArg,
   randomInt,
   parseWakelockArg,
+  parseTrackArg,
   parseDiscoArg,
   formatBytes,
   resizePresetSuggestions,
@@ -112,6 +113,9 @@ import {
   trimOpenOverlay,
   qrCopyPng,
   showStatusToast,
+  trackStart,
+  trackStop,
+  trackStatus,
   brunoGetDefaults,
   startTimer,
   listTimers,
@@ -698,6 +702,21 @@ function App() {
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
         break;
+      case "track": {
+        const m = parseTrackArg(arg);
+        label =
+          m === "on"
+            ? "Start time tracking"
+            : m === "off"
+              ? "Stop time tracking"
+              : m === "open"
+                ? "Time tracking — open the timesheet"
+                : `track: use "on" or "off"`;
+        hint = m
+          ? "Records app usage by focus; idle auto-pauses · encrypted at rest"
+          : "e.g. track on · track off";
+        break;
+      }
       case "trim":
         label = arg ? `Trim media: "${arg}"` : "Trim a video / audio file";
         hint = "Opens a file picker → set in/out points (lossless or re-encode)";
@@ -1735,6 +1754,34 @@ function App() {
           return true;
         }
         await hidePopup();
+      } else if (commandKind === "track") {
+        // Time tracking: `track on` starts a session, `track off` ends it.
+        // (Bare `track` opens the timesheet — the tab lands in a later step;
+        // for now it shows the current status.)
+        const m = parseTrackArg(arg);
+        try {
+          if (m === "on") {
+            await trackStart();
+            await showStatusToast("track", true, "Tracking on", "Recording app usage");
+          } else if (m === "off") {
+            await trackStop();
+            await showStatusToast("track", false, "Tracking off", "Session ended");
+          } else if (m === "open") {
+            const s = await trackStatus();
+            await showStatusToast(
+              "track",
+              s.active,
+              s.active ? "Tracking active" : "Not tracking",
+              s.active_app ?? "",
+            );
+          } else {
+            setPasteError("other");
+          }
+        } catch (e) {
+          setPasteError("other");
+          console.error("track command failed", e);
+        }
+        return true;
       } else if (commandKind === "timer") {
         const t = parseTimerArg(arg);
         if (!t) {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { AlarmClock, Coffee, Dices, Moon, Sparkles, Timer } from "lucide-react";
+import { AlarmClock, Clock, Coffee, Dices, Moon, Sparkles, Timer } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getStatusToast,
@@ -72,9 +72,11 @@ export function StatusToast() {
           ? Sparkles
           : payload.kind === "random"
             ? Dices
-            : on
-              ? Coffee
-              : Moon;
+            : payload.kind === "track"
+              ? Clock
+              : on
+                ? Coffee
+                : Moon;
   // The random toast shows the rolled number — make it big and prominent.
   const isRandom = payload.kind === "random";
   // Accent for everything except an explicit "off" state (muted).

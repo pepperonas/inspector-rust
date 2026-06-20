@@ -172,6 +172,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(screen_record::RecordState::default());
             app.manage(color_loupe::LoupeState::default());
             app.manage(alarm::AlarmState::default());
+            app.manage(tracking::TrackerState::default());
             app.manage(commands::AudioSwapState::default());
             // Reap any caffeinate orphaned by a pre-v0.78.0 crash/reinstall so
             // a stale keep-awake assertion can't outlive the app that set it.
@@ -523,6 +524,15 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_alarm_style,
             commands::alarm_overlay_label,
             commands::stop_alarm,
+            commands::track_start,
+            commands::track_stop,
+            commands::track_status,
+            commands::track_get_day,
+            commands::track_update_event,
+            commands::track_delete_event,
+            commands::track_merge_events,
+            commands::track_set_category,
+            commands::track_clear_all,
             commands::hue_status,
             commands::hue_discover,
             commands::hue_set_bridge_ip,

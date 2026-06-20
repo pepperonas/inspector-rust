@@ -1261,9 +1261,10 @@ export interface DayReport {
 }
 export interface TrackEventPatch {
   app_name?: string;
-  category?: string | null;
-  project?: string | null;
-  window_title?: string | null;
+  /** "" clears the column; non-empty sets it. */
+  category?: string;
+  project?: string;
+  window_title?: string;
   is_idle?: boolean;
   started_at?: number;
   ended_at?: number;

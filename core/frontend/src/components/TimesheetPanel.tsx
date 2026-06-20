@@ -1,9 +1,24 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { ChevronLeft, ChevronRight, Circle, Clock, Pause } from "lucide-react";
+import {
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  Circle,
+  Clock,
+  GitMerge,
+  Pause,
+  Pencil,
+  Trash2,
+  X,
+} from "lucide-react";
 import {
   trackGetDay,
   trackStatus,
+  trackUpdateEvent,
+  trackDeleteEvent,
+  trackMergeEvents,
+  trackSetCategory,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -16,8 +31,10 @@ import {
   formatDuration,
   dayStartMs,
   localDateStr,
+  msToTimeInput,
   paletteColor,
   shiftDay,
+  timeInputToMs,
   timelineBand,
 } from "../lib/timesheet";
 
@@ -28,11 +45,26 @@ import {
  * export). While viewing *today* and tracking is active it polls so the open
  * interval grows live.
  */
+interface EventDraft {
+  app: string;
+  category: string;
+  start: string; // "HH:MM"
+  end: string; // "HH:MM" ("" when the event is still open)
+  idle: boolean;
+  applyAll: boolean;
+  wasOpen: boolean;
+}
+
 export function TimesheetPanel() {
   const [date, setDate] = useState(() => localDateStr());
   const [report, setReport] = useState<DayReport | null>(null);
   const [status, setStatus] = useState<TrackStatus | null>(null);
   const [now, setNow] = useState(() => Date.now());
+  // Inline editing: which rows are selected (for merge) + which one is open in
+  // the editor + its working draft.
+  const [selected, setSelected] = useState<Set<number>>(() => new Set());
+  const [editingId, setEditingId] = useState<number | null>(null);
+  const [draft, setDraft] = useState<EventDraft | null>(null);
 
   const load = useCallback((d: string) => {
     trackGetDay(d)
@@ -99,6 +131,82 @@ export function TimesheetPanel() {
 
   const eventDuration = (e: TrackEvent) =>
     e.duration_s ?? Math.max(0, Math.floor((now - e.started_at) / 1000));
+
+  const refresh = () => {
+    setEditingId(null);
+    setDraft(null);
+    load(date);
+  };
+
+  const toggleSelect = (id: number) =>
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+
+  const beginEdit = (e: TrackEvent) => {
+    setEditingId(e.id);
+    setDraft({
+      app: e.app_name,
+      category: e.category ?? "",
+      start: msToTimeInput(e.started_at),
+      end: e.ended_at != null ? msToTimeInput(e.ended_at) : "",
+      idle: e.is_idle,
+      applyAll: false,
+      wasOpen: e.ended_at == null,
+    });
+  };
+
+  const saveEdit = async (e: TrackEvent) => {
+    if (!draft) return;
+    const cat = draft.category.trim();
+    const startedAt = timeInputToMs(dayStart, draft.start, e.started_at) ?? e.started_at;
+    const patch: Parameters<typeof trackUpdateEvent>[1] = {
+      app_name: draft.app.trim() || e.app_name,
+      category: cat, // "" clears the category
+      is_idle: draft.idle,
+      started_at: startedAt,
+    };
+    if (!draft.wasOpen && draft.end) {
+      const endedAt = timeInputToMs(dayStart, draft.end, e.ended_at ?? undefined);
+      if (endedAt != null) patch.ended_at = endedAt;
+    }
+    try {
+      await trackUpdateEvent(e.id, patch);
+      if (draft.applyAll && cat !== "") await trackSetCategory(patch.app_name ?? e.app_name, cat);
+    } catch (err) {
+      console.error("track update failed", err);
+    }
+    refresh();
+  };
+
+  const delEvent = async (id: number) => {
+    try {
+      await trackDeleteEvent(id);
+    } catch (err) {
+      console.error("track delete failed", err);
+    }
+    setSelected((s) => {
+      const n = new Set(s);
+      n.delete(id);
+      return n;
+    });
+    refresh();
+  };
+
+  const mergeSelected = async () => {
+    const ids = [...selected];
+    if (ids.length < 2) return;
+    try {
+      await trackMergeEvents(ids);
+    } catch (err) {
+      console.error("track merge failed", err);
+    }
+    setSelected(new Set());
+    refresh();
+  };
 
   return (
     <div className="flex h-full flex-col overflow-hidden text-[var(--color-fg)]">
@@ -194,42 +302,165 @@ export function TimesheetPanel() {
             </Card>
           )}
 
-          {/* Event list */}
+          {/* Event list — selectable (merge) + inline-editable */}
           <Card title={`Events (${report.events.length})`}>
+            {selected.size >= 2 && (
+              <div className="mb-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void mergeSelected()}
+                  className="md3-press flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1 text-[12px] font-semibold text-[var(--color-accent-fg)]"
+                >
+                  <GitMerge size={13} /> Merge {selected.size}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSelected(new Set())}
+                  className="text-[12px] text-[var(--color-muted)] hover:underline"
+                >
+                  Clear
+                </button>
+              </div>
+            )}
             <div className="flex flex-col">
               {report.events.map((e) => (
-                <div
-                  key={e.id}
-                  className="flex items-center gap-2 border-t border-[var(--color-border)]/60 py-1.5 text-[12px] first:border-t-0"
-                >
-                  <span className="w-[92px] shrink-0 tabular-nums text-[var(--color-muted)]">
-                    {formatClock(e.started_at)}–{e.ended_at ? formatClock(e.ended_at) : "…"}
-                  </span>
-                  <span
-                    className="h-2.5 w-2.5 shrink-0 rounded-full"
-                    style={{ backgroundColor: e.is_idle ? "var(--color-muted)" : appColors[e.app_name] ?? paletteColor(0) }}
-                  />
-                  <span className="w-[120px] shrink-0 truncate font-medium">{e.app_name}</span>
-                  <span className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
-                    {e.host ?? e.window_title ?? ""}
-                  </span>
-                  {e.is_idle && (
-                    <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-1.5 text-[10px] text-[var(--color-muted)]">
-                      idle
+                <div key={e.id} className="border-t border-[var(--color-border)]/60 first:border-t-0">
+                  <div
+                    className={
+                      "group flex items-center gap-2 py-1.5 text-[12px] " +
+                      (selected.has(e.id) ? "bg-[var(--color-accent)]/8 -mx-1 rounded px-1" : "")
+                    }
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(e.id)}
+                      onChange={() => toggleSelect(e.id)}
+                      className="shrink-0 accent-[var(--color-accent)]"
+                      title="Select (for merge)"
+                    />
+                    <span className="w-[92px] shrink-0 tabular-nums text-[var(--color-muted)]">
+                      {formatClock(e.started_at)}–{e.ended_at ? formatClock(e.ended_at) : "…"}
                     </span>
+                    <span
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: e.is_idle ? "var(--color-muted)" : appColors[e.app_name] ?? paletteColor(0) }}
+                    />
+                    <span className="w-[120px] shrink-0 truncate font-medium">{e.app_name}</span>
+                    <span className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
+                      {e.category ? `[${e.category}] ` : ""}
+                      {e.host ?? e.window_title ?? ""}
+                    </span>
+                    {e.is_idle && (
+                      <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-1.5 text-[10px] text-[var(--color-muted)]">
+                        idle
+                      </span>
+                    )}
+                    <span className="w-[58px] shrink-0 text-right tabular-nums">
+                      {formatDuration(eventDuration(e))}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => (editingId === e.id ? refresh() : beginEdit(e))}
+                      className="shrink-0 rounded p-1 text-[var(--color-muted)] opacity-0 hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)] group-hover:opacity-100"
+                      title="Edit"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                  </div>
+
+                  {editingId === e.id && draft && (
+                    <div className="mb-2 flex flex-col gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[12px]">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <label className="flex items-center gap-1">
+                          App
+                          <input
+                            value={draft.app}
+                            onChange={(ev) => setDraft({ ...draft, app: ev.target.value })}
+                            className="w-[120px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1">
+                          Category
+                          <input
+                            value={draft.category}
+                            placeholder="—"
+                            onChange={(ev) => setDraft({ ...draft, category: ev.target.value })}
+                            className="w-[110px] rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+                          />
+                        </label>
+                        <label className="flex items-center gap-1">
+                          Start
+                          <input
+                            type="time"
+                            value={draft.start}
+                            onChange={(ev) => setDraft({ ...draft, start: ev.target.value })}
+                            className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 tabular-nums"
+                          />
+                        </label>
+                        {!draft.wasOpen && (
+                          <label className="flex items-center gap-1">
+                            End
+                            <input
+                              type="time"
+                              value={draft.end}
+                              onChange={(ev) => setDraft({ ...draft, end: ev.target.value })}
+                              className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 tabular-nums"
+                            />
+                          </label>
+                        )}
+                      </div>
+                      <div className="flex flex-wrap items-center gap-3">
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={draft.idle}
+                            onChange={(ev) => setDraft({ ...draft, idle: ev.target.checked })}
+                            className="accent-[var(--color-accent)]"
+                          />
+                          Idle
+                        </label>
+                        <label className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={draft.applyAll}
+                            onChange={(ev) => setDraft({ ...draft, applyAll: ev.target.checked })}
+                            className="accent-[var(--color-accent)]"
+                          />
+                          Apply category to all “{draft.app}”
+                        </label>
+                        <div className="ml-auto flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void delEvent(e.id)}
+                            className="md3-press flex items-center gap-1 rounded-full border border-rose-500/40 px-2.5 py-1 text-rose-400 hover:bg-rose-500/10"
+                          >
+                            <Trash2 size={13} /> Delete
+                          </button>
+                          <button
+                            type="button"
+                            onClick={refresh}
+                            className="md3-press rounded-full border border-[var(--color-border)] p-1.5"
+                            title="Cancel"
+                          >
+                            <X size={13} />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void saveEdit(e)}
+                            className="md3-press flex items-center gap-1 rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
+                          >
+                            <Check size={13} /> Save
+                          </button>
+                        </div>
+                      </div>
+                    </div>
                   )}
-                  <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-1.5 text-[10px] text-[var(--color-muted)]">
-                    {e.source}
-                  </span>
-                  <span className="w-[64px] shrink-0 text-right tabular-nums">
-                    {formatDuration(eventDuration(e))}
-                  </span>
                 </div>
               ))}
             </div>
           </Card>
           <p className="text-center text-[11px] text-[var(--color-muted)]">
-            ← → change day · t today
+            ← → change day · t today · ✎ edit · ☑ select to merge
           </p>
         </div>
       )}

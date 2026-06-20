@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.80] — 2026-06-20
+
+### Added
+
+- **Timesheet — step 6: inline editing.** Each event in the Timesheet tab can
+  now be edited in place (✎): **relabel** the app, set/clear a **category**
+  (optionally applied to *all* events of that app), toggle **idle**, and adjust
+  **start/end** times — plus **delete** a row and **multi-select to merge**
+  adjacent intervals. Changes go straight to the encrypted DB and the day
+  reloads. `EventPatch` switched to `Option<String>` with `""`-clears semantics
+  (JSON-`null` can't express an explicit clear through serde's double-`Option`).
+
 ## [0.84.79] — 2026-06-20
 
 ### Added

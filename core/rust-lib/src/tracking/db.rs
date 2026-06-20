@@ -117,17 +117,29 @@ pub struct NewEvent {
     pub started_at: i64,
 }
 
-/// Editable fields for `update_event` — every `Some` is applied. `window_title`
-/// / `url` are re-encrypted; `Some(None)` clears a column, `None` leaves it.
+/// Editable fields for `update_event` — every `Some` is applied, `None` leaves
+/// the column untouched. For `category`/`project`/`window_title` an **empty
+/// string clears** the column (set to NULL); a non-empty value sets it
+/// (`window_title` re-encrypted). Using `Option<String>` (not the serde-fragile
+/// `Option<Option<String>>`, which can't represent an explicit null over JSON).
 #[derive(Debug, Default, Deserialize)]
 pub struct EventPatch {
     pub app_name: Option<String>,
-    pub category: Option<Option<String>>,
-    pub project: Option<Option<String>>,
-    pub window_title: Option<Option<String>>,
+    pub category: Option<String>,
+    pub project: Option<String>,
+    pub window_title: Option<String>,
     pub is_idle: Option<bool>,
     pub started_at: Option<i64>,
     pub ended_at: Option<i64>,
+}
+
+/// `""` → `None` (clear the column), otherwise `Some(value)`.
+fn blank_to_null(v: &str) -> Option<&str> {
+    if v.is_empty() {
+        None
+    } else {
+        Some(v)
+    }
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────
@@ -249,13 +261,19 @@ pub fn update_event(db: &DbHandle, id: i64, patch: &EventPatch) -> rusqlite::Res
         conn.execute("UPDATE track_events SET app_name = ?2 WHERE id = ?1", params![id, v])?;
     }
     if let Some(v) = &patch.category {
-        conn.execute("UPDATE track_events SET category = ?2 WHERE id = ?1", params![id, v])?;
+        conn.execute(
+            "UPDATE track_events SET category = ?2 WHERE id = ?1",
+            params![id, blank_to_null(v)],
+        )?;
     }
     if let Some(v) = &patch.project {
-        conn.execute("UPDATE track_events SET project = ?2 WHERE id = ?1", params![id, v])?;
+        conn.execute(
+            "UPDATE track_events SET project = ?2 WHERE id = ?1",
+            params![id, blank_to_null(v)],
+        )?;
     }
     if let Some(v) = &patch.window_title {
-        let enc = v.as_deref().map(crypto::encrypt);
+        let enc = blank_to_null(v).map(crypto::encrypt);
         conn.execute("UPDATE track_events SET window_title = ?2 WHERE id = ?1", params![id, enc])?;
     }
     if let Some(v) = patch.is_idle {
@@ -507,7 +525,7 @@ mod tests {
         close_event(&db, eid, 10_000).unwrap();
         let patch = EventPatch {
             app_name: Some("VS Code".into()),
-            category: Some(Some("Dev".into())),
+            category: Some("Dev".into()),
             is_idle: Some(true),
             ended_at: Some(40_000),
             ..Default::default()
@@ -518,6 +536,19 @@ mod tests {
         assert_eq!(evs[0].category.as_deref(), Some("Dev"));
         assert!(evs[0].is_idle);
         assert_eq!(evs[0].duration_s, Some(40)); // recomputed
+
+        // Empty string clears the category (→ NULL).
+        update_event(
+            &db,
+            eid,
+            &EventPatch {
+                category: Some(String::new()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let evs = events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs[0].category, None);
     }
 
     #[test]

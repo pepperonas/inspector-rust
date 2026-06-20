@@ -45,6 +45,26 @@ export function dayStartMs(date: string): number {
   return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0).getTime();
 }
 
+/** Unix ms → "HH:MM" for a `<input type=time>` (local). */
+export function msToTimeInput(ms: number): string {
+  const d = new Date(ms);
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+/** "HH:MM" within the local day starting at `dayStart` → unix ms; preserves the
+ *  event's seconds (so editing only the minute doesn't snap to :00). `null` for
+ *  malformed input. */
+export function timeInputToMs(dayStart: number, value: string, keepSecondsFrom?: number): number | null {
+  const m = value.match(/^(\d{1,2}):(\d{2})$/);
+  if (!m) return null;
+  const h = parseInt(m[1], 10);
+  const min = parseInt(m[2], 10);
+  if (h > 23 || min > 59) return null;
+  const secMs =
+    keepSecondsFrom != null ? ((keepSecondsFrom % 60_000) + 60_000) % 60_000 : 0;
+  return dayStart + h * 3_600_000 + min * 60_000 + secMs;
+}
+
 /** A fixed, dark-theme-friendly categorical palette (cycles for >N keys). */
 const PALETTE = [
   "#b3c5ff", // accent-ish

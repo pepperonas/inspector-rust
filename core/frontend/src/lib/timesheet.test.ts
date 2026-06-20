@@ -7,6 +7,8 @@ import {
   timelineBand,
   colorMap,
   paletteColor,
+  msToTimeInput,
+  timeInputToMs,
 } from "./timesheet";
 
 describe("timesheet helpers", () => {
@@ -59,6 +61,18 @@ describe("timesheet helpers", () => {
     expect(o.widthPct).toBeCloseTo((0.5 / 24) * 100, 3);
     // zero-width → null.
     expect(timelineBand(day + hour, day + hour, day, day + 2 * hour)).toBeNull();
+  });
+
+  it("msToTimeInput / timeInputToMs round-trip within a day", () => {
+    const day = new Date(2026, 5, 20, 0, 0, 0, 0).getTime();
+    const t = day + 9 * 3_600_000 + 35 * 60_000 + 12_000; // 09:35:12
+    expect(msToTimeInput(t)).toBe("09:35");
+    // Re-parse keeping the original seconds.
+    expect(timeInputToMs(day, "09:35", t)).toBe(t);
+    // Plain parse → :00.
+    expect(timeInputToMs(day, "09:35")).toBe(day + 9 * 3_600_000 + 35 * 60_000);
+    expect(timeInputToMs(day, "bad")).toBeNull();
+    expect(timeInputToMs(day, "99:99")).toBeNull();
   });
 
   it("colorMap assigns stable palette colours by order", () => {

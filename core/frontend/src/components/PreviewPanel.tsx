@@ -724,7 +724,11 @@ export function PreviewPanel({
       <span>{clip.content_type}</span>
       <span>·</span>
       <span>{formatBytes(clip.byte_size)}</span>
-      <NoteButton entry={clip} />
+      <div className="ml-auto flex items-center gap-2">
+        {(clip.content_type === "html" || clip.content_type === "rtf") &&
+          clip.content_text && <CopyPlainButton text={clip.content_text} />}
+        <NoteButton entry={clip} />
+      </div>
     </div>
   );
 
@@ -1029,6 +1033,31 @@ const SMART_ICON: Record<SmartActionKind, typeof ExternalLink> = {
   qr: QrCode,
 };
 
+/** Copy the clip's plain-text representation to the clipboard (for rich clips
+ *  like HTML/RTF). Goes through `commit_transformed_text` so the write is
+ *  marked self-write + lands in history as a plain-text entry. */
+function CopyPlainButton({ text }: { text: string }) {
+  const [done, setDone] = useState(false);
+  const doneTimer = useRef<number | null>(null);
+  const copy = () => {
+    void commitTransformedText(text).catch(() => undefined);
+    setDone(true);
+    if (doneTimer.current !== null) window.clearTimeout(doneTimer.current);
+    doneTimer.current = window.setTimeout(() => setDone(false), 1500);
+  };
+  return (
+    <button
+      type="button"
+      onClick={copy}
+      title="Copy as plain text"
+      className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
+    >
+      {done ? <Check size={12} /> : <Copy size={12} />}
+      {done ? "Copied" : "Copy text"}
+    </button>
+  );
+}
+
 /** Note button (top-right of the preview): add a note, or — when one exists —
  *  show it highlighted with Edit / Delete. The list row turns yellow whenever a
  *  note is set; clearing it removes the highlight. The note text round-trips via
@@ -1055,7 +1084,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
   };
 
   return (
-    <span className="relative ml-auto normal-case">
+    <span className="relative normal-case">
       <button
         type="button"
         onClick={openMenu}

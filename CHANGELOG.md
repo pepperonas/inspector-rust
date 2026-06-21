@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.109] — 2026-06-21
+
+### Added
+
+- **Preview — "Copy text" for rich clips.** HTML and RTF clips get a **Copy text**
+  button in the preview header (next to Add note) that copies their **plain-text**
+  representation to the clipboard (and records it as a plain-text history entry,
+  marked self-write so it isn't double-captured). Shows a brief "Copied ✓".
+
 ## [0.84.108] — 2026-06-21
 
 ### Added

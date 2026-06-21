@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.96] — 2026-06-21
+
+### Added
+
+- **Timesheet — Shift-drag adds to the selection.** Holding **Shift** while
+  rubber-band-dragging in the Timeline list **adds** the new band to the existing
+  selection instead of replacing it, so multiple separate ranges can be picked.
+
 ## [0.84.95] — 2026-06-21
 
 ### Added

@@ -254,6 +254,8 @@ export function TimesheetPanel() {
     const startX = e.clientX;
     const startY = e.clientY;
     let moved = false;
+    // Shift = add this band to the existing selection; otherwise replace it.
+    const base = e.shiftKey ? new Set(selected) : new Set<number>();
 
     const onMove = (ev: PointerEvent) => {
       if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
@@ -266,7 +268,7 @@ export function TimesheetPanel() {
       const y1 = Math.min(startY, ev.clientY);
       const y2 = Math.max(startY, ev.clientY);
       setBandRect({ left: x1 - rect.left, top: y1 - rect.top, width: x2 - x1, height: y2 - y1 });
-      const ids = new Set<number>();
+      const ids = new Set<number>(base);
       list.querySelectorAll<HTMLElement>("[data-event-id]").forEach((row) => {
         const r = row.getBoundingClientRect();
         if (r.bottom >= y1 && r.top <= y2) {
@@ -786,7 +788,7 @@ export function TimesheetPanel() {
             ← → change day · t today
             {eventsView === "grouped"
               ? " · ▸ expand an app for its detail"
-              : " · double-click to edit · drag or ☑ to select"}
+              : " · double-click to edit · drag to select (⇧ adds)"}
           </p>
         </div>
       )}

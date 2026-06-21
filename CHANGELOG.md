@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.98] — 2026-06-21
+
+### Added
+
+- **Timesheet — project export for clients (phase 2 of 2).** A **Project export**
+  footer in the Timesheet tab: pick a free date range → **HTML** (printable /
+  PDF: per-project sections with each entry's date · time · duration · activity,
+  plus per-project and grand totals) or **CSV**
+  (`project,date,start,end,duration_min,app,activity`). Billable = active,
+  non-Claude, project-tagged events (so Claude time can't double-bill terminal
+  focus). Pairs with the Gantt drag-to-assign from v0.84.97 to give a full
+  "assign time to a project → hand the client a when/how-long/on-what list" flow.
+  IPC `track_export_projects`; pure builders unit-tested.
+
 ## [0.84.97] — 2026-06-21
 
 ### Added

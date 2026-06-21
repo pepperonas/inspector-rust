@@ -501,6 +501,36 @@ pub fn set_timesheet_config(db: State<'_, DbHandle>, config: TimesheetConfig) ->
     Ok(())
 }
 
+/// Project-grouped export over the inclusive local-day range `[from, to]`
+/// (`"YYYY-MM-DD"`) as `csv` or printable `html` → `~/Downloads`, revealed.
+/// Lists, per project, when + how long + on what (billable: active, non-Claude,
+/// project-tagged). Returns the written path.
+#[tauri::command]
+pub fn track_export_projects(
+    db: State<'_, DbHandle>,
+    format: String,
+    from: String,
+    to: String,
+) -> Result<String, String> {
+    let (from_ms, _) = crate::tracking::day_bounds(&from)?;
+    let (_, to_ms) = crate::tracking::day_bounds(&to)?;
+    if to_ms <= from_ms {
+        return Err("range end before start".into());
+    }
+    let events = crate::tracking::db::events_in_range(&db, from_ms, to_ms).map_err(map_err)?;
+    let now = chrono::Utc::now().timestamp_millis();
+    let (content, ext) = if format == "html" {
+        (crate::tracking::export::project_html(&events, from_ms, to_ms, now), "html")
+    } else {
+        (crate::tracking::export::project_csv(&events, now), "csv")
+    };
+    let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
+    let path = dir.join(format!("timesheet-projects-{from}_{to}.{ext}"));
+    std::fs::write(&path, content).map_err(|e| format!("write export: {e}"))?;
+    reveal_in_file_manager(&path);
+    Ok(path.display().to_string())
+}
+
 /// Loopback-bridge connection info for the browser extension's options page.
 #[derive(serde::Serialize)]
 pub struct BridgeInfo {

@@ -549,6 +549,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::track_cleanup_day,
             commands::track_clear_all,
             commands::track_export,
+            commands::track_export_projects,
             commands::track_bridge_info,
             commands::track_bridge_regenerate,
             commands::track_export_extension,

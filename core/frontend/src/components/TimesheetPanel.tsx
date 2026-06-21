@@ -29,6 +29,7 @@ import {
   trackDistinctCategories,
   trackSetProject,
   trackDistinctProjects,
+  trackExportProjects,
   trackAddEvent,
   trackCleanupDay,
   type DayReport,
@@ -817,6 +818,7 @@ export function TimesheetPanel() {
           </p>
         </div>
       )}
+      <ProjectExportFooter />
       <BridgeFooter />
     </div>
   );
@@ -824,6 +826,72 @@ export function TimesheetPanel() {
 
 /** Collapsible "Browser extension" footer — shows the loopback bridge port +
  *  token (to paste into the extension's options) + a regenerate button. */
+/** Collapsible "Project export" footer — pick a date range, export per-project
+ *  CSV/HTML for a client ("when · how long · on what"). */
+function ProjectExportFooter() {
+  const monthStart = () => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  };
+  const [from, setFrom] = useState(monthStart());
+  const [to, setTo] = useState(localDateStr());
+  const [saved, setSaved] = useState<string | null>(null);
+  const run = (fmt: "csv" | "html") => {
+    setSaved(null);
+    void trackExportProjects(fmt, from, to)
+      .then((p) => setSaved(p))
+      .catch((e) => console.error("project export failed", e));
+  };
+  return (
+    <details className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]">
+      <summary className="cursor-pointer text-[var(--color-muted)]">Project export (for a client)</summary>
+      <div className="mt-2 flex flex-col gap-2">
+        <p className="text-[var(--color-muted)]">
+          Per-project list of when · how long · on what, over a date range. Assign time
+          to projects by dragging a window on the day timeline.
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1">
+            From
+            <input
+              type="date"
+              value={from}
+              max={to}
+              onChange={(e) => e.target.value && setFrom(e.target.value)}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 tabular-nums"
+            />
+          </label>
+          <label className="flex items-center gap-1">
+            To
+            <input
+              type="date"
+              value={to}
+              max={localDateStr()}
+              onChange={(e) => e.target.value && setTo(e.target.value)}
+              className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 tabular-nums"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => run("html")}
+            className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 hover:bg-[var(--color-surface)]"
+          >
+            <Download size={13} /> HTML
+          </button>
+          <button
+            type="button"
+            onClick={() => run("csv")}
+            className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2.5 py-1 hover:bg-[var(--color-surface)]"
+          >
+            <Download size={13} /> CSV
+          </button>
+          {saved && <span className="text-[var(--color-accent)]">Saved ✓</span>}
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function BridgeFooter() {
   const [info, setInfo] = useState<{ port: number; token: string } | null>(null);
   const [open, setOpen] = useState(false);

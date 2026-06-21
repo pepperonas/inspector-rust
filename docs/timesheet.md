@@ -101,7 +101,22 @@ in the UI until the other OSes are runtime-verified.
 - **Browser extension** — the loopback bridge port + token (in the Timesheet
   tab's "Browser extension" disclosure), with copy + regenerate.
 
-## Export
+## Projects (client billing)
+
+Assign tracked time to **projects** and export a client-facing report:
+- **Assign** — in the day view, **drag a window on the day-timeline (Gantt)**; a
+  popover shows the range + matching entries → pick a project (autocomplete) →
+  every active event the window overlaps is tagged with it (whole events; idle +
+  Claude events are skipped). Projects also drive the day/week **By project**
+  breakdowns.
+- **Export** — the Timesheet tab's **Project export** footer: pick a free date
+  range → **HTML** (printable, per-project sections with entries date · time ·
+  duration · activity + per-project and grand totals) or **CSV**
+  (`project,date,start,end,duration_min,app,activity`). Billable = active,
+  non-Claude, project-tagged events (so Claude time can't double-bill terminal
+  focus). IPC `track_set_project` / `track_export_projects`.
+
+## Export (full history)
 
 - **CSV** — flat rows, UTF-8:
   `date,start,end,duration_min,app,category,project,host,title,source,idle`.

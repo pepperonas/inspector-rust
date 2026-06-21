@@ -81,6 +81,139 @@ pub fn csv(events: &[TrackEvent], now: i64) -> String {
     out
 }
 
+// ── Project export (customer-facing: when · how long · on what) ──────────────
+
+/// Billable events for the project export: active, non-Claude, with a non-empty
+/// project. (Claude time is excluded so it can't double-bill terminal focus.)
+/// Sorted by project, then start time.
+fn billable_by_project(events: &[TrackEvent]) -> Vec<&TrackEvent> {
+    let mut v: Vec<&TrackEvent> = events
+        .iter()
+        .filter(|e| {
+            !e.is_idle
+                && e.source != "claude"
+                && e.project.as_deref().map(|p| !p.is_empty()).unwrap_or(false)
+        })
+        .collect();
+    v.sort_by(|a, b| {
+        a.project
+            .cmp(&b.project)
+            .then(a.started_at.cmp(&b.started_at))
+    });
+    v
+}
+
+fn activity(e: &TrackEvent) -> String {
+    match (&e.window_title, &e.host) {
+        (Some(t), _) if !t.is_empty() => format!("{} — {}", e.app_name, t),
+        (_, Some(h)) if !h.is_empty() => format!("{} — {}", e.app_name, h),
+        _ => e.app_name.clone(),
+    }
+}
+
+/// CSV grouped per project (one row per entry):
+/// `project,date,start,end,duration_min,app,activity`.
+pub fn project_csv(events: &[TrackEvent], now: i64) -> String {
+    let mut out = String::from("project,date,start,end,duration_min,app,activity\n");
+    for e in billable_by_project(events) {
+        let dur_min = format!("{:.1}", effective_dur_s(e, now) as f64 / 60.0);
+        let row = [
+            e.project.clone().unwrap_or_default(),
+            local_date(e.started_at),
+            local_time(e.started_at),
+            e.ended_at.map(local_time).unwrap_or_default(),
+            dur_min,
+            e.app_name.clone(),
+            e.window_title.clone().or_else(|| e.host.clone()).unwrap_or_default(),
+        ];
+        out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
+        out.push('\n');
+    }
+    out
+}
+
+/// Self-contained, printable HTML grouped per project: each project a section
+/// with its entries (date · time · duration · activity) + a project total, then
+/// a grand total. For handing a client a "when · how long · on what" list.
+pub fn project_html(events: &[TrackEvent], from: i64, to: i64, now: i64) -> String {
+    let billable = billable_by_project(events);
+    let range = if local_date(from) == local_date(to.saturating_sub(1)) {
+        local_date(from)
+    } else {
+        format!("{} – {}", local_date(from), local_date(to.saturating_sub(1)))
+    };
+    let grand: i64 = billable.iter().map(|e| effective_dur_s(e, now)).sum();
+
+    // Group consecutively (already sorted by project).
+    let mut sections = String::new();
+    let mut i = 0;
+    while i < billable.len() {
+        let proj = billable[i].project.clone().unwrap_or_default();
+        let mut rows = String::new();
+        let mut ptotal = 0i64;
+        while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+            let e = billable[i];
+            let d = effective_dur_s(e, now);
+            ptotal += d;
+            rows.push_str(&format!(
+                "<tr><td>{}</td><td>{}–{}</td><td class=r>{}</td><td>{}</td></tr>",
+                local_date(e.started_at),
+                local_time(e.started_at),
+                e.ended_at.map(local_time).unwrap_or_default(),
+                fmt_dur(d),
+                esc(&activity(e)),
+            ));
+            i += 1;
+        }
+        sections.push_str(&format!(
+            "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
+             <table><thead><tr><th>Date</th><th>Time</th><th class=r>Duration</th><th>Activity</th></tr></thead><tbody>{}</tbody></table></div>",
+            esc(&proj),
+            fmt_dur(ptotal),
+            rows
+        ));
+    }
+    if sections.is_empty() {
+        sections = "<p class=muted>No project-tagged time in this range. Assign time to a project by dragging a window on the day timeline.</p>".into();
+    }
+
+    format!(
+        r#"<!doctype html><html lang=en><head><meta charset=utf-8>
+<meta name=viewport content="width=device-width,initial-scale=1">
+<title>Project report · {range}</title>
+<style>
+:root{{--bg:#0c0d11;--surface:#17191f;--border:#2b2e38;--muted:#9a9fac;--fg:#f2f3f5;--accent:#b3c5ff}}
+*{{box-sizing:border-box}}
+body{{margin:0 auto;max-width:880px;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:28px}}
+h1{{font-size:22px;margin:0 0 4px}}
+.sub{{color:var(--muted);margin:0 0 20px}}
+.card{{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:16px}}
+.phead{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}}
+.card h2{{font-size:15px;margin:0}}
+.ptot{{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}}
+.muted{{color:var(--muted)}}
+table{{width:100%;border-collapse:collapse;font-size:12px}}
+th,td{{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}}
+th{{color:var(--muted);font-weight:500}}
+td.r,th.r{{text-align:right;font-variant-numeric:tabular-nums}}
+.grand{{font-size:16px;font-weight:700;text-align:right;margin:4px 2px 0}}
+.grand .accent{{color:var(--accent)}}
+footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
+@media print{{body{{padding:0}}.card{{break-inside:avoid}}}}
+</style></head><body>
+<h1>Project report</h1>
+<p class=sub>{range}</p>
+{sections}
+<p class=grand>Total: <span class=accent>{grand}</span></p>
+<footer>{footer}</footer>
+</body></html>"#,
+        range = esc(&range),
+        sections = sections,
+        grand = fmt_dur(grand),
+        footer = FOOTER,
+    )
+}
+
 // ── HTML ─────────────────────────────────────────────────────────────────────
 
 fn esc(s: &str) -> String {
@@ -467,6 +600,42 @@ mod tests {
         let out = html(&[], &HashMap::new(), 0, 86_400_000, 0);
         assert!(out.contains(FOOTER));
         assert!(out.contains("No active time."));
+    }
+
+    #[test]
+    fn project_export_groups_billable_excludes_idle_and_claude() {
+        let mut a = ev("Code", 0, 3_600_000, false, None, Some("feature.rs")); // 1h, Acme
+        a.project = Some("Acme".into());
+        let mut b = ev("Safari", 3_600_000, 5_400_000, false, Some("docs.rs"), None); // 30m, Acme
+        b.project = Some("Acme".into());
+        let mut c = ev("Code", 5_400_000, 9_000_000, false, None, Some("x.rs")); // 1h, Beta
+        c.project = Some("Beta".into());
+        let mut idle = ev("Code", 0, 600_000, true, None, None); // idle, has project → excluded
+        idle.project = Some("Acme".into());
+        let mut cl = ev("Claude Code", 0, 600_000, false, None, None); // claude → excluded
+        cl.source = "claude".into();
+        cl.project = Some("Acme".into());
+        let untagged = ev("Finder", 0, 600_000, false, None, None); // no project → excluded
+        let events = vec![a, b, c, idle, cl, untagged];
+
+        let csv = project_csv(&events, 0);
+        assert!(csv.starts_with("project,date,start,end,duration_min,app,activity\n"));
+        assert!(csv.contains("Acme,"));
+        assert!(csv.contains("Beta,"));
+        assert!(!csv.contains("Finder")); // untagged excluded
+        assert!(!csv.contains("Claude Code")); // claude excluded
+        // 3 billable rows (header + 3).
+        assert_eq!(csv.trim().lines().count(), 4);
+
+        let html = project_html(&events, 0, 86_400_000, 0);
+        assert!(html.starts_with("<!doctype html>"));
+        assert!(html.contains("Project report"));
+        assert!(html.contains("Acme"));
+        assert!(html.contains("Beta"));
+        assert!(html.contains("Total:"));
+        assert!(html.contains(FOOTER));
+        assert!(!html.contains("http://"));
+        assert!(!html.contains("https://"));
     }
 
     #[test]

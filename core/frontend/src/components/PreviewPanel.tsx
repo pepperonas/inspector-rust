@@ -3,11 +3,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
 import {
   Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
-  Phone, QrCode, Scissors, Type, Wand2, Zap,
+  Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
-import type { ListEntry } from "../lib/types";
+import type { ClipEntry, ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { AnimatedNumber } from "./AnimatedNumber";
@@ -26,6 +26,7 @@ import {
   qrCopyPng,
   recolorImageEntry,
   saveImageEntryToDownloads,
+  setClipNote,
   socialDownload,
   socialYtdlpAvailable,
 } from "../lib/ipc";
@@ -723,6 +724,7 @@ export function PreviewPanel({
       <span>{clip.content_type}</span>
       <span>·</span>
       <span>{formatBytes(clip.byte_size)}</span>
+      <NoteButton entry={clip} />
     </div>
   );
 
@@ -1026,6 +1028,110 @@ const SMART_ICON: Record<SmartActionKind, typeof ExternalLink> = {
   maps: MapPin,
   qr: QrCode,
 };
+
+/** Note button (top-right of the preview): add a note, or — when one exists —
+ *  show it highlighted with Edit / Delete. The list row turns yellow whenever a
+ *  note is set; clearing it removes the highlight. The note text round-trips via
+ *  `set_clip_note`; the backend's `clipboard-changed` event refreshes the entry. */
+function NoteButton({ entry }: { entry: ClipEntry }) {
+  const note = entry.note ?? "";
+  const has = note.length > 0;
+  const [open, setOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+
+  const openMenu = () => {
+    setDraft(note);
+    setEditing(!has); // no note yet → straight to the editor
+    setOpen((o) => !o);
+  };
+  const save = () => {
+    void setClipNote(entry.id, draft.trim()).catch(() => undefined);
+    setOpen(false);
+  };
+  const remove = () => {
+    void setClipNote(entry.id, "").catch(() => undefined);
+    setOpen(false);
+  };
+
+  return (
+    <span className="relative ml-auto normal-case">
+      <button
+        type="button"
+        onClick={openMenu}
+        title={has ? "Note" : "Add note"}
+        className={
+          "flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-medium " +
+          (has
+            ? "border-amber-400/50 bg-amber-400/15 text-amber-500"
+            : "border-[var(--color-border)] text-[var(--color-muted)] hover:bg-[var(--color-surface)]")
+        }
+      >
+        <StickyNote size={12} fill={has ? "currentColor" : "none"} />
+        {has ? "Note" : "Add note"}
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[12px] shadow-lg">
+          {has && !editing ? (
+            <>
+              <p className="mb-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[var(--color-fg)]">
+                {note}
+              </p>
+              <div className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={remove}
+                  className="md3-press rounded-full border border-rose-500/40 px-2.5 py-1 text-rose-400 hover:bg-rose-500/10"
+                >
+                  Delete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing(true)}
+                  className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)]"
+                >
+                  Edit
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <textarea
+                autoFocus
+                value={draft}
+                placeholder="Add a note for this clip…"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) save();
+                  else if (e.key === "Escape") setOpen(false);
+                }}
+                rows={3}
+                className="mb-2 w-full rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-1"
+              />
+              <div className="flex items-center justify-end gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="md3-press rounded-full border border-[var(--color-border)] px-2.5 py-1"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={save}
+                  disabled={draft.trim() === ""}
+                  className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-1 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
+                >
+                  Save
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+    </span>
+  );
+}
 
 /** Row of one-tap actions detected from a text clip (open link, compose email,
  *  call, open Maps, make QR). Only renders when something is detected. */

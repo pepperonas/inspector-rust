@@ -972,6 +972,21 @@ pub fn set_clip_pinned(
     Ok(())
 }
 
+/// Attach / update / clear a note on a clipboard entry. An empty string clears
+/// the note (and re-exposes the entry to pruning). Noted entries are highlighted
+/// in the list and exempt from the prune.
+#[tauri::command]
+pub fn set_clip_note(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    id: i64,
+    note: String,
+) -> Result<(), String> {
+    db::set_note(&db, id, Some(note.as_str())).map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 pub fn clear_history(db: State<'_, DbHandle>) -> Result<(), String> {
     db::clear(&db).map_err(map_err)

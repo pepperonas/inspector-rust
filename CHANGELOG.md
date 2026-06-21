@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.106] — 2026-06-21
+
+### Added
+
+- **Clipboard notes.** Any clipboard entry can carry a **note**. The note button
+  sits **top-right in the preview**: empty → "Add note"; once set, the marker
+  turns **yellow** and clicking it offers **Edit** or **Delete**. Noted entries
+  are **highlighted yellow in the list** with a note icon (the note text on
+  hover); deleting the note removes the highlight. Notes are **encrypted at rest**
+  (like clip content), **exempt from the 1 000-row prune** (like pinned, so a
+  noted clip is never auto-deleted), and included in backup export/import. New
+  `entries.note` column (lazy migration); IPC `set_clip_note`; `db::set_note`
+  + prune/round-trip unit tests.
+
 ## [0.84.105] — 2026-06-21
 
 ### Fixed

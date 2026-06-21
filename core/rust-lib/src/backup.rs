@@ -239,7 +239,16 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
             byte_size: entry.byte_size,
         };
         match db::upsert_clip(db, &new_clip) {
-            Ok(_) => result.history_imported += 1,
+            Ok(id) => {
+                // Restore pin + note (upsert_clip doesn't carry them).
+                if entry.pinned {
+                    let _ = db::set_pinned(db, id, true);
+                }
+                if let Some(n) = entry.note.as_deref().filter(|s| !s.is_empty()) {
+                    let _ = db::set_note(db, id, Some(n));
+                }
+                result.history_imported += 1;
+            }
             Err(e) => result.errors.push(format!("history #{idx}: {e}")),
         }
     }
@@ -490,7 +499,8 @@ mod tests {
                 byte_size     INTEGER NOT NULL,
                 created_at    INTEGER NOT NULL,
                 last_used_at  INTEGER NOT NULL,
-                pinned        INTEGER NOT NULL DEFAULT 0
+                pinned        INTEGER NOT NULL DEFAULT 0,
+                note          TEXT
             );
             CREATE INDEX idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX idx_hash ON entries(hash);

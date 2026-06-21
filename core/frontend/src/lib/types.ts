@@ -16,6 +16,8 @@ export interface ClipEntry {
   last_used_at: number;
   /** Pinned entries float to the top and are never pruned (v0.76.0). */
   pinned: boolean;
+  /** Optional user note; noted entries are highlighted yellow + kept (v0.84.106). */
+  note: string | null;
 }
 
 export interface Snippet {

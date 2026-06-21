@@ -381,6 +381,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::start_input_lock,
             commands::delete_entry,
             commands::set_clip_pinned,
+            commands::set_clip_note,
             commands::clear_history,
             commands::toggle_capture,
             commands::get_capture_state,

@@ -38,7 +38,8 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
             byte_size     INTEGER NOT NULL,
             created_at    INTEGER NOT NULL,
             last_used_at  INTEGER NOT NULL,
-            pinned        INTEGER NOT NULL DEFAULT 0
+            pinned        INTEGER NOT NULL DEFAULT 0,
+            note          TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
         CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
@@ -50,6 +51,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
         "ALTER TABLE entries ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0",
         [],
     );
+    // Migration: `note` column (v0.84.106) — a user note attached to a clip
+    // (encrypted at rest, like content). Noted clips are exempt from pruning.
+    let _ = conn.execute("ALTER TABLE entries ADD COLUMN note TEXT", []);
     // Timesheet (time-tracking) tables — same idempotent CREATE-IF-NOT-EXISTS
     // convention; never crash an existing DB.
     crate::tracking::db::init_schema(&conn)
@@ -118,12 +122,13 @@ pub fn upsert_clip(db: &DbHandle, clip: &NewClip) -> Result<i64> {
 }
 
 fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
+    // Pinned **and** noted entries are kept (a note means the user cares).
     conn.execute(
         r#"
         DELETE FROM entries
-        WHERE pinned = 0 AND id IN (
+        WHERE pinned = 0 AND note IS NULL AND id IN (
             SELECT id FROM entries
-            WHERE pinned = 0
+            WHERE pinned = 0 AND note IS NULL
             ORDER BY last_used_at DESC
             LIMIT -1 OFFSET ?1
         )
@@ -144,12 +149,21 @@ pub fn set_pinned(db: &DbHandle, id: i64, pinned: bool) -> Result<()> {
     Ok(())
 }
 
+/// Attach / update / clear a note on an entry. An empty/`None` note clears it
+/// (and re-exposes the entry to pruning). The note is encrypted at rest.
+pub fn set_note(db: &DbHandle, id: i64, note: Option<&str>) -> Result<()> {
+    let conn = db.lock();
+    let enc = note.filter(|s| !s.is_empty()).map(crypto::encrypt);
+    conn.execute("UPDATE entries SET note = ?1 WHERE id = ?2", params![enc, id])?;
+    Ok(())
+}
+
 pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
     let conn = db.lock();
     let mut stmt = conn.prepare(
         r#"
         SELECT id, content_type, content_text, content_data, hash,
-               byte_size, created_at, last_used_at, pinned
+               byte_size, created_at, last_used_at, pinned, note
         FROM entries
         ORDER BY pinned DESC, last_used_at DESC
         LIMIT ?1 OFFSET ?2
@@ -182,7 +196,7 @@ pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipE
         r#"
         SELECT id, content_type, content_text,
                CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
-               hash, byte_size, created_at, last_used_at, pinned
+               hash, byte_size, created_at, last_used_at, pinned, note
         FROM entries
         ORDER BY pinned DESC, last_used_at DESC
         LIMIT ?1 OFFSET ?2
@@ -212,7 +226,7 @@ pub fn get(db: &DbHandle, id: i64) -> Result<Option<ClipEntry>> {
         .query_row(
             r#"
             SELECT id, content_type, content_text, content_data, hash,
-                   byte_size, created_at, last_used_at, pinned
+                   byte_size, created_at, last_used_at, pinned, note
             FROM entries
             WHERE id = ?1
             "#,
@@ -257,7 +271,8 @@ mod tests {
                 byte_size     INTEGER NOT NULL,
                 created_at    INTEGER NOT NULL,
                 last_used_at  INTEGER NOT NULL,
-                pinned        INTEGER NOT NULL DEFAULT 0
+                pinned        INTEGER NOT NULL DEFAULT 0,
+                note          TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
@@ -564,6 +579,32 @@ mod tests {
     }
 
     #[test]
+    fn set_note_attaches_clears_and_exempts_from_prune() {
+        let db = test_db();
+        let a = upsert_clip(&db, &text_clip("a")).unwrap();
+        upsert_clip(&db, &text_clip("b")).unwrap();
+        assert_eq!(get(&db, a).unwrap().unwrap().note, None);
+        set_note(&db, a, Some("call client")).unwrap();
+        assert_eq!(get(&db, a).unwrap().unwrap().note.as_deref(), Some("call client"));
+        // keep=0 → unnoted rows pruned, the noted one survives.
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 0).unwrap();
+        }
+        let rows = list(&db, 100, 0).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].note.as_deref(), Some("call client"));
+        // Clearing the note re-exposes it to pruning.
+        set_note(&db, a, Some("")).unwrap();
+        assert_eq!(get(&db, a).unwrap().unwrap().note, None);
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 0).unwrap();
+        }
+        assert_eq!(list(&db, 100, 0).unwrap().len(), 0);
+    }
+
+    #[test]
     fn pinned_survives_prune() {
         let db = test_db();
         let a = upsert_clip(&db, &text_clip("a")).unwrap();
@@ -625,5 +666,9 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
         created_at: row.get(6)?,
         last_used_at: row.get(7)?,
         pinned: row.get::<_, i64>(8)? != 0,
+        note: row
+            .get::<_, Option<String>>(9)?
+            .map(|enc| crypto::decrypt(&enc))
+            .filter(|s| !s.is_empty()),
     })
 }

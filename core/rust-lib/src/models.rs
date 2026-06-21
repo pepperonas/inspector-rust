@@ -50,6 +50,10 @@ pub struct ClipEntry {
     /// Pinned entries float to the top and are exempt from pruning.
     #[serde(default)]
     pub pinned: bool,
+    /// Optional user note attached to the clip (encrypted at rest). A noted
+    /// entry is highlighted in the list and exempt from pruning.
+    #[serde(default)]
+    pub note: Option<String>,
 }
 
 /// Payload coming in from the clipboard watcher, not yet hashed/stored.
@@ -139,6 +143,7 @@ mod tests {
             created_at: 1_700_000_000_000,
             last_used_at: 1_700_000_000_500,
             pinned: false,
+            note: None,
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let back: ClipEntry = serde_json::from_str(&json).expect("deserialize");

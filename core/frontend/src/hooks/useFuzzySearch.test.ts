@@ -18,6 +18,7 @@ function clip(id: number, text: string): ClipEntry {
     created_at: 0,
     last_used_at: 0,
     pinned: false,
+    note: null,
   };
 }
 

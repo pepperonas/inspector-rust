@@ -1,5 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, Terminal, Trash2, Type, Zap } from "lucide-react";
+import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -124,6 +124,8 @@ export const HistoryItem = memo(function HistoryItem({
   const isOpener = entry.kind === "opener";
   const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";
+  // A clip carrying a user note → highlighted yellow in the list.
+  const isNotedClip = entry.kind === "clip" && !!entry.data.note;
 
   const label =
     isSnippet
@@ -367,7 +369,9 @@ export const HistoryItem = memo(function HistoryItem({
             : "bg-rose-500/10 hover:bg-rose-500/20"
           : selected
             ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-            : "hover:bg-[var(--color-surface)]")
+            : isNotedClip
+              ? "bg-amber-400/15 hover:bg-amber-400/25"
+              : "hover:bg-[var(--color-surface)]")
       }
     >
       <span
@@ -615,6 +619,15 @@ export const HistoryItem = memo(function HistoryItem({
           label
         )}
       </span>
+      {isNotedClip && entry.kind === "clip" && entry.data.note && (
+        <span
+          title={entry.data.note}
+          className={"shrink-0 " + (selected ? "text-white/90" : "text-amber-500")}
+          aria-label="Has a note"
+        >
+          <StickyNote size={12} fill="currentColor" />
+        </span>
+      )}
       {entry.kind === "clip" && onTogglePin && (
         <button
           onClick={(e) => {

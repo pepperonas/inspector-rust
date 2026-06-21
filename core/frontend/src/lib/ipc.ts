@@ -421,6 +421,12 @@ export function setClipPinned(id: number, pinned: boolean): Promise<void> {
   return invoke("set_clip_pinned", { id, pinned });
 }
 
+/** Attach / update / clear a note on a clipboard entry ("" clears it). Noted
+ *  entries are highlighted in the list and exempt from pruning. */
+export function setClipNote(id: number, note: string): Promise<void> {
+  return invoke("set_clip_note", { id, note });
+}
+
 export interface ClipboardPrivacy {
   /** Comma/newline-separated app-name substrings never captured from. */
   exclude_apps: string;

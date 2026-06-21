@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.111] — 2026-06-22
+
+### Changed
+
+- **Timesheet — clearer collapse/expand affordance.** The section headers (Day
+  timeline, By app, By category, Top hosts, By project, Claude Code, Events, and
+  the week cards) now read as an obvious tappable strip: hover highlight, larger
+  hit area, bigger chevron, `aria-expanded`. The arrow toggles the section
+  open/closed (state still persisted in localStorage).
+
 ## [0.84.110] — 2026-06-21
 
 ### Added

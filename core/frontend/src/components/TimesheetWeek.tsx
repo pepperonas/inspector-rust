@@ -239,11 +239,12 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
       <button
         type="button"
         onClick={toggle}
-        className="md3-press flex w-full items-center gap-1 text-left text-[12px] font-medium text-[var(--color-muted)]"
-        title={collapsed ? "Expand" : "Collapse"}
+        className="md3-press -m-1 flex w-[calc(100%+0.5rem)] items-center gap-1.5 rounded-lg p-1 text-left text-[12px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]"
+        title={collapsed ? "Expand section" : "Collapse section"}
+        aria-expanded={!collapsed}
       >
         <ChevronRight
-          size={13}
+          size={14}
           className={"shrink-0 transition-transform " + (collapsed ? "" : "rotate-90")}
         />
         <span className="min-w-0 flex-1 truncate">{title}</span>

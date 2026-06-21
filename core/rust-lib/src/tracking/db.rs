@@ -514,6 +514,38 @@ pub fn delete_category_rule(db: &DbHandle, app_name: &str) -> rusqlite::Result<(
     Ok(())
 }
 
+/// Assign a project to the given events (empty/None clears it). Returns rows.
+pub fn set_project_for_events(
+    db: &DbHandle,
+    ids: &[i64],
+    project: Option<&str>,
+) -> rusqlite::Result<usize> {
+    if ids.is_empty() {
+        return Ok(0);
+    }
+    let conn = db.lock();
+    let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
+    let sql = format!("UPDATE track_events SET project = ? WHERE id IN ({placeholders})");
+    let proj = project.filter(|s| !s.is_empty());
+    let mut p: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(ids.len() + 1);
+    p.push(&proj);
+    for id in ids {
+        p.push(id);
+    }
+    conn.execute(&sql, p.as_slice())
+}
+
+/// Distinct project names ever used (incl. Claude cwd projects) — autocomplete.
+pub fn distinct_projects(db: &DbHandle) -> rusqlite::Result<Vec<String>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare(
+        "SELECT DISTINCT project FROM track_events \
+         WHERE project IS NOT NULL AND project != '' ORDER BY project",
+    )?;
+    let rows = stmt.query_map([], |r| r.get::<_, String>(0))?;
+    rows.collect()
+}
+
 /// Distinct category names ever used (rules ∪ events) — for assign autocomplete.
 pub fn distinct_categories(db: &DbHandle) -> rusqlite::Result<Vec<String>> {
     let conn = db.lock();

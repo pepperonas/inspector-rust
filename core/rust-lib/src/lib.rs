@@ -543,6 +543,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::track_category_rules,
             commands::track_delete_category_rule,
             commands::track_distinct_categories,
+            commands::track_set_project,
+            commands::track_distinct_projects,
             commands::track_add_event,
             commands::track_cleanup_day,
             commands::track_clear_all,

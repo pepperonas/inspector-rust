@@ -1350,6 +1350,14 @@ export function trackDeleteCategoryRule(appName: string): Promise<void> {
 export function trackDistinctCategories(): Promise<string[]> {
   return invoke("track_distinct_categories");
 }
+/** Assign a project to the given events (empty string clears). Returns count. */
+export function trackSetProject(ids: number[], project: string): Promise<number> {
+  return invoke("track_set_project", { ids, project });
+}
+/** Distinct project names ever used — for assign autocomplete. */
+export function trackDistinctProjects(): Promise<string[]> {
+  return invoke("track_distinct_projects");
+}
 export function trackClearAll(): Promise<void> {
   return invoke("track_clear_all");
 }

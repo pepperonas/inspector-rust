@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.97] — 2026-06-21
+
+### Added
+
+- **Timesheet — assign a time window to a project (phase 1 of 2).** Drag a window
+  on the **day timeline (Gantt)** → a popover shows the range + matching entries →
+  type/pick a **project** (autocomplete from existing projects incl. Claude cwd
+  names) → every active event the window touches is assigned to it. Idle and
+  Claude events are skipped. IPC `track_set_project` / `track_distinct_projects`.
+  Next: the project-grouped customer export (CSV + HTML, free date range).
+
 ## [0.84.96] — 2026-06-21
 
 ### Added

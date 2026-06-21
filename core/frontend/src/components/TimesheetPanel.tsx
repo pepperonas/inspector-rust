@@ -27,6 +27,8 @@ import {
   trackBridgeRegenerate,
   trackExportExtension,
   trackDistinctCategories,
+  trackSetProject,
+  trackDistinctProjects,
   trackAddEvent,
   trackCleanupDay,
   type DayReport,
@@ -81,8 +83,11 @@ export function TimesheetPanel() {
   const [draft, setDraft] = useState<EventDraft | null>(null);
   // Events area view: "timeline" (editable list, default) vs "grouped" by app.
   const [eventsView, setEventsView] = useState<"grouped" | "timeline">("timeline");
-  // Known category names (for assign autocomplete).
+  // Known category / project names (for assign autocomplete).
   const [knownCategories, setKnownCategories] = useState<string[]>([]);
+  const [knownProjects, setKnownProjects] = useState<string[]>([]);
+  // Pending project assignment from a Gantt time-window drag.
+  const [projAssign, setProjAssign] = useState<{ ids: number[]; t1: number; t2: number } | null>(null);
   // Manual "add entry" form open?
   const [adding, setAdding] = useState(false);
   // Rubber-band drag-selection over the timeline list.
@@ -100,6 +105,7 @@ export function TimesheetPanel() {
     setNow(Date.now());
     trackStatus().then(setStatus).catch(() => undefined);
     trackDistinctCategories().then(setKnownCategories).catch(() => undefined);
+    trackDistinctProjects().then(setKnownProjects).catch(() => undefined);
   }, [date, load]);
 
   const isToday = date === localDateStr();
@@ -435,9 +441,28 @@ export function TimesheetPanel() {
             />
           </div>
 
-          {/* Day timeline (24h gantt) */}
+          {/* Day timeline (24h gantt) — drag a window to assign a project */}
           <Card title="Day timeline">
-            <Timeline events={report.events} dayStart={dayStart} now={now} colors={appColors} />
+            <Timeline
+              events={report.events}
+              dayStart={dayStart}
+              now={now}
+              colors={appColors}
+              onSelectRange={(ids, t1, t2) => setProjAssign(ids.length ? { ids, t1, t2 } : null)}
+              highlight={projAssign ? { t1: projAssign.t1, t2: projAssign.t2 } : null}
+            />
+            {projAssign && (
+              <ProjectAssign
+                pending={projAssign}
+                projects={knownProjects}
+                onAssigned={() => {
+                  setProjAssign(null);
+                  refresh();
+                  trackDistinctProjects().then(setKnownProjects).catch(() => undefined);
+                }}
+                onCancel={() => setProjAssign(null)}
+              />
+            )}
           </Card>
 
           {/* App donut + Category bars */}
@@ -972,6 +997,69 @@ function AddEntryForm({
   );
 }
 
+/** Popover under the Gantt: assign the dragged time window's events to a project. */
+function ProjectAssign({
+  pending,
+  projects,
+  onAssigned,
+  onCancel,
+}: {
+  pending: { ids: number[]; t1: number; t2: number };
+  projects: string[];
+  onAssigned: () => void;
+  onCancel: () => void;
+}) {
+  const [value, setValue] = useState("");
+  const assign = () => {
+    const v = value.trim();
+    if (!v) return;
+    void trackSetProject(pending.ids, v).then(onAssigned).catch(() => undefined);
+  };
+  const secs = Math.round((pending.t2 - pending.t1) / 1000);
+  return (
+    <div
+      className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-surface)] p-2 text-[12px]"
+      onKeyDown={(e) => {
+        if (e.key === "Enter") assign();
+        else if (e.key === "Escape") onCancel();
+      }}
+    >
+      <span className="text-[var(--color-muted)]">
+        {formatClock(pending.t1)}–{formatClock(pending.t2)} · {pending.ids.length} entr
+        {pending.ids.length === 1 ? "y" : "ies"} · {formatDuration(secs)}
+      </span>
+      <input
+        autoFocus
+        list="proj-assign-cats"
+        value={value}
+        placeholder="Project / client"
+        onChange={(e) => setValue(e.target.value)}
+        className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5"
+      />
+      <datalist id="proj-assign-cats">
+        {projects.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+      <button
+        type="button"
+        onClick={onCancel}
+        className="md3-press rounded-full border border-[var(--color-border)] px-2.5 py-0.5"
+      >
+        Cancel
+      </button>
+      <button
+        type="button"
+        onClick={assign}
+        disabled={pending.ids.length === 0 || value.trim() === ""}
+        className="md3-press rounded-full bg-[var(--color-accent)] px-3 py-0.5 font-semibold text-[var(--color-accent-fg)] disabled:opacity-40"
+      >
+        Assign
+      </button>
+    </div>
+  );
+}
+
 /** Assign a category to a whole app (sets the rule + back-fills every event).
  *  An input with a datalist of known categories for fast, typo-free entry. */
 function CategoryAssign({
@@ -1050,20 +1138,84 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
+const DAY_MS = 86_400_000;
+
 function Timeline({
   events,
   dayStart,
   now,
   colors,
+  onSelectRange,
+  highlight,
 }: {
   events: TrackEvent[];
   dayStart: number;
   now: number;
   colors: Record<string, string>;
+  /** Called on a drag-release with the active events overlapping [t1,t2]. */
+  onSelectRange?: (ids: number[], t1: number, t2: number) => void;
+  /** A committed window to keep highlighted (while the assign popover is open). */
+  highlight?: { t1: number; t2: number } | null;
 }) {
+  const barRef = useRef<HTMLDivElement>(null);
+  const [dragPx, setDragPx] = useState<{ x1: number; x2: number } | null>(null);
+
+  const onPointerDown = (e: React.PointerEvent) => {
+    if (!onSelectRange || e.button !== 0) return;
+    const bar = barRef.current;
+    if (!bar) return;
+    const rect = bar.getBoundingClientRect();
+    const startX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    let moved = false;
+    const onMove = (ev: PointerEvent) => {
+      const cur = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
+      if (!moved && Math.abs(cur - startX) < 4) return;
+      moved = true;
+      document.body.style.userSelect = "none";
+      setDragPx({ x1: Math.min(startX, cur), x2: Math.max(startX, cur) });
+    };
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      setDragPx(null);
+      if (!moved) return;
+      const endX = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
+      const f1 = Math.min(startX, endX) / rect.width;
+      const f2 = Math.max(startX, endX) / rect.width;
+      const t1 = dayStart + f1 * DAY_MS;
+      const t2 = dayStart + f2 * DAY_MS;
+      const ids = events
+        .filter(
+          (ev2) =>
+            !ev2.is_idle &&
+            ev2.source !== "claude" &&
+            ev2.started_at < t2 &&
+            (ev2.ended_at ?? now) > t1,
+        )
+        .map((ev2) => ev2.id);
+      onSelectRange(ids, t1, t2);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+
+  const hiLeft = highlight ? Math.max(0, ((highlight.t1 - dayStart) / DAY_MS) * 100) : 0;
+  const hiWidth = highlight
+    ? Math.min(100 - hiLeft, ((highlight.t2 - highlight.t1) / DAY_MS) * 100)
+    : 0;
+
   return (
     <div>
-      <div className="relative h-7 w-full overflow-hidden rounded-md bg-[var(--color-surface)]">
+      <div
+        ref={barRef}
+        onPointerDown={onPointerDown}
+        className={
+          "relative h-7 w-full select-none overflow-hidden rounded-md bg-[var(--color-surface)] " +
+          (onSelectRange ? "cursor-crosshair" : "")
+        }
+        title={onSelectRange ? "Drag to select a time window → assign a project" : undefined}
+      >
         {events.map((e) => {
           const band = timelineBand(e.started_at, e.ended_at, dayStart, now);
           if (!band) return null;
@@ -1081,6 +1233,20 @@ function Timeline({
             />
           );
         })}
+        {/* Committed window (popover open). */}
+        {highlight && hiWidth > 0 && (
+          <div
+            className="pointer-events-none absolute top-0 h-full border-x-2 border-[var(--color-accent)] bg-[var(--color-accent)]/25"
+            style={{ left: `${hiLeft}%`, width: `${hiWidth}%` }}
+          />
+        )}
+        {/* Transient drag rectangle. */}
+        {dragPx && (
+          <div
+            className="pointer-events-none absolute top-0 h-full border-x-2 border-[var(--color-accent)] bg-[var(--color-accent)]/30"
+            style={{ left: dragPx.x1, width: dragPx.x2 - dragPx.x1 }}
+          />
+        )}
       </div>
       <div className="mt-1 flex justify-between text-[10px] tabular-nums text-[var(--color-muted)]">
         {[0, 6, 12, 18, 24].map((h) => (

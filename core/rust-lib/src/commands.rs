@@ -405,6 +405,22 @@ pub fn track_distinct_categories(db: State<'_, DbHandle>) -> Result<Vec<String>,
     crate::tracking::db::distinct_categories(&db).map_err(map_err)
 }
 
+/// Assign a project to the given events (empty string clears). Returns rows.
+#[tauri::command]
+pub fn track_set_project(
+    db: State<'_, DbHandle>,
+    ids: Vec<i64>,
+    project: String,
+) -> Result<usize, String> {
+    crate::tracking::db::set_project_for_events(&db, &ids, Some(project.as_str())).map_err(map_err)
+}
+
+/// Distinct project names ever used — for assign autocomplete.
+#[tauri::command]
+pub fn track_distinct_projects(db: State<'_, DbHandle>) -> Result<Vec<String>, String> {
+    crate::tracking::db::distinct_projects(&db).map_err(map_err)
+}
+
 #[tauri::command]
 pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::tracking::db::clear_all(&db).map_err(map_err)

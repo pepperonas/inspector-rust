@@ -79,8 +79,8 @@ export function TimesheetPanel() {
   const [selected, setSelected] = useState<Set<number>>(() => new Set());
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EventDraft | null>(null);
-  // Events area view: "grouped" by app (expandable) vs "timeline" (editable list).
-  const [eventsView, setEventsView] = useState<"grouped" | "timeline">("grouped");
+  // Events area view: "timeline" (editable list, default) vs "grouped" by app.
+  const [eventsView, setEventsView] = useState<"grouped" | "timeline">("timeline");
   // Known category names (for assign autocomplete).
   const [knownCategories, setKnownCategories] = useState<string[]>([]);
   // Manual "add entry" form open?
@@ -581,10 +581,12 @@ export function TimesheetPanel() {
               {report.events.map((e) => (
                 <div key={e.id} className="border-t border-[var(--color-border)]/60 first:border-t-0">
                   <div
+                    onDoubleClick={() => (editingId === e.id ? refresh() : beginEdit(e))}
                     className={
-                      "group flex items-center gap-2 py-1.5 text-[12px] " +
+                      "group flex cursor-default items-center gap-2 py-1.5 text-[12px] " +
                       (selected.has(e.id) ? "bg-[var(--color-accent)]/8 -mx-1 rounded px-1" : "")
                     }
+                    title="Double-click to edit"
                   >
                     <input
                       type="checkbox"
@@ -725,7 +727,7 @@ export function TimesheetPanel() {
             ← → change day · t today
             {eventsView === "grouped"
               ? " · ▸ expand an app for its detail"
-              : " · ✎ edit · ☑ select to merge"}
+              : " · double-click to edit · ☑ select to merge"}
           </p>
         </div>
       )}

@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.94] — 2026-06-21
+
+### Changed
+
+- **Timesheet — Timeline is the default events view**, and **double-clicking an
+  event opens its inline editor** (the ✎ button still works too). Footer hint
+  updated.
+
 ## [0.84.93] — 2026-06-21
 
 ### Added

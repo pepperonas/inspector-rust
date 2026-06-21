@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.108] — 2026-06-21
+
+### Added
+
+- **Timesheet — collapsible sections (remembered).** Every section card in the
+  Timesheet (Day timeline, By app, By category, Top hosts, By project, Claude
+  Code, Events — and the week view's cards) now has a clickable header with a
+  chevron to **collapse/expand** it. Each card's state is **persisted in
+  localStorage**, so your layout (what's collapsed) is restored when you reopen
+  the popup or switch back to the tab.
+
 ## [0.84.107] — 2026-06-21
 
 ### Changed

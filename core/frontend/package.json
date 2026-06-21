@@ -1,7 +1,7 @@
 {
   "name": "inspector-rust-frontend",
   "private": true,
-  "version": "0.84.107",
+  "version": "0.84.108",
   "type": "module",
   "scripts": {
     "dev": "vite",

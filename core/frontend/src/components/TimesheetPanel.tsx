@@ -697,11 +697,11 @@ export function TimesheetPanel() {
               else window titles). */}
           {eventsView === "grouped" &&
             (report.app_breakdown.length === 0 ? (
-              <Card title="By app">
+              <Card id="by-app-grouped" title="By app">
                 <p className="text-[12px] text-[var(--color-muted)]">No activity.</p>
               </Card>
             ) : (
-              <Card title={`By app (${report.app_breakdown.length})`}>
+              <Card id="by-app-grouped" title={`By app (${report.app_breakdown.length})`}>
                 {/* Native <details> so the toggle is browser-driven — no React
                     state to lose across the live-refresh re-renders. */}
                 <div className="flex flex-col gap-1">
@@ -767,7 +767,7 @@ export function TimesheetPanel() {
 
           {/* Timeline view — selectable (merge) + inline-editable event list */}
           {eventsView === "timeline" && (
-          <Card title={`Events (${shownEvents.length}${shownEvents.length !== report.events.length ? ` / ${report.events.length}` : ""})`}>
+          <Card id="events" title={`Events (${shownEvents.length}${shownEvents.length !== report.events.length ? ` / ${report.events.length}` : ""})`}>
             {/* Search + active drill-down filter chip */}
             <div className="mb-2 flex items-center gap-2">
               <input
@@ -1557,11 +1557,51 @@ function GoalBar({ activeSec, goalMin }: { activeSec: number; goalMin: number })
   );
 }
 
-function Card({ title, children }: { title: string; children: React.ReactNode }) {
+/** A collapsible section. The collapsed state persists in localStorage keyed by
+ *  `id` (or the title), so it survives popup close/reopen + tab switches. */
+function Card({
+  title,
+  id,
+  children,
+}: {
+  title: string;
+  /** Stable key for persistence (use when the title is dynamic, e.g. a count). */
+  id?: string;
+  children: React.ReactNode;
+}) {
+  const key = `ts-collapse:${id ?? title}`;
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setCollapsed((c) => {
+      const n = !c;
+      try {
+        localStorage.setItem(key, n ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
-      <div className="mb-2 text-[12px] font-medium text-[var(--color-muted)]">{title}</div>
-      {children}
+      <button
+        type="button"
+        onClick={toggle}
+        className="md3-press flex w-full items-center gap-1 text-left text-[12px] font-medium text-[var(--color-muted)]"
+        title={collapsed ? "Expand" : "Collapse"}
+      >
+        <ChevronRight
+          size={13}
+          className={"shrink-0 transition-transform " + (collapsed ? "" : "rotate-90")}
+        />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+      </button>
+      {!collapsed && <div className="mt-2">{children}</div>}
     </div>
   );
 }

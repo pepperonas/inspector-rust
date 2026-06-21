@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { ChevronRight } from "lucide-react";
 import { trackGetRange, type RangeReport } from "../lib/ipc";
 import {
   categoryColor,
@@ -213,11 +214,41 @@ function Stat({
   );
 }
 
+/** Collapsible section; collapsed state persists in localStorage by title. */
 function Card({ title, children }: { title: string; children: React.ReactNode }) {
+  const key = `ts-collapse:${title}`;
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggle = () =>
+    setCollapsed((c) => {
+      const n = !c;
+      try {
+        localStorage.setItem(key, n ? "1" : "0");
+      } catch {
+        /* ignore */
+      }
+      return n;
+    });
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
-      <div className="mb-2 text-[12px] font-medium text-[var(--color-muted)]">{title}</div>
-      {children}
+      <button
+        type="button"
+        onClick={toggle}
+        className="md3-press flex w-full items-center gap-1 text-left text-[12px] font-medium text-[var(--color-muted)]"
+        title={collapsed ? "Expand" : "Collapse"}
+      >
+        <ChevronRight
+          size={13}
+          className={"shrink-0 transition-transform " + (collapsed ? "" : "rotate-90")}
+        />
+        <span className="min-w-0 flex-1 truncate">{title}</span>
+      </button>
+      {!collapsed && <div className="mt-2">{children}</div>}
     </div>
   );
 }

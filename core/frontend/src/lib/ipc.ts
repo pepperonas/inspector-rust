@@ -1275,6 +1275,8 @@ export interface DayReport {
   total_active_s: number;
   total_idle_s: number;
   session_count: number;
+  longest_focus_s: number;
+  focus_segments: number;
   by_app: TrackBucket[];
   by_category: TrackBucket[];
   by_host: TrackBucket[];
@@ -1424,6 +1426,7 @@ export interface TimesheetConfig {
   retention_days: number;
   claude_watcher: boolean;
   denylist: string;
+  daily_goal_minutes: number;
 }
 export function getTimesheetConfig(): Promise<TimesheetConfig> {
   return invoke("get_timesheet_config");

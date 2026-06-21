@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.100] — 2026-06-21
+
+### Added
+
+- **Timesheet — day insights (roadmap #2/#3/#5/#10).** The day view gains: an
+  **insight sentence** ("Today: 4h 12m active, 78% productive, top: Code (2h)"),
+  a **daily focus-goal** progress bar (set the target in Settings → Timesheet;
+  0 = off), **Δ vs. the previous day** chips on Active + Productive (green/red),
+  and a **Focus** stat (longest uninterrupted run + segment count). Backend adds
+  `longest_focus_s` / `focus_segments` (`longest_run_seconds`, unit-tested) and
+  `daily_goal_minutes` config.
+
 ## [0.84.99] — 2026-06-21
 
 ### Changed

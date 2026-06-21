@@ -2245,6 +2245,7 @@ function TimesheetSection() {
     retention_days: number;
     claude_watcher: boolean;
     denylist: string;
+    daily_goal_minutes: number;
   } | null>(null);
   const [saved, setSaved] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -2312,6 +2313,16 @@ function TimesheetSection() {
             {cfg.claude_watcher ? "On — track Claude Code time" : "Off"}
           </span>
         </label>
+      </Row>
+      <Row label="Daily focus goal (minutes)" help="Target active time per day (0 = off). Shows a progress bar in the Timesheet day view.">
+        <input
+          type="number"
+          min={0}
+          step={30}
+          value={cfg.daily_goal_minutes}
+          onChange={(e) => setCfg({ ...cfg, daily_goal_minutes: Number(e.target.value) || 0 })}
+          className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
+        />
       </Row>
       <Row label="Privacy denylist" help="Comma/newline-separated app names or hostnames. For matches, only the app name + time are stored — no window title or URL.">
         <textarea

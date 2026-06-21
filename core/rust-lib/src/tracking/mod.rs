@@ -490,6 +490,10 @@ pub struct DayReport {
     pub total_active_s: i64,
     pub total_idle_s: i64,
     pub session_count: i64,
+    /// Longest uninterrupted active run (no idle break), seconds.
+    pub longest_focus_s: i64,
+    /// Number of active focus segments (≈ context switches).
+    pub focus_segments: i64,
     pub by_app: Vec<Bucket>,
     pub by_category: Vec<Bucket>,
     pub by_host: Vec<Bucket>,
@@ -526,6 +530,28 @@ fn union_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
     }
     total_ms += cur_e - cur_s;
     total_ms / 1000
+}
+
+/// Longest single contiguous run (merging touching/overlapping intervals), in
+/// seconds — i.e. the longest uninterrupted span with no gap. `intervals` in ms.
+fn longest_run_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
+    if intervals.is_empty() {
+        return 0;
+    }
+    intervals.sort_by_key(|iv| iv.0);
+    let mut best = 0i64;
+    let (mut cur_s, mut cur_e) = intervals[0];
+    for &(s, e) in &intervals[1..] {
+        if s > cur_e {
+            best = best.max(cur_e - cur_s);
+            cur_s = s;
+            cur_e = e;
+        } else if e > cur_e {
+            cur_e = e;
+        }
+    }
+    best = best.max(cur_e - cur_s);
+    best / 1000
 }
 
 /// Local-day `[midnight, next-midnight)` in unix ms for a `"YYYY-MM-DD"`.
@@ -744,12 +770,16 @@ fn aggregate_day(
         })
         .collect();
     claude.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.project.cmp(&b.project)));
+    let focus_segments = active_iv.len() as i64;
+    let longest_focus_s = longest_run_seconds(active_iv.clone());
     DayReport {
         date,
         events,
         total_active_s: union_seconds(active_iv),
         total_idle_s: union_seconds(idle_iv),
         session_count: sessions.len() as i64,
+        longest_focus_s,
+        focus_segments,
         by_app: to_buckets(by_app),
         by_category: to_buckets(by_cat),
         by_host: to_buckets(by_host),
@@ -883,6 +913,38 @@ mod tests {
         assert_eq!(union_seconds(vec![(0, 40_000), (30_000, 60_000)]), 60);
         // Disjoint [0,10] + [20,30] = 20s.
         assert_eq!(union_seconds(vec![(20_000, 30_000), (0, 10_000)]), 20);
+    }
+
+    #[test]
+    fn aggregate_day_focus_metrics() {
+        let mk = |app: &str, idle: bool, s: i64, e: i64| tdb::TrackEvent {
+            id: 0,
+            session_id: 1,
+            app_name: app.into(),
+            app_id: None,
+            window_title: None,
+            url: None,
+            host: None,
+            category: None,
+            project: None,
+            source: "focus".into(),
+            is_idle: idle,
+            started_at: s,
+            ended_at: Some(e),
+            duration_s: Some((e - s) / 1000),
+        };
+        // Run 1: Code 0–600s, Safari 600–900s (contiguous → 900s run).
+        // idle 900–1200s breaks it. Run 2: Code 1200–1500s (300s).
+        let events = vec![
+            mk("Code", false, 0, 600_000),
+            mk("Safari", false, 600_000, 900_000),
+            mk("Code", true, 900_000, 1_200_000),
+            mk("Code", false, 1_200_000, 1_500_000),
+        ];
+        let r = aggregate_day("2026-06-21".into(), events, 0, 10_000_000, 9_999_999);
+        assert_eq!(r.focus_segments, 3); // 3 active events
+        assert_eq!(r.longest_focus_s, 900); // the contiguous Code+Safari run
+        assert_eq!(r.total_active_s, 1200); // 900 + 300
     }
 
     #[test]

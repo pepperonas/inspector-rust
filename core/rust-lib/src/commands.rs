@@ -478,6 +478,7 @@ pub struct TimesheetConfig {
     retention_days: i64,
     claude_watcher: bool,
     denylist: String,
+    daily_goal_minutes: i64,
 }
 
 #[tauri::command]
@@ -488,6 +489,7 @@ pub fn get_timesheet_config(db: State<'_, DbHandle>) -> TimesheetConfig {
         retention_days: g("track.retention_days", "0").parse().unwrap_or(0),
         claude_watcher: g("track.claude_watcher", "1") != "0",
         denylist: g("track.denylist", ""),
+        daily_goal_minutes: g("track.daily_goal_minutes", "0").parse().unwrap_or(0),
     }
 }
 
@@ -498,6 +500,7 @@ pub fn set_timesheet_config(db: State<'_, DbHandle>, config: TimesheetConfig) ->
     s("track.retention_days", &config.retention_days.max(0).to_string())?;
     s("track.claude_watcher", if config.claude_watcher { "1" } else { "0" })?;
     s("track.denylist", &config.denylist)?;
+    s("track.daily_goal_minutes", &config.daily_goal_minutes.max(0).to_string())?;
     Ok(())
 }
 

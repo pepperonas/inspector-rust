@@ -32,6 +32,7 @@ import {
   trackExportProjects,
   trackAddEvent,
   trackCleanupDay,
+  getTimesheetConfig,
   type DayReport,
   type TrackEvent,
   type TrackStatus,
@@ -50,6 +51,7 @@ import {
   paletteColor,
   shiftDay,
   shiftWeek,
+  shortDayLabel,
   timeInputToMs,
   timelineBand,
   weekBounds,
@@ -91,6 +93,9 @@ export function TimesheetPanel() {
   const [knownProjects, setKnownProjects] = useState<string[]>([]);
   // Pending project assignment from a Gantt time-window drag.
   const [projAssign, setProjAssign] = useState<{ ids: number[]; t1: number; t2: number } | null>(null);
+  // Daily focus goal (minutes, 0 = off) + previous-day totals for Δ comparison.
+  const [dailyGoalMin, setDailyGoalMin] = useState(0);
+  const [prevDay, setPrevDay] = useState<{ active: number; idle: number } | null>(null);
   // Manual "add entry" form open?
   const [adding, setAdding] = useState(false);
   // Rubber-band drag-selection over the timeline list.
@@ -109,6 +114,11 @@ export function TimesheetPanel() {
     trackStatus().then(setStatus).catch(() => undefined);
     trackDistinctCategories().then(setKnownCategories).catch(() => undefined);
     trackDistinctProjects().then(setKnownProjects).catch(() => undefined);
+    getTimesheetConfig().then((c) => setDailyGoalMin(c.daily_goal_minutes)).catch(() => undefined);
+    // Previous day's totals for the Δ comparison.
+    trackGetDay(shiftDay(date, -1))
+      .then((r) => setPrevDay({ active: r.total_active_s, idle: r.total_idle_s }))
+      .catch(() => setPrevDay(null));
   }, [date, load]);
 
   const isToday = date === localDateStr();
@@ -432,21 +442,55 @@ export function TimesheetPanel() {
         </div>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-          {/* Totals */}
-          <div className="grid grid-cols-3 gap-3">
-            <Stat label="Active" value={formatDuration(report.total_active_s)} accent />
-            <Stat label="Idle" value={formatDuration(report.total_idle_s)} />
-            <Stat
-              label="Productive"
-              value={`${
-                report.total_active_s + report.total_idle_s > 0
-                  ? Math.round(
-                      (report.total_active_s / (report.total_active_s + report.total_idle_s)) * 100,
-                    )
-                  : 0
-              }%`}
-            />
-          </div>
+          {/* Insight sentence */}
+          {(() => {
+            const total = report.total_active_s + report.total_idle_s;
+            const pct = total > 0 ? Math.round((report.total_active_s / total) * 100) : 0;
+            const top = report.by_app[0];
+            return (
+              <p className="text-[13px] leading-snug">
+                <span className="font-semibold">{isToday ? "Today" : shortDayLabel(date)}:</span>{" "}
+                {formatDuration(report.total_active_s)} active
+                {total > 0 ? `, ${pct}% productive` : ""}
+                {top ? `, top: ${top.key} (${formatDuration(top.seconds)})` : ""}.
+              </p>
+            );
+          })()}
+
+          {/* Daily goal progress */}
+          {dailyGoalMin > 0 && <GoalBar activeSec={report.total_active_s} goalMin={dailyGoalMin} />}
+
+          {/* Totals (with Δ vs previous day) */}
+          {(() => {
+            const total = report.total_active_s + report.total_idle_s;
+            const pct = total > 0 ? Math.round((report.total_active_s / total) * 100) : 0;
+            let prevPct: number | null = null;
+            if (prevDay) {
+              const pt = prevDay.active + prevDay.idle;
+              prevPct = pt > 0 ? Math.round((prevDay.active / pt) * 100) : 0;
+            }
+            return (
+              <div className="grid grid-cols-2 gap-3">
+                <Stat
+                  label="Active"
+                  value={formatDuration(report.total_active_s)}
+                  accent
+                  delta={prevDay ? durationDelta(report.total_active_s - prevDay.active) : undefined}
+                />
+                <Stat label="Idle" value={formatDuration(report.total_idle_s)} />
+                <Stat
+                  label="Productive"
+                  value={`${pct}%`}
+                  delta={prevPct != null ? pointDelta(pct - prevPct) : undefined}
+                />
+                <Stat
+                  label="Focus"
+                  value={formatDuration(report.longest_focus_s)}
+                  sub={`longest · ${report.focus_segments} segment${report.focus_segments === 1 ? "" : "s"}`}
+                />
+              </div>
+            );
+          })()}
 
           {/* Day timeline (24h gantt) — drag a window to assign a project */}
           <Card title="Day timeline">
@@ -1193,10 +1237,50 @@ function CategoryAssign({
 
 // ── Small presentational pieces ──────────────────────────────────────────────
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+interface Delta {
+  text: string;
+  positive: boolean;
+}
+/** Δ chip for a duration change (seconds); positive = more (green). */
+function durationDelta(diffSec: number): Delta | undefined {
+  if (Math.abs(diffSec) < 60) return undefined;
+  return { text: `${diffSec >= 0 ? "+" : "−"}${formatDuration(Math.abs(diffSec))}`, positive: diffSec >= 0 };
+}
+/** Δ chip for a percentage-point change. */
+function pointDelta(diffPts: number): Delta | undefined {
+  if (diffPts === 0) return undefined;
+  return { text: `${diffPts >= 0 ? "+" : "−"}${Math.abs(diffPts)}%`, positive: diffPts >= 0 };
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+  delta,
+  sub,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  delta?: Delta;
+  sub?: string;
+}) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
-      <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+        {delta && (
+          <span
+            className={
+              "text-[11px] font-semibold tabular-nums " +
+              (delta.positive ? "text-emerald-400" : "text-rose-400")
+            }
+            title="vs. previous day"
+          >
+            {delta.positive ? "▲" : "▼"} {delta.text}
+          </span>
+        )}
+      </div>
       <div
         className={
           "mt-0.5 text-[20px] font-bold tabular-nums " +
@@ -1204,6 +1288,36 @@ function Stat({ label, value, accent }: { label: string; value: string; accent?:
         }
       >
         {value}
+      </div>
+      {sub && <div className="text-[10px] text-[var(--color-muted)]">{sub}</div>}
+    </div>
+  );
+}
+
+/** Daily focus-goal progress bar. */
+function GoalBar({ activeSec, goalMin }: { activeSec: number; goalMin: number }) {
+  const goalSec = goalMin * 60;
+  const pct = goalSec > 0 ? Math.min(100, Math.round((activeSec / goalSec) * 100)) : 0;
+  const remain = Math.max(0, goalSec - activeSec);
+  const done = activeSec >= goalSec;
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] p-3">
+      <div className="mb-1 flex items-center justify-between text-[12px]">
+        <span className="font-medium text-[var(--color-muted)]">Daily goal</span>
+        <span className="tabular-nums">
+          {formatDuration(activeSec)} / {formatDuration(goalSec)}
+          {done ? (
+            <span className="ml-1 text-emerald-400">reached ✓</span>
+          ) : (
+            <span className="ml-1 text-[var(--color-muted)]">· {formatDuration(remain)} to go</span>
+          )}
+        </span>
+      </div>
+      <div className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-surface)]">
+        <div
+          className="h-full rounded-full"
+          style={{ width: `${pct}%`, backgroundColor: done ? "#34d399" : "var(--color-accent)" }}
+        />
       </div>
     </div>
   );

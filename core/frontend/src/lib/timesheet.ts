@@ -131,6 +131,17 @@ export function categoryColorMap(keys: string[]): Record<string, string> {
   return m;
 }
 
+/** Sentinel label for active time not assigned to any project. */
+export const NO_PROJECT = "(no project)";
+
+/** A **stable** colour for a project name (hash → palette, offset from the
+ *  category hash so a same-named category/project don't collide). Unassigned
+ *  ("(no project)"/empty) is muted/grey. */
+export function projectColor(name: string): string {
+  if (name === NO_PROJECT || name === "") return "var(--color-muted)";
+  return paletteColor(hashString(name) + 5);
+}
+
 /** Build a stable key→colour map from an ordered list of keys (top-first). */
 export function colorMap(keys: string[]): Record<string, string> {
   const m: Record<string, string> = {};

@@ -107,8 +107,11 @@ Assign tracked time to **projects** and export a client-facing report:
 - **Assign** — in the day view, **drag a window on the day-timeline (Gantt)**; a
   popover shows the range + matching entries → pick a project (autocomplete) →
   every active event the window overlaps is tagged with it (whole events; idle +
-  Claude events are skipped). Projects also drive the day/week **By project**
-  breakdowns.
+  Claude events are skipped). The day timeline can be **coloured by project**
+  (App ↔ Category ↔ Project toggle, with a legend); a **By project** section
+  lists the day's entries grouped per project (expandable), including a
+  "(no project)" group for still-unassigned active time. Projects also drive the
+  day/week **By project** breakdowns.
 - **Export** — the Timesheet tab's **Project export** footer: pick a free date
   range, a **project** (a single client so others aren't exposed, or *All
   projects* = default), and a **detail level**, then export **HTML** or **CSV**:

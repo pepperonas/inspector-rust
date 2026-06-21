@@ -12,6 +12,8 @@ import {
   weekBounds,
   shiftWeek,
   categoryColor,
+  projectColor,
+  NO_PROJECT,
 } from "./timesheet";
 
 describe("timesheet helpers", () => {
@@ -91,6 +93,13 @@ describe("timesheet helpers", () => {
     expect(categoryColor("")).toBe("var(--color-muted)");
     // A real category gets a concrete palette colour (hex).
     expect(categoryColor("Work")).toMatch(/^#/);
+  });
+
+  it("projectColor is stable per name and mutes the no-project sentinel", () => {
+    expect(projectColor("Acme")).toBe(projectColor("Acme"));
+    expect(projectColor(NO_PROJECT)).toBe("var(--color-muted)");
+    expect(projectColor("")).toBe("var(--color-muted)");
+    expect(projectColor("Acme")).toMatch(/^#/);
   });
 
   it("weekBounds returns Mon–Sun containing the date", () => {

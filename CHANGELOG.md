@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.104] — 2026-06-21
+
+### Added
+
+- **Timesheet — project colours in the timeline + a By-project entries section.**
+  The day timeline gains a **Project** colour mode (App ↔ Category ↔ Project
+  toggle): project-assigned time is coloured per project (stable `projectColor`),
+  unassigned time is muted, and a **legend** under the bar reflects the current
+  mode. A new **By project** section lists the day's entries **grouped by
+  project** (expandable per project → individual entries with time · duration ·
+  activity + a project total), including a **"(no project)"** group so still-
+  unassigned active time is easy to find and assign. (Replaces the old
+  by-project totals bar with this richer, expandable view.) `projectColor` in
+  `lib/timesheet.ts` (unit-tested).
+
 ## [0.84.103] — 2026-06-21
 
 ### Added

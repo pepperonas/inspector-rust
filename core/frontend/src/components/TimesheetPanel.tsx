@@ -41,6 +41,8 @@ import {
   colorMap,
   categoryColor,
   categoryColorMap,
+  projectColor,
+  NO_PROJECT,
   donutSegmentPath,
   donutSegments,
   formatClock,
@@ -97,7 +99,7 @@ export function TimesheetPanel() {
   const [dailyGoalMin, setDailyGoalMin] = useState(0);
   const [prevDay, setPrevDay] = useState<{ active: number; idle: number } | null>(null);
   // Gantt colour source + event-list search/drill-down filter.
-  const [timelineColorBy, setTimelineColorBy] = useState<"app" | "category">("app");
+  const [timelineColorBy, setTimelineColorBy] = useState<"app" | "category" | "project">("app");
   const [listFilter, setListFilter] = useState<{ kind: "app" | "category"; key: string } | null>(null);
   const [search, setSearch] = useState("");
   // Manual "add entry" form open?
@@ -517,19 +519,19 @@ export function TimesheetPanel() {
             <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
               <span>Colour</span>
               <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
-                {(["app", "category"] as const).map((c) => (
+                {(["app", "category", "project"] as const).map((c) => (
                   <button
                     key={c}
                     type="button"
                     onClick={() => setTimelineColorBy(c)}
                     className={
-                      "px-2 py-0.5 " +
+                      "px-2 py-0.5 capitalize " +
                       (timelineColorBy === c
                         ? "bg-[var(--color-accent)] font-semibold text-[var(--color-accent-fg)]"
                         : "hover:bg-[var(--color-surface)]")
                     }
                   >
-                    {c === "app" ? "App" : "Category"}
+                    {c}
                   </button>
                 ))}
               </div>
@@ -541,11 +543,14 @@ export function TimesheetPanel() {
               colorOf={(e) =>
                 timelineColorBy === "category"
                   ? categoryColor(e.category ?? "Uncategorized")
-                  : appColors[e.app_name] ?? paletteColor(0)
+                  : timelineColorBy === "project"
+                    ? projectColor(e.project && e.project !== "" ? e.project : NO_PROJECT)
+                    : appColors[e.app_name] ?? paletteColor(0)
               }
               onSelectRange={(ids, t1, t2) => setProjAssign(ids.length ? { ids, t1, t2 } : null)}
               highlight={projAssign ? { t1: projAssign.t1, t2: projAssign.t2 } : null}
             />
+            <TimelineLegend mode={timelineColorBy} report={report} appColors={appColors} catColors={catColors} />
             {projAssign && (
               <ProjectAssign
                 pending={projAssign}
@@ -590,11 +595,8 @@ export function TimesheetPanel() {
             </Card>
           )}
 
-          {report.by_project.length > 0 && (
-            <Card title="By project">
-              <Bars buckets={report.by_project} total={report.total_active_s} />
-            </Card>
-          )}
+          {/* Entries grouped by project (expandable; incl. "(no project)"). */}
+          <ProjectEntries events={report.events} now={now} />
 
           {report.claude.length > 0 && (
             <Card title="Claude Code">
@@ -1350,6 +1352,106 @@ function CategoryAssign({
         Set
       </button>
     </div>
+  );
+}
+
+/** Legend under the day timeline reflecting the current colour mode. */
+function TimelineLegend({
+  mode,
+  report,
+  appColors,
+  catColors,
+}: {
+  mode: "app" | "category" | "project";
+  report: DayReport;
+  appColors: Record<string, string>;
+  catColors: Record<string, string>;
+}) {
+  const items: { key: string; color: string }[] = [];
+  if (mode === "app") {
+    for (const b of report.by_app.slice(0, 10)) items.push({ key: b.key, color: appColors[b.key] ?? paletteColor(0) });
+  } else if (mode === "category") {
+    for (const b of report.by_category) items.push({ key: b.key, color: catColors[b.key] ?? categoryColor(b.key) });
+  } else {
+    // Distinct projects among active events + "(no project)" for untagged.
+    const seen = new Map<string, boolean>();
+    let hasUntagged = false;
+    for (const e of report.events) {
+      if (e.is_idle) continue;
+      if (e.project && e.project !== "") seen.set(e.project, true);
+      else hasUntagged = true;
+    }
+    for (const p of [...seen.keys()].sort()) items.push({ key: p, color: projectColor(p) });
+    if (hasUntagged) items.push({ key: NO_PROJECT, color: projectColor(NO_PROJECT) });
+  }
+  if (items.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-muted)]">
+      {items.map((it) => (
+        <span key={it.key} className="flex items-center gap-1">
+          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: it.color }} />
+          <span className="max-w-[140px] truncate">{it.key}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** Active entries grouped by project (expandable). Untagged active time is its
+ *  own "(no project)" group so it's easy to find + assign. */
+function ProjectEntries({ events, now }: { events: TrackEvent[]; now: number }) {
+  const dur = (e: TrackEvent) => e.duration_s ?? Math.max(0, Math.floor((now - e.started_at) / 1000));
+  const groups = useMemo(() => {
+    const m = new Map<string, { seconds: number; events: TrackEvent[] }>();
+    for (const e of events) {
+      if (e.is_idle) continue;
+      const key = e.project && e.project !== "" ? e.project : NO_PROJECT;
+      const g = m.get(key) ?? { seconds: 0, events: [] };
+      g.seconds += dur(e);
+      g.events.push(e);
+      m.set(key, g);
+    }
+    return [...m.entries()]
+      .map(([project, g]) => ({ project, ...g }))
+      .sort((a, b) => b.seconds - a.seconds);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [events, now]);
+
+  if (groups.length === 0) return null;
+  return (
+    <Card title="By project">
+      <div className="flex flex-col gap-1">
+        {groups.map((g) => (
+          <details key={g.project} className="ts-app-group">
+            <summary className="md3-press flex w-full cursor-pointer list-none items-center gap-2 rounded-lg px-1 py-1 text-[12px] hover:bg-[var(--color-surface)]">
+              <ChevronRight size={14} className="ts-chevron shrink-0 text-[var(--color-muted)] transition-transform" />
+              <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: projectColor(g.project) }} />
+              <span className="min-w-0 flex-1 truncate text-left font-medium">{g.project}</span>
+              <span className="shrink-0 text-[var(--color-muted)]">
+                {g.events.length} entr{g.events.length === 1 ? "y" : "ies"}
+              </span>
+              <span className="w-[58px] shrink-0 text-right tabular-nums">{formatDuration(g.seconds)}</span>
+            </summary>
+            <div className="ml-6 flex flex-col border-l border-[var(--color-border)] pl-2">
+              {g.events.map((e) => (
+                <div key={e.id} className="flex items-center gap-2 py-0.5 text-[12px]" title={e.window_title ?? e.app_name}>
+                  <span className="w-[92px] shrink-0 tabular-nums text-[var(--color-muted)]">
+                    {formatClock(e.started_at)}–{e.ended_at ? formatClock(e.ended_at) : "…"}
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">
+                    {e.app_name}
+                    {e.window_title || e.host ? ` — ${e.window_title ?? e.host}` : ""}
+                  </span>
+                  <span className="w-[58px] shrink-0 text-right tabular-nums text-[var(--color-muted)]">
+                    {formatDuration(dur(e))}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </details>
+        ))}
+      </div>
+    </Card>
   );
 }
 

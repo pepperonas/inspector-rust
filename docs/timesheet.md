@@ -110,11 +110,17 @@ Assign tracked time to **projects** and export a client-facing report:
   Claude events are skipped). Projects also drive the day/week **By project**
   breakdowns.
 - **Export** — the Timesheet tab's **Project export** footer: pick a free date
-  range → **HTML** (printable, per-project sections with entries date · time ·
-  duration · activity + per-project and grand totals) or **CSV**
-  (`project,date,start,end,duration_min,app,activity`). Billable = active,
-  non-Claude, project-tagged events (so Claude time can't double-bill terminal
-  focus). IPC `track_set_project` / `track_export_projects`.
+  range, a **project** (a single client so others aren't exposed, or *All
+  projects* = default), and a **detail level**, then export **HTML** or **CSV**:
+  - **Full** (default) — every entry (date · time · duration · activity).
+    CSV `project,date,start,end,duration_min,app,activity`.
+  - **Per day** — one total per project per day (no app/title).
+    CSV `project,date,duration_min`.
+  - **Summary** — one total per project. CSV `project,duration_min`.
+  Billable = active, non-Claude, project-tagged events (so Claude time can't
+  double-bill terminal focus). A single-client export filename includes the
+  project slug. IPC `track_set_project` / `track_export_projects(format, from,
+  to, project, detail)`.
 
 ## Export (full history)
 

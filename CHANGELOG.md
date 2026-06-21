@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.103] — 2026-06-21
+
+### Added
+
+- **Timesheet — per-project & detail-level export.** The Project export now lets
+  you pick a **single project** (so client A never sees client B's time; *All
+  projects* stays the default) and a **detail level**: **Full** (every entry —
+  default, current behaviour), **Per day** (one total per project per day, no
+  app/title) or **Summary** (one total per project). Both HTML and CSV honour
+  both; a single-client file is named with the project slug. IPC
+  `track_export_projects(format, from, to, project, detail)`; `Detail` enum +
+  builders unit-tested (incl. that a scoped export excludes other clients).
+
 ## [0.84.102] — 2026-06-21
 
 ### Added

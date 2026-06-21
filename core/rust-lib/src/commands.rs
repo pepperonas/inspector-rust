@@ -508,12 +508,15 @@ pub fn set_timesheet_config(db: State<'_, DbHandle>, config: TimesheetConfig) ->
 /// (`"YYYY-MM-DD"`) as `csv` or printable `html` → `~/Downloads`, revealed.
 /// Lists, per project, when + how long + on what (billable: active, non-Claude,
 /// project-tagged). Returns the written path.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn track_export_projects(
     db: State<'_, DbHandle>,
     format: String,
     from: String,
     to: String,
+    project: Option<String>,
+    detail: Option<String>,
 ) -> Result<String, String> {
     let (from_ms, _) = crate::tracking::day_bounds(&from)?;
     let (_, to_ms) = crate::tracking::day_bounds(&to)?;
@@ -522,13 +525,25 @@ pub fn track_export_projects(
     }
     let events = crate::tracking::db::events_in_range(&db, from_ms, to_ms).map_err(map_err)?;
     let now = chrono::Utc::now().timestamp_millis();
+    let detail = crate::tracking::export::Detail::parse(detail.as_deref().unwrap_or("full"));
+    let proj = project.as_deref().filter(|p| !p.is_empty());
     let (content, ext) = if format == "html" {
-        (crate::tracking::export::project_html(&events, from_ms, to_ms, now), "html")
+        (crate::tracking::export::project_html(&events, from_ms, to_ms, now, detail, proj), "html")
     } else {
-        (crate::tracking::export::project_csv(&events, now), "csv")
+        (crate::tracking::export::project_csv(&events, now, detail, proj), "csv")
     };
+    // Filename: include a sanitized project slug when scoped to one client.
+    let slug = proj
+        .map(|p| {
+            let s: String = p
+                .chars()
+                .map(|c| if c.is_alphanumeric() { c } else { '-' })
+                .collect();
+            format!("-{}", s.trim_matches('-'))
+        })
+        .unwrap_or_default();
     let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
-    let path = dir.join(format!("timesheet-projects-{from}_{to}.{ext}"));
+    let path = dir.join(format!("timesheet-projects{slug}-{from}_{to}.{ext}"));
     std::fs::write(&path, content).map_err(|e| format!("write export: {e}"))?;
     reveal_in_file_manager(&path);
     Ok(path.display().to_string())

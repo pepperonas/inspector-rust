@@ -1333,13 +1333,16 @@ export function trackGetDay(date: string): Promise<DayReport> {
 export function trackGetRange(from: string, to: string): Promise<RangeReport> {
   return invoke("track_get_range", { from, to });
 }
-/** Project-grouped customer export over [from, to] (dates) as csv|html. */
+/** Project-grouped customer export over [from, to] (dates) as csv|html.
+ *  `project` "" = all projects; `detail` = summary | daily | full. */
 export function trackExportProjects(
   format: "csv" | "html",
   from: string,
   to: string,
+  project: string,
+  detail: "summary" | "daily" | "full",
 ): Promise<string> {
-  return invoke("track_export_projects", { format, from, to });
+  return invoke("track_export_projects", { format, from, to, project, detail });
 }
 export function trackUpdateEvent(id: number, patch: TrackEventPatch): Promise<void> {
   return invoke("track_update_event", { id, patch });

@@ -971,21 +971,59 @@ function ProjectExportFooter() {
   };
   const [from, setFrom] = useState(monthStart());
   const [to, setTo] = useState(localDateStr());
+  const [project, setProject] = useState(""); // "" = all
+  const [detail, setDetail] = useState<"summary" | "daily" | "full">("full");
+  const [projects, setProjects] = useState<string[]>([]);
+  const [open, setOpen] = useState(false);
   const [saved, setSaved] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) trackDistinctProjects().then(setProjects).catch(() => undefined);
+  }, [open]);
   const run = (fmt: "csv" | "html") => {
     setSaved(null);
-    void trackExportProjects(fmt, from, to)
+    void trackExportProjects(fmt, from, to, project, detail)
       .then((p) => setSaved(p))
       .catch((e) => console.error("project export failed", e));
   };
+  const selCls =
+    "rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5";
   return (
-    <details className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]">
+    <details
+      className="shrink-0 border-t border-[var(--color-border)] px-4 py-2 text-[12px]"
+      onToggle={(e) => setOpen((e.target as HTMLDetailsElement).open)}
+    >
       <summary className="cursor-pointer text-[var(--color-muted)]">Project export (for a client)</summary>
       <div className="mt-2 flex flex-col gap-2">
         <p className="text-[var(--color-muted)]">
-          Per-project list of when · how long · on what, over a date range. Assign time
-          to projects by dragging a window on the day timeline.
+          Per-project list of when · how long · on what. Pick a single client so others
+          aren't exposed, and a detail level. Assign time to projects by dragging a window
+          on the day timeline.
         </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex items-center gap-1">
+            Project
+            <select value={project} onChange={(e) => setProject(e.target.value)} className={selCls}>
+              <option value="">All projects</option>
+              {projects.map((p) => (
+                <option key={p} value={p}>
+                  {p}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-1">
+            Detail
+            <select
+              value={detail}
+              onChange={(e) => setDetail(e.target.value as "summary" | "daily" | "full")}
+              className={selCls}
+            >
+              <option value="full">Full entries</option>
+              <option value="daily">Per day</option>
+              <option value="summary">Summary (totals)</option>
+            </select>
+          </label>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <label className="flex items-center gap-1">
             From
@@ -994,7 +1032,7 @@ function ProjectExportFooter() {
               value={from}
               max={to}
               onChange={(e) => e.target.value && setFrom(e.target.value)}
-              className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 tabular-nums"
+              className={selCls + " tabular-nums"}
             />
           </label>
           <label className="flex items-center gap-1">
@@ -1004,7 +1042,7 @@ function ProjectExportFooter() {
               value={to}
               max={localDateStr()}
               onChange={(e) => e.target.value && setTo(e.target.value)}
-              className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-1.5 py-0.5 tabular-nums"
+              className={selCls + " tabular-nums"}
             />
           </label>
           <button

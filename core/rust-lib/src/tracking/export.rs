@@ -83,23 +83,46 @@ pub fn csv(events: &[TrackEvent], now: i64) -> String {
 
 // ── Project export (customer-facing: when · how long · on what) ──────────────
 
+/// Detail level of the project export.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Detail {
+    /// One total per project.
+    Summary,
+    /// One total per project per day.
+    Daily,
+    /// Every entry (date · time · duration · activity).
+    Full,
+}
+
+impl Detail {
+    pub fn parse(s: &str) -> Detail {
+        match s {
+            "summary" => Detail::Summary,
+            "daily" => Detail::Daily,
+            _ => Detail::Full,
+        }
+    }
+}
+
 /// Billable events for the project export: active, non-Claude, with a non-empty
-/// project. (Claude time is excluded so it can't double-bill terminal focus.)
-/// Sorted by project, then start time.
-fn billable_by_project(events: &[TrackEvent]) -> Vec<&TrackEvent> {
+/// project — optionally filtered to a single `project` (None/"" = all). Claude
+/// time is excluded so it can't double-bill terminal focus. Sorted by project,
+/// then start time.
+fn billable_by_project<'a>(
+    events: &'a [TrackEvent],
+    project: Option<&str>,
+) -> Vec<&'a TrackEvent> {
+    let only = project.filter(|p| !p.is_empty());
     let mut v: Vec<&TrackEvent> = events
         .iter()
         .filter(|e| {
             !e.is_idle
                 && e.source != "claude"
                 && e.project.as_deref().map(|p| !p.is_empty()).unwrap_or(false)
+                && only.map(|o| e.project.as_deref() == Some(o)).unwrap_or(true)
         })
         .collect();
-    v.sort_by(|a, b| {
-        a.project
-            .cmp(&b.project)
-            .then(a.started_at.cmp(&b.started_at))
-    });
+    v.sort_by(|a, b| a.project.cmp(&b.project).then(a.started_at.cmp(&b.started_at)));
     v
 }
 
@@ -111,69 +134,169 @@ fn activity(e: &TrackEvent) -> String {
     }
 }
 
-/// CSV grouped per project (one row per entry):
-/// `project,date,start,end,duration_min,app,activity`.
-pub fn project_csv(events: &[TrackEvent], now: i64) -> String {
-    let mut out = String::from("project,date,start,end,duration_min,app,activity\n");
-    for e in billable_by_project(events) {
-        let dur_min = format!("{:.1}", effective_dur_s(e, now) as f64 / 60.0);
-        let row = [
-            e.project.clone().unwrap_or_default(),
-            local_date(e.started_at),
-            local_time(e.started_at),
-            e.ended_at.map(local_time).unwrap_or_default(),
-            dur_min,
-            e.app_name.clone(),
-            e.window_title.clone().or_else(|| e.host.clone()).unwrap_or_default(),
-        ];
-        out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
-        out.push('\n');
-    }
-    out
+fn min1(secs: i64) -> String {
+    format!("{:.1}", secs as f64 / 60.0)
 }
 
-/// Self-contained, printable HTML grouped per project: each project a section
-/// with its entries (date · time · duration · activity) + a project total, then
-/// a grand total. For handing a client a "when · how long · on what" list.
-pub fn project_html(events: &[TrackEvent], from: i64, to: i64, now: i64) -> String {
-    let billable = billable_by_project(events);
+/// CSV for the project export. Columns depend on `detail`:
+/// - Summary: `project,duration_min`
+/// - Daily:   `project,date,duration_min`
+/// - Full:    `project,date,start,end,duration_min,app,activity`
+pub fn project_csv(events: &[TrackEvent], now: i64, detail: Detail, project: Option<&str>) -> String {
+    let billable = billable_by_project(events, project);
+    match detail {
+        Detail::Summary => {
+            let mut out = String::from("project,duration_min\n");
+            let mut i = 0;
+            while i < billable.len() {
+                let proj = billable[i].project.clone().unwrap_or_default();
+                let mut total = 0i64;
+                while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+                    total += effective_dur_s(billable[i], now);
+                    i += 1;
+                }
+                out.push_str(&format!("{},{}\n", csv_field(&proj), min1(total)));
+            }
+            out
+        }
+        Detail::Daily => {
+            let mut out = String::from("project,date,duration_min\n");
+            // billable is sorted by project then start → group (project,date).
+            let mut i = 0;
+            while i < billable.len() {
+                let proj = billable[i].project.clone().unwrap_or_default();
+                // accumulate per date within this project
+                use std::collections::BTreeMap;
+                let mut per_day: BTreeMap<String, i64> = BTreeMap::new();
+                while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+                    let e = billable[i];
+                    *per_day.entry(local_date(e.started_at)).or_default() += effective_dur_s(e, now);
+                    i += 1;
+                }
+                for (date, total) in per_day {
+                    out.push_str(&format!("{},{},{}\n", csv_field(&proj), date, min1(total)));
+                }
+            }
+            out
+        }
+        Detail::Full => {
+            let mut out =
+                String::from("project,date,start,end,duration_min,app,activity\n");
+            for e in billable {
+                let row = [
+                    e.project.clone().unwrap_or_default(),
+                    local_date(e.started_at),
+                    local_time(e.started_at),
+                    e.ended_at.map(local_time).unwrap_or_default(),
+                    min1(effective_dur_s(e, now)),
+                    e.app_name.clone(),
+                    e.window_title.clone().or_else(|| e.host.clone()).unwrap_or_default(),
+                ];
+                out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
+                out.push('\n');
+            }
+            out
+        }
+    }
+}
+
+/// Self-contained, printable HTML project report at the chosen `detail`,
+/// optionally filtered to a single `project`. Per-project sections + a grand
+/// total. For handing a client a "when · how long · on what" list (or just a
+/// per-day / total summary).
+pub fn project_html(
+    events: &[TrackEvent],
+    from: i64,
+    to: i64,
+    now: i64,
+    detail: Detail,
+    project: Option<&str>,
+) -> String {
+    use std::collections::BTreeMap;
+    let billable = billable_by_project(events, project);
     let range = if local_date(from) == local_date(to.saturating_sub(1)) {
         local_date(from)
     } else {
         format!("{} – {}", local_date(from), local_date(to.saturating_sub(1)))
     };
     let grand: i64 = billable.iter().map(|e| effective_dur_s(e, now)).sum();
+    let scope = project
+        .filter(|p| !p.is_empty())
+        .map(|p| format!(" · {}", esc(p)))
+        .unwrap_or_default();
 
-    // Group consecutively (already sorted by project).
     let mut sections = String::new();
-    let mut i = 0;
-    while i < billable.len() {
-        let proj = billable[i].project.clone().unwrap_or_default();
-        let mut rows = String::new();
-        let mut ptotal = 0i64;
-        while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
-            let e = billable[i];
-            let d = effective_dur_s(e, now);
-            ptotal += d;
-            rows.push_str(&format!(
-                "<tr><td>{}</td><td>{}–{}</td><td class=r>{}</td><td>{}</td></tr>",
-                local_date(e.started_at),
-                local_time(e.started_at),
-                e.ended_at.map(local_time).unwrap_or_default(),
-                fmt_dur(d),
-                esc(&activity(e)),
+    if detail == Detail::Summary {
+        // Single table: project → total.
+        let mut body = String::from(
+            "<table><thead><tr><th>Project</th><th class=r>Duration</th></tr></thead><tbody>",
+        );
+        let mut i = 0;
+        while i < billable.len() {
+            let proj = billable[i].project.clone().unwrap_or_default();
+            let mut total = 0i64;
+            while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+                total += effective_dur_s(billable[i], now);
+                i += 1;
+            }
+            body.push_str(&format!(
+                "<tr><td>{}</td><td class=r>{}</td></tr>",
+                esc(&proj),
+                fmt_dur(total)
             ));
-            i += 1;
         }
-        sections.push_str(&format!(
-            "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
-             <table><thead><tr><th>Date</th><th>Time</th><th class=r>Duration</th><th>Activity</th></tr></thead><tbody>{}</tbody></table></div>",
-            esc(&proj),
-            fmt_dur(ptotal),
-            rows
-        ));
+        body.push_str("</tbody></table>");
+        sections = format!("<div class=card>{body}</div>");
+    } else {
+        let mut i = 0;
+        while i < billable.len() {
+            let proj = billable[i].project.clone().unwrap_or_default();
+            let mut rows = String::new();
+            let mut ptotal = 0i64;
+            if detail == Detail::Daily {
+                let mut per_day: BTreeMap<String, i64> = BTreeMap::new();
+                while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+                    let e = billable[i];
+                    *per_day.entry(local_date(e.started_at)).or_default() += effective_dur_s(e, now);
+                    i += 1;
+                }
+                for (date, d) in &per_day {
+                    ptotal += d;
+                    rows.push_str(&format!(
+                        "<tr><td>{}</td><td class=r>{}</td></tr>",
+                        date,
+                        fmt_dur(*d)
+                    ));
+                }
+                sections.push_str(&format!(
+                    "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
+                     <table><thead><tr><th>Date</th><th class=r>Duration</th></tr></thead><tbody>{}</tbody></table></div>",
+                    esc(&proj), fmt_dur(ptotal), rows
+                ));
+            } else {
+                while i < billable.len() && billable[i].project.as_deref() == Some(proj.as_str()) {
+                    let e = billable[i];
+                    let d = effective_dur_s(e, now);
+                    ptotal += d;
+                    rows.push_str(&format!(
+                        "<tr><td>{}</td><td>{}–{}</td><td class=r>{}</td><td>{}</td></tr>",
+                        local_date(e.started_at),
+                        local_time(e.started_at),
+                        e.ended_at.map(local_time).unwrap_or_default(),
+                        fmt_dur(d),
+                        esc(&activity(e)),
+                    ));
+                    i += 1;
+                }
+                sections.push_str(&format!(
+                    "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
+                     <table><thead><tr><th>Date</th><th>Time</th><th class=r>Duration</th><th>Activity</th></tr></thead><tbody>{}</tbody></table></div>",
+                    esc(&proj), fmt_dur(ptotal), rows
+                ));
+            }
+        }
     }
-    if sections.is_empty() {
+    if billable.is_empty() {
         sections = "<p class=muted>No project-tagged time in this range. Assign time to a project by dragging a window on the day timeline.</p>".into();
     }
 
@@ -202,12 +325,13 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
 @media print{{body{{padding:0}}.card{{break-inside:avoid}}}}
 </style></head><body>
 <h1>Project report</h1>
-<p class=sub>{range}</p>
+<p class=sub>{range}{scope}</p>
 {sections}
 <p class=grand>Total: <span class=accent>{grand}</span></p>
 <footer>{footer}</footer>
 </body></html>"#,
         range = esc(&range),
+        scope = scope,
         sections = sections,
         grand = fmt_dur(grand),
         footer = FOOTER,
@@ -618,16 +742,28 @@ mod tests {
         let untagged = ev("Finder", 0, 600_000, false, None, None); // no project → excluded
         let events = vec![a, b, c, idle, cl, untagged];
 
-        let csv = project_csv(&events, 0);
+        // Full CSV (all projects): one row per entry.
+        let csv = project_csv(&events, 0, Detail::Full, None);
         assert!(csv.starts_with("project,date,start,end,duration_min,app,activity\n"));
         assert!(csv.contains("Acme,"));
         assert!(csv.contains("Beta,"));
         assert!(!csv.contains("Finder")); // untagged excluded
         assert!(!csv.contains("Claude Code")); // claude excluded
-        // 3 billable rows (header + 3).
-        assert_eq!(csv.trim().lines().count(), 4);
+        assert_eq!(csv.trim().lines().count(), 4); // header + 3 entries
 
-        let html = project_html(&events, 0, 86_400_000, 0);
+        // Summary CSV: one row per project.
+        let sum = project_csv(&events, 0, Detail::Summary, None);
+        assert!(sum.starts_with("project,duration_min\n"));
+        assert_eq!(sum.trim().lines().count(), 3); // header + 2 projects
+
+        // Daily CSV scoped to one project: only that project's days.
+        let acme = project_csv(&events, 0, Detail::Daily, Some("Acme"));
+        assert!(acme.starts_with("project,date,duration_min\n"));
+        assert!(acme.contains("Acme,"));
+        assert!(!acme.contains("Beta")); // scoped out → client B not exposed
+        assert_eq!(acme.trim().lines().count(), 2); // header + 1 day
+
+        let html = project_html(&events, 0, 86_400_000, 0, Detail::Full, None);
         assert!(html.starts_with("<!doctype html>"));
         assert!(html.contains("Project report"));
         assert!(html.contains("Acme"));
@@ -635,7 +771,10 @@ mod tests {
         assert!(html.contains("Total:"));
         assert!(html.contains(FOOTER));
         assert!(!html.contains("http://"));
-        assert!(!html.contains("https://"));
+        // Scoped HTML excludes the other client entirely.
+        let scoped = project_html(&events, 0, 86_400_000, 0, Detail::Summary, Some("Acme"));
+        assert!(scoped.contains("Acme"));
+        assert!(!scoped.contains("Beta"));
     }
 
     #[test]

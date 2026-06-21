@@ -106,6 +106,31 @@ export function paletteColor(i: number): string {
   return PALETTE[((i % PALETTE.length) + PALETTE.length) % PALETTE.length];
 }
 
+/** FNV-1a hash → unsigned 32-bit, for deterministic colour assignment. */
+export function hashString(s: string): number {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
+}
+
+/** A **stable** colour for a category name — the same category is always the
+ *  same colour across day/week/all charts (hash → palette). "Uncategorized" is
+ *  rendered muted/grey. */
+export function categoryColor(name: string): string {
+  if (name === "Uncategorized" || name === "") return "var(--color-muted)";
+  return paletteColor(hashString(name));
+}
+
+/** A category→colour map for a set of category keys (stable per name). */
+export function categoryColorMap(keys: string[]): Record<string, string> {
+  const m: Record<string, string> = {};
+  for (const k of keys) m[k] = categoryColor(k);
+  return m;
+}
+
 /** Build a stable key→colour map from an ordered list of keys (top-first). */
 export function colorMap(keys: string[]): Record<string, string> {
   const m: Record<string, string> = {};

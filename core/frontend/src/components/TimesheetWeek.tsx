@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { trackGetRange, type RangeReport } from "../lib/ipc";
-import { formatDuration, shortDayLabel, weekBounds } from "../lib/timesheet";
+import { categoryColor, formatDuration, shortDayLabel, weekBounds } from "../lib/timesheet";
 
 /**
  * Week overview for the Timesheet tab: per-day active/idle bars + the week's
@@ -73,7 +73,7 @@ export function TimesheetWeek({
 
       <div className="grid grid-cols-2 gap-3">
         <Card title="By category (week)">
-          <Bars buckets={report.by_category} total={report.total_active_s} />
+          <Bars buckets={report.by_category} total={report.total_active_s} colorByKey={categoryColor} />
         </Card>
         <Card title="By app (week)">
           <Bars buckets={report.by_app.slice(0, 8)} total={report.total_active_s} />
@@ -109,22 +109,39 @@ function Card({ title, children }: { title: string; children: React.ReactNode })
   );
 }
 
-function Bars({ buckets, total }: { buckets: { key: string; seconds: number }[]; total: number }) {
+function Bars({
+  buckets,
+  total,
+  colorByKey,
+}: {
+  buckets: { key: string; seconds: number }[];
+  total: number;
+  colorByKey?: (key: string) => string;
+}) {
   if (buckets.length === 0) return <p className="text-[12px] text-[var(--color-muted)]">No data.</p>;
   const max = Math.max(1, ...buckets.map((b) => b.seconds));
   return (
     <div className="flex flex-col gap-1.5">
       {buckets.map((b) => (
         <div key={b.key} className="text-[11px]">
-          <div className="mb-0.5 flex justify-between">
-            <span className="min-w-0 truncate pr-2">{b.key}</span>
+          <div className="mb-0.5 flex items-center gap-1.5">
+            {colorByKey && (
+              <span className="h-2 w-2 shrink-0 rounded-full" style={{ backgroundColor: colorByKey(b.key) }} />
+            )}
+            <span className="min-w-0 flex-1 truncate pr-2">{b.key}</span>
             <span className="shrink-0 tabular-nums text-[var(--color-muted)]">
               {formatDuration(b.seconds)}
               {total > 0 ? ` · ${Math.round((b.seconds / total) * 100)}%` : ""}
             </span>
           </div>
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-surface)]">
-            <div className="h-full rounded-full bg-[var(--color-accent)]" style={{ width: `${(b.seconds / max) * 100}%` }} />
+            <div
+              className="h-full rounded-full"
+              style={{
+                width: `${(b.seconds / max) * 100}%`,
+                backgroundColor: colorByKey ? colorByKey(b.key) : "var(--color-accent)",
+              }}
+            />
           </div>
         </div>
       ))}

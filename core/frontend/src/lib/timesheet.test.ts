@@ -11,6 +11,7 @@ import {
   timeInputToMs,
   weekBounds,
   shiftWeek,
+  categoryColor,
 } from "./timesheet";
 
 describe("timesheet helpers", () => {
@@ -82,6 +83,14 @@ describe("timesheet helpers", () => {
     expect(m.Code).toBe(paletteColor(0));
     expect(m.Safari).toBe(paletteColor(1));
     expect(m.Slack).toBe(paletteColor(2));
+  });
+
+  it("categoryColor is stable per name and mutes Uncategorized", () => {
+    expect(categoryColor("Work")).toBe(categoryColor("Work")); // stable
+    expect(categoryColor("Uncategorized")).toBe("var(--color-muted)");
+    expect(categoryColor("")).toBe("var(--color-muted)");
+    // A real category gets a concrete palette colour (hex).
+    expect(categoryColor("Work")).toMatch(/^#/);
   });
 
   it("weekBounds returns Mon–Sun containing the date", () => {

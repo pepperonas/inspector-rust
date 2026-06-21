@@ -38,6 +38,8 @@ import {
 } from "../lib/ipc";
 import {
   colorMap,
+  categoryColor,
+  categoryColorMap,
   donutSegmentPath,
   donutSegments,
   formatClock,
@@ -162,6 +164,10 @@ export function TimesheetPanel() {
 
   const appColors = useMemo(
     () => colorMap((report?.by_app ?? []).map((b) => b.key)),
+    [report],
+  );
+  const catColors = useMemo(
+    () => categoryColorMap((report?.by_category ?? []).map((b) => b.key)),
     [report],
   );
   const dayStart = useMemo(() => dayStartMs(date), [date]);
@@ -466,13 +472,13 @@ export function TimesheetPanel() {
             )}
           </Card>
 
-          {/* App donut + Category bars */}
+          {/* App + category donuts (stable category colours) */}
           <div className="grid grid-cols-2 gap-3">
             <Card title="By app">
               <Donut buckets={report.by_app} colors={appColors} />
             </Card>
             <Card title="By category">
-              <Bars buckets={report.by_category} total={report.total_active_s} />
+              <Donut buckets={report.by_category} colors={catColors} />
             </Card>
           </div>
 
@@ -559,7 +565,13 @@ export function TimesheetPanel() {
                           />
                           <span className="min-w-0 flex-1 truncate text-left font-medium">{b.app}</span>
                           {b.category && (
-                            <span className="shrink-0 rounded-full bg-[var(--color-accent)]/15 px-1.5 text-[10px] text-[var(--color-accent)]">
+                            <span
+                              className="shrink-0 rounded-full px-1.5 text-[10px] font-medium"
+                              style={{
+                                color: categoryColor(b.category),
+                                backgroundColor: `color-mix(in srgb, ${categoryColor(b.category)} 18%, transparent)`,
+                              }}
+                            >
                               {b.category}
                             </span>
                           )}

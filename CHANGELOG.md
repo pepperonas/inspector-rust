@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.99] — 2026-06-21
+
+### Changed
+
+- **Timesheet — consistent category colours + category donut (roadmap #7).** Each
+  category now has a **stable colour** (hash → palette, "Uncategorized" = muted)
+  used everywhere: the day "By category" chart is now a **donut**, the week's
+  category bars get colour dots, and the "By app" category chips are tinted to
+  match. Foundation for the upcoming stacked weekly bars + category-coloured
+  timeline. `categoryColor`/`categoryColorMap` in `lib/timesheet.ts` (unit-tested).
+
 ## [0.84.98] — 2026-06-21
 
 ### Added

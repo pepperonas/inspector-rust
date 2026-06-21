@@ -85,6 +85,9 @@ export function TimesheetPanel() {
   const [knownCategories, setKnownCategories] = useState<string[]>([]);
   // Manual "add entry" form open?
   const [adding, setAdding] = useState(false);
+  // Rubber-band drag-selection over the timeline list.
+  const listRef = useRef<HTMLDivElement>(null);
+  const [bandRect, setBandRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
 
   const load = useCallback((d: string) => {
     trackGetDay(d)
@@ -237,6 +240,50 @@ export function TimesheetPanel() {
     } catch (e) {
       console.error("cleanup failed", e);
     }
+  };
+
+  // Rubber-band selection: drag an empty area of the list to select the rows
+  // the rectangle's vertical span covers. Ignores drags that start on a control.
+  const onListPointerDown = (e: React.PointerEvent) => {
+    if (e.button !== 0) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("input,button,textarea,select,a,label,[contenteditable='true']")) return;
+    const list = listRef.current;
+    if (!list) return;
+    const rect = list.getBoundingClientRect();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    let moved = false;
+
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.hypot(ev.clientX - startX, ev.clientY - startY) < 5) return;
+      if (!moved) {
+        moved = true;
+        document.body.style.userSelect = "none";
+      }
+      const x1 = Math.min(startX, ev.clientX);
+      const x2 = Math.max(startX, ev.clientX);
+      const y1 = Math.min(startY, ev.clientY);
+      const y2 = Math.max(startY, ev.clientY);
+      setBandRect({ left: x1 - rect.left, top: y1 - rect.top, width: x2 - x1, height: y2 - y1 });
+      const ids = new Set<number>();
+      list.querySelectorAll<HTMLElement>("[data-event-id]").forEach((row) => {
+        const r = row.getBoundingClientRect();
+        if (r.bottom >= y1 && r.top <= y2) {
+          const id = Number(row.dataset.eventId);
+          if (!Number.isNaN(id)) ids.add(id);
+        }
+      });
+      setSelected(ids);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      document.body.style.userSelect = "";
+      setBandRect(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   };
 
   const mergeSelected = async () => {
@@ -577,16 +624,28 @@ export function TimesheetPanel() {
                 </button>
               </div>
             )}
-            <div className="flex flex-col">
+            <div ref={listRef} onPointerDown={onListPointerDown} className="relative flex flex-col">
+              {bandRect && (
+                <div
+                  className="pointer-events-none absolute z-10 rounded border border-[var(--color-accent)] bg-[var(--color-accent)]/15"
+                  style={{
+                    left: bandRect.left,
+                    top: bandRect.top,
+                    width: bandRect.width,
+                    height: bandRect.height,
+                  }}
+                />
+              )}
               {report.events.map((e) => (
                 <div key={e.id} className="border-t border-[var(--color-border)]/60 first:border-t-0">
                   <div
+                    data-event-id={e.id}
                     onDoubleClick={() => (editingId === e.id ? refresh() : beginEdit(e))}
                     className={
                       "group flex cursor-default items-center gap-2 py-1.5 text-[12px] " +
                       (selected.has(e.id) ? "bg-[var(--color-accent)]/8 -mx-1 rounded px-1" : "")
                     }
-                    title="Double-click to edit"
+                    title="Double-click to edit · drag to select"
                   >
                     <input
                       type="checkbox"
@@ -727,7 +786,7 @@ export function TimesheetPanel() {
             ← → change day · t today
             {eventsView === "grouped"
               ? " · ▸ expand an app for its detail"
-              : " · double-click to edit · ☑ select to merge"}
+              : " · double-click to edit · drag or ☑ to select"}
           </p>
         </div>
       )}

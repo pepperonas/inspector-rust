@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.95] — 2026-06-21
+
+### Added
+
+- **Timesheet — drag-select (rubber band) in the Timeline list.** Drag across an
+  empty area of the event list to draw a selection rectangle; every row its span
+  covers is selected (then merge / act on them). Drags starting on a control
+  (checkbox / button / input) are ignored, and a <5px move is treated as a click,
+  so double-click-to-edit and the checkboxes still work.
+
 ## [0.84.94] — 2026-06-21
 
 ### Changed

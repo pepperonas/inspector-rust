@@ -96,6 +96,10 @@ export function TimesheetPanel() {
   // Daily focus goal (minutes, 0 = off) + previous-day totals for Δ comparison.
   const [dailyGoalMin, setDailyGoalMin] = useState(0);
   const [prevDay, setPrevDay] = useState<{ active: number; idle: number } | null>(null);
+  // Gantt colour source + event-list search/drill-down filter.
+  const [timelineColorBy, setTimelineColorBy] = useState<"app" | "category">("app");
+  const [listFilter, setListFilter] = useState<{ kind: "app" | "category"; key: string } | null>(null);
+  const [search, setSearch] = useState("");
   // Manual "add entry" form open?
   const [adding, setAdding] = useState(false);
   // Rubber-band drag-selection over the timeline list.
@@ -181,6 +185,22 @@ export function TimesheetPanel() {
     [report],
   );
   const dayStart = useMemo(() => dayStartMs(date), [date]);
+
+  // Timeline list after applying the drill-down filter + search.
+  const shownEvents = useMemo(() => {
+    const all = report?.events ?? [];
+    const q = search.trim().toLowerCase();
+    return all.filter((e) => {
+      if (listFilter?.kind === "app" && e.app_name !== listFilter.key) return false;
+      if (listFilter?.kind === "category" && (e.category ?? "Uncategorized") !== listFilter.key)
+        return false;
+      if (q) {
+        const hay = `${e.app_name} ${e.window_title ?? ""} ${e.host ?? ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [report, listFilter, search]);
 
   const eventDuration = (e: TrackEvent) =>
     e.duration_s ?? Math.max(0, Math.floor((now - e.started_at) / 1000));
@@ -494,11 +514,35 @@ export function TimesheetPanel() {
 
           {/* Day timeline (24h gantt) — drag a window to assign a project */}
           <Card title="Day timeline">
+            <div className="mb-2 flex items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+              <span>Colour</span>
+              <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
+                {(["app", "category"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    onClick={() => setTimelineColorBy(c)}
+                    className={
+                      "px-2 py-0.5 " +
+                      (timelineColorBy === c
+                        ? "bg-[var(--color-accent)] font-semibold text-[var(--color-accent-fg)]"
+                        : "hover:bg-[var(--color-surface)]")
+                    }
+                  >
+                    {c === "app" ? "App" : "Category"}
+                  </button>
+                ))}
+              </div>
+            </div>
             <Timeline
               events={report.events}
               dayStart={dayStart}
               now={now}
-              colors={appColors}
+              colorOf={(e) =>
+                timelineColorBy === "category"
+                  ? categoryColor(e.category ?? "Uncategorized")
+                  : appColors[e.app_name] ?? paletteColor(0)
+              }
               onSelectRange={(ids, t1, t2) => setProjAssign(ids.length ? { ids, t1, t2 } : null)}
               highlight={projAssign ? { t1: projAssign.t1, t2: projAssign.t2 } : null}
             />
@@ -519,10 +563,24 @@ export function TimesheetPanel() {
           {/* App + category donuts (stable category colours) */}
           <div className="grid grid-cols-2 gap-3">
             <Card title="By app">
-              <Donut buckets={report.by_app} colors={appColors} />
+              <Donut
+                buckets={report.by_app}
+                colors={appColors}
+                onPick={(key) => {
+                  setListFilter({ kind: "app", key });
+                  setEventsView("timeline");
+                }}
+              />
             </Card>
             <Card title="By category">
-              <Donut buckets={report.by_category} colors={catColors} />
+              <Donut
+                buckets={report.by_category}
+                colors={catColors}
+                onPick={(key) => {
+                  setListFilter({ kind: "category", key });
+                  setEventsView("timeline");
+                }}
+              />
             </Card>
           </div>
 
@@ -660,7 +718,26 @@ export function TimesheetPanel() {
 
           {/* Timeline view — selectable (merge) + inline-editable event list */}
           {eventsView === "timeline" && (
-          <Card title={`Events (${report.events.length})`}>
+          <Card title={`Events (${shownEvents.length}${shownEvents.length !== report.events.length ? ` / ${report.events.length}` : ""})`}>
+            {/* Search + active drill-down filter chip */}
+            <div className="mb-2 flex items-center gap-2">
+              <input
+                value={search}
+                placeholder="Search app / title / host…"
+                onChange={(e) => setSearch(e.target.value)}
+                className="min-w-0 flex-1 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px]"
+              />
+              {listFilter && (
+                <button
+                  type="button"
+                  onClick={() => setListFilter(null)}
+                  className="md3-press flex shrink-0 items-center gap-1 rounded-full bg-[var(--color-accent)]/15 px-2 py-1 text-[11px] text-[var(--color-accent)]"
+                  title="Clear filter"
+                >
+                  {listFilter.kind}: {listFilter.key} <X size={12} />
+                </button>
+              )}
+            </div>
             {/* Quick actions: add a manual entry · tidy idle/fragments */}
             <div className="mb-2 flex items-center gap-2">
               <button
@@ -720,7 +797,10 @@ export function TimesheetPanel() {
                   }}
                 />
               )}
-              {report.events.map((e) => (
+              {shownEvents.length === 0 && (
+                <p className="py-2 text-[12px] text-[var(--color-muted)]">No matching events.</p>
+              )}
+              {shownEvents.map((e) => (
                 <div key={e.id} className="border-t border-[var(--color-border)]/60 first:border-t-0">
                   <div
                     data-event-id={e.id}
@@ -1338,14 +1418,14 @@ function Timeline({
   events,
   dayStart,
   now,
-  colors,
+  colorOf,
   onSelectRange,
   highlight,
 }: {
   events: TrackEvent[];
   dayStart: number;
   now: number;
-  colors: Record<string, string>;
+  colorOf: (e: TrackEvent) => string;
   /** Called on a drag-release with the active events overlapping [t1,t2]. */
   onSelectRange?: (ids: number[], t1: number, t2: number) => void;
   /** A committed window to keep highlighted (while the assign popover is open). */
@@ -1421,7 +1501,7 @@ function Timeline({
               style={{
                 left: `${band.leftPct}%`,
                 width: `${Math.max(0.3, band.widthPct)}%`,
-                backgroundColor: e.is_idle ? "var(--color-border)" : colors[e.app_name] ?? paletteColor(0),
+                backgroundColor: e.is_idle ? "var(--color-border)" : colorOf(e),
                 opacity: e.is_idle ? 0.5 : 0.9,
               }}
             />
@@ -1454,9 +1534,12 @@ function Timeline({
 function Donut({
   buckets,
   colors,
+  onPick,
 }: {
   buckets: { key: string; seconds: number }[];
   colors: Record<string, string>;
+  /** Click a legend entry to drill down to it (excludes the "Other" bucket). */
+  onPick?: (key: string) => void;
 }) {
   const top = buckets.slice(0, 7);
   const rest = buckets.slice(7).reduce((a, b) => a + b.seconds, 0);
@@ -1476,18 +1559,29 @@ function Donut({
         ))}
       </svg>
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-        {entries.map((e, i) => (
-          <div key={e.key} className="flex items-center gap-1.5 text-[11px]">
-            <span
-              className="h-2.5 w-2.5 shrink-0 rounded-full"
-              style={{ backgroundColor: e.key === "Other" ? "var(--color-muted)" : colors[e.key] ?? paletteColor(i) }}
-            />
-            <span className="min-w-0 flex-1 truncate">{e.key}</span>
-            <span className="shrink-0 tabular-nums text-[var(--color-muted)]">
-              {formatDuration(e.seconds)}
-            </span>
-          </div>
-        ))}
+        {entries.map((e, i) => {
+          const pickable = onPick && e.key !== "Other";
+          return (
+            <div
+              key={e.key}
+              onClick={pickable ? () => onPick(e.key) : undefined}
+              className={
+                "flex items-center gap-1.5 rounded text-[11px] " +
+                (pickable ? "cursor-pointer hover:bg-[var(--color-surface)]" : "")
+              }
+              title={pickable ? `Show only ${e.key}` : undefined}
+            >
+              <span
+                className="h-2.5 w-2.5 shrink-0 rounded-full"
+                style={{ backgroundColor: e.key === "Other" ? "var(--color-muted)" : colors[e.key] ?? paletteColor(i) }}
+              />
+              <span className="min-w-0 flex-1 truncate">{e.key}</span>
+              <span className="shrink-0 tabular-nums text-[var(--color-muted)]">
+                {formatDuration(e.seconds)}
+              </span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );

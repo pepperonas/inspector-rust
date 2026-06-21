@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.102] — 2026-06-21
+
+### Added
+
+- **Timesheet — interactivity (roadmap #4/#6/#9).** The Timeline gains a **search**
+  box (filter events by app / title / host) and a **drill-down**: clicking an app
+  or category in a donut filters the event list to it (removable chip; the count
+  shows "shown / total"). The day timeline (Gantt) gets an **App ↔ Category
+  colour toggle**. This completes the analysis/presentation roadmap (#1–#10; #11
+  chart-polish is partial — value tooltips are present, the rest is optional).
+
 ## [0.84.101] — 2026-06-21
 
 ### Added

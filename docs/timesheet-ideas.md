@@ -18,7 +18,7 @@ Current building blocks to reuse:
 
 ## Analysis (more insight)
 
-### 1. Activity heatmap (hours × days) — highest insight/pixel
+### 1. Activity heatmap ✅ DONE (v0.84.101) (hours × days) — highest insight/pixel
 A week grid: rows = Mon–Sun, columns = 0–23h, cell intensity = active minutes in
 that hour. Reveals *when* you're productive.
 - **Backend:** extend `range_report` (or a new `heatmap(from,to)`) to return a
@@ -27,26 +27,26 @@ that hour. Reveals *when* you're productive.
 - **Frontend:** a CSS-grid of cells in `TimesheetWeek`, opacity/color ∝
   value/max; tooltip per cell. Reuse the accent color.
 
-### 2. Comparison vs. previous period
+### 2. Comparison vs. previous period ✅ DONE (v0.84.100/.101)
 Δ values: "today vs. yesterday", "this week vs. last week" — e.g.
 "+42 min · productivity +6 %".
 - **Backend:** none needed — fetch the previous day/week report too and diff in
   the frontend. (Or add a `compare` helper.)
 - **Frontend:** small Δ chips next to the totals (green/red, ▲/▼).
 
-### 3. Daily focus goal / target
+### 3. Daily focus goal ✅ DONE (v0.84.100) / target
 Set a target (e.g. 6 h focus) → progress ring + "1 h 12 m to go".
 - **Backend:** store `track.daily_goal_minutes` in settings (extend
   `TimesheetConfig` + Settings UI). 
 - **Frontend:** a progress ring (reuse `donutSegmentPath`) in the day totals; edit
   the goal in Settings → Timesheet.
 
-### 4. Drill-down by click
+### 4. Drill-down by click ✅ DONE (v0.84.102)
 Click a category/app → filter the day/week to just that one.
 - **Frontend only:** a `filter: {kind, key} | null` state; when set, filter
   `report.events` / breakdown buckets before rendering; a removable filter chip.
 
-### 5. Focus quality metrics
+### 5. Focus quality metrics ✅ DONE (v0.84.100)
 Longest uninterrupted session, number of context switches, a fragmentation
 score (e.g. active_seconds / number_of_active_intervals).
 - **Backend:** compute in `aggregate_day` from the active intervals (already
@@ -54,7 +54,7 @@ score (e.g. active_seconds / number_of_active_intervals).
   `switch_count`. 
 - **Frontend:** a small "Focus" stat card.
 
-### 6. Event search / filter in the Timeline
+### 6. Event search ✅ DONE (v0.84.102) / filter in the Timeline
 Search box filtering events by app / title / host.
 - **Frontend only:** a text input above the event list; filter `report.events`
   case-insensitively. (Titles are decrypted server-side already in the report.)
@@ -63,7 +63,7 @@ Search box filtering events by app / title / host.
 
 ## Presentation (clearer / nicer)
 
-### 7. Consistent category colors everywhere (+ category donut)
+### 7. Consistent category colors ✅ DONE (v0.84.99) everywhere (+ category donut)
 A stable category→color map used across all charts + as chips, so the same
 category is always the same color. Add a category **donut** (today it's bars).
 - **Frontend:** a `categoryColorMap` derived from the day/week's categories
@@ -71,7 +71,7 @@ category is always the same color. Add a category **donut** (today it's bars).
   timeline, and a new donut (reuse `Donut` from `TimesheetPanel`). Consider
   letting the user pin a color per category (settings map) later.
 
-### 8. Stacked weekly day-bars by category
+### 8. Stacked weekly ✅ DONE (v0.84.101) day-bars by category
 In the week view, split each day's bar by category (not just active/idle) — see
 the week's composition at a glance.
 - **Backend:** `range_report.days` needs per-day per-category seconds. Extend
@@ -80,17 +80,17 @@ the week's composition at a glance.
 - **Frontend:** render each day bar as stacked segments using the category color
   map from #7.
 
-### 9. 24h timeline colored by category (App ↔ Category toggle)
+### 9. 24h timeline colored by category ✅ DONE (v0.84.102) (App ↔ Category toggle)
 The day timeline is app-colored; add a toggle to color by category instead.
 - **Frontend only:** the timeline already maps events; switch the color source to
   the category color map (#7) when toggled.
 
-### 10. Insight summary sentence
+### 10. Insight summary sentence ✅ DONE (v0.84.100)
 A one-line readout above the charts: "Today: 4 h 12 m active, 78 % productive,
 top: Code (2 h)."
 - **Frontend only:** compose from the existing `report` fields.
 
-### 11. Chart polish
+### 11. Chart polish — PARTIAL (tooltips via title attrs; rest optional)
 Hover tooltips with exact values; soft enter animations; sticky totals header
 while scrolling; optional decimal hours (2.5 h) via a format toggle.
 - **Frontend only:** small additions to the bar/donut components + `formatDuration`

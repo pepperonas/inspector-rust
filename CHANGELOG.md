@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.107] — 2026-06-21
+
+### Changed
+
+- **Timesheet — Claude-Code entries are now visually distinct.** Claude usage was
+  already tracked correctly (and shows in the "Claude Code" card + "By project"),
+  but in the Timeline event list it looked like any other row and was easy to
+  miss among hundreds of focus events. Claude rows now get a **sparkle icon**, an
+  accent **"claude"** badge, and show their **project** in the detail column.
+  (Claude time stays excluded from the "By app" / active total by design — it
+  runs alongside your terminal focus, so counting both would double-count.)
+
 ## [0.84.106] — 2026-06-21
 
 ### Added

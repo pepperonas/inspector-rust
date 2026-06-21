@@ -870,15 +870,24 @@ export function TimesheetPanel() {
                     <span className="w-[92px] shrink-0 tabular-nums text-[var(--color-muted)]">
                       {formatClock(e.started_at)}–{e.ended_at ? formatClock(e.ended_at) : "…"}
                     </span>
-                    <span
-                      className="h-2.5 w-2.5 shrink-0 rounded-full"
-                      style={{ backgroundColor: e.is_idle ? "var(--color-muted)" : appColors[e.app_name] ?? paletteColor(0) }}
-                    />
+                    {e.source === "claude" ? (
+                      <Sparkles size={11} className="shrink-0 text-[var(--color-accent)]" />
+                    ) : (
+                      <span
+                        className="h-2.5 w-2.5 shrink-0 rounded-full"
+                        style={{ backgroundColor: e.is_idle ? "var(--color-muted)" : appColors[e.app_name] ?? paletteColor(0) }}
+                      />
+                    )}
                     <span className="w-[120px] shrink-0 truncate font-medium">{e.app_name}</span>
                     <span className="min-w-0 flex-1 truncate text-[var(--color-muted)]">
                       {e.category ? `[${e.category}] ` : ""}
-                      {e.host ?? e.window_title ?? ""}
+                      {e.source === "claude" ? (e.project ?? "") : (e.host ?? e.window_title ?? "")}
                     </span>
+                    {e.source === "claude" && (
+                      <span className="shrink-0 rounded-full bg-[var(--color-accent)]/15 px-1.5 text-[10px] text-[var(--color-accent)]">
+                        claude
+                      </span>
+                    )}
                     {e.is_idle && (
                       <span className="shrink-0 rounded-full bg-[var(--color-surface)] px-1.5 text-[10px] text-[var(--color-muted)]">
                         idle

@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.110] — 2026-06-21
+
+### Added
+
+- **History list — styled-text indicator.** Clips that carry **styled** content
+  (HTML / RTF) now show a subtle muted **HTML / RTF** tag next to the entry, so
+  they're distinguishable at a glance from **plain text** (which shows no tag).
+
 ## [0.84.109] — 2026-06-21
 
 ### Added

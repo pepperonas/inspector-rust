@@ -126,6 +126,13 @@ export const HistoryItem = memo(function HistoryItem({
   const isFinderFile = entry.kind === "finder-file";
   // A clip carrying a user note → highlighted yellow in the list.
   const isNotedClip = entry.kind === "clip" && !!entry.data.note;
+  // Styled-text clips (HTML/RTF) get a subtle format tag so they're
+  // distinguishable from plain text at a glance (plain text shows no tag).
+  const styledFormat =
+    entry.kind === "clip" &&
+    (entry.data.content_type === "html" || entry.data.content_type === "rtf")
+      ? entry.data.content_type.toUpperCase()
+      : null;
 
   const label =
     isSnippet
@@ -619,6 +626,17 @@ export const HistoryItem = memo(function HistoryItem({
           label
         )}
       </span>
+      {styledFormat && (
+        <span
+          title={`Styled ${styledFormat} content`}
+          className={
+            "shrink-0 rounded px-1 py-px text-[9px] font-semibold uppercase tracking-wider " +
+            (selected ? "bg-white/20 text-white/80" : "bg-[var(--color-border)]/60 text-[var(--color-muted)]")
+          }
+        >
+          {styledFormat}
+        </span>
+      )}
       {isNotedClip && entry.kind === "clip" && entry.data.note && (
         <span
           title={entry.data.note}

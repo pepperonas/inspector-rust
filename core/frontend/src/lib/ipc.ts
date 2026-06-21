@@ -1291,6 +1291,10 @@ export interface DaySummary {
   date: string;
   active_s: number;
   idle_s: number;
+  /** Active seconds per local hour 0..23 — for the heatmap. */
+  hours: number[];
+  /** This day's category breakdown — for stacked daily bars. */
+  by_category: TrackBucket[];
 }
 export interface RangeReport {
   from: string;

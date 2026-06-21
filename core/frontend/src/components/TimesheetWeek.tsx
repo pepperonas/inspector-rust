@@ -1,11 +1,18 @@
 import { useEffect, useState } from "react";
 import { trackGetRange, type RangeReport } from "../lib/ipc";
-import { categoryColor, formatDuration, shortDayLabel, weekBounds } from "../lib/timesheet";
+import {
+  categoryColor,
+  formatDuration,
+  shiftWeek,
+  shortDayLabel,
+  weekBounds,
+} from "../lib/timesheet";
 
 /**
- * Week overview for the Timesheet tab: per-day active/idle bars + the week's
- * category & project breakdowns + a productive-vs-idle ratio. `date` is any day
- * in the week (Mon–Sun is derived). Clicking a day jumps back to the day view.
+ * Week overview: per-day stacked-by-category bars, an hours × days activity
+ * heatmap, the week's category/app/project breakdowns, a productive-vs-idle
+ * ratio, and Δ vs. the previous week. `date` is any day in the week (Mon–Sun is
+ * derived). Clicking a day jumps to the day view.
  */
 export function TimesheetWeek({
   date,
@@ -15,11 +22,12 @@ export function TimesheetWeek({
   onPickDay: (date: string) => void;
 }) {
   const [report, setReport] = useState<RangeReport | null>(null);
+  const [prev, setPrev] = useState<RangeReport | null>(null);
   useEffect(() => {
     const { from, to } = weekBounds(date);
-    trackGetRange(from, to)
-      .then(setReport)
-      .catch(() => setReport(null));
+    trackGetRange(from, to).then(setReport).catch(() => setReport(null));
+    const pw = weekBounds(shiftWeek(date, -1));
+    trackGetRange(pw.from, pw.to).then(setPrev).catch(() => setPrev(null));
   }, [date]);
 
   if (!report) {
@@ -28,14 +36,29 @@ export function TimesheetWeek({
 
   const total = report.total_active_s + report.total_idle_s;
   const productivePct = total > 0 ? Math.round((report.total_active_s / total) * 100) : 0;
+  let prevPct: number | null = null;
+  if (prev) {
+    const pt = prev.total_active_s + prev.total_idle_s;
+    prevPct = pt > 0 ? Math.round((prev.total_active_s / pt) * 100) : 0;
+  }
   const maxDay = Math.max(1, ...report.days.map((d) => d.active_s + d.idle_s));
+  const maxHour = Math.max(1, ...report.days.flatMap((d) => d.hours));
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
       <div className="grid grid-cols-3 gap-3">
-        <Stat label="Active (week)" value={formatDuration(report.total_active_s)} accent />
+        <Stat
+          label="Active (week)"
+          value={formatDuration(report.total_active_s)}
+          accent
+          delta={prev ? durationDelta(report.total_active_s - prev.total_active_s) : undefined}
+        />
         <Stat label="Idle (week)" value={formatDuration(report.total_idle_s)} />
-        <Stat label="Productive" value={`${productivePct}%`} />
+        <Stat
+          label="Productive"
+          value={`${productivePct}%`}
+          delta={prevPct != null ? pointDelta(productivePct - prevPct) : undefined}
+        />
       </div>
 
       <Card title="Per day">
@@ -51,13 +74,19 @@ export function TimesheetWeek({
               >
                 <span className="w-[96px] shrink-0 text-[var(--color-muted)]">{shortDayLabel(d.date)}</span>
                 <div className="flex h-3 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--color-surface)]">
-                  <div
-                    className="h-full bg-[var(--color-accent)]"
-                    style={{ width: `${(d.active_s / maxDay) * 100}%` }}
-                  />
+                  {/* Stacked by category, then idle (muted), scaled to the busiest day. */}
+                  {d.by_category.map((c) => (
+                    <div
+                      key={c.key}
+                      className="h-full"
+                      title={`${c.key} · ${formatDuration(c.seconds)}`}
+                      style={{ width: `${(c.seconds / maxDay) * 100}%`, backgroundColor: categoryColor(c.key) }}
+                    />
+                  ))}
                   <div
                     className="h-full bg-[var(--color-border)]"
                     style={{ width: `${(d.idle_s / maxDay) * 100}%` }}
+                    title={`Idle · ${formatDuration(d.idle_s)}`}
                   />
                 </div>
                 <span className="w-[58px] shrink-0 text-right tabular-nums">{formatDuration(d.active_s)}</span>
@@ -66,9 +95,13 @@ export function TimesheetWeek({
           })}
         </div>
         <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-          <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-accent)]" /> active ·{" "}
-          <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-border)]" /> idle · click a day to open it
+          stacked by category · <span className="inline-block h-2 w-2 rounded-full bg-[var(--color-border)]" /> idle ·
+          click a day to open it
         </p>
+      </Card>
+
+      <Card title="Activity heatmap">
+        <Heatmap days={report.days} maxHour={maxHour} />
       </Card>
 
       <div className="grid grid-cols-2 gap-3">
@@ -89,10 +122,90 @@ export function TimesheetWeek({
   );
 }
 
-function Stat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+/** Hours × days grid; cell opacity ∝ active time that hour. */
+function Heatmap({
+  days,
+  maxHour,
+}: {
+  days: { date: string; hours: number[] }[];
+  maxHour: number;
+}) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      {days.map((d) => (
+        <div key={d.date} className="flex items-center gap-1">
+          <span className="w-[84px] shrink-0 text-[10px] text-[var(--color-muted)]">{shortDayLabel(d.date)}</span>
+          <div className="grid min-w-0 flex-1" style={{ gridTemplateColumns: "repeat(24, 1fr)", gap: "2px" }}>
+            {d.hours.map((v, h) => (
+              <div
+                key={h}
+                title={`${shortDayLabel(d.date)} ${String(h).padStart(2, "0")}:00 · ${formatDuration(v)}`}
+                className="h-3.5 rounded-[2px]"
+                style={{
+                  backgroundColor: v > 0 ? "var(--color-accent)" : "var(--color-surface)",
+                  opacity: v > 0 ? 0.15 + 0.85 * (v / maxHour) : 1,
+                }}
+              />
+            ))}
+          </div>
+        </div>
+      ))}
+      <div className="flex items-center gap-1">
+        <span className="w-[84px] shrink-0" />
+        <div className="grid min-w-0 flex-1 text-[9px] tabular-nums text-[var(--color-muted)]" style={{ gridTemplateColumns: "repeat(24, 1fr)" }}>
+          {Array.from({ length: 24 }, (_, h) => (
+            <span key={h} className="text-center">
+              {h % 6 === 0 ? h : ""}
+            </span>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Small pieces ─────────────────────────────────────────────────────────────
+
+interface Delta {
+  text: string;
+  positive: boolean;
+}
+function durationDelta(diffSec: number): Delta | undefined {
+  if (Math.abs(diffSec) < 60) return undefined;
+  return { text: `${diffSec >= 0 ? "+" : "−"}${formatDuration(Math.abs(diffSec))}`, positive: diffSec >= 0 };
+}
+function pointDelta(diffPts: number): Delta | undefined {
+  if (diffPts === 0) return undefined;
+  return { text: `${diffPts >= 0 ? "+" : "−"}${Math.abs(diffPts)}%`, positive: diffPts >= 0 };
+}
+
+function Stat({
+  label,
+  value,
+  accent,
+  delta,
+}: {
+  label: string;
+  value: string;
+  accent?: boolean;
+  delta?: Delta;
+}) {
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3">
-      <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">{label}</div>
+        {delta && (
+          <span
+            className={
+              "text-[11px] font-semibold tabular-nums " +
+              (delta.positive ? "text-emerald-400" : "text-rose-400")
+            }
+            title="vs. previous week"
+          >
+            {delta.positive ? "▲" : "▼"} {delta.text}
+          </span>
+        )}
+      </div>
       <div className={"mt-0.5 text-[20px] font-bold tabular-nums " + (accent ? "text-[var(--color-accent)]" : "")}>
         {value}
       </div>

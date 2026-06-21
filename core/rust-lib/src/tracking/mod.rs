@@ -603,6 +603,49 @@ pub struct DaySummary {
     pub date: String,
     pub active_s: i64,
     pub idle_s: i64,
+    /// Active seconds per local hour 0..23 (union-correct) — for the heatmap.
+    pub hours: Vec<i64>,
+    /// This day's category breakdown — for the stacked daily bars.
+    pub by_category: Vec<Bucket>,
+}
+
+/// Active seconds per local hour [0,24) for a day, from `events` clipped to
+/// `[day_from, day_to)`. Unions overlapping active intervals first, so a leftover
+/// open/overlapping event can't inflate an hour. Pure + unit-tested.
+fn hour_buckets(events: &[tdb::TrackEvent], day_from: i64, day_to: i64, now: i64) -> Vec<i64> {
+    let mut iv: Vec<(i64, i64)> = events
+        .iter()
+        .filter(|e| !e.is_idle && e.source != "claude")
+        .filter_map(|e| {
+            let s = e.started_at.max(day_from);
+            let en = e.ended_at.unwrap_or(now).min(day_to);
+            (en > s).then_some((s, en))
+        })
+        .collect();
+    iv.sort_by_key(|x| x.0);
+    // Merge overlaps.
+    let mut merged: Vec<(i64, i64)> = Vec::new();
+    for (s, e) in iv {
+        if let Some(last) = merged.last_mut() {
+            if s <= last.1 {
+                last.1 = last.1.max(e);
+                continue;
+            }
+        }
+        merged.push((s, e));
+    }
+    let mut hours = vec![0i64; 24];
+    for (s, e) in merged {
+        for (h, slot) in hours.iter_mut().enumerate() {
+            let hs = day_from + h as i64 * 3_600_000;
+            let he = hs + 3_600_000;
+            let overlap = e.min(he) - s.max(hs);
+            if overlap > 0 {
+                *slot += overlap / 1000;
+            }
+        }
+    }
+    hours
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -639,6 +682,7 @@ pub fn range_report(db: &DbHandle, from_date: &str, to_date: &str) -> Result<Ran
         let ds = d.format("%Y-%m-%d").to_string();
         let (from, to) = day_bounds(&ds)?;
         let events = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
+        let hours = hour_buckets(&events, from, to, now);
         let r = aggregate_day(ds.clone(), events, from, to, now);
         total_active += r.total_active_s;
         total_idle += r.total_idle_s;
@@ -651,7 +695,13 @@ pub fn range_report(db: &DbHandle, from_date: &str, to_date: &str) -> Result<Ran
         for b in &r.by_project {
             *by_project.entry(b.key.clone()).or_default() += b.seconds;
         }
-        days.push(DaySummary { date: ds, active_s: r.total_active_s, idle_s: r.total_idle_s });
+        days.push(DaySummary {
+            date: ds,
+            active_s: r.total_active_s,
+            idle_s: r.total_idle_s,
+            hours,
+            by_category: r.by_category,
+        });
         d += Duration::days(1);
     }
     Ok(RangeReport {
@@ -913,6 +963,38 @@ mod tests {
         assert_eq!(union_seconds(vec![(0, 40_000), (30_000, 60_000)]), 60);
         // Disjoint [0,10] + [20,30] = 20s.
         assert_eq!(union_seconds(vec![(20_000, 30_000), (0, 10_000)]), 20);
+    }
+
+    #[test]
+    fn hour_buckets_distribute_active_time_and_dedupe_overlap() {
+        let mk = |idle: bool, src: &str, s: i64, e: i64| tdb::TrackEvent {
+            id: 0,
+            session_id: 1,
+            app_name: "Code".into(),
+            app_id: None,
+            window_title: None,
+            url: None,
+            host: None,
+            category: None,
+            project: None,
+            source: src.into(),
+            is_idle: idle,
+            started_at: s,
+            ended_at: Some(e),
+            duration_s: None,
+        };
+        let h = 3_600_000;
+        let events = vec![
+            mk(false, "focus", 0, h),          // hour 0 full (3600s)
+            mk(false, "focus", 0, h / 2),      // overlaps hour 0 → no double count
+            mk(false, "focus", h + h / 2, 2 * h), // hour 1: 1800s
+            mk(true, "focus", 2 * h, 3 * h),   // idle → ignored
+        ];
+        let hb = hour_buckets(&events, 0, 86_400_000, 9_999_999);
+        assert_eq!(hb[0], 3600); // union, not 5400
+        assert_eq!(hb[1], 1800);
+        assert_eq!(hb[2], 0);
+        assert_eq!(hb.len(), 24);
     }
 
     #[test]

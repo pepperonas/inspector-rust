@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.101] — 2026-06-21
+
+### Added
+
+- **Timesheet — week analysis (roadmap #1/#8/#2).** The week view gains an
+  **hours × days activity heatmap** (cell intensity = active time that hour —
+  shows *when* you're productive), **stacked-by-category** per-day bars (using the
+  stable category colours), and **Δ vs. the previous week** on the week totals.
+  Backend `DaySummary` adds `hours[24]` (union-correct per hour, `hour_buckets`
+  unit-tested) + per-day `by_category`.
+
 ## [0.84.100] — 2026-06-21
 
 ### Added

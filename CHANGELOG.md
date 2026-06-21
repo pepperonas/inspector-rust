@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.105] — 2026-06-21
+
+### Fixed
+
+- **Timesheet — timeline legend now matches the bars exactly.** The legend is
+  derived from the **same** colour function and the **same visible bands** the
+  Gantt draws (deduped, in order), instead of being computed independently — so
+  in every colour mode (App / Category / Project) each legend swatch matches its
+  band, including an explicit **Idle** entry. Robust against empty-string
+  category/project values too.
+
 ## [0.84.104] — 2026-06-21
 
 ### Added

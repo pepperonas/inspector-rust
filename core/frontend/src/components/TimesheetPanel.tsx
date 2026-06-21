@@ -188,6 +188,50 @@ export function TimesheetPanel() {
   );
   const dayStart = useMemo(() => dayStartMs(date), [date]);
 
+  // The timeline's colour + label for an event, by the chosen mode. Both the
+  // Gantt bands AND the legend use these, so they can never diverge.
+  const tlLabel = (e: TrackEvent): string =>
+    timelineColorBy === "category"
+      ? e.category && e.category !== ""
+        ? e.category
+        : "Uncategorized"
+      : timelineColorBy === "project"
+        ? e.project && e.project !== ""
+          ? e.project
+          : NO_PROJECT
+        : e.app_name;
+  const tlColor = (e: TrackEvent): string =>
+    timelineColorBy === "category"
+      ? categoryColor(e.category ?? "Uncategorized")
+      : timelineColorBy === "project"
+        ? projectColor(e.project && e.project !== "" ? e.project : NO_PROJECT)
+        : appColors[e.app_name] ?? paletteColor(0);
+
+  // Legend = the distinct (label, colour) pairs actually drawn in the Gantt
+  // (events that produce a visible band), in the bar's left-to-right order,
+  // plus an Idle entry if idle bands are shown.
+  const legendItems = useMemo(() => {
+    const out: { key: string; color: string }[] = [];
+    const seen = new Set<string>();
+    let hasIdle = false;
+    for (const e of report?.events ?? []) {
+      if (!timelineBand(e.started_at, e.ended_at, dayStart, now)) continue;
+      if (e.is_idle) {
+        hasIdle = true;
+        continue;
+      }
+      const key = tlLabel(e);
+      if (!seen.has(key)) {
+        seen.add(key);
+        out.push({ key, color: tlColor(e) });
+      }
+    }
+    out.sort((a, b) => a.key.localeCompare(b.key));
+    if (hasIdle) out.push({ key: "Idle", color: "var(--color-border)" });
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [report, timelineColorBy, appColors, dayStart, now]);
+
   // Timeline list after applying the drill-down filter + search.
   const shownEvents = useMemo(() => {
     const all = report?.events ?? [];
@@ -540,17 +584,20 @@ export function TimesheetPanel() {
               events={report.events}
               dayStart={dayStart}
               now={now}
-              colorOf={(e) =>
-                timelineColorBy === "category"
-                  ? categoryColor(e.category ?? "Uncategorized")
-                  : timelineColorBy === "project"
-                    ? projectColor(e.project && e.project !== "" ? e.project : NO_PROJECT)
-                    : appColors[e.app_name] ?? paletteColor(0)
-              }
+              colorOf={tlColor}
               onSelectRange={(ids, t1, t2) => setProjAssign(ids.length ? { ids, t1, t2 } : null)}
               highlight={projAssign ? { t1: projAssign.t1, t2: projAssign.t2 } : null}
             />
-            <TimelineLegend mode={timelineColorBy} report={report} appColors={appColors} catColors={catColors} />
+            {legendItems.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-muted)]">
+                {legendItems.map((it) => (
+                  <span key={it.key} className="flex items-center gap-1">
+                    <span className="h-2 w-2 rounded-full" style={{ backgroundColor: it.color }} />
+                    <span className="max-w-[140px] truncate">{it.key}</span>
+                  </span>
+                ))}
+              </div>
+            )}
             {projAssign && (
               <ProjectAssign
                 pending={projAssign}
@@ -1351,48 +1398,6 @@ function CategoryAssign({
       >
         Set
       </button>
-    </div>
-  );
-}
-
-/** Legend under the day timeline reflecting the current colour mode. */
-function TimelineLegend({
-  mode,
-  report,
-  appColors,
-  catColors,
-}: {
-  mode: "app" | "category" | "project";
-  report: DayReport;
-  appColors: Record<string, string>;
-  catColors: Record<string, string>;
-}) {
-  const items: { key: string; color: string }[] = [];
-  if (mode === "app") {
-    for (const b of report.by_app.slice(0, 10)) items.push({ key: b.key, color: appColors[b.key] ?? paletteColor(0) });
-  } else if (mode === "category") {
-    for (const b of report.by_category) items.push({ key: b.key, color: catColors[b.key] ?? categoryColor(b.key) });
-  } else {
-    // Distinct projects among active events + "(no project)" for untagged.
-    const seen = new Map<string, boolean>();
-    let hasUntagged = false;
-    for (const e of report.events) {
-      if (e.is_idle) continue;
-      if (e.project && e.project !== "") seen.set(e.project, true);
-      else hasUntagged = true;
-    }
-    for (const p of [...seen.keys()].sort()) items.push({ key: p, color: projectColor(p) });
-    if (hasUntagged) items.push({ key: NO_PROJECT, color: projectColor(NO_PROJECT) });
-  }
-  if (items.length === 0) return null;
-  return (
-    <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-[var(--color-muted)]">
-      {items.map((it) => (
-        <span key={it.key} className="flex items-center gap-1">
-          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: it.color }} />
-          <span className="max-w-[140px] truncate">{it.key}</span>
-        </span>
-      ))}
     </div>
   );
 }

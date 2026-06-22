@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.112] — 2026-06-22
+
+### Added
+
+- **Touchpad gestures — core (phase 1 of the gesture feature).** New
+  platform-independent `gestures` module: normalized `GestureEvent`
+  (`SwipeUp/Down/Left/Right` + `Tap`, with finger count), opt-in `GestureConfig`,
+  a `GestureSource` trait + `apply()` lifecycle (tray-resident, mirrors
+  `auto_expand`), a config-gated dispatcher mapping 3-finger swipe up/down →
+  the existing volume pipeline and 3-finger tap → mute toggle, and the **pure
+  recognition** logic — `classify_swipe` + a `Recognizer` state machine (raw
+  touch frames → gesture, peak-position tracking to avoid lift skew) — fully
+  unit-tested (7 tests). The Linux (libinput) and Windows (Raw Input HID)
+  capture sources land in the next phases; no behaviour change yet (off by
+  default, no source on macOS).
+
 ## [0.84.111] — 2026-06-22
 
 ### Changed

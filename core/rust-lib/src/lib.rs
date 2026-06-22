@@ -50,6 +50,7 @@ mod status_toast;
 mod alarm;
 mod tracking;
 mod color_loupe;
+mod gestures;
 mod system_commands;
 mod system_stats;
 mod finder_selection;
@@ -190,6 +191,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(timer::TimerRegistry::default());
             app.manage(status_toast::LatestToast::default());
             app.manage(auto_expand::AutoExpandState::default());
+            app.manage(gestures::GestureState::default());
 
             // App-launcher cache. Manage an empty index immediately, then fill
             // it from a background thread — scanning ~200-400 .app bundles (or
@@ -314,6 +316,13 @@ pub fn run(context: tauri::Context<Wry>) {
             {
                 let ae_state = app.state::<auto_expand::AutoExpandState>();
                 auto_expand::apply(&app.handle(), &db_handle, &ae_state);
+            }
+
+            // Touchpad gestures (opt-in; off by default). Starts the OS capture
+            // source only when enabled + supported on this platform.
+            {
+                let g_state = app.state::<gestures::GestureState>();
+                gestures::apply(app.handle(), &db_handle, g_state.inner());
             }
 
             clipboard_watcher::spawn(

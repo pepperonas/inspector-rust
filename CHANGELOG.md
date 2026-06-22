@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.113] — 2026-06-22
+
+### Added
+
+- **Touchpad gestures — macOS capture + Settings toggle (phase 2).** The macOS
+  gesture source is live: a 3-finger **swipe up/down** changes the system volume
+  and a 3-finger **tap** toggles mute, system-wide, no focus needed. It reads the
+  raw finger stream from the private **MultitouchSupport** framework (the same
+  mechanism BetterTouchTool uses — the public NSEvent API can't deliver global
+  3-finger gestures), **loaded at runtime via `dlopen`** so a missing/changed
+  private framework degrades gracefully instead of breaking launch, and feeds the
+  unit-tested `Recognizer`. New IPC `get_/set_gesture_config`; **Settings →
+  Touchpad gestures** master toggle (opt-in, off by default). If gestures don't
+  fire, grant **Input Monitoring** (System Settings → Privacy & Security).
+  Linux (libinput) + Windows (Raw Input HID) sources follow.
+
 ## [0.84.112] — 2026-06-22
 
 ### Added

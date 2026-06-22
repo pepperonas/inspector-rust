@@ -676,6 +676,23 @@ export function getAutoExpandConfig(): Promise<AutoExpandConfig> {
   return invoke("get_auto_expand_config");
 }
 
+/** Touchpad-gesture config (BetterTouchTool-style; opt-in, off by default).
+ *  3-finger swipe up/down → volume, 3-finger tap → mute. */
+export interface GestureConfig {
+  enabled: boolean;
+  fingers: number;
+  volume_step: number;
+}
+
+export function getGestureConfig(): Promise<GestureConfig> {
+  return invoke("get_gesture_config");
+}
+
+/** Persist a new gesture config and (re)start/stop the OS capture source. */
+export function setGestureConfig(config: GestureConfig): Promise<GestureConfig> {
+  return invoke("set_gesture_config", { config });
+}
+
 /** Persist a new auto-expansion config and (re)arm/disarm the passive
  *  monitor. Returns the now-effective config. */
 export function setAutoExpandConfig(

@@ -3,6 +3,7 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auto_expand;
+use crate::gestures;
 use crate::backup::{self, BackupImportResult};
 use crate::cleaner;
 use crate::meme;
@@ -1368,6 +1369,28 @@ pub fn set_auto_expand_config(
     auto_expand::save_config(&db, &config).map_err(map_err)?;
     auto_expand::apply(&app, &db, &ae);
     Ok(auto_expand::load_config(&db))
+}
+
+// ── Touchpad gestures ────────────────────────────────────────────────────────
+
+/// Current touchpad-gesture config (opt-in; off by default).
+#[tauri::command]
+pub fn get_gesture_config(db: State<'_, DbHandle>) -> gestures::GestureConfig {
+    gestures::GestureConfig::load(&db)
+}
+
+/// Persist a new gesture config and (re)start or stop the OS capture source to
+/// match. Returns the now-effective config.
+#[tauri::command]
+pub fn set_gesture_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    g: State<'_, gestures::GestureState>,
+    config: gestures::GestureConfig,
+) -> Result<gestures::GestureConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    gestures::apply(&app, &db, &g);
+    Ok(gestures::GestureConfig::load(&db))
 }
 
 // ── Text expander ────────────────────────────────────────────────────────────

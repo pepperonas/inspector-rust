@@ -422,6 +422,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_expander_config,
             commands::get_auto_expand_config,
             commands::set_auto_expand_config,
+            commands::get_gesture_config,
+            commands::set_gesture_config,
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,

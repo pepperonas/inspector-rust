@@ -23,6 +23,7 @@ import {
   SunMoon,
   Trash2,
   AlarmClock,
+  Hand,
   Upload,
   Volume2,
   Wand2,
@@ -48,6 +49,9 @@ import {
   getFinderAutomationStatus,
   type BrunoDefaults,
   getAutoExpandConfig,
+  getGestureConfig,
+  setGestureConfig,
+  type GestureConfig,
   getAutostartEnabled,
   getCleanerConfig,
   cleanerCategories,
@@ -314,6 +318,30 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       setSoundEnabledState(!next);
     } finally {
       setSoundBusy(false);
+    }
+  };
+
+  // ── Touchpad gestures (v0.84.113) ────────────────────────────────────────
+  const [gestureCfg, setGestureCfg] = useState<GestureConfig | null>(null);
+  const [gestureBusy, setGestureBusy] = useState(false);
+  useEffect(() => {
+    getGestureConfig()
+      .then(setGestureCfg)
+      .catch(() => setGestureCfg(null));
+  }, []);
+  const toggleGestures = async (next: boolean) => {
+    if (!gestureCfg) return;
+    setGestureBusy(true);
+    const optimistic = { ...gestureCfg, enabled: next };
+    setGestureCfg(optimistic); // optimistic — the IPC re-applies the source
+    try {
+      const applied = await setGestureConfig(optimistic);
+      setGestureCfg(applied);
+    } catch (e) {
+      console.error("gesture toggle failed", e);
+      setGestureCfg({ ...gestureCfg, enabled: !next });
+    } finally {
+      setGestureBusy(false);
     }
   };
 
@@ -1020,6 +1048,34 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     : soundEnabled
                       ? "On — actions play a short sound"
                       : "Off — the app stays silent"}
+                </span>
+              </label>
+            </Row>
+          </Section>
+        </div>
+
+        {/* Touchpad gestures — BetterTouchTool-style 3-finger swipe/tap. */}
+        <div className="mb-6">
+          <Section
+            icon={<Hand size={16} className="text-[var(--color-accent)]" />}
+            title="Touchpad gestures"
+            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+          >
+            <Row label="Enable gestures">
+              <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={gestureCfg?.enabled ?? false}
+                  disabled={gestureCfg === null || gestureBusy}
+                  onChange={(e) => void toggleGestures(e.target.checked)}
+                  className="accent-[var(--color-accent)]"
+                />
+                <span className="text-[var(--color-muted)]">
+                  {gestureCfg === null
+                    ? "Loading…"
+                    : gestureCfg.enabled
+                      ? "On — 3-finger swipe controls volume, tap toggles mute"
+                      : "Off"}
                 </span>
               </label>
             </Row>

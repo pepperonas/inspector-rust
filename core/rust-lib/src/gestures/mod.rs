@@ -24,6 +24,8 @@ use crate::db::DbHandle;
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "macos")]
+mod macos;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -64,7 +66,7 @@ pub struct GestureEvent {
 const KEY_ENABLED: &str = "gestures.enabled";
 const KEY_VOLUME_STEP: &str = "gestures.volume_step";
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct GestureConfig {
     pub enabled: bool,
     pub fingers: u8,
@@ -162,6 +164,10 @@ fn platform_source() -> Option<Box<dyn GestureSource>> {
     #[cfg(target_os = "linux")]
     {
         return Some(Box::new(linux::LinuxGestureSource::new()));
+    }
+    #[cfg(target_os = "macos")]
+    {
+        return Some(Box::new(macos::MacGestureSource::new()));
     }
     #[cfg(target_os = "windows")]
     {

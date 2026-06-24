@@ -510,13 +510,19 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   layout is the community `mt.c` layout (version-sensitive; guarded, never
   panics). May need **Input Monitoring** grant on recent macOS. To **consume**
   the swipe (so the app underneath doesn't also scroll), an active **`CGEventTap`**
-  on the same capture thread swallows scroll-wheel events while a 3-finger
-  gesture is armed (`GESTURE_ARMED`, set in the MT callback ≥3 fingers, cleared
-  on full lift) — needs **Accessibility**; without it volume still changes but
-  the scroll leaks. The capture runs on a dedicated thread whose `CFRunLoopRun`
-  the tap source keeps alive (MultitouchSupport itself delivers on its own
-  internal thread). On-screen feedback is a passive, focus-free status toast
-  (`status_toast::show_passive`) that updates in place on rapid re-triggers.
+  on the same capture thread swallows scroll-wheel events within a **time window**
+  (`SWALLOW_UNTIL_MS`, pushed to `now + 350 ms` on every ≥3-finger frame — so the
+  lift-phase frames + momentum scroll are also eaten, unlike a flag cleared on
+  lift; the brief leading 2-finger phase before the 3rd finger lands is the one
+  unavoidable race). **`CGEventTapEnable(true)` is re-asserted at each gesture's
+  leading edge** because a display reconfiguration (monitor unplug) can silently
+  disable the tap (v0.84.122). Needs **Accessibility**; without it volume still
+  changes but the scroll leaks. The capture runs on a dedicated thread whose
+  `CFRunLoopRun` the tap source keeps alive (MultitouchSupport itself delivers on
+  its own internal thread). On-screen feedback is a passive, focus-free status
+  toast (`status_toast::show_passive`, centred on the **live** cursor monitor via
+  `pick_cursor_monitor_globally` — not the stale `current_monitor()`) that
+  **updates in place** on rapid re-triggers instead of re-popping.
 - **Windows (`gestures/windows.rs`, runtime-unverified):** **Raw Input + HID
   Precision Touchpad** (Usage Page `0x0D`/Usage `0x05`, `RIDEV_INPUTSINK`) on a
   message-only window; `HidP_*` parse contact reports → frames → `Recognizer`.

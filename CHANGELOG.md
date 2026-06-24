@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.123] — 2026-06-25
+
+### Changed
+
+- **Docs + log tidy for the now-complete touchpad gestures.** Updated the
+  CLAUDE.md gestures section to the final macOS scroll-consume design (350 ms
+  grace window + tap re-assert on monitor change + live-cursor-monitor toast),
+  and demoted the per-gesture `scroll window: swallowed=…` diagnostic from `info`
+  to `debug` so it no longer fills the log on every swipe.
+
 ## [0.84.122] — 2026-06-25
 
 ### Fixed

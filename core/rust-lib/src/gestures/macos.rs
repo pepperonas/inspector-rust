@@ -235,7 +235,7 @@ extern "C" fn frame_callback(
         let sw = SCROLL_SWALLOWED.swap(0, Ordering::Relaxed);
         let ps = SCROLL_PASSED.swap(0, Ordering::Relaxed);
         if sw + ps > 0 {
-            tracing::info!("gestures(mac): scroll window: swallowed={sw} passed={ps}");
+            tracing::debug!("gestures(mac): scroll window: swallowed={sw} passed={ps}");
         }
     }
     // Centroid of the active contacts; flip y so "up" = decreasing y (screen

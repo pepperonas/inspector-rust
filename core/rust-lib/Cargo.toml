@@ -75,6 +75,10 @@ windows = { version = "0.61", features = [
     "Win32_System_Com",
     # CTRL+BREAK graceful-stop for the recording ffmpeg (screen_record.rs)
     "Win32_System_Console",
+    # Touchpad gestures: Raw Input + HID Precision-Touchpad parsing (gestures/windows.rs)
+    "Win32_UI_Input",
+    "Win32_Devices_HumanInterfaceDevice",
+    "Win32_System_LibraryLoader",
     # Timesheet active-window + idle queries (tracking/os/windows.rs)
     "Win32_System_Threading",
     "Win32_System_SystemInformation",

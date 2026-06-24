@@ -2419,7 +2419,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.84.113"
+version = "0.84.114"
 dependencies = [
  "aes-gcm",
  "anyhow",

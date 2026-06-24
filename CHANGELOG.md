@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.114] — 2026-06-24
+
+### Added
+
+- **Touchpad gestures — Windows capture (phase 3).** Real Windows source via
+  **Raw Input + HID Precision Touchpad**: registers the digitizer HID (Usage
+  Page `0x0D`, Usage `0x05`) with `RIDEV_INPUTSINK` on a message-only window
+  (frames arrive without focus), parses the contact reports against the device's
+  preparsed data (`HidP_*`) into per-frame finger count + centroid, and feeds the
+  shared `Recognizer`. 3-finger swipe up/down → volume, tap → mute — same
+  bindings as macOS. Compile-validated against `windows` 0.61 (isolated
+  `windows-gnu` check); **runtime-unverified** (no Windows box), like the rest of
+  the repo's Windows code. **Caveats** (Settings/README): needs a genuine
+  Precision Touchpad; Raw Input is read-only, so set *Settings → Touchpad →
+  3-/4-finger gestures* to **Nothing** to avoid double-triggering.
+
+### Fixed
+
+- Restored a clean build after the Windows popup-flicker fix: the `SHOW_GRACE`
+  bump to 600 ms left its unit test asserting the old 300 ms boundary (now made
+  constant-relative), and `toggle_popup` & friends sitting after the test module
+  tripped `clippy::items_after_test_module`.
+
 ## [0.84.113] — 2026-06-22
 
 ### Added

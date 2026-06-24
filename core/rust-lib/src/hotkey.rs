@@ -974,6 +974,10 @@ pub fn register_direct_slots(
     Ok(())
 }
 
+// Several popup helpers (`toggle_popup`, `show_and_position`, …) live after this
+// test module; they're grouped by topic, not position. Suppress the lint rather
+// than relocate them.
+#[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -983,15 +987,16 @@ mod tests {
         let now = Instant::now();
         // No show recorded yet → never in grace (auto-hide allowed).
         assert!(!is_within_grace(None, now, SHOW_GRACE));
-        // Shown 100 ms ago, 300 ms grace → still in grace (spurious flicker).
+        // Shown well within the grace window → still in grace (spurious flicker).
         assert!(is_within_grace(
-            Some(now - Duration::from_millis(100)),
+            Some(now - SHOW_GRACE / 2),
             now,
             SHOW_GRACE
         ));
-        // Shown 400 ms ago → past grace → a genuine click-away hides.
+        // Shown well past the grace → a genuine click-away hides. Relative to
+        // SHOW_GRACE so it stays correct if the constant is retuned.
         assert!(!is_within_grace(
-            Some(now - Duration::from_millis(400)),
+            Some(now - SHOW_GRACE - Duration::from_millis(100)),
             now,
             SHOW_GRACE
         ));

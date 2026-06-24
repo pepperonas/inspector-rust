@@ -23,7 +23,7 @@ use super::{GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer,
 use parking_lot::Mutex;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU32, AtomicU64, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -171,13 +171,20 @@ static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
-/// True while a 3-finger gesture is in progress (≥3 fingers seen, not yet fully
-/// lifted) — the scroll tap swallows scroll-wheel events while it's set so the
-/// app underneath doesn't also scroll. Set/cleared by the multitouch callback.
-static GESTURE_ARMED: AtomicBool = AtomicBool::new(false);
+/// The scroll tap swallows scroll-wheel events until this timestamp (ms since
+/// `START`). Each ≥3-finger multitouch frame pushes it to `now + GRACE_MS`, so
+/// it stays set for the whole 3-finger phase **and** a short grace afterwards —
+/// the grace eats the lift-phase frames + any momentum scroll, which a hard
+/// "armed-while-≥3" flag would leak. `0` = not swallowing.
+static SWALLOW_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static SCROLL_TAP_PORT: AtomicIsize = AtomicIsize::new(0);
+/// Diagnostics: scroll events dropped vs let through during a gesture window.
+static SCROLL_SWALLOWED: AtomicU32 = AtomicU32::new(0);
+static SCROLL_PASSED: AtomicU32 = AtomicU32::new(0);
 /// Finger count at/above which the scroll-consume arms (matches DEFAULT_FINGERS).
 const ARM_FINGERS: usize = 3;
+/// Keep swallowing this long after the last ≥3-finger frame (lift + momentum).
+const GRACE_MS: u64 = 350;
 /// MTDeviceRefs + the loaded API, so `stop()` (other thread) can finalise.
 static MT_API: Mutex<Option<Mt>> = Mutex::new(None);
 static MT_DEVICES: Mutex<Vec<isize>> = Mutex::new(Vec::new());
@@ -204,17 +211,32 @@ extern "C" fn frame_callback(
     // DIAGNOSTIC: log the finger-count transitions so a real 3-finger swipe's
     // shape (0→3→…→0) is visible in the log. Only fires on a change, so ~a few
     // lines per gesture.
+    let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
     if prev != n as i32 {
         tracing::debug!("gestures(mac): contacts {prev} -> {n}");
     }
-    // Arm the scroll-consume once 3 fingers are down; keep it armed through the
-    // lift (3→2→1→0) so the trailing 1-/2-finger frames don't scroll either.
-    // Disarm only on full lift.
+    // Scroll-consume window: while ≥3 fingers are down, keep pushing the
+    // swallow deadline to now+GRACE — so it covers the whole gesture plus a
+    // grace tail (lift frames + momentum). On full lift, log the leak counters.
     if n >= ARM_FINGERS {
-        GESTURE_ARMED.store(true, Ordering::Relaxed);
-    } else if n == 0 {
-        GESTURE_ARMED.store(false, Ordering::Relaxed);
+        // On the leading edge of a gesture, re-assert the tap is enabled — a
+        // display reconfiguration (monitor unplug) can silently disable a
+        // CGEventTap, after which all scroll leaks. Cheap, idempotent, once per
+        // gesture (only when crossing into ≥3 fingers).
+        if prev < ARM_FINGERS as i32 {
+            let tap = SCROLL_TAP_PORT.load(Ordering::Relaxed) as CFMachPortRef;
+            if !tap.is_null() {
+                unsafe { CGEventTapEnable(tap, true) };
+            }
+        }
+        SWALLOW_UNTIL_MS.store(now + GRACE_MS, Ordering::Relaxed);
+    } else if n == 0 && prev > 0 {
+        let sw = SCROLL_SWALLOWED.swap(0, Ordering::Relaxed);
+        let ps = SCROLL_PASSED.swap(0, Ordering::Relaxed);
+        if sw + ps > 0 {
+            tracing::info!("gestures(mac): scroll window: swallowed={sw} passed={ps}");
+        }
     }
     // Centroid of the active contacts; flip y so "up" = decreasing y (screen
     // convention), matching `classify_swipe` (dy < 0 = up).
@@ -263,8 +285,15 @@ extern "C" fn scroll_tap_callback(
             }
             event
         }
-        CG_EVT_SCROLL_WHEEL if GESTURE_ARMED.load(Ordering::Relaxed) => {
-            std::ptr::null_mut() // consume — drop the scroll
+        CG_EVT_SCROLL_WHEEL => {
+            let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+            if now <= SWALLOW_UNTIL_MS.load(Ordering::Relaxed) {
+                SCROLL_SWALLOWED.fetch_add(1, Ordering::Relaxed);
+                std::ptr::null_mut() // consume — drop the scroll
+            } else {
+                SCROLL_PASSED.fetch_add(1, Ordering::Relaxed);
+                event
+            }
         }
         _ => event,
     }
@@ -389,7 +418,7 @@ impl GestureSource for MacGestureSource {
 
     fn stop(&mut self) {
         RUNNING.store(false, Ordering::SeqCst);
-        GESTURE_ARMED.store(false, Ordering::SeqCst);
+        SWALLOW_UNTIL_MS.store(0, Ordering::SeqCst);
         let tap = SCROLL_TAP_PORT.swap(0, Ordering::SeqCst) as CFMachPortRef;
         if !tap.is_null() {
             unsafe { CGEventTapEnable(tap, false) };

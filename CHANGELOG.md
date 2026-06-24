@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.122] — 2026-06-25
+
+### Fixed
+
+- **Touchpad gestures — underlying window scrolled again after a monitor change.**
+  Two robustness fixes to the scroll-consume: (1) a **display reconfiguration
+  (monitor unplug) can silently disable the `CGEventTap`** — the tap is now
+  re-asserted enabled at the leading edge of each 3-finger gesture, recovering a
+  tap killed by the unplug; (2) the swallow is now a **time window with a 350 ms
+  grace tail** (re-pushed every ≥3-finger frame) instead of a flag cleared on
+  lift, so the lift-phase frames + any momentum scroll are also consumed.
+  Diagnostics (`scroll window: swallowed=N passed=N`) log per gesture. (The brief
+  leading 2-finger phase before the 3rd finger lands is the one unavoidable
+  race.)
+
 ## [0.84.121] — 2026-06-25
 
 ### Fixed

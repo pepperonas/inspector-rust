@@ -20,15 +20,26 @@ static SCREENSHOT_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
 /// that becomes reliable once another transient always-on-top window — the
 /// status toast, the record overlay — has perturbed the foreground z-order
 /// during the session), which made the popup "open briefly then close by
-/// itself" until the app was restarted. Guarding the auto-hide with a short
-/// grace window neutralises that without affecting genuine click-away
-/// dismissals (which arrive well after the grace period). Harmless on macOS,
-/// where the Accessory-app focus model doesn't produce the spurious event.
+/// itself" until the app was restarted.
 static LAST_SHOWN_AT: Mutex<Option<Instant>> = Mutex::new(None);
 
-/// Grace window after a popup show during which a `Focused(false)` is treated
-/// as a spurious post-show flicker and ignored.
-const SHOW_GRACE: Duration = Duration::from_millis(300);
+/// Whether the popup has received a genuine `Focused(true)` event since the
+/// last `mark_shown()`. On Windows, `SetForegroundWindow` can fail silently
+/// (background-process restriction), so the popup may show without ever
+/// receiving focus. A `Focused(false)` that arrives before any `Focused(true)`
+/// is always spurious — we must not auto-hide on it.
+static POPUP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+
+/// Short grace window: ignore `Focused(false)` for this many ms after show
+/// even if `Focused(true)` somehow arrives very quickly and then flickers.
+const SHOW_GRACE: Duration = Duration::from_millis(600);
+
+/// Safety-net grace: if `Focused(true)` *never* arrives (e.g. `SetForeground-
+/// Window` fails on Windows), ignore `Focused(false)` up to this deadline so
+/// stale OS messages can't auto-close the popup. After this window the popup
+/// is left open (user must press Esc / hotkey to dismiss) — better than
+/// silently closing a popup the user can see.
+const SHOW_GRACE_NOFOCUS: Duration = Duration::from_millis(3_000);
 
 /// Pure core of the post-show grace check (testable without timers/globals).
 fn is_within_grace(last: Option<Instant>, now: Instant, grace: Duration) -> bool {
@@ -38,15 +49,41 @@ fn is_within_grace(last: Option<Instant>, now: Instant, grace: Duration) -> bool
     }
 }
 
-/// True if the popup was shown within the last [`SHOW_GRACE`] — the auto-hide
-/// handler should skip a focus-loss while this holds.
+/// Returns true when the auto-hide handler should **ignore** a `Focused(false)`
+/// event.  Two independent guards:
+///
+/// 1. **Focus-received guard** — if the popup has never received `Focused(true)`
+///    since it was last shown, any `Focused(false)` is spurious (Windows
+///    `SetForegroundWindow` can fail silently, leaving the popup visible but
+///    unfocused; OS then sends a stale `WM_KILLFOCUS`). We ignore those events
+///    up to [`SHOW_GRACE_NOFOCUS`] from the last show.
+///
+/// 2. **Short grace** — even after focus arrives, ignore a `Focused(false)` that
+///    lands within [`SHOW_GRACE`] of the show (covers rapid focus-then-flicker).
+///
+/// On macOS this always returns `false` quickly (no spurious events there).
 pub fn within_show_grace() -> bool {
-    is_within_grace(*LAST_SHOWN_AT.lock(), Instant::now(), SHOW_GRACE)
+    let last = *LAST_SHOWN_AT.lock();
+    let now = Instant::now();
+    if !POPUP_HAS_FOCUS.load(Ordering::Relaxed) {
+        // No Focused(true) yet — suppress until the safety-net deadline.
+        return is_within_grace(last, now, SHOW_GRACE_NOFOCUS);
+    }
+    // Focused(true) arrived; only suppress during the short flicker window.
+    is_within_grace(last, now, SHOW_GRACE)
 }
 
-/// Stamp "popup shown now" so the auto-hide grace window starts. Called at the
-/// tail of every show path ([`show_and_position`]).
+/// Record that the popup window just received `Focused(true)`.  Called from
+/// the `on_window_event` handler in `lib.rs`.
+pub fn mark_popup_focused() {
+    POPUP_HAS_FOCUS.store(true, Ordering::Relaxed);
+}
+
+/// Stamp "popup shown now" so the auto-hide grace window starts. Resets the
+/// focus-received flag so stale `Focused(false)` events can't auto-close the
+/// freshly opened popup before it receives `Focused(true)`.
 fn mark_shown() {
+    POPUP_HAS_FOCUS.store(false, Ordering::Relaxed);
     *LAST_SHOWN_AT.lock() = Some(Instant::now());
 }
 
@@ -1234,56 +1271,26 @@ pub fn hide_popup(app: &AppHandle) {
 fn show_and_position(window: &WebviewWindow) -> Result<()> {
     let target = pick_cursor_monitor(window);
 
-    // 1) Park the hidden window on the target monitor so `current_monitor()`
-    //    reports the right one after `show()`. Park at the FINAL centred
-    //    position (matching `clamp_into_monitor`'s math) whenever we already
-    //    know the window size — i.e. every open after the first — so the window
-    //    appears directly in place instead of flashing at a corner and snapping
-    //    to centre (which reads as lag). On the very first open `outer_size()`
-    //    is still zero on macOS, so fall back to a quarter-monitor park; the
-    //    post-show clamp then centres it.
+    // Position the window while still HIDDEN, so no WM_KILLFOCUS fires.
+    //
+    // Background: calling SetWindowPos on a *visible, focused* window (which
+    // is what the old post-show clamp_into_monitor did) sends WM_KILLFOCUS to
+    // the window.  If Tauri's async event queue delivers that WindowEvent
+    // slightly late — after the 600 ms short-grace window — the auto-hide
+    // handler would close the popup ("flickers / sometimes closes" on Windows).
+    // Doing all positioning here, before show(), sidesteps that entirely.
     if let Some(m) = &target {
-        let mpos = m.position();
-        let msize = m.size();
-        let wsize = window
-            .outer_size()
-            .ok()
-            .filter(|s| s.width > 0 && s.height > 0);
-        let (parked_x, parked_y) = match wsize {
-            Some(s) => (
-                mpos.x + (msize.width as i32 - s.width as i32) / 2,
-                mpos.y + (msize.height as i32 - s.height as i32) / 3,
-            ),
-            None => (
-                mpos.x + (msize.width as i32 / 4),
-                mpos.y + (msize.height as i32 / 4),
-            ),
-        };
-        let _ = window.set_position(PhysicalPosition::new(parked_x, parked_y));
-    }
-
-    // 2) Show + focus. After this, `outer_size()` reflects the real size.
-    window.show()?;
-    window.set_focus()?;
-
-    // 3) Re-resolve the monitor (in case the user moved the cursor between
-    //    the parking and the show), then center horizontally + ~⅓ down,
-    //    clamped to the monitor's visible area.
-    let monitor = window
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or(target)
-        .or_else(|| window.primary_monitor().ok().flatten());
-    if let Some(m) = monitor {
-        if let Err(e) = clamp_into_monitor(window, &m) {
-            tracing::debug!("clamp_into_monitor: {e:#}");
+        if let Err(e) = clamp_into_monitor(window, m) {
+            tracing::debug!("pre-show clamp_into_monitor: {e:#}");
         }
     }
-    // Start the post-show grace window: a `Focused(false)` arriving in the next
-    // SHOW_GRACE is a spurious post-show focus flicker (see LAST_SHOWN_AT) and
-    // must not auto-hide the popup we just opened.
+
+    // Arm the grace + focus-received flag before show() so every Focused event
+    // that fires during the show/set_focus sequence is evaluated correctly.
     mark_shown();
+
+    window.show()?;
+    window.set_focus()?;
     Ok(())
 }
 

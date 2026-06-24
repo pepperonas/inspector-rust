@@ -354,21 +354,29 @@ pub fn run(context: tauri::Context<Wry>) {
             if let Some(window) = app.get_webview_window(hotkey::POPUP_LABEL) {
                 let app_handle = app.handle().clone();
                 window.on_window_event(move |ev| {
-                    if let WindowEvent::Focused(false) = ev {
-                        // Don't auto-hide if a modal (e.g., file dialog) is
-                        // owning focus — the popup needs to stay visible
-                        // until the modal closes. Also ignore a focus-loss that
-                        // lands within the post-show grace window: on Windows,
-                        // `show()` + `set_focus()` can emit a spurious
-                        // `Focused(false)` right after the popup appears, which
-                        // made it "open briefly then close by itself" until a
-                        // restart (see `hotkey::LAST_SHOWN_AT`). A genuine
-                        // click-away arrives well after the grace period.
-                        if !suppress_hide.load(Ordering::Relaxed)
-                            && !hotkey::within_show_grace()
-                        {
-                            hotkey::hide_popup(&app_handle);
+                    match ev {
+                        WindowEvent::Focused(true) => {
+                            // Record that the popup genuinely received focus.
+                            // The auto-hide guard uses this to distinguish a
+                            // real click-away (Focused(false) after Focused(true))
+                            // from a spurious OS message that arrives before the
+                            // window ever had focus (Windows SetForegroundWindow
+                            // race / z-order perturbation).
+                            hotkey::mark_popup_focused();
                         }
+                        WindowEvent::Focused(false) => {
+                            // Don't auto-hide if a modal (file dialog) owns focus,
+                            // or while still within the post-show grace window.
+                            // `within_show_grace` handles both the short flicker
+                            // guard and the no-focus-yet safety net — see its
+                            // doc comment in hotkey.rs for the full story.
+                            if !suppress_hide.load(Ordering::Relaxed)
+                                && !hotkey::within_show_grace()
+                            {
+                                hotkey::hide_popup(&app_handle);
+                            }
+                        }
+                        _ => {}
                     }
                 });
             }

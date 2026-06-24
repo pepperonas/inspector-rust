@@ -847,7 +847,6 @@ fn request_graceful_stop(child: &mut Child) {
 /// the event can't propagate back to us.
 #[cfg(target_os = "windows")]
 fn request_graceful_stop(child: &mut Child) {
-    use windows::Win32::Foundation::BOOL;
     use windows::Win32::System::Console::{
         AttachConsole, FreeConsole, GenerateConsoleCtrlEvent, SetConsoleCtrlHandler,
         CTRL_BREAK_EVENT,
@@ -860,10 +859,10 @@ fn request_graceful_stop(child: &mut Child) {
         let _ = FreeConsole();
         if AttachConsole(pid).is_ok() {
             // Ignore the event ourselves while it's in flight, then restore.
-            let _ = SetConsoleCtrlHandler(None, BOOL(1));
+            let _ = SetConsoleCtrlHandler(None, true);
             let _ = GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, pid);
             let _ = FreeConsole();
-            let _ = SetConsoleCtrlHandler(None, BOOL(0));
+            let _ = SetConsoleCtrlHandler(None, false);
         }
     }
 }

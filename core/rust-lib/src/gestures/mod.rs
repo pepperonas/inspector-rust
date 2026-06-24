@@ -15,11 +15,6 @@
 //! (off by default) and the daemon runs as a tray-resident background thread —
 //! no window, no focus needed — mirroring `auto_expand`/`input_lock`.
 //
-// Some plumbing (the source trait, sink, apply) is only exercised on the
-// platforms that have a source; allow dead_code so macOS (no source yet) builds
-// clean. Removed once every platform path is wired.
-#![allow(dead_code)]
-
 use crate::db::DbHandle;
 
 #[cfg(target_os = "linux")]

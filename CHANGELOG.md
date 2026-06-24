@@ -4,6 +4,23 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.115] — 2026-06-24
+
+### Added
+
+- **Touchpad gestures — Linux capture (phase 4, all platforms now wired).**
+  Linux source via **libinput** (the `input` crate): builds a udev libinput
+  context, filters `GESTURE_SWIPE_*` to 3-finger, accumulates `dx`/`dy` over the
+  Update phase and classifies the total at `End` via the shared `classify_swipe`;
+  a short non-cancelled 3-finger `GESTURE_HOLD` → Tap. 3-finger swipe up/down →
+  volume, tap → mute. Reading `/dev/input/event*` needs the user in the `input`
+  group; the `input` crate links libinput via pkg-config so this **only builds on
+  Linux** (target-gated dep) and is **runtime-unverified** from the macOS host —
+  API names verified against the `input` 0.9 source. **Wayland caveat:** the
+  compositor may also own the 3-finger swipe (workspace/overview) — disable the
+  desktop gesture if it double-acts. With macOS + Windows + Linux all wired, the
+  gesture feature is platform-complete.
+
 ## [0.84.114] — 2026-06-24
 
 ### Added

@@ -101,6 +101,13 @@ windows = { version = "0.61", features = [
     "Storage_Streams",
 ] }
 
+# Linux-only: libinput (touchpad gestures, gestures/linux.rs). `input` wraps
+# libinput; needs the libinput system lib + headers at build time (pkg-config),
+# so this can only be compiled on Linux — runtime-unverified from a macOS host.
+[target.'cfg(target_os = "linux")'.dependencies]
+input = "0.9"
+libc = "0.2"
+
 # macOS-only Cocoa bindings for the screen color picker (NSColorSampler).
 # objc2 + block2 give us safe-ish msg_send + stack-allocated Objective-C
 # blocks without dragging in the deprecated `cocoa` crate.

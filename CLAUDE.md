@@ -485,6 +485,43 @@ Spotlight-like launcher. **macOS:** walks `/Applications`, `~/Applications`, `/S
 
 Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock chord (default: hold `i`, press `r`; configurable in Settings → Input Lock). macOS impl is **raw FFI to `CGEventTapCreate` + `CFRunLoop`** installed on the main thread's run loop (the `core-graphics` wrapper didn't actually drop events on Sonoma). The tap is installed once but **re-enabled on every `start_input_lock`** and from the callback on `kCGEventTapDisabledBy{Timeout,UserInput}` (`TAP_PORT` holds the port) — macOS auto-disables a tap on callback-timeout/heavy-input and it stays dead until `CGEventTapEnable(true)`; without the re-enable, `freeze` locked once but a second invocation after unlocking silently no-op'd (v0.84.3). Requires Accessibility (shares the expander grant). Safety hatch: `⌥⌘Esc` (Force Quit) always works above the tap. IPC: `get_input_lock_chord`, `set_input_lock_chord`, `start_input_lock`.
 
+### Touchpad gestures (`gestures/`, v0.84.112+)
+
+BetterTouchTool-style trackpad gestures feeding the **existing** volume/mute
+pipeline (`system_commands::adjust_system_volume` / `toggle_system_mute`) — **not**
+a new action layer. Bindings: **3-finger swipe up/down → volume ±**, **3-finger
+tap → mute**. **Opt-in** (settings key `gestures.enabled`, off by default);
+runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
+starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
+`get_/set_gesture_config`; Settings → **Touchpad gestures** master toggle.
+
+- **Platform-independent core (`gestures/mod.rs`):** `GestureKind`/`GestureEvent`,
+  `GestureConfig`, the `GestureSource` trait + `GestureSink`, the config-gated
+  `map_action` dispatcher, and the **pure recognition** — `classify_swipe(dx,dy,
+  threshold)` (dy<0 = up; screen/HID convention) + a `Recognizer` state machine
+  (raw `TouchFrame`s → event, peak-position tracking so finger-lift centroid
+  skew doesn't corrupt the swipe). Fully unit-tested; this is where the tests
+  live (the platform sources are thin).
+- **macOS (`gestures/macos.rs`):** the private **MultitouchSupport** framework
+  (what BTT uses; NSEvent can't deliver global 3-finger gestures). **`dlopen`-ed
+  at runtime** so a missing/changed private framework degrades gracefully instead
+  of breaking launch; `MTDeviceCreateList`/`MTRegisterContactFrameCallback`/
+  `MTDeviceStart` feed the global recognizer. **PRIVATE-API:** the `Finger` struct
+  layout is the community `mt.c` layout (version-sensitive; guarded, never
+  panics). May need **Input Monitoring** grant on recent macOS.
+- **Windows (`gestures/windows.rs`, runtime-unverified):** **Raw Input + HID
+  Precision Touchpad** (Usage Page `0x0D`/Usage `0x05`, `RIDEV_INPUTSINK`) on a
+  message-only window; `HidP_*` parse contact reports → frames → `Recognizer`.
+  Compile-validated against `windows` 0.61. Caveats: real Precision Touchpads
+  only; Raw Input is read-only → set OS *Touchpad → 3-/4-finger gestures* to
+  *Nothing* to avoid double-triggering.
+- **Linux (`gestures/linux.rs`, runtime-unverified):** **libinput** via the
+  `input` crate (udev backend) — filters `GESTURE_SWIPE_*` to 3-finger
+  (accumulate dx/dy, classify at End) + short non-cancelled `GESTURE_HOLD` → Tap.
+  Needs the user in the `input` group; only builds on Linux (`input` links
+  libinput via pkg-config — target-gated dep). Wayland caveat: the compositor may
+  also own the 3-finger swipe.
+
 ### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
 
 - **`timer <n>[s/min]`** — each `start_timer` spawns a worker; on expiry it fires the alarm. **Alarm style (setting `timer.alarm_style`, v0.84.76):** the default **`overlay`** (`alarm.rs` + `AlarmOverlay.tsx`) raises the system output volume (macOS — saved + restored), **loops** a bell-arpeggio alarm sound (`assets/alarm.wav`, generated; materialised to the cache dir; played per-OS, killed on stop), and shows a focused always-on-top `alarm-overlay` window the user must click (or press Esc/Enter/Space) to silence (`stop_alarm` → `alarm::stop`). The legacy **`notification`** style keeps the old per-OS native notification + one-shot sound + `timer-fired` popup banner (macOS `osascript display notification` + `afplay Glass.aiff`; Linux `notify-send` + `canberra-gtk-play`/`paplay`; Windows WinRT toast — runtime-unverified). `timer::run_timer` reads the setting and branches. IPC: `start_timer`, `cancel_timer`, `list_timers`, `get_/set_alarm_style`, `alarm_overlay_label`, `stop_alarm`. `AlarmState` is managed Tauri state; the `alarm-overlay` window is in each `capabilities/default.json` + routed in `main.tsx`. Settings → **Timer alarm** picks the style. Cancellable per-timer (`AtomicBool` polled ~200 ms); footer shows the live count.

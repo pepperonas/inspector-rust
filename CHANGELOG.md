@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.121] — 2026-06-25
+
+### Fixed
+
+- **Status toast (gesture feedback, timer, wakelock…) went off-screen after a
+  monitor change.** It centred using `win.current_monitor()`, which returns a
+  **stale** monitor association — after unplugging an external display the toast
+  was positioned on the now-gone screen and never appeared. It now resolves the
+  monitor **under the cursor** via the global cursor query (the same robust path
+  the popup uses) against the **live** `available_monitors()`, with a primary-
+  monitor fallback, so a disconnected display can't be picked. Affects every
+  status toast; surfaced via the touchpad-gesture volume/mute overlay.
+
 ## [0.84.120] — 2026-06-24
 
 ### Changed

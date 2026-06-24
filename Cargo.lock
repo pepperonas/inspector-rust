@@ -2444,7 +2444,7 @@ checksum = "36eee07d8e02bd95bf52b2e642cf13d33701b94c6e4b04fbf1d1fb07e9cb19e7"
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.84.120"
+version = "0.84.121"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -2492,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.84.119"
+version = "0.84.120"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2506,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.84.119"
+version = "0.84.120"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2520,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.84.119"
+version = "0.84.120"
 dependencies = [
  "inspector-rust-core",
  "tauri",

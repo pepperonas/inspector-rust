@@ -158,15 +158,15 @@ pub fn hide(app: &AppHandle) {
     }
 }
 
-/// Park the window onto the cursor's monitor, then centre it there. Park
-/// first so `current_monitor()` resolves to the right display before we
-/// read its geometry (mirrors `hotkey::show_and_position`).
+/// Centre the toast on the monitor **under the cursor**, resolved via the global
+/// cursor query (`pick_cursor_monitor_globally`) — NOT `win.current_monitor()`,
+/// which returns a *stale* association (e.g. an external display that was just
+/// unplugged) and parked the toast off-screen (v0.84.121). Falls back to the
+/// primary monitor. `available_monitors()` always reflects the live set, so a
+/// disconnected display can't be chosen.
 fn center_on_cursor_monitor(win: &WebviewWindow) {
-    crate::hotkey::park_on_cursor_monitor(win);
-    let monitor = win
-        .current_monitor()
-        .ok()
-        .flatten()
+    let monitors = win.available_monitors().unwrap_or_default();
+    let monitor = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
         .or_else(|| win.primary_monitor().ok().flatten());
     let Some(m) = monitor else { return };
     let mp = m.position();
@@ -176,6 +176,10 @@ fn center_on_cursor_monitor(win: &WebviewWindow) {
     let h_px = (WIN_H * scale) as i32;
     let x = mp.x + (ms.width as i32 - w_px) / 2;
     let y = mp.y + (ms.height as i32 - h_px) / 2;
+    // Move onto the target display first (updates the window's scale), then size.
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_size(PhysicalSize::new(w_px.max(1) as u32, h_px.max(1) as u32));
+    // Re-assert the position after the size/scale settles, in case set_size
+    // shifted it (mixed-DPI: the move to a different-scale display lags).
+    let _ = win.set_position(PhysicalPosition::new(x, y));
 }

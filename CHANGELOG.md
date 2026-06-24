@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.116] — 2026-06-24
+
+### Fixed
+
+- **Touchpad gestures (macOS) never fired.** `MTDeviceStart(dev, 0)` delivers the
+  multitouch callback via the **calling thread's CFRunLoop**, but the previous
+  build started the devices on a transient IPC worker thread that returned
+  immediately — no live run loop, so no frames. The macOS source now starts the
+  devices on a **dedicated thread that runs `CFRunLoopRun()`** (same pattern as
+  `input_lock`), with `CFRunLoopStop` on disable. Added diagnostics to the
+  rolling log (device count, "entering run loop", first-frame received, gesture
+  recognised) + a `MTDeviceCreateDefault` fallback when the device list is empty,
+  so a non-firing setup is diagnosable.
+
 ## [0.84.115] — 2026-06-24
 
 ### Added

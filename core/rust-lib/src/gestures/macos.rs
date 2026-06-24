@@ -8,17 +8,22 @@
 //! is missing or its symbols moved, `start()` fails and the feature degrades
 //! gracefully (gestures just don't fire) instead of breaking app launch.
 //!
+//! **Run loop:** `MTDeviceStart(dev, 0)` delivers the contact callback via the
+//! *calling thread's* CFRunLoop (mode `0` = default, not `MTRunModeNoRunLoop`).
+//! So we start the devices on a dedicated thread and run `CFRunLoopRun()` there
+//! to keep callbacks flowing — calling `MTDeviceStart` on a thread that then
+//! returns (no live run loop) is why an earlier build never fired (v0.84.115).
+//!
 //! **PRIVATE-API CAVEAT:** the `Finger` struct layout + symbol names are
-//! reverse-engineered and version-sensitive (this is the long-standing
-//! community layout used by the tools above). A future macOS could change them;
-//! the code is fully guarded so it can never crash — at worst gestures stop
-//! working until the layout is updated.
+//! reverse-engineered (the long-standing community `mt.c` layout). A future
+//! macOS could change them; the code is fully guarded so it never crashes — at
+//! worst gestures stop until the layout is updated.
 
 use super::{GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TouchFrame};
 use parking_lot::Mutex;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::OnceLock;
 use std::time::Instant;
 
@@ -26,6 +31,7 @@ use std::time::Instant;
 
 type MTDeviceRef = *mut c_void;
 type CFArrayRef = *const c_void;
+type CFRunLoopRef = *mut c_void;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -65,25 +71,29 @@ struct Finger {
 type MTContactCallback =
     extern "C" fn(MTDeviceRef, *mut Finger, c_int, f64, c_int) -> c_int;
 
-// dlopen / dlsym live in libSystem (always linked on macOS) — declare directly
-// to avoid pulling in the `libc` crate.
+// dlopen / dlsym live in libSystem (always linked on macOS).
 extern "C" {
     fn dlopen(path: *const c_char, mode: c_int) -> *mut c_void;
     fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
 }
 const RTLD_LAZY: c_int = 1;
 
-// CoreFoundation is public + always linked; used to iterate the device list.
+// CoreFoundation is public + always linked; used to iterate the device list and
+// run / stop the capture thread's run loop.
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
     fn CFArrayGetCount(arr: CFArrayRef) -> isize;
     fn CFArrayGetValueAtIndex(arr: CFArrayRef, idx: isize) -> *const c_void;
+    fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+    fn CFRunLoopRun();
+    fn CFRunLoopStop(rl: CFRunLoopRef);
 }
 
 /// Resolved MultitouchSupport entry points.
 #[derive(Clone, Copy)]
 struct Mt {
     create_list: unsafe extern "C" fn() -> CFArrayRef,
+    create_default: Option<unsafe extern "C" fn() -> MTDeviceRef>,
     register_cb: unsafe extern "C" fn(MTDeviceRef, MTContactCallback),
     start: unsafe extern "C" fn(MTDeviceRef, c_int) -> c_int,
     stop: unsafe extern "C" fn(MTDeviceRef) -> c_int,
@@ -97,6 +107,7 @@ unsafe fn load_mt() -> Option<Mt> {
     }
     let sym = |name: &[u8]| dlsym(handle, name.as_ptr() as *const c_char);
     let create_list = sym(b"MTDeviceCreateList\0");
+    let create_default = sym(b"MTDeviceCreateDefault\0");
     let register_cb = sym(b"MTRegisterContactFrameCallback\0");
     let start = sym(b"MTDeviceStart\0");
     let stop = sym(b"MTDeviceStop\0");
@@ -105,18 +116,28 @@ unsafe fn load_mt() -> Option<Mt> {
     }
     Some(Mt {
         create_list: std::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> CFArrayRef>(create_list),
+        create_default: if create_default.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<*mut c_void, unsafe extern "C" fn() -> MTDeviceRef>(create_default))
+        },
         register_cb: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef, MTContactCallback)>(register_cb),
         start: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef, c_int) -> c_int>(start),
         stop: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef) -> c_int>(stop),
     })
 }
 
-// ── Shared state the C callback reads (it can't capture) ─────────────────────
+// ── Shared state the C callback / stop() read (the callback can't capture) ───
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
-static MT_SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
-static MT_REC: Mutex<Option<Recognizer>> = Mutex::new(None);
+static SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
+static REC: Mutex<Option<Recognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
+static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
+static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
+/// MTDeviceRefs + the loaded API, so `stop()` (other thread) can finalise.
+static MT_API: Mutex<Option<Mt>> = Mutex::new(None);
+static MT_DEVICES: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 
 extern "C" fn frame_callback(
     _device: MTDeviceRef,
@@ -134,6 +155,9 @@ extern "C" fn frame_callback(
     } else {
         unsafe { std::slice::from_raw_parts(data, n) }
     };
+    if !FIRST_FRAME_LOGGED.swap(true, Ordering::Relaxed) {
+        tracing::info!("gestures(mac): first multitouch frame received ({n} finger(s)) — capture is live");
+    }
     // Centroid of the active contacts; flip y so "up" = decreasing y (screen
     // convention), matching `classify_swipe` (dy < 0 = up).
     let (mut sx, mut sy) = (0.0f64, 0.0f64);
@@ -151,82 +175,115 @@ extern "C" fn frame_callback(
     let frame = TouchFrame { contacts: count as u8, x, y, t_ms };
 
     let event: Option<GestureEvent> = {
-        let mut rec = MT_REC.lock();
+        let mut rec = REC.lock();
         rec.get_or_insert_with(Recognizer::new).feed(frame)
     };
     if let Some(ev) = event {
-        if let Some(sink) = MT_SINK.lock().as_ref() {
+        tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
+        if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
         }
     }
     0
 }
 
+/// Runs on a dedicated thread: start the devices, then pump a CFRunLoop so the
+/// contact callback is delivered. Blocks until `stop()` calls `CFRunLoopStop`.
+fn capture_thread() {
+    let Some(mt) = (unsafe { load_mt() }) else {
+        tracing::warn!("gestures(mac): MultitouchSupport not loadable — gestures disabled");
+        RUNNING.store(false, Ordering::SeqCst);
+        return;
+    };
+
+    // Enumerate devices (fall back to the default device if the list is empty).
+    let mut devices: Vec<MTDeviceRef> = Vec::new();
+    unsafe {
+        let list = (mt.create_list)();
+        if !list.is_null() {
+            let count = CFArrayGetCount(list);
+            for i in 0..count {
+                let dev = CFArrayGetValueAtIndex(list, i) as MTDeviceRef;
+                if !dev.is_null() {
+                    devices.push(dev);
+                }
+            }
+        }
+        if devices.is_empty() {
+            if let Some(create_default) = mt.create_default {
+                let dev = create_default();
+                if !dev.is_null() {
+                    devices.push(dev);
+                }
+            }
+        }
+    }
+    if devices.is_empty() {
+        tracing::warn!("gestures(mac): no multitouch devices found");
+        RUNNING.store(false, Ordering::SeqCst);
+        return;
+    }
+    tracing::info!("gestures(mac): {} multitouch device(s), starting capture", devices.len());
+
+    unsafe {
+        for &dev in &devices {
+            (mt.register_cb)(dev, frame_callback);
+            (mt.start)(dev, 0);
+        }
+        RUN_LOOP.store(CFRunLoopGetCurrent() as isize, Ordering::SeqCst);
+    }
+    *MT_API.lock() = Some(mt);
+    *MT_DEVICES.lock() = devices.iter().map(|&d| d as isize).collect();
+
+    tracing::info!("gestures(mac): entering run loop (waiting for finger frames)");
+    // Blocks here delivering callbacks until CFRunLoopStop (from stop()).
+    unsafe { CFRunLoopRun() };
+    tracing::info!("gestures(mac): run loop exited");
+    RUN_LOOP.store(0, Ordering::SeqCst);
+}
+
 // ── Source ───────────────────────────────────────────────────────────────────
 
-pub struct MacGestureSource {
-    mt: Option<Mt>,
-    devices: Vec<MTDeviceRef>,
-}
+pub struct MacGestureSource;
 
 impl MacGestureSource {
     pub fn new() -> Self {
-        MacGestureSource { mt: None, devices: Vec::new() }
+        MacGestureSource
     }
 }
 
-// MTDeviceRef is an opaque pointer we only hand back to the framework on the
-// same thread set; the framework owns the worker thread. Safe to move the
-// handle list across threads for start/stop.
-unsafe impl Send for MacGestureSource {}
-
 impl GestureSource for MacGestureSource {
     fn start(&mut self, _cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
-        let mt = unsafe { load_mt() }.ok_or_else(|| {
-            "MultitouchSupport unavailable (private framework not loadable)".to_string()
-        })?;
+        if RUNNING.swap(true, Ordering::SeqCst) {
+            return Ok(()); // already running
+        }
         let _ = START.set(Instant::now());
-        *MT_REC.lock() = Some(Recognizer::new());
-        *MT_SINK.lock() = Some(sink);
-        RUNNING.store(true, Ordering::SeqCst);
-
-        let list = unsafe { (mt.create_list)() };
-        if list.is_null() {
-            RUNNING.store(false, Ordering::SeqCst);
-            return Err("no multitouch devices".into());
-        }
-        let count = unsafe { CFArrayGetCount(list) };
-        let mut devices = Vec::new();
-        for i in 0..count {
-            let dev = unsafe { CFArrayGetValueAtIndex(list, i) } as MTDeviceRef;
-            if dev.is_null() {
-                continue;
-            }
-            unsafe {
-                (mt.register_cb)(dev, frame_callback);
-                (mt.start)(dev, 0);
-            }
-            devices.push(dev);
-        }
-        if devices.is_empty() {
-            RUNNING.store(false, Ordering::SeqCst);
-            return Err("no startable multitouch devices".into());
-        }
-        self.mt = Some(mt);
-        self.devices = devices;
+        FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
+        *REC.lock() = Some(Recognizer::new());
+        *SINK.lock() = Some(sink);
+        // The run loop must live on its own thread (a sync IPC command thread
+        // returns immediately → no run loop → no callbacks).
+        std::thread::Builder::new()
+            .name("ir-gestures-mac".into())
+            .spawn(capture_thread)
+            .map_err(|e| format!("spawn gesture thread: {e}"))?;
         Ok(())
     }
 
     fn stop(&mut self) {
         RUNNING.store(false, Ordering::SeqCst);
-        if let Some(mt) = self.mt {
-            for &dev in &self.devices {
-                unsafe { (mt.stop)(dev) };
+        if let Some(mt) = *MT_API.lock() {
+            for &dev in MT_DEVICES.lock().iter() {
+                unsafe { (mt.stop)(dev as MTDeviceRef) };
             }
         }
-        self.devices.clear();
-        self.mt = None;
-        *MT_SINK.lock() = None;
-        *MT_REC.lock() = None;
+        let rl = RUN_LOOP.swap(0, Ordering::SeqCst);
+        if rl != 0 {
+            unsafe { CFRunLoopStop(rl as CFRunLoopRef) };
+        }
+        MT_DEVICES.lock().clear();
+        *MT_API.lock() = None;
+        *SINK.lock() = None;
+        *REC.lock() = None;
     }
 }

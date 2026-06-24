@@ -52,7 +52,18 @@ pub struct LatestToast(pub Mutex<Option<StatusToast>>);
 /// reusing thereafter) the toast window centred on the cursor's monitor
 /// and notify the frontend to (re)play its animation.
 pub fn show(app: &AppHandle, toast: StatusToast) {
-    tracing::debug!("status_toast: show kind={} on={}", toast.kind, toast.on);
+    show_inner(app, toast, true);
+}
+
+/// Like [`show`] but **never steals focus** (`set_focus` is skipped) — for
+/// passive overlays fired while the user works in another app (touchpad-gesture
+/// volume/mute), where yanking focus on every swipe would be disruptive.
+pub fn show_passive(app: &AppHandle, toast: StatusToast) {
+    show_inner(app, toast, false);
+}
+
+fn show_inner(app: &AppHandle, toast: StatusToast, focus: bool) {
+    tracing::debug!("status_toast: show kind={} on={} focus={focus}", toast.kind, toast.on);
     if let Some(state) = app.try_state::<LatestToast>() {
         *state.0.lock() = Some(toast);
     } else {
@@ -99,8 +110,11 @@ pub fn show(app: &AppHandle, toast: StatusToast) {
     // Force it on-screen + frontmost. After `app.hide()` (run at toggle
     // time) the app is hidden, and an Accessory app's `show()` alone does
     // not reliably order a fresh window in — `set_focus` makes it key and
-    // brings the overlay forward over whatever app is now frontmost.
-    let _ = win.set_focus();
+    // brings the overlay forward over whatever app is now frontmost. Skipped
+    // for passive toasts so a gesture never pulls focus from the active app.
+    if focus {
+        let _ = win.set_focus();
+    }
 }
 
 /// Close the popup and announce `toast` on-screen — the shared flow used
@@ -130,8 +144,18 @@ pub fn hide(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(TOAST_LABEL) {
         let _ = win.hide();
     }
+    // Passive toasts (gesture volume/mute) never took focus, so don't
+    // `app.hide()` — that would needlessly perturb the frontmost app / Spaces.
     #[cfg(target_os = "macos")]
-    let _ = app.hide();
+    {
+        let passive = app
+            .try_state::<LatestToast>()
+            .and_then(|s| s.0.lock().as_ref().map(|t| matches!(t.kind.as_str(), "volume" | "mute")))
+            .unwrap_or(false);
+        if !passive {
+            let _ = app.hide();
+        }
+    }
 }
 
 /// Park the window onto the cursor's monitor, then centre it there. Park

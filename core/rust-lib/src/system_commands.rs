@@ -374,6 +374,38 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     }
 }
 
+/// Nudge the volume by `delta` and return the **new** level (0–100), so a
+/// caller (the gesture toast) can display it. macOS reads+clamps+sets+returns
+/// in one synchronous `osascript`; other platforms fall back to
+/// `adjust_system_volume` and report `None` (no cheap read-back). Blocking —
+/// call off the hot path.
+pub fn nudge_volume(delta: i32) -> Option<u8> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(format!(
+                "set v to (output volume of (get volume settings)) + ({delta})"
+            ))
+            .arg("-e").arg("if v < 0 then set v to 0")
+            .arg("-e").arg("if v > 100 then set v to 100")
+            .arg("-e").arg("set volume output volume v")
+            .arg("-e").arg("return v")
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .map(|v| v.clamp(0, 100) as u8)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = adjust_system_volume(delta);
+        None
+    }
+}
+
 /// Toggle the system output mute state. Reads the current state via
 /// `osascript`, flips it, returns the new state (`true` = now muted).
 /// No privilege required.

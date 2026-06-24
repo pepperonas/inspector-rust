@@ -123,21 +123,45 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
     }
 }
 
-/// Perform an action via the existing volume / mute pipeline (best-effort; runs
-/// on a worker thread so the capture loop never blocks).
-fn perform(action: GestureAction, step: i32) {
+/// Perform an action via the existing volume / mute pipeline + show a passive,
+/// centred on-screen toast (the gesture's only visible feedback, since macOS
+/// shows no HUD for programmatic volume changes). Runs on a worker thread so the
+/// capture callback never blocks; the toast is shown on the main thread (window
+/// op). Rapid re-triggers reuse the same toast (it updates in place — see
+/// `StatusToast.tsx`), they don't re-pop.
+fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     tracing::info!("gesture action: {action:?} (step {step})");
+    let app = app.clone();
     std::thread::spawn(move || {
-        let r = match action {
-            GestureAction::VolumeUp => crate::system_commands::adjust_system_volume(step).map(|_| ()),
-            GestureAction::VolumeDown => {
-                crate::system_commands::adjust_system_volume(-step).map(|_| ())
+        let toast = match action {
+            GestureAction::VolumeUp | GestureAction::VolumeDown => {
+                let delta = if matches!(action, GestureAction::VolumeUp) { step } else { -step };
+                let level = crate::system_commands::nudge_volume(delta);
+                crate::status_toast::StatusToast {
+                    kind: "volume".into(),
+                    on: level.map(|l| l > 0).unwrap_or(true),
+                    // Title carries the level so the frontend can draw the bar;
+                    // falls back to a direction arrow when the OS gives no read-back.
+                    title: level
+                        .map(|l| format!("{l}%"))
+                        .unwrap_or_else(|| if delta > 0 { "+".into() } else { "−".into() }),
+                    subtitle: "Volume".into(),
+                }
             }
-            GestureAction::MuteToggle => crate::system_commands::toggle_system_mute().map(|_| ()),
+            GestureAction::MuteToggle => {
+                let muted = crate::system_commands::toggle_system_mute().unwrap_or(true);
+                crate::status_toast::StatusToast {
+                    kind: "mute".into(),
+                    on: muted,
+                    title: if muted { "Muted".into() } else { "Unmuted".into() },
+                    subtitle: "Volume".into(),
+                }
+            }
         };
-        if let Err(e) = r {
-            tracing::warn!("gesture action failed: {e:#}");
-        }
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            crate::status_toast::show_passive(&app2, toast);
+        });
     });
 }
 
@@ -267,7 +291,7 @@ pub struct GestureState(pub Mutex<Option<Box<dyn GestureSource>>>);
 
 /// Start/stop the gesture daemon to match the saved config. Called at startup
 /// and after a settings change (idempotent). Mirrors `auto_expand::apply`.
-pub fn apply(_app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
+pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
     let cfg = GestureConfig::load(db);
     let mut guard = state.0.lock();
     if cfg.enabled {
@@ -278,9 +302,10 @@ pub fn apply(_app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
             return; // unsupported platform → no-op
         };
         let step = cfg.volume_step;
+        let app = app.clone();
         let sink: GestureSink = Box::new(move |ev| {
             if let Some(action) = map_action(&ev, &cfg) {
-                perform(action, step);
+                perform(&app, action, step);
             }
         });
         match source.start(cfg, sink) {

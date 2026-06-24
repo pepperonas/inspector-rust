@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.118] — 2026-06-24
+
+### Added
+
+- **Touchpad gestures — on-screen feedback.** macOS shows no HUD for programmatic
+  volume changes, so a gesture felt like "nothing happened" (the volume *was*
+  changing). Gestures now show a small **centred status toast** (like wakelock):
+  a 3-finger swipe shows the **volume level + bar**, a 3-finger tap shows
+  **Muted/Unmuted**. It's **passive** (never steals focus from the app you're in)
+  and, crucially, **updates in place on rapid re-triggers** — swiping louder 3×
+  in a row bumps the same readout instead of re-popping a new card. New
+  `status_toast::show_passive` + `system_commands::nudge_volume` (returns the new
+  level); persistent in/out/bump animations in `StatusToast.tsx`.
+
 ## [0.84.117] — 2026-06-24
 
 ### Fixed

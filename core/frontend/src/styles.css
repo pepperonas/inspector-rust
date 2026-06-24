@@ -475,6 +475,38 @@ code {
   100% { transform: scale(1); }
 }
 
+/* Persistent (volume/mute) toast: pop IN and stay (ends at opacity 1) so it can
+   linger + update in place on rapid re-triggers, instead of the one-shot
+   pop-in-and-out. Paired with `.status-toast-out` for the deferred dismissal. */
+.status-toast-in {
+  animation: statusToastIn 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes statusToastIn {
+  0%   { opacity: 0; transform: scale(0.7) translateY(10px); }
+  60%  { opacity: 1; transform: scale(1.06) translateY(0); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.status-toast-out {
+  animation: statusToastOut 240ms ease-in both;
+}
+@keyframes statusToastOut {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.96) translateY(-8px); }
+}
+/* Quick bump replayed on each in-place value update (re-trigger), so a repeated
+   volume change reads as "updating" without re-popping the whole card. */
+.status-toast-bump {
+  animation: statusToastBump 280ms ease-out;
+}
+@keyframes statusToastBump {
+  0%   { transform: scale(0.86); }
+  50%  { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .status-toast-in, .status-toast-out, .status-toast-bump { animation: none; }
+}
+
 /* Expanding ring radiating from the icon on entry. */
 .status-toast-ring {
   animation: statusToastRing 900ms ease-out 1 forwards;

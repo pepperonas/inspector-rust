@@ -126,6 +126,7 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// Perform an action via the existing volume / mute pipeline (best-effort; runs
 /// on a worker thread so the capture loop never blocks).
 fn perform(action: GestureAction, step: i32) {
+    tracing::info!("gesture action: {action:?} (step {step})");
     std::thread::spawn(move || {
         let r = match action {
             GestureAction::VolumeUp => crate::system_commands::adjust_system_volume(step).map(|_| ()),
@@ -223,9 +224,17 @@ impl Recognizer {
                 self.start = (f.x, f.y, f.t_ms);
                 self.peak = self.start;
                 self.max_contacts = f.contacts;
+            } else if f.contacts > self.max_contacts {
+                // A finger joined → the centroid jumps as it averages one more
+                // contact. Re-baseline `start` (and `peak`) to here so the swipe
+                // is measured only across the stable peak-finger-count phase and
+                // the join-jump doesn't corrupt the direction. (Fingers rarely
+                // land simultaneously — real frames go 0→2→3.)
+                self.max_contacts = f.contacts;
+                self.start = (f.x, f.y, f.t_ms);
+                self.peak = self.start;
             }
             if f.contacts >= self.max_contacts {
-                self.max_contacts = f.contacts;
                 self.peak = (f.x, f.y, f.t_ms);
             }
             None
@@ -341,6 +350,24 @@ mod tests {
             TouchFrame { contacts: 0, x: 0.51, y: 0.5, t_ms: 120 },
         ]);
         assert_eq!(ev, Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 }));
+    }
+
+    #[test]
+    fn recognizer_rebaselines_when_finger_count_grows() {
+        // Real trackpads land fingers one at a time: 0→2→3. The 2-finger frame
+        // sits to one side; when the 3rd joins the centroid jumps. The swipe
+        // must be measured from the first 3-finger frame, not the 2-finger one,
+        // so a clean upward 3-finger glide reads as SwipeUp (not a false
+        // direction from the join-jump).
+        let ev = frames_to_event(&[
+            TouchFrame { contacts: 2, x: 0.30, y: 0.60, t_ms: 0 }, // 2 fingers land left
+            TouchFrame { contacts: 3, x: 0.50, y: 0.60, t_ms: 20 }, // 3rd joins → centroid jumps right
+            TouchFrame { contacts: 3, x: 0.50, y: 0.40, t_ms: 60 }, // glide up
+            TouchFrame { contacts: 3, x: 0.50, y: 0.20, t_ms: 100 },
+            TouchFrame { contacts: 0, x: 0.50, y: 0.20, t_ms: 140 },
+        ]);
+        // dx from the join-jump (0.30→0.50) must NOT win → vertical up.
+        assert_eq!(ev, Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }));
     }
 
     #[test]

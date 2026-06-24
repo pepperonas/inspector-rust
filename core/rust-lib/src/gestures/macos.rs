@@ -135,6 +135,7 @@ static REC: Mutex<Option<Recognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
+static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// MTDeviceRefs + the loaded API, so `stop()` (other thread) can finalise.
 static MT_API: Mutex<Option<Mt>> = Mutex::new(None);
 static MT_DEVICES: Mutex<Vec<isize>> = Mutex::new(Vec::new());
@@ -158,6 +159,13 @@ extern "C" fn frame_callback(
     if !FIRST_FRAME_LOGGED.swap(true, Ordering::Relaxed) {
         tracing::info!("gestures(mac): first multitouch frame received ({n} finger(s)) — capture is live");
     }
+    // DIAGNOSTIC: log the finger-count transitions so a real 3-finger swipe's
+    // shape (0→3→…→0) is visible in the log. Only fires on a change, so ~a few
+    // lines per gesture.
+    let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
+    if prev != n as i32 {
+        tracing::debug!("gestures(mac): contacts {prev} -> {n}");
+    }
     // Centroid of the active contacts; flip y so "up" = decreasing y (screen
     // convention), matching `classify_swipe` (dy < 0 = up).
     let (mut sx, mut sy) = (0.0f64, 0.0f64);
@@ -179,7 +187,7 @@ extern "C" fn frame_callback(
         rec.get_or_insert_with(Recognizer::new).feed(frame)
     };
     if let Some(ev) = event {
-        tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
+        tracing::info!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
         if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
         }

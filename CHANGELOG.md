@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.117] — 2026-06-24
+
+### Fixed
+
+- **Touchpad gestures — unreliable swipe direction.** Fingers don't land
+  simultaneously (real frames go `0→2→3`); when the 3rd finger joins, the
+  contact **centroid jumps** as it averages one more point, and that jump was
+  contaminating the measured swipe vector — so a clean 3-finger up-swipe came
+  out as `SwipeUp` *or* `SwipeDown` at random. The `Recognizer` now
+  **re-baselines** `start` whenever the finger count reaches a new maximum, so
+  the swipe is measured only across the stable peak-finger phase. New unit test
+  for the `0→2→3` shape. (Verified end-to-end on macOS via the live log: the
+  full chain frame → recognise → volume/mute action now fires correctly.) Also
+  demoted the per-transition contact log to `debug`; the recognised-gesture and
+  action logs stay at `info`.
+
 ## [0.84.116] — 2026-06-24
 
 ### Fixed

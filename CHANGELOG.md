@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.120] — 2026-06-24
+
+### Changed
+
+- **Touchpad gestures — quieter logs.** Now that gestures are verified working,
+  the per-gesture diagnostics (`recognised …`, `gesture action …`) are demoted
+  from `info` to `debug` so they don't fill the rolling log on every swipe. The
+  rare startup lines (device count, run-loop entry, scroll-tap installed, first
+  frame) stay at `info`.
+
 ## [0.84.119] — 2026-06-24
 
 ### Added

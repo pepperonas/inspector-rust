@@ -237,7 +237,7 @@ extern "C" fn frame_callback(
         rec.get_or_insert_with(Recognizer::new).feed(frame)
     };
     if let Some(ev) = event {
-        tracing::info!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
+        tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
         if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
         }

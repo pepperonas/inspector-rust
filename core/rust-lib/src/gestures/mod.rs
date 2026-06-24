@@ -130,7 +130,7 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// op). Rapid re-triggers reuse the same toast (it updates in place — see
 /// `StatusToast.tsx`), they don't re-pop.
 fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
-    tracing::info!("gesture action: {action:?} (step {step})");
+    tracing::debug!("gesture action: {action:?} (step {step})");
     let app = app.clone();
     std::thread::spawn(move || {
         let toast = match action {

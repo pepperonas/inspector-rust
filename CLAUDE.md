@@ -508,7 +508,15 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   of breaking launch; `MTDeviceCreateList`/`MTRegisterContactFrameCallback`/
   `MTDeviceStart` feed the global recognizer. **PRIVATE-API:** the `Finger` struct
   layout is the community `mt.c` layout (version-sensitive; guarded, never
-  panics). May need **Input Monitoring** grant on recent macOS.
+  panics). May need **Input Monitoring** grant on recent macOS. To **consume**
+  the swipe (so the app underneath doesn't also scroll), an active **`CGEventTap`**
+  on the same capture thread swallows scroll-wheel events while a 3-finger
+  gesture is armed (`GESTURE_ARMED`, set in the MT callback ≥3 fingers, cleared
+  on full lift) — needs **Accessibility**; without it volume still changes but
+  the scroll leaks. The capture runs on a dedicated thread whose `CFRunLoopRun`
+  the tap source keeps alive (MultitouchSupport itself delivers on its own
+  internal thread). On-screen feedback is a passive, focus-free status toast
+  (`status_toast::show_passive`) that updates in place on rapid re-triggers.
 - **Windows (`gestures/windows.rs`, runtime-unverified):** **Raw Input + HID
   Precision Touchpad** (Usage Page `0x0D`/Usage `0x05`, `RIDEV_INPUTSINK`) on a
   message-only window; `HidP_*` parse contact reports → frames → `Recognizer`.

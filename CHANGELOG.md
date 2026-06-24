@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.119] — 2026-06-24
+
+### Added
+
+- **Touchpad gestures — consume the swipe (macOS).** A 3-finger swipe changed
+  the volume *and* still scrolled the app underneath (MultitouchSupport is
+  read-only). Now an active **`CGEventTap`** on the capture thread **swallows
+  scroll-wheel events while a 3-finger gesture is armed** (armed when ≥3 fingers
+  touch, cleared on full lift), so the underlying app no longer scrolls. Needs
+  **Accessibility** (System Settings → Privacy & Security → Accessibility →
+  InspectorRust); without it the volume still changes but the scroll isn't
+  consumed (logged). The tap's run-loop source also keeps the capture thread's
+  run loop alive.
+
 ## [0.84.118] — 2026-06-24
 
 ### Added

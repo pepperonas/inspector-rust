@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.127] — 2026-06-25
+
+### Added
+
+- **Material-Design colour snippets for the expander.** 255 `shortcut → hex`
+  snippets are now bundled (e.g. type `reda700` + the expander hotkey → `D50000`;
+  also `bg500`, `grey700`, `blue900`, `mc`, …). Hex is written **without `#`**.
+  Seeded like the AI prompts but behind a separate flag
+  (`seed.material_colors_v1`), so existing installs receive them on the next
+  launch; the Snippets-tab "Restore defaults" restores both packs. Source:
+  `seed/material_colors.json` (tests assert 255 unique lowercase shortcuts +
+  6-hex-digit bodies).
+
 ## [0.84.126] — 2026-06-25
 
 ### Added

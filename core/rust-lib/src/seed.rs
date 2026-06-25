@@ -21,35 +21,52 @@ use crate::snippets::{self, ImportResult};
 /// [`core/rust-lib/src/seed/ai_prompts.json`] to change the seed.
 pub const DEFAULT_PROMPTS_JSON: &str = include_str!("seed/ai_prompts.json");
 
+/// Bundled Material-Design colour snippets (`shortcut → hex`, no `#`): typing
+/// e.g. `reda700` + the expander hotkey writes `D50000`. Generated from a
+/// TextExpander export. Edit [`core/rust-lib/src/seed/material_colors.json`].
+pub const MATERIAL_COLORS_JSON: &str = include_str!("seed/material_colors.json");
+
 /// Settings key tracking whether the v1 default snippets have been
 /// seeded into this database. Bump the suffix (`_v2`, `_v3`, …) only if
 /// we want everyone to receive a fresh batch — but think hard before
 /// doing that, because users will have edited / deleted entries from v1.
 pub const KEY_SEEDED: &str = "seed.default_snippets_v1";
 
-/// Seed the default AI-prompt snippets if we haven't done so yet.
-/// Idempotent: re-runs do nothing once the flag is set.
+/// Separate flag for the Material-colour pack so it can be rolled out to
+/// **existing** databases (whose AI-prompt flag is already set) on the next
+/// launch, without re-running the prompt seed.
+pub const KEY_SEEDED_COLORS: &str = "seed.material_colors_v1";
+
+/// Seed the bundled default snippets if we haven't yet — the curated AI
+/// prompts and the Material-Design colour pack, each behind its own flag so a
+/// new pack reaches existing installs exactly once. Idempotent per pack.
 pub fn maybe_seed_defaults(db: &DbHandle) -> Result<()> {
-    let already = settings::get_bool(db, KEY_SEEDED, false)?;
-    if already {
-        return Ok(());
+    if !settings::get_bool(db, KEY_SEEDED, false)? {
+        import_pack(db, "AI prompts", DEFAULT_PROMPTS_JSON);
+        settings::set(db, KEY_SEEDED, "true")?;
     }
-
-    let result = snippets::import_from_json(db, DEFAULT_PROMPTS_JSON)?;
-    tracing::info!(
-        "seeded default snippets: {} imported, {} skipped, {} errors",
-        result.imported,
-        result.skipped,
-        result.errors.len()
-    );
-    if !result.errors.is_empty() {
-        for e in &result.errors {
-            tracing::warn!("seed error: {e}");
-        }
+    if !settings::get_bool(db, KEY_SEEDED_COLORS, false)? {
+        import_pack(db, "Material colours", MATERIAL_COLORS_JSON);
+        settings::set(db, KEY_SEEDED_COLORS, "true")?;
     }
-
-    settings::set(db, KEY_SEEDED, "true")?;
     Ok(())
+}
+
+fn import_pack(db: &DbHandle, label: &str, json: &str) {
+    match snippets::import_from_json(db, json) {
+        Ok(r) => {
+            tracing::info!(
+                "seeded {label}: {} imported, {} skipped, {} errors",
+                r.imported,
+                r.skipped,
+                r.errors.len()
+            );
+            for e in &r.errors {
+                tracing::warn!("seed error ({label}): {e}");
+            }
+        }
+        Err(e) => tracing::warn!("seed {label} failed: {e:#}"),
+    }
 }
 
 /// Re-import the default prompts on demand, regardless of the seed
@@ -58,10 +75,17 @@ pub fn maybe_seed_defaults(db: &DbHandle) -> Result<()> {
 /// already does upsert-by-abbreviation); user-added snippets with
 /// distinct abbreviations are untouched.
 pub fn restore_defaults(db: &DbHandle) -> Result<ImportResult> {
-    let result = snippets::import_from_json(db, DEFAULT_PROMPTS_JSON)?;
-    // Make sure the flag stays set so a future first-run check doesn't
-    // re-run during this session.
+    let mut result = snippets::import_from_json(db, DEFAULT_PROMPTS_JSON)?;
+    // Also restore the Material-colour pack so one button brings back all
+    // bundled defaults.
+    let colors = snippets::import_from_json(db, MATERIAL_COLORS_JSON)?;
+    result.imported += colors.imported;
+    result.skipped += colors.skipped;
+    result.errors.extend(colors.errors);
+    // Keep both flags set so a future first-run check doesn't re-run this
+    // session.
     let _ = settings::set(db, KEY_SEEDED, "true");
+    let _ = settings::set(db, KEY_SEEDED_COLORS, "true");
     Ok(result)
 }
 
@@ -201,6 +225,41 @@ mod tests {
                 "abbreviation {abbr:?} is just the prefix — needs more characters",
             );
         }
+    }
+
+    #[test]
+    fn material_colors_json_is_valid() {
+        let v: Vec<serde_json::Value> = serde_json::from_str(MATERIAL_COLORS_JSON).unwrap();
+        assert_eq!(v.len(), 255, "expected 255 Material colour snippets");
+        let mut seen = std::collections::HashSet::new();
+        let hex = regex_lite_hex();
+        for entry in &v {
+            let abbr = entry["abbreviation"].as_str().unwrap();
+            let body = entry["body"].as_str().unwrap();
+            let title = entry["title"].as_str().unwrap();
+            assert!(seen.insert(abbr.to_string()), "duplicate shortcut {abbr:?}");
+            assert_eq!(abbr, abbr.to_lowercase(), "{abbr:?} not lowercase");
+            assert!(!abbr.contains(char::is_whitespace), "{abbr:?} has whitespace");
+            assert!(!title.trim().is_empty(), "empty title for {abbr:?}");
+            assert!(hex(body), "body {body:?} for {abbr:?} is not 6 hex digits (no #)");
+        }
+    }
+
+    /// Tiny `^[0-9A-F]{6}$` check without pulling in a regex dep.
+    fn regex_lite_hex() -> impl Fn(&str) -> bool {
+        |s: &str| s.len() == 6 && s.bytes().all(|b| b.is_ascii_hexdigit() && !b.is_ascii_lowercase())
+    }
+
+    #[test]
+    fn maybe_seed_includes_material_colors() {
+        let db = test_db();
+        maybe_seed_defaults(&db).unwrap();
+        let all = snippets::list_all(&db).unwrap();
+        // 27 AI prompts + 255 colours.
+        assert!(all.len() >= 255 + 27, "expected prompts + colours, got {}", all.len());
+        // A known colour shortcut round-trips to its hex.
+        let reda700 = all.iter().find(|s| s.abbreviation == "reda700").expect("reda700 seeded");
+        assert_eq!(reda700.body, "D50000");
     }
 
     #[test]

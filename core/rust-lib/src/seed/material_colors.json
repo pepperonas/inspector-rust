@@ -1,0 +1,1277 @@
+[
+  {
+    "abbreviation": "bg50",
+    "title": "#ECEFF1",
+    "body": "ECEFF1"
+  },
+  {
+    "abbreviation": "bg100",
+    "title": "#CFD8DC",
+    "body": "CFD8DC"
+  },
+  {
+    "abbreviation": "bg200",
+    "title": "#B0BEC5",
+    "body": "B0BEC5"
+  },
+  {
+    "abbreviation": "bg300",
+    "title": "#90A4AE",
+    "body": "90A4AE"
+  },
+  {
+    "abbreviation": "bg400",
+    "title": "#78909C",
+    "body": "78909C"
+  },
+  {
+    "abbreviation": "bg500",
+    "title": "#607D8B",
+    "body": "607D8B"
+  },
+  {
+    "abbreviation": "bg600",
+    "title": "#546E7A",
+    "body": "546E7A"
+  },
+  {
+    "abbreviation": "bg700",
+    "title": "#455A64",
+    "body": "455A64"
+  },
+  {
+    "abbreviation": "bg800",
+    "title": "#37474F",
+    "body": "37474F"
+  },
+  {
+    "abbreviation": "bg900",
+    "title": "#263238",
+    "body": "263238"
+  },
+  {
+    "abbreviation": "grey500",
+    "title": "#9E9E9E",
+    "body": "9E9E9E"
+  },
+  {
+    "abbreviation": "grey50",
+    "title": "#FAFAFA",
+    "body": "FAFAFA"
+  },
+  {
+    "abbreviation": "grey100",
+    "title": "#F5F5F5",
+    "body": "F5F5F5"
+  },
+  {
+    "abbreviation": "grey200",
+    "title": "#EEEEEE",
+    "body": "EEEEEE"
+  },
+  {
+    "abbreviation": "grey300",
+    "title": "#E0E0E0",
+    "body": "E0E0E0"
+  },
+  {
+    "abbreviation": "grey400",
+    "title": "#BDBDBD",
+    "body": "BDBDBD"
+  },
+  {
+    "abbreviation": "grey600",
+    "title": "#757575",
+    "body": "757575"
+  },
+  {
+    "abbreviation": "grey700",
+    "title": "#616161",
+    "body": "616161"
+  },
+  {
+    "abbreviation": "grey800",
+    "title": "#424242",
+    "body": "424242"
+  },
+  {
+    "abbreviation": "grey900",
+    "title": "#212121",
+    "body": "212121"
+  },
+  {
+    "abbreviation": "brown500",
+    "title": "#795548",
+    "body": "795548"
+  },
+  {
+    "abbreviation": "brown50",
+    "title": "#EFEBE9",
+    "body": "EFEBE9"
+  },
+  {
+    "abbreviation": "brown100",
+    "title": "#D7CCC8",
+    "body": "D7CCC8"
+  },
+  {
+    "abbreviation": "brown200",
+    "title": "#BCAAA4",
+    "body": "BCAAA4"
+  },
+  {
+    "abbreviation": "brown300",
+    "title": "#A1887F",
+    "body": "A1887F"
+  },
+  {
+    "abbreviation": "brown400",
+    "title": "#8D6E63",
+    "body": "8D6E63"
+  },
+  {
+    "abbreviation": "brown600",
+    "title": "#6D4C41",
+    "body": "6D4C41"
+  },
+  {
+    "abbreviation": "brown700",
+    "title": "#5D4037",
+    "body": "5D4037"
+  },
+  {
+    "abbreviation": "brown800",
+    "title": "#4E342E",
+    "body": "4E342E"
+  },
+  {
+    "abbreviation": "brown900",
+    "title": "#3E2723",
+    "body": "3E2723"
+  },
+  {
+    "abbreviation": "deeporange50",
+    "title": "#FBE9E7",
+    "body": "FBE9E7"
+  },
+  {
+    "abbreviation": "deeporange100",
+    "title": "#FFCCBC",
+    "body": "FFCCBC"
+  },
+  {
+    "abbreviation": "deeporange200",
+    "title": "#FFAB91",
+    "body": "FFAB91"
+  },
+  {
+    "abbreviation": "deeporange300",
+    "title": "#FF8A65",
+    "body": "FF8A65"
+  },
+  {
+    "abbreviation": "deeporange400",
+    "title": "#FF7043",
+    "body": "FF7043"
+  },
+  {
+    "abbreviation": "deeporange500",
+    "title": "#FF5722",
+    "body": "FF5722"
+  },
+  {
+    "abbreviation": "deeporange600",
+    "title": "#F4511E",
+    "body": "F4511E"
+  },
+  {
+    "abbreviation": "deeporange700",
+    "title": "#E64A19",
+    "body": "E64A19"
+  },
+  {
+    "abbreviation": "deeporange800",
+    "title": "#D84315",
+    "body": "D84315"
+  },
+  {
+    "abbreviation": "deeporange900",
+    "title": "#BF360C",
+    "body": "BF360C"
+  },
+  {
+    "abbreviation": "deeporangea100",
+    "title": "#FF9E80",
+    "body": "FF9E80"
+  },
+  {
+    "abbreviation": "deeporangea200",
+    "title": "#FF6E40",
+    "body": "FF6E40"
+  },
+  {
+    "abbreviation": "deeporangea400",
+    "title": "#FF3D00",
+    "body": "FF3D00"
+  },
+  {
+    "abbreviation": "deeporangea700",
+    "title": "#DD2C00",
+    "body": "DD2C00"
+  },
+  {
+    "abbreviation": "orange50",
+    "title": "#FFF3E0",
+    "body": "FFF3E0"
+  },
+  {
+    "abbreviation": "orange100",
+    "title": "#FFE0B2",
+    "body": "FFE0B2"
+  },
+  {
+    "abbreviation": "orange200",
+    "title": "#FFCC80",
+    "body": "FFCC80"
+  },
+  {
+    "abbreviation": "orange300",
+    "title": "#FFB74D",
+    "body": "FFB74D"
+  },
+  {
+    "abbreviation": "orange400",
+    "title": "#FFA726",
+    "body": "FFA726"
+  },
+  {
+    "abbreviation": "orange500",
+    "title": "#FF9800",
+    "body": "FF9800"
+  },
+  {
+    "abbreviation": "orange600",
+    "title": "#FB8C00",
+    "body": "FB8C00"
+  },
+  {
+    "abbreviation": "orange700",
+    "title": "#F57C00",
+    "body": "F57C00"
+  },
+  {
+    "abbreviation": "orange800",
+    "title": "#EF6C00",
+    "body": "EF6C00"
+  },
+  {
+    "abbreviation": "orange900",
+    "title": "#E65100",
+    "body": "E65100"
+  },
+  {
+    "abbreviation": "orangea100",
+    "title": "#FFD180",
+    "body": "FFD180"
+  },
+  {
+    "abbreviation": "orangea200",
+    "title": "#FFAB40",
+    "body": "FFAB40"
+  },
+  {
+    "abbreviation": "orangea400",
+    "title": "#FF9100",
+    "body": "FF9100"
+  },
+  {
+    "abbreviation": "orangea700",
+    "title": "#FF6D00",
+    "body": "FF6D00"
+  },
+  {
+    "abbreviation": "amber50",
+    "title": "#FFF8E1",
+    "body": "FFF8E1"
+  },
+  {
+    "abbreviation": "amber100",
+    "title": "#FFECB3",
+    "body": "FFECB3"
+  },
+  {
+    "abbreviation": "amber200",
+    "title": "#FFE082",
+    "body": "FFE082"
+  },
+  {
+    "abbreviation": "amber300",
+    "title": "#FFD54F",
+    "body": "FFD54F"
+  },
+  {
+    "abbreviation": "amber400",
+    "title": "#FFCA28",
+    "body": "FFCA28"
+  },
+  {
+    "abbreviation": "amber500",
+    "title": "#FFC107",
+    "body": "FFC107"
+  },
+  {
+    "abbreviation": "amber600",
+    "title": "#FFB300",
+    "body": "FFB300"
+  },
+  {
+    "abbreviation": "amber700",
+    "title": "#FFA000",
+    "body": "FFA000"
+  },
+  {
+    "abbreviation": "amber800",
+    "title": "#FF8F00",
+    "body": "FF8F00"
+  },
+  {
+    "abbreviation": "amber900",
+    "title": "#FF6F00",
+    "body": "FF6F00"
+  },
+  {
+    "abbreviation": "ambera100",
+    "title": "#FFE57F",
+    "body": "FFE57F"
+  },
+  {
+    "abbreviation": "ambera200",
+    "title": "#FFD740",
+    "body": "FFD740"
+  },
+  {
+    "abbreviation": "ambera400",
+    "title": "#FFC400",
+    "body": "FFC400"
+  },
+  {
+    "abbreviation": "ambera700",
+    "title": "#FFAB00",
+    "body": "FFAB00"
+  },
+  {
+    "abbreviation": "yellow50",
+    "title": "#FFFDE7",
+    "body": "FFFDE7"
+  },
+  {
+    "abbreviation": "yellow100",
+    "title": "#FFF9C4",
+    "body": "FFF9C4"
+  },
+  {
+    "abbreviation": "yellow200",
+    "title": "#FFF59D",
+    "body": "FFF59D"
+  },
+  {
+    "abbreviation": "yellow300",
+    "title": "#FFF176",
+    "body": "FFF176"
+  },
+  {
+    "abbreviation": "yellow400",
+    "title": "#FFEE58",
+    "body": "FFEE58"
+  },
+  {
+    "abbreviation": "yellow500",
+    "title": "#FFEB3B",
+    "body": "FFEB3B"
+  },
+  {
+    "abbreviation": "yellow600",
+    "title": "#FDD835",
+    "body": "FDD835"
+  },
+  {
+    "abbreviation": "yellow700",
+    "title": "#FBC02D",
+    "body": "FBC02D"
+  },
+  {
+    "abbreviation": "yellow800",
+    "title": "#F9A825",
+    "body": "F9A825"
+  },
+  {
+    "abbreviation": "yellow900",
+    "title": "#F57F17",
+    "body": "F57F17"
+  },
+  {
+    "abbreviation": "yellowa100",
+    "title": "#FFFF8D",
+    "body": "FFFF8D"
+  },
+  {
+    "abbreviation": "yellowa200",
+    "title": "#FFFF00",
+    "body": "FFFF00"
+  },
+  {
+    "abbreviation": "yellowa400",
+    "title": "#FFEA00",
+    "body": "FFEA00"
+  },
+  {
+    "abbreviation": "yellowa700",
+    "title": "#FFD600",
+    "body": "FFD600"
+  },
+  {
+    "abbreviation": "lime50",
+    "title": "#F9FBE7",
+    "body": "F9FBE7"
+  },
+  {
+    "abbreviation": "lime100",
+    "title": "#F0F4C3",
+    "body": "F0F4C3"
+  },
+  {
+    "abbreviation": "lime200",
+    "title": "#E6EE9C",
+    "body": "E6EE9C"
+  },
+  {
+    "abbreviation": "lime300",
+    "title": "#DCE775",
+    "body": "DCE775"
+  },
+  {
+    "abbreviation": "lime400",
+    "title": "#D4E157",
+    "body": "D4E157"
+  },
+  {
+    "abbreviation": "lime500",
+    "title": "#CDDC39",
+    "body": "CDDC39"
+  },
+  {
+    "abbreviation": "lime600",
+    "title": "#C0CA33",
+    "body": "C0CA33"
+  },
+  {
+    "abbreviation": "lime700",
+    "title": "#AFB42B",
+    "body": "AFB42B"
+  },
+  {
+    "abbreviation": "lime800",
+    "title": "#9E9D24",
+    "body": "9E9D24"
+  },
+  {
+    "abbreviation": "lime900",
+    "title": "#827717",
+    "body": "827717"
+  },
+  {
+    "abbreviation": "limea100",
+    "title": "#F4FF81",
+    "body": "F4FF81"
+  },
+  {
+    "abbreviation": "limea200",
+    "title": "#EEFF41",
+    "body": "EEFF41"
+  },
+  {
+    "abbreviation": "limea400",
+    "title": "#C6FF00",
+    "body": "C6FF00"
+  },
+  {
+    "abbreviation": "limea700",
+    "title": "#AEEA00",
+    "body": "AEEA00"
+  },
+  {
+    "abbreviation": "lightgreen50",
+    "title": "#F1F8E9",
+    "body": "F1F8E9"
+  },
+  {
+    "abbreviation": "lightgreen100",
+    "title": "#DCEDC8",
+    "body": "DCEDC8"
+  },
+  {
+    "abbreviation": "lightgreen200",
+    "title": "#C5E1A5",
+    "body": "C5E1A5"
+  },
+  {
+    "abbreviation": "lightgreen300",
+    "title": "#AED581",
+    "body": "AED581"
+  },
+  {
+    "abbreviation": "lightgreen400",
+    "title": "#9CCC65",
+    "body": "9CCC65"
+  },
+  {
+    "abbreviation": "lightgreen500",
+    "title": "#8BC34A",
+    "body": "8BC34A"
+  },
+  {
+    "abbreviation": "lightgreen600",
+    "title": "#7CB342",
+    "body": "7CB342"
+  },
+  {
+    "abbreviation": "lightgreen700",
+    "title": "#689F38",
+    "body": "689F38"
+  },
+  {
+    "abbreviation": "lightgreen800",
+    "title": "#558B2F",
+    "body": "558B2F"
+  },
+  {
+    "abbreviation": "lightgreen900",
+    "title": "#33691E",
+    "body": "33691E"
+  },
+  {
+    "abbreviation": "lightgreena100",
+    "title": "#CCFF90",
+    "body": "CCFF90"
+  },
+  {
+    "abbreviation": "lightgreena200",
+    "title": "#B2FF59",
+    "body": "B2FF59"
+  },
+  {
+    "abbreviation": "lightgreena400",
+    "title": "#76FF03",
+    "body": "76FF03"
+  },
+  {
+    "abbreviation": "lightgreena700",
+    "title": "#64DD17",
+    "body": "64DD17"
+  },
+  {
+    "abbreviation": "green50",
+    "title": "#E8F5E9",
+    "body": "E8F5E9"
+  },
+  {
+    "abbreviation": "green100",
+    "title": "#C8E6C9",
+    "body": "C8E6C9"
+  },
+  {
+    "abbreviation": "green200",
+    "title": "#A5D6A7",
+    "body": "A5D6A7"
+  },
+  {
+    "abbreviation": "green300",
+    "title": "#81C784",
+    "body": "81C784"
+  },
+  {
+    "abbreviation": "green400",
+    "title": "#66BB6A",
+    "body": "66BB6A"
+  },
+  {
+    "abbreviation": "green500",
+    "title": "#4CAF50",
+    "body": "4CAF50"
+  },
+  {
+    "abbreviation": "green600",
+    "title": "#43A047",
+    "body": "43A047"
+  },
+  {
+    "abbreviation": "green700",
+    "title": "#388E3C",
+    "body": "388E3C"
+  },
+  {
+    "abbreviation": "green800",
+    "title": "#2E7D32",
+    "body": "2E7D32"
+  },
+  {
+    "abbreviation": "green900",
+    "title": "#1B5E20",
+    "body": "1B5E20"
+  },
+  {
+    "abbreviation": "greena100",
+    "title": "#B9F6CA",
+    "body": "B9F6CA"
+  },
+  {
+    "abbreviation": "greena200",
+    "title": "#69F0AE",
+    "body": "69F0AE"
+  },
+  {
+    "abbreviation": "greena400",
+    "title": "#00E676",
+    "body": "00E676"
+  },
+  {
+    "abbreviation": "greena700",
+    "title": "#00C853",
+    "body": "00C853"
+  },
+  {
+    "abbreviation": "teal50",
+    "title": "#E0F2F1",
+    "body": "E0F2F1"
+  },
+  {
+    "abbreviation": "teal100",
+    "title": "#B2DFDB",
+    "body": "B2DFDB"
+  },
+  {
+    "abbreviation": "teal200",
+    "title": "#80CBC4",
+    "body": "80CBC4"
+  },
+  {
+    "abbreviation": "teal300",
+    "title": "#4DB6AC",
+    "body": "4DB6AC"
+  },
+  {
+    "abbreviation": "teal400",
+    "title": "#26A69A",
+    "body": "26A69A"
+  },
+  {
+    "abbreviation": "teal500",
+    "title": "#009688",
+    "body": "009688"
+  },
+  {
+    "abbreviation": "teal600",
+    "title": "#00897B",
+    "body": "00897B"
+  },
+  {
+    "abbreviation": "teal700",
+    "title": "#00796B",
+    "body": "00796B"
+  },
+  {
+    "abbreviation": "teal800",
+    "title": "#00695C",
+    "body": "00695C"
+  },
+  {
+    "abbreviation": "teal900",
+    "title": "#004D40",
+    "body": "004D40"
+  },
+  {
+    "abbreviation": "teala100",
+    "title": "#A7FFEB",
+    "body": "A7FFEB"
+  },
+  {
+    "abbreviation": "teala200",
+    "title": "#64FFDA",
+    "body": "64FFDA"
+  },
+  {
+    "abbreviation": "teala400",
+    "title": "#1DE9B6",
+    "body": "1DE9B6"
+  },
+  {
+    "abbreviation": "teala700",
+    "title": "#00BFA5",
+    "body": "00BFA5"
+  },
+  {
+    "abbreviation": "cyan50",
+    "title": "#E0F2F1",
+    "body": "E0F2F1"
+  },
+  {
+    "abbreviation": "cyan100",
+    "title": "#B2EBF2",
+    "body": "B2EBF2"
+  },
+  {
+    "abbreviation": "cyan200",
+    "title": "#80DEEA",
+    "body": "80DEEA"
+  },
+  {
+    "abbreviation": "cyan300",
+    "title": "#4DD0E1",
+    "body": "4DD0E1"
+  },
+  {
+    "abbreviation": "cyan400",
+    "title": "#26C6DA",
+    "body": "26C6DA"
+  },
+  {
+    "abbreviation": "cyan500",
+    "title": "#00BCD4",
+    "body": "00BCD4"
+  },
+  {
+    "abbreviation": "cyan600",
+    "title": "#00ACC1",
+    "body": "00ACC1"
+  },
+  {
+    "abbreviation": "cyan700",
+    "title": "#0097A7",
+    "body": "0097A7"
+  },
+  {
+    "abbreviation": "cyan800",
+    "title": "#00838F",
+    "body": "00838F"
+  },
+  {
+    "abbreviation": "cyan900",
+    "title": "#006064",
+    "body": "006064"
+  },
+  {
+    "abbreviation": "cyana100",
+    "title": "#84FFFF",
+    "body": "84FFFF"
+  },
+  {
+    "abbreviation": "cyana200",
+    "title": "#18FFFF",
+    "body": "18FFFF"
+  },
+  {
+    "abbreviation": "cyana400",
+    "title": "#00E5FF",
+    "body": "00E5FF"
+  },
+  {
+    "abbreviation": "cyana700",
+    "title": "#00B8D4",
+    "body": "00B8D4"
+  },
+  {
+    "abbreviation": "lightblue50",
+    "title": "#E1F5FE",
+    "body": "E1F5FE"
+  },
+  {
+    "abbreviation": "lightblue100",
+    "title": "#B3E5FC",
+    "body": "B3E5FC"
+  },
+  {
+    "abbreviation": "lightblue200",
+    "title": "#81D4FA",
+    "body": "81D4FA"
+  },
+  {
+    "abbreviation": "lightblue300",
+    "title": "#4FC3F7",
+    "body": "4FC3F7"
+  },
+  {
+    "abbreviation": "lightblue400",
+    "title": "#29B6F6",
+    "body": "29B6F6"
+  },
+  {
+    "abbreviation": "lightblue500",
+    "title": "#03A9F4",
+    "body": "03A9F4"
+  },
+  {
+    "abbreviation": "lightblue600",
+    "title": "#039BE5",
+    "body": "039BE5"
+  },
+  {
+    "abbreviation": "lightblue700",
+    "title": "#0288D1",
+    "body": "0288D1"
+  },
+  {
+    "abbreviation": "lightblue800",
+    "title": "#0277BD",
+    "body": "0277BD"
+  },
+  {
+    "abbreviation": "lightblue900",
+    "title": "#01579B",
+    "body": "01579B"
+  },
+  {
+    "abbreviation": "lightbluea100",
+    "title": "#80D8FF",
+    "body": "80D8FF"
+  },
+  {
+    "abbreviation": "lightbluea200",
+    "title": "#40C4FF",
+    "body": "40C4FF"
+  },
+  {
+    "abbreviation": "lightbluea400",
+    "title": "#00B0FF",
+    "body": "00B0FF"
+  },
+  {
+    "abbreviation": "lightbluea700",
+    "title": "#0091EA",
+    "body": "0091EA"
+  },
+  {
+    "abbreviation": "blue50",
+    "title": "#E3F2FD",
+    "body": "E3F2FD"
+  },
+  {
+    "abbreviation": "blue100",
+    "title": "#BBDEFB",
+    "body": "BBDEFB"
+  },
+  {
+    "abbreviation": "blue200",
+    "title": "#90CAF9",
+    "body": "90CAF9"
+  },
+  {
+    "abbreviation": "blue300",
+    "title": "#64B5F6",
+    "body": "64B5F6"
+  },
+  {
+    "abbreviation": "blue400",
+    "title": "#42A5F5",
+    "body": "42A5F5"
+  },
+  {
+    "abbreviation": "blue500",
+    "title": "#2196F3",
+    "body": "2196F3"
+  },
+  {
+    "abbreviation": "blue600",
+    "title": "#1E88E5",
+    "body": "1E88E5"
+  },
+  {
+    "abbreviation": "blue900",
+    "title": "#0D47A1",
+    "body": "0D47A1"
+  },
+  {
+    "abbreviation": "blue800",
+    "title": "#1565C0",
+    "body": "1565C0"
+  },
+  {
+    "abbreviation": "blue700",
+    "title": "#1976D2",
+    "body": "1976D2"
+  },
+  {
+    "abbreviation": "bluea100",
+    "title": "#82B1FF",
+    "body": "82B1FF"
+  },
+  {
+    "abbreviation": "bluea200",
+    "title": "#448AFF",
+    "body": "448AFF"
+  },
+  {
+    "abbreviation": "bluea400",
+    "title": "#2979FF",
+    "body": "2979FF"
+  },
+  {
+    "abbreviation": "bluea700",
+    "title": "#2962FF",
+    "body": "2962FF"
+  },
+  {
+    "abbreviation": "indigo50",
+    "title": "#E8EAF6",
+    "body": "E8EAF6"
+  },
+  {
+    "abbreviation": "indigo100",
+    "title": "#C5CAE9",
+    "body": "C5CAE9"
+  },
+  {
+    "abbreviation": "indigo200",
+    "title": "#9FA8DA",
+    "body": "9FA8DA"
+  },
+  {
+    "abbreviation": "indigo300",
+    "title": "#7986CB",
+    "body": "7986CB"
+  },
+  {
+    "abbreviation": "indigo400",
+    "title": "#5C6BC0",
+    "body": "5C6BC0"
+  },
+  {
+    "abbreviation": "indigo500",
+    "title": "#3F51B5",
+    "body": "3F51B5"
+  },
+  {
+    "abbreviation": "indigo600",
+    "title": "#3949AB",
+    "body": "3949AB"
+  },
+  {
+    "abbreviation": "indigo700",
+    "title": "#303F9F",
+    "body": "303F9F"
+  },
+  {
+    "abbreviation": "indigo800",
+    "title": "#283593",
+    "body": "283593"
+  },
+  {
+    "abbreviation": "indigo900",
+    "title": "#1A237E",
+    "body": "1A237E"
+  },
+  {
+    "abbreviation": "indigoa100",
+    "title": "#8C9EFF",
+    "body": "8C9EFF"
+  },
+  {
+    "abbreviation": "indigoa200",
+    "title": "#536DFE",
+    "body": "536DFE"
+  },
+  {
+    "abbreviation": "indigoa400",
+    "title": "#3D5AFE",
+    "body": "3D5AFE"
+  },
+  {
+    "abbreviation": "indigoa700",
+    "title": "#304FFE",
+    "body": "304FFE"
+  },
+  {
+    "abbreviation": "deeppurple50",
+    "title": "#EDE7F6",
+    "body": "EDE7F6"
+  },
+  {
+    "abbreviation": "deeppurple100",
+    "title": "#D1C4E9",
+    "body": "D1C4E9"
+  },
+  {
+    "abbreviation": "deeppurple200",
+    "title": "#B39DDB",
+    "body": "B39DDB"
+  },
+  {
+    "abbreviation": "deeppurple300",
+    "title": "#9575CD",
+    "body": "9575CD"
+  },
+  {
+    "abbreviation": "deeppurple400",
+    "title": "#7E57C2",
+    "body": "7E57C2"
+  },
+  {
+    "abbreviation": "deeppurple500",
+    "title": "#673AB7",
+    "body": "673AB7"
+  },
+  {
+    "abbreviation": "deeppurple600",
+    "title": "#5E35B1",
+    "body": "5E35B1"
+  },
+  {
+    "abbreviation": "deeppurple700",
+    "title": "#512DA8",
+    "body": "512DA8"
+  },
+  {
+    "abbreviation": "deeppurple800",
+    "title": "#4527A0",
+    "body": "4527A0"
+  },
+  {
+    "abbreviation": "deeppurple900",
+    "title": "#311B92",
+    "body": "311B92"
+  },
+  {
+    "abbreviation": "deeppurplea100",
+    "title": "#B388FF",
+    "body": "B388FF"
+  },
+  {
+    "abbreviation": "deeppurplea200",
+    "title": "#7C4DFF",
+    "body": "7C4DFF"
+  },
+  {
+    "abbreviation": "deeppurplea400",
+    "title": "#651FFF",
+    "body": "651FFF"
+  },
+  {
+    "abbreviation": "deeppurplea700",
+    "title": "#6200EA",
+    "body": "6200EA"
+  },
+  {
+    "abbreviation": "purple50",
+    "title": "#F3E5F5",
+    "body": "F3E5F5"
+  },
+  {
+    "abbreviation": "purple100",
+    "title": "#E1BEE7",
+    "body": "E1BEE7"
+  },
+  {
+    "abbreviation": "purple200",
+    "title": "#CE93D8",
+    "body": "CE93D8"
+  },
+  {
+    "abbreviation": "purple300",
+    "title": "#BA68C8",
+    "body": "BA68C8"
+  },
+  {
+    "abbreviation": "purple400",
+    "title": "#AB47BC",
+    "body": "AB47BC"
+  },
+  {
+    "abbreviation": "purple500",
+    "title": "#9C27B0",
+    "body": "9C27B0"
+  },
+  {
+    "abbreviation": "purple600",
+    "title": "#8E24AA",
+    "body": "8E24AA"
+  },
+  {
+    "abbreviation": "purple700",
+    "title": "#7B1FA2",
+    "body": "7B1FA2"
+  },
+  {
+    "abbreviation": "purple800",
+    "title": "#6A1B9A",
+    "body": "6A1B9A"
+  },
+  {
+    "abbreviation": "purple900",
+    "title": "#4A148C",
+    "body": "4A148C"
+  },
+  {
+    "abbreviation": "purplea100",
+    "title": "#EA80FC",
+    "body": "EA80FC"
+  },
+  {
+    "abbreviation": "purplea200",
+    "title": "#E040FB",
+    "body": "E040FB"
+  },
+  {
+    "abbreviation": "purplea400",
+    "title": "#D500F9",
+    "body": "D500F9"
+  },
+  {
+    "abbreviation": "purplea700",
+    "title": "#AA00FF",
+    "body": "AA00FF"
+  },
+  {
+    "abbreviation": "pink50",
+    "title": "#FCE4EC",
+    "body": "FCE4EC"
+  },
+  {
+    "abbreviation": "pink100",
+    "title": "#F8BBD0",
+    "body": "F8BBD0"
+  },
+  {
+    "abbreviation": "pink200",
+    "title": "#F48FB1",
+    "body": "F48FB1"
+  },
+  {
+    "abbreviation": "pink300",
+    "title": "#F06292",
+    "body": "F06292"
+  },
+  {
+    "abbreviation": "pink400",
+    "title": "#EC407A",
+    "body": "EC407A"
+  },
+  {
+    "abbreviation": "pink500",
+    "title": "#E91E63",
+    "body": "E91E63"
+  },
+  {
+    "abbreviation": "pink600",
+    "title": "#D81B60",
+    "body": "D81B60"
+  },
+  {
+    "abbreviation": "pink700",
+    "title": "#C2185B",
+    "body": "C2185B"
+  },
+  {
+    "abbreviation": "pink800",
+    "title": "#AD1457",
+    "body": "AD1457"
+  },
+  {
+    "abbreviation": "pink900",
+    "title": "#880E4F",
+    "body": "880E4F"
+  },
+  {
+    "abbreviation": "pinka100",
+    "title": "#FF80AB",
+    "body": "FF80AB"
+  },
+  {
+    "abbreviation": "pinka200",
+    "title": "#FF4081",
+    "body": "FF4081"
+  },
+  {
+    "abbreviation": "pinka400",
+    "title": "#F50057",
+    "body": "F50057"
+  },
+  {
+    "abbreviation": "pinka700",
+    "title": "#C51162",
+    "body": "C51162"
+  },
+  {
+    "abbreviation": "red50",
+    "title": "#FFEBEE",
+    "body": "FFEBEE"
+  },
+  {
+    "abbreviation": "red100",
+    "title": "#FFCDD2",
+    "body": "FFCDD2"
+  },
+  {
+    "abbreviation": "red200",
+    "title": "#EF9A9A",
+    "body": "EF9A9A"
+  },
+  {
+    "abbreviation": "red300",
+    "title": "#E57373",
+    "body": "E57373"
+  },
+  {
+    "abbreviation": "red400",
+    "title": "#EF5350",
+    "body": "EF5350"
+  },
+  {
+    "abbreviation": "red500",
+    "title": "#F44336",
+    "body": "F44336"
+  },
+  {
+    "abbreviation": "red600",
+    "title": "#E53935",
+    "body": "E53935"
+  },
+  {
+    "abbreviation": "red700",
+    "title": "#D32F2F",
+    "body": "D32F2F"
+  },
+  {
+    "abbreviation": "red800",
+    "title": "#C62828",
+    "body": "C62828"
+  },
+  {
+    "abbreviation": "red900",
+    "title": "#B71C1C",
+    "body": "B71C1C"
+  },
+  {
+    "abbreviation": "reda100",
+    "title": "#FF8A80",
+    "body": "FF8A80"
+  },
+  {
+    "abbreviation": "reda200",
+    "title": "#FF5252",
+    "body": "FF5252"
+  },
+  {
+    "abbreviation": "reda400",
+    "title": "#FF1744",
+    "body": "FF1744"
+  },
+  {
+    "abbreviation": "reda700",
+    "title": "#D50000",
+    "body": "D50000"
+  },
+  {
+    "abbreviation": "mc",
+    "title": "#2C2E3B",
+    "body": "2C2E3B"
+  }
+]

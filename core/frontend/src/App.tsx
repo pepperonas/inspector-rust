@@ -1373,6 +1373,11 @@ function App() {
     setActiveTab("timesheet");
   });
 
+  // Tray → "Settings" quick action.
+  useTauriEvent("open-settings-tab", () => {
+    setActiveTab("settings");
+  });
+
   // Backend fires this when the OCR shortcut is pressed but the
   // Screen Recording TCC grant is missing. Switch to Settings (which
   // shows the Permissions overview) and surface a banner so the

@@ -643,8 +643,10 @@ pub fn run(context: tauri::Context<Wry>) {
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let open_item = MenuItemBuilder::with_id("open", "Open (Ctrl+Space)").build(app)?;
+    let settings_item = MenuItemBuilder::with_id("settings", "Settings…").build(app)?;
     let snippets_item = MenuItemBuilder::with_id("snippets", "Manage Snippets").build(app)?;
     let notes_item = MenuItemBuilder::with_id("notes", "Manage Notes").build(app)?;
+    let timesheet_item = MenuItemBuilder::with_id("timesheet", "Timesheet").build(app)?;
     // Both global shortcuts use literal Control on every OS since
     // v0.14.1 — the macOS glyph for Control is ⌃ (not ⌘).
     let ocr_label = if cfg!(target_os = "macos") {
@@ -665,6 +667,15 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         "Pick Color (Ctrl+Shift+C)"
     };
     let color_item = MenuItemBuilder::with_id("color", color_label).build(app)?;
+    let record_label = if cfg!(target_os = "macos") {
+        "Screen Recording (⌃⇧⌥S)"
+    } else {
+        "Screen Recording (Ctrl+Shift+Alt+S)"
+    };
+    let record_item = MenuItemBuilder::with_id("record", record_label).build(app)?;
+    // Finder/Explorer selection actions — macOS only (Automation-backed).
+    #[cfg(target_os = "macos")]
+    let finder_item = MenuItemBuilder::with_id("finder", "Finder Selection (⌃⇧F)").build(app)?;
     let pause_item = MenuItemBuilder::with_id("pause", "Pause Capture").build(app)?;
     let clear_item = MenuItemBuilder::with_id("clear", "Clear History…").build(app)?;
     let autostart_label = if cfg!(target_os = "windows") {
@@ -684,18 +695,30 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
     let autostart_item_for_handler = autostart_item.clone();
     let sep = PredefinedMenuItem::separator(app)?;
     let sep_ocr = PredefinedMenuItem::separator(app)?;
+    let sep_manage = PredefinedMenuItem::separator(app)?;
     let sep2 = PredefinedMenuItem::separator(app)?;
     let quit_item = MenuItemBuilder::with_id("quit", "Quit Inspector Rust").build(app)?;
 
-    let menu = MenuBuilder::new(app)
+    let menu = MenuBuilder::new(app);
+    // Top: open + navigate to tabs.
+    let menu = menu.items(&[
+        &open_item,
+        &settings_item,
+        &sep_manage,
+        &snippets_item,
+        &notes_item,
+        &timesheet_item,
+        &sep_ocr,
+        // Capture / one-shot actions.
+        &ocr_item,
+        &screenshot_item,
+        &color_item,
+        &record_item,
+    ]);
+    #[cfg(target_os = "macos")]
+    let menu = menu.item(&finder_item);
+    let menu = menu
         .items(&[
-            &open_item,
-            &snippets_item,
-            &notes_item,
-            &sep_ocr,
-            &ocr_item,
-            &screenshot_item,
-            &color_item,
             &sep,
             &pause_item,
             &autostart_item,
@@ -710,6 +733,15 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
         .menu(&menu)
         .on_menu_event(move |app, event| match event.id().as_ref() {
             "open" => cli_dispatch::dispatch(app, cli_dispatch::CliAction::TogglePopup),
+            "settings" => {
+                if let Err(e) = hotkey::show_popup(app) {
+                    tracing::warn!("show popup for settings: {e:#}");
+                }
+                let _ = app.emit("open-settings-tab", ());
+            }
+            "timesheet" => hotkey::dispatch_action(app, hotkey::ActionId::Timesheet),
+            "record" => hotkey::dispatch_action(app, hotkey::ActionId::Record),
+            "finder" => hotkey::dispatch_action(app, hotkey::ActionId::Finder),
             "snippets" => {
                 if let Err(e) = hotkey::show_popup(app) {
                     tracing::warn!("show popup for snippets: {e:#}");
@@ -784,13 +816,25 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
             }
             _ => {}
         });
-    // The default window icon is normally present in the bundle, but a
-    // misconfigured / stripped build could lack one — never panic at startup
-    // over a cosmetic tray icon; fall back to an icon-less tray.
-    if let Some(icon) = app.default_window_icon().cloned() {
-        tray_builder = tray_builder.icon(icon);
-    } else {
-        tracing::warn!("no default window icon found; tray shown without an icon");
+    // Monochrome fedora tray icon. On **macOS** it's set as a *template* image,
+    // so the system inverts it for light/dark menu bars automatically (the
+    // silhouette is the alpha channel). On Windows/Linux it shows as-is. Falls
+    // back to the bundled app icon if the embedded PNG can't be decoded —
+    // never panic at startup over a cosmetic tray icon.
+    match tauri::image::Image::from_bytes(include_bytes!("../assets/tray-hat.png")) {
+        Ok(icon) => {
+            tray_builder = tray_builder.icon(icon);
+            #[cfg(target_os = "macos")]
+            {
+                tray_builder = tray_builder.icon_as_template(true);
+            }
+        }
+        Err(e) => {
+            tracing::warn!("tray hat icon failed to load ({e}); using the app icon");
+            if let Some(icon) = app.default_window_icon().cloned() {
+                tray_builder = tray_builder.icon(icon);
+            }
+        }
     }
     let _tray = tray_builder.build(app)?;
 

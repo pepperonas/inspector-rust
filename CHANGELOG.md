@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.129] — 2026-06-25
+
+### Changed
+
+- **Tray icon — monochrome fedora.** Replaced the colour app-icon in the menu
+  bar / tray with a clean monochrome **hat** silhouette (`assets/tray-hat.png`),
+  set as a **template image on macOS** so it inverts automatically for light /
+  dark menu bars. Falls back to the app icon if the PNG can't be decoded.
+- **More tray quick actions.** Added **Settings…**, **Timesheet**, **Screen
+  Recording**, and (macOS) **Finder Selection** to the tray menu, regrouped into
+  open/navigate · capture-actions · state. The new items reuse the action
+  dispatcher / a new `open-settings-tab` event.
+
 ## [0.84.128] — 2026-06-25
 
 ### Added

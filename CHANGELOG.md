@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.124] — 2026-06-25
+
+### Fixed
+
+- **Gesture volume toast invisible over fullscreen / on another Space.** The
+  live log proved the chain works (gesture recognised → action → toast placed
+  dead-centre), but the toast wasn't seen: a passive (focus-free) window stays on
+  the Space where it was first built and won't draw over a fullscreen app. The
+  toast window now gets `CanJoinAllSpaces | Stationary | FullScreenAuxiliary` +
+  `orderFrontRegardless` (objc2), so the HUD appears on the current Space and
+  over fullscreen apps without stealing focus. Applies to every status toast.
+
 ## [0.84.123] — 2026-06-25
 
 ### Changed

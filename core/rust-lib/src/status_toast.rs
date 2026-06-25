@@ -107,15 +107,44 @@ fn show_inner(app: &AppHandle, toast: StatusToast, focus: bool) {
     // on mount; the event covers the already-open (reused) window.
     let _ = win.emit("status-toast-changed", ());
     let _ = win.show();
+    // Make the HUD show on the *current* Space and over fullscreen apps without
+    // switching Spaces or stealing focus — essential for the passive (gesture)
+    // toast, which otherwise stays on the Space where the window was first built
+    // and is invisible while a fullscreen app (e.g. a video / Spotify
+    // fullscreen) is frontmost.
+    elevate_toast_window(&win);
     // Force it on-screen + frontmost. After `app.hide()` (run at toggle
     // time) the app is hidden, and an Accessory app's `show()` alone does
     // not reliably order a fresh window in — `set_focus` makes it key and
     // brings the overlay forward over whatever app is now frontmost. Skipped
-    // for passive toasts so a gesture never pulls focus from the active app.
+    // for passive toasts so a gesture never pulls focus from the active app
+    // (elevate_toast_window's orderFrontRegardless brings it forward instead).
     if focus {
         let _ = win.set_focus();
     }
 }
+
+/// macOS: let the toast join all Spaces + fullscreen, and order it front
+/// without making it key (no focus theft). No-op elsewhere.
+#[cfg(target_os = "macos")]
+fn elevate_toast_window(win: &WebviewWindow) {
+    use objc2::runtime::AnyObject;
+    let Ok(ptr) = win.ns_window() else { return };
+    let nswindow = ptr as *mut AnyObject;
+    if nswindow.is_null() {
+        return;
+    }
+    // NSWindowCollectionBehavior: CanJoinAllSpaces (1<<0) | Stationary (1<<4) |
+    // FullScreenAuxiliary (1<<8).
+    let behavior: u64 = (1 << 0) | (1 << 4) | (1 << 8);
+    unsafe {
+        let _: () = objc2::msg_send![nswindow, setCollectionBehavior: behavior];
+        let _: () = objc2::msg_send![nswindow, orderFrontRegardless];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn elevate_toast_window(_win: &WebviewWindow) {}
 
 /// Close the popup and announce `toast` on-screen — the shared flow used
 /// by wakelock, timer, alarm, …: hide the popup the normal way (on macOS
@@ -168,7 +197,10 @@ fn center_on_cursor_monitor(win: &WebviewWindow) {
     let monitors = win.available_monitors().unwrap_or_default();
     let monitor = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
         .or_else(|| win.primary_monitor().ok().flatten());
-    let Some(m) = monitor else { return };
+    let Some(m) = monitor else {
+        tracing::warn!("status_toast: no monitor resolved ({} available)", monitors.len());
+        return;
+    };
     let mp = m.position();
     let ms = m.size();
     let scale = m.scale_factor();
@@ -176,6 +208,10 @@ fn center_on_cursor_monitor(win: &WebviewWindow) {
     let h_px = (WIN_H * scale) as i32;
     let x = mp.x + (ms.width as i32 - w_px) / 2;
     let y = mp.y + (ms.height as i32 - h_px) / 2;
+    tracing::debug!(
+        "status_toast: place at ({x},{y}) size {w_px}x{h_px} on monitor pos=({},{}) size={}x{} ({} avail)",
+        mp.x, mp.y, ms.width, ms.height, monitors.len()
+    );
     // Move onto the target display first (updates the window's scale), then size.
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_size(PhysicalSize::new(w_px.max(1) as u32, h_px.max(1) as u32));

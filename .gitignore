@@ -44,3 +44,6 @@ build/
 
 # Logs
 *.log
+
+# Playwright MCP page dumps (transient)
+.playwright-mcp/

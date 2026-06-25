@@ -52,6 +52,8 @@ import {
   getGestureConfig,
   setGestureConfig,
   type GestureConfig,
+  getKeepaliveEnabled,
+  setKeepaliveEnabled,
   getAutostartEnabled,
   getCleanerConfig,
   cleanerCategories,
@@ -297,6 +299,28 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       console.error("autostart toggle failed", e);
     } finally {
       setAutostartBusy(false);
+    }
+  };
+
+  // ── Keep-alive: always running / auto-relaunch (v0.84.126) ───────────────
+  const [keepalive, setKeepalive] = useState<boolean | null>(null);
+  const [keepaliveBusy, setKeepaliveBusy] = useState(false);
+  useEffect(() => {
+    getKeepaliveEnabled()
+      .then(setKeepalive)
+      .catch(() => setKeepalive(false));
+  }, []);
+  const toggleKeepalive = async (next: boolean) => {
+    setKeepaliveBusy(true);
+    setKeepalive(next); // optimistic
+    try {
+      const applied = await setKeepaliveEnabled(next);
+      setKeepalive(applied);
+    } catch (e) {
+      console.error("keepalive toggle failed", e);
+      setKeepalive(!next);
+    } finally {
+      setKeepaliveBusy(false);
     }
   };
 
@@ -1821,6 +1845,24 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     : autostart
                       ? "Enabled — Inspector Rust launches on login"
                       : "Disabled — start Inspector Rust manually"}
+                </span>
+              </label>
+            </Row>
+            <Row label="Always keep running">
+              <label className="flex cursor-pointer items-start gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={keepalive ?? false}
+                  disabled={keepalive === null || keepaliveBusy}
+                  onChange={(e) => void toggleKeepalive(e.target.checked)}
+                  className="mt-0.5 accent-[var(--color-accent)]"
+                />
+                <span className="text-[var(--color-muted)]">
+                  {keepalive === null
+                    ? "Loading…"
+                    : keepalive
+                      ? "On — auto-relaunches within ~30 s if it ever isn't running (crash / quit). Turn off to quit for good."
+                      : "Off — the app stays closed once you quit it"}
                 </span>
               </label>
             </Row>

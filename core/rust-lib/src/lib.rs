@@ -51,6 +51,7 @@ mod alarm;
 mod tracking;
 mod color_loupe;
 mod gestures;
+mod keepalive;
 mod system_commands;
 mod system_stats;
 mod finder_selection;
@@ -446,6 +447,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_auto_expand_config,
             commands::get_gesture_config,
             commands::set_gesture_config,
+            commands::get_keepalive_enabled,
+            commands::set_keepalive_enabled,
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,

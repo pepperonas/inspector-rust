@@ -693,6 +693,16 @@ export function setGestureConfig(config: GestureConfig): Promise<GestureConfig> 
   return invoke("set_gesture_config", { config });
 }
 
+/** Keep-alive: whether the OS supervisor that auto-relaunches the app is installed. */
+export function getKeepaliveEnabled(): Promise<boolean> {
+  return invoke("get_keepalive_enabled");
+}
+
+/** Install / remove the keep-alive supervisor; returns the now-effective state. */
+export function setKeepaliveEnabled(enabled: boolean): Promise<boolean> {
+  return invoke("set_keepalive_enabled", { enabled });
+}
+
 /** Persist a new auto-expansion config and (re)arm/disarm the passive
  *  monitor. Returns the now-effective config. */
 export function setAutoExpandConfig(

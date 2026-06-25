@@ -536,6 +536,31 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   libinput via pkg-config — target-gated dep). Wayland caveat: the compositor may
   also own the 3-finger swipe.
 
+### Keep-alive — always running (`keepalive.rs`, v0.84.126)
+
+Opt-in "make sure Inspector Rust is always running": started at login **and**
+auto-relaunched if it ever isn't (crash / quit / kill). Registers a **native OS
+supervisor** (no self-watchdog process that could itself die) using a **periodic
+relaunch (poll)** model — *not* `KeepAlive`/`Restart=always`, which would
+**respawn-loop** against `tauri-plugin-single-instance` (the kept-alive instance
+exits-on-dup → gets respawned → exits → …). A poll launch is a no-op while the
+app is alive (single-instance routes the no-arg launch to the running instance)
+and becomes the live instance when it's dead.
+
+- **macOS:** LaunchAgent `~/Library/LaunchAgents/io.celox.inspector-rust.keepalive.plist`
+  with `RunAtLoad` + `StartInterval=30` (verified: `plutil`-valid, `launchctl
+  load -w`). Relaunch latency ≤30 s.
+- **Linux:** systemd `--user` `.timer` (every 60 s) + a `Type=oneshot` `.service`
+  that launches the app detached with `KillMode=none` (so it survives the
+  oneshot unit going inactive). Needs a systemd user session. Runtime-unverified.
+- **Windows:** Scheduled Task `schtasks /SC MINUTE /MO 1`. Runtime-unverified.
+
+Pure content builders (`macos_plist`/`systemd_service`/`systemd_timer`) are
+unit-tested (assert no `KeepAlive`/`Restart=always`, XML-escaping, etc.). IPC
+`get_/set_keepalive_enabled`; Settings → **Startup → "Always keep running"**.
+**Caveat:** while on, the app relaunches even after Quit — turn it off to quit
+for good.
+
 ### Timer + wake-lock (`timer.rs`, `wakelock.rs`)
 
 - **`timer <n>[s/min]`** — each `start_timer` spawns a worker; on expiry it fires the alarm. **Alarm style (setting `timer.alarm_style`, v0.84.76):** the default **`overlay`** (`alarm.rs` + `AlarmOverlay.tsx`) raises the system output volume (macOS — saved + restored), **loops** a bell-arpeggio alarm sound (`assets/alarm.wav`, generated; materialised to the cache dir; played per-OS, killed on stop), and shows a focused always-on-top `alarm-overlay` window the user must click (or press Esc/Enter/Space) to silence (`stop_alarm` → `alarm::stop`). The legacy **`notification`** style keeps the old per-OS native notification + one-shot sound + `timer-fired` popup banner (macOS `osascript display notification` + `afplay Glass.aiff`; Linux `notify-send` + `canberra-gtk-play`/`paplay`; Windows WinRT toast — runtime-unverified). `timer::run_timer` reads the setting and branches. IPC: `start_timer`, `cancel_timer`, `list_timers`, `get_/set_alarm_style`, `alarm_overlay_label`, `stop_alarm`. `AlarmState` is managed Tauri state; the `alarm-overlay` window is in each `capabilities/default.json` + routed in `main.tsx`. Settings → **Timer alarm** picks the style. Cancellable per-timer (`AtomicBool` polled ~200 ms); footer shows the live count.

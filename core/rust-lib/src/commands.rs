@@ -4,6 +4,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auto_expand;
 use crate::gestures;
+use crate::keepalive;
 use crate::backup::{self, BackupImportResult};
 use crate::cleaner;
 use crate::meme;
@@ -1369,6 +1370,21 @@ pub fn set_auto_expand_config(
     auto_expand::save_config(&db, &config).map_err(map_err)?;
     auto_expand::apply(&app, &db, &ae);
     Ok(auto_expand::load_config(&db))
+}
+
+// ── Keep-alive (always running) ──────────────────────────────────────────────
+
+/// Is the keep-alive supervisor installed (app auto-relaunches when not running)?
+#[tauri::command]
+pub fn get_keepalive_enabled() -> bool {
+    keepalive::is_enabled()
+}
+
+/// Install / remove the keep-alive supervisor; returns the now-effective state.
+#[tauri::command]
+pub fn set_keepalive_enabled(enabled: bool) -> Result<bool, String> {
+    keepalive::set_enabled(enabled)?;
+    Ok(keepalive::is_enabled())
 }
 
 // ── Touchpad gestures ────────────────────────────────────────────────────────

@@ -4,6 +4,33 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.126] — 2026-06-25
+
+### Added
+
+- **Keep-alive — "Always keep running".** New opt-in (Settings → Startup) that
+  makes sure Inspector Rust is always running: started at login **and**
+  **auto-relaunched** within ~30 s if it ever isn't (crash / quit / kill). Uses a
+  native OS supervisor with a **periodic-relaunch (poll)** model so it can't
+  respawn-loop against single-instance: macOS LaunchAgent (`RunAtLoad` +
+  `StartInterval=30`, verified), Linux systemd `--user` timer + detached oneshot
+  service (`KillMode=none`), Windows Scheduled Task (`schtasks /SC MINUTE`).
+  `keepalive.rs` with unit-tested content builders; IPC `get_/set_keepalive_
+  enabled`. (While on, the app relaunches even after Quit — turn it off to quit
+  for good.)
+
+## [0.84.125] — 2026-06-25
+
+### Fixed
+
+- **Windows: popup no longer auto-closes on a focus bounce.** After a transient
+  always-on-top window (status toast / record overlay) perturbs the foreground
+  z-order, WebView2 emits a delayed `Focused(false)` ~700–900 ms after show that
+  slipped past the 600 ms grace and closed the popup. The focus-loss handler now
+  checks `GetForegroundWindow()` against our own PID and skips the hide when the
+  foreground window still belongs to our process (a WebView2/compositor internal
+  transfer); a genuine click-away always brings a foreign-process window forward.
+
 ## [0.84.124] — 2026-06-25
 
 ### Fixed

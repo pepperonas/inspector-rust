@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.130] — 2026-06-25
+
+### Changed
+
+- **TikTok downloads — robustness.** TikTok (and Instagram / Facebook) were
+  already downloadable to `~/Downloads` with the same animation as YouTube; this
+  generalises the **auth-wall / cookie retry** that was YouTube-only: a TikTok /
+  Instagram login-required or `--cookies` failure now also retries with
+  browser cookies, and the error message is **named after the actual platform**
+  (`Platform::display_name`) instead of always saying "YouTube". `is_bot_block`
+  broadened to catch those walls; +tests (TikTok → H.264 mp4 args, wall
+  detection).
+
 ## [0.84.129] — 2026-06-25
 
 ### Changed

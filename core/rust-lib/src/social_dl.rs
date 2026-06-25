@@ -20,6 +20,17 @@ pub enum Platform {
     Facebook,
 }
 
+impl Platform {
+    pub fn display_name(self) -> &'static str {
+        match self {
+            Platform::YouTube => "YouTube",
+            Platform::Instagram => "Instagram",
+            Platform::TikTok => "TikTok",
+            Platform::Facebook => "Facebook",
+        }
+    }
+}
+
 /// Recognise a supported social-media URL by host. Returns `None` for anything
 /// else (so the preview only offers a download when it makes sense).
 pub fn detect_platform(url: &str) -> Option<Platform> {
@@ -101,9 +112,20 @@ const COOKIE_BROWSERS: &[&str] = &["chrome", "firefox", "brave", "edge"];
 
 /// True if the yt-dlp error is YouTube's "confirm you're not a bot" gate, which
 /// is bypassed by passing the user's logged-in browser cookies.
+/// Does the yt-dlp failure look like an auth / anti-bot wall that browser
+/// cookies could get past? Covers YouTube's "not a bot" check **and** the
+/// login/region walls common on TikTok / Instagram / Facebook (yt-dlp suggests
+/// `--cookies(-from-browser)` for those too).
 fn is_bot_block(stderr: &str) -> bool {
     let l = stderr.to_lowercase();
-    l.contains("not a bot") || l.contains("sign in to confirm") || l.contains("--cookies-from-browser")
+    l.contains("not a bot")
+        || l.contains("sign in to confirm")
+        || l.contains("--cookies-from-browser")
+        || l.contains("--cookies")
+        || l.contains("login required")
+        || l.contains("requires authentication")
+        || l.contains("you need to log in")
+        || l.contains("log in to")
 }
 
 /// Run yt-dlp once. On success returns the produced file path (from
@@ -127,9 +149,10 @@ fn run_ytdlp(yt: &Path, args: &[String]) -> Result<PathBuf, String> {
 /// anonymous request.
 pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> {
     let u = url.trim();
-    if detect_platform(u).is_none() {
-        return Err("not a supported social-media URL".into());
-    }
+    let platform_name = match detect_platform(u) {
+        Some(p) => p.display_name(),
+        None => return Err("not a supported social-media URL".into()),
+    };
     let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
     let ffmpeg = crate::screen_record::ffmpeg_path().ok_or_else(|| ERR_NO_FFMPEG.to_string())?;
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
@@ -148,9 +171,11 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
                     return Ok(p);
                 }
             }
-            Err("YouTube blocked the download with its anti-bot check, and no usable \
-                 browser cookies were found. Log into YouTube in Chrome or Firefox and retry."
-                .into())
+            Err(format!(
+                "{platform_name} requires you to be signed in (or blocked the download), and no \
+                 usable browser cookies were found. Log into {platform_name} in Chrome or Firefox \
+                 and retry."
+            ))
         }
         Err(stderr) => Err(format!("download failed: {}", stderr.lines().last().unwrap_or("unknown error"))),
     }
@@ -240,6 +265,35 @@ mod tests {
         assert!(is_bot_block("Please use --cookies-from-browser"));
         assert!(!is_bot_block("ERROR: Requested format is not available"));
         assert!(!is_bot_block("Video unavailable"));
+    }
+
+    #[test]
+    fn auth_wall_detection_covers_tiktok_instagram_walls() {
+        // Login/region walls on the non-YouTube platforms also trigger the
+        // cookie retry now (yt-dlp suggests --cookies for those too).
+        assert!(is_bot_block("ERROR: [tiktok] Login required to access this content"));
+        assert!(is_bot_block("ERROR: [instagram] You need to log in to access this"));
+        assert!(is_bot_block("This content requires authentication. Use --cookies"));
+        // Still no false positive on a plain region/availability error.
+        assert!(!is_bot_block("ERROR: This video is not available in your country"));
+    }
+
+    #[test]
+    fn tiktok_downloads_as_h264_mp4_video() {
+        // TikTok takes the same path as the others: H.264-preferred video → mp4.
+        assert_eq!(
+            detect_platform("https://www.tiktok.com/@u/video/123"),
+            Some(Platform::TikTok)
+        );
+        let a = build_dl_args(
+            "https://www.tiktok.com/@u/video/123",
+            DlMode::Video,
+            "/d",
+            "/d/%(title)s.%(ext)s",
+        );
+        assert!(a.windows(2).any(|w| w[0] == "-S" && w[1].contains("h264")));
+        assert!(a.windows(2).any(|w| w[0] == "--merge-output-format" && w[1] == "mp4"));
+        assert_eq!(Platform::TikTok.display_name(), "TikTok");
     }
 
     #[test]

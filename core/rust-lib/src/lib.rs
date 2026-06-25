@@ -193,6 +193,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(status_toast::LatestToast::default());
             app.manage(auto_expand::AutoExpandState::default());
             app.manage(gestures::GestureState::default());
+            app.manage(hotkey::ActionShortcutState::default());
 
             // App-launcher cache. Manage an empty index immediately, then fill
             // it from a background thread — scanning ~200-400 .app bundles (or
@@ -449,6 +450,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_gesture_config,
             commands::get_keepalive_enabled,
             commands::set_keepalive_enabled,
+            commands::list_action_hotkeys,
+            commands::set_action_hotkey,
+            commands::reset_action_hotkey,
             commands::get_popup_hotkey,
             commands::set_popup_hotkey,
             commands::get_popup_hotkey_default,

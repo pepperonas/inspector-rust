@@ -111,6 +111,7 @@ import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
 import { HotkeyCapture } from "./HotkeyCapture";
+import { GlobalShortcutsSection } from "./GlobalShortcutsSection";
 
 // Must match `expander::DEFAULT_HOTKEY` in the Rust core. `Digit1` is the
 // `1`-row key (not the numpad) — layout-stable everywhere, no dead-key /
@@ -1155,6 +1156,17 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         {/* Second, optional clipboard-history hotkey (default Ctrl+Shift+V). */}
         <div className="mt-6">
           <HistoryHotkeySection />
+        </div>
+
+        {/* Global action shortcuts — rebindable OCR / screenshot / timesheet / … */}
+        <div className="mt-6">
+          <Section
+            icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
+            title="Global shortcuts"
+            subtitle="Rebind the global action hotkeys. Press a combo to set it (Backspace clears, Esc cancels); a conflict with any other binding is rejected. Note for Windows: Ctrl+Shift+T is the browser's 'reopen closed tab' — rebind Timesheet here to avoid the clash."
+          >
+            <GlobalShortcutsSection />
+          </Section>
         </div>
 
         {/* Text expander section */}

@@ -1372,6 +1372,27 @@ pub fn set_auto_expand_config(
     Ok(auto_expand::load_config(&db))
 }
 
+// ── Configurable global action hotkeys ───────────────────────────────────────
+
+/// List every configurable action hotkey with its effective + default binding.
+#[tauri::command]
+pub fn list_action_hotkeys(app: AppHandle) -> Vec<crate::hotkey::ActionHotkeyView> {
+    crate::hotkey::action_views(&app)
+}
+
+/// Bind (or clear, with empty `shortcut`) an action hotkey. Validates against
+/// every other binding; returns a human error on conflict / parse failure.
+#[tauri::command]
+pub fn set_action_hotkey(app: AppHandle, id: String, shortcut: String) -> Result<(), String> {
+    crate::hotkey::set_action_hotkey(&app, &id, &shortcut)
+}
+
+/// Reset an action hotkey to its built-in default.
+#[tauri::command]
+pub fn reset_action_hotkey(app: AppHandle, id: String) -> Result<(), String> {
+    crate::hotkey::reset_action_hotkey(&app, &id)
+}
+
 // ── Keep-alive (always running) ──────────────────────────────────────────────
 
 /// Is the keep-alive supervisor installed (app auto-relaunches when not running)?

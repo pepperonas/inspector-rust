@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.128] — 2026-06-25
+
+### Added
+
+- **Rebindable global shortcuts (Settings → Global shortcuts).** The 8 feature
+  hotkeys that used to be hard-coded — OCR, screenshot, eyedropper, Finder
+  selection, Markdown→PDF, screen recording, audio swap, **Timesheet** — can now
+  be reassigned (or disabled). Each row is a capture field with Reset + Off;
+  conflicts with any other binding (popup, clipboard-history, expander,
+  direct-slots, other actions) are rejected with a clear message. Fixes e.g. the
+  **Windows clash where `Ctrl+Shift+T` (Timesheet) collided with the browser's
+  "reopen closed tab"** — just rebind it. Built on a single `ActionId` registry +
+  one dispatcher (each action keeps its original threading); bindings persist
+  under settings `hotkey.<id>` and re-register live. IPC `list_/set_/reset_
+  action_hotkey`.
+
 ## [0.84.127] — 2026-06-25
 
 ### Added

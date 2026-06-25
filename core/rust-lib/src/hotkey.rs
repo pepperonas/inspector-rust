@@ -429,81 +429,137 @@ pub fn register_history_hotkey(
     Ok(())
 }
 
-/// Register the *other* global hotkeys (OCR, screenshot, eyedropper,
-/// Finder selection). The popup hotkey is configurable + registered
-/// separately via [`register_popup`] — leave this to handle the
-/// hard-coded ones.
-pub fn register(app: &AppHandle) -> Result<()> {
+/// All configurable global *action* hotkeys (everything except the popup /
+/// history / expander / direct-slot hotkeys, which have their own state). One
+/// registry: each variant has a stable settings key, a label, and a default
+/// binding; the work lives in [`dispatch_action`]. Bindings persist under
+/// settings `hotkey.<key>` (empty string = disabled) and are (re)applied by
+/// [`apply_action_hotkeys`]. Previously these were hard-coded in `register`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ActionId {
+    Ocr,
+    Screenshot,
+    Color,
+    Finder,
+    Markdown,
+    Record,
+    AudioSwap,
+    Timesheet,
+}
 
-    // OCR region — Ctrl+Shift+O on every platform. Literal Control on
-    // macOS too (not Cmd): Cmd+Shift+O collides with "Go to Symbol" in
-    // VS Code / IntelliJ and similar IDE bindings, while ⌃⇧O is
-    // essentially unused. Hard-coded for now; configurable shortcut UI
-    // can come later.
-    let ocr_mods = Modifiers::CONTROL | Modifiers::SHIFT;
-    let ocr = Shortcut::new(Some(ocr_mods), Code::KeyO);
-    let app_for_ocr = app.clone();
-    app.global_shortcut()
-        .on_shortcut(ocr, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == ocr {
-                // Dispatch to a worker — the screencapture wait blocks
-                // until the user finishes the marquee; doing it on the
-                // global-shortcut callback thread would hang the
-                // shortcut subsystem.
-                let app = app_for_ocr.clone();
-                std::thread::spawn(move || {
-                    match crate::commands::run_ocr_pipeline(&app) {
-                        Ok(r) if !r.cancelled && r.chars > 0 => {
-                            tracing::info!("OCR captured {} chars", r.chars);
-                        }
-                        Ok(_) => tracing::debug!("OCR cancelled or empty"),
-                        Err(e) => {
-                            tracing::warn!("OCR pipeline: {e}");
-                            // Without UI feedback the user has no idea
-                            // why pressing the shortcut did nothing.
-                            // For the permission-denied sentinel we
-                            // open the popup + emit an event the
-                            // frontend turns into a banner that points
-                            // at Settings → Permissions.
-                            if e == "screen.permission_denied" {
-                                let _ = show_popup(&app);
-                                use tauri::Emitter;
-                                let _ = app.emit("ocr-permission-needed", ());
-                            }
-                        }
+impl ActionId {
+    pub const ALL: [ActionId; 8] = [
+        ActionId::Ocr,
+        ActionId::Screenshot,
+        ActionId::Color,
+        ActionId::Finder,
+        ActionId::Markdown,
+        ActionId::Record,
+        ActionId::AudioSwap,
+        ActionId::Timesheet,
+    ];
+
+    pub fn key(self) -> &'static str {
+        match self {
+            ActionId::Ocr => "ocr",
+            ActionId::Screenshot => "screenshot",
+            ActionId::Color => "color",
+            ActionId::Finder => "finder",
+            ActionId::Markdown => "markdown",
+            ActionId::Record => "record",
+            ActionId::AudioSwap => "audioswap",
+            ActionId::Timesheet => "timesheet",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<ActionId> {
+        ActionId::ALL.into_iter().find(|a| a.key() == s)
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ActionId::Ocr => "OCR region → text",
+            ActionId::Screenshot => "Screenshot region",
+            ActionId::Color => "Eyedropper (pick colour)",
+            ActionId::Finder => "Finder selection",
+            ActionId::Markdown => "Markdown → PDF",
+            ActionId::Record => "Screen recording",
+            ActionId::AudioSwap => "Audio swap",
+            ActionId::Timesheet => "Open Timesheet",
+        }
+    }
+
+    /// Default binding as a `parse_shortcut` spec.
+    pub fn default_spec(self) -> &'static str {
+        match self {
+            ActionId::Ocr => "Ctrl+Shift+KeyO",
+            ActionId::Screenshot => "Ctrl+Shift+KeyS",
+            ActionId::Color => "Ctrl+Shift+KeyC",
+            ActionId::Finder => "Ctrl+Shift+KeyF",
+            ActionId::Markdown => "Ctrl+Shift+KeyM",
+            ActionId::Record => "Ctrl+Shift+Alt+KeyS",
+            ActionId::AudioSwap => "Ctrl+Shift+Alt+KeyM",
+            ActionId::Timesheet => "Ctrl+Shift+KeyT",
+        }
+    }
+
+    fn settings_key(self) -> String {
+        format!("hotkey.{}", self.key())
+    }
+}
+
+/// Currently-registered action shortcuts, so we can unregister cleanly before
+/// re-applying. Tauri-managed state.
+#[derive(Default)]
+pub struct ActionShortcutState(pub Mutex<Vec<Shortcut>>);
+
+/// View of one action hotkey for the Settings UI.
+#[derive(Clone, serde::Serialize)]
+pub struct ActionHotkeyView {
+    pub id: String,
+    pub label: String,
+    /// Effective binding spec ("" = disabled).
+    pub shortcut: String,
+    pub default: String,
+    pub is_default: bool,
+}
+
+/// Effective binding spec for `id`: the user override (settings `hotkey.<key>`,
+/// which may be an empty string = disabled) or the built-in default.
+pub fn effective_action_spec(db: &crate::db::DbHandle, id: ActionId) -> String {
+    crate::settings::get_or(db, &id.settings_key(), id.default_spec())
+        .unwrap_or_else(|_| id.default_spec().to_string())
+}
+
+/// Run the action bound to `id` (on the global-shortcut callback thread). Each
+/// arm preserves its original threading: OCR/screenshot/eyedropper/finder/
+/// audio-swap/markdown defer to a worker (and, where a window is built,
+/// `run_on_main_thread`); record + timesheet go straight to the main thread.
+pub fn dispatch_action(app: &AppHandle, id: ActionId) {
+    use tauri::Manager as _;
+    match id {
+        ActionId::Ocr => {
+            let app = app.clone();
+            std::thread::spawn(move || match crate::commands::run_ocr_pipeline(&app) {
+                Ok(r) if !r.cancelled && r.chars > 0 => {
+                    tracing::info!("OCR captured {} chars", r.chars);
+                }
+                Ok(_) => tracing::debug!("OCR cancelled or empty"),
+                Err(e) => {
+                    tracing::warn!("OCR pipeline: {e}");
+                    if e == "screen.permission_denied" {
+                        let _ = show_popup(&app);
+                        let _ = app.emit("ocr-permission-needed", ());
                     }
-                });
-            }
-        })
-        .context("failed to register OCR hotkey")?;
-
-    // Screenshot region — Ctrl+Shift+S on every platform. Same TCC gate
-    // as OCR (Screen Recording permission), same threading concern
-    // (screencapture blocks until the user finishes the marquee).
-    // Unlike OCR this writes the captured PNG straight to the
-    // clipboard, so regions with *no* text (a chart, a button, a
-    // photo) still produce a usable payload.
-    let screenshot = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::KeyS,
-    );
-    let app_for_screenshot = app.clone();
-    app.global_shortcut()
-        .on_shortcut(screenshot, move |_app, sc, event| {
-            if event.state != ShortcutState::Pressed || *sc != screenshot {
-                return;
-            }
-            // Already capturing → ignore the press. (Previously a second
-            // press here flipped a "save to file" flag, which was the
-            // only way to actually save the screenshot — confusing.
-            // Now a single press always saves AND copies, so the
-            // second-press concept is gone.)
+                }
+            });
+        }
+        ActionId::Screenshot => {
             if SCREENSHOT_IN_PROGRESS.load(Ordering::SeqCst) {
                 return;
             }
             SCREENSHOT_IN_PROGRESS.store(true, Ordering::SeqCst);
-
-            let app = app_for_screenshot.clone();
+            let app = app.clone();
             std::thread::spawn(move || {
                 let result = crate::commands::run_screenshot_pipeline(&app);
                 SCREENSHOT_IN_PROGRESS.store(false, Ordering::SeqCst);
@@ -521,96 +577,29 @@ pub fn register(app: &AppHandle) -> Result<()> {
                     }
                 }
             });
-        })
-        .context("failed to register screenshot hotkey")?;
-
-    // Color picker — Ctrl+Shift+C on every platform. Fires the
-    // NSColorSampler loupe (macOS) / GDI overlay (Windows) without
-    // opening the popup; the picked hex (`#RRGGBB`) lands on the
-    // clipboard + History. Parallel UX to OCR + screenshot: a global
-    // shortcut that does its thing and gets out of the way.
-    let color = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::KeyC,
-    );
-    let app_for_color = app.clone();
-    app.global_shortcut()
-        .on_shortcut(color, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == color {
-                let app = app_for_color.clone();
-                std::thread::spawn(move || {
-                    crate::commands::run_eyedropper_pipeline(&app);
-                });
-            }
-        })
-        .context("failed to register color-picker hotkey")?;
-
-    // Finder selection — Ctrl+Shift+F. Reads the current Finder
-    // selection via osascript and opens the popup with those files
-    // in a "finder-mode" list, where the user can run actions on
-    // them (resize, …). Macos-only; on other OSes the handler is
-    // registered but emits an empty list (or an error which the UI
-    // can surface). The osascript call is fast (~30 ms) but we still
-    // dispatch off the hotkey thread to avoid blocking the global
-    // hotkey dispatcher.
-    let finder = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::KeyF,
-    );
-    let app_for_finder = app.clone();
-    app.global_shortcut()
-        .on_shortcut(finder, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == finder {
-                let app = app_for_finder.clone();
-                std::thread::spawn(move || {
-                    crate::commands::run_finder_selection_pipeline(&app);
-                });
-            }
-        })
-        .context("failed to register Finder-selection hotkey")?;
-
-    // Screen recording — Ctrl+Shift+Alt+S (⌃⇧⌥S). Opens the fullscreen
-    // region-select overlay (the start of the record flow: region → audio
-    // tracks → 3 s countdown → ffmpeg). The extra Alt distinguishes it from
-    // Ctrl+Shift+S (screenshot region). Building a webview window must run on
-    // the main thread, so dispatch there.
-    let record = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT),
-        Code::KeyS,
-    );
-    let app_for_record = app.clone();
-    app.global_shortcut()
-        .on_shortcut(record, move |_app, sc, event| {
-            if event.state != ShortcutState::Pressed || *sc != record {
-                return;
-            }
-            let app = app_for_record.clone();
+        }
+        ActionId::Color => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                crate::commands::run_eyedropper_pipeline(&app);
+            });
+        }
+        ActionId::Finder => {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                crate::commands::run_finder_selection_pipeline(&app);
+            });
+        }
+        ActionId::Record => {
             let app_main = app.clone();
             let _ = app.run_on_main_thread(move || {
                 if let Err(e) = crate::commands::screen_record_open_overlay(app_main.clone()) {
                     tracing::warn!("screen-record overlay: {e}");
                 }
             });
-        })
-        .context("failed to register screen-record hotkey")?;
-
-    // Audio swap — Ctrl+Shift+Alt+M (⌃⇧⌥M). Reads the Finder selection,
-    // finds the first video, and opens the audio-swap overlay (replace /
-    // overlay the video's audio with a local file or a yt-dlp'd YouTube track).
-    // The extra Alt distinguishes it from Ctrl+Shift+M (markdown→PDF). The
-    // selection read (slow osascript) runs on a worker thread; the window build
-    // is dispatched to the main thread (same pattern as the recorder).
-    let aswap = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT),
-        Code::KeyM,
-    );
-    let app_for_aswap = app.clone();
-    app.global_shortcut()
-        .on_shortcut(aswap, move |_app, sc, event| {
-            if event.state != ShortcutState::Pressed || *sc != aswap {
-                return;
-            }
-            let app = app_for_aswap.clone();
+        }
+        ActionId::AudioSwap => {
+            let app = app.clone();
             std::thread::spawn(move || {
                 let video = crate::finder_selection::read()
                     .ok()
@@ -625,32 +614,9 @@ pub fn register(app: &AppHandle) -> Result<()> {
                     }
                 });
             });
-        })
-        .context("failed to register audio-swap hotkey")?;
-
-    // Markdown → PDF (standalone) — Ctrl+Shift+M. Reads the Finder
-    // selection (same osascript path as Ctrl+Shift+F), filters to
-    // `.md`/`.markdown`, converts each via in-process pulldown-cmark
-    // (MD→HTML) + WKWebView createPDF (HTML→PDF). Output PDF lands
-    // sibling to input (`foo.md` → `foo.pdf` in same dir). v0.46.0+:
-    // no external mrxdown CLI required.
-    //
-    // Worker thread reads selection + filter; the actual WKWebView
-    // render then dispatches back to the **main thread** via
-    // `app.run_on_main_thread` because WebKit asserts main-thread.
-    // ~50-300 ms per file is a brief UI freeze for the duration of
-    // the batch; acceptable for an explicit one-shot hotkey action.
-    let markdown = Shortcut::new(
-        Some(Modifiers::CONTROL | Modifiers::SHIFT),
-        Code::KeyM,
-    );
-    let app_for_markdown = app.clone();
-    app.global_shortcut()
-        .on_shortcut(markdown, move |_app, sc, event| {
-            if event.state != ShortcutState::Pressed || *sc != markdown {
-                return;
-            }
-            let app = app_for_markdown.clone();
+        }
+        ActionId::Markdown => {
+            let app = app.clone();
             std::thread::spawn(move || {
                 let paths = match crate::finder_selection::read() {
                     Ok(p) => p,
@@ -661,11 +627,6 @@ pub fn register(app: &AppHandle) -> Result<()> {
                         return;
                     }
                 };
-
-                // Convert on the main thread (WebKit / AppKit requirement)
-                // via a oneshot channel — keeps the conversion synchronous
-                // from the worker's POV while letting the AppKit run loop
-                // service the WKWebView createPDF callbacks.
                 let (tx, rx) = std::sync::mpsc::channel::<crate::md_to_pdf::ConvertSummary>();
                 let _ = app.run_on_main_thread(move || {
                     let summary = crate::md_to_pdf::convert_files(&paths);
@@ -678,7 +639,6 @@ pub fn register(app: &AppHandle) -> Result<()> {
                         crate::md_to_pdf::ConvertSummary::default()
                     }
                 };
-
                 tracing::info!(
                     "markdown→pdf: {} converted, {} skipped, {} failed (backend_unavailable={})",
                     summary.converted.len(),
@@ -688,21 +648,8 @@ pub fn register(app: &AppHandle) -> Result<()> {
                 );
                 crate::md_to_pdf::notify(&summary);
             });
-        })
-        .context("failed to register Markdown→PDF hotkey")?;
-
-    // Timesheet — Ctrl+Shift+T. Opens the popup on the Timesheet tab (the
-    // time-tracking overview). Doesn't start/stop tracking — purely a view
-    // shortcut. show_popup + the tab-switch event run on the main thread; this
-    // touches no `global_shortcut` state, so there's no re-entrancy risk.
-    let timesheet = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
-    let app_for_timesheet = app.clone();
-    app.global_shortcut()
-        .on_shortcut(timesheet, move |_app, sc, event| {
-            if event.state != ShortcutState::Pressed || *sc != timesheet {
-                return;
-            }
-            let app = app_for_timesheet.clone();
+        }
+        ActionId::Timesheet => {
             let app_main = app.clone();
             let _ = app.run_on_main_thread(move || {
                 if let Err(e) = show_popup(&app_main) {
@@ -710,11 +657,153 @@ pub fn register(app: &AppHandle) -> Result<()> {
                 }
                 let _ = app_main.emit("open-timesheet-tab", ());
             });
-        })
-        .context("failed to register Timesheet hotkey")?;
+        }
+    }
+}
 
+/// (Re)register every action hotkey from its effective binding. Unregisters the
+/// previously-registered set first (tracked in [`ActionShortcutState`]). Called
+/// at startup and after a settings change. **Never call from inside a
+/// global-shortcut handler** (plugin-mutex re-entrancy → deadlock) — only from
+/// startup / a Settings IPC.
+pub fn apply_action_hotkeys(app: &AppHandle) {
+    use tauri::Manager as _;
+    let Some(db) = app.try_state::<crate::db::DbHandle>() else {
+        return;
+    };
+    let Some(state) = app.try_state::<ActionShortcutState>() else {
+        return;
+    };
+    let mut reg = state.0.lock();
+    for sc in reg.drain(..) {
+        let _ = app.global_shortcut().unregister(sc);
+    }
+    for id in ActionId::ALL {
+        let spec = effective_action_spec(&db, id);
+        if spec.trim().is_empty() {
+            continue; // disabled by the user
+        }
+        let shortcut = match parse_shortcut(&spec) {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::warn!("action hotkey {}: invalid spec {spec:?}: {e:#}", id.key());
+                continue;
+            }
+        };
+        if reg.contains(&shortcut) {
+            tracing::warn!(
+                "action hotkey {} ({spec}) collides with another binding — skipped",
+                id.key()
+            );
+            continue;
+        }
+        let appc = app.clone();
+        match app.global_shortcut().on_shortcut(shortcut, move |_a, sc, ev| {
+            if ev.state == ShortcutState::Pressed && *sc == shortcut {
+                dispatch_action(&appc, id);
+            }
+        }) {
+            Ok(()) => reg.push(shortcut),
+            Err(e) => tracing::warn!("register action hotkey {} ({spec}): {e}", id.key()),
+        }
+    }
+}
+
+/// Startup entry (kept under the old name) — now delegates to the registry.
+pub fn register(app: &AppHandle) -> Result<()> {
+    apply_action_hotkeys(app);
     Ok(())
 }
+
+/// The action hotkeys for the Settings UI (effective binding + default).
+pub fn action_views(app: &AppHandle) -> Vec<ActionHotkeyView> {
+    use tauri::Manager as _;
+    let Some(db) = app.try_state::<crate::db::DbHandle>() else {
+        return Vec::new();
+    };
+    ActionId::ALL
+        .into_iter()
+        .map(|id| {
+            let spec = effective_action_spec(&db, id);
+            ActionHotkeyView {
+                id: id.key().to_string(),
+                label: id.label().to_string(),
+                is_default: spec == id.default_spec(),
+                default: id.default_spec().to_string(),
+                shortcut: spec,
+            }
+        })
+        .collect()
+}
+
+/// Every shortcut bound anywhere (popup, history, expander, direct slots,
+/// action hotkeys), each with a human label — for collision checks. `except`
+/// excludes one action (when re-binding it).
+pub fn all_bound_shortcuts(app: &AppHandle, except: Option<ActionId>) -> Vec<(Shortcut, String)> {
+    use tauri::Manager as _;
+    let mut out: Vec<(Shortcut, String)> = Vec::new();
+    if let Some(p) = app.try_state::<PopupShortcutState>() {
+        if let Some(s) = *p.current.lock() {
+            out.push((s, "Popup".into()));
+        }
+        if let Some(s) = *p.history.lock() {
+            out.push((s, "Clipboard history".into()));
+        }
+    }
+    if let Some(e) = app.try_state::<ExpanderShortcutState>() {
+        if let Some(s) = *e.current.lock() {
+            out.push((s, "Text expander".into()));
+        }
+        for (s, _id) in e.direct.lock().iter() {
+            out.push((*s, "Direct snippet".into()));
+        }
+    }
+    if let Some(db) = app.try_state::<crate::db::DbHandle>() {
+        for id in ActionId::ALL {
+            if Some(id) == except {
+                continue;
+            }
+            let spec = effective_action_spec(&db, id);
+            if spec.trim().is_empty() {
+                continue;
+            }
+            if let Ok(s) = parse_shortcut(&spec) {
+                out.push((s, id.label().to_string()));
+            }
+        }
+    }
+    out
+}
+
+/// Set (or clear, with an empty `spec`) an action hotkey, validating against
+/// every other binding, then re-apply. Returns a human error on conflict /
+/// parse failure.
+pub fn set_action_hotkey(app: &AppHandle, id_key: &str, spec: &str) -> std::result::Result<(), String> {
+    use tauri::Manager as _;
+    let id = ActionId::from_key(id_key).ok_or_else(|| format!("unknown action hotkey {id_key:?}"))?;
+    let spec = spec.trim();
+    if !spec.is_empty() {
+        let sc = parse_shortcut(spec).map_err(|e| format!("invalid shortcut: {e}"))?;
+        if let Some((_, label)) = all_bound_shortcuts(app, Some(id)).into_iter().find(|(s, _)| *s == sc) {
+            return Err(format!("already used by {label}"));
+        }
+    }
+    let db = app.try_state::<crate::db::DbHandle>().ok_or("no db")?;
+    crate::settings::set(&db, &id.settings_key(), spec).map_err(|e| e.to_string())?;
+    apply_action_hotkeys(app);
+    Ok(())
+}
+
+/// Reset an action hotkey to its built-in default, then re-apply.
+pub fn reset_action_hotkey(app: &AppHandle, id_key: &str) -> std::result::Result<(), String> {
+    use tauri::Manager as _;
+    let id = ActionId::from_key(id_key).ok_or_else(|| format!("unknown action hotkey {id_key:?}"))?;
+    let db = app.try_state::<crate::db::DbHandle>().ok_or("no db")?;
+    crate::settings::set(&db, &id.settings_key(), id.default_spec()).map_err(|e| e.to_string())?;
+    apply_action_hotkeys(app);
+    Ok(())
+}
+
 
 /// Register the text-expander hotkey from a string like `"Alt+Backquote"`.
 /// If a previous expander shortcut was registered, it is unregistered
@@ -1006,6 +1095,32 @@ pub fn register_direct_slots(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn action_registry_defaults_parse_unique_and_roundtrip() {
+        use std::collections::HashSet;
+        let mut keys = HashSet::new();
+        let mut specs = HashSet::new();
+        for id in ActionId::ALL {
+            assert!(keys.insert(id.key()), "duplicate action key {}", id.key());
+            assert_eq!(ActionId::from_key(id.key()), Some(id), "from_key roundtrip");
+            assert!(!id.label().is_empty(), "empty label for {}", id.key());
+            assert!(
+                parse_shortcut(id.default_spec()).is_ok(),
+                "default spec {:?} for {} does not parse",
+                id.default_spec(),
+                id.key()
+            );
+            assert!(
+                specs.insert(id.default_spec()),
+                "duplicate default shortcut {} ({})",
+                id.default_spec(),
+                id.key()
+            );
+        }
+        assert_eq!(keys.len(), 8, "expected 8 action hotkeys");
+        assert_eq!(ActionId::from_key("nope"), None);
+    }
 
     #[test]
     fn show_grace_ignores_focus_loss_only_right_after_show() {

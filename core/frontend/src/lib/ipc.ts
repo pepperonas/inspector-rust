@@ -693,6 +693,30 @@ export function setGestureConfig(config: GestureConfig): Promise<GestureConfig> 
   return invoke("set_gesture_config", { config });
 }
 
+/** A configurable global action hotkey (OCR, screenshot, timesheet, …). */
+export interface ActionHotkey {
+  id: string;
+  label: string;
+  /** Effective binding spec ("" = disabled). */
+  shortcut: string;
+  default: string;
+  is_default: boolean;
+}
+
+export function listActionHotkeys(): Promise<ActionHotkey[]> {
+  return invoke("list_action_hotkeys");
+}
+
+/** Bind (or clear, with empty `shortcut`) an action hotkey. Rejects with a
+ *  human message on conflict / parse failure. */
+export function setActionHotkey(id: string, shortcut: string): Promise<void> {
+  return invoke("set_action_hotkey", { id, shortcut });
+}
+
+export function resetActionHotkey(id: string): Promise<void> {
+  return invoke("reset_action_hotkey", { id });
+}
+
 /** Keep-alive: whether the OS supervisor that auto-relaunches the app is installed. */
 export function getKeepaliveEnabled(): Promise<boolean> {
   return invoke("get_keepalive_enabled");

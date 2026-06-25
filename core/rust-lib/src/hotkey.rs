@@ -79,6 +79,31 @@ pub fn mark_popup_focused() {
     POPUP_HAS_FOCUS.store(true, Ordering::Relaxed);
 }
 
+/// On Windows, WebView2 routes focus between its internal child HWNDs and the
+/// host (our popup HWND), generating spurious `Focused(false)` events while
+/// the popup is still effectively the foreground app.  This helper returns
+/// `true` when the OS foreground window still belongs to our own process —
+/// the focus change is an internal WebView2/Windows compositor bounce that
+/// must NOT trigger auto-hide.
+///
+/// A genuine user-initiated dismiss (click on another app, Alt+Tab, etc.)
+/// always brings a window from a *different* process to the foreground, so
+/// this returns `false` exactly when a real hide is warranted.
+#[cfg(target_os = "windows")]
+pub fn foreground_belongs_to_our_process() -> bool {
+    use windows::Win32::System::Threading::GetCurrentProcessId;
+    use windows::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
+    unsafe {
+        let fg = GetForegroundWindow();
+        if fg.0.is_null() {
+            return false;
+        }
+        let mut pid: u32 = 0;
+        GetWindowThreadProcessId(fg, Some(&mut pid));
+        pid == GetCurrentProcessId()
+    }
+}
+
 /// Stamp "popup shown now" so the auto-hide grace window starts. Resets the
 /// focus-received flag so stale `Focused(false)` events can't auto-close the
 /// freshly opened popup before it receives `Focused(true)`.

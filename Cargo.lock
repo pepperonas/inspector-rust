@@ -2492,7 +2492,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.84.123"
+version = "0.84.124"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2506,7 +2506,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.84.123"
+version = "0.84.124"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -2520,7 +2520,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.84.123"
+version = "0.84.124"
 dependencies = [
  "inspector-rust-core",
  "tauri",

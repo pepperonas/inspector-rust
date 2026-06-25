@@ -365,11 +365,25 @@ pub fn run(context: tauri::Context<Wry>) {
                             hotkey::mark_popup_focused();
                         }
                         WindowEvent::Focused(false) => {
-                            // Don't auto-hide if a modal (file dialog) owns focus,
-                            // or while still within the post-show grace window.
-                            // `within_show_grace` handles both the short flicker
-                            // guard and the no-focus-yet safety net — see its
-                            // doc comment in hotkey.rs for the full story.
+                            // PRIMARY guard (Windows): WebView2 bounces focus
+                            // between its internal child HWNDs and the popup's
+                            // host HWND while the popup is still the active
+                            // foreground app. Those bounces arrive as Focused(false)
+                            // and must NOT auto-hide the popup. If the OS foreground
+                            // window still belongs to our process, the loss is an
+                            // internal WebView2/compositor transfer — skip the hide.
+                            // A real dismiss (click-away, Alt+Tab) always brings a
+                            // window from a *different* process to the front.
+                            #[cfg(target_os = "windows")]
+                            if hotkey::foreground_belongs_to_our_process() {
+                                tracing::debug!("Focused(false) suppressed — foreground still in our process (WebView2 focus bounce)");
+                                return;
+                            }
+                            // SECONDARY guard: don't auto-hide if a modal (file
+                            // dialog) owns focus, or while still within the
+                            // post-show grace window. `within_show_grace` handles
+                            // both the short flicker guard and the no-focus-yet
+                            // safety net — see its doc comment in hotkey.rs.
                             if !suppress_hide.load(Ordering::Relaxed)
                                 && !hotkey::within_show_grace()
                             {

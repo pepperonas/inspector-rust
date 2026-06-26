@@ -730,6 +730,40 @@ export function setWindowSnapConfig(config: WindowSnapConfig): Promise<WindowSna
   return invoke("set_window_snap_config", { config });
 }
 
+/** Window palette (Moom-style hover palette over the green zoom button; macOS, opt-in). */
+export interface WindowPaletteConfig {
+  enabled: boolean;
+  cols: number;
+  rows: number;
+}
+
+export interface PaletteContext {
+  cols: number;
+  rows: number;
+  screen_w: number;
+  screen_h: number;
+}
+
+export function getWindowPaletteConfig(): Promise<WindowPaletteConfig> {
+  return invoke("get_window_palette_config");
+}
+
+export function setWindowPaletteConfig(config: WindowPaletteConfig): Promise<WindowPaletteConfig> {
+  return invoke("set_window_palette_config", { config });
+}
+
+export function windowPaletteContext(): Promise<PaletteContext> {
+  return invoke("window_palette_context");
+}
+
+export function windowPaletteApply(fx: number, fy: number, fw: number, fh: number): Promise<void> {
+  return invoke("window_palette_apply", { fx, fy, fw, fh });
+}
+
+export function windowPaletteCancel(): Promise<void> {
+  return invoke("window_palette_cancel");
+}
+
 /** Keep-alive: whether the OS supervisor that auto-relaunches the app is installed. */
 export function getKeepaliveEnabled(): Promise<boolean> {
   return invoke("get_keepalive_enabled");

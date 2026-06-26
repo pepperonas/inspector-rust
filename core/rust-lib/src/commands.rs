@@ -1393,6 +1393,57 @@ pub fn reset_action_hotkey(app: AppHandle, id: String) -> Result<(), String> {
     crate::hotkey::reset_action_hotkey(&app, &id)
 }
 
+// ── Window palette (Moom-style hover palette) ─────────────────────────────────
+
+#[tauri::command]
+pub fn get_window_palette_config(db: State<'_, DbHandle>) -> crate::window_palette::WindowPaletteConfig {
+    crate::window_palette::WindowPaletteConfig::load(&db)
+}
+
+#[tauri::command]
+pub fn set_window_palette_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    wp: State<'_, crate::window_palette::WindowPaletteState>,
+    config: crate::window_palette::WindowPaletteConfig,
+) -> Result<crate::window_palette::WindowPaletteConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    crate::window_palette::apply(&app, &db, &wp);
+    Ok(crate::window_palette::WindowPaletteConfig::load(&db))
+}
+
+/// Context for the palette webview (grid density + target-screen dimensions).
+#[tauri::command]
+pub fn window_palette_context() -> crate::window_palette::PaletteContext {
+    #[cfg(target_os = "macos")]
+    {
+        crate::window_palette::macos::context()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        crate::window_palette::PaletteContext::default()
+    }
+}
+
+/// Apply a chosen 0..1 fraction (preset or hex-grid selection) to the hovered
+/// window, then close the palette.
+#[tauri::command]
+pub fn window_palette_apply(fx: f64, fy: f64, fw: f64, fh: f64) {
+    #[cfg(target_os = "macos")]
+    crate::window_palette::macos::apply_fraction(fx, fy, fw, fh);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (fx, fy, fw, fh);
+}
+
+/// Dismiss the palette without changing the window (Esc / click-away).
+#[tauri::command]
+pub fn window_palette_cancel() {
+    #[cfg(target_os = "macos")]
+    {
+        crate::window_palette::macos::cancel();
+    }
+}
+
 // ── Window snapping (drag-to-snap) ────────────────────────────────────────────
 
 /// Current window-snap config (opt-in; off by default).

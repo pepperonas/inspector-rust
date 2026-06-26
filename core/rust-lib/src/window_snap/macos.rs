@@ -137,7 +137,7 @@ fn cfstr(s: &str) -> CFStringRef {
 
 /// Visible frames of every screen, in top-left coords. NSScreen reads are
 /// thread-safe enough for geometry (no mutation); we snapshot at drag start.
-fn screens_topleft() -> Vec<Rect> {
+pub(crate) fn screens_topleft() -> Vec<Rect> {
     unsafe {
         let cls = class!(NSScreen);
         let arr: *mut AnyObject = msg_send![cls, screens];
@@ -165,7 +165,7 @@ fn screens_topleft() -> Vec<Rect> {
 
 /// The screen (visible frame, top-left) whose bounds contain `cursor`, else the
 /// first screen (best effort for a cursor between displays).
-fn screen_for_cursor(cursor: (f64, f64), screens: &[Rect]) -> Option<Rect> {
+pub(crate) fn screen_for_cursor(cursor: (f64, f64), screens: &[Rect]) -> Option<Rect> {
     let (cx, cy) = cursor;
     screens
         .iter()

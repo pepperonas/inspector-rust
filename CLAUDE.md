@@ -569,6 +569,46 @@ macOS-gated); `apply(app,db,state)` starts/stops the monitor (mirrors
   **Accessibility** (`expander::accessibility_granted`); without it the tap
   doesn't install. macOS only.
 
+### Window palette — Moom-style hover palette (`window_palette/`, v0.84.138)
+
+Hover a window's green **zoom button** → a small overlay appears anchored under
+it with **preset layouts** (maximize / halves; ⌥ swaps to the four quarters)
+plus a **hex grid** you drag a rectangle over → the window snaps into that region
+of its screen. Opt-in (settings `windowpalette.enabled`, off by default; Settings
+→ **Window palette**, macOS-gated, with a cols×rows density field); `apply` starts/
+stops the monitor (mirrors `window_snap`/`gestures`).
+
+- **Pure core (`window_palette/mod.rs`, unit-tested):** `fraction_to_rect(fx,fy,
+  fw,fh, screen)` maps a 0..1 grid fraction → an absolute top-left rect on the
+  target screen's visible frame; `WindowPaletteConfig` (clamped 2..16 cells). The
+  **hex-grid geometry is the pure `lib/hexgrid.ts`** (`hexCenters` offset tiling,
+  `nearestCell` hit-test, `boundingFraction` cell-range → 0..1 screen fraction,
+  `hexPolygon`/`cellInRange` for rendering) — all unit-tested.
+- **macOS (`window_palette/macos.rs`):** a listen-only `CGEventTap` on
+  `mouseMoved` (cheap when idle) feeds hover detection; because a *still* cursor
+  emits no move events, a **generation-guarded dwell timer** (`HOVER_GEN` +
+  `HOVER_DELAY_MS`) fires the show after the cursor rests on the button. The
+  cursor is hit-tested (throttled) via `AXUIElementCopyElementAtPosition` →
+  subrole `AXZoomButton` (compared with **`CFEqual`** against a built CFString —
+  avoids re-declaring the `CFStringGetCString` FFI, which clashes with
+  `audio.rs`); `kAXPosition`/`kAXSize` give the button frame; `window_of` walks
+  `kAXParent` to the `AXWindow` (retained). A short `AXUIElementSetMessagingTimeout`
+  keeps a hung app from blocking. The palette is a transparent Tauri webview
+  (`window-palette`, `WindowPalette.tsx`) — **not** click-through (it needs the
+  drag) — positioned under the button **clamped into the screen** (Moom's
+  right/bottom-edge case); built lazily + reused (hidden/shown), re-reading its
+  context on the `window-palette-shown` event. Picking a preset / releasing a
+  hex-grid drag calls `window_palette_apply(fx,fy,fw,fh)` → `set_window_frame`
+  (AX position→size→position; fixed-size windows move-only) on the **retained
+  hovered window** (not the focused one), then hides. Moving off button+palette
+  past `GRACE_MS` hides (grace lets you travel button→palette); Esc cancels.
+  Reuses `window_snap::macos::{screens_topleft, screen_for_cursor}` + `Rect` +
+  the AX↔Cocoa convention. Needs Accessibility. macOS only. IPC:
+  `get_/set_window_palette_config` · `window_palette_context` ·
+  `window_palette_apply` · `window_palette_cancel`. **MVP** (v0.84.138): live
+  screen-outline preview, per-app blacklist, configurable delays/colours are
+  follow-ups.
+
 ### Keep-alive — always running (`keepalive.rs`, v0.84.126)
 
 Opt-in "make sure Inspector Rust is always running": started at login **and**

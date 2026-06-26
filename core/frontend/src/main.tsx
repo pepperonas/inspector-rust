@@ -7,6 +7,7 @@ import { ScreenshotEditor } from "./components/ScreenshotEditor";
 import { ScreenshotPin } from "./components/ScreenshotPin";
 import { StatusToast } from "./components/StatusToast";
 import { SnapOverlay } from "./components/SnapOverlay";
+import { WindowPalette } from "./components/WindowPalette";
 import { BrightnessOverlay } from "./components/BrightnessOverlay";
 import { RecordOverlay } from "./components/RecordOverlay";
 import { RecordStopBar } from "./components/RecordStopBar";
@@ -40,6 +41,7 @@ function Mount() {
   if (label === "alarm-overlay") return <AlarmOverlay />;
   if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
   if (label === "snap-overlay") return <SnapOverlay />;
+  if (label === "window-palette") return <WindowPalette />;
   return <App />;
 }
 

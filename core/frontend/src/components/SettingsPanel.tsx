@@ -58,6 +58,9 @@ import {
   getWindowSnapConfig,
   setWindowSnapConfig,
   type WindowSnapConfig,
+  getWindowPaletteConfig,
+  setWindowPaletteConfig,
+  type WindowPaletteConfig,
   getAutostartEnabled,
   getCleanerConfig,
   cleanerCategories,
@@ -328,6 +331,30 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       setSnapCfg({ ...snapCfg, enabled: !next });
     } finally {
       setSnapBusy(false);
+    }
+  };
+
+  // ── Window palette (Moom-style, macOS, v0.84.138) ────────────────────────
+  const [paletteCfg, setPaletteCfg] = useState<WindowPaletteConfig | null>(null);
+  const [paletteBusy, setPaletteBusy] = useState(false);
+  useEffect(() => {
+    if (!IS_MAC) return;
+    getWindowPaletteConfig()
+      .then(setPaletteCfg)
+      .catch(() => setPaletteCfg(null));
+  }, []);
+  const updatePalette = async (patch: Partial<WindowPaletteConfig>) => {
+    if (!paletteCfg) return;
+    setPaletteBusy(true);
+    const next = { ...paletteCfg, ...patch };
+    setPaletteCfg(next);
+    try {
+      setPaletteCfg(await setWindowPaletteConfig(next));
+    } catch (e) {
+      console.error("window-palette config failed", e);
+      setPaletteCfg(paletteCfg);
+    } finally {
+      setPaletteBusy(false);
     }
   };
 
@@ -1161,6 +1188,64 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                   </span>
                 </label>
               </Row>
+            </Section>
+          </div>
+        )}
+
+        {/* Window palette — Moom-style hover palette over the green zoom button. */}
+        {IS_MAC && (
+          <div className="mb-6">
+            <Section
+              icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
+              title="Window palette"
+              subtitle="Hover the green zoom button of a window → a palette appears with preset layouts and a hex grid you drag a region over to snap the window there. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+            >
+              <Row label="Enable palette">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={paletteCfg?.enabled ?? false}
+                    disabled={paletteCfg === null || paletteBusy}
+                    onChange={(e) => void updatePalette({ enabled: e.target.checked })}
+                    className="accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    {paletteCfg === null
+                      ? "Loading…"
+                      : paletteCfg.enabled
+                        ? "On — hover a window's green button"
+                        : "Off"}
+                  </span>
+                </label>
+              </Row>
+              {paletteCfg?.enabled && (
+                <Row label="Hex grid density">
+                  <div className="flex items-center gap-1.5 text-[12px]">
+                    <input
+                      type="number"
+                      min={2}
+                      max={16}
+                      value={paletteCfg.cols}
+                      disabled={paletteBusy}
+                      onChange={(e) => void updatePalette({ cols: Number(e.target.value) })}
+                      className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
+                      aria-label="Hex grid columns"
+                    />
+                    <span className="text-[var(--color-muted)]">×</span>
+                    <input
+                      type="number"
+                      min={2}
+                      max={16}
+                      value={paletteCfg.rows}
+                      disabled={paletteBusy}
+                      onChange={(e) => void updatePalette({ rows: Number(e.target.value) })}
+                      className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
+                      aria-label="Hex grid rows"
+                    />
+                    <span className="text-[var(--color-muted)]">cells</span>
+                  </div>
+                </Row>
+              )}
             </Section>
           </div>
         )}

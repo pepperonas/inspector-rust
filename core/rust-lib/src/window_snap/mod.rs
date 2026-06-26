@@ -169,7 +169,7 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, _state: &WindowSnapState) {
 }
 
 #[cfg(target_os = "macos")]
-mod macos;
+pub(crate) mod macos;
 
 #[cfg(test)]
 mod tests {

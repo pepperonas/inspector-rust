@@ -53,6 +53,7 @@ mod color_loupe;
 mod gestures;
 mod keepalive;
 mod window_snap;
+mod window_palette;
 mod system_commands;
 mod system_stats;
 mod stats_history;
@@ -196,6 +197,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(auto_expand::AutoExpandState::default());
             app.manage(gestures::GestureState::default());
             app.manage(window_snap::WindowSnapState);
+            app.manage(window_palette::WindowPaletteState);
             app.manage(hotkey::ActionShortcutState::default());
 
             // App-launcher cache. Manage an empty index immediately, then fill
@@ -340,6 +342,12 @@ pub fn run(context: tauri::Context<Wry>) {
             // the Stats panel can show a "last hours / days" view.
             stats_history::start_collector(db_handle.clone());
 
+            // Window palette (opt-in; off by default). macOS-only hover monitor.
+            {
+                let wp = app.state::<window_palette::WindowPaletteState>();
+                window_palette::apply(app.handle(), &db_handle, wp.inner());
+            }
+
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),
@@ -472,6 +480,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_keepalive_enabled,
             commands::get_window_snap_config,
             commands::set_window_snap_config,
+            commands::get_window_palette_config,
+            commands::set_window_palette_config,
+            commands::window_palette_context,
+            commands::window_palette_apply,
+            commands::window_palette_cancel,
             commands::list_action_hotkeys,
             commands::set_action_hotkey,
             commands::reset_action_hotkey,

@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.138] — 2026-06-27
+
+### Added
+
+- **Window palette — Moom-style hover palette (macOS, MVP).** Hover a window's
+  green **zoom button** → a palette appears under it with **preset layouts**
+  (maximize / left·right·top·bottom halves; hold **⌥ Option** for the four
+  quarters) plus a **hex grid** you drag a rectangle over to snap the window into
+  that region of its screen. Multi-monitor aware (grid maps the window's screen),
+  the palette is clamped on-screen near edges, and it snaps the **hovered**
+  window (not whichever is focused). A still-cursor dwell over the button (≈0.18 s)
+  triggers it; moving away closes it (with a grace so button→palette travel
+  doesn't dismiss); Esc cancels. Opt-in (Settings → **Window palette**, with a
+  hex-grid density field 2–16); needs Accessibility. Pure cores unit-tested
+  (`lib/hexgrid.ts` + `fraction_to_rect`): +22 tests. (Live screen-outline
+  preview, per-app blacklist and configurable delays/colours are planned
+  follow-ups.)
+
 ## [0.84.137] — 2026-06-27
 
 ### Added

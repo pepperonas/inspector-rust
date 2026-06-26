@@ -1444,6 +1444,23 @@ pub fn window_palette_cancel() {
     }
 }
 
+/// Show the live screen-outline preview for a 0..1 fraction (hex-grid drag /
+/// preset hover) — a frame on the actual screen where the window will land.
+#[tauri::command]
+pub fn window_palette_preview(fx: f64, fy: f64, fw: f64, fh: f64) {
+    #[cfg(target_os = "macos")]
+    crate::window_palette::macos::preview(fx, fy, fw, fh);
+    #[cfg(not(target_os = "macos"))]
+    let _ = (fx, fy, fw, fh);
+}
+
+/// Hide the live screen-outline preview.
+#[tauri::command]
+pub fn window_palette_preview_hide() {
+    #[cfg(target_os = "macos")]
+    crate::window_palette::macos::preview_hide();
+}
+
 // ── Window snapping (drag-to-snap) ────────────────────────────────────────────
 
 /// Current window-snap config (opt-in; off by default).

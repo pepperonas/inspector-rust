@@ -251,6 +251,14 @@ fn app_handle() -> Option<AppHandle> {
 /// Position + show (or hide) the preview overlay on the main thread.
 fn update_overlay(target: Option<Rect>) {
     let Some(app) = app_handle() else { return };
+    show_overlay(&app, target);
+}
+
+/// Show the shared `snap-overlay` window over `target` (top-left coords), or hide
+/// it when `None`. Reusable from any thread (marshals to the main thread). The
+/// window-palette feature reuses this for its live screen-outline preview.
+pub(crate) fn show_overlay(app: &AppHandle, target: Option<Rect>) {
+    let app = app.clone();
     let _ = app.clone().run_on_main_thread(move || match target {
         Some(r) => {
             let win = match app.get_webview_window(OVERLAY_LABEL) {

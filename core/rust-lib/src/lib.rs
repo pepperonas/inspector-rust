@@ -485,6 +485,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::window_palette_context,
             commands::window_palette_apply,
             commands::window_palette_cancel,
+            commands::window_palette_preview,
+            commands::window_palette_preview_hide,
             commands::list_action_hotkeys,
             commands::set_action_hotkey,
             commands::reset_action_hotkey,

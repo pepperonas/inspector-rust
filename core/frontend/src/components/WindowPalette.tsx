@@ -15,6 +15,8 @@ import {
   windowPaletteApply,
   windowPaletteCancel,
   windowPaletteContext,
+  windowPalettePreview,
+  windowPalettePreviewHide,
   type PaletteContext,
 } from "../lib/ipc";
 import {
@@ -94,8 +96,20 @@ export function WindowPalette() {
     };
   }, []);
 
-  const cols = ctx?.cols ?? 8;
-  const rows = ctx?.rows ?? 6;
+  const cols = ctx?.cols ?? 12;
+  const rows = ctx?.rows ?? 8;
+
+  // Live screen-outline preview: track the current hex-grid selection (fires on
+  // cell-range change, not every pixel). Rust maps the fraction → an absolute
+  // rect on the target screen + shows the snap-overlay frame there.
+  useEffect(() => {
+    if (!drag) return;
+    const f = boundingFraction(drag.a, drag.b, cols, rows);
+    void windowPalettePreview(f.x, f.y, f.w, f.h);
+  }, [drag, cols, rows]);
+
+  // Safety: clear any on-screen preview when the palette webview unmounts.
+  useEffect(() => () => void windowPalettePreviewHide(), []);
 
   // Grid box at the honeycomb's *natural* aspect so pointy-top cells stay
   // regular (rendered with preserveAspectRatio="meet", not stretched). For a
@@ -169,6 +183,10 @@ export function WindowPalette() {
             type="button"
             title={p.label}
             onClick={() => apply(p.frac)}
+            onPointerEnter={() => void windowPalettePreview(p.frac[0], p.frac[1], p.frac[2], p.frac[3])}
+            onPointerLeave={() => {
+              if (!draggingRef.current) void windowPalettePreviewHide();
+            }}
             className="group flex h-9 flex-1 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:border-[var(--color-accent)]"
           >
             <PresetGlyph frac={p.frac} />

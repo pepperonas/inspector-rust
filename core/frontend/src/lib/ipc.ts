@@ -764,6 +764,15 @@ export function windowPaletteCancel(): Promise<void> {
   return invoke("window_palette_cancel");
 }
 
+/** Show the live screen-outline preview for a 0..1 fraction (frame on-screen). */
+export function windowPalettePreview(fx: number, fy: number, fw: number, fh: number): Promise<void> {
+  return invoke("window_palette_preview", { fx, fy, fw, fh });
+}
+
+export function windowPalettePreviewHide(): Promise<void> {
+  return invoke("window_palette_preview_hide");
+}
+
 /** Keep-alive: whether the OS supervisor that auto-relaunches the app is installed. */
 export function getKeepaliveEnabled(): Promise<boolean> {
   return invoke("get_keepalive_enabled");

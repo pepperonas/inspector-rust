@@ -402,6 +402,7 @@ fn hide_palette() {
     *OUT_SINCE.lock() = None;
     *TARGET_VF.lock() = None;
     if let Some(app) = app_handle() {
+        crate::window_snap::macos::show_overlay(&app, None); // hide the outline preview
         let a = app.clone();
         let _ = app.run_on_main_thread(move || {
             if let Some(w) = a.get_webview_window(PALETTE_LABEL) {
@@ -563,4 +564,21 @@ pub(crate) fn apply_fraction(fx: f64, fy: f64, fw: f64, fh: f64) {
 
 pub(crate) fn cancel() {
     hide_palette();
+}
+
+/// Live screen-outline preview while dragging the hex grid / hovering a preset:
+/// map the 0..1 fraction to an absolute rect on the target screen and show it via
+/// the shared `snap-overlay` window (same outline as the window-snap feature).
+pub(crate) fn preview(fx: f64, fy: f64, fw: f64, fh: f64) {
+    let vf = *TARGET_VF.lock();
+    if let (Some(vf), Some(app)) = (vf, app_handle()) {
+        let rect = fraction_to_rect(fx, fy, fw, fh, vf);
+        crate::window_snap::macos::show_overlay(&app, Some(rect));
+    }
+}
+
+pub(crate) fn preview_hide() {
+    if let Some(app) = app_handle() {
+        crate::window_snap::macos::show_overlay(&app, None);
+    }
 }

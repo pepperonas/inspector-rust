@@ -605,9 +605,21 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   Reuses `window_snap::macos::{screens_topleft, screen_for_cursor}` + `Rect` +
   the AX↔Cocoa convention. Needs Accessibility. macOS only. IPC:
   `get_/set_window_palette_config` · `window_palette_context` ·
-  `window_palette_apply` · `window_palette_cancel`. **MVP** (v0.84.138): live
-  screen-outline preview, per-app blacklist, configurable delays/colours are
-  follow-ups.
+  `window_palette_apply` · `window_palette_cancel` · `window_palette_preview`
+  / `window_palette_preview_hide`.
+- **Live screen-outline preview (v0.84.142).** While dragging the hex grid (and
+  on preset hover) the palette calls `window_palette_preview(fx,fy,fw,fh)` →
+  `macos::preview` maps the fraction → an absolute rect on the target screen and
+  shows it through the **shared `snap-overlay` window** (the window-snap feature's
+  outline), so you see the exact target frame on-screen. `window_snap::macos::
+  show_overlay(app, Option<Rect>)` was extracted `pub(crate)` for this reuse; the
+  preview is hidden in `hide_palette` (apply / Esc / grace-out) and on the
+  webview's unmount. **Honeycomb (v0.84.141):** the grid is a real tessellating
+  **pointy-top** honeycomb (rows offset half a cell, 0.75·height row pitch),
+  rendered undistorted via a natural-aspect viewBox + `preserveAspectRatio="meet"`
+  (the pointer→cell map undoes the meet scale). The **hex geometry is the pure,
+  unit-tested `lib/hexgrid.ts`**. **MVP follow-ups:** per-app blacklist,
+  configurable delays/colours.
 
 ### Keep-alive — always running (`keepalive.rs`, v0.84.126)
 

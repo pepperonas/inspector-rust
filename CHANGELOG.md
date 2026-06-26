@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.142] — 2026-06-27
+
+### Added
+
+- **Window palette: live screen-outline preview.** While dragging the hex grid (and when hovering a preset) a frame now appears on the actual screen exactly where the window will land (reusing the window-snap outline overlay) — so you see the target before releasing.
+
 ## [0.84.141] — 2026-06-27
 
 ### Changed

@@ -143,6 +143,35 @@ describe("BpmAnalyzer", () => {
     expect(fires).toBeLessThanOrEqual(1);
   });
 
+  it("SuperFlux gate suppresses ghost onsets in a sustained-loud passage", () => {
+    // Regression for "BPM reads too fast": a held/sustained loud passage (a
+    // long bass note, a build-up) used to re-fire an onset every refractory
+    // period (~300 ms → ~5 ghost onsets over 1.5 s → ~200 BPM). The SuperFlux
+    // lagged-peak gate only lets the *initial* attack through, because the
+    // sustained level no longer rises above its own recent peak.
+    const a = new BpmAnalyzer();
+    for (let t = 0; t < 3000; t += 10) a.push(chunk(0.02), t); // calibrate
+    let fires = 0;
+    for (let t = 3000; t < 4500; t += 10) {
+      a.push(chunk(0.5), t); // constant loud — only the first frame "rises"
+      if (a.estimate(t).beatJustFired) fires++;
+    }
+    expect(fires).toBe(1);
+  });
+
+  it("a fresh attack after a sustained passage still fires (gate isn't stuck)", () => {
+    // The gate must not permanently block once it has seen a loud level — a
+    // new transient that dips and rises again must re-trigger.
+    const a = new BpmAnalyzer();
+    for (let t = 0; t < 3000; t += 10) a.push(chunk(0.02), t);
+    a.push(chunk(0.5), 3000); // attack 1
+    let fires = a.estimate(3000).beatJustFired ? 1 : 0;
+    for (let t = 3010; t < 3600; t += 10) a.push(chunk(0.02), t); // dip back down
+    a.push(chunk(0.5), 3600); // attack 2 (rises above the now-low lagged peak)
+    if (a.estimate(3600).beatJustFired) fires++;
+    expect(fires).toBe(2);
+  });
+
   it("reset() clears all state", () => {
     const { analyzer } = simulateBeats(120, 8);
     expect(analyzer.estimate(8000).bpm).toBeGreaterThan(0);

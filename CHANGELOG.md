@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.135] — 2026-06-26
+
+### Fixed
+
+- **BPM detection read the tempo too fast.** Back-ported two improvements from
+  the deployed raspi3 `disco-controller` (which is a descendant of IR's
+  `BpmAnalyzer`): **(1) a SuperFlux onset gate** (Böck & Widmer maximum-filter) —
+  an onset may only fire when the band energy *rises above a lagged-peak
+  reference*, so a kick's decay / sustain / room-echo no longer fires **ghost
+  onsets between real beats** (those pulled the median inter-onset-interval down
+  and inflated the displayed BPM); **(2) the baseline-calibration gate now keys
+  on elapsed-time-since-first-push** instead of the oldest buffered chunk's age —
+  the old age gate only "opened" on the razor-thin frame where a chunk sat at
+  exactly the window length, so irregular real audio frames never reliably
+  satisfied it. Both the `bpm` detector and the `disco`/`HueBeatSync` beat engine
+  benefit. +2 regression tests (ghost-onset suppression in a sustained passage;
+  a fresh attack still re-fires).
+
 ## [0.84.134] — 2026-06-26
 
 ### Fixed

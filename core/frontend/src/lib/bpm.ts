@@ -15,9 +15,13 @@
  *     module assumes pre-filtered samples.
  *  2. Per chunk, compute RMS energy.
  *  3. Maintain a sliding-window moving average of energy.
- *  4. Onset = chunk-energy exceeds moving-average × threshold AND
+ *  4. Onset = chunk-energy exceeds moving-average × threshold, AND
+ *     **rises above the SuperFlux lagged-peak reference** (a genuinely
+ *     new attack, not the decay/sustain/echo of a recent kick), AND
  *     enough time has passed since the last onset (refractory period
- *     to suppress double-triggers).
+ *     to suppress double-triggers). The SuperFlux gate (Böck & Widmer)
+ *     is what stops ghost onsets between real beats from reading the
+ *     tempo too fast.
  *  5. Record onset timestamps in a sliding window.
  *  6. Inter-onset intervals → median → BPM = 60 000 / median_ms.
  *  7. Octave-correction: fold into [60, 200] BPM by doubling /
@@ -104,6 +108,22 @@ export const BPM_CONFIG = {
    *  median-IOI noise without lagging more than ~half a bar
    *  behind a genuine tempo change. */
   DISPLAY_AVG_WINDOW_MS: 4000,
+  /** **SuperFlux onset gate** (Böck & Widmer, "Maximum Filter Vibrato
+   *  Suppression for Onset Detection", v0.84.135 — ported from the deployed
+   *  raspi3 `disco-controller`, which is a descendant of this analyzer).
+   *  An onset may only fire when the band energy exceeds the **peak of a
+   *  *lagged* recent window** — i.e. it's a genuinely NEW attack, not the
+   *  decay / sustain / room-echo of a recent kick. Those ghost onsets fire a
+   *  short time *after* a real kick, land *between* real beats, and pull the
+   *  median IOI down → the displayed tempo reads **too fast**. Requiring a
+   *  rise above the lagged peak suppresses them.
+   *
+   *  `LAG` frames are skipped back (≈ the analysis-window attack smear) and
+   *  the reference is the max over the next `WIN` older frames; the current
+   *  energy must beat it by `MARGIN`. */
+  SUPERFLUX_LAG: 4,
+  SUPERFLUX_WIN: 4,
+  SUPERFLUX_MARGIN: 1.04,
 } as const;
 
 /** Map a 0..1 sensitivity to the onset energy threshold (multiple of the
@@ -143,6 +163,12 @@ export class BpmAnalyzer {
    *  so the display drops back to "—" when the music stops, instead
    *  of misleadingly showing the last detected tempo forever. */
   private lastValidEstimateAt = -Infinity;
+  /** Wall-clock of the very first `push()`. The baseline-calibration gate
+   *  waits `AVG_WINDOW_MS` from here before letting any onset through. */
+  private firstPushTime = -Infinity;
+  /** Last `SUPERFLUX_LAG + SUPERFLUX_WIN` chunk energies (newest at the end),
+   *  for the SuperFlux lagged-peak reference. */
+  private recentEnergies: number[] = [];
 
   /** Tune onset sensitivity at runtime (Hue beat-sync slider). `s` ∈ [0,1]:
    *  0 = strict (fewer, only-strong beats), 1 = sensitive. */
@@ -155,6 +181,7 @@ export class BpmAnalyzer {
    *  increasing milliseconds (typically `performance.now()`). */
   push(samples: Float32Array, nowMs: number): void {
     this.justFiredBeat = false;
+    if (this.firstPushTime === -Infinity) this.firstPushTime = nowMs;
 
     const energy = rms(samples);
     this.energyHistory.push({ time: nowMs, energy });
@@ -166,6 +193,27 @@ export class BpmAnalyzer {
       this.energyHistory.shift();
     }
 
+    // **SuperFlux reference** (computed before this chunk enters the buffer):
+    // the peak of the SUPERFLUX_WIN *oldest* of the recent frames, which sit
+    // SUPERFLUX_LAG frames back — i.e. just *before* this attack's smear. An
+    // onset must rise above it (× MARGIN) to count as a genuinely new attack;
+    // this is what suppresses the ghost onsets (a kick's decay/sustain/echo)
+    // that otherwise land between real beats and read the tempo too fast.
+    let sfRef = 0;
+    if (
+      this.recentEnergies.length >=
+      BPM_CONFIG.SUPERFLUX_LAG + BPM_CONFIG.SUPERFLUX_WIN
+    ) {
+      sfRef = Math.max(...this.recentEnergies.slice(0, BPM_CONFIG.SUPERFLUX_WIN));
+    }
+    this.recentEnergies.push(energy);
+    if (
+      this.recentEnergies.length >
+      BPM_CONFIG.SUPERFLUX_LAG + BPM_CONFIG.SUPERFLUX_WIN
+    ) {
+      this.recentEnergies.shift();
+    }
+
     // **Baseline-calibration gate.** Without this, the moving-average
     // threshold is biased low for the first 1-3 seconds (history full
     // of quiet startup chunks) — every loud chunk then exceeds
@@ -175,24 +223,27 @@ export class BpmAnalyzer {
     // they age out, which was the user-visible "too fast for the first
     // 20 seconds" bug (v0.46.1).
     //
-    // Wait until the energy buffer actually covers the full
-    // `AVG_WINDOW_MS` so the threshold is calibrated against real
-    // music-level baseline before we let any onset through. Cost: ~3 s
-    // delay before the first onset can fire, vs ~15-20 s of wrong
-    // readings the old gate produced. Net: massive UX win.
-    if (
-      this.energyHistory.length === 0 ||
-      nowMs - this.energyHistory[0].time < BPM_CONFIG.AVG_WINDOW_MS
-    ) {
-      return;
-    }
+    // Gate on **elapsed time since the first push** (v0.84.135) rather than
+    // the oldest buffered chunk's age. The old age-based gate only "opened"
+    // on the razor-thin frame where a chunk sat at *exactly* AVG_WINDOW_MS —
+    // after the `> AVG_WINDOW_MS` drop above, the oldest chunk's age is always
+    // just *under* the window, so real irregular ~10-23 ms frames essentially
+    // never satisfied `age >= AVG_WINDOW_MS` and the gate failed to lock
+    // reliably (diagnosed in the disco-controller port). Elapsed-since-first
+    // is monotonic and robust.
+    if (nowMs - this.firstPushTime < BPM_CONFIG.AVG_WINDOW_MS) return;
+    if (this.energyHistory.length === 0) return;
 
     const avg =
       this.energyHistory.reduce((s, e) => s + e.energy, 0) /
       this.energyHistory.length;
 
+    // SuperFlux gate: a genuinely new attack, not sustain/decay/echo.
+    const rising = energy > sfRef * BPM_CONFIG.SUPERFLUX_MARGIN;
+
     const triggered =
       energy > avg * this.onsetThreshold &&
+      rising &&
       nowMs - this.lastOnset >= BPM_CONFIG.ONSET_REFRACTORY_MS;
 
     if (triggered) {
@@ -324,6 +375,8 @@ export class BpmAnalyzer {
     this.displayBpm = 0;
     this.justFiredBeat = false;
     this.lastValidEstimateAt = -Infinity;
+    this.firstPushTime = -Infinity;
+    this.recentEnergies = [];
   }
 
   /** Current chunk RMS energy (the value compared against the avg).

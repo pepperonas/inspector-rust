@@ -52,6 +52,7 @@ mod tracking;
 mod color_loupe;
 mod gestures;
 mod keepalive;
+mod window_snap;
 mod system_commands;
 mod system_stats;
 mod finder_selection;
@@ -193,6 +194,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(status_toast::LatestToast::default());
             app.manage(auto_expand::AutoExpandState::default());
             app.manage(gestures::GestureState::default());
+            app.manage(window_snap::WindowSnapState);
             app.manage(hotkey::ActionShortcutState::default());
 
             // App-launcher cache. Manage an empty index immediately, then fill
@@ -327,6 +329,12 @@ pub fn run(context: tauri::Context<Wry>) {
                 gestures::apply(app.handle(), &db_handle, g_state.inner());
             }
 
+            // Window snapping (opt-in; off by default). macOS-only monitor.
+            {
+                let ws = app.state::<window_snap::WindowSnapState>();
+                window_snap::apply(app.handle(), &db_handle, ws.inner());
+            }
+
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),
@@ -457,6 +465,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_gesture_config,
             commands::get_keepalive_enabled,
             commands::set_keepalive_enabled,
+            commands::get_window_snap_config,
+            commands::set_window_snap_config,
             commands::list_action_hotkeys,
             commands::set_action_hotkey,
             commands::reset_action_hotkey,

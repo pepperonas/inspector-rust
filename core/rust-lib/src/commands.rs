@@ -1393,6 +1393,27 @@ pub fn reset_action_hotkey(app: AppHandle, id: String) -> Result<(), String> {
     crate::hotkey::reset_action_hotkey(&app, &id)
 }
 
+// ── Window snapping (drag-to-snap) ────────────────────────────────────────────
+
+/// Current window-snap config (opt-in; off by default).
+#[tauri::command]
+pub fn get_window_snap_config(db: State<'_, DbHandle>) -> crate::window_snap::WindowSnapConfig {
+    crate::window_snap::WindowSnapConfig::load(&db)
+}
+
+/// Persist a new window-snap config and (re)start/stop the drag monitor.
+#[tauri::command]
+pub fn set_window_snap_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    ws: State<'_, crate::window_snap::WindowSnapState>,
+    config: crate::window_snap::WindowSnapConfig,
+) -> Result<crate::window_snap::WindowSnapConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    crate::window_snap::apply(&app, &db, &ws);
+    Ok(crate::window_snap::WindowSnapConfig::load(&db))
+}
+
 // ── Keep-alive (always running) ──────────────────────────────────────────────
 
 /// Is the keep-alive supervisor installed (app auto-relaunches when not running)?

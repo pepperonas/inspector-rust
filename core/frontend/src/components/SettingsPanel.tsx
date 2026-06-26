@@ -24,6 +24,7 @@ import {
   Trash2,
   AlarmClock,
   Hand,
+  LayoutGrid,
   Upload,
   Volume2,
   Wand2,
@@ -54,6 +55,9 @@ import {
   type GestureConfig,
   getKeepaliveEnabled,
   setKeepaliveEnabled,
+  getWindowSnapConfig,
+  setWindowSnapConfig,
+  type WindowSnapConfig,
   getAutostartEnabled,
   getCleanerConfig,
   cleanerCategories,
@@ -300,6 +304,30 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       console.error("autostart toggle failed", e);
     } finally {
       setAutostartBusy(false);
+    }
+  };
+
+  // ── Window snapping (macOS, v0.84.132) ───────────────────────────────────
+  const [snapCfg, setSnapCfg] = useState<WindowSnapConfig | null>(null);
+  const [snapBusy, setSnapBusy] = useState(false);
+  useEffect(() => {
+    if (!IS_MAC) return;
+    getWindowSnapConfig()
+      .then(setSnapCfg)
+      .catch(() => setSnapCfg(null));
+  }, []);
+  const toggleSnap = async (next: boolean) => {
+    if (!snapCfg) return;
+    setSnapBusy(true);
+    const optimistic = { ...snapCfg, enabled: next };
+    setSnapCfg(optimistic);
+    try {
+      setSnapCfg(await setWindowSnapConfig(optimistic));
+    } catch (e) {
+      console.error("window-snap toggle failed", e);
+      setSnapCfg({ ...snapCfg, enabled: !next });
+    } finally {
+      setSnapBusy(false);
     }
   };
 
@@ -1106,6 +1134,36 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             </Row>
           </Section>
         </div>
+
+        {/* Window snapping — drag a window to a screen edge to snap it (macOS). */}
+        {IS_MAC && (
+          <div className="mb-6">
+            <Section
+              icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
+              title="Window snapping"
+              subtitle="Drag a window to a screen edge to snap it: top → maximize, left/right → half. A preview shows the target zone; release to snap. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+            >
+              <Row label="Enable snapping">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={snapCfg?.enabled ?? false}
+                    disabled={snapCfg === null || snapBusy}
+                    onChange={(e) => void toggleSnap(e.target.checked)}
+                    className="accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    {snapCfg === null
+                      ? "Loading…"
+                      : snapCfg.enabled
+                        ? "On — drag a window to an edge to snap it"
+                        : "Off"}
+                  </span>
+                </label>
+              </Row>
+            </Section>
+          </div>
+        )}
 
         {/* Timer alarm — overlay (loud, dismiss-to-stop) vs OS notification. */}
         <div className="mb-6">

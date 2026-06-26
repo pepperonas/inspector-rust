@@ -717,6 +717,19 @@ export function resetActionHotkey(id: string): Promise<void> {
   return invoke("reset_action_hotkey", { id });
 }
 
+/** Window snapping (drag a window to a screen edge to snap it; macOS, opt-in). */
+export interface WindowSnapConfig {
+  enabled: boolean;
+}
+
+export function getWindowSnapConfig(): Promise<WindowSnapConfig> {
+  return invoke("get_window_snap_config");
+}
+
+export function setWindowSnapConfig(config: WindowSnapConfig): Promise<WindowSnapConfig> {
+  return invoke("set_window_snap_config", { config });
+}
+
 /** Keep-alive: whether the OS supervisor that auto-relaunches the app is installed. */
 export function getKeepaliveEnabled(): Promise<boolean> {
   return invoke("get_keepalive_enabled");

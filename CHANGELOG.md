@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.132] — 2026-06-26
+
+### Added
+
+- **Window snapping — core (phase 1).** Foundation for drag-a-window-to-a-screen-
+  edge snapping (macOS, like Magnet / Rectangle): the unit-tested geometry core
+  (`window_snap`) — snap-zone classification with **hysteresis** (top → maximize,
+  left/right → half; a fast pass near an edge doesn't make a zone "stick"),
+  target-rect tiling, and AX↔Cocoa (top-left ↔ bottom-left) coordinate
+  conversion — plus the opt-in setting (`windowsnap.enabled`), IPC, `apply()`
+  lifecycle, and a **Settings → Window snapping** toggle (macOS). The actual
+  drag monitor (CGEventTap), AX window move/resize, and the preview overlay land
+  in the next phase; no behaviour change yet (off by default, monitor is a stub).
+
 ## [0.84.131] — 2026-06-26
 
 ### Fixed

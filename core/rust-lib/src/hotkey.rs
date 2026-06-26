@@ -1225,6 +1225,28 @@ mod tests {
     }
 
     #[test]
+    fn settle_should_hide_is_the_conjunction_of_all_guards() {
+        // Exhaustive truth table: hide IFF the generation is unchanged AND not
+        // suppressed AND the foreground is foreign AND the window is visible.
+        for &gen_changed in &[false, true] {
+            for &suppressed in &[false, true] {
+                for &fg_ours in &[false, true] {
+                    for &visible in &[false, true] {
+                        let captured = 7;
+                        let current = if gen_changed { 8 } else { 7 };
+                        let expected = !gen_changed && !suppressed && !fg_ours && visible;
+                        assert_eq!(
+                            settle_should_hide(captured, current, suppressed, fg_ours, visible),
+                            expected,
+                            "gen_changed={gen_changed} suppressed={suppressed} fg_ours={fg_ours} visible={visible}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn action_registry_defaults_parse_unique_and_roundtrip() {
         use std::collections::HashSet;
         let mut keys = HashSet::new();

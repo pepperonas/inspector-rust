@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.136] — 2026-06-26
+
+### Tests
+
+- **21 new unit tests for the recently-added logic** (no behaviour change):
+  - **BPM** (4): no onset fires during the calibration window; a kick's
+    decaying tail fires only the attack; a sustained "bridge" between beats
+    doesn't double the tempo; the calibration gate is robust to irregular frame
+    spacing.
+  - **Window snapping** (11 geometry + 5 `screen_for_cursor`): offset /
+    multi-monitor screens (secondary at a non-zero origin, a display stacked
+    above the primary), exact maximize enter/exit boundaries, odd-width half
+    rounding (halves cover the full width), right-edge hysteresis, top-band vs.
+    side-edge corner precedence, the menu-bar cold-zone, slop boundaries; and
+    `screen_for_cursor` containment, shared-edge (half-open) ownership,
+    between-display fallback, single-screen, empty-list.
+  - **Windows popup settle** (1): an exhaustive truth-table sweep asserting
+    `settle_should_hide` is exactly the conjunction of its guards.
+
 ## [0.84.135] — 2026-06-26
 
 ### Fixed

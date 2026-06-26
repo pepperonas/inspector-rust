@@ -172,6 +172,72 @@ describe("BpmAnalyzer", () => {
     expect(fires).toBe(2);
   });
 
+  it("fires no onset during the calibration window, even with loud beats", () => {
+    // The baseline-calibration gate must hold off ALL onsets for the first
+    // AVG_WINDOW_MS from the first push — otherwise a burst of false onsets
+    // pinned to the refractory floor reads ~200 BPM for the first ~20 s.
+    const a = new BpmAnalyzer();
+    let fires = 0;
+    for (let t = 0; t < BPM_CONFIG.AVG_WINDOW_MS - 50; t += 10) {
+      const isBeat = t % 500 < 10; // loud 120-BPM beats from the very start
+      a.push(chunk(isBeat ? 0.6 : 0.02), t);
+      if (a.estimate(t).beatJustFired) fires++;
+    }
+    expect(fires).toBe(0);
+    expect(a.estimate(BPM_CONFIG.AVG_WINDOW_MS - 50).bpm).toBe(0);
+  });
+
+  it("a kick's decaying tail fires only the attack (SuperFlux decay suppression)", () => {
+    const a = new BpmAnalyzer();
+    for (let t = 0; t < 3000; t += 10) a.push(chunk(0.02), t); // calibrate
+    let fires = 0;
+    // Sharp attack at 3000, then an exponential decay that stays above the
+    // onset threshold for ~600 ms. The decay never rises above its own lagged
+    // peak, so it must NOT re-fire once the refractory clears.
+    let e = 0.6;
+    for (let t = 3000; t < 3600; t += 10) {
+      a.push(chunk(e), t);
+      if (a.estimate(t).beatJustFired) fires++;
+      e *= 0.96;
+    }
+    expect(fires).toBe(1);
+  });
+
+  it("does not double the tempo when a sustained bridge connects the beats", () => {
+    // 120-BPM kicks (500 ms apart) each followed by a 350 ms sustained-loud
+    // "bridge" toward the next beat. Past the refractory the bridge is still
+    // loud — the OLD detector fired a ghost onset there (~240 BPM). SuperFlux
+    // rejects it (no rise above its own lagged peak), so the lock stays ~120.
+    const a = new BpmAnalyzer();
+    for (let t = 0; t < 11000; t += 10) {
+      const phase = t % 500;
+      let e = 0.03;
+      if (phase < 10) e = 0.6; // sharp kick
+      else if (phase < 360) e = 0.25; // sustained bridge (loud, not a new attack)
+      a.push(chunk(e), t);
+    }
+    const est = a.estimate(11000);
+    expect(est.bpm).toBeGreaterThan(112);
+    expect(est.bpm).toBeLessThan(128);
+  });
+
+  it("calibration gate is robust to irregular frame spacing", () => {
+    // The gate keys on elapsed-since-first-push, so it must open regardless of
+    // jittery inter-frame gaps (the old oldest-chunk-age gate did not).
+    const a = new BpmAnalyzer();
+    let t = 0;
+    const jitter = [7, 13, 9, 11, 8, 15, 6, 12];
+    let j = 0;
+    while (t < 11000) {
+      const isBeat = t % 500 < 16;
+      a.push(chunk(isBeat ? 0.55 : 0.02), t);
+      t += jitter[j++ % jitter.length]; // irregular ~6-15 ms steps
+    }
+    const est = a.estimate(t);
+    expect(est.bpm).toBeGreaterThan(112);
+    expect(est.bpm).toBeLessThan(128);
+  });
+
   it("reset() clears all state", () => {
     const { analyzer } = simulateBeats(120, 8);
     expect(analyzer.estimate(8000).bpm).toBeGreaterThan(0);

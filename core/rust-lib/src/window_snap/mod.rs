@@ -256,4 +256,134 @@ mod tests {
         let full = cocoa_rect_to_topleft(Rect::new(0.0, 0.0, 1440.0, 900.0), primary_h);
         assert_eq!(full, Rect::new(0.0, 0.0, 1440.0, 900.0));
     }
+
+    // ── Offset / multi-monitor screens ──────────────────────────────────────
+
+    /// A secondary display to the right of the primary (origin not at 0,0),
+    /// with a top inset (menu bar) so the visible frame starts below it.
+    const SECONDARY: Rect = Rect { x: 1440.0, y: 25.0, w: 1920.0, h: 1055.0 };
+
+    #[test]
+    fn classify_is_relative_to_an_offset_screen() {
+        // Left edge of the secondary is at x=1440, not 0.
+        assert_eq!(classify_zone((1443.0, 500.0), SECONDARY, None), Some(SnapZone::Left));
+        // Right edge is at x = 1440 + 1920 = 3360.
+        assert_eq!(classify_zone((3357.0, 500.0), SECONDARY, None), Some(SnapZone::Right));
+        // Top band is below the screen's y origin (25), not below 0.
+        assert_eq!(classify_zone((2400.0, 40.0), SECONDARY, None), Some(SnapZone::Maximize));
+        // The primary's left edge (x≈0) is NOT on the secondary.
+        assert_eq!(classify_zone((3.0, 500.0), SECONDARY, None), None);
+    }
+
+    #[test]
+    fn zone_rects_offset_screen_tile_exactly() {
+        let l = zone_rect(SnapZone::Left, SECONDARY);
+        let r = zone_rect(SnapZone::Right, SECONDARY);
+        assert_eq!(l, Rect::new(1440.0, 25.0, 960.0, 1055.0));
+        assert_eq!(r, Rect::new(2400.0, 25.0, 960.0, 1055.0));
+        assert_eq!(l.x + l.w, r.x); // no gap
+        assert_eq!(l.w + r.w, SECONDARY.w); // no overlap
+        assert_eq!(zone_rect(SnapZone::Maximize, SECONDARY), SECONDARY);
+    }
+
+    #[test]
+    fn odd_width_halves_floor_and_still_cover_the_full_width() {
+        // Odd width: the left half floors, the right half takes the remainder
+        // (one extra px) so the two together cover the width with no gap.
+        let screen = Rect::new(0.0, 0.0, 1001.0, 600.0);
+        let l = zone_rect(SnapZone::Left, screen);
+        let r = zone_rect(SnapZone::Right, screen);
+        assert_eq!(l.w, 500.0);
+        assert_eq!(r.w, 501.0);
+        assert_eq!(l.x + l.w, r.x);
+        assert_eq!(l.w + r.w, screen.w);
+        assert_eq!(r.x + r.w, screen.x + screen.w); // right edge flush
+    }
+
+    #[test]
+    fn right_edge_applies_hysteresis_like_the_left() {
+        let right_x = SCREEN.x + SCREEN.w; // 1440
+        // Cold: within ENTER (8) of the right edge → Right.
+        assert_eq!(classify_zone((right_x - 4.0, 400.0), SCREEN, None), Some(SnapZone::Right));
+        // Already Right: stays until past EXIT (28).
+        assert_eq!(
+            classify_zone((right_x - 20.0, 400.0), SCREEN, Some(SnapZone::Right)),
+            Some(SnapZone::Right)
+        );
+        // Cold at 20 px in → not yet (past ENTER).
+        assert_eq!(classify_zone((right_x - 20.0, 400.0), SCREEN, None), None);
+        // Past EXIT → releases.
+        assert_eq!(
+            classify_zone((right_x - 40.0, 400.0), SCREEN, Some(SnapZone::Right)),
+            None
+        );
+    }
+
+    #[test]
+    fn maximize_enter_boundary_is_inclusive() {
+        // Exactly at MAXIMIZE_ENTER_PX → maximize (inclusive range).
+        assert_eq!(
+            classify_zone((700.0, MAXIMIZE_ENTER_PX), SCREEN, None),
+            Some(SnapZone::Maximize)
+        );
+        // Just past it → not (from a cold start).
+        assert_eq!(classify_zone((700.0, MAXIMIZE_ENTER_PX + 1.0), SCREEN, None), None);
+    }
+
+    #[test]
+    fn maximize_latch_releases_past_the_exit_threshold() {
+        // Latched and just within EXIT → stays maximize.
+        assert_eq!(
+            classify_zone((700.0, MAXIMIZE_EXIT_PX), SCREEN, Some(SnapZone::Maximize)),
+            Some(SnapZone::Maximize)
+        );
+        // Latched but past EXIT → releases.
+        assert_eq!(
+            classify_zone((700.0, MAXIMIZE_EXIT_PX + 1.0), SCREEN, Some(SnapZone::Maximize)),
+            None
+        );
+    }
+
+    #[test]
+    fn top_band_beats_a_side_edge_in_the_corner_overlap() {
+        // Cursor near the LEFT edge but also inside the maximize band → top
+        // (maximize) wins, since it's checked first.
+        assert_eq!(classify_zone((3.0, 20.0), SCREEN, None), Some(SnapZone::Maximize));
+    }
+
+    #[test]
+    fn side_edge_wins_below_the_maximize_band() {
+        // Near the left edge but BELOW the maximize band (y > ENTER) → Left,
+        // not maximize (so you can left-snap along the top of the side).
+        assert_eq!(
+            classify_zone((3.0, MAXIMIZE_ENTER_PX + 10.0), SCREEN, None),
+            Some(SnapZone::Left)
+        );
+    }
+
+    #[test]
+    fn cold_cursor_in_the_menu_bar_is_not_maximize() {
+        // top_d < 0 (above the visible-frame top, i.e. in the menu bar) → no
+        // maximize from a cold start, so we don't fight macOS Mission Control.
+        assert_eq!(classify_zone((700.0, -5.0), SCREEN, None), None);
+    }
+
+    #[test]
+    fn slop_boundary_just_outside_the_screen() {
+        // Within EXIT_PX of the left edge (outside) is still considered (and is
+        // a Left candidate); beyond EXIT_PX → fully ignored.
+        assert_eq!(classify_zone((-5.0, 400.0), SCREEN, None), Some(SnapZone::Left));
+        assert_eq!(classify_zone((-(EXIT_PX + 1.0), 400.0), SCREEN, None), None);
+        assert_eq!(classify_zone((700.0, SCREEN.h + EXIT_PX + 1.0), SCREEN, None), None);
+    }
+
+    #[test]
+    fn cocoa_to_topleft_handles_a_screen_above_the_primary() {
+        // A second display stacked ABOVE the primary has positive Cocoa y
+        // beyond the primary height; the flip yields a negative top-left y
+        // (above the primary's top), which is the correct global coordinate.
+        let primary_h = 900.0;
+        let tl = cocoa_rect_to_topleft(Rect::new(0.0, 900.0, 1440.0, 900.0), primary_h);
+        assert_eq!(tl, Rect::new(0.0, -900.0, 1440.0, 900.0));
+    }
 }

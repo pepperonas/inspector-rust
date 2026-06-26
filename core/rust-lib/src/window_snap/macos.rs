@@ -432,3 +432,44 @@ pub fn set_active(app: &tauri::AppHandle, enabled: bool) {
         update_overlay(None);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::{screen_for_cursor, Rect};
+
+    const A: Rect = Rect { x: 0.0, y: 0.0, w: 1440.0, h: 900.0 };
+    // Secondary directly to the right of A.
+    const B: Rect = Rect { x: 1440.0, y: 0.0, w: 1920.0, h: 1080.0 };
+
+    #[test]
+    fn picks_the_screen_containing_the_cursor() {
+        assert_eq!(screen_for_cursor((100.0, 100.0), &[A, B]), Some(A));
+        assert_eq!(screen_for_cursor((2000.0, 500.0), &[A, B]), Some(B));
+    }
+
+    #[test]
+    fn shared_edge_belongs_to_the_right_screen_only() {
+        // Half-open [x, x+w): x = 1440 is the right edge of A (excluded) and
+        // the left edge of B (included) — adjacent screens never both claim it.
+        assert_eq!(screen_for_cursor((1440.0, 200.0), &[A, B]), Some(B));
+        // One px left → still A.
+        assert_eq!(screen_for_cursor((1439.0, 200.0), &[A, B]), Some(A));
+    }
+
+    #[test]
+    fn falls_back_to_the_first_screen_when_between_displays() {
+        // A cursor in no screen's bounds (e.g. a gap or just off the bottom)
+        // falls back to the first screen rather than returning None.
+        assert_eq!(screen_for_cursor((100.0, 5000.0), &[A, B]), Some(A));
+    }
+
+    #[test]
+    fn single_screen_is_always_returned() {
+        assert_eq!(screen_for_cursor((-50.0, -50.0), &[A]), Some(A));
+    }
+
+    #[test]
+    fn empty_screen_list_is_none() {
+        assert_eq!(screen_for_cursor((0.0, 0.0), &[]), None);
+    }
+}

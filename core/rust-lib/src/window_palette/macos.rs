@@ -161,6 +161,18 @@ unsafe fn axvalue_size(el: AXUIElementRef, attr: &str) -> Option<(f64, f64)> {
     (ok != 0).then_some((s.width, s.height))
 }
 
+/// Which traffic-light button (if any) `el` is, by subrole. Used both to gate on
+/// the green (zoom / fullscreen) button and to log diagnostics for the others.
+unsafe fn matched_button_subrole(el: AXUIElementRef) -> Option<&'static str> {
+    const NAMES: [&str; 4] = [
+        "AXZoomButton",
+        "AXFullScreenButton",
+        "AXCloseButton",
+        "AXMinimizeButton",
+    ];
+    NAMES.into_iter().find(|n| attr_equals(el, "AXSubrole", n))
+}
+
 unsafe fn element_frame(el: AXUIElementRef) -> Option<Rect> {
     let (px, py) = axvalue_point(el, "AXPosition")?;
     let (w, h) = axvalue_size(el, "AXSize")?;
@@ -215,11 +227,18 @@ unsafe fn zoom_hit(cursor: (f64, f64)) -> Option<(Rect, AXUIElementRef)> {
         return None;
     }
     let el = el as AXUIElementRef;
-    let is_zoom = attr_equals(el, "AXSubrole", "AXZoomButton");
-    if !is_zoom {
+    // The green traffic-light button reports subrole AXZoomButton in some apps
+    // and AXFullScreenButton in others — accept both.
+    let subrole = matched_button_subrole(el);
+    let is_target = matches!(subrole, Some("AXZoomButton") | Some("AXFullScreenButton"));
+    if !is_target {
+        if let Some(s) = subrole {
+            tracing::debug!("window-palette: cursor over {s} (not the green button)");
+        }
         CFRelease(el as CFTypeRef);
         return None;
     }
+    tracing::debug!("window-palette: green button hit ({})", subrole.unwrap_or("?"));
     let frame = element_frame(el);
     let win = window_of(el);
     CFRelease(el as CFTypeRef);
@@ -301,10 +320,14 @@ unsafe fn try_show_if(gen: u64) {
         None => return,
     };
     if !rect_contains(frame, cursor, 2.0) {
+        tracing::debug!("window-palette: dwell elapsed but cursor left the button");
         return; // cursor left the button before the dwell elapsed
     }
     // Re-hit to get a fresh retained window element + current frame.
-    let Some((frame, win)) = zoom_hit(cursor) else { return };
+    let Some((frame, win)) = zoom_hit(cursor) else {
+        tracing::debug!("window-palette: re-hit at show time found no button");
+        return;
+    };
     let screens = screens_topleft();
     let center = (frame.x + frame.w / 2.0, frame.y + frame.h / 2.0);
     let Some(vf) = screen_for_cursor(center, &screens) else {
@@ -322,9 +345,12 @@ unsafe fn try_show_if(gen: u64) {
     *OUT_SINCE.lock() = None;
     PALETTE_SHOWN.store(true, Ordering::SeqCst);
 
+    tracing::info!("window-palette: showing palette at ({px:.0},{py:.0}) on screen {vf:?}");
     if let Some(app) = app_handle() {
         let a = app.clone();
         let _ = app.run_on_main_thread(move || show_window(&a, px, py));
+    } else {
+        tracing::warn!("window-palette: no app handle to show palette");
     }
 }
 
@@ -420,6 +446,7 @@ unsafe fn maybe_hittest(cursor: (f64, f64)) {
             let was_over = HOVER_BTN_FRAME.lock().replace(frame).is_some();
             if !was_over {
                 let gen = HOVER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+                tracing::info!("window-palette: green button under cursor — dwell started (gen {gen})");
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(HOVER_DELAY_MS));
                     unsafe { try_show_if(gen) };

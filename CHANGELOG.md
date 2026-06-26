@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.139] — 2026-06-27
+
+### Fixed
+
+- **Window palette didn't appear on hover.** The green traffic-light button reports AX subrole `AXFullScreenButton` in many apps (only some use `AXZoomButton`); the hover hit-test now accepts **both**. Added diagnostic logs (button hit / dwell / show) to trace the hover chain.
+
 ## [0.84.138] — 2026-06-27
 
 ### Added

@@ -58,6 +58,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // convention; never crash an existing DB.
     crate::tracking::db::init_schema(&conn)
         .with_context(|| "failed to create timesheet tables")?;
+    // System-stats history (time-series for the Stats panel's "history" view).
+    crate::stats_history::init_schema(&conn)
+        .with_context(|| "failed to create stats_history table")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 

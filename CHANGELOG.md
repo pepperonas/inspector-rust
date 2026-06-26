@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.137] — 2026-06-27
+
+### Added
+
+- **System stats — Live ↔ History.** The Stats panel header now has a **Live /
+  History** toggle; in History mode a **time-range dropdown** (1h / 6h / 24h /
+  7d) shows per-metric trend charts of the last hours/days. A new always-on
+  background collector samples the core series every 60 s (CPU %, memory %,
+  network ↑/↓, power W, CPU temp, battery %) into a `stats_history` table,
+  keeping 7 days (auto-pruned). The history query downsamples to ≤240
+  bucket-averaged points so charts stay smooth. Charts: one line per metric
+  (CPU/memory/battery on a fixed 0–100 % axis; power/temp auto-scaled) plus a
+  dual-line network chart (download/upload), with min/avg/max readouts. Until a
+  couple of samples have been collected the view shows a "Collecting history…"
+  hint. Numeric telemetry only (not encrypted); the live 1.5 s polling pauses
+  while viewing history. Pure cores unit-tested (`downsample`, `sample_from`,
+  `lib/stats-chart.ts`): +21 tests.
+
 ## [0.84.136] — 2026-06-26
 
 ### Tests

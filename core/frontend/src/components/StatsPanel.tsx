@@ -11,7 +11,13 @@ import {
   Zap,
   Server,
 } from "lucide-react";
-import { getSystemStats, type SystemStats } from "../lib/ipc";
+import {
+  getSystemStats,
+  getStatsHistory,
+  type SystemStats,
+  type StatsHistory,
+  type StatsHistoryPoint,
+} from "../lib/ipc";
 import {
   humanBytes,
   humanRate,
@@ -20,6 +26,7 @@ import {
   clampPct,
   usedPct,
 } from "../lib/format-stats";
+import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
 
 /**
  * Read-only live system-stats panel rendered in the right preview column —
@@ -34,6 +41,16 @@ import {
  */
 const POLL_MS = 1500;
 
+/** History time-frame options (seconds) for the dropdown. */
+const RANGES: ReadonlyArray<{ label: string; secs: number }> = [
+  { label: "1h", secs: 3600 },
+  { label: "6h", secs: 21600 },
+  { label: "24h", secs: 86400 },
+  { label: "7d", secs: 604800 },
+];
+
+type Mode = "live" | "history";
+
 export function StatsPanel({
   focused,
   onExit,
@@ -41,6 +58,8 @@ export function StatsPanel({
   focused: boolean;
   onExit: () => void;
 }) {
+  const [mode, setMode] = useState<Mode>("live");
+  const [rangeSecs, setRangeSecs] = useState<number>(21600); // default 6h
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [error, setError] = useState<string | null>(null);
   const alive = useRef(true);
@@ -50,7 +69,12 @@ export function StatsPanel({
   const scrollingRef = useRef(false);
   const scrollEndRef = useRef<number | undefined>(undefined);
 
+  // Live polling — only runs in live mode (history fetches separately).
   useEffect(() => {
+    if (mode !== "live") {
+      tickRef.current = () => {};
+      return;
+    }
     alive.current = true;
     const tick = () => {
       // Skip the re-render while the user is actively wheel/trackpad-scrolling:
@@ -77,7 +101,7 @@ export function StatsPanel({
       window.clearInterval(id);
       window.clearTimeout(scrollEndRef.current);
     };
-  }, []);
+  }, [mode]);
 
   // Mark "scrolling" on each scroll event and clear it ~200 ms after the last
   // one (momentum settled), then refresh once. Cheap: only touches refs +
@@ -98,6 +122,12 @@ export function StatsPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // Let the mode toggle / range dropdown handle their own keys (so the
+      // native <select> opens + arrow-selects instead of scrolling the panel).
+      const tgt = e.target as HTMLElement | null;
+      if (tgt && (tgt.tagName === "SELECT" || tgt.tagName === "BUTTON" || tgt.tagName === "INPUT")) {
+        return;
+      }
       const el = scrollRef.current;
       const STEP = 64;
       switch (e.key) {
@@ -158,18 +188,39 @@ export function StatsPanel({
       style={{ transform: "translateZ(0)" }}
       className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]"
     >
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 text-[13px] font-medium">
           <Activity size={15} className="text-[var(--color-accent)]" /> System stats
         </div>
-        {stats && (
-          <span className="text-[10px] text-[var(--color-muted)]">
-            up {humanUptime(stats.uptime_secs)}
-          </span>
-        )}
+        <div className="flex items-center gap-1.5">
+          {mode === "history" && (
+            <select
+              value={rangeSecs}
+              onChange={(e) => setRangeSecs(Number(e.target.value))}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[11px] text-[var(--color-fg)] outline-none"
+              aria-label="History time range"
+            >
+              {RANGES.map((r) => (
+                <option key={r.secs} value={r.secs}>
+                  {r.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <div className="flex items-center gap-0.5 rounded-lg border border-[var(--color-border)] p-0.5">
+            <ModeButton active={mode === "live"} onClick={() => setMode("live")}>
+              Live
+            </ModeButton>
+            <ModeButton active={mode === "history"} onClick={() => setMode("history")}>
+              History
+            </ModeButton>
+          </div>
+        </div>
       </div>
 
-      {error ? (
+      {mode === "history" ? (
+        <HistoryView rangeSecs={rangeSecs} />
+      ) : error ? (
         <p className="text-[12px] text-[var(--color-muted)]">{error}</p>
       ) : stats === null ? (
         <p className="text-[12px] text-[var(--color-muted)]">Reading system…</p>
@@ -182,14 +233,262 @@ export function StatsPanel({
           <DisksSection s={stats} />
           <NetworkSection s={stats} />
           <HostSection s={stats} />
-          {focused && (
-            <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-              ↑ ↓ scroll · Esc close
-            </p>
-          )}
         </>
       )}
+      {focused && (
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
+          ↑ ↓ scroll · Esc close
+        </p>
+      )}
     </div>
+  );
+}
+
+function ModeButton({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={
+        "rounded-md px-2 py-0.5 text-[11px] transition-colors " +
+        (active
+          ? "bg-[var(--color-accent)] font-medium text-[var(--color-accent-fg)]"
+          : "text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+      }
+    >
+      {children}
+    </button>
+  );
+}
+
+// ── Historical view ───────────────────────────────────────────────────────────
+
+const HISTORY_REFRESH_MS = 30000;
+
+function HistoryView({ rangeSecs }: { rangeSecs: number }) {
+  const [hist, setHist] = useState<StatsHistory | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    const fetchIt = () =>
+      getStatsHistory(rangeSecs)
+        .then((h) => {
+          if (alive.current) {
+            setHist(h);
+            setErr(null);
+          }
+        })
+        .catch((e) => {
+          if (alive.current) setErr(String(e));
+        });
+    fetchIt();
+    const id = window.setInterval(fetchIt, HISTORY_REFRESH_MS);
+    return () => {
+      alive.current = false;
+      window.clearInterval(id);
+    };
+  }, [rangeSecs]);
+
+  if (err) return <p className="text-[12px] text-[var(--color-muted)]">{err}</p>;
+  if (!hist) return <p className="text-[12px] text-[var(--color-muted)]">Loading history…</p>;
+  const pts = hist.points;
+  if (pts.length < 2) {
+    const mins = Math.round(hist.interval_secs / 60);
+    return (
+      <div className="rounded-xl border border-[var(--color-border)] p-4 text-center">
+        <p className="text-[12px] text-[var(--color-fg)]">Collecting history…</p>
+        <p className="mt-1 text-[11px] text-[var(--color-muted)]">
+          A data point is recorded every {mins || 1} min. Come back in a little
+          while to see the trend.
+        </p>
+      </div>
+    );
+  }
+
+  const tMin = pts[0].ts;
+  const tMax = pts[pts.length - 1].ts;
+  const rangeLabel = RANGES.find((r) => r.secs === rangeSecs)?.label ?? `${rangeSecs}s`;
+  const hasPower = pts.some((p) => p.power != null);
+  const hasTemp = pts.some((p) => p.cpu_temp != null);
+  const hasBattery = pts.some((p) => p.battery != null);
+
+  return (
+    <>
+      <LineChartCard
+        icon={<Cpu size={14} />}
+        title="CPU"
+        pts={pts}
+        pick={(p) => p.cpu}
+        tMin={tMin}
+        tMax={tMax}
+        domain={[0, 100]}
+        fmt={(v) => `${v.toFixed(0)}%`}
+      />
+      <LineChartCard
+        icon={<MemoryStick size={14} />}
+        title="Memory"
+        pts={pts}
+        pick={(p) => p.mem}
+        tMin={tMin}
+        tMax={tMax}
+        domain={[0, 100]}
+        fmt={(v) => `${v.toFixed(0)}%`}
+      />
+      <NetworkChartCard pts={pts} tMin={tMin} tMax={tMax} />
+      {hasPower && (
+        <LineChartCard
+          icon={<Zap size={14} />}
+          title="Power draw"
+          pts={pts}
+          pick={(p) => p.power}
+          tMin={tMin}
+          tMax={tMax}
+          fmt={(v) => `${v.toFixed(1)} W`}
+        />
+      )}
+      {hasTemp && (
+        <LineChartCard
+          icon={<Thermometer size={14} />}
+          title="CPU temp"
+          pts={pts}
+          pick={(p) => p.cpu_temp}
+          tMin={tMin}
+          tMax={tMax}
+          fmt={(v) => `${v.toFixed(1)}°C`}
+        />
+      )}
+      {hasBattery && (
+        <LineChartCard
+          icon={<BatteryCharging size={14} />}
+          title="Battery"
+          pts={pts}
+          pick={(p) => p.battery}
+          tMin={tMin}
+          tMax={tMax}
+          domain={[0, 100]}
+          fmt={(v) => `${v.toFixed(0)}%`}
+        />
+      )}
+      <p className="px-1 pb-1 text-[10px] text-[var(--color-muted)]">
+        {rangeLabel} ago · {hist.sample_count} samples · now →
+      </p>
+    </>
+  );
+}
+
+const CHART_W = 320;
+const CHART_H = 60;
+
+/** A single-series sparkline card. `pick` may return null (sensor absent at
+ *  that sample) — those points are skipped. `domain` fixes the y-axis (e.g.
+ *  [0,100] for percentages); omitted → auto-scaled to the data. */
+function LineChartCard({
+  icon,
+  title,
+  pts,
+  pick,
+  tMin,
+  tMax,
+  domain,
+  fmt,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  pts: StatsHistoryPoint[];
+  pick: (p: StatsHistoryPoint) => number | null;
+  tMin: number;
+  tMax: number;
+  domain?: [number, number];
+  fmt: (v: number) => string;
+}) {
+  const series = pts
+    .map((p) => ({ t: p.ts, v: pick(p) }))
+    .filter((s): s is { t: number; v: number } => s.v != null);
+  if (series.length === 0) return null;
+  const values = series.map((s) => s.v);
+  const [vMin, vMax] = domain ?? seriesExtent(values);
+  const d = linePath(series, tMin, tMax, CHART_W, CHART_H, vMin, vMax);
+  const a = areaPath(series, tMin, tMax, CHART_W, CHART_H, vMin, vMax);
+  const cur = values[values.length - 1];
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const avg = values.reduce((s, v) => s + v, 0) / values.length;
+  return (
+    <Card icon={icon} title={title} right={fmt(cur)}>
+      <Sparkline line={d} area={a} color="var(--color-accent)" />
+      <div className="mt-1 flex items-center justify-between text-[10px] text-[var(--color-muted)] tabular-nums">
+        <span>min {fmt(min)}</span>
+        <span>avg {fmt(avg)}</span>
+        <span>max {fmt(max)}</span>
+      </div>
+    </Card>
+  );
+}
+
+function NetworkChartCard({
+  pts,
+  tMin,
+  tMax,
+}: {
+  pts: StatsHistoryPoint[];
+  tMin: number;
+  tMax: number;
+}) {
+  const rx = pts.map((p) => ({ t: p.ts, v: p.net_rx }));
+  const tx = pts.map((p) => ({ t: p.ts, v: p.net_tx }));
+  const peak = Math.max(1, ...pts.map((p) => Math.max(p.net_rx, p.net_tx)));
+  const vMax = peak * 1.15; // floor the axis at 0 — rates are non-negative
+  const dRx = linePath(rx, tMin, tMax, CHART_W, CHART_H, 0, vMax);
+  const dTx = linePath(tx, tMin, tMax, CHART_W, CHART_H, 0, vMax);
+  const curRx = pts[pts.length - 1].net_rx;
+  const curTx = pts[pts.length - 1].net_tx;
+  return (
+    <Card
+      icon={<ArrowDownUp size={14} />}
+      title="Network"
+      right={`↓ ${humanRate(curRx)} · ↑ ${humanRate(curTx)}`}
+    >
+      <svg
+        viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+        preserveAspectRatio="none"
+        className="h-14 w-full"
+      >
+        <path d={dRx} fill="none" stroke="var(--color-accent)" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+        <path d={dTx} fill="none" stroke="#f59e0b" strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+      </svg>
+      <div className="mt-1 flex items-center gap-3 text-[10px] text-[var(--color-muted)]">
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "var(--color-accent)" }} /> download
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="inline-block h-[2px] w-3" style={{ backgroundColor: "#f59e0b" }} /> upload
+        </span>
+        <span className="ml-auto tabular-nums">peak {humanRate(peak)}</span>
+      </div>
+    </Card>
+  );
+}
+
+function Sparkline({ line, area, color }: { line: string; area: string; color: string }) {
+  return (
+    <svg
+      viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+      preserveAspectRatio="none"
+      className="h-14 w-full"
+    >
+      <path d={area} fill={color} opacity={0.12} />
+      <path d={line} fill="none" stroke={color} strokeWidth={1.5} vectorEffect="non-scaling-stroke" />
+    </svg>
   );
 }
 
@@ -447,6 +746,7 @@ function HostSection({ s }: { s: SystemStats }) {
         {s.os_name && <Kv k="OS" v={s.os_name} />}
         {s.kernel && <Kv k="Kernel" v={s.kernel} />}
         {s.cpu_arch && <Kv k="Arch" v={s.cpu_arch} />}
+        <Kv k="Uptime" v={humanUptime(s.uptime_secs)} />
       </div>
     </Card>
   );

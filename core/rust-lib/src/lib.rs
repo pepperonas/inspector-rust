@@ -55,6 +55,7 @@ mod keepalive;
 mod window_snap;
 mod system_commands;
 mod system_stats;
+mod stats_history;
 mod finder_selection;
 #[cfg(target_os = "macos")]
 mod osascript_util;
@@ -335,6 +336,10 @@ pub fn run(context: tauri::Context<Wry>) {
                 window_snap::apply(app.handle(), &db_handle, ws.inner());
             }
 
+            // System-stats history: always-on lightweight background sampler so
+            // the Stats panel can show a "last hours / days" view.
+            stats_history::start_collector(db_handle.clone());
+
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),
@@ -581,6 +586,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_audio_outputs,
             commands::set_audio_output,
             commands::get_system_stats,
+            commands::get_stats_history,
             commands::get_uptime_secs,
             commands::color_loupe_data,
             commands::color_loupe_pick,

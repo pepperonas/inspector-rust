@@ -1264,6 +1264,30 @@ export function getSystemStats(): Promise<SystemStats> {
   return invoke("get_system_stats");
 }
 
+/** One downsampled point of system-stats history (core time-series). */
+export interface StatsHistoryPoint {
+  ts: number; // unix seconds
+  cpu: number; // %
+  mem: number; // %
+  net_rx: number; // bytes/s
+  net_tx: number; // bytes/s
+  power: number | null; // watts
+  cpu_temp: number | null; // °C
+  battery: number | null; // %
+}
+
+export interface StatsHistory {
+  points: StatsHistoryPoint[];
+  range_secs: number;
+  sample_count: number;
+  interval_secs: number;
+}
+
+/** Downsampled system-stats history over the last `rangeSecs` seconds. */
+export function getStatsHistory(rangeSecs: number): Promise<StatsHistory> {
+  return invoke("get_stats_history", { rangeSecs });
+}
+
 /** System uptime in whole seconds (the live `uptime` command anchors this to a
  * high-resolution timer and animates the sub-second digits). */
 export function getUptimeSecs(): Promise<number> {

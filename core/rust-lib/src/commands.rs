@@ -3610,6 +3610,16 @@ pub fn get_system_stats() -> crate::system_stats::SystemStats {
     crate::system_stats::gather()
 }
 
+/// Downsampled system-stats history over the last `range_secs` seconds (for the
+/// Stats panel's "history" view). Backed by the always-on background sampler.
+#[tauri::command]
+pub fn get_stats_history(
+    db: State<'_, DbHandle>,
+    range_secs: i64,
+) -> crate::stats_history::StatsHistory {
+    crate::stats_history::history(&db, range_secs)
+}
+
 // ── Philips Hue (`hue` command, v0.84.40) ───────────────────────────────────
 
 /// Connection status: do we have a bridge IP + paired username, and does the

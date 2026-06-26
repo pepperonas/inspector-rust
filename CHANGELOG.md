@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.133] — 2026-06-26
+
+### Added
+
+- **Window snapping — live (phase 2, macOS).** Drag a window to a screen edge to
+  snap it: **top → maximize, left/right → half**, with a translucent **preview
+  overlay** over the target zone that follows the active edge and vanishes when
+  you leave it; release to snap. A listen-only `CGEventTap` watches the
+  left-mouse drag (the window still drags normally), the focused window is
+  moved/resized via the Accessibility API (a fixed-size window is only moved),
+  zones use `NSScreen.visibleFrame` (menu-bar/dock-aware) and pick the screen
+  under the cursor (multi-monitor), and **Esc cancels** mid-drag. Opt-in
+  (Settings → Window snapping); needs Accessibility. Builds on the phase-1
+  geometry core (hysteresis so a fast pass doesn't stick a zone).
+
 ## [0.84.132] — 2026-06-26
 
 ### Added

@@ -538,6 +538,35 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   libinput via pkg-config — target-gated dep). Wayland caveat: the compositor may
   also own the 3-finger swipe.
 
+### Window snapping (`window_snap/`, v0.84.132+)
+
+Drag-a-window-to-a-screen-edge snapping (macOS, Magnet/Rectangle-style). Opt-in
+(settings `windowsnap.enabled`, off by default; Settings → **Window snapping**,
+macOS-gated); `apply(app,db,state)` starts/stops the monitor (mirrors
+`gestures`).
+
+- **Pure core (`window_snap/mod.rs`, unit-tested):** `classify_zone(cursor,
+  screen, current) -> Option<SnapZone>` (top → `Maximize`, left/right → half;
+  **hysteresis** `ENTER_PX=8`/`EXIT_PX=28` so a fast edge pass doesn't make a
+  zone "stick"; top wins at a corner), `zone_rect`, and the AX↔Cocoa
+  `cocoa_rect_to_topleft` flip (pivot = primary screen height). Everything works
+  in **top-left point coords** (the space of `CGEventGetLocation` + AX
+  `kAXPosition` + Tauri `LogicalPosition`), so no per-axis flipping mid-drag.
+- **macOS (`window_snap/macos.rs`):** a **listen-only `CGEventTap`** (so the
+  window still drags normally) on `LeftMouseDown/Dragged/Up` + `KeyDown` runs on
+  a dedicated `CFRunLoop` thread (same pattern as `input_lock`/`gestures`). On
+  down it snapshots `NSScreen` `visibleFrame`s (raw `objc2` `msg_send`, manual
+  `CGRect` `Encode`) → top-left; on drag it classifies the zone for the screen
+  under the cursor and drives a **transparent click-through Tauri overlay**
+  (`snap-overlay` window, `SnapOverlay.tsx`) sized to the zone via
+  `LogicalPosition/Size` on the main thread; on up it moves+resizes the
+  **frontmost focused window** via AX (`AXUIElementCreateSystemWide` →
+  `kAXFocusedApplication` → `kAXFocusedWindow`, set `kAXPosition` then `kAXSize`
+  then position again — a fixed-size window just ignores the resize → move-only).
+  **Esc** cancels (a `CANCELLED` flag the upcoming mouse-up checks). Needs
+  **Accessibility** (`expander::accessibility_granted`); without it the tap
+  doesn't install. macOS only.
+
 ### Keep-alive — always running (`keepalive.rs`, v0.84.126)
 
 Opt-in "make sure Inspector Rust is always running": started at login **and**

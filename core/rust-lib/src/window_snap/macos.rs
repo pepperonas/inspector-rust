@@ -1,23 +1,430 @@
-//! macOS drag-to-snap monitor — **phase 2 stub.**
+//! macOS drag-to-snap: a global `CGEventTap` watches the left-mouse drag, the
+//! Accessibility API moves/resizes the dragged (focused) window, and a
+//! transparent Tauri overlay previews the target zone. All geometry math is the
+//! pure, unit-tested core in `super`.
 //!
-//! Phase 1 ships the pure geometry core + the opt-in plumbing; this is where the
-//! impure pieces land next: a global `CGEventTap` watching left-mouse drag/up +
-//! Esc (on a `CFRunLoop` thread, same pattern as `input_lock`/`gestures`),
-//! reading + moving the dragged window via the Accessibility API (AXUIElement
-//! `kAXFocusedWindow` → set `kAXPosition`/`kAXSize`), `NSScreen.visibleFrame` →
-//! [`super::cocoa_rect_to_topleft`], and a transparent click-through preview
-//! overlay window. For now `set_active` only records intent.
+//! Threading: the tap runs on a dedicated `CFRunLoop` thread (like
+//! `input_lock`/`gestures`). Window/overlay ops are marshalled to the main
+//! thread via `run_on_main_thread`; AX calls are thread-safe and run inline.
+//! Requires **Accessibility** (`expander::accessibility_granted`).
 
-use std::sync::atomic::{AtomicBool, Ordering};
+use super::{classify_zone, cocoa_rect_to_topleft, zone_rect, Rect, SnapZone};
+use objc2::encode::{Encode, Encoding};
+use objc2::runtime::AnyObject;
+use objc2::{class, msg_send};
+use parking_lot::Mutex;
+use std::ffi::{c_void, CString};
+use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use tauri::{
+    AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow,
+    WebviewWindowBuilder,
+};
 
-static ACTIVE: AtomicBool = AtomicBool::new(false);
+const OVERLAY_LABEL: &str = "snap-overlay";
 
-/// Enable/disable the drag-to-snap monitor. Phase 1: records the flag + logs
-/// (the actual CGEventTap/AX/overlay arrive in phase 2). Requires Accessibility
-/// when the real monitor lands.
-pub fn set_active(_app: &tauri::AppHandle, enabled: bool) {
-    let was = ACTIVE.swap(enabled, Ordering::SeqCst);
-    if was != enabled {
-        tracing::info!("window-snap: {} (monitor impl lands in phase 2)", if enabled { "enabled" } else { "disabled" });
+// ── CoreFoundation / CoreGraphics / AX FFI ───────────────────────────────────
+
+type CFTypeRef = *const c_void;
+type CFAllocatorRef = *const c_void;
+type CFStringRef = *const c_void;
+type CFRunLoopRef = *mut c_void;
+type CFRunLoopSourceRef = *mut c_void;
+type CFMachPortRef = *mut c_void;
+type CGEventRef = *mut c_void;
+type CGEventTapProxy = *mut c_void;
+type AXUIElementRef = *const c_void;
+type AXValueRef = *const c_void;
+
+const KCF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
+const KAX_VALUE_CGPOINT: u32 = 1;
+const KAX_VALUE_CGSIZE: u32 = 2;
+
+// CGEventType
+const EVT_LEFT_MOUSE_DOWN: u32 = 1;
+const EVT_LEFT_MOUSE_UP: u32 = 2;
+const EVT_LEFT_MOUSE_DRAGGED: u32 = 6;
+const EVT_KEY_DOWN: u32 = 10;
+const EVT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
+const EVT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
+// CGEventTapLocation / placement / options
+const CG_SESSION_TAP: u32 = 1;
+const CG_HEAD_INSERT: u32 = 0;
+const CG_TAP_LISTEN_ONLY: u32 = 1; // never consume — the window must still drag
+const CG_KEYBOARD_KEYCODE_FIELD: u32 = 9;
+const ESC_KEYCODE: i64 = 53;
+
+type CGEventTapCallBack = extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGPoint {
+    x: f64,
+    y: f64,
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct CGSize {
+    width: f64,
+    height: f64,
+}
+
+/// NSRect / CGRect for `msg_send` struct returns (origin{x,y}, size{w,h}).
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct NsRect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+unsafe impl Encode for NsRect {
+    const ENCODING: Encoding = Encoding::Struct(
+        "CGRect",
+        &[
+            Encoding::Struct("CGPoint", &[Encoding::Double, Encoding::Double]),
+            Encoding::Struct("CGSize", &[Encoding::Double, Encoding::Double]),
+        ],
+    );
+}
+
+#[link(name = "CoreFoundation", kind = "framework")]
+extern "C" {
+    static kCFAllocatorDefault: CFAllocatorRef;
+    static kCFRunLoopCommonModes: CFStringRef;
+    fn CFStringCreateWithCString(a: CFAllocatorRef, s: *const i8, enc: u32) -> CFStringRef;
+    fn CFRelease(cf: CFTypeRef);
+    fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+    fn CFRunLoopRun();
+    fn CFRunLoopStop(rl: CFRunLoopRef);
+    fn CFMachPortCreateRunLoopSource(
+        a: *mut c_void,
+        port: CFMachPortRef,
+        order: isize,
+    ) -> CFRunLoopSourceRef;
+    fn CFRunLoopAddSource(rl: CFRunLoopRef, src: CFRunLoopSourceRef, mode: CFStringRef);
+}
+
+#[link(name = "ApplicationServices", kind = "framework")]
+extern "C" {
+    fn CGEventTapCreate(
+        tap: u32,
+        place: u32,
+        options: u32,
+        events_of_interest: u64,
+        callback: CGEventTapCallBack,
+        user_info: *mut c_void,
+    ) -> CFMachPortRef;
+    fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+    fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
+
+    fn AXUIElementCreateSystemWide() -> AXUIElementRef;
+    fn AXUIElementCopyAttributeValue(
+        el: AXUIElementRef,
+        attr: CFStringRef,
+        out: *mut CFTypeRef,
+    ) -> i32;
+    fn AXUIElementSetAttributeValue(el: AXUIElementRef, attr: CFStringRef, value: CFTypeRef) -> i32;
+    fn AXValueCreate(value_type: u32, value_ptr: *const c_void) -> AXValueRef;
+}
+
+fn cfstr(s: &str) -> CFStringRef {
+    let c = CString::new(s).unwrap();
+    unsafe { CFStringCreateWithCString(kCFAllocatorDefault, c.as_ptr(), KCF_STRING_ENCODING_UTF8) }
+}
+
+// ── Screen geometry (NSScreen visibleFrame → top-left) ───────────────────────
+
+/// Visible frames of every screen, in top-left coords. NSScreen reads are
+/// thread-safe enough for geometry (no mutation); we snapshot at drag start.
+fn screens_topleft() -> Vec<Rect> {
+    unsafe {
+        let cls = class!(NSScreen);
+        let arr: *mut AnyObject = msg_send![cls, screens];
+        if arr.is_null() {
+            return Vec::new();
+        }
+        let n: usize = msg_send![arr, count];
+        if n == 0 {
+            return Vec::new();
+        }
+        // The primary screen (index 0, the menu-bar screen) defines the global
+        // flip pivot.
+        let s0: *mut AnyObject = msg_send![arr, objectAtIndex: 0usize];
+        let f0: NsRect = msg_send![s0, frame];
+        let primary_h = f0.h;
+        (0..n)
+            .map(|i| {
+                let s: *mut AnyObject = msg_send![arr, objectAtIndex: i];
+                let vf: NsRect = msg_send![s, visibleFrame];
+                cocoa_rect_to_topleft(Rect::new(vf.x, vf.y, vf.w, vf.h), primary_h)
+            })
+            .collect()
+    }
+}
+
+/// The screen (visible frame, top-left) whose bounds contain `cursor`, else the
+/// first screen (best effort for a cursor between displays).
+fn screen_for_cursor(cursor: (f64, f64), screens: &[Rect]) -> Option<Rect> {
+    let (cx, cy) = cursor;
+    screens
+        .iter()
+        .find(|r| cx >= r.x && cx < r.x + r.w && cy >= r.y && cy < r.y + r.h)
+        .or_else(|| screens.first())
+        .copied()
+}
+
+// ── Accessibility window move/resize ─────────────────────────────────────────
+
+/// The focused window of the frontmost app (caller releases). The dragged
+/// window is the frontmost/focused one.
+unsafe fn focused_window() -> Option<AXUIElementRef> {
+    let sw = AXUIElementCreateSystemWide();
+    if sw.is_null() {
+        return None;
+    }
+    let app_attr = cfstr("AXFocusedApplication");
+    let mut app: CFTypeRef = std::ptr::null();
+    let r1 = AXUIElementCopyAttributeValue(sw, app_attr, &mut app);
+    CFRelease(app_attr);
+    CFRelease(sw as CFTypeRef);
+    if r1 != 0 || app.is_null() {
+        return None;
+    }
+    let win_attr = cfstr("AXFocusedWindow");
+    let mut win: CFTypeRef = std::ptr::null();
+    let r2 = AXUIElementCopyAttributeValue(app as AXUIElementRef, win_attr, &mut win);
+    CFRelease(win_attr);
+    CFRelease(app);
+    if r2 != 0 || win.is_null() {
+        return None;
+    }
+    Some(win as AXUIElementRef)
+}
+
+/// Move + resize the focused window to `rect` (top-left coords). Position is set
+/// **before and after** size so an app that clamps size still lands at the zone
+/// origin; a fixed-size window simply ignores the size set (→ move-only), which
+/// is the desired behaviour for non-resizable windows.
+fn snap_focused_window(rect: Rect) {
+    unsafe {
+        let Some(win) = focused_window() else {
+            tracing::debug!("window-snap: no focused window to snap");
+            return;
+        };
+        let set_pos = |w: AXUIElementRef| {
+            let p = CGPoint { x: rect.x, y: rect.y };
+            let v = AXValueCreate(KAX_VALUE_CGPOINT, &p as *const _ as *const c_void);
+            let a = cfstr("AXPosition");
+            AXUIElementSetAttributeValue(w, a, v);
+            CFRelease(a);
+            CFRelease(v as CFTypeRef);
+        };
+        set_pos(win);
+        let s = CGSize { width: rect.w, height: rect.h };
+        let sv = AXValueCreate(KAX_VALUE_CGSIZE, &s as *const _ as *const c_void);
+        let sa = cfstr("AXSize");
+        AXUIElementSetAttributeValue(win, sa, sv);
+        CFRelease(sa);
+        CFRelease(sv as CFTypeRef);
+        set_pos(win);
+        CFRelease(win as CFTypeRef);
+    }
+}
+
+// ── Drag state (read by the tap callback, which can't capture) ───────────────
+
+static RUNNING: AtomicBool = AtomicBool::new(false);
+static DRAGGING: AtomicBool = AtomicBool::new(false);
+static CANCELLED: AtomicBool = AtomicBool::new(false);
+static TAP_PORT: AtomicIsize = AtomicIsize::new(0);
+static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
+static SCREENS: Mutex<Vec<Rect>> = Mutex::new(Vec::new());
+static CURRENT_ZONE: Mutex<Option<SnapZone>> = Mutex::new(None);
+static CURRENT_TARGET: Mutex<Option<Rect>> = Mutex::new(None);
+static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
+
+fn app_handle() -> Option<AppHandle> {
+    APP.lock().clone()
+}
+
+/// Position + show (or hide) the preview overlay on the main thread.
+fn update_overlay(target: Option<Rect>) {
+    let Some(app) = app_handle() else { return };
+    let _ = app.clone().run_on_main_thread(move || match target {
+        Some(r) => {
+            let win = match app.get_webview_window(OVERLAY_LABEL) {
+                Some(w) => w,
+                None => match build_overlay(&app) {
+                    Some(w) => w,
+                    None => return,
+                },
+            };
+            // Logical (points) coords match AX / NSScreen point space.
+            let _ = win.set_position(LogicalPosition::new(r.x, r.y));
+            let _ = win.set_size(LogicalSize::new(r.w.max(1.0), r.h.max(1.0)));
+            let _ = win.set_ignore_cursor_events(true);
+            let _ = win.show();
+        }
+        None => {
+            if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
+                let _ = win.hide();
+            }
+        }
+    });
+}
+
+fn build_overlay(app: &AppHandle) -> Option<WebviewWindow> {
+    match WebviewWindowBuilder::new(app, OVERLAY_LABEL, WebviewUrl::App("index.html".into()))
+        .title("Snap")
+        .inner_size(200.0, 200.0)
+        .resizable(false)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .shadow(false)
+        .visible(false)
+        .focused(false)
+        .build()
+    {
+        Ok(w) => {
+            let _ = w.set_ignore_cursor_events(true);
+            Some(w)
+        }
+        Err(e) => {
+            tracing::warn!("window-snap: overlay build failed: {e:#}");
+            None
+        }
+    }
+}
+
+extern "C" fn tap_callback(
+    _proxy: CGEventTapProxy,
+    event_type: u32,
+    event: CGEventRef,
+    _info: *mut c_void,
+) -> CGEventRef {
+    if !RUNNING.load(Ordering::Relaxed) {
+        return event;
+    }
+    match event_type {
+        EVT_TAP_DISABLED_BY_TIMEOUT | EVT_TAP_DISABLED_BY_USER_INPUT => {
+            let port = TAP_PORT.load(Ordering::SeqCst) as CFMachPortRef;
+            if !port.is_null() {
+                unsafe { CGEventTapEnable(port, true) };
+            }
+        }
+        EVT_LEFT_MOUSE_DOWN => {
+            DRAGGING.store(true, Ordering::Relaxed);
+            CANCELLED.store(false, Ordering::Relaxed);
+            *CURRENT_ZONE.lock() = None;
+            *CURRENT_TARGET.lock() = None;
+            *SCREENS.lock() = screens_topleft();
+        }
+        EVT_LEFT_MOUSE_DRAGGED => {
+            if !DRAGGING.load(Ordering::Relaxed) || CANCELLED.load(Ordering::Relaxed) {
+                return event;
+            }
+            let p = unsafe { CGEventGetLocation(event) };
+            let cursor = (p.x, p.y);
+            let screens = SCREENS.lock().clone();
+            let Some(screen) = screen_for_cursor(cursor, &screens) else {
+                return event;
+            };
+            let prev = *CURRENT_ZONE.lock();
+            let zone = classify_zone(cursor, screen, prev);
+            if zone != prev {
+                *CURRENT_ZONE.lock() = zone;
+                let target = zone.map(|z| zone_rect(z, screen));
+                *CURRENT_TARGET.lock() = target;
+                update_overlay(target);
+            }
+        }
+        EVT_LEFT_MOUSE_UP => {
+            let was_dragging = DRAGGING.swap(false, Ordering::Relaxed);
+            let cancelled = CANCELLED.swap(false, Ordering::Relaxed);
+            let target = CURRENT_TARGET.lock().take();
+            *CURRENT_ZONE.lock() = None;
+            update_overlay(None);
+            if was_dragging && !cancelled {
+                if let Some(rect) = target {
+                    snap_focused_window(rect);
+                }
+            }
+        }
+        // Esc during a drag → cancel the pending snap + hide the overlay.
+        EVT_KEY_DOWN
+            if DRAGGING.load(Ordering::Relaxed)
+                && unsafe { CGEventGetIntegerValueField(event, CG_KEYBOARD_KEYCODE_FIELD) }
+                    == ESC_KEYCODE =>
+        {
+            CANCELLED.store(true, Ordering::Relaxed);
+            *CURRENT_ZONE.lock() = None;
+            *CURRENT_TARGET.lock() = None;
+            update_overlay(None);
+        }
+        _ => {}
+    }
+    event
+}
+
+fn install_tap_thread() {
+    std::thread::Builder::new()
+        .name("ir-window-snap".into())
+        .spawn(|| unsafe {
+            let mask = (1u64 << EVT_LEFT_MOUSE_DOWN)
+                | (1u64 << EVT_LEFT_MOUSE_UP)
+                | (1u64 << EVT_LEFT_MOUSE_DRAGGED)
+                | (1u64 << EVT_KEY_DOWN);
+            let tap = CGEventTapCreate(
+                CG_SESSION_TAP,
+                CG_HEAD_INSERT,
+                CG_TAP_LISTEN_ONLY,
+                mask,
+                tap_callback,
+                std::ptr::null_mut(),
+            );
+            if tap.is_null() {
+                tracing::warn!(
+                    "window-snap: event tap unavailable (grant Accessibility to System Settings → Privacy → Accessibility)"
+                );
+                RUNNING.store(false, Ordering::SeqCst);
+                return;
+            }
+            TAP_PORT.store(tap as isize, Ordering::SeqCst);
+            let src = CFMachPortCreateRunLoopSource(std::ptr::null_mut(), tap, 0);
+            CFRunLoopAddSource(CFRunLoopGetCurrent(), src, kCFRunLoopCommonModes);
+            CGEventTapEnable(tap, true);
+            RUN_LOOP.store(CFRunLoopGetCurrent() as isize, Ordering::SeqCst);
+            tracing::info!("window-snap: drag monitor armed");
+            CFRunLoopRun();
+            RUN_LOOP.store(0, Ordering::SeqCst);
+        })
+        .ok();
+}
+
+/// Enable/disable the drag-to-snap monitor.
+pub fn set_active(app: &tauri::AppHandle, enabled: bool) {
+    if enabled {
+        if RUNNING.swap(true, Ordering::SeqCst) {
+            return; // already running
+        }
+        *APP.lock() = Some(app.clone());
+        if !crate::expander::accessibility_granted() {
+            tracing::warn!("window-snap: Accessibility not granted — snapping won't fire until it is");
+        }
+        install_tap_thread();
+    } else {
+        RUNNING.store(false, Ordering::SeqCst);
+        let port = TAP_PORT.swap(0, Ordering::SeqCst) as CFMachPortRef;
+        if !port.is_null() {
+            unsafe { CGEventTapEnable(port, false) };
+        }
+        let rl = RUN_LOOP.swap(0, Ordering::SeqCst);
+        if rl != 0 {
+            unsafe { CFRunLoopStop(rl as CFRunLoopRef) };
+        }
+        update_overlay(None);
     }
 }

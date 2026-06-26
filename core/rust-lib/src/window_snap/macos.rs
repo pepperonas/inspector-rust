@@ -320,7 +320,9 @@ extern "C" fn tap_callback(
             CANCELLED.store(false, Ordering::Relaxed);
             *CURRENT_ZONE.lock() = None;
             *CURRENT_TARGET.lock() = None;
-            *SCREENS.lock() = screens_topleft();
+            let s = screens_topleft();
+            tracing::debug!("snap: mousedown, {} screen(s); first={:?}", s.len(), s.first());
+            *SCREENS.lock() = s;
         }
         EVT_LEFT_MOUSE_DRAGGED => {
             if !DRAGGING.load(Ordering::Relaxed) || CANCELLED.load(Ordering::Relaxed) {
@@ -335,6 +337,7 @@ extern "C" fn tap_callback(
             let prev = *CURRENT_ZONE.lock();
             let zone = classify_zone(cursor, screen, prev);
             if zone != prev {
+                tracing::debug!("snap: zone {prev:?} -> {zone:?} cursor=({:.0},{:.0}) screen={screen:?}", cursor.0, cursor.1);
                 *CURRENT_ZONE.lock() = zone;
                 let target = zone.map(|z| zone_rect(z, screen));
                 *CURRENT_TARGET.lock() = target;
@@ -347,6 +350,7 @@ extern "C" fn tap_callback(
             let target = CURRENT_TARGET.lock().take();
             *CURRENT_ZONE.lock() = None;
             update_overlay(None);
+            tracing::debug!("snap: mouseup dragging={was_dragging} cancelled={cancelled} target={target:?}");
             if was_dragging && !cancelled {
                 if let Some(rect) = target {
                     snap_focused_window(rect);

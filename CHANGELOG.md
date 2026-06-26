@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.134] — 2026-06-26
+
+### Fixed
+
+- **Window snapping — top-edge maximize vs. Mission Control.** Dragging a window
+  all the way to the menu bar triggers macOS's own Mission Control (a system
+  gesture a listen-only tap can't suppress). The **maximize zone is now a deeper
+  band that activates *below* the menu bar** (`MAXIMIZE_ENTER_PX`), so a normal
+  drag registers maximize before reaching the menu bar — release there and it
+  maximizes cleanly. Once active it **latches** (`MAXIMIZE_EXIT_PX`) even if the
+  cursor overshoots up into the menu bar, so a fast overshoot still maximizes on
+  release. Left/right halves are unchanged. (Diagnostic drag logs demoted to
+  `debug`.)
+
 ## [0.84.133] — 2026-06-26
 
 ### Added

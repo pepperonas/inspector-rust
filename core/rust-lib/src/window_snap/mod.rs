@@ -49,12 +49,22 @@ pub enum SnapZone {
     Right,
 }
 
-/// Distance (px) from an edge at which a zone **activates**.
+/// Distance (px) from a **side** edge at which a zone **activates**.
 pub const ENTER_PX: f64 = 8.0;
-/// Larger distance at which an *already-active* zone **deactivates** —
-/// hysteresis so jitter / a fast pass near the edge doesn't fl/ make a zone
-/// flicker or "stick".
+/// Larger distance at which an *already-active* side zone **deactivates** —
+/// hysteresis so jitter / a fast pass near the edge doesn't make a zone flicker
+/// or "stick".
 pub const EXIT_PX: f64 = 28.0;
+/// **Maximize** uses a *deeper* top band than the sides so you can release it
+/// **below the menu bar** — dragging a window all the way to the menu bar
+/// triggers macOS's own Mission Control (a system gesture a listen-only tap
+/// can't suppress). The deep band means a normal drag registers maximize well
+/// before reaching the menu bar.
+pub const MAXIMIZE_ENTER_PX: f64 = 38.0;
+/// Once maximize is active it **latches** — even if the cursor overshoots up
+/// into the menu bar (`top_d` < 0) — so a fast overshoot still maximizes on
+/// release instead of dropping the zone.
+pub const MAXIMIZE_EXIT_PX: f64 = 70.0;
 
 /// Which snap zone (if any) the `cursor` is engaging, given the `screen`'s
 /// visible frame (top-left coords) and the `current` zone for hysteresis.
@@ -75,10 +85,19 @@ pub fn classify_zone(cursor: (f64, f64), screen: Rect, current: Option<SnapZone>
     let left_d = cx - screen.x;
     let right_d = (screen.x + screen.w) - cx;
     let top_d = cy - screen.y;
-    // Hysteresis: keep the current zone until the cursor moves past EXIT_PX.
+    // Hysteresis for the side edges: keep the current zone until the cursor
+    // moves past EXIT_PX.
     let th = |z: SnapZone| if current == Some(z) { EXIT_PX } else { ENTER_PX };
 
-    if top_d <= th(SnapZone::Maximize) {
+    // Maximize: a deep top band that activates **below** the menu bar
+    // (`top_d >= 0`), and once active **latches** even into the menu bar
+    // (`top_d` may go negative) so an overshoot still maximizes.
+    let max_active = if current == Some(SnapZone::Maximize) {
+        top_d <= MAXIMIZE_EXIT_PX
+    } else {
+        (0.0..=MAXIMIZE_ENTER_PX).contains(&top_d)
+    };
+    if max_active {
         return Some(SnapZone::Maximize);
     }
     if left_d <= th(SnapZone::Left) {
@@ -181,6 +200,22 @@ mod tests {
         assert_eq!(classify_zone((15.0, 400.0), SCREEN, None), None);
         // Past EXIT → releases.
         assert_eq!(classify_zone((40.0, 400.0), SCREEN, Some(SnapZone::Left)), None);
+    }
+
+    #[test]
+    fn maximize_band_is_below_the_menu_bar_and_latches_through_it() {
+        // Cold: cursor up in the menu bar (top_d < 0) → NOT maximize, so the
+        // user can reach the menu bar without us fighting macOS Mission Control.
+        assert_eq!(classify_zone((700.0, -10.0), SCREEN, None), None);
+        // Cold: in the deep band below the visible-frame top → maximize.
+        assert_eq!(classify_zone((700.0, 30.0), SCREEN, None), Some(SnapZone::Maximize));
+        // Once active, overshooting up into the menu bar keeps it latched.
+        assert_eq!(
+            classify_zone((700.0, -10.0), SCREEN, Some(SnapZone::Maximize)),
+            Some(SnapZone::Maximize)
+        );
+        // Dragging well back down releases it.
+        assert_eq!(classify_zone((700.0, 200.0), SCREEN, Some(SnapZone::Maximize)), None);
     }
 
     #[test]

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.141] — 2026-06-27
+
+### Changed
+
+- **Window palette: proper honeycomb.** The hex grid now renders as a real tessellating **pointy-top honeycomb** (rows offset half a cell, interlocking with a 0.75·height row pitch — the classic honeycomb in the reference) with regular, undistorted cells (natural-aspect viewBox, `preserveAspectRatio="meet"`) instead of the previous stretched flat-top tiling.
+
 ## [0.84.140] — 2026-06-27
 
 ### Changed

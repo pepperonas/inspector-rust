@@ -17,11 +17,21 @@ describe("hexCenters", () => {
     expect(hexCenters(8, 0, 800, 600)).toHaveLength(0);
   });
 
-  it("offsets odd columns below even columns (flat-top tiling)", () => {
-    const cells = hexCenters(2, 4, 200, 400);
-    const even = cells.find((c) => c.col === 0 && c.row === 0)!;
-    const odd = cells.find((c) => c.col === 1 && c.row === 0)!;
-    expect(odd.cy).toBeGreaterThan(even.cy);
+  it("offsets odd rows to the right (pointy-top honeycomb)", () => {
+    const cells = hexCenters(4, 2, 400, 200);
+    const even = cells.find((c) => c.row === 0 && c.col === 0)!;
+    const odd = cells.find((c) => c.row === 1 && c.col === 0)!;
+    expect(odd.cx).toBeGreaterThan(even.cx);
+  });
+
+  it("rows interlock vertically (pitch < hex height)", () => {
+    // Row pitch is 0.75·hexHeight, so row 1's center is less than a full hex
+    // height below row 0 — that's what makes the cells interlock.
+    const cells = hexCenters(3, 3, 300, 300);
+    const r0 = cells.find((c) => c.row === 0 && c.col === 0)!;
+    const r1 = cells.find((c) => c.row === 1 && c.col === 0)!;
+    const hHex = 300 / (0.75 * 3 + 0.25);
+    expect(r1.cy - r0.cy).toBeCloseTo(0.75 * hHex, 4);
   });
 
   it("keeps all centers inside the box", () => {

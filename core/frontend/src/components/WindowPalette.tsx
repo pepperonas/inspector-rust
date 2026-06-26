@@ -97,15 +97,20 @@ export function WindowPalette() {
   const cols = ctx?.cols ?? 8;
   const rows = ctx?.rows ?? 6;
 
-  // Grid box sized to the target screen's aspect ratio.
-  const boxW = 276;
-  const aspect = ctx && ctx.screen_w > 0 ? ctx.screen_h / ctx.screen_w : 0.6;
-  const boxH = Math.max(120, Math.min(190, boxW * aspect));
+  // Grid box at the honeycomb's *natural* aspect so pointy-top cells stay
+  // regular (rendered with preserveAspectRatio="meet", not stretched). For a
+  // regular hex hexHeight = wHex·2/√3, so:
+  //   boxH/boxW = (2/√3)·(0.75·rows + 0.25) / (cols + 0.5)
+  const boxW = 284;
+  const boxH = boxW * ((2 / Math.sqrt(3)) * (0.75 * rows + 0.25)) / (cols + 0.5);
 
   const cells = useMemo(() => hexCenters(cols, rows, boxW, boxH), [cols, rows, boxW, boxH]);
-  // Flat-top cells: width = cellW (point-to-point), height = cellH (flat-to-flat).
-  const cellRx = (boxW / cols) * 0.5;
-  const cellRy = (boxH / (rows + 0.5)) * 0.62;
+  const wHex = boxW / (cols + 0.5);
+  const hHex = boxH / (0.75 * rows + 0.25);
+  // Pointy-top: flat-to-flat width = √3·rx, point-to-point height = 2·ry. Touch
+  // at wHex / hHex; ×0.94 leaves the thin honeycomb gap.
+  const cellRx = (wHex / Math.sqrt(3)) * 0.94;
+  const cellRy = (hHex / 2) * 0.94;
 
   const presets = optionDown ? QUARTERS : HALVES;
 
@@ -117,8 +122,13 @@ export function WindowPalette() {
     const svg = svgRef.current;
     if (!svg) return null;
     const r = svg.getBoundingClientRect();
-    const px = ((e.clientX - r.left) / r.width) * boxW;
-    const py = ((e.clientY - r.top) / r.height) * boxH;
+    // The viewBox is fit with preserveAspectRatio="meet" → it's scaled
+    // uniformly + centred (letterboxed), so undo that to get viewBox coords.
+    const s = Math.min(r.width / boxW, r.height / boxH);
+    const offX = (r.width - boxW * s) / 2;
+    const offY = (r.height - boxH * s) / 2;
+    const px = (e.clientX - r.left - offX) / s;
+    const py = (e.clientY - r.top - offY) / s;
     const c = nearestCell(cells, px, py);
     return c ? { col: c.col, row: c.row } : null;
   };
@@ -170,7 +180,7 @@ export function WindowPalette() {
       <svg
         ref={svgRef}
         viewBox={`0 0 ${boxW} ${boxH}`}
-        preserveAspectRatio="none"
+        preserveAspectRatio="xMidYMid meet"
         className="w-full flex-1 touch-none select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}

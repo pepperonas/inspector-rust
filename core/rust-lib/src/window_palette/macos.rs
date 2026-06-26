@@ -369,6 +369,9 @@ fn show_window(app: &AppHandle, x: f64, y: f64) {
                 .shadow(false)
                 .visible(false)
                 .focused(false)
+                // Deliver the first click straight to the hex grid instead of
+                // just activating the window — direct control, no focus-click.
+                .accept_first_mouse(true)
                 .build()
             {
                 Ok(w) => w,

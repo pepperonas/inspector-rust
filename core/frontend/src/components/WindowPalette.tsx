@@ -56,6 +56,7 @@ export function WindowPalette() {
   const [ctx, setCtx] = useState<PaletteContext | null>(null);
   const [optionDown, setOptionDown] = useState(false);
   const [drag, setDrag] = useState<{ a: Cell; b: Cell } | null>(null);
+  const [showSeq, setShowSeq] = useState(0); // bumps each show → replays entrance
   const svgRef = useRef<SVGSVGElement>(null);
   const draggingRef = useRef(false);
 
@@ -65,6 +66,7 @@ export function WindowPalette() {
       .catch(() => {});
     setDrag(null);
     draggingRef.current = false;
+    setShowSeq((s) => s + 1);
   }, []);
 
   useEffect(() => {
@@ -101,8 +103,9 @@ export function WindowPalette() {
   const boxH = Math.max(120, Math.min(190, boxW * aspect));
 
   const cells = useMemo(() => hexCenters(cols, rows, boxW, boxH), [cols, rows, boxW, boxH]);
-  const cellRx = (boxW / (cols + 0.5)) * 0.52;
-  const cellRy = (boxH / rows) * 0.56;
+  // Flat-top cells: width = cellW (point-to-point), height = cellH (flat-to-flat).
+  const cellRx = (boxW / cols) * 0.5;
+  const cellRy = (boxH / (rows + 0.5)) * 0.62;
 
   const presets = optionDown ? QUARTERS : HALVES;
 
@@ -144,7 +147,10 @@ export function WindowPalette() {
   };
 
   return (
-    <div className="flex h-screen w-screen flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-2.5 text-[var(--color-fg)] shadow-2xl backdrop-blur">
+    <div
+      key={showSeq}
+      className="wp-pop flex h-screen w-screen flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-2.5 text-[var(--color-fg)] shadow-2xl backdrop-blur"
+    >
       {/* Preset row */}
       <div className="flex items-center justify-between gap-1">
         {presets.map((p) => (
@@ -153,7 +159,7 @@ export function WindowPalette() {
             type="button"
             title={p.label}
             onClick={() => apply(p.frac)}
-            className="group flex h-9 flex-1 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] hover:border-[var(--color-accent)]"
+            className="group flex h-9 flex-1 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:border-[var(--color-accent)]"
           >
             <PresetGlyph frac={p.frac} />
           </button>
@@ -175,10 +181,11 @@ export function WindowPalette() {
           return (
             <polygon
               key={`${c.col}-${c.row}`}
+              className="wp-cell"
               points={hexPolygon(c.cx, c.cy, cellRx, cellRy)}
               fill={on ? "var(--color-accent)" : "var(--color-bg)"}
-              fillOpacity={on ? 0.85 : 0.5}
-              stroke="var(--color-border)"
+              fillOpacity={on ? 0.9 : 0.45}
+              stroke={on ? "var(--color-accent)" : "var(--color-border)"}
               strokeWidth={1}
               vectorEffect="non-scaling-stroke"
             />

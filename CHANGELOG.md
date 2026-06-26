@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.140] — 2026-06-27
+
+### Changed
+
+- **Window palette polish.** Direct control (`accept_first_mouse`) — the hex grid responds to the first click/drag without a focus-click first. Hexagons are now **flat-top, right-pointing** with a finer default grid (12×8), and the palette has a subtle spring entrance + smooth cell-selection transitions (`prefers-reduced-motion`-aware).
+
 ## [0.84.139] — 2026-06-27
 
 ### Fixed

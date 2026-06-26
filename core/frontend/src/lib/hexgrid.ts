@@ -37,12 +37,15 @@ export interface FractionRect {
 export function hexCenters(cols: number, rows: number, w: number, h: number): HexCell[] {
   const out: HexCell[] = [];
   if (cols <= 0 || rows <= 0) return out;
-  const cellW = w / (cols + 0.5);
-  const cellH = h / rows;
+  // Flat-top (right-pointing) hexes → **column**-offset tiling: odd columns are
+  // shifted down half a cell; the extra half-cell of height is reserved so the
+  // shifted column still fits.
+  const cellW = w / cols;
+  const cellH = h / (rows + 0.5);
   for (let row = 0; row < rows; row++) {
-    const offset = (row % 2) * (cellW / 2);
     for (let col = 0; col < cols; col++) {
-      out.push({ col, row, cx: offset + (col + 0.5) * cellW, cy: (row + 0.5) * cellH });
+      const offset = (col % 2) * (cellH / 2);
+      out.push({ col, row, cx: (col + 0.5) * cellW, cy: offset + (row + 0.5) * cellH });
     }
   }
   return out;
@@ -88,14 +91,14 @@ export function boundingFraction(
 }
 
 /**
- * SVG `points` string for a pointy-top hexagon centered at `(cx, cy)` with
- * radii `rx`/`ry` (allows slightly squashed hexes to match the cell aspect).
+ * SVG `points` string for a **flat-top, right-pointing** hexagon centered at
+ * `(cx, cy)` with radii `rx`/`ry` (allows slightly squashed hexes to match the
+ * cell aspect). First vertex points right (0°), then every 60°.
  */
 export function hexPolygon(cx: number, cy: number, rx: number, ry: number): string {
   const pts: string[] = [];
   for (let i = 0; i < 6; i++) {
-    // Pointy-top: first vertex straight up, then every 60°.
-    const angle = (Math.PI / 180) * (60 * i - 90);
+    const angle = (Math.PI / 180) * (60 * i);
     const x = cx + rx * Math.cos(angle);
     const y = cy + ry * Math.sin(angle);
     pts.push(`${x.toFixed(2)},${y.toFixed(2)}`);

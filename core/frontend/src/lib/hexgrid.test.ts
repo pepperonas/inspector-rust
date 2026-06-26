@@ -17,11 +17,11 @@ describe("hexCenters", () => {
     expect(hexCenters(8, 0, 800, 600)).toHaveLength(0);
   });
 
-  it("offsets odd rows to the right of even rows", () => {
-    const cells = hexCenters(4, 2, 400, 200);
-    const even = cells.find((c) => c.row === 0 && c.col === 0)!;
-    const odd = cells.find((c) => c.row === 1 && c.col === 0)!;
-    expect(odd.cx).toBeGreaterThan(even.cx);
+  it("offsets odd columns below even columns (flat-top tiling)", () => {
+    const cells = hexCenters(2, 4, 200, 400);
+    const even = cells.find((c) => c.col === 0 && c.row === 0)!;
+    const odd = cells.find((c) => c.col === 1 && c.row === 0)!;
+    expect(odd.cy).toBeGreaterThan(even.cy);
   });
 
   it("keeps all centers inside the box", () => {

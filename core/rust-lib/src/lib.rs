@@ -367,25 +367,32 @@ pub fn run(context: tauri::Context<Wry>) {
                             hotkey::mark_popup_focused();
                         }
                         WindowEvent::Focused(false) => {
-                            // PRIMARY guard (Windows): WebView2 bounces focus
-                            // between its internal child HWNDs and the popup's
-                            // host HWND while the popup is still the active
-                            // foreground app. Those bounces arrive as Focused(false)
-                            // and must NOT auto-hide the popup. If the OS foreground
-                            // window still belongs to our process, the loss is an
-                            // internal WebView2/compositor transfer — skip the hide.
-                            // A real dismiss (click-away, Alt+Tab) always brings a
-                            // window from a *different* process to the front.
+                            // Windows: never decide synchronously — the WebView2
+                            // focus bounce makes the instant state unreliable
+                            // (it fires Focused(false) 700–900 ms post-show, past
+                            // any fixed grace; the foreground PID snapshot is racy).
+                            // Instead **confirm after a short settle**: a transient
+                            // bounce resolves (foreground returns to us / Focused
+                            // (true) re-fires, bumping SHOW_GEN) and cancels the
+                            // hide; a real click-away keeps a foreign window
+                            // foreground past the settle and proceeds. A
+                            // Focused(false) before the first Focused(true) is the
+                            // SetForegroundWindow-failed show-race → ignored.
                             #[cfg(target_os = "windows")]
-                            if hotkey::foreground_belongs_to_our_process() {
-                                tracing::debug!("Focused(false) suppressed — foreground still in our process (WebView2 focus bounce)");
-                                return;
+                            {
+                                // `suppress_hide` is used on the macOS/Linux arm
+                                // below (cfg'd out here) + read inside the settle
+                                // re-check from state; touch it so the capture
+                                // isn't flagged unused on Windows.
+                                let _ = &suppress_hide;
+                                if hotkey::popup_was_focused() {
+                                    hotkey::schedule_settle_hide(&app_handle);
+                                }
                             }
-                            // SECONDARY guard: don't auto-hide if a modal (file
-                            // dialog) owns focus, or while still within the
-                            // post-show grace window. `within_show_grace` handles
-                            // both the short flicker guard and the no-focus-yet
-                            // safety net — see its doc comment in hotkey.rs.
+                            // macOS / Linux: no focus bounce — keep the immediate
+                            // hide, gated by the modal-suppress flag + post-show
+                            // grace window.
+                            #[cfg(not(target_os = "windows"))]
                             if !suppress_hide.load(Ordering::Relaxed)
                                 && !hotkey::within_show_grace()
                             {

@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.131] — 2026-06-26
+
+### Fixed
+
+- **Windows: popup opening then closing by itself — durable fix.** The previous
+  guards raced non-deterministic WebView2 focus bounces (which fire `Focused(false)`
+  700–900 ms post-show, past any fixed grace) with a single foreground-PID
+  snapshot, so it eventually mis-fired. Windows now **confirms after a settle**
+  instead of deciding instantly: a `Focused(false)` schedules a re-check ~250 ms
+  later; a monotonic generation counter (bumped on every show + focus) cancels
+  the hide if anything intervened (a resolving bounce / re-show), while a real
+  click-away — which keeps a foreign window foreground past the settle — still
+  hides. A focus-loss before the first focus (the `SetForegroundWindow`-failed
+  show-race) is ignored. Plus **foreground hardening**: the popup now forces
+  itself to the foreground via the `AttachThreadInput` trick so it reliably
+  activates from the tray process. Pure decision logic unit-tested;
+  compile-validated against `windows` 0.61; macOS/Linux unchanged.
+
 ## [0.84.130] — 2026-06-25
 
 ### Changed

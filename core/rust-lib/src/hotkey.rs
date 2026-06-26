@@ -1,7 +1,7 @@
 use anyhow::{anyhow, Context, Result};
 use parking_lot::Mutex;
 use std::str::FromStr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager, Monitor, PhysicalPosition, WebviewWindow};
@@ -29,6 +29,20 @@ static LAST_SHOWN_AT: Mutex<Option<Instant>> = Mutex::new(None);
 /// receiving focus. A `Focused(false)` that arrives before any `Focused(true)`
 /// is always spurious — we must not auto-hide on it.
 static POPUP_HAS_FOCUS: AtomicBool = AtomicBool::new(false);
+
+/// Monotonic "popup lifecycle" generation, bumped on every show **and** every
+/// `Focused(true)`. The Windows settle-confirm captures it on a `Focused(false)`
+/// and, ~`SETTLE_MS` later, only hides if it is **unchanged** — so any
+/// intervening re-show or focus-regain (a resolving WebView2 focus bounce)
+/// cancels the pending hide. Replaces the brittle fixed-grace-window race.
+static SHOW_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// How long the Windows `Focused(false)` handler waits before *confirming* a
+/// hide. A transient focus bounce resolves (foreground returns to our process /
+/// `Focused(true)` re-fires) within this window → the hide is cancelled. A real
+/// click-away keeps a foreign window foreground past it → the hide proceeds.
+#[cfg(target_os = "windows")]
+const SETTLE_MS: u64 = 250;
 
 /// Short grace window: ignore `Focused(false)` for this many ms after show
 /// even if `Focused(true)` somehow arrives very quickly and then flickers.
@@ -74,9 +88,71 @@ pub fn within_show_grace() -> bool {
 }
 
 /// Record that the popup window just received `Focused(true)`.  Called from
-/// the `on_window_event` handler in `lib.rs`.
+/// the `on_window_event` handler in `lib.rs`. Bumps [`SHOW_GEN`] so a pending
+/// Windows settle-confirm (from a just-prior bounce) is cancelled.
 pub fn mark_popup_focused() {
     POPUP_HAS_FOCUS.store(true, Ordering::Relaxed);
+    SHOW_GEN.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Has the popup received a genuine `Focused(true)` since the last show? The
+/// Windows handler ignores a `Focused(false)` that arrives before the first
+/// focus (the `SetForegroundWindow`-failed show-race), since it's never a
+/// real dismiss.
+#[cfg(target_os = "windows")]
+pub fn popup_was_focused() -> bool {
+    POPUP_HAS_FOCUS.load(Ordering::Relaxed)
+}
+
+/// Pure decision for the Windows settle-confirm: hide only if nothing happened
+/// since the `Focused(false)` (generation unchanged), the user hasn't armed a
+/// modal (`suppressed`), the OS foreground is **still** a foreign process, and
+/// the popup is still visible. Unit-tested; the runtime just feeds live values.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn settle_should_hide(
+    captured_gen: u64,
+    current_gen: u64,
+    suppressed: bool,
+    foreground_is_ours: bool,
+    visible: bool,
+) -> bool {
+    captured_gen == current_gen && !suppressed && !foreground_is_ours && visible
+}
+
+/// Windows: defer the hide decision. On a `Focused(false)`, capture the current
+/// generation and re-evaluate ~`SETTLE_MS` later on the main thread — confirming
+/// a real dismiss vs. a transient WebView2 focus bounce (see [`settle_should_hide`]).
+#[cfg(target_os = "windows")]
+pub fn schedule_settle_hide(app: &AppHandle) {
+    use tauri::Manager as _;
+    let captured = SHOW_GEN.load(Ordering::Relaxed);
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(SETTLE_MS));
+        let app2 = app.clone();
+        let _ = app.run_on_main_thread(move || {
+            let suppressed = app2
+                .try_state::<crate::ui_state::UiState>()
+                .map(|s| s.suppress_hide.load(Ordering::Relaxed))
+                .unwrap_or(false);
+            let visible = app2
+                .get_webview_window(POPUP_LABEL)
+                .and_then(|w| w.is_visible().ok())
+                .unwrap_or(false);
+            if settle_should_hide(
+                captured,
+                SHOW_GEN.load(Ordering::Relaxed),
+                suppressed,
+                foreground_belongs_to_our_process(),
+                visible,
+            ) {
+                tracing::debug!("settle-confirm: real dismiss → hiding popup");
+                hide_popup(&app2);
+            } else {
+                tracing::debug!("settle-confirm: focus bounce / re-show → keeping popup");
+            }
+        });
+    });
 }
 
 /// On Windows, WebView2 routes focus between its internal child HWNDs and the
@@ -104,12 +180,50 @@ pub fn foreground_belongs_to_our_process() -> bool {
     }
 }
 
+/// Windows: reliably bring the popup to the foreground from our background
+/// (tray) process. A plain `SetForegroundWindow` from a non-foreground process
+/// is usually blocked by the OS foreground lock — the window then shows *behind*
+/// the active app, never activates, and emits the spurious `Focused(false)`
+/// noise that the settle-confirm has to clean up. The standard workaround:
+/// briefly `AttachThreadInput` to the current foreground window's thread so our
+/// `SetForegroundWindow` is honoured, then detach. Best-effort — falls back to a
+/// plain `set_focus` if anything is unavailable.
+#[cfg(target_os = "windows")]
+fn force_foreground(window: &WebviewWindow) {
+    use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+    };
+    let Ok(hwnd) = window.hwnd() else {
+        let _ = window.set_focus();
+        return;
+    };
+    unsafe {
+        let fg = GetForegroundWindow();
+        let our_thread = GetCurrentThreadId();
+        let fg_thread = GetWindowThreadProcessId(fg, None);
+        let attached = !fg.0.is_null()
+            && fg_thread != 0
+            && fg_thread != our_thread
+            && AttachThreadInput(fg_thread, our_thread, true).as_bool();
+        let _ = SetForegroundWindow(hwnd);
+        let _ = BringWindowToTop(hwnd);
+        if attached {
+            let _ = AttachThreadInput(fg_thread, our_thread, false);
+        }
+    }
+    let _ = window.set_focus();
+}
+
 /// Stamp "popup shown now" so the auto-hide grace window starts. Resets the
 /// focus-received flag so stale `Focused(false)` events can't auto-close the
 /// freshly opened popup before it receives `Focused(true)`.
 fn mark_shown() {
     POPUP_HAS_FOCUS.store(false, Ordering::Relaxed);
     *LAST_SHOWN_AT.lock() = Some(Instant::now());
+    // Bump the generation so a pending settle-confirm from a previous lifecycle
+    // can never hide the freshly-shown popup.
+    SHOW_GEN.fetch_add(1, Ordering::Relaxed);
 }
 
 use crate::db::DbHandle;
@@ -1097,6 +1211,20 @@ mod tests {
     use super::*;
 
     #[test]
+    fn settle_confirm_hides_only_on_a_stable_foreign_dismiss() {
+        // Real click-away: gen unchanged, foreground foreign, visible, not modal → hide.
+        assert!(settle_should_hide(5, 5, false, false, true));
+        // Focus bounce resolved: foreground returned to our process → keep.
+        assert!(!settle_should_hide(5, 5, false, true, true));
+        // Re-shown / re-focused during the settle (generation bumped) → keep.
+        assert!(!settle_should_hide(5, 6, false, false, true));
+        // A modal (file dialog) is up → keep.
+        assert!(!settle_should_hide(5, 5, true, false, true));
+        // Already hidden somehow → nothing to do.
+        assert!(!settle_should_hide(5, 5, false, false, false));
+    }
+
+    #[test]
     fn action_registry_defaults_parse_unique_and_roundtrip() {
         use std::collections::HashSet;
         let mut keys = HashSet::new();
@@ -1435,6 +1563,12 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     mark_shown();
 
     window.show()?;
+    // On Windows, force the foreground via the AttachThreadInput trick so the
+    // popup reliably activates (a background-process SetForegroundWindow is
+    // otherwise blocked); elsewhere a plain set_focus is correct.
+    #[cfg(target_os = "windows")]
+    force_foreground(window);
+    #[cfg(not(target_os = "windows"))]
     window.set_focus()?;
     Ok(())
 }

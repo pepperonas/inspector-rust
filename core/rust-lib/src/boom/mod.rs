@@ -245,9 +245,6 @@ pub fn gains_for(name: &str) -> Option<[f32; 10]> {
 // ── Config ───────────────────────────────────────────────────────────────────
 
 const KEY_CONFIG: &str = "boom.config";
-/// The user's real output device UID (persisted for stale-default recovery).
-#[cfg(target_os = "macos")]
-const KEY_REAL_OUTPUT: &str = "boom.real_output";
 
 /// Per-effect enhancement intensities (0..1). Stored now; consumed by the
 /// realtime engine in phase 1b.
@@ -380,14 +377,12 @@ pub fn apply(db: &DbHandle) {
     let cfg = BoomConfig::load(db);
     #[cfg(target_os = "macos")]
     {
-        // The user's real output device, persisted so a stale "boom Audio is the
-        // default" state (after an unclean exit) recovers to *their* device — not
-        // an arbitrary one.
-        let preferred = crate::settings::get(db, KEY_REAL_OUTPUT).ok().flatten();
-        macos::reset_stale_default(preferred.as_deref());
-        if let Some(uid) = macos::set_active(&cfg) {
-            let _ = crate::settings::set(db, KEY_REAL_OUTPUT, &uid);
-        }
+        // Clear a stale "boom Audio is the default output" state (after an unclean
+        // exit) before (re)starting, so audio is never left silent. When boom is
+        // toggled normally the default is already the user's real device, which
+        // start_locked captures — so boom EQs whatever output they have selected.
+        macos::reset_stale_default();
+        macos::set_active(&cfg);
     }
     #[cfg(not(target_os = "macos"))]
     {

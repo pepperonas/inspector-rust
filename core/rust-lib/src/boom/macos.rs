@@ -501,26 +501,18 @@ unsafe fn pick_real_output(exclude: AudioObjectID) -> AudioObjectID {
     fallback
 }
 
-unsafe fn device_uid_string(dev: AudioObjectID) -> Option<String> {
-    let cf = string_prop(dev, PROP_DEVICE_UID)?;
-    let s = cfstring_to_string(cf);
-    CFRelease(cf);
-    s
-}
-
 /// If the default output is stuck on boom Audio (e.g. after an unclean exit
-/// while boom was on), reset it to a real device so audio isn't silent —
-/// preferring the persisted real device (the user's last choice), else built-in.
-pub(crate) fn reset_stale_default(preferred_uid: Option<&str>) {
+/// while boom was on), reset it to a real device so audio isn't silent — the
+/// built-in output (safe, always present), never an arbitrary monitor. When
+/// boom is toggled normally (from off), the default is already the user's real
+/// device, so this is only a crash-recovery safety net.
+pub(crate) fn reset_stale_default() {
     unsafe {
         let boom_dev = find_device_by_uid("BoomAudio_UID");
         if boom_dev == 0 || default_output() != boom_dev {
             return;
         }
-        let target = preferred_uid
-            .map(|u| find_device_by_uid(u))
-            .filter(|&d| d != 0 && d != boom_dev && device_has_output(d))
-            .unwrap_or_else(|| pick_real_output(boom_dev));
+        let target = pick_real_output(boom_dev);
         if target != 0 {
             set_default_output(target);
             tracing::info!("boom: reset stale default → {target}");
@@ -802,9 +794,8 @@ unsafe fn stop_locked(eng: &mut Engine) {
 // ── Public API (called from `boom::apply` + the IPC) ─────────────────────────
 
 /// Start/stop the engine + push the latest DSP params to match `cfg`.
-/// Start/stop the engine + push params. Returns the real output device's UID
-/// when it started, so the caller can persist it (for stale-default recovery).
-pub(crate) fn set_active(cfg: &BoomConfig) -> Option<String> {
+/// Start/stop the engine + push params.
+pub(crate) fn set_active(cfg: &BoomConfig) {
     let mut slot = ENGINE.lock();
     if slot.is_none() {
         *slot = Some(Engine {
@@ -818,13 +809,9 @@ pub(crate) fn set_active(cfg: &BoomConfig) -> Option<String> {
 
     if cfg.enabled && ENGINE_ENABLED {
         unsafe { start_locked(eng) };
-        eng.session
-            .as_ref()
-            .and_then(|s| unsafe { device_uid_string(s.real_dev) })
     } else {
         // Engine off (or disabled): make sure nothing is touching the audio path.
         unsafe { stop_locked(eng) };
-        None
     }
 }
 

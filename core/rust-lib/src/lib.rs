@@ -683,8 +683,15 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "linux")]
             commands::linux_web_hotkey_to_gsettings,
         ])
-        .run(context)
-        .expect("error while running Inspector Rust");
+        .build(context)
+        .expect("error while building Inspector Rust")
+        .run(|_app, event| {
+            // Tear the boom audio engine down on quit so the system output is
+            // never left muted (muted tap = our IOProc is the only path).
+            if matches!(event, tauri::RunEvent::Exit) {
+                boom::shutdown();
+            }
+        });
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {

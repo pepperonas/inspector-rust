@@ -31,8 +31,10 @@ static CB_IN_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_IN_CH: AtomicU32 = AtomicU32::new(0);
 static CB_IN_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted (safe), 1 = muted (only processed audio). Start unmuted.
-const MUTE_BEHAVIOR: i64 = 0;
+/// 0 = unmuted (safe, but doubles with the original → echo/lag), 1 = muted (only
+/// our processed signal is audible). Verified the render is clean (tap delivers
+/// real stereo audio, IOProc fires) → muted for the proper single-path sound.
+const MUTE_BEHAVIOR: i64 = 1;
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 

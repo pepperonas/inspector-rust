@@ -21,7 +21,15 @@ use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use parking_lot::Mutex;
 use std::ffi::{c_void, CString};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
+
+// ── Realtime diagnostics (written from the audio thread, read by a logger) ───
+static CB_COUNT: AtomicU64 = AtomicU64::new(0);
+static CB_IN_NULL: AtomicBool = AtomicBool::new(false);
+static CB_IN_BYTES: AtomicU32 = AtomicU32::new(0);
+static CB_IN_CH: AtomicU32 = AtomicU32::new(0);
+static CB_IN_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
 /// 0 = unmuted (safe), 1 = muted (only processed audio). Start unmuted.
 const MUTE_BEHAVIOR: i64 = 0;
@@ -245,11 +253,12 @@ unsafe fn build_aggregate(tap_uid: CFStringRef, out_uid: CFStringRef) -> Option<
     let k_taps = cfstr("taps");
     let k_subs = cfstr("subdevices");
     let k_main = cfstr("master");
+    let k_autostart = cfstr("tapautostart"); // feed the tap into the IOProc
     let v_uid = cfstr("io.celox.inspector-rust.boom");
     let v_name = cfstr("InspectorRust boom");
 
-    let keys = [k_uid, k_name, k_priv, k_taps, k_subs, k_main];
-    let vals = [v_uid, v_name, kCFBooleanTrue, tap_list, dev_list, out_uid];
+    let keys = [k_uid, k_name, k_priv, k_taps, k_subs, k_main, k_autostart];
+    let vals = [v_uid, v_name, kCFBooleanTrue, tap_list, dev_list, out_uid, kCFBooleanTrue];
     let dict = CFDictionaryCreate(
         kCFAllocatorDefault,
         keys.as_ptr(),
@@ -265,7 +274,7 @@ unsafe fn build_aggregate(tap_uid: CFStringRef, out_uid: CFStringRef) -> Option<
     // Release everything we created (the aggregate retains what it needs).
     for r in [
         sub_tap, sub_dev, tap_list, dev_list, dict, k_uid, k_name, k_priv, k_taps, k_subs, k_main,
-        v_uid, v_name, key_uid,
+        k_autostart, v_uid, v_name, key_uid,
     ] {
         if !r.is_null() {
             CFRelease(r);
@@ -357,6 +366,21 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
 
     eng.session = Some(Session { tap, agg, proc_id, _block: block });
     tracing::info!("boom: engine started (sr {sr}, mute={MUTE_BEHAVIOR})");
+    // One-shot diagnostic: after ~1 s report whether the IOProc is firing + the
+    // tap is actually delivering audio (helps diagnose "no sound").
+    CB_COUNT.store(0, Ordering::Relaxed);
+    std::thread::spawn(|| {
+        std::thread::sleep(std::time::Duration::from_millis(1000));
+        let rms = f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed));
+        tracing::info!(
+            "boom diag: io_callbacks={} in_null={} in_bytes={} in_channels={} in_rms={:.5}",
+            CB_COUNT.load(Ordering::Relaxed),
+            CB_IN_NULL.load(Ordering::Relaxed),
+            CB_IN_BYTES.load(Ordering::Relaxed),
+            CB_IN_CH.load(Ordering::Relaxed),
+            rms,
+        );
+    });
     true
 }
 
@@ -372,6 +396,20 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
         let n = in_n.min(out_n);
         let in_bufs = (*input).buffers.as_ptr();
         let out_bufs = (*output).buffers.as_mut_ptr();
+        // Diagnostics (lock-free): is the callback firing? is tap input present?
+        CB_COUNT.fetch_add(1, Ordering::Relaxed);
+        CB_IN_NULL.store(in_n == 0 || (*in_bufs).data.is_null(), Ordering::Relaxed);
+        if in_n > 0 {
+            let b0 = &*in_bufs;
+            CB_IN_BYTES.store(b0.data_byte_size, Ordering::Relaxed);
+            CB_IN_CH.store(b0.number_channels, Ordering::Relaxed);
+            if !b0.data.is_null() && b0.data_byte_size >= 4 {
+                let frames = (b0.data_byte_size as usize / 4).min(256);
+                let s = std::slice::from_raw_parts(b0.data as *const f32, frames);
+                let rms = (s.iter().map(|x| x * x).sum::<f32>() / frames as f32).sqrt();
+                CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
+            }
+        }
         let mut guard = dsp.try_lock();
         for i in 0..n {
             let ib = &*in_bufs.add(i);

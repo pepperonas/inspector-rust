@@ -47,7 +47,7 @@ static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 const MUTE_BEHAVIOR: i64 = 1;
 
 /// Master switch for the live audio engine.
-const ENGINE_ENABLED: bool = true; // redirect default output to our aggregate
+const ENGINE_ENABLED: bool = false; // driverless live re-output hits a hardware mute wall (see notes)
 
 /// Diagnostic-silence mode (renders pure silence). Off now that the format is
 /// confirmed; the real copy+DSP path runs (with defensive output zeroing so a

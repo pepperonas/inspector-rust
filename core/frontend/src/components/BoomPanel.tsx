@@ -132,7 +132,11 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
       {/* Phase 1a banner: engine configured here, audio routing pending. */}
       <div className="flex items-start gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[10px] text-[var(--color-muted)]">
         <AlertTriangle size={12} className="mt-px shrink-0 text-amber-500" />
-        <span>DSP engine ready — these settings apply once the live system-audio routing ships in the next update.</span>
+        <span>
+          Live system-audio routing isn’t active yet — the driverless Core-Audio tap engine is still
+          in development. This configures the (tested) DSP engine; the EQ/preset/boost settings are
+          saved and will apply once the audio path is solved.
+        </span>
       </div>
 
       {/* Preset */}

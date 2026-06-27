@@ -162,7 +162,22 @@ extern "C" {
     fn AudioDeviceDestroyIOProcID(dev: AudioObjectID, proc: AudioDeviceIOProcID) -> OSStatus;
     fn AudioDeviceStart(dev: AudioObjectID, proc: AudioDeviceIOProcID) -> OSStatus;
     fn AudioDeviceStop(dev: AudioObjectID, proc: AudioDeviceIOProcID) -> OSStatus;
+    fn AudioObjectAddPropertyListener(
+        id: AudioObjectID,
+        addr: *const AudioObjectPropertyAddress,
+        proc: AudioObjectPropertyListenerProc,
+        client_data: *mut c_void,
+    ) -> OSStatus;
+    fn AudioObjectRemovePropertyListener(
+        id: AudioObjectID,
+        addr: *const AudioObjectPropertyAddress,
+        proc: AudioObjectPropertyListenerProc,
+        client_data: *mut c_void,
+    ) -> OSStatus;
 }
+
+type AudioObjectPropertyListenerProc =
+    extern "C" fn(AudioObjectID, u32, *const AudioObjectPropertyAddress, *mut c_void) -> OSStatus;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 extern "C" {
@@ -720,6 +735,9 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         _play_block: play_block,
         _ring: ring,
     });
+    // Follow later output-device changes (e.g. the user picks Bluetooth) so boom
+    // keeps EQ-ing the selected device instead of being pinned to this one.
+    add_default_listener();
     tracing::info!("boom: enabled — routing '{}' through the EQ (sr {sr})", device_name(real_dev));
     tracing::debug!("boom: real_dev={real_dev} boom_audio={boom_dev}");
     true
@@ -781,19 +799,85 @@ pub(crate) fn uninstall_driver() -> Result<(), String> {
     run_admin(&script)
 }
 
-unsafe fn stop_locked(eng: &mut Engine) {
-    // Restore the user's real output device FIRST.
-    let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
-    if prev != 0 {
-        set_default_output(prev);
-    }
+/// Stop + destroy the IOProcs and drop the session WITHOUT restoring the default
+/// output (used by the live re-bridge, which keeps the new device as default).
+unsafe fn stop_ioprocs_only(eng: &mut Engine) {
     if let Some(s) = eng.session.take() {
         AudioDeviceStop(s.real_dev, s.play_proc);
         AudioDeviceStop(s.boom_dev, s.cap_proc);
         AudioDeviceDestroyIOProcID(s.real_dev, s.play_proc);
         AudioDeviceDestroyIOProcID(s.boom_dev, s.cap_proc);
-        tracing::info!("boom: bridge stopped");
         // blocks + ring drop here, after the IOProcs are destroyed.
+    }
+}
+
+unsafe fn stop_locked(eng: &mut Engine) {
+    remove_default_listener();
+    // Restore the user's real output device FIRST.
+    let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
+    if prev != 0 {
+        set_default_output(prev);
+    }
+    let had = eng.session.is_some();
+    stop_ioprocs_only(eng);
+    if had {
+        tracing::info!("boom: bridge stopped");
+    }
+}
+
+static LISTENER_ON: AtomicBool = AtomicBool::new(false);
+
+/// CoreAudio fires this when the system default output changes. Lightweight:
+/// hand off to a worker so we never mutate audio state on the notify thread.
+extern "C" fn default_output_changed(
+    _obj: AudioObjectID,
+    _n: u32,
+    _addrs: *const AudioObjectPropertyAddress,
+    _data: *mut c_void,
+) -> OSStatus {
+    std::thread::spawn(follow_default_change);
+    0
+}
+
+/// The user picked a different output while boom is running → re-bridge to it so
+/// boom keeps EQ-ing whatever device is selected (and SAVED tracks it).
+fn follow_default_change() {
+    let mut slot = ENGINE.lock();
+    let Some(eng) = slot.as_mut() else { return };
+    let (boom_dev, cur_real) = match &eng.session {
+        Some(s) => (s.boom_dev, s.real_dev),
+        None => return,
+    };
+    let new_def = unsafe { default_output() };
+    // Ignore our own switch back to boom Audio + no-op (same real device).
+    if new_def == 0 || new_def == boom_dev || new_def == cur_real {
+        return;
+    }
+    tracing::info!(
+        "boom: output changed → re-bridging to '{}' ({new_def})",
+        unsafe { device_name(new_def) },
+    );
+    unsafe {
+        stop_ioprocs_only(eng); // keep new_def as the default
+        start_locked(eng); // captures default_output() == new_def as the real device
+    }
+}
+
+unsafe fn add_default_listener() {
+    if LISTENER_ON.swap(true, Ordering::SeqCst) {
+        return; // already registered (survives live re-bridges)
+    }
+    let a = addr(PROP_DEFAULT_OUTPUT);
+    AudioObjectAddPropertyListener(SYSTEM_OBJECT, &a, default_output_changed, std::ptr::null_mut());
+}
+
+fn remove_default_listener() {
+    if !LISTENER_ON.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let a = addr(PROP_DEFAULT_OUTPUT);
+    unsafe {
+        AudioObjectRemovePropertyListener(SYSTEM_OBJECT, &a, default_output_changed, std::ptr::null_mut());
     }
 }
 

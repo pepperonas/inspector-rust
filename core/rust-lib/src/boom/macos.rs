@@ -1,21 +1,32 @@
-//! macOS boom engine (phase 1b): Core-Audio **process tap** → private aggregate
-//! device → realtime **IOProc** running the [`DspChain`] → real output. Driverless
-//! (Apple's tap API, macOS 14.2+), no BlackHole/kext.
+//! macOS boom engine: **system-wide audio EQ via a virtual audio device** (the
+//! "boom Audio" `AudioServerPlugIn` in `../../boom-driver/`, a rebranded BlackHole
+//! loopback). No process tap, no muting — the only architecture that actually
+//! re-outputs processed system audio (see `../../docs/boom-driver-plan.md`).
 //!
-//! **SAFE-FIRST:** the tap is created **UNMUTED** for now, so a bug can never
-//! silence the Mac — worst case is doubled audio (you hear the original plus our
-//! processed render). Once the chain is verified end-to-end on real hardware we
-//! flip `MUTE_BEHAVIOR` to muted (only the processed signal audible). Teardown is
-//! idempotent + runs on disable/quit; process taps are per-process, so even a
-//! hard crash lets CoreAudio reclaim the tap (output un-mutes).
+//! Pipeline: enabling boom routes the **system default output** to "boom Audio"
+//! so apps render into it. A **capture IOProc** on boom Audio pushes its loopback
+//! input into a lock-free SPSC **ring buffer**; a **playback IOProc** on the real
+//! output device pops it, runs the (unit-tested) `DspChain` (pre-amp → EQ → boost
+//! → limiter) in place, and outputs. The capture side zeroes boom Audio's own
+//! output (no feedback). The saved default output is restored on disable /
+//! app-quit (`RunEvent::Exit`).
 //!
-//! The realtime IOProc closure must not allocate/lock-block: it copies the
-//! tapped input into the output buffers and runs `DspChain` in place; params are
-//! shared via a `Mutex<DspChain>` read with `try_lock` (a contended tweak just
-//! passes that one block through untouched).
+//! **Single clock rate:** boom Audio's sample rate is matched to the real device
+//! at start (`set_device_sample_rate`) — otherwise apps render at boom Audio's
+//! rate while we play out at the real rate → slow playback + ring overruns
+//! (clicks). A ~30 ms silence cushion is pre-filled for startup + drift slack.
+//!
+//! Realtime safety: the IOProc closures don't allocate/lock-block — the ring is
+//! lock-free and `DspChain` params are read with `try_lock` (a contended tweak
+//! passes that block through untouched).
+//!
+//! **History:** the first driverless attempt used Core-Audio **process taps**
+//! (macOS 14.2+) — but those are a *capture* API: re-outputting to the same
+//! device fails because muting the source to avoid doubling silences the shared
+//! device output (verified across every mute variant). That tap code
+//! (`make_tap_description` / `build_aggregate`, the `MUTE_BEHAVIOR` / `DIAG_*`
+//! consts) is retained **dead** for reference — hence `#![allow(dead_code)]`.
 
-// The realtime process-tap engine is retained but currently un-armed via
-// `ENGINE_ENABLED` (see below) — so most of it is intentionally dead code.
 #![allow(dead_code)]
 
 use super::{BoomConfig, DspChain, BANDS_10};

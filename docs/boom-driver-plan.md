@@ -71,15 +71,18 @@ it only if boom-integrated EQ is specifically wanted over pointing users at eqMa
 
 ## Phasing (each step verified before the next)
 
-- **B1** — vendor + adapt BlackHole → `boom-driver/` (renamed, 2ch); get it to
-  **compile** into a `.driver` bundle locally. *(verifiable: it builds)*
-- **B2** — install script (admin) + `coreaudiod` restart; confirm "boom Audio"
-  appears in System Settings → Sound + `boom_presets`/`list_audio_outputs`.
-  *(you verify on hardware)*
-- **B3** — app routing: default-output switch + capture-from-boom-Audio + DspChain
-  + output-to-real-device + restore. *(you verify: EQ audibly works)*
-- **B4** — first-run install UX in `BoomPanel`, uninstall in Settings, robustness
-  (device-change, SR-change), signing/notarization for distribution.
+- **B1 ✅ (v0.84.155)** — vendored + rebranded BlackHole → `boom-driver/`; builds
+  into a universal, ad-hoc-signed `.driver` bundle.
+- **B2 ✅** — `scripts/boom-driver-install.sh` (admin + `coreaudiod` restart);
+  "boom Audio" appears as an audio device.
+- **B3 ✅ (v0.84.156–.157)** — app routing: default-output switch + capture IOProc
+  on boom Audio → lock-free ring → playback IOProc on the real device → DspChain →
+  restore. **Sample rate matched** to the real device (`set_device_sample_rate`)
+  + a ~30 ms cushion (fixes the 48k-vs-44.1k slow-playback + click bug).
+  **Verified: EQ audibly works, correct speed, clean.**
+- **B4 (next)** — first-run install/uninstall UX in `BoomPanel` (currently CLI),
+  Developer-ID signing + notarization for distribution, output-device-change +
+  SR-change rebuild, residual clock-drift correction.
 
 ## Sources
 

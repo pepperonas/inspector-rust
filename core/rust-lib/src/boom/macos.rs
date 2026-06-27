@@ -181,6 +181,7 @@ extern "C" {
     ) -> CFDictionaryRef;
     fn CFArrayCreate(a: *const c_void, vals: *const *const c_void, n: isize, cb: *const c_void) -> CFArrayRef;
     fn CFEqual(a: *const c_void, b: *const c_void) -> u8;
+    fn CFStringGetCString(s: CFStringRef, buf: *mut std::ffi::c_char, size: isize, enc: u32) -> bool;
     fn CFRelease(cf: *const c_void);
 }
 
@@ -420,6 +421,27 @@ impl Drop for Ring {
     }
 }
 
+unsafe fn cfstring_to_string(s: CFStringRef) -> Option<String> {
+    let mut buf = [0 as std::ffi::c_char; 256];
+    if CFStringGetCString(s, buf.as_mut_ptr(), 256, KCF_UTF8) {
+        Some(std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned())
+    } else {
+        None
+    }
+}
+
+/// A device's display name (for diagnostics).
+unsafe fn device_name(dev: AudioObjectID) -> String {
+    match string_prop(dev, fourcc(b"lnam")) {
+        Some(cf) => {
+            let s = cfstring_to_string(cf).unwrap_or_default();
+            CFRelease(cf);
+            s
+        }
+        None => String::new(),
+    }
+}
+
 /// Set a device's nominal sample rate (used to match boom Audio to the real
 /// output so the bridge runs at one rate — no resampling, no speed change).
 unsafe fn set_device_sample_rate(dev: AudioObjectID, sr: f64) {
@@ -592,7 +614,21 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         _play_block: play_block,
         _ring: ring,
     });
-    tracing::info!("boom: bridge started (boom {boom_dev} -> real {real_dev}, sr {sr})");
+    tracing::info!(
+        "boom: bridge started — real='{}' ({real_dev}), boom_audio='{}' ({boom_dev}), sr {sr}",
+        device_name(real_dev),
+        device_name(boom_dev),
+    );
+    // Diagnose Bluetooth/output-routing issues: did the default output actually
+    // stick to boom Audio, or did macOS revert it (so apps play direct)?
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(700));
+        let cur = unsafe { default_output() };
+        tracing::info!(
+            "boom diag: default output 700ms after start = '{}' ({cur}) — expected boom Audio ({boom_dev})",
+            unsafe { device_name(cur) },
+        );
+    });
     CB_COUNT.store(0, Ordering::Relaxed);
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(1000));

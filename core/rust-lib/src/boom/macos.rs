@@ -409,6 +409,24 @@ impl Drop for Ring {
     }
 }
 
+/// Set a device's nominal sample rate (used to match boom Audio to the real
+/// output so the bridge runs at one rate — no resampling, no speed change).
+unsafe fn set_device_sample_rate(dev: AudioObjectID, sr: f64) {
+    let a = addr(PROP_NOMINAL_SR);
+    let v = sr;
+    let err = AudioObjectSetPropertyData(
+        dev,
+        &a,
+        0,
+        std::ptr::null(),
+        std::mem::size_of::<f64>() as u32,
+        &v as *const _ as *const c_void,
+    );
+    if err != 0 {
+        tracing::warn!("boom: set boom Audio sample rate to {sr} failed (err {err})");
+    }
+}
+
 /// Find an audio device by its UID (our driver → "BoomAudio_UID").
 unsafe fn find_device_by_uid(uid: &str) -> AudioObjectID {
     let a = addr(PROP_DEVICES);
@@ -507,11 +525,20 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
     let sr = nominal_sample_rate(real_dev);
+    // Match boom Audio's rate to the real device. Otherwise apps render to boom
+    // Audio at *its* rate (48k) while we play out at the real rate (44.1k) → the
+    // music plays slow + the ring overruns (clicks). Let the change settle.
+    set_device_sample_rate(boom_dev, sr);
+    std::thread::sleep(std::time::Duration::from_millis(80));
     {
         let mut chain = DspChain::new(sr, &BANDS_10);
         std::mem::swap(&mut *eng.dsp.lock(), &mut chain);
     }
     let ring = Ring::new(1 << 15); // 32768 f32 ~= 0.34 s of stereo @ 48 kHz
+    // Pre-fill a ~30 ms silence cushion so playback never underruns at startup
+    // and has slack to absorb minor clock drift between the two devices.
+    let cushion = ((sr * 0.03) as usize) * 2;
+    ring.push(&vec![0.0f32; cushion]);
 
     let ring_c = ring.clone();
     let cap_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)> =

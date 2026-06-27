@@ -40,10 +40,9 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted (doubles with the original → echo), 1 = muted (only our processed
-/// signal). Diagnostics proved In/Out buffers match (1×4096×2ch interleaved
-/// float) → a clean copy is correct, so go muted for the proper single path.
-const MUTE_BEHAVIOR: i64 = 1;
+/// 0 = unmuted, 1 = muted. UNMUTED for the test-tone probe (original keeps
+/// playing; we add a beep) so the result is unambiguous + safe.
+const MUTE_BEHAVIOR: i64 = 0;
 
 /// Master switch for the live audio engine.
 const ENGINE_ENABLED: bool = true;
@@ -52,6 +51,15 @@ const ENGINE_ENABLED: bool = true;
 /// confirmed; the real copy+DSP path runs (with defensive output zeroing so a
 /// short copy can never leave garbage → no noise).
 const DIAG_SILENCE: bool = false;
+
+/// **Diagnostic test-tone mode.** When true the IOProc ignores the tap and
+/// writes a quiet 440 Hz sine to the output — a definitive probe for "does our
+/// aggregate output actually reach the speakers?". Safe (a soft beep over your
+/// audio, unmuted). If you hear the beep → output routing works (so the muted
+/// silence is the tap muting the device); if not → the aggregate isn't driving
+/// the hardware output.
+const DIAG_TONE: bool = true;
+static TONE_IDX: AtomicU64 = AtomicU64::new(0);
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 
@@ -442,6 +450,29 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
             let ob0 = &*out_bufs;
             CB_OUT_BYTES.store(ob0.data_byte_size, Ordering::Relaxed);
             CB_OUT_CH.store(ob0.number_channels, Ordering::Relaxed);
+        }
+
+        // DIAGNOSTIC-TONE: write a quiet 440 Hz sine to the output (ignore the
+        // tap) — a probe for whether our aggregate output reaches the speakers.
+        if DIAG_TONE {
+            for i in 0..out_n {
+                let ob = &mut *out_bufs.add(i);
+                if ob.data.is_null() || ob.data_byte_size < 4 {
+                    continue;
+                }
+                let ch = ob.number_channels.max(1) as usize;
+                let frames = ob.data_byte_size as usize / 4 / ch;
+                let s = std::slice::from_raw_parts_mut(ob.data as *mut f32, frames * ch);
+                for f in 0..frames {
+                    let idx = TONE_IDX.fetch_add(1, Ordering::Relaxed);
+                    let t = idx as f64 / 44100.0;
+                    let v = (0.08 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()) as f32;
+                    for c in 0..ch {
+                        s[f * ch + c] = v;
+                    }
+                }
+            }
+            return;
         }
 
         // DIAGNOSTIC-SILENCE: zero every output buffer (pure silence) — never

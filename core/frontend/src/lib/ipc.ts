@@ -759,6 +759,21 @@ export function boomAvailable(): Promise<boolean> {
   return invoke("boom_available");
 }
 
+/** Whether the "boom Audio" virtual driver is installed + loaded. */
+export function boomDriverInstalled(): Promise<boolean> {
+  return invoke("boom_driver_installed");
+}
+
+/** Install the bundled driver (admin prompt + coreaudiod restart). */
+export function boomInstallDriver(): Promise<void> {
+  return invoke("boom_install_driver");
+}
+
+/** Uninstall the driver (admin prompt + coreaudiod restart). */
+export function boomUninstallDriver(): Promise<void> {
+  return invoke("boom_uninstall_driver");
+}
+
 export function boomPresets(): Promise<BoomPreset[]> {
   return invoke("boom_presets");
 }

@@ -5,9 +5,12 @@
  * routing that makes it audible lands in phase 1b (a banner says so). Esc exits.
  */
 import { useEffect, useRef, useState } from "react";
-import { Volume2, Power, AlertTriangle } from "lucide-react";
+import { Volume2, Power, AlertTriangle, Download, Loader2 } from "lucide-react";
 import {
   boomAvailable,
+  boomDriverInstalled,
+  boomInstallDriver,
+  boomUninstallDriver,
   boomPresets,
   getBoomConfig,
   setBoomConfig,
@@ -26,6 +29,9 @@ const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
 
 export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [driverInstalled, setDriverInstalled] = useState<boolean | null>(null);
+  const [installing, setInstalling] = useState(false);
+  const [installError, setInstallError] = useState<string | null>(null);
   const [cfg, setCfg] = useState<BoomConfig | null>(null);
   const [presets, setPresets] = useState<BoomPreset[]>([]);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -33,9 +39,43 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
 
   useEffect(() => {
     boomAvailable().then(setAvailable).catch(() => setAvailable(false));
+    boomDriverInstalled().then(setDriverInstalled).catch(() => setDriverInstalled(false));
     boomPresets().then(setPresets).catch(() => {});
     getBoomConfig().then(setCfg).catch(() => {});
   }, []);
+
+  const install = async () => {
+    setInstalling(true);
+    setInstallError(null);
+    try {
+      await boomInstallDriver();
+      // coreaudiod restart takes a moment — poll for the device to appear.
+      for (let i = 0; i < 12; i++) {
+        await new Promise((r) => setTimeout(r, 500));
+        if (await boomDriverInstalled()) {
+          setDriverInstalled(true);
+          break;
+        }
+      }
+    } catch (e) {
+      setInstallError(String(e));
+    } finally {
+      setInstalling(false);
+    }
+  };
+
+  const uninstall = async () => {
+    if (cfg?.enabled) update({ enabled: false });
+    setInstalling(true);
+    try {
+      await boomUninstallDriver();
+      setDriverInstalled(false);
+    } catch (e) {
+      setInstallError(String(e));
+    } finally {
+      setInstalling(false);
+    }
+  };
 
   // Debounced persist (the DSP recompute is cheap; avoid a write per drag tick).
   const update = (patch: Partial<BoomConfig>) => {
@@ -107,6 +147,38 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
     return <p className="p-4 text-[12px] text-[var(--color-muted)]">Loading…</p>;
   }
 
+  // The virtual audio driver must be installed before boom can route audio.
+  if (driverInstalled === false) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <Volume2 size={24} className="text-[var(--color-accent)]" />
+        <p className="text-[13px] font-medium text-[var(--color-fg)]">Install the boom Audio driver</p>
+        <p className="text-[11px] text-[var(--color-muted)]">
+          boom needs a small virtual audio device (one-time). The installer asks for your admin
+          password and briefly restarts the audio service (~1 s). It routes all system audio through
+          the EQ; uninstall any time.
+        </p>
+        <button
+          type="button"
+          onClick={() => void install()}
+          disabled={installing}
+          className="mt-1 flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] px-3.5 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-60"
+        >
+          {installing ? (
+            <>
+              <Loader2 size={13} className="animate-spin" /> Installing…
+            </>
+          ) : (
+            <>
+              <Download size={13} /> Install driver
+            </>
+          )}
+        </button>
+        {installError && <p className="text-[11px] text-red-400">{installError}</p>}
+      </div>
+    );
+  }
+
   const boosting = cfg.boost_pct > 100;
 
   return (
@@ -129,15 +201,19 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
         </button>
       </div>
 
-      {/* Phase 1a banner: engine configured here, audio routing pending. */}
-      <div className="flex items-start gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[10px] text-[var(--color-muted)]">
-        <AlertTriangle size={12} className="mt-px shrink-0 text-amber-500" />
-        <span>
-          Live audio routes through the <b>boom Audio</b> driver. If enabling boom changes nothing,
-          the driver isn’t installed yet — see <code>boom-driver/</code>. Enabling switches the system
-          output to boom Audio and runs everything through this EQ; disabling restores it.
-        </span>
+      {/* Driver status + uninstall. */}
+      <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
+        <span>Routes system audio through the boom Audio driver.</span>
+        <button
+          type="button"
+          onClick={() => void uninstall()}
+          disabled={installing}
+          className="shrink-0 underline decoration-dotted hover:text-[var(--color-fg)] disabled:opacity-50"
+        >
+          {installing ? "…" : "Uninstall driver"}
+        </button>
       </div>
+      {installError && <p className="text-[10px] text-red-400">{installError}</p>}
 
       {/* Preset */}
       <label className="flex items-center justify-between gap-2 text-[12px]">

@@ -614,34 +614,55 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         _play_block: play_block,
         _ring: ring,
     });
-    tracing::info!(
-        "boom: bridge started — real='{}' ({real_dev}), boom_audio='{}' ({boom_dev}), sr {sr}",
-        device_name(real_dev),
-        device_name(boom_dev),
-    );
-    // Diagnose Bluetooth/output-routing issues: did the default output actually
-    // stick to boom Audio, or did macOS revert it (so apps play direct)?
-    std::thread::spawn(move || {
-        std::thread::sleep(std::time::Duration::from_millis(700));
-        let cur = unsafe { default_output() };
-        tracing::info!(
-            "boom diag: default output 700ms after start = '{}' ({cur}) — expected boom Audio ({boom_dev})",
-            unsafe { device_name(cur) },
-        );
-    });
-    CB_COUNT.store(0, Ordering::Relaxed);
-    std::thread::spawn(|| {
-        std::thread::sleep(std::time::Duration::from_millis(1000));
-        tracing::info!(
-            "boom diag: cap_calls={} in_bytes={} in_ch={} out_bytes={} out_ch={}",
-            CB_COUNT.load(Ordering::Relaxed),
-            CB_IN_BYTES.load(Ordering::Relaxed),
-            CB_IN_CH.load(Ordering::Relaxed),
-            CB_OUT_BYTES.load(Ordering::Relaxed),
-            CB_OUT_CH.load(Ordering::Relaxed),
-        );
-    });
+    tracing::info!("boom: enabled — routing '{}' through the EQ (sr {sr})", device_name(real_dev));
+    tracing::debug!("boom: real_dev={real_dev} boom_audio={boom_dev}");
     true
+}
+
+/// Whether the "boom Audio" driver is installed + loaded (the device exists).
+pub(crate) fn driver_present() -> bool {
+    unsafe { find_device_by_uid("BoomAudio_UID") != 0 }
+}
+
+const HAL_DIR: &str = "/Library/Audio/Plug-Ins/HAL";
+
+fn run_admin(script: &str) -> Result<(), String> {
+    let out = std::process::Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .map_err(|e| e.to_string())?;
+    if out.status.success() {
+        Ok(())
+    } else {
+        let err = String::from_utf8_lossy(&out.stderr).trim().to_string();
+        // -128 = user cancelled the admin prompt.
+        Err(if err.is_empty() { "cancelled".into() } else { err })
+    }
+}
+
+/// Install the bundled "boom Audio" driver into the HAL plug-ins dir + restart
+/// coreaudiod (one admin prompt). The `.driver` ships in the app's Resources.
+pub(crate) fn install_driver(app: &tauri::AppHandle) -> Result<(), String> {
+    use tauri::Manager;
+    let res = app.path().resource_dir().map_err(|e| e.to_string())?;
+    let src = res.join("boom-driver.driver");
+    if !src.exists() {
+        return Err(format!("driver not bundled in app resources ({})", src.display()));
+    }
+    let src = src.to_string_lossy();
+    let script = format!(
+        "do shell script \"mkdir -p '{HAL_DIR}' && rm -rf '{HAL_DIR}/boom-driver.driver' && cp -R '{src}' '{HAL_DIR}/' && killall coreaudiod\" with administrator privileges"
+    );
+    run_admin(&script)
+}
+
+/// Remove the driver + restart coreaudiod (one admin prompt).
+pub(crate) fn uninstall_driver() -> Result<(), String> {
+    let script = format!(
+        "do shell script \"rm -rf '{HAL_DIR}/boom-driver.driver' && killall coreaudiod\" with administrator privileges"
+    );
+    run_admin(&script)
 }
 
 unsafe fn stop_locked(eng: &mut Engine) {

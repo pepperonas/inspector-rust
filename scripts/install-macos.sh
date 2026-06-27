@@ -356,6 +356,11 @@ if [[ ! -d "${REPO_ROOT}/node_modules" || ! -d "${REPO_ROOT}/core/frontend/node_
   pnpm install
 fi
 
+# Build the "boom Audio" virtual driver first — it's bundled into the app as a
+# resource (tauri.conf.json bundle.resources) for the in-app installer.
+echo "▸ Building boom Audio driver…"
+bash "${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}/../boom-driver/build.sh" || echo "  (driver build failed — boom in-app install will be unavailable)"
+
 echo "▸ Building InspectorRust.app (release, --bundles app)…"
 pnpm --filter inspector-rust-macos tauri build --bundles app
 

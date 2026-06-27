@@ -1407,6 +1407,46 @@ pub fn boom_presets() -> Vec<crate::boom::Preset> {
     crate::boom::presets()
 }
 
+/// Whether the "boom Audio" virtual driver is installed + loaded.
+#[tauri::command]
+pub fn boom_driver_installed() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::boom::macos::driver_present()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Install the bundled driver (admin prompt + coreaudiod restart).
+#[tauri::command]
+pub fn boom_install_driver(app: AppHandle) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::boom::macos::install_driver(&app)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = app;
+        Ok(())
+    }
+}
+
+/// Uninstall the driver (admin prompt + coreaudiod restart).
+#[tauri::command]
+pub fn boom_uninstall_driver() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::boom::macos::uninstall_driver()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Ok(())
+    }
+}
+
 #[tauri::command]
 pub fn get_boom_config(db: State<'_, DbHandle>) -> crate::boom::BoomConfig {
     crate::boom::BoomConfig::load(&db)

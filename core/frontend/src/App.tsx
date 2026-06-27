@@ -59,6 +59,7 @@ import {
   isTranslateKind,
   TRANSLATE_LANGS,
   SEARCH_BANGS,
+  fuzzyScore,
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
@@ -960,22 +961,33 @@ function App() {
     // (e.g. `kill safari` should kill, not launch Safari). Reuse the already-
     // memoised parse instead of calling parseCommand again.
     if (parsedCommand) return null;
-    // Exact prefix match first; then substring match; abandon if
-    // neither hits — too risky to launch something the user wasn't
-    // unambiguously asking for.
+    // Exact prefix → substring → **fuzzy subsequence** (the app launcher is
+    // fuzzy on purpose; clipboard history is not — see `useFuzzySearch`). E.g.
+    // `vsc` fuzzy-matches "Visual Studio Code", `term` substring-matches
+    // Terminal. Abandon only if even the fuzzy pass misses.
     const exactPrefix = installedApps.find((a) => a.name_lower.startsWith(q));
-    const match =
-      exactPrefix ??
-      installedApps.find((a) => a.name_lower.includes(q));
-    if (!match) return null;
-    // Score: prefix is best (0), substring at start of a word is
-    // medium (0.2), interior substring is worst (0.5). Not currently
-    // surfaced in the UI — kept for future ranking refinements.
+    let match = exactPrefix ?? installedApps.find((a) => a.name_lower.includes(q));
     const score = exactPrefix
       ? 0
-      : match.name_lower.split(/\s+/).some((w) => w.startsWith(q))
-        ? 0.2
-        : 0.5;
+      : match
+        ? match.name_lower.split(/\s+/).some((w) => w.startsWith(q))
+          ? 0.2
+          : 0.5
+        : 0.7;
+    if (!match) {
+      // First-char-anchored ordered subsequence (3+ chars); pick the best score.
+      let best: (typeof installedApps)[number] | null = null;
+      let bestScore = Infinity;
+      for (const a of installedApps) {
+        const s = fuzzyScore(a.name_lower, q);
+        if (s !== null && s < bestScore) {
+          bestScore = s;
+          best = a;
+        }
+      }
+      if (best) match = best;
+    }
+    if (!match) return null;
     return {
       kind: "app",
       data: { name: match.name, path: match.path, score },

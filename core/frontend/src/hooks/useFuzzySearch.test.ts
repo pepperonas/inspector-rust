@@ -53,11 +53,24 @@ describe("useFuzzySearch", () => {
     expect(ids).not.toContain(3);
   });
 
-  it("tolerates fuzzy / non-contiguous matches", () => {
-    // "tscrpt" against "typescript code" — fuzzy match with the
-    // configured threshold (0.4). The hook should surface it.
+  it("does NOT fuzzy-match — substring only (fuzzy is reserved for commands + apps)", () => {
+    // "tscrpt" is a non-contiguous subsequence of "typescript code" but not a
+    // substring, so a clip must NOT surface for it.
     const { result } = renderHook(() => useFuzzySearch(entries, "tscrpt"));
-    expect(idsOf(result.current)).toContain(3);
+    expect(idsOf(result.current)).not.toContain(3);
+    expect(result.current).toEqual([]);
+  });
+
+  it("ranks prefix matches ahead of interior substring matches", () => {
+    // "rust testing rocks" (prefix) should come before "crust"-style interior
+    // hits; both surface, prefix first.
+    const rows = [clip(10, "crusty bread"), clip(11, "rust first"), ...entries];
+    const { result } = renderHook(() => useFuzzySearch(rows, "rust"));
+    const ids = idsOf(result.current);
+    // 11 ("rust first") + 2 ("rust testing rocks") + 5 ("rusty crusty") are
+    // prefix matches; 10 ("crusty bread") is an interior match → comes last.
+    expect(ids.indexOf(11)).toBeLessThan(ids.indexOf(10));
+    expect(ids).toContain(10);
   });
 
   it("returns nothing for a query with no plausible match", () => {

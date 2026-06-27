@@ -1447,6 +1447,12 @@ pub fn boom_uninstall_driver() -> Result<(), String> {
     }
 }
 
+/// Live level-meter readout (input/output RMS + clip).
+#[tauri::command]
+pub fn boom_levels() -> crate::boom::BoomLevels {
+    crate::boom::levels()
+}
+
 #[tauri::command]
 pub fn get_boom_config(db: State<'_, DbHandle>) -> crate::boom::BoomConfig {
     crate::boom::BoomConfig::load(&db)

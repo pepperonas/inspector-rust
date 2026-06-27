@@ -12,6 +12,7 @@ import {
   boomInstallDriver,
   boomUninstallDriver,
   boomPresets,
+  boomLevels,
   getBoomConfig,
   setBoomConfig,
   BOOM_BANDS,
@@ -32,6 +33,10 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
   const [driverInstalled, setDriverInstalled] = useState<boolean | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
+  const [meterIn, setMeterIn] = useState(0);
+  const [meterOut, setMeterOut] = useState(0);
+  const [clip, setClip] = useState(false);
+  const clipTimer = useRef<number | undefined>(undefined);
   const [cfg, setCfg] = useState<BoomConfig | null>(null);
   const [presets, setPresets] = useState<BoomPreset[]>([]);
   const saveTimer = useRef<number | undefined>(undefined);
@@ -99,6 +104,31 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
     },
     [],
   );
+
+  // Poll live levels while the engine is on (read-only; ~8 Hz).
+  const enabled = cfg?.enabled ?? false;
+  useEffect(() => {
+    if (!enabled) {
+      setMeterIn(0);
+      setMeterOut(0);
+      setClip(false);
+      return;
+    }
+    const id = window.setInterval(() => {
+      boomLevels()
+        .then((l) => {
+          setMeterIn(l.input);
+          setMeterOut(l.output);
+          if (l.clip) {
+            setClip(true);
+            window.clearTimeout(clipTimer.current);
+            clipTimer.current = window.setTimeout(() => setClip(false), 600);
+          }
+        })
+        .catch(() => {});
+    }, 120);
+    return () => window.clearInterval(id);
+  }, [enabled]);
 
   // Esc exits; let form controls keep their own keys (slider arrows etc.).
   useEffect(() => {
@@ -215,6 +245,21 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
       </div>
       {installError && <p className="text-[10px] text-red-400">{installError}</p>}
 
+      {/* Live level meters (only while running). */}
+      {cfg.enabled && (
+        <div className="flex flex-col gap-1 rounded-lg border border-[var(--color-border)] p-2">
+          <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
+            <span>Levels</span>
+            <span className={"flex items-center gap-1 " + (clip ? "text-red-400" : "")}>
+              <span className={"inline-block h-1.5 w-1.5 rounded-full " + (clip ? "bg-red-500" : "bg-[var(--color-border)]")} />
+              clip
+            </span>
+          </div>
+          <Meter label="in" value={meterIn} />
+          <Meter label="out" value={meterOut} />
+        </div>
+      )}
+
       {/* Preset */}
       <label className="flex items-center justify-between gap-2 text-[12px]">
         <span className="text-[var(--color-muted)]">Preset</span>
@@ -327,6 +372,26 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc close</p>
       )}
+    </div>
+  );
+}
+
+/** A VU-style level meter bar (RMS 0..1, scaled for visibility; amber near peak). */
+function Meter({ label, value }: { label: string; value: number }) {
+  const w = Math.min(1, Math.max(0, value * 2.5));
+  return (
+    <div className="flex items-center gap-2">
+      <span className="w-6 text-[9px] text-[var(--color-muted)]">{label}</span>
+      <div className="relative h-1.5 flex-1 overflow-hidden rounded-full bg-[var(--color-border)]">
+        <div
+          className="absolute inset-0 origin-left rounded-full"
+          style={{
+            transform: `scaleX(${w})`,
+            backgroundColor: w > 0.85 ? "#ef4444" : w > 0.6 ? "#f59e0b" : "var(--color-accent)",
+            transition: "transform 90ms linear",
+          }}
+        />
+      </div>
     </div>
   );
 }

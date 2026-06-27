@@ -385,6 +385,27 @@ pub fn apply(db: &DbHandle) {
     }
 }
 
+/// Live level-meter readout (input/output RMS + clip), for the UI.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+pub struct BoomLevels {
+    pub input: f32,
+    pub output: f32,
+    pub clip: bool,
+}
+
+/// Current engine levels (zeros when not running / off macOS).
+pub fn levels() -> BoomLevels {
+    #[cfg(target_os = "macos")]
+    {
+        let (input, output, clip) = macos::levels();
+        BoomLevels { input, output, clip }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        BoomLevels::default()
+    }
+}
+
 /// Tear the engine down (app quit) so the system output is never left altered.
 pub fn shutdown() {
     #[cfg(target_os = "macos")]

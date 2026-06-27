@@ -778,6 +778,17 @@ export function boomPresets(): Promise<BoomPreset[]> {
   return invoke("boom_presets");
 }
 
+/** Live level-meter readout (input/output RMS 0..1 + clip). */
+export interface BoomLevels {
+  input: number;
+  output: number;
+  clip: boolean;
+}
+
+export function boomLevels(): Promise<BoomLevels> {
+  return invoke("boom_levels");
+}
+
 export function getBoomConfig(): Promise<BoomConfig> {
   return invoke("get_boom_config");
 }

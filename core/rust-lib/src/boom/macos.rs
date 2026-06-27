@@ -50,6 +50,7 @@ static CB_OUT_N: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
+static CLIP: AtomicBool = AtomicBool::new(false);
 
 /// CATapMuteBehavior: 0 = unmuted (doubles → echo), 1 = muted (also muted our
 /// output device → silence), 2 = mutedWhenTapped. The tone probe proved our
@@ -513,10 +514,12 @@ fn capture_cb(ring: &Ring, input: *const AudioBufferList, output: *mut AudioBuff
             return;
         }
         let n = ib.data_byte_size as usize / 4;
-        ring.push(std::slice::from_raw_parts(ib.data as *const f32, n));
+        let s = std::slice::from_raw_parts(ib.data as *const f32, n);
+        ring.push(s);
         CB_COUNT.fetch_add(1, Ordering::Relaxed);
-        CB_IN_BYTES.store(ib.data_byte_size, Ordering::Relaxed);
-        CB_IN_CH.store(ib.number_channels, Ordering::Relaxed);
+        // Input level (RMS) for the meter.
+        let rms = (s.iter().map(|x| x * x).sum::<f32>() / n.max(1) as f32).sqrt();
+        CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
     }
 }
 
@@ -538,8 +541,20 @@ fn playback_cb(ring: &Ring, dsp: &Mutex<DspChain>, output: *mut AudioBufferList)
         if let Some(chain) = guard.as_mut() {
             chain.process_interleaved(slice, ob.number_channels.max(1) as usize);
         }
-        CB_OUT_BYTES.store(ob.data_byte_size, Ordering::Relaxed);
-        CB_OUT_CH.store(ob.number_channels, Ordering::Relaxed);
+        // Output level (RMS, post-DSP) + clip detection for the meter.
+        let mut sum = 0f32;
+        let mut peak = 0f32;
+        for &x in slice.iter() {
+            sum += x * x;
+            let a = x.abs();
+            if a > peak {
+                peak = a;
+            }
+        }
+        CB_OUT_RMS_BITS.store((sum / n.max(1) as f32).sqrt().to_bits(), Ordering::Relaxed);
+        if peak > 0.99 {
+            CLIP.store(true, Ordering::Relaxed);
+        }
     }
 }
 
@@ -622,6 +637,16 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
 /// Whether the "boom Audio" driver is installed + loaded (the device exists).
 pub(crate) fn driver_present() -> bool {
     unsafe { find_device_by_uid("BoomAudio_UID") != 0 }
+}
+
+/// Live (input RMS, output RMS, clipped-since-last-read) for the level meters.
+/// The clip flag latches then resets on read.
+pub(crate) fn levels() -> (f32, f32, bool) {
+    (
+        f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed)),
+        f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed)),
+        CLIP.swap(false, Ordering::Relaxed),
+    )
 }
 
 const HAL_DIR: &str = "/Library/Audio/Plug-Ins/HAL";

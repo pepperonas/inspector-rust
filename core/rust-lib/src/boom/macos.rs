@@ -25,7 +25,7 @@ use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use parking_lot::Mutex;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 // ── Realtime diagnostics (written from the audio thread, read by a logger) ───
@@ -47,7 +47,7 @@ static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 const MUTE_BEHAVIOR: i64 = 1;
 
 /// Master switch for the live audio engine.
-const ENGINE_ENABLED: bool = false; // driverless live re-output hits a hardware mute wall (see notes)
+const ENGINE_ENABLED: bool = true; // B3: virtual-driver loopback bridge
 
 /// Diagnostic-silence mode (renders pure silence). Off now that the format is
 /// confirmed; the real copy+DSP path runs (with defensive output zeroing so a
@@ -77,6 +77,7 @@ const SYSTEM_OBJECT: AudioObjectID = 1;
 const SCOPE_GLOBAL: u32 = fourcc(b"glob");
 const ELEMENT_MAIN: u32 = 0;
 const PROP_DEFAULT_OUTPUT: u32 = fourcc(b"dOut"); // kAudioHardwarePropertyDefaultOutputDevice
+const PROP_DEVICES: u32 = fourcc(b"dev#"); // kAudioHardwarePropertyDevices
 const PROP_DEVICE_UID: u32 = fourcc(b"uid "); // kAudioDevicePropertyDeviceUID
 const PROP_TAP_UID: u32 = fourcc(b"tuid"); // kAudioTapPropertyUID
 const PROP_NOMINAL_SR: u32 = fourcc(b"nsrt"); // kAudioDevicePropertyNominalSampleRate
@@ -113,6 +114,13 @@ type IOBlock =
 
 #[link(name = "CoreAudio", kind = "framework")]
 extern "C" {
+    fn AudioObjectGetPropertyDataSize(
+        id: AudioObjectID,
+        addr: *const AudioObjectPropertyAddress,
+        qual_size: u32,
+        qual: *const c_void,
+        out_size: *mut u32,
+    ) -> OSStatus;
     fn AudioObjectGetPropertyData(
         id: AudioObjectID,
         addr: *const AudioObjectPropertyAddress,
@@ -161,6 +169,7 @@ extern "C" {
         vcb: *const c_void,
     ) -> CFDictionaryRef;
     fn CFArrayCreate(a: *const c_void, vals: *const *const c_void, n: isize, cb: *const c_void) -> CFArrayRef;
+    fn CFEqual(a: *const c_void, b: *const c_void) -> u8;
     fn CFRelease(cf: *const c_void);
 }
 
@@ -228,11 +237,14 @@ unsafe fn nominal_sample_rate(dev: AudioObjectID) -> f64 {
 // ── Engine ───────────────────────────────────────────────────────────────────
 
 struct Session {
-    tap: AudioObjectID,
-    agg: AudioObjectID,
-    proc_id: AudioDeviceIOProcID,
-    // Kept alive for the lifetime of the IOProc.
-    _block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)>,
+    boom_dev: AudioObjectID,
+    real_dev: AudioObjectID,
+    cap_proc: AudioDeviceIOProcID,  // capture IOProc on boom Audio
+    play_proc: AudioDeviceIOProcID, // playback IOProc on the real device
+    // Kept alive for the lifetime of the IOProcs.
+    _cap_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)>,
+    _play_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)>,
+    _ring: Arc<Ring>,
 }
 
 // SAFETY: the CoreAudio object ids are plain integers; the block is only invoked
@@ -346,239 +358,231 @@ unsafe fn build_aggregate(tap_uid: CFStringRef, out_uid: CFStringRef) -> Option<
     }
 }
 
+// ── Lock-free SPSC ring buffer (capture IOProc → playback IOProc) ────────────
+struct Ring {
+    buf: *mut f32,
+    cap: usize,
+    mask: usize,
+    write: AtomicUsize,
+    read: AtomicUsize,
+}
+// SAFETY: single-producer (capture) / single-consumer (playback); each side only
+// advances its own atomic index.
+unsafe impl Send for Ring {}
+unsafe impl Sync for Ring {}
+impl Ring {
+    fn new(cap: usize) -> Arc<Ring> {
+        let b = vec![0f32; cap].into_boxed_slice();
+        let buf = Box::into_raw(b) as *mut f32;
+        Arc::new(Ring { buf, cap, mask: cap - 1, write: AtomicUsize::new(0), read: AtomicUsize::new(0) })
+    }
+    #[inline]
+    unsafe fn push(&self, src: &[f32]) {
+        let r = self.read.load(Ordering::Acquire);
+        let mut w = self.write.load(Ordering::Relaxed);
+        for &val in src {
+            if w.wrapping_sub(r) >= self.cap {
+                break; // full → drop (overrun); playback catches up
+            }
+            *self.buf.add(w & self.mask) = val;
+            w = w.wrapping_add(1);
+        }
+        self.write.store(w, Ordering::Release);
+    }
+    #[inline]
+    unsafe fn pop_into(&self, dst: &mut [f32]) {
+        let w = self.write.load(Ordering::Acquire);
+        let r0 = self.read.load(Ordering::Relaxed);
+        let avail = w.wrapping_sub(r0);
+        let count = dst.len().min(avail);
+        for (i, d) in dst.iter_mut().enumerate() {
+            *d = if i < count { *self.buf.add((r0 + i) & self.mask) } else { 0.0 };
+        }
+        self.read.store(r0.wrapping_add(count), Ordering::Release);
+    }
+}
+impl Drop for Ring {
+    fn drop(&mut self) {
+        unsafe {
+            drop(Box::from_raw(std::ptr::slice_from_raw_parts_mut(self.buf, self.cap)));
+        }
+    }
+}
+
+/// Find an audio device by its UID (our driver → "BoomAudio_UID").
+unsafe fn find_device_by_uid(uid: &str) -> AudioObjectID {
+    let a = addr(PROP_DEVICES);
+    let mut size: u32 = 0;
+    if AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size) != 0 {
+        return 0;
+    }
+    let count = size as usize / std::mem::size_of::<AudioObjectID>();
+    if count == 0 {
+        return 0;
+    }
+    let mut ids = vec![0u32; count];
+    if AudioObjectGetPropertyData(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size, ids.as_mut_ptr() as *mut c_void) != 0 {
+        return 0;
+    }
+    let want = cfstr(uid);
+    let mut found = 0;
+    for &id in &ids {
+        if let Some(u) = string_prop(id, PROP_DEVICE_UID) {
+            let eq = CFEqual(u, want) != 0;
+            CFRelease(u);
+            if eq {
+                found = id;
+                break;
+            }
+        }
+    }
+    CFRelease(want);
+    found
+}
+
+/// Capture IOProc on "boom Audio": push its loopback input into the ring + zero
+/// our contribution to its output (so we never feed back into the loopback).
+fn capture_cb(ring: &Ring, input: *const AudioBufferList, output: *mut AudioBufferList) {
+    unsafe {
+        if !output.is_null() {
+            let on = (*output).number_buffers as usize;
+            let ob = (*output).buffers.as_mut_ptr();
+            for i in 0..on {
+                let b = &mut *ob.add(i);
+                if !b.data.is_null() && b.data_byte_size > 0 {
+                    std::ptr::write_bytes(b.data as *mut u8, 0, b.data_byte_size as usize);
+                }
+            }
+        }
+        if input.is_null() || (*input).number_buffers == 0 {
+            return;
+        }
+        let ib = &*(*input).buffers.as_ptr();
+        if ib.data.is_null() || ib.data_byte_size < 4 {
+            return;
+        }
+        let n = ib.data_byte_size as usize / 4;
+        ring.push(std::slice::from_raw_parts(ib.data as *const f32, n));
+        CB_COUNT.fetch_add(1, Ordering::Relaxed);
+        CB_IN_BYTES.store(ib.data_byte_size, Ordering::Relaxed);
+        CB_IN_CH.store(ib.number_channels, Ordering::Relaxed);
+    }
+}
+
+/// Playback IOProc on the real device: pop the ring into the output, then DSP in
+/// place (`try_lock` so a settings tweak never blocks the audio thread).
+fn playback_cb(ring: &Ring, dsp: &Mutex<DspChain>, output: *mut AudioBufferList) {
+    unsafe {
+        if output.is_null() || (*output).number_buffers == 0 {
+            return;
+        }
+        let ob = &mut *(*output).buffers.as_mut_ptr();
+        if ob.data.is_null() || ob.data_byte_size < 4 {
+            return;
+        }
+        let n = ob.data_byte_size as usize / 4;
+        let slice = std::slice::from_raw_parts_mut(ob.data as *mut f32, n);
+        ring.pop_into(slice);
+        let mut guard = dsp.try_lock();
+        if let Some(chain) = guard.as_mut() {
+            chain.process_interleaved(slice, ob.number_channels.max(1) as usize);
+        }
+        CB_OUT_BYTES.store(ob.data_byte_size, Ordering::Relaxed);
+        CB_OUT_CH.store(ob.number_channels, Ordering::Relaxed);
+    }
+}
+
 unsafe fn start_locked(eng: &mut Engine) -> bool {
     if eng.session.is_some() {
         return true;
     }
-    let Some(desc) = make_tap_description() else {
-        tracing::warn!("boom: CATapDescription unavailable");
-        return false;
-    };
-    let mut tap: AudioObjectID = 0;
-    let err = AudioHardwareCreateProcessTap(Retained::as_ptr(&desc) as *mut AnyObject, &mut tap);
-    if err != 0 || tap == 0 {
-        tracing::warn!("boom: AudioHardwareCreateProcessTap failed (err {err}) — likely missing audio-capture permission");
+    let boom_dev = find_device_by_uid("BoomAudio_UID");
+    if boom_dev == 0 {
+        tracing::warn!("boom: 'boom Audio' driver not installed (run scripts/boom-driver-install.sh)");
         return false;
     }
-
-    let out_dev = default_output();
-    let tap_uid = string_prop(tap, PROP_TAP_UID);
-    let out_uid = string_prop(out_dev, PROP_DEVICE_UID);
-    let (Some(tap_uid), Some(out_uid)) = (tap_uid, out_uid) else {
-        tracing::warn!("boom: could not read tap/output UID");
-        AudioHardwareDestroyProcessTap(tap);
-        if let Some(u) = tap_uid {
-            CFRelease(u);
-        }
-        if let Some(u) = out_uid {
-            CFRelease(u);
-        }
+    let real_dev = default_output();
+    if real_dev == 0 || real_dev == boom_dev {
+        tracing::warn!("boom: no usable real output device");
         return false;
-    };
-
-    let sr = nominal_sample_rate(out_dev);
-    eng.dsp.lock().reset();
+    }
+    let sr = nominal_sample_rate(real_dev);
     {
-        // Rebuild the chain at the device sample rate (keeps biquad coeffs correct).
-        let mut dsp = DspChain::new(sr, &BANDS_10);
-        std::mem::swap(&mut *eng.dsp.lock(), &mut dsp);
+        let mut chain = DspChain::new(sr, &BANDS_10);
+        std::mem::swap(&mut *eng.dsp.lock(), &mut chain);
+    }
+    let ring = Ring::new(1 << 15); // 32768 f32 ~= 0.34 s of stereo @ 48 kHz
+
+    let ring_c = ring.clone();
+    let cap_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)> =
+        RcBlock::new(move |_n: *const c_void, input: *const c_void, _it: *const c_void, output: *mut c_void, _ot: *const c_void| {
+            capture_cb(&ring_c, input as *const AudioBufferList, output as *mut AudioBufferList);
+        });
+    let mut cap_proc: AudioDeviceIOProcID = std::ptr::null_mut();
+    if AudioDeviceCreateIOProcIDWithBlock(&mut cap_proc, boom_dev, std::ptr::null_mut(), &cap_block) != 0 || cap_proc.is_null() {
+        tracing::warn!("boom: capture IOProc creation failed");
+        return false;
     }
 
-    let agg = build_aggregate(tap_uid, out_uid);
-    CFRelease(tap_uid);
-    CFRelease(out_uid);
-    let Some(agg) = agg else {
-        AudioHardwareDestroyProcessTap(tap);
-        return false;
-    };
-
-    // The realtime IOProc: copy tapped input → output, run DSP in place.
+    let ring_p = ring.clone();
     let dsp = eng.dsp.clone();
-    let block = RcBlock::new(
-        move |_now: *const c_void,
-              input: *const c_void,
-              _itime: *const c_void,
-              output: *mut c_void,
-              _otime: *const c_void| {
-            io_callback(&dsp, input as *const AudioBufferList, output as *mut AudioBufferList);
-        },
-    );
-
-    let mut proc_id: AudioDeviceIOProcID = std::ptr::null_mut();
-    let err = AudioDeviceCreateIOProcIDWithBlock(&mut proc_id, agg, std::ptr::null_mut(), &block);
-    if err != 0 || proc_id.is_null() {
-        tracing::warn!("boom: AudioDeviceCreateIOProcIDWithBlock failed (err {err})");
-        AudioHardwareDestroyAggregateDevice(agg);
-        AudioHardwareDestroyProcessTap(tap);
-        return false;
-    }
-    let err = AudioDeviceStart(agg, proc_id);
-    if err != 0 {
-        tracing::warn!("boom: AudioDeviceStart failed (err {err})");
-        AudioDeviceDestroyIOProcID(agg, proc_id);
-        AudioHardwareDestroyAggregateDevice(agg);
-        AudioHardwareDestroyProcessTap(tap);
+    let play_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)> =
+        RcBlock::new(move |_n: *const c_void, _input: *const c_void, _it: *const c_void, output: *mut c_void, _ot: *const c_void| {
+            playback_cb(&ring_p, &dsp, output as *mut AudioBufferList);
+        });
+    let mut play_proc: AudioDeviceIOProcID = std::ptr::null_mut();
+    if AudioDeviceCreateIOProcIDWithBlock(&mut play_proc, real_dev, std::ptr::null_mut(), &play_block) != 0 || play_proc.is_null() {
+        tracing::warn!("boom: playback IOProc creation failed");
+        AudioDeviceDestroyIOProcID(boom_dev, cap_proc);
         return false;
     }
 
-    // Redirect the system default output to our aggregate so apps render *into*
-    // it (no direct path to the real device → no doubling), while we render the
-    // processed audio to the aggregate's real-device sub-device. Saved + restored
-    // on stop / quit so the user's output is never left pointing at us.
-    let prev = default_output();
-    if prev != 0 && prev != agg {
-        SAVED_DEFAULT_OUTPUT.store(prev, Ordering::SeqCst);
-        set_default_output(agg);
-        tracing::info!("boom: default output redirected {prev} → aggregate {agg}");
-    }
+    AudioDeviceStart(boom_dev, cap_proc);
+    AudioDeviceStart(real_dev, play_proc);
 
-    eng.session = Some(Session { tap, agg, proc_id, _block: block });
-    tracing::info!("boom: engine started (sr {sr}, mute={MUTE_BEHAVIOR})");
-    // One-shot diagnostic: after ~1 s report whether the IOProc is firing + the
-    // tap is actually delivering audio (helps diagnose "no sound").
+    // Route the default output to boom Audio so apps render into it; we bridge
+    // its loopback → real device. Saved + restored on stop / quit.
+    SAVED_DEFAULT_OUTPUT.store(real_dev, Ordering::SeqCst);
+    set_default_output(boom_dev);
+
+    eng.session = Some(Session {
+        boom_dev,
+        real_dev,
+        cap_proc,
+        play_proc,
+        _cap_block: cap_block,
+        _play_block: play_block,
+        _ring: ring,
+    });
+    tracing::info!("boom: bridge started (boom {boom_dev} -> real {real_dev}, sr {sr})");
     CB_COUNT.store(0, Ordering::Relaxed);
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        let in_rms = f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed));
-        let out_rms = f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed));
         tracing::info!(
-            "boom diag: calls={} silence={} | IN n={} bytes={} ch={} rms={:.5} | OUT n={} bytes={} ch={} rms={:.5}",
+            "boom diag: cap_calls={} in_bytes={} in_ch={} out_bytes={} out_ch={}",
             CB_COUNT.load(Ordering::Relaxed),
-            DIAG_SILENCE,
-            CB_IN_N.load(Ordering::Relaxed),
             CB_IN_BYTES.load(Ordering::Relaxed),
             CB_IN_CH.load(Ordering::Relaxed),
-            in_rms,
-            CB_OUT_N.load(Ordering::Relaxed),
             CB_OUT_BYTES.load(Ordering::Relaxed),
             CB_OUT_CH.load(Ordering::Relaxed),
-            out_rms,
         );
     });
     true
 }
 
-/// The realtime audio callback. No allocation; `try_lock` so a config tweak on
-/// another thread never blocks the audio thread (that block just passes through).
-fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mut AudioBufferList) {
-    unsafe {
-        if input.is_null() || output.is_null() {
-            return;
-        }
-        let in_n = (*input).number_buffers as usize;
-        let out_n = (*output).number_buffers as usize;
-        let n = in_n.min(out_n);
-        let in_bufs = (*input).buffers.as_ptr();
-        let out_bufs = (*output).buffers.as_mut_ptr();
-        // Diagnostics (lock-free): is the callback firing? is tap input present?
-        CB_COUNT.fetch_add(1, Ordering::Relaxed);
-        CB_IN_N.store(in_n as u32, Ordering::Relaxed);
-        CB_OUT_N.store(out_n as u32, Ordering::Relaxed);
-        CB_IN_NULL.store(in_n == 0 || (*in_bufs).data.is_null(), Ordering::Relaxed);
-        if in_n > 0 {
-            let b0 = &*in_bufs;
-            CB_IN_BYTES.store(b0.data_byte_size, Ordering::Relaxed);
-            CB_IN_CH.store(b0.number_channels, Ordering::Relaxed);
-            if !b0.data.is_null() && b0.data_byte_size >= 4 {
-                let frames = (b0.data_byte_size as usize / 4).min(256);
-                let s = std::slice::from_raw_parts(b0.data as *const f32, frames);
-                let rms = (s.iter().map(|x| x * x).sum::<f32>() / frames as f32).sqrt();
-                CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
-            }
-        }
-        // Record the output buffer structure (buffer 0) for diagnosis.
-        if out_n > 0 {
-            let ob0 = &*out_bufs;
-            CB_OUT_BYTES.store(ob0.data_byte_size, Ordering::Relaxed);
-            CB_OUT_CH.store(ob0.number_channels, Ordering::Relaxed);
-        }
-
-        // DIAGNOSTIC-TONE: write a quiet 440 Hz sine to the output (ignore the
-        // tap) — a probe for whether our aggregate output reaches the speakers.
-        if DIAG_TONE {
-            for i in 0..out_n {
-                let ob = &mut *out_bufs.add(i);
-                if ob.data.is_null() || ob.data_byte_size < 4 {
-                    continue;
-                }
-                let ch = ob.number_channels.max(1) as usize;
-                let frames = ob.data_byte_size as usize / 4 / ch;
-                let s = std::slice::from_raw_parts_mut(ob.data as *mut f32, frames * ch);
-                for f in 0..frames {
-                    let idx = TONE_IDX.fetch_add(1, Ordering::Relaxed);
-                    let t = idx as f64 / 44100.0;
-                    let v = (0.08 * (2.0 * std::f64::consts::PI * 440.0 * t).sin()) as f32;
-                    for c in 0..ch {
-                        s[f * ch + c] = v;
-                    }
-                }
-            }
-            return;
-        }
-
-        // DIAGNOSTIC-SILENCE: zero every output buffer (pure silence) — never
-        // copies/processes, so it cannot produce noise. Original audio keeps
-        // playing (unmuted). We only collect the format diagnostics above.
-        if DIAG_SILENCE {
-            for i in 0..out_n {
-                let ob = &mut *out_bufs.add(i);
-                if !ob.data.is_null() && ob.data_byte_size > 0 {
-                    std::ptr::write_bytes(ob.data as *mut u8, 0, ob.data_byte_size as usize);
-                }
-            }
-            return;
-        }
-
-        let mut guard = dsp.try_lock();
-        for i in 0..n {
-            let ib = &*in_bufs.add(i);
-            let ob = &mut *out_bufs.add(i);
-            let bytes = ib.data_byte_size.min(ob.data_byte_size) as usize;
-            if i == 0 {
-                CB_OUT_BYTES.store(ob.data_byte_size, Ordering::Relaxed);
-                CB_OUT_CH.store(ob.number_channels, Ordering::Relaxed);
-            }
-            // Defensive: zero the whole output buffer first, so even a short
-            // copy (size mismatch) leaves silence, never garbage/noise.
-            if !ob.data.is_null() && ob.data_byte_size > 0 {
-                std::ptr::write_bytes(ob.data as *mut u8, 0, ob.data_byte_size as usize);
-            }
-            if ib.data.is_null() || ob.data.is_null() || bytes == 0 {
-                continue;
-            }
-            // Copy tapped input → output buffer.
-            std::ptr::copy_nonoverlapping(ib.data as *const u8, ob.data as *mut u8, bytes);
-            // Run DSP in place on the output (float samples).
-            if let Some(chain) = guard.as_mut() {
-                let frames = bytes / std::mem::size_of::<f32>();
-                let slice = std::slice::from_raw_parts_mut(ob.data as *mut f32, frames);
-                chain.process_interleaved(slice, ob.number_channels.max(1) as usize);
-            }
-            // Output RMS of buffer 0 (post-DSP) — is our render non-silent?
-            if i == 0 && !ob.data.is_null() {
-                let frames = (bytes / 4).min(256);
-                let s = std::slice::from_raw_parts(ob.data as *const f32, frames);
-                let rms = (s.iter().map(|x| x * x).sum::<f32>() / frames as f32).sqrt();
-                CB_OUT_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
-            }
-        }
-    }
-}
-
 unsafe fn stop_locked(eng: &mut Engine) {
-    // Restore the user's default output FIRST (before destroying the aggregate),
-    // so the system never points at a dead device.
+    // Restore the user's real output device FIRST.
     let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
     if prev != 0 {
         set_default_output(prev);
     }
     if let Some(s) = eng.session.take() {
-        AudioDeviceStop(s.agg, s.proc_id);
-        AudioDeviceDestroyIOProcID(s.agg, s.proc_id);
-        AudioHardwareDestroyAggregateDevice(s.agg);
-        AudioHardwareDestroyProcessTap(s.tap);
-        tracing::info!("boom: engine stopped + torn down");
-        // `s._block` drops here, after the IOProc is destroyed.
+        AudioDeviceStop(s.real_dev, s.play_proc);
+        AudioDeviceStop(s.boom_dev, s.cap_proc);
+        AudioDeviceDestroyIOProcID(s.real_dev, s.play_proc);
+        AudioDeviceDestroyIOProcID(s.boom_dev, s.cap_proc);
+        tracing::info!("boom: bridge stopped");
+        // blocks + ring drop here, after the IOProcs are destroyed.
     }
 }
 

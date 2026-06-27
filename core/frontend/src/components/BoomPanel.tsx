@@ -133,9 +133,9 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
       <div className="flex items-start gap-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[10px] text-[var(--color-muted)]">
         <AlertTriangle size={12} className="mt-px shrink-0 text-amber-500" />
         <span>
-          Live system-audio routing isn’t active yet — the driverless Core-Audio tap engine is still
-          in development. This configures the (tested) DSP engine; the EQ/preset/boost settings are
-          saved and will apply once the audio path is solved.
+          Live audio routes through the <b>boom Audio</b> driver. If enabling boom changes nothing,
+          the driver isn’t installed yet — see <code>boom-driver/</code>. Enabling switches the system
+          output to boom Audio and runs everything through this EQ; disabling restores it.
         </span>
       </div>
 

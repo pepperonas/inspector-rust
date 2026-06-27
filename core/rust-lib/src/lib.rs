@@ -57,6 +57,7 @@ mod window_palette;
 mod system_commands;
 mod system_stats;
 mod stats_history;
+mod boom;
 mod finder_selection;
 #[cfg(target_os = "macos")]
 mod osascript_util;
@@ -487,6 +488,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::window_palette_cancel,
             commands::window_palette_preview,
             commands::window_palette_preview_hide,
+            commands::boom_available,
+            commands::boom_presets,
+            commands::get_boom_config,
+            commands::set_boom_config,
             commands::list_action_hotkeys,
             commands::set_action_hotkey,
             commands::reset_action_hotkey,

@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.143] — 2026-06-27
+
+### Added
+
+- **`boom` — audio enhancement (macOS, phase 1a: DSP engine + controller).** A
+  new command for driverless system-wide audio enhancement (Core-Audio process
+  taps, macOS 14.2+ — no BlackHole/kext). This release ships the **complete,
+  unit-tested DSP engine** + the controller UI: a 10-band graphic EQ (RBJ
+  peaking biquads), pre-amp, volume boost (with a 100 % tick + over-100 %
+  warning), a soft-knee limiter (transparent until it protects against clipping),
+  20 presets (genre + per-device speaker correction), and enhancement-effect
+  controls. `boom` opens the controller inline in the preview column (Esc
+  closes); config persists. A banner notes that the **live system-audio routing
+  arrives in the next update** (phase 1b) — until then this configures the
+  engine. macOS-gated; needs macOS 14.2+.
+
 ## [0.84.142] — 2026-06-27
 
 ### Added

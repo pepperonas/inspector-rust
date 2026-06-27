@@ -13,6 +13,7 @@ import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { BoomPanel } from "./components/BoomPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
@@ -173,6 +174,10 @@ function App() {
   // just routes Esc to the panel; there's no selection model.
   const [statsMode, setStatsMode] = useState(false);
   const [statsFocus, setStatsFocus] = useState(false);
+  // boom mode — Enter on the `boom` row renders the audio-enhancement controller
+  // (EQ / presets / boost) in the right preview column.
+  const [boomMode, setBoomMode] = useState(false);
+  const [boomFocus, setBoomFocus] = useState(false);
   // Uptime mode — Enter on the `uptime` row renders the live, microsecond-
   // animated uptime odometer in the right preview column.
   const [uptimeMode, setUptimeMode] = useState(false);
@@ -498,6 +503,15 @@ function App() {
     }
   }, [isStatsCmd, statsMode]);
 
+  // Same auto-exit for boom mode.
+  const isBoomCmd = parsedCommand?.spec.kind === "boom";
+  useEffect(() => {
+    if (!isBoomCmd && boomMode) {
+      setBoomMode(false);
+      setBoomFocus(false);
+    }
+  }, [isBoomCmd, boomMode]);
+
   // Same auto-exit for uptime mode.
   const isUptimeCmd = parsedCommand?.spec.kind === "uptime";
   useEffect(() => {
@@ -704,6 +718,10 @@ function App() {
       case "stats":
         label = "Live system stats";
         hint = "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        break;
+      case "boom":
+        label = "Audio enhancement";
+        hint = "Enter → system EQ, presets & volume boost in the preview";
         break;
       case "uptime":
         label = "Live system uptime";
@@ -1895,6 +1913,12 @@ function App() {
         setStatsMode(true);
         setStatsFocus(true);
         return true;
+      } else if (commandKind === "boom") {
+        // Inline audio-enhancement controller in the preview column.
+        setQuery("boom");
+        setBoomMode(true);
+        setBoomFocus(true);
+        return true;
       } else if (commandKind === "uptime") {
         // Inline live animated uptime odometer in the preview column.
         setQuery("uptime");
@@ -2183,7 +2207,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !uptimeFocus,
+      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !boomFocus && !uptimeFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2526,6 +2550,17 @@ function App() {
                     onExit={() => {
                       setStatsMode(false);
                       setStatsFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
+              ) : boomMode ? (
+                <div className="md3-pop-in h-full">
+                  <BoomPanel
+                    focused={boomFocus}
+                    onExit={() => {
+                      setBoomMode(false);
+                      setBoomFocus(false);
                       requestAnimationFrame(() => searchRef.current?.focus());
                     }}
                   />

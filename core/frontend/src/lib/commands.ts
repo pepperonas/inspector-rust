@@ -73,6 +73,7 @@ export type CommandKind =
   | "qr"
   | "sound"
   | "stats"
+  | "boom"
   | "uptime"
   | "track"
   | "trim";
@@ -565,6 +566,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "stats",
     description: "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
     requiresArg: false,
+  },
+  {
+    kind: "boom",
+    keyword: "boom",
+    syntax: "boom",
+    description: "Audio enhancement — system EQ, presets & volume boost (macOS)",
+    requiresArg: false,
+    platform: ["mac"],
   },
   {
     kind: "uptime",

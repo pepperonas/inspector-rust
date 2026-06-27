@@ -730,6 +730,50 @@ export function setWindowSnapConfig(config: WindowSnapConfig): Promise<WindowSna
   return invoke("set_window_snap_config", { config });
 }
 
+/** boom — system-wide audio enhancement (macOS, driverless). */
+export interface BoomEffects {
+  bass: number;
+  fidelity: number;
+  ambience: number;
+  clarity: number;
+  night: number;
+}
+
+export interface BoomConfig {
+  enabled: boolean;
+  preset: string;
+  preamp_db: number;
+  band_gains_db: number[];
+  boost_pct: number;
+  controlled_boost: boolean;
+  effects: BoomEffects;
+}
+
+export interface BoomPreset {
+  name: string;
+  group: string;
+  gains: number[];
+}
+
+export function boomAvailable(): Promise<boolean> {
+  return invoke("boom_available");
+}
+
+export function boomPresets(): Promise<BoomPreset[]> {
+  return invoke("boom_presets");
+}
+
+export function getBoomConfig(): Promise<BoomConfig> {
+  return invoke("get_boom_config");
+}
+
+export function setBoomConfig(config: BoomConfig): Promise<BoomConfig> {
+  return invoke("set_boom_config", { config });
+}
+
+/** Standard 10-band EQ centre-frequency labels (aligned to BANDS_10 in Rust). */
+export const BOOM_BANDS = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+
 /** Window palette (Moom-style hover palette over the green zoom button; macOS, opt-in). */
 export interface WindowPaletteConfig {
   enabled: boolean;

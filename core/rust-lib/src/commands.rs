@@ -1393,6 +1393,35 @@ pub fn reset_action_hotkey(app: AppHandle, id: String) -> Result<(), String> {
     crate::hotkey::reset_action_hotkey(&app, &id)
 }
 
+// ── boom — audio enhancement (DSP engine; phase 1a) ───────────────────────────
+
+/// Whether the host supports the boom engine (macOS 14.2+ process-tap API).
+#[tauri::command]
+pub fn boom_available() -> bool {
+    crate::boom::is_supported()
+}
+
+/// All built-in EQ presets (genre + device-correction).
+#[tauri::command]
+pub fn boom_presets() -> Vec<crate::boom::Preset> {
+    crate::boom::presets()
+}
+
+#[tauri::command]
+pub fn get_boom_config(db: State<'_, DbHandle>) -> crate::boom::BoomConfig {
+    crate::boom::BoomConfig::load(&db)
+}
+
+/// Persist the boom config (and, in phase 1b, push it to the live DSP engine).
+#[tauri::command]
+pub fn set_boom_config(
+    db: State<'_, DbHandle>,
+    config: crate::boom::BoomConfig,
+) -> Result<crate::boom::BoomConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    Ok(crate::boom::BoomConfig::load(&db))
+}
+
 // ── Window palette (Moom-style hover palette) ─────────────────────────────────
 
 #[tauri::command]

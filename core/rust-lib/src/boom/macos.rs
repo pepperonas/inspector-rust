@@ -507,6 +507,12 @@ unsafe fn pick_real_output(exclude: AudioObjectID) -> AudioObjectID {
 /// boom is toggled normally (from off), the default is already the user's real
 /// device, so this is only a crash-recovery safety net.
 pub(crate) fn reset_stale_default() {
+    // If boom is actively bridging, the boom-Audio default is LEGITIMATE (not
+    // stale) — leave it. Otherwise this fires on every config change / overlay
+    // close and yanks the output device away mid-session.
+    if ENGINE.lock().as_ref().is_some_and(|e| e.session.is_some()) {
+        return;
+    }
     unsafe {
         let boom_dev = find_device_by_uid("BoomAudio_UID");
         if boom_dev == 0 || default_output() != boom_dev {

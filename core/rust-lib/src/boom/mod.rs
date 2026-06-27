@@ -377,6 +377,9 @@ pub fn apply(db: &DbHandle) {
     let cfg = BoomConfig::load(db);
     #[cfg(target_os = "macos")]
     {
+        // Clear any stale "boom Audio is the default output" state (e.g. after an
+        // unclean exit) before (re)starting, so audio is never left silent.
+        macos::reset_stale_default();
         macos::set_active(&cfg);
     }
     #[cfg(not(target_os = "macos"))]

@@ -443,6 +443,66 @@ unsafe fn device_name(dev: AudioObjectID) -> String {
     }
 }
 
+const PROP_STREAMS: u32 = fourcc(b"stm#"); // kAudioDevicePropertyStreams
+const SCOPE_OUTPUT: u32 = fourcc(b"outp"); // kAudioObjectPropertyScopeOutput
+const PROP_TRANSPORT: u32 = fourcc(b"tran"); // kAudioDevicePropertyTransportType
+const TRANSPORT_VIRTUAL: u32 = fourcc(b"virt"); // kAudioDeviceTransportTypeVirtual
+
+fn addr_scope(selector: u32, scope: u32) -> AudioObjectPropertyAddress {
+    AudioObjectPropertyAddress { selector, scope, element: ELEMENT_MAIN }
+}
+
+unsafe fn device_has_output(dev: AudioObjectID) -> bool {
+    let a = addr_scope(PROP_STREAMS, SCOPE_OUTPUT);
+    let mut size = 0u32;
+    AudioObjectGetPropertyDataSize(dev, &a, 0, std::ptr::null(), &mut size) == 0 && size > 0
+}
+
+unsafe fn device_transport(dev: AudioObjectID) -> u32 {
+    let a = addr(PROP_TRANSPORT);
+    let mut t = 0u32;
+    let mut size = 4u32;
+    AudioObjectGetPropertyData(dev, &a, 0, std::ptr::null(), &mut size, &mut t as *mut _ as *mut c_void);
+    t
+}
+
+/// Pick a real (non-virtual) output device, excluding `exclude` (boom Audio) —
+/// used when the default output is stale-stuck on boom Audio itself.
+unsafe fn pick_real_output(exclude: AudioObjectID) -> AudioObjectID {
+    let a = addr(PROP_DEVICES);
+    let mut size = 0u32;
+    if AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size) != 0 {
+        return 0;
+    }
+    let count = size as usize / std::mem::size_of::<AudioObjectID>();
+    let mut ids = vec![0u32; count];
+    if AudioObjectGetPropertyData(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size, ids.as_mut_ptr() as *mut c_void) != 0 {
+        return 0;
+    }
+    for &id in &ids {
+        if id == exclude || !device_has_output(id) || device_transport(id) == TRANSPORT_VIRTUAL {
+            continue;
+        }
+        return id;
+    }
+    0
+}
+
+/// If the default output is stuck on boom Audio (e.g. after an unclean exit
+/// while boom was on), reset it to a real device so audio isn't silent.
+pub(crate) fn reset_stale_default() {
+    unsafe {
+        let boom_dev = find_device_by_uid("BoomAudio_UID");
+        if boom_dev != 0 && default_output() == boom_dev {
+            let real = pick_real_output(boom_dev);
+            if real != 0 {
+                set_default_output(real);
+                tracing::info!("boom: reset stale default output (was boom Audio) → {real}");
+            }
+        }
+    }
+}
+
 /// Set a device's nominal sample rate (used to match boom Audio to the real
 /// output so the bridge runs at one rate — no resampling, no speed change).
 unsafe fn set_device_sample_rate(dev: AudioObjectID, sr: f64) {
@@ -567,9 +627,17 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         tracing::warn!("boom: 'boom Audio' driver not installed (run scripts/boom-driver-install.sh)");
         return false;
     }
-    let real_dev = default_output();
+    let mut real_dev = default_output();
     if real_dev == 0 || real_dev == boom_dev {
-        tracing::warn!("boom: no usable real output device");
+        // Default is boom Audio (stale from a prior unclean exit) → bridge to a
+        // real output instead, so we never play to our own silent device.
+        real_dev = pick_real_output(boom_dev);
+        if real_dev != 0 {
+            tracing::info!("boom: default was stale boom Audio; using real output {real_dev}");
+        }
+    }
+    if real_dev == 0 || real_dev == boom_dev {
+        tracing::warn!("boom: no usable real output device found");
         return false;
     }
     let sr = nominal_sample_rate(real_dev);

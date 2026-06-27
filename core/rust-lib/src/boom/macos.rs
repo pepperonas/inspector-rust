@@ -898,11 +898,40 @@ pub(crate) fn set_active(cfg: &BoomConfig) {
     eng.dsp.lock().set_params(&cfg.dsp_params());
 
     if cfg.enabled && ENGINE_ENABLED {
-        unsafe { start_locked(eng) };
+        SHOULD_RUN.store(true, Ordering::SeqCst);
+        if !unsafe { start_locked(eng) } {
+            // Occasional device-not-ready miss right after enabling — retry in the
+            // background so the user doesn't have to nudge a slider to kick it off.
+            std::thread::spawn(retry_start);
+        }
     } else {
+        SHOULD_RUN.store(false, Ordering::SeqCst);
         // Engine off (or disabled): make sure nothing is touching the audio path.
         unsafe { stop_locked(eng) };
     }
+}
+
+static SHOULD_RUN: AtomicBool = AtomicBool::new(false);
+
+/// Retry starting the bridge a few times (the audio device list can be briefly
+/// not-ready right after enabling). Cancels if the user disables in the meantime.
+fn retry_start() {
+    for _ in 0..4 {
+        std::thread::sleep(std::time::Duration::from_millis(300));
+        if !SHOULD_RUN.load(Ordering::SeqCst) {
+            return;
+        }
+        let mut slot = ENGINE.lock();
+        let Some(eng) = slot.as_mut() else { return };
+        if eng.session.is_some() {
+            return; // already running
+        }
+        if unsafe { start_locked(eng) } {
+            tracing::info!("boom: bridge started on retry");
+            return;
+        }
+    }
+    tracing::warn!("boom: bridge failed to start after retries");
 }
 
 /// Tear the engine down (disable / app quit). Restores normal output.

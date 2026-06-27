@@ -83,15 +83,21 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
   };
 
   // Debounced persist (the DSP recompute is cheap; avoid a write per drag tick).
-  const update = (patch: Partial<BoomConfig>) => {
+  // `immediate` saves at once (discrete actions: on/off, preset) so they apply
+  // instantly; continuous changes (sliders) stay debounced.
+  const update = (patch: Partial<BoomConfig>, immediate = false) => {
     setCfg((c) => {
       if (!c) return c;
       const next = { ...c, ...patch };
       cfgRef.current = next;
       window.clearTimeout(saveTimer.current);
-      saveTimer.current = window.setTimeout(() => {
+      if (immediate) {
         void setBoomConfig(next).catch(() => {});
-      }, 250);
+      } else {
+        saveTimer.current = window.setTimeout(() => {
+          void setBoomConfig(next).catch(() => {});
+        }, 250);
+      }
       return next;
     });
   };
@@ -158,10 +164,10 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
   const applyPreset = (name: string) => {
     const p = presets.find((x) => x.name === name);
     if (!p) {
-      update({ preset: name });
+      update({ preset: name }, true);
       return;
     }
-    update({ preset: name, band_gains_db: p.gains.slice() });
+    update({ preset: name, band_gains_db: p.gains.slice() }, true);
   };
 
   if (available === false) {
@@ -219,7 +225,7 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
         </div>
         <button
           type="button"
-          onClick={() => update({ enabled: !cfg.enabled })}
+          onClick={() => update({ enabled: !cfg.enabled }, true)}
           className={
             "flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors " +
             (cfg.enabled

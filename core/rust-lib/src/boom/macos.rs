@@ -32,6 +32,7 @@ use std::sync::Arc;
 static CB_COUNT: AtomicU64 = AtomicU64::new(0);
 static CB_IN_NULL: AtomicBool = AtomicBool::new(false);
 static CB_IN_BYTES: AtomicU32 = AtomicU32::new(0);
+static CB_IN_N: AtomicU32 = AtomicU32::new(0);
 static CB_IN_CH: AtomicU32 = AtomicU32::new(0);
 static CB_IN_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_N: AtomicU32 = AtomicU32::new(0);
@@ -39,16 +40,19 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted, 1 = muted. (Only relevant when `ENGINE_ENABLED`.)
+/// 0 = unmuted, 1 = muted. Keep UNMUTED while diagnosing so the original audio
+/// stays audible and the Mac is never silenced.
 const MUTE_BEHAVIOR: i64 = 0;
 
-/// **Master safety switch for the live audio engine.** Disabled: the blind-
-/// iterated process-tap path caused hangs / noise / silence on real hardware
-/// (which can't be verified here). While off, enabling `boom` only stores the
-/// DSP config — system audio is never touched (cannot hang/mute/distort). The
-/// realtime engine needs proper format negotiation + on-hardware development
-/// before it's re-armed.
-const ENGINE_ENABLED: bool = false;
+/// Master switch for the live audio engine.
+const ENGINE_ENABLED: bool = true;
+
+/// **Diagnostic-silence mode.** When true the IOProc **zeroes the output** (renders
+/// pure silence) instead of copying/processing — so it can *never* produce noise
+/// or hang. Unmuted, the original audio keeps playing normally; meanwhile we log
+/// the exact In/Out buffer structure (buffer count / channels / byte size) to
+/// build correct format conversion. Flip off once the format handling is right.
+const DIAG_SILENCE: bool = true;
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 
@@ -390,9 +394,10 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         let in_rms = f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed));
         let out_rms = f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed));
         tracing::info!(
-            "boom diag: calls={} | IN null={} bytes={} ch={} rms={:.5} | OUT n={} bytes={} ch={} rms={:.5}",
+            "boom diag: calls={} silence={} | IN n={} bytes={} ch={} rms={:.5} | OUT n={} bytes={} ch={} rms={:.5}",
             CB_COUNT.load(Ordering::Relaxed),
-            CB_IN_NULL.load(Ordering::Relaxed),
+            DIAG_SILENCE,
+            CB_IN_N.load(Ordering::Relaxed),
             CB_IN_BYTES.load(Ordering::Relaxed),
             CB_IN_CH.load(Ordering::Relaxed),
             in_rms,
@@ -419,6 +424,8 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
         let out_bufs = (*output).buffers.as_mut_ptr();
         // Diagnostics (lock-free): is the callback firing? is tap input present?
         CB_COUNT.fetch_add(1, Ordering::Relaxed);
+        CB_IN_N.store(in_n as u32, Ordering::Relaxed);
+        CB_OUT_N.store(out_n as u32, Ordering::Relaxed);
         CB_IN_NULL.store(in_n == 0 || (*in_bufs).data.is_null(), Ordering::Relaxed);
         if in_n > 0 {
             let b0 = &*in_bufs;
@@ -431,7 +438,26 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
                 CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
             }
         }
-        CB_OUT_N.store(out_n as u32, Ordering::Relaxed);
+        // Record the output buffer structure (buffer 0) for diagnosis.
+        if out_n > 0 {
+            let ob0 = &*out_bufs;
+            CB_OUT_BYTES.store(ob0.data_byte_size, Ordering::Relaxed);
+            CB_OUT_CH.store(ob0.number_channels, Ordering::Relaxed);
+        }
+
+        // DIAGNOSTIC-SILENCE: zero every output buffer (pure silence) — never
+        // copies/processes, so it cannot produce noise. Original audio keeps
+        // playing (unmuted). We only collect the format diagnostics above.
+        if DIAG_SILENCE {
+            for i in 0..out_n {
+                let ob = &mut *out_bufs.add(i);
+                if !ob.data.is_null() && ob.data_byte_size > 0 {
+                    std::ptr::write_bytes(ob.data as *mut u8, 0, ob.data_byte_size as usize);
+                }
+            }
+            return;
+        }
+
         let mut guard = dsp.try_lock();
         for i in 0..n {
             let ib = &*in_bufs.add(i);

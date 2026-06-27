@@ -47,3 +47,4 @@ build/
 
 # Playwright MCP page dumps (transient)
 .playwright-mcp/
+boom-driver/build/

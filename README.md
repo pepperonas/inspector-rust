@@ -11,37 +11,43 @@
 
   > **Keyboard-first clipboard hyper-toolkit — native on macOS, Windows 11, Linux. No Electron, no cloud, no telemetry.**
 
-  Press **`Ctrl+Space`** anywhere → frameless popup over the active monitor → fuzzy-search 1 000 deduped clipboard entries → Enter pastes back into the previously focused app. Whole loop under 200 ms, under 50 MB RAM, AES-256-GCM-encrypted at rest with keys in the OS keychain. **Built for the kind of person who already has muscle memory for three clipboard managers and is tired of every one of them.**
+  Press **`Ctrl+Space`** anywhere → frameless popup over the active monitor → search 1 000 deduped clipboard entries → Enter pastes back into the previously focused app. Whole loop under 200 ms, under 50 MB RAM, AES-256-GCM-encrypted at rest with keys in the OS keychain. **Built for the kind of person who already has muscle memory for three clipboard managers and is tired of every one of them.**
 
   ### ✨ What it does (in short)
 
-  - 📋 **Clipboard history** — text, RTF, HTML, PNG, file lists; 1 000 entries deduped via SHA-256; fuzzy-search-as-you-type.
-  - 🧮 **Inline calculator** (`2+2`, `sqrt(144)`, hex/bit-ops; slot-machine result reveal), **unit / base / time converter** (`5 km in mi`, `0xff in dec`, `1700000000 as date`) and **colour converter** (`#hex` / `rgb()` / `hsl()` in any direction).
-  - 🎯 **Text expander — 4 modes**: passive **auto-expansion** (aText-style — expands as you type, no hotkey) · in-popup search · system-wide hotkey (AX/UIA in-place replace + Electron fallback) · direct hotkey → snippet slots (works even in terminals). **Dynamic placeholders** expand at paste time: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}` (caret position), `{{`/`}}` for literal braces.
-  - 🔍 **Screen-region OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade text recognition into clipboard.
-  - 📸 **Screenshots — CleanShot-X-style**: region (`Ctrl+Shift+S`) · full-screen · active-window · self-timer · repeat-last (`shot` / `shotfull` / `shotwin` / `shotlast`); floating preview HUD; **annotation editor** (arrow / line / text / rect / ellipse / highlight / blur / redact / numbered step badges); **pin to screen** (float a capture as its own always-on-top window). Filenames include the source app name.
+  *Roughly sorted by everyday usefulness × how much engineering sits behind it — flagship features first, easter eggs last.*
+
+  - 📋 **Clipboard history** — text, RTF, HTML, PNG, file lists; 1 000 entries deduped via SHA-256; substring search-as-you-type; pin + attach a note to any clip.
+  - 🎯 **Text expander — 4 modes**: passive **auto-expansion** (aText-style — expands as you type, no hotkey) · in-popup search · system-wide hotkey (AX/UIA in-place replace + Electron fallback) · direct hotkey → snippet slots (works even in terminals). **Dynamic placeholders** at paste time: `{date}` / `{date:%d.%m.%Y}`, `{time}`, `{datetime}`, `{clipboard}`, `{cursor}`, `{{`/`}}`.
+  - 🧮 **Inline calculator** (`2+2`, `sqrt(144)`, hex/bit-ops; slot-machine reveal), **unit / base / time converter** (`5 km in mi`, `0xff in dec`, `1700000000 as date`) and **colour converter** (`#hex` / `rgb()` / `hsl()` in any direction).
+  - 🎚️ **System-wide audio EQ — `boom`** (macOS) — a **10-band graphic equaliser + volume boost + 20 presets** applied to *all* system audio, with live input/output level meters. Installs a small virtual audio driver from the panel (one click), matches your device's sample rate, and **follows your output device live** (incl. Bluetooth).
+  - 🪟 **Window management** (macOS, opt-in) — drag a window to a screen edge to **snap** it (left/right halves · top to maximize, Magnet-style), or hover its green zoom button for a **Moom-style palette**: preset layouts (⌥ for quarters) + a drag-over **honeycomb grid** to drop the window into any region of the screen, with a live on-screen outline preview.
+  - 📸 **Screenshots — CleanShot-X-style**: region (`Ctrl+Shift+S`) · full-screen · active-window · self-timer · repeat-last; floating preview HUD; **annotation editor** (arrow / line / text / rect / ellipse / highlight / blur / redact / numbered step badges); **pin to screen**. Filenames include the source app.
   - 🎥 **Screen recording** (`Ctrl+Shift+Alt+S`) — drag a region → pick audio (system / mic / both) → 3-2-1 → **MP4 (H.264)** to Downloads; floating bar with **pause/resume**; multi-monitor; system audio auto-routes through a loopback. Needs ffmpeg.
+  - 🔍 **Screen-region OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-grade text recognition into the clipboard.
   - 🎬 **Media tools** — **download** YouTube / Instagram / TikTok / Facebook (video or audio — just paste a URL; Tab toggles on YouTube); **audio swap** (`Ctrl+Shift+Alt+M`) to replace or mix a video's audio with a local file or a YouTube track; **trim** audio/video (`trim`) lossless-fast or frame-accurate. Need ffmpeg / yt-dlp.
-  - 💡 **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview (built-in *and* external displays); Enter to control them, **↑↓** pick a monitor, **←→** adjust. Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux.
+  - ⏱️ **Time tracking / Timesheet** (`track on/off`; `track` or **`Ctrl+Shift+T`**; macOS) — opt-in, event-based app-usage tracking by window focus with retroactive idle auto-pause; an editable **Timesheet tab** with day/week views, inline-SVG charts (timeline · app donut · categories · projects), CSV + self-contained HTML export; detects **Claude Code** usage per project (time + tokens); an optional **browser extension** (loopback socket only). Window titles + URLs encrypted at rest.
+  - 📊 **System stats** (`stats`) — live inline dashboard: CPU (overall + per-core), memory + swap, **battery & power draw in watts**, temperatures + **fan RPM** (SMC / hwmon), disks, live network throughput, uptime. **Live ↔ History** toggle with per-metric line charts (1 h / 6 h / 24 h / 7 d).
+  - ☀️ **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview for built-in *and* external displays (**↑↓** pick a monitor, **←→** adjust). Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux.
+  - 💡 **Philips Hue** (`hue`) — control your lamps inline: all-lamps on/off + brightness, per-lamp brightness, and 8 colour-preset swatches on colour bulbs. Plus a **Beat-sync** disco that pulses the lamps to music from the mic. Local LAN pairing (discover or enter IP + link button); no cloud.
+  - 🖐️ **Touchpad gestures** (opt-in) — **3-finger swipe** up/down for volume, **3-finger tap** to mute, fed through the system volume pipeline. macOS via the private MultitouchSupport API (consumes the swipe so the app underneath doesn't scroll); Windows Precision Touchpad; Linux libinput.
+  - 🔐 **2FA / TOTP manager** — type `2fa` for the TOTP vault; `otp <issuer>` for instant OTP autocomplete with a live 30-second countdown. Imports Google Authenticator / Aegis / 2FAS / `otpauth`. Secrets encrypted, never cross the IPC boundary.
   - 🔊 **Audio output** (`sound` / `audio`) — inline picker to switch the system default output device (macOS · Windows · Linux).
-  - 💡 **Philips Hue** (`hue`) — control your lamps inline: all-lamps on/off + brightness, per-lamp brightness, and 8 colour-preset swatches on colour bulbs. Plus a **Beat-sync** section that pulses the lamps to music from the mic. Pairs to your bridge on the LAN (discover or enter IP + link button); no cloud.
-  - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. Dry-run preview + confirm; strict allowlist, symlinks never followed; Safe/Standard/Aggressive levels.
-  - 🎨 **Color picker** (`Ctrl+Shift+C`) — `NSColorSampler` loupe / GDI overlay / hex straight to clipboard.
-  - 📁 **Finder selection actions** (`Ctrl+Shift+F`, macOS) — multi-file batch resize / optim / cut-out / open on whatever you have selected in Finder.
-  - 📄 **Markdown → PDF** (`Ctrl+Shift+M`, macOS) — converts the `.md` files currently selected in Finder to PDF in-process; no CLI tools required.
-  - 🔐 **2FA / TOTP manager** — type `2fa` to open the TOTP vault; type `otp <issuer>` for instant OTP autocomplete with live 30-second countdown.
-  - 🖼️ **Image tools** — Recolor (logo tint), ML cut-out (U²-Net ONNX, 4.5 MB embedded), Lanczos3 resize with preset autocomplete.
+  - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. Dry-run preview + confirm; strict allowlist, symlinks never followed; Safe / Standard / Aggressive levels.
+  - 🎨 **Color picker / eyedropper** (`Ctrl+Shift+C`) — a custom screen loupe with the **live hex shown under the magnifier** (macOS) / GDI overlay (Windows); hex straight to the clipboard.
+  - 🖼️ **Image tools** — Recolor (logo tint), ML **cut-out** (U²-Net ONNX, 4.5 MB embedded), Lanczos3 **resize** (`rz`) + **optimise** (`optim`, oxipng) on the Finder selection or the clipboard image.
+  - 📁 **Finder selection actions** (`Ctrl+Shift+F`, macOS) — batch resize / optim / cut-out / open on whatever you have selected in Finder.
+  - 📄 **Markdown → PDF** (`Ctrl+Shift+M` / `md2pdf`, macOS) — converts the `.md` files currently selected in Finder to PDF in-process; no CLI tools required.
+  - 🚀 **App launcher** (Spotlight-like, macOS) — fuzzy-match an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🔳 **QR code** (`qr <text>`) — live preview in the panel; Enter copies the PNG to the clipboard.
   - 🛠️ **Dev quick-tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (pretty-print clipboard) · `jwt` (decode clipboard) → clipboard.
   - 🌐 **Web-search bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` open a site's search.
-  - 🎚️ **BPM detector** (`bpm`) — live microphone beat detection with an animated visualizer.
+  - 🥁 **BPM detector** (`bpm`) — live microphone beat detection with an animated AAA visualizer.
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
-  - ⏱️ **Time tracking / Timesheet** (`track on` / `track off`; `track` or **`Ctrl+Shift+T`** opens it; macOS) — opt-in, event-based app-usage tracking by window focus with retroactive idle auto-pause; an editable **Timesheet tab** with day navigation, inline-SVG charts (timeline · app donut · categories · hosts), CSV + self-contained HTML export; detects **Claude Code** usage per project (time + tokens); an optional **browser extension** (loopback socket only) attributes browser time to host/title. Window titles + URLs encrypted at rest; a privacy denylist + retention live in Settings.
-  - 🚀 **App launcher** (Spotlight-like, macOS) — type the start of an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
-  - 🟢 **Wakelock LED + status toast** — pulsing red LED + `wake` label in the popup footer while keep-awake is on; a centred on-screen toast confirms on/off.
-  - ⚙️ **Power commands** — `tr` / `tren` / `trde` / `trde2it` / `trit2de` / `trde2sp` / `trsp2de` / `trde2pl` / `trpl2de` (translate via Google Translate), `rz` / `optim` / `qr` (image), `uuid` / `slug` / `hash` / `json` / `jwt` (dev tools), `g` / `ddg` / `gh` / `yt` / `npm` / `crates` / `so` / `mdn` / `wiki` (web search), `kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze` (system), `wakelock on/off` (alias `caffeine on/off`, keep awake — all OSes), `touch` / `mkdir` / `terminal` (create file/folder · open terminal in the open Finder folder), `shot [n]` / `shotfull` / `shotwin` / `shotlast` (screenshots), `trim` (cut audio/video), `clean` (free disk), `brightness` / `bri` (monitor brightness), `sound` / `audio` (output device), `stats` (live CPU/RAM/disk/network/temps/fans/battery), `boom` (system-wide audio EQ — 10-band + presets + boost, via a one-time virtual-driver install, macOS), `uptime` (live uptime, µs-animated), `track on/off` (time tracking; bare `track` or `Ctrl+Shift+T` opens the timesheet — macOS), `meme [query]` (browse & copy memes), `timer`, `alarm <HH:MM>`, `rnd` / `random` (dice roll), `md2pdf [path]` (Markdown→PDF), `pwgen`, `rmvvls` (text).
-  - 📓 **Snippets** (27 bundled AI prompts) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON export).
-  - 🔒 **Local-first** — zero network calls, zero account, data only at `~/Library/Application Support/InspectorRust/history.db`. Encryption keys never leave your machine.
+  - ⚙️ **Power commands** — the search bar parses dozens of shell-style commands: translate (`tr` / `tren` / `trde` / `trde2it` / …), system (`kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze`), `rnd` / `random` (dice), `timer` / `alarm <HH:MM>`, `touch` / `mkdir` / `terminal` (in the open Finder folder), `rmvvls`, `pwgen`, `meme [query]` — plus every command listed above. Fuzzy-matched, always outranking clips, rendered with a red accent.
+  - 📓 **Snippets** (27 bundled AI prompts + 255 Material colours) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON, optionally password-encrypted).
+  - 🟢 **Keep-alive & wakelock** — `wakelock on/off` (alias `caffeine`) keeps the machine awake (pulsing footer LED + on-screen toast); **“Always keep running”** (Settings → Startup) relaunches the app natively if it's ever quit or killed.
+  - 🔒 **Local-first** — zero network calls, zero account; data only at `~/Library/Application Support/InspectorRust/history.db`, AES-256-GCM-encrypted with keys in the OS keychain.
   - 🎮 **Hidden games** — five Easter-egg trigger words. You'll find them.
 
   ### 🧰 Tech stack
@@ -216,7 +222,6 @@
   [![ort](https://img.shields.io/badge/ort-ONNX%20Runtime-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/ort)
   [![ring](https://img.shields.io/badge/ring-AES--256--GCM-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/ring)
   [![objc2](https://img.shields.io/badge/objc2-Vision%20FFI-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/objc2)
-  [![Fuse.js](https://img.shields.io/badge/fuse.js-fuzzy%20search-005571?style=flat-square)](https://www.fusejs.io)
   [![lucide-react](https://img.shields.io/badge/icons-lucide--react-F56565?style=flat-square)](https://lucide.dev)
   [![react-virtual](https://img.shields.io/badge/list-react--virtual-FF4154?style=flat-square&logo=react&logoColor=white)](https://tanstack.com/virtual)
 
@@ -323,7 +328,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | Feature | Where to trigger | Doc |
 |---------|------------------|-----|
 | Clipboard history (text/RTF/HTML/PNG/files, 1 000 entries, deduped) | `Ctrl+Space` → search | core |
-| Fuzzy search (`fuse.js`, threshold 0.4) | Type in the search bar | core |
+| Substring search (clipboard) + fuzzy match (commands / apps) | Type in the search bar | core |
 | **Inline calculator** | Type an expression in the search bar (`2+2`, `sqrt(9)`, `sin(pi/2)`, `0xff << 4`, …) | core |
 | **Color converter** | Type `#RRGGBB` / `rgb(…)` / `hsl(…)` in the search bar → swatch + all formats | [colors.md](./docs/colors.md) |
 | **HSV color picker modal** | History tab → *Color Picker* button → hue slider + swatch + hex/rgb/hsl tabs | [colors.md](./docs/colors.md) |
@@ -412,7 +417,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 ### Clipboard core
 - **Global hotkey** `Ctrl+Space` opens the popup centered on the monitor with the cursor.
 - **Captures** text, RTF, HTML, images (PNG, ≤ 5 MB), and file lists via OS-native clipboard events (no polling). Image-before-files priority on macOS so Finder image-copies land as bitmaps, not paths.
-- **Fuzzy search** (`fuse.js`, threshold 0.4) ranks matches as you type. Virtualized list, per-content-type preview pane.
+- **Search** ranks matches as you type: clipboard history by **substring**, power commands + the app launcher by **fuzzy** (first-char-anchored subsequence). Virtualized list, per-content-type preview pane.
 - **Auto-paste** — Enter pastes via `enigo`-simulated `Ctrl+V` / `Cmd+V` into the previously focused app. Shift+Enter overrides the plain-text setting and pastes with original formatting.
 - **SQLite store** at `%APPDATA%\InspectorRust\history.db` / `~/Library/Application Support/InspectorRust/history.db`. SHA-256 deduped, 1 000-entry cap.
 - **AES-256-GCM at rest** since v0.6.0 — text/HTML/RTF/image bodies, snippet bodies, note bodies. Key in OS keychain (Keychain / Credential Manager / Secret Service), 0600 keyfile fallback. Full reference: [`docs/encryption.md`](./docs/encryption.md).

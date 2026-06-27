@@ -46,12 +46,16 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1261 unit tests (515 Rust + 746 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1379 unit tests (594 Rust + 785 frontend).** MIT-licensed.
 
-  <!-- ── Lines of code — XXL dynamic badge ─────────────────────── -->
+  <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code (Rust + TypeScript source)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~68k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="60" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~80k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+    </a>
+    &nbsp;
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 594 Rust + 785 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-1379%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -65,13 +69,17 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1261%20(515%20Rust%20%2B%20746%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
   [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/inspector-rust?style=flat-square)](#)
   [![Commit activity](https://img.shields.io/github/commit-activity/m/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
   [![Top language](https://img.shields.io/github/languages/top/pepperonas/inspector-rust?style=flat-square)](#)
+  [![Languages](https://img.shields.io/github/languages/count/pepperonas/inspector-rust?style=flat-square&label=languages)](#)
+  [![Release date](https://img.shields.io/github/release-date/pepperonas/inspector-rust?style=flat-square&label=released)](https://github.com/pepperonas/inspector-rust/releases/latest)
+  [![Clippy](https://img.shields.io/badge/clippy-%E2%88%92D%20warnings-CE422B?style=flat-square&logo=rust&logoColor=white)](./scripts/check.sh)
+  [![Conventional Commits](https://img.shields.io/badge/Conventional%20Commits-1.0.0-FE5196?style=flat-square&logo=conventionalcommits&logoColor=white)](https://www.conventionalcommits.org)
+  [![SemVer](https://img.shields.io/badge/SemVer-2.0.0-3F4551?style=flat-square&logo=semver&logoColor=white)](https://semver.org)
 
   <!-- ── Platforms ────────────────────────────────────────────── -->
   [![Windows 11](https://img.shields.io/badge/Windows-11-0078D4?style=flat-square&logo=windows11&logoColor=white)](./win)
@@ -79,6 +87,9 @@
   [![Apple Silicon](https://img.shields.io/badge/arm64-Apple%20Silicon-555555?style=flat-square&logo=apple&logoColor=white)](./macos)
   [![x86_64](https://img.shields.io/badge/x86__64-supported-555555?style=flat-square)](#)
   [![Linux](https://img.shields.io/badge/Linux-Ubuntu%20%7C%20Debian-brightgreen?style=flat-square&logo=linux&logoColor=white)](./linux/README.md)
+  [![Cross-platform](https://img.shields.io/badge/cross--platform-3%20OSes-blueviolet?style=flat-square)](#)
+  [![WebView2](https://img.shields.io/badge/Windows-WebView2-0078D4?style=flat-square&logo=microsoftedge&logoColor=white)](https://developer.microsoft.com/microsoft-edge/webview2/)
+  [![WKWebView](https://img.shields.io/badge/macOS-WKWebView-000000?style=flat-square&logo=safari&logoColor=white)](#)
 
   <!-- ── Stack ────────────────────────────────────────────────── -->
   [![Tauri 2](https://img.shields.io/badge/Tauri-2-FFC131?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -93,6 +104,14 @@
   [![ONNX Runtime](https://img.shields.io/badge/ONNX%20Runtime-bundled-005CED?style=flat-square&logo=onnx&logoColor=white)](https://onnxruntime.ai)
   [![Apple Vision](https://img.shields.io/badge/Apple%20Vision-Live%20Text-000000?style=flat-square&logo=apple&logoColor=white)](#)
   [![U2Net](https://img.shields.io/badge/U%C2%B2--Net-cutout-orange?style=flat-square)](https://github.com/xuebinqin/U-2-Net)
+  [![rusqlite](https://img.shields.io/badge/rusqlite-SQLite-003B57?style=flat-square&logo=sqlite&logoColor=white)](https://github.com/rusqlite/rusqlite)
+  [![objc2](https://img.shields.io/badge/objc2-FFI-000000?style=flat-square&logo=apple&logoColor=white)](https://github.com/madsmtm/objc2)
+  [![windows-rs](https://img.shields.io/badge/windows--rs-Win32-0078D4?style=flat-square&logo=windows&logoColor=white)](https://github.com/microsoft/windows-rs)
+  [![CoreAudio](https://img.shields.io/badge/CoreAudio-system%20EQ-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![ffmpeg](https://img.shields.io/badge/ffmpeg-record%20%2F%20trim-007808?style=flat-square&logo=ffmpeg&logoColor=white)](https://ffmpeg.org)
+  [![yt-dlp](https://img.shields.io/badge/yt--dlp-social%20DL-FF0000?style=flat-square&logo=youtube&logoColor=white)](https://github.com/yt-dlp/yt-dlp)
+  [![oxipng](https://img.shields.io/badge/oxipng-PNG%20optim-orange?style=flat-square)](https://github.com/shssoichiro/oxipng)
+  [![BlackHole](https://img.shields.io/badge/BlackHole-audio%20loopback-1DB954?style=flat-square)](https://github.com/ExistentialAudio/BlackHole)
 
   <!-- ── Security & ergonomics ───────────────────────────────── -->
   [![AES-256-GCM](https://img.shields.io/badge/encryption-AES--256--GCM-darkgreen?style=flat-square&logo=letsencrypt&logoColor=white)](./docs/encryption.md)
@@ -106,11 +125,25 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-216%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-224%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-594%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-785%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
+
+  <!-- ── Features ────────────────────────────────────────────── -->
+  [![Clipboard history](https://img.shields.io/badge/clipboard-history%20%2B%20pins-1f6feb?style=flat-square)](#)
+  [![Power commands](https://img.shields.io/badge/search--bar-power%20commands-e11d48?style=flat-square)](#)
+  [![Text expander](https://img.shields.io/badge/snippets-text%20expander-1f6feb?style=flat-square)](#)
+  [![Screen OCR](https://img.shields.io/badge/OCR-screen%20region-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![Screen recording](https://img.shields.io/badge/screen-record%20%2B%20trim-e11d48?style=flat-square)](#)
+  [![System EQ](https://img.shields.io/badge/boom-system%20audio%20EQ-1DB954?style=flat-square)](#)
+  [![2FA / TOTP](https://img.shields.io/badge/2FA-TOTP%20RFC%206238-darkgreen?style=flat-square)](#)
+  [![Eyedropper](https://img.shields.io/badge/color-eyedropper%20%2B%20loupe-blueviolet?style=flat-square)](#)
+  [![Markdown → PDF](https://img.shields.io/badge/Markdown-%E2%86%92%20PDF-purple?style=flat-square&logo=markdown&logoColor=white)](#)
+  [![Time tracking](https://img.shields.io/badge/timesheet-time%20tracking-1f6feb?style=flat-square)](#)
+  [![Hidden games](https://img.shields.io/badge/easter%20eggs-5%20games-ff69b4?style=flat-square)](#)
+  [![Material 3](https://img.shields.io/badge/Material%203-Expressive-757575?style=flat-square&logo=materialdesign&logoColor=white)](https://m3.material.io)
 
   <!-- ── Community ───────────────────────────────────────────── -->
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)

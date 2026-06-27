@@ -28,7 +28,16 @@ const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
   { key: "night", label: "Night" },
 ];
 
-export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
+export function BoomPanel({
+  focused,
+  onExit,
+  onInteract,
+}: {
+  focused: boolean;
+  onExit: () => void;
+  /** Called after a mouse interaction so the parent can keep the search field focused. */
+  onInteract?: () => void;
+}) {
   const [available, setAvailable] = useState<boolean | null>(null);
   const [driverInstalled, setDriverInstalled] = useState<boolean | null>(null);
   const [installing, setInstalling] = useState(false);
@@ -218,7 +227,14 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
   const boosting = cfg.boost_pct > 100;
 
   return (
-    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]" style={{ transform: "translateZ(0)" }}>
+    <div
+      className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)]"
+      style={{ transform: "translateZ(0)" }}
+      // After any mouse interaction (button click, slider release) hand focus
+      // back to the search field, so the user can type a command without
+      // re-clicking the input.
+      onPointerUp={() => onInteract?.()}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[13px] font-medium">
           <Volume2 size={15} className="text-[var(--color-accent)]" /> boom
@@ -271,7 +287,10 @@ export function BoomPanel({ focused, onExit }: { focused: boolean; onExit: () =>
         <span className="text-[var(--color-muted)]">Preset</span>
         <select
           value={cfg.preset}
-          onChange={(e) => applyPreset(e.target.value)}
+          onChange={(e) => {
+            applyPreset(e.target.value);
+            onInteract?.();
+          }}
           className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[12px] text-[var(--color-fg)] outline-none"
         >
           {cfg.preset === "Custom" && <option value="Custom">Custom</option>}

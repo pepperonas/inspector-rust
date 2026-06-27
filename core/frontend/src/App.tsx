@@ -2558,6 +2558,7 @@ function App() {
                 <div className="md3-pop-in h-full">
                   <BoomPanel
                     focused={boomFocus}
+                    onInteract={() => requestAnimationFrame(() => searchRef.current?.focus())}
                     onExit={() => {
                       setBoomMode(false);
                       setBoomFocus(false);

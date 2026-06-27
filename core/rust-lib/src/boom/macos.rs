@@ -30,11 +30,15 @@ static CB_IN_NULL: AtomicBool = AtomicBool::new(false);
 static CB_IN_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_IN_CH: AtomicU32 = AtomicU32::new(0);
 static CB_IN_RMS_BITS: AtomicU32 = AtomicU32::new(0);
+static CB_OUT_N: AtomicU32 = AtomicU32::new(0);
+static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
+static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
+static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted (safe, but doubles with the original → echo/lag), 1 = muted (only
-/// our processed signal is audible). Verified the render is clean (tap delivers
-/// real stereo audio, IOProc fires) → muted for the proper single-path sound.
-const MUTE_BEHAVIOR: i64 = 1;
+/// 0 = unmuted (audible, but doubles with the original → echo), 1 = muted. Muted
+/// gave silence → our IOProc output isn't reaching the speakers yet, so back to
+/// unmuted (audible) while we diagnose the output path.
+const MUTE_BEHAVIOR: i64 = 0;
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 
@@ -373,14 +377,19 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     CB_COUNT.store(0, Ordering::Relaxed);
     std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(1000));
-        let rms = f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed));
+        let in_rms = f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed));
+        let out_rms = f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed));
         tracing::info!(
-            "boom diag: io_callbacks={} in_null={} in_bytes={} in_channels={} in_rms={:.5}",
+            "boom diag: calls={} | IN null={} bytes={} ch={} rms={:.5} | OUT n={} bytes={} ch={} rms={:.5}",
             CB_COUNT.load(Ordering::Relaxed),
             CB_IN_NULL.load(Ordering::Relaxed),
             CB_IN_BYTES.load(Ordering::Relaxed),
             CB_IN_CH.load(Ordering::Relaxed),
-            rms,
+            in_rms,
+            CB_OUT_N.load(Ordering::Relaxed),
+            CB_OUT_BYTES.load(Ordering::Relaxed),
+            CB_OUT_CH.load(Ordering::Relaxed),
+            out_rms,
         );
     });
     true
@@ -412,11 +421,16 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
                 CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
             }
         }
+        CB_OUT_N.store(out_n as u32, Ordering::Relaxed);
         let mut guard = dsp.try_lock();
         for i in 0..n {
             let ib = &*in_bufs.add(i);
             let ob = &mut *out_bufs.add(i);
             let bytes = ib.data_byte_size.min(ob.data_byte_size) as usize;
+            if i == 0 {
+                CB_OUT_BYTES.store(ob.data_byte_size, Ordering::Relaxed);
+                CB_OUT_CH.store(ob.number_channels, Ordering::Relaxed);
+            }
             if ib.data.is_null() || ob.data.is_null() || bytes == 0 {
                 continue;
             }
@@ -427,6 +441,13 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
                 let frames = bytes / std::mem::size_of::<f32>();
                 let slice = std::slice::from_raw_parts_mut(ob.data as *mut f32, frames);
                 chain.process_interleaved(slice, ob.number_channels.max(1) as usize);
+            }
+            // Output RMS of buffer 0 (post-DSP) — is our render non-silent?
+            if i == 0 && !ob.data.is_null() {
+                let frames = (bytes / 4).min(256);
+                let s = std::slice::from_raw_parts(ob.data as *const f32, frames);
+                let rms = (s.iter().map(|x| x * x).sum::<f32>() / frames as f32).sqrt();
+                CB_OUT_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
             }
         }
     }

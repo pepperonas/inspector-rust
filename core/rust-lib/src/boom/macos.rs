@@ -44,10 +44,10 @@ static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 /// output device → silence), 2 = mutedWhenTapped. The tone probe proved our
 /// output reaches the speakers, so the silence under (1) is its device-mute.
 /// Try (2): mute the source processes without muting the device we render to.
-const MUTE_BEHAVIOR: i64 = 2;
+const MUTE_BEHAVIOR: i64 = 1;
 
 /// Master switch for the live audio engine.
-const ENGINE_ENABLED: bool = false; // disabled: tap-mute also mutes our output device (see phase 1b notes)
+const ENGINE_ENABLED: bool = true; // redirect default output to our aggregate
 
 /// Diagnostic-silence mode (renders pure silence). Off now that the format is
 /// confirmed; the real copy+DSP path runs (with defensive output zeroing so a
@@ -121,6 +121,14 @@ extern "C" {
         io_size: *mut u32,
         out_data: *mut c_void,
     ) -> OSStatus;
+    fn AudioObjectSetPropertyData(
+        id: AudioObjectID,
+        addr: *const AudioObjectPropertyAddress,
+        qual_size: u32,
+        qual: *const c_void,
+        in_size: u32,
+        in_data: *const c_void,
+    ) -> OSStatus;
     fn AudioHardwareCreateProcessTap(desc: *mut AnyObject, out_tap: *mut AudioObjectID) -> OSStatus;
     fn AudioHardwareDestroyProcessTap(tap: AudioObjectID) -> OSStatus;
     fn AudioHardwareCreateAggregateDevice(dict: CFDictionaryRef, out_dev: *mut AudioObjectID) -> OSStatus;
@@ -163,6 +171,26 @@ fn cfstr(s: &str) -> CFStringRef {
 
 fn addr(selector: u32) -> AudioObjectPropertyAddress {
     AudioObjectPropertyAddress { selector, scope: SCOPE_GLOBAL, element: ELEMENT_MAIN }
+}
+
+/// The system default output device saved before we redirect it to our
+/// aggregate (restored on stop). 0 = nothing saved.
+static SAVED_DEFAULT_OUTPUT: AtomicU32 = AtomicU32::new(0);
+
+unsafe fn set_default_output(dev: AudioObjectID) {
+    let a = addr(PROP_DEFAULT_OUTPUT);
+    let d = dev;
+    let err = AudioObjectSetPropertyData(
+        SYSTEM_OBJECT,
+        &a,
+        0,
+        std::ptr::null(),
+        std::mem::size_of::<AudioObjectID>() as u32,
+        &d as *const _ as *const c_void,
+    );
+    if err != 0 {
+        tracing::warn!("boom: set default output to {dev} failed (err {err})");
+    }
 }
 
 unsafe fn default_output() -> AudioObjectID {
@@ -393,6 +421,17 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
 
+    // Redirect the system default output to our aggregate so apps render *into*
+    // it (no direct path to the real device → no doubling), while we render the
+    // processed audio to the aggregate's real-device sub-device. Saved + restored
+    // on stop / quit so the user's output is never left pointing at us.
+    let prev = default_output();
+    if prev != 0 && prev != agg {
+        SAVED_DEFAULT_OUTPUT.store(prev, Ordering::SeqCst);
+        set_default_output(agg);
+        tracing::info!("boom: default output redirected {prev} → aggregate {agg}");
+    }
+
     eng.session = Some(Session { tap, agg, proc_id, _block: block });
     tracing::info!("boom: engine started (sr {sr}, mute={MUTE_BEHAVIOR})");
     // One-shot diagnostic: after ~1 s report whether the IOProc is firing + the
@@ -527,6 +566,12 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
 }
 
 unsafe fn stop_locked(eng: &mut Engine) {
+    // Restore the user's default output FIRST (before destroying the aggregate),
+    // so the system never points at a dead device.
+    let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
+    if prev != 0 {
+        set_default_output(prev);
+    }
     if let Some(s) = eng.session.take() {
         AudioDeviceStop(s.agg, s.proc_id);
         AudioDeviceDestroyIOProcID(s.agg, s.proc_id);

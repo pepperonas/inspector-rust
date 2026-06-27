@@ -349,6 +349,9 @@ pub fn run(context: tauri::Context<Wry>) {
                 window_palette::apply(app.handle(), &db_handle, wp.inner());
             }
 
+            // boom audio engine — (re)start if it was left enabled (off by default).
+            boom::apply(&db_handle);
+
             clipboard_watcher::spawn(
                 app.handle().clone(),
                 db_handle.clone(),

@@ -1419,6 +1419,7 @@ pub fn set_boom_config(
     config: crate::boom::BoomConfig,
 ) -> Result<crate::boom::BoomConfig, String> {
     config.save(&db).map_err(map_err)?;
+    crate::boom::apply(&db); // start/stop the engine + push DSP params
     Ok(crate::boom::BoomConfig::load(&db))
 }
 

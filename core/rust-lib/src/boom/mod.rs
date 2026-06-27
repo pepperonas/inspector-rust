@@ -367,6 +367,32 @@ pub fn version_ge_14_2(v: &str) -> bool {
     major > 14 || (major == 14 && minor >= 2)
 }
 
+#[cfg(target_os = "macos")]
+pub(crate) mod macos;
+
+/// (Re)sync the live audio engine to the saved config — start/stop the process
+/// tap + push DSP params. Called after a config change + at startup. No-op on
+/// non-macOS (and harmless if `enabled` is false). Phase 1b.
+pub fn apply(db: &DbHandle) {
+    let cfg = BoomConfig::load(db);
+    #[cfg(target_os = "macos")]
+    {
+        macos::set_active(&cfg);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = cfg;
+    }
+}
+
+/// Tear the engine down (app quit) so the system output is never left altered.
+pub fn shutdown() {
+    #[cfg(target_os = "macos")]
+    {
+        macos::shutdown();
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

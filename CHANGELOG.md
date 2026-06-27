@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.144] — 2026-06-27
+
+### Added
+
+- **`boom` phase 1b — live audio engine (experimental, macOS).** Enabling boom now routes system audio through the DSP engine via a Core-Audio process tap + private aggregate device + realtime IOProc (driverless). **Safe-first:** the tap is created UNMUTED for now, so it can never silence the Mac — while verifying youll hear the original plus the processed render (doubled); once confirmed it flips to muted (only the enhanced signal). Disabling boom tears the engine down. Still experimental: app-exit teardown, the permission UX, the all-zero-stream watchdog and sample-rate/output-change rebuild are next.
+
 ## [0.84.143] — 2026-06-27
 
 ### Added

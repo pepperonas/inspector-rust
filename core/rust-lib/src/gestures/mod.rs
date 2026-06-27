@@ -16,6 +16,8 @@
 //! no window, no focus needed — mirroring `auto_expand`/`input_lock`.
 //
 use crate::db::DbHandle;
+use std::sync::atomic::{AtomicU64, Ordering};
+use tauri::Manager;
 
 #[cfg(target_os = "linux")]
 mod linux;
@@ -160,8 +162,46 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
         };
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
+            // If the main popup is open, keep it open: the toast briefly takes key
+            // focus, which would otherwise trip the popup's focus-loss auto-hide.
+            keep_popup_open_during_toast(&app2);
             crate::status_toast::show_passive(&app2, toast);
         });
+    });
+}
+
+static SUPPRESS_GEN: AtomicU64 = AtomicU64::new(0);
+
+/// When the main popup is open, briefly suppress its focus-loss auto-hide so a
+/// volume/mute gesture (whose passive toast momentarily takes key focus) doesn't
+/// close it. No-op when the popup isn't open, and it never stomps a suppression
+/// another feature (native dialog, pinned detector) already holds.
+fn keep_popup_open_during_toast(app: &tauri::AppHandle) {
+    let visible = app
+        .get_webview_window(crate::hotkey::POPUP_LABEL)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false);
+    if !visible {
+        return;
+    }
+    let Some(ui) = app.try_state::<crate::ui_state::UiState>() else {
+        return;
+    };
+    // Only manage the flag if we're the one turning it on (false → true).
+    if ui.suppress_hide.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    // Clear after the focus bounce settles — gen-guarded so a rapid burst of
+    // gestures only clears once, after the last one.
+    let generation = SUPPRESS_GEN.fetch_add(1, Ordering::SeqCst) + 1;
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(600));
+        if SUPPRESS_GEN.load(Ordering::SeqCst) == generation {
+            if let Some(ui) = app.try_state::<crate::ui_state::UiState>() {
+                ui.suppress_hide.store(false, Ordering::SeqCst);
+            }
+        }
     });
 }
 

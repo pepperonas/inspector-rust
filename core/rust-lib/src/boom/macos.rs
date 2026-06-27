@@ -40,9 +40,11 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted, 1 = muted. UNMUTED for the test-tone probe (original keeps
-/// playing; we add a beep) so the result is unambiguous + safe.
-const MUTE_BEHAVIOR: i64 = 0;
+/// CATapMuteBehavior: 0 = unmuted (doubles → echo), 1 = muted (also muted our
+/// output device → silence), 2 = mutedWhenTapped. The tone probe proved our
+/// output reaches the speakers, so the silence under (1) is its device-mute.
+/// Try (2): mute the source processes without muting the device we render to.
+const MUTE_BEHAVIOR: i64 = 2;
 
 /// Master switch for the live audio engine.
 const ENGINE_ENABLED: bool = true;
@@ -58,7 +60,7 @@ const DIAG_SILENCE: bool = false;
 /// audio, unmuted). If you hear the beep → output routing works (so the muted
 /// silence is the tap muting the device); if not → the aggregate isn't driving
 /// the hardware output.
-const DIAG_TONE: bool = true;
+const DIAG_TONE: bool = false; // confirmed: beep heard (output reaches speakers)
 static TONE_IDX: AtomicU64 = AtomicU64::new(0);
 
 // ── FFI ──────────────────────────────────────────────────────────────────────

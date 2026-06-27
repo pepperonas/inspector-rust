@@ -14,6 +14,10 @@
 //! shared via a `Mutex<DspChain>` read with `try_lock` (a contended tweak just
 //! passes that one block through untouched).
 
+// The realtime process-tap engine is retained but currently un-armed via
+// `ENGINE_ENABLED` (see below) — so most of it is intentionally dead code.
+#![allow(dead_code)]
+
 use super::{BoomConfig, DspChain, BANDS_10};
 use block2::RcBlock;
 use objc2::rc::Retained;
@@ -35,10 +39,16 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted (audible, but doubles with the original → echo), 1 = muted. Muted
-/// gave silence → our IOProc output isn't reaching the speakers yet, so back to
-/// unmuted (audible) while we diagnose the output path.
+/// 0 = unmuted, 1 = muted. (Only relevant when `ENGINE_ENABLED`.)
 const MUTE_BEHAVIOR: i64 = 0;
+
+/// **Master safety switch for the live audio engine.** Disabled: the blind-
+/// iterated process-tap path caused hangs / noise / silence on real hardware
+/// (which can't be verified here). While off, enabling `boom` only stores the
+/// DSP config — system audio is never touched (cannot hang/mute/distort). The
+/// realtime engine needs proper format negotiation + on-hardware development
+/// before it's re-armed.
+const ENGINE_ENABLED: bool = false;
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 
@@ -479,9 +489,10 @@ pub(crate) fn set_active(cfg: &BoomConfig) {
     // Push params (applied whether or not audio is live).
     eng.dsp.lock().set_params(&cfg.dsp_params());
 
-    if cfg.enabled {
+    if cfg.enabled && ENGINE_ENABLED {
         unsafe { start_locked(eng) };
     } else {
+        // Engine off (or disabled): make sure nothing is touching the audio path.
         unsafe { stop_locked(eng) };
     }
 }

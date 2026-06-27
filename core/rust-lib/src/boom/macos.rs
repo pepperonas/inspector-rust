@@ -40,19 +40,18 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 
-/// 0 = unmuted, 1 = muted. Keep UNMUTED while diagnosing so the original audio
-/// stays audible and the Mac is never silenced.
-const MUTE_BEHAVIOR: i64 = 0;
+/// 0 = unmuted (doubles with the original → echo), 1 = muted (only our processed
+/// signal). Diagnostics proved In/Out buffers match (1×4096×2ch interleaved
+/// float) → a clean copy is correct, so go muted for the proper single path.
+const MUTE_BEHAVIOR: i64 = 1;
 
 /// Master switch for the live audio engine.
 const ENGINE_ENABLED: bool = true;
 
-/// **Diagnostic-silence mode.** When true the IOProc **zeroes the output** (renders
-/// pure silence) instead of copying/processing — so it can *never* produce noise
-/// or hang. Unmuted, the original audio keeps playing normally; meanwhile we log
-/// the exact In/Out buffer structure (buffer count / channels / byte size) to
-/// build correct format conversion. Flip off once the format handling is right.
-const DIAG_SILENCE: bool = true;
+/// Diagnostic-silence mode (renders pure silence). Off now that the format is
+/// confirmed; the real copy+DSP path runs (with defensive output zeroing so a
+/// short copy can never leave garbage → no noise).
+const DIAG_SILENCE: bool = false;
 
 // ── FFI ──────────────────────────────────────────────────────────────────────
 
@@ -466,6 +465,11 @@ fn io_callback(dsp: &Mutex<DspChain>, input: *const AudioBufferList, output: *mu
             if i == 0 {
                 CB_OUT_BYTES.store(ob.data_byte_size, Ordering::Relaxed);
                 CB_OUT_CH.store(ob.number_channels, Ordering::Relaxed);
+            }
+            // Defensive: zero the whole output buffer first, so even a short
+            // copy (size mismatch) leaves silence, never garbage/noise.
+            if !ob.data.is_null() && ob.data_byte_size > 0 {
+                std::ptr::write_bytes(ob.data as *mut u8, 0, ob.data_byte_size as usize);
             }
             if ib.data.is_null() || ob.data.is_null() || bytes == 0 {
                 continue;

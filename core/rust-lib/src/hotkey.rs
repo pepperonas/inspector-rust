@@ -1574,20 +1574,27 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     // handler would close the popup ("flickers / sometimes closes" on Windows).
     // Doing all positioning here, before show(), sidesteps that entirely.
     //
-    match pick_cursor_monitor(window) {
-        Some(m) => {
-            tracing::info!(
-                "popup-diag: target monitor pos=({},{}) size={}x{} scale={}",
-                m.position().x, m.position().y, m.size().width, m.size().height, m.scale_factor()
-            );
-            if let Err(e) = clamp_into_monitor(window, &m) {
-                tracing::debug!("pre-show clamp_into_monitor: {e:#}");
+    // macOS: position SYNCHRONOUSLY via the native NSWindow (applies before
+    // show()). Tauri's set_position queues onto the event loop → applies after
+    // show → the popup flashes on the previous monitor then jumps. Only fall back
+    // to the Tauri path if the native call fails.
+    #[cfg(target_os = "macos")]
+    let positioned = position_popup_native_macos(window);
+    #[cfg(not(target_os = "macos"))]
+    let positioned = false;
+    if !positioned {
+        match pick_cursor_monitor(window) {
+            Some(m) => {
+                tracing::info!(
+                    "popup-diag: target monitor pos=({},{}) size={}x{} scale={}",
+                    m.position().x, m.position().y, m.size().width, m.size().height, m.scale_factor()
+                );
+                if let Err(e) = clamp_into_monitor(window, &m) {
+                    tracing::debug!("pre-show clamp_into_monitor: {e:#}");
+                }
             }
+            None => tracing::warn!("popup-diag: no cursor monitor resolved"),
         }
-        None => tracing::warn!("popup-diag: no cursor monitor resolved"),
-    }
-    if let Ok(p) = window.outer_position() {
-        tracing::info!("popup-diag: position set to ({},{}) [pre-show]", p.x, p.y);
     }
 
     // Arm the grace + focus-received flag before show() so every Focused event
@@ -1694,6 +1701,108 @@ fn native_window_logical_size(window: &WebviewWindow) -> Option<(f64, f64)> {
         return None;
     }
     Some((wf.size.width, wf.size.height))
+}
+
+/// macOS: position the popup **synchronously** via `NSWindow setFrameOrigin:` in
+/// Cocoa points — centred horizontally + ~⅓ down on the NSScreen under the live
+/// cursor. Critically, this is a *direct* AppKit call (applies immediately),
+/// unlike Tauri's `set_position`, which **queues** the move onto the main-thread
+/// event loop — so it doesn't apply until after `show()` returns and the popup
+/// flashes on the *previous* monitor before jumping (the "opens twice" /
+/// "open-close-open" bug; proven by the diag logs). Keeps the window's size.
+/// Returns `false` if AppKit isn't reachable (caller falls back to Tauri).
+#[cfg(target_os = "macos")]
+fn position_popup_native_macos(window: &WebviewWindow) -> bool {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+    unsafe impl Encode for NSPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSRect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
+    }
+
+    let Ok(ptr) = window.ns_window() else {
+        return false;
+    };
+    let nswindow = ptr as *mut AnyObject;
+    if nswindow.is_null() {
+        return false;
+    }
+    unsafe {
+        let (Some(ns_event), Some(ns_screen)) =
+            (AnyClass::get(c"NSEvent"), AnyClass::get(c"NSScreen"))
+        else {
+            return false;
+        };
+        let cursor: NSPoint = msg_send![ns_event, mouseLocation];
+        let screens: *mut AnyObject = msg_send![ns_screen, screens];
+        if screens.is_null() {
+            return false;
+        }
+        let count: usize = msg_send![screens, count];
+        let mut target: *mut AnyObject = std::ptr::null_mut();
+        for i in 0..count {
+            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            if s.is_null() {
+                continue;
+            }
+            let f: NSRect = msg_send![s, frame];
+            if cursor.x >= f.origin.x
+                && cursor.x < f.origin.x + f.size.width
+                && cursor.y >= f.origin.y
+                && cursor.y < f.origin.y + f.size.height
+            {
+                target = s;
+                break;
+            }
+        }
+        if target.is_null() {
+            target = msg_send![ns_screen, mainScreen];
+        }
+        if target.is_null() {
+            return false;
+        }
+        let sf: NSRect = msg_send![target, frame];
+        let wf: NSRect = msg_send![nswindow, frame];
+        let (ww, wh) = (wf.size.width, wf.size.height);
+        if ww <= 1.0 || wh <= 1.0 {
+            return false;
+        }
+        let gap_w = (sf.size.width - ww).max(0.0);
+        let gap_h = (sf.size.height - wh).max(0.0);
+        let x = sf.origin.x + gap_w / 2.0;
+        let y = sf.origin.y + gap_h * 2.0 / 3.0;
+        let _: () = msg_send![nswindow, setFrameOrigin: NSPoint { x, y }];
+        tracing::info!(
+            "popup-diag: native setFrameOrigin cocoa=({x},{y}) on screen origin=({},{}) size={}x{}",
+            sf.origin.x, sf.origin.y, sf.size.width, sf.size.height
+        );
+    }
+    true
 }
 
 /// Center horizontally, place ~⅓ down vertically, then clamp so the window

@@ -1736,11 +1736,10 @@ fn position_popup_native_macos(window: &WebviewWindow) -> bool {
         let x = sf.origin.x + gap_w / 2.0;
         // ~⅓ down from the TOP → Cocoa bottom-left origin = origin.y + gap·⅔.
         let y = sf.origin.y + gap_h * 2.0 / 3.0;
-        let frame = NSRect {
-            origin: NSPoint { x, y },
-            size: wf.size,
-        };
-        let _: () = msg_send![nswindow, setFrame: frame, display: false];
+        // `setFrameOrigin:` (move only) — NOT `setFrame:display:` — so the window
+        // keeps its size and AppKit doesn't force a re-layout/redraw of the
+        // webview on show (that re-layout was the brief flicker).
+        let _: () = msg_send![nswindow, setFrameOrigin: NSPoint { x, y }];
     }
     true
 }

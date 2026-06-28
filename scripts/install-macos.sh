@@ -411,6 +411,21 @@ if [[ -f "${INFO_PLIST}" ]]; then
   fi
 fi
 
+# Bundle the boom Audio driver into the app's Resources. NOT via tauri.conf
+# `bundle.resources` — that path (boom-driver/build/…) doesn't exist on a fresh
+# or CI checkout, and the tauri-build script validates resource paths at compile
+# time, which broke `cargo build --workspace`. Copy it in here instead, *before*
+# signing so `--deep` seals it (same reason as the source hash below). The app
+# reads it from `resource_dir()/boom-driver.driver` for the in-panel installer.
+DRIVER_SRC="${REPO_ROOT}/boom-driver/build/boom-driver.driver"
+if [[ -d "${DRIVER_SRC}" ]]; then
+  rm -rf "${INSTALL_PATH}/Contents/Resources/boom-driver.driver"
+  cp -R "${DRIVER_SRC}" "${INSTALL_PATH}/Contents/Resources/boom-driver.driver"
+  echo "▸ Bundled boom Audio driver into Resources"
+else
+  echo "  ⚠ boom driver not built (${DRIVER_SRC}) — in-app boom install unavailable"
+fi
+
 # Stamp the source hash *before* signing so the file is covered by the
 # code signature's resource seal. Writing it afterwards adds an unsealed
 # file to Contents/Resources/ — `codesign --verify` then fails with "a

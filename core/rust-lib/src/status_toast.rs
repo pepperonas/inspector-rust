@@ -123,25 +123,21 @@ fn show_inner(app: &AppHandle, toast: StatusToast, focus: bool) {
         let _ = win.set_focus();
     }
 
-    // Re-center after showing. `set_size(PhysicalSize)` converts via the window's
-    // *current* scale factor, which lags a move to a different display (mixed-DPI
-    // / right after the cursor crossed to another screen) — so the synchronous
-    // placement above can land off-centre or on the previous screen. Re-apply at
-    // two points so both a fast and a slow scale/Space settle are caught (each is
-    // idempotent — re-centres to the same spot if already correct).
+    // One short safety re-center after show, in case showing / Space-joining
+    // perturbed the frame. The native macOS path is synchronous + reliable, so a
+    // single quick re-apply is enough (a longer delay would risk the toast
+    // "following" the cursor to another screen if the user moved meanwhile).
     let app2 = app.clone();
     std::thread::spawn(move || {
-        for delay_ms in [110u64, 320] {
-            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
-            let app3 = app2.clone();
-            let _ = app2.run_on_main_thread(move || {
-                if let Some(w) = app3.get_webview_window(TOAST_LABEL) {
-                    if w.is_visible().unwrap_or(false) {
-                        center_on_cursor_monitor(&w);
-                    }
+        std::thread::sleep(std::time::Duration::from_millis(90));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            if let Some(w) = app3.get_webview_window(TOAST_LABEL) {
+                if w.is_visible().unwrap_or(false) {
+                    center_on_cursor_monitor(&w);
                 }
-            });
-        }
+            }
+        });
     });
 }
 
@@ -215,6 +211,15 @@ pub fn hide(app: &AppHandle) {
 /// primary monitor. `available_monitors()` always reflects the live set, so a
 /// disconnected display can't be chosen.
 fn center_on_cursor_monitor(win: &WebviewWindow) {
+    // macOS: position natively via the NSWindow (Cocoa points, no Tauri
+    // set_position/set_size scale-lag or coordinate conversion). This is the
+    // reliable path; the Tauri path below is the fallback + Win/Linux.
+    #[cfg(target_os = "macos")]
+    {
+        if center_native_macos(win) {
+            return;
+        }
+    }
     let monitors = win.available_monitors().unwrap_or_default();
     let monitor = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
         .or_else(|| win.primary_monitor().ok().flatten());
@@ -239,4 +244,107 @@ fn center_on_cursor_monitor(win: &WebviewWindow) {
     // Re-assert the position after the size/scale settles, in case set_size
     // shifted it (mixed-DPI: the move to a different-scale display lags).
     let _ = win.set_position(PhysicalPosition::new(x, y));
+}
+
+/// macOS: centre the toast on whichever **NSScreen** the cursor is on, natively
+/// via `setFrame:display:` in Cocoa points. This sidesteps Tauri's
+/// `set_position`/`set_size` (which convert via the window's *current* scale
+/// factor — wrong/laggy right after the cursor crosses to a different-DPI
+/// display) and the physical↔logical coordinate dance entirely: NSWindow works
+/// in points and re-renders the webview at the destination screen's backing
+/// scale automatically. Returns `false` if the AppKit objects aren't reachable
+/// (caller falls back to the Tauri path). Must run on the main thread.
+#[cfg(target_os = "macos")]
+fn center_native_macos(win: &WebviewWindow) -> bool {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+    unsafe impl Encode for NSPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSRect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
+    }
+
+    let Ok(ptr) = win.ns_window() else {
+        return false;
+    };
+    let nswindow = ptr as *mut AnyObject;
+    if nswindow.is_null() {
+        return false;
+    }
+
+    unsafe {
+        let (Some(ns_event), Some(ns_screen)) =
+            (AnyClass::get(c"NSEvent"), AnyClass::get(c"NSScreen"))
+        else {
+            return false;
+        };
+        // Global cursor in Cocoa coords (bottom-left origin, points) — same space
+        // as NSScreen.frame, so containment is a direct compare.
+        let cursor: NSPoint = msg_send![ns_event, mouseLocation];
+        let screens: *mut AnyObject = msg_send![ns_screen, screens];
+        if screens.is_null() {
+            return false;
+        }
+        let count: usize = msg_send![screens, count];
+
+        let mut target: *mut AnyObject = std::ptr::null_mut();
+        for i in 0..count {
+            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            if s.is_null() {
+                continue;
+            }
+            let f: NSRect = msg_send![s, frame];
+            if cursor.x >= f.origin.x
+                && cursor.x < f.origin.x + f.size.width
+                && cursor.y >= f.origin.y
+                && cursor.y < f.origin.y + f.size.height
+            {
+                target = s;
+                break;
+            }
+        }
+        if target.is_null() {
+            target = msg_send![ns_screen, mainScreen];
+        }
+        if target.is_null() {
+            return false;
+        }
+
+        let sf: NSRect = msg_send![target, frame];
+        // Centre a canonical WIN_W × WIN_H (points) window on the target screen.
+        let w = WIN_W;
+        let h = WIN_H;
+        let x = sf.origin.x + (sf.size.width - w) / 2.0;
+        let y = sf.origin.y + (sf.size.height - h) / 2.0;
+        let frame = NSRect {
+            origin: NSPoint { x, y },
+            size: NSSize { width: w, height: h },
+        };
+        let _: () = msg_send![nswindow, setFrame: frame, display: true];
+    }
+    true
 }

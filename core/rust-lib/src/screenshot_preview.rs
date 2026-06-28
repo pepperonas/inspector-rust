@@ -526,6 +526,12 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
         let _ = win.set_size(target_size);
     }
 
+    // The preview is a non-activating (focused=false) window. Without this, macOS
+    // doesn't deliver mouse-moved events to a non-key window, so the webview's
+    // hover (onMouseEnter) — which reveals Close/Save/Edit/Pin — only fired after
+    // a focus-click. Accepting mouse-moved events makes hover work background.
+    enable_mouse_moved_events(&win);
+
     // Notify the React side that there's a fresh capture to show. If
     // the window's just been built it'll pick the path up via the
     // `get_pending_screenshot_path` IPC on mount; the event covers
@@ -534,6 +540,25 @@ pub fn show_preview(app: &AppHandle) -> tauri::Result<()> {
     let _ = win.show();
     Ok(())
 }
+
+/// macOS: let a non-key (non-activating) window receive mouse-moved events so the
+/// webview's hover state works without first clicking the window to focus it.
+#[cfg(target_os = "macos")]
+fn enable_mouse_moved_events(win: &WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    let Ok(ptr) = win.ns_window() else { return };
+    let nswindow = ptr as *mut AnyObject;
+    if nswindow.is_null() {
+        return;
+    }
+    unsafe {
+        let _: () = msg_send![nswindow, setAcceptsMouseMovedEvents: true];
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn enable_mouse_moved_events(_win: &WebviewWindow) {}
 
 /// Tear down the preview window once the user has acted on the capture
 /// (or the React auto-hide timer fires). Called from each of the three

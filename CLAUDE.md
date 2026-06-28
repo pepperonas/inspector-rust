@@ -336,8 +336,7 @@ Pure, unit-tested mappings: `percent_to_raw`/`raw_to_percent` (DDC, scaled to ea
 ### Audio output device (`audio.rs`, v0.80.0)
 
 `sound` (alias **`audio`**) opens an inline **audio output panel** in the right preview column —
-same arrow-key model as `brightness`. Enter on the `sound` row → `App.tsx`'s
-`soundMode` + `soundFocus` render `SoundPanel.tsx`: a **volume slider at the top**
+same arrow-key model as `brightness`. **Unlike the other inline panels, it shows directly:** typing `sound`/`audio` auto-sets `soundMode` (the `isSoundCmd` effect) so `SoundPanel.tsx` renders in the preview **without pressing Enter**; Enter only hands it keyboard focus (`soundFocus`). The panel has a **volume slider at the top**
 (**←/→** adjust ∓5 immediately — no Enter — + click/drag the bar) above the
 device list, where **↑/↓** select a device, **Enter** switches the system default
 output to it, **Esc** leaves. `useKeyboardNav` is gated off while `soundFocus`;

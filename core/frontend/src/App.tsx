@@ -480,7 +480,11 @@ function App() {
   // Same auto-exit for sound mode.
   const isSoundCmd = parsedCommand?.spec.kind === "sound";
   useEffect(() => {
-    if (!isSoundCmd && soundMode) {
+    // Show the audio panel in the preview *directly* when `sound`/`audio` is
+    // typed (no Enter needed to see it); Enter only hands it keyboard focus.
+    if (isSoundCmd && !soundMode) {
+      setSoundMode(true);
+    } else if (!isSoundCmd && soundMode) {
       setSoundMode(false);
       setSoundFocus(false);
     }
@@ -709,8 +713,8 @@ function App() {
         hint = "Opens a slider per DDC monitor (external displays)";
         break;
       case "sound":
-        label = "Pick the audio output device";
-        hint = "Enter → device list in the preview; ↑↓ select, Enter switches output";
+        label = "Audio output + volume";
+        hint = "Shown in the preview — Enter to control: ←→ volume ∓5 · ↑↓ device · Enter switch";
         break;
       case "hue":
         label = "Control Philips Hue lamps";

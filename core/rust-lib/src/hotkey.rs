@@ -1543,6 +1543,7 @@ pub fn show_popup(app: &AppHandle) -> Result<()> {
 }
 
 pub fn hide_popup(app: &AppHandle) {
+    tracing::info!("popup-diag: hide_popup");
     if let Some(w) = app.get_webview_window(POPUP_LABEL) {
         let _ = w.hide();
     }
@@ -1573,10 +1574,20 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     // handler would close the popup ("flickers / sometimes closes" on Windows).
     // Doing all positioning here, before show(), sidesteps that entirely.
     //
-    if let Some(m) = pick_cursor_monitor(window) {
-        if let Err(e) = clamp_into_monitor(window, &m) {
-            tracing::debug!("pre-show clamp_into_monitor: {e:#}");
+    match pick_cursor_monitor(window) {
+        Some(m) => {
+            tracing::info!(
+                "popup-diag: target monitor pos=({},{}) size={}x{} scale={}",
+                m.position().x, m.position().y, m.size().width, m.size().height, m.scale_factor()
+            );
+            if let Err(e) = clamp_into_monitor(window, &m) {
+                tracing::debug!("pre-show clamp_into_monitor: {e:#}");
+            }
         }
+        None => tracing::warn!("popup-diag: no cursor monitor resolved"),
+    }
+    if let Ok(p) = window.outer_position() {
+        tracing::info!("popup-diag: position set to ({},{}) [pre-show]", p.x, p.y);
     }
 
     // Arm the grace + focus-received flag before show() so every Focused event
@@ -1584,6 +1595,9 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     mark_shown();
 
     window.show()?;
+    if let Ok(p) = window.outer_position() {
+        tracing::info!("popup-diag: position after show = ({},{})", p.x, p.y);
+    }
     // On Windows, force the foreground via the AttachThreadInput trick so the
     // popup reliably activates (a background-process SetForegroundWindow is
     // otherwise blocked); elsewhere a plain set_focus is correct.
@@ -1737,6 +1751,9 @@ fn clamp_into_monitor(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
     x = x.clamp(min_x, max_x);
     y = y.clamp(min_y, max_y);
 
+    tracing::info!(
+        "popup-diag: clamp logical=({lw},{lh}) phys_size={ww}x{wh} → set ({x},{y})"
+    );
     window.set_position(PhysicalPosition::new(x, y))?;
     Ok(())
 }

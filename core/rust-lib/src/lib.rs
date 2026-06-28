@@ -389,6 +389,7 @@ pub fn run(context: tauri::Context<Wry>) {
                             // from a spurious OS message that arrives before the
                             // window ever had focus (Windows SetForegroundWindow
                             // race / z-order perturbation).
+                            tracing::info!("popup-diag: Focused(true)");
                             hotkey::mark_popup_focused();
                         }
                         WindowEvent::Focused(false) => {
@@ -418,10 +419,18 @@ pub fn run(context: tauri::Context<Wry>) {
                             // hide, gated by the modal-suppress flag + post-show
                             // grace window.
                             #[cfg(not(target_os = "windows"))]
-                            if !suppress_hide.load(Ordering::Relaxed)
-                                && !hotkey::within_show_grace()
                             {
-                                hotkey::hide_popup(&app_handle);
+                                let sup = suppress_hide.load(Ordering::Relaxed);
+                                let grace = hotkey::within_show_grace();
+                                tracing::info!(
+                                    suppress = sup,
+                                    within_grace = grace,
+                                    "popup-diag: Focused(false) → {}",
+                                    if !sup && !grace { "HIDE" } else { "keep" }
+                                );
+                                if !sup && !grace {
+                                    hotkey::hide_popup(&app_handle);
+                                }
                             }
                         }
                         _ => {}

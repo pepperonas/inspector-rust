@@ -507,6 +507,110 @@ code {
   .status-toast-in, .status-toast-out, .status-toast-bump { animation: none; }
 }
 
+/* ── Volume / mute HUD (macOS-system-HUD-style, premium) ─────────────────── */
+.vol-overlay-in {
+  animation: volOverlayIn 380ms cubic-bezier(0.2, 0.85, 0.2, 1) both;
+}
+@keyframes volOverlayIn {
+  0%   { opacity: 0; transform: scale(0.92); }
+  55%  { opacity: 1; transform: scale(1.02); }
+  100% { opacity: 1; transform: scale(1); }
+}
+.vol-overlay-out {
+  animation: volOverlayOut 240ms cubic-bezier(0.4, 0, 1, 1) both;
+}
+@keyframes volOverlayOut {
+  0%   { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(0.95); }
+}
+
+.vol-card {
+  display: flex;
+  align-items: center;
+  gap: 0.95rem;
+  min-width: 15rem;
+  padding: 0.95rem 1.25rem;
+  border-radius: 1.5rem;
+  /* Frosted glass: the status-toast window is transparent, so backdrop-filter
+     blurs the desktop/apps behind it (real vibrancy). */
+  background: color-mix(in srgb, var(--color-surface) 72%, transparent);
+  backdrop-filter: blur(28px) saturate(1.7);
+  -webkit-backdrop-filter: blur(28px) saturate(1.7);
+  border: 1px solid color-mix(in srgb, var(--color-fg) 11%, transparent);
+  box-shadow:
+    0 22px 60px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 color-mix(in srgb, #fff 9%, transparent);
+}
+
+.vol-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 2.5rem;
+  height: 2.5rem;
+  animation: volIconSwap 240ms cubic-bezier(0.2, 0.9, 0.3, 1) both;
+}
+@keyframes volIconSwap {
+  0%   { opacity: 0; transform: scale(0.55); }
+  100% { opacity: 1; transform: scale(1); }
+}
+
+.vol-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.vol-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 0.1rem;
+  font-family: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  line-height: 1;
+}
+.vol-num {
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.vol-pct {
+  font-size: 15px;
+  font-weight: 600;
+  opacity: 0.55;
+}
+.vol-label {
+  font-family: ui-sans-serif, system-ui, -apple-system, "Inter", "Segoe UI", sans-serif;
+  font-size: 19px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+}
+
+.vol-track {
+  width: 100%;
+  height: 7px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--color-fg) 14%, transparent);
+}
+.vol-fill {
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  transform-origin: left center;
+  /* `transform: scaleX(...)` is owned by the rAF spring in JS (not transitioned
+     here) so rapid swipes interrupt smoothly; only colour/opacity transition. */
+  will-change: transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vol-overlay-in, .vol-overlay-out, .vol-icon { animation: none; }
+}
+
 /* Expanding ring radiating from the icon on entry. */
 .status-toast-ring {
   animation: statusToastRing 900ms ease-out 1 forwards;

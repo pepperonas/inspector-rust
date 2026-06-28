@@ -1,5 +1,18 @@
-import { useEffect, useRef, useState } from "react";
-import { AlarmClock, Clock, Coffee, Dices, Moon, Sparkles, Timer, Volume2, VolumeX } from "lucide-react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  AlarmClock,
+  Clock,
+  Coffee,
+  Dices,
+  Moon,
+  Sparkles,
+  Timer,
+  Volume,
+  Volume1,
+  Volume2,
+  VolumeX,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
   getStatusToast,
@@ -98,6 +111,13 @@ export function StatusToast() {
 
   if (!payload) return <div className="h-screen w-screen bg-transparent" />;
 
+  // Volume / mute get a dedicated, premium macOS-HUD-style overlay (frosted
+  // glass, spring entrance, a velocity-preserving rAF spring bar, level-aware
+  // speaker icons). Other kinds keep the original flourish below.
+  if (payload.kind === "volume" || payload.kind === "mute") {
+    return <VolumeOverlay payload={payload} tick={tick} animKey={animKey} exiting={exiting} />;
+  }
+
   const on = payload.on;
   const persistent = isPersistent(payload.kind);
   // Volume level for the bar (NaN for the "+"/"−" no-read-back fallback).
@@ -195,6 +215,136 @@ export function StatusToast() {
           {!persistent && (
             <div className="mt-1 text-[12px] text-[var(--color-muted)]">{payload.subtitle}</div>
           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Volume / mute overlay (premium HUD) ──────────────────────────────────────
+
+const clamp01 = (n: number) => (n < 0 ? 0 : n > 1 ? 1 : n);
+// Under-damped spring — a little overshoot for life, settles quickly.
+const SPRING = { stiffness: 190, damping: 22, mass: 1 };
+
+/** Level-aware speaker icon: muted/0 → X, low → no/one wave, high → two waves. */
+function volumeIcon(level: number, muted: boolean, hasLevel: boolean): { Icon: LucideIcon; key: string } {
+  if (muted) return { Icon: VolumeX, key: "x" };
+  if (!hasLevel) return { Icon: Volume2, key: "2" };
+  if (level <= 0) return { Icon: VolumeX, key: "x" };
+  if (level < 15) return { Icon: Volume, key: "0" };
+  if (level < 55) return { Icon: Volume1, key: "1" };
+  return { Icon: Volume2, key: "2" };
+}
+
+function VolumeOverlay({
+  payload,
+  tick,
+  animKey,
+  exiting,
+}: {
+  payload: Payload;
+  tick: number;
+  animKey: number;
+  exiting: boolean;
+}) {
+  const muted = payload.kind === "mute" && payload.on;
+  const parsed = parseInt(payload.title, 10);
+  const hasLevel = payload.kind === "volume" && !Number.isNaN(parsed);
+  const level = hasLevel ? Math.max(0, Math.min(100, parsed)) : 0;
+  const { Icon, key: iconKey } = volumeIcon(level, muted, hasLevel);
+  const accent = muted ? "var(--color-muted)" : "var(--color-accent)";
+
+  // rAF spring for the bar fill (scaleX), velocity-preserving across rapid
+  // re-triggers. Driven imperatively (DOM) so there's no React re-render/frame.
+  const fillRef = useRef<HTMLDivElement>(null);
+  const initialFill = hasLevel ? level / 100 : 0.0001;
+  const xRef = useRef(initialFill);
+  const vRef = useRef(0);
+  const targetRef = useRef(initialFill);
+  const rafRef = useRef(0);
+  const lastRef = useRef(0);
+  const reduce =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+  // Set the initial bar width before paint (no flash to full).
+  useLayoutEffect(() => {
+    if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(xRef.current)})`;
+  }, []);
+
+  useEffect(() => {
+    // Mute with no read-back leaves the bar where it is (just dims via CSS).
+    if (hasLevel) targetRef.current = clamp01(level / 100);
+    if (reduce) {
+      xRef.current = targetRef.current;
+      vRef.current = 0;
+      if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(targetRef.current)})`;
+      return;
+    }
+    if (!rafRef.current) {
+      lastRef.current = 0;
+      rafRef.current = requestAnimationFrame(step);
+    }
+    function step(now: number) {
+      if (!lastRef.current) lastRef.current = now;
+      let dt = (now - lastRef.current) / 1000;
+      lastRef.current = now;
+      if (dt > 0.05) dt = 0.05; // clamp after a tab/Space switch
+      const { stiffness, damping, mass } = SPRING;
+      const a = (-stiffness * (xRef.current - targetRef.current) - damping * vRef.current) / mass;
+      vRef.current += a * dt;
+      xRef.current += vRef.current * dt;
+      if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(xRef.current)})`;
+      if (Math.abs(xRef.current - targetRef.current) < 0.0005 && Math.abs(vRef.current) < 0.0005) {
+        xRef.current = targetRef.current;
+        vRef.current = 0;
+        if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(targetRef.current)})`;
+        rafRef.current = 0;
+        return;
+      }
+      rafRef.current = requestAnimationFrame(step);
+    }
+    // tick is a dependency so each re-trigger re-aims the spring.
+    void tick;
+  }, [tick, level, muted, hasLevel, reduce]);
+
+  useEffect(() => () => { if (rafRef.current) cancelAnimationFrame(rafRef.current); }, []);
+
+  const showBar = hasLevel || muted;
+
+  return (
+    <div className="flex h-screen w-screen items-center justify-center bg-transparent select-none">
+      <div key={animKey} className={exiting ? "vol-overlay-out" : "vol-overlay-in"}>
+        <div className="vol-card">
+          <span key={iconKey} className="vol-icon" style={{ color: accent }}>
+            <Icon size={30} strokeWidth={2} />
+          </span>
+          <div className="vol-body">
+            {hasLevel ? (
+              <div className="vol-readout" style={{ color: muted ? "var(--color-muted)" : "var(--color-fg)" }}>
+                <span className="vol-num">{level}</span>
+                <span className="vol-pct">%</span>
+              </div>
+            ) : (
+              <div className="vol-label" style={{ color: muted ? "var(--color-muted)" : "var(--color-fg)" }}>
+                {payload.title}
+              </div>
+            )}
+            {showBar && (
+              <div className="vol-track">
+                <div
+                  ref={fillRef}
+                  className="vol-fill"
+                  style={{
+                    backgroundColor: accent,
+                    opacity: muted ? 0.5 : 1,
+                    transition: "background-color 220ms ease, opacity 220ms ease",
+                  }}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

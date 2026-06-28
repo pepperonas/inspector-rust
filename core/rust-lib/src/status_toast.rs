@@ -122,6 +122,24 @@ fn show_inner(app: &AppHandle, toast: StatusToast, focus: bool) {
     if focus {
         let _ = win.set_focus();
     }
+
+    // Re-center shortly after showing. `set_size(PhysicalSize)` converts via the
+    // window's *current* scale factor, which lags a move to a different display
+    // (especially mixed-DPI / right after the cursor crossed to another screen) —
+    // so the synchronous placement above can land off-centre or on the previous
+    // screen. A deferred re-apply runs once the scale/Space has settled.
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let app3 = app2.clone();
+        let _ = app2.run_on_main_thread(move || {
+            if let Some(w) = app3.get_webview_window(TOAST_LABEL) {
+                if w.is_visible().unwrap_or(false) {
+                    center_on_cursor_monitor(&w);
+                }
+            }
+        });
+    });
 }
 
 /// macOS: let the toast join all Spaces + fullscreen, and order it front

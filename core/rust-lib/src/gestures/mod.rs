@@ -37,9 +37,15 @@ pub const DEFAULT_VOLUME_STEP: i32 = 6;
 /// to count — used by the self-built Windows recogniser.
 pub const SWIPE_THRESHOLD_NORM: f64 = 0.12;
 /// A tap may move at most this fraction of the pad (else it's a swipe/drag).
-pub const TAP_MAX_MOVE_NORM: f64 = 0.05;
+/// Kept tight so a short, quick 3-finger *swipe* (a volume flick) is never
+/// mis-read as a tap → spurious mute.
+pub const TAP_MAX_MOVE_NORM: f64 = 0.03;
 /// A tap must lift within this many milliseconds (else it's a hold/rest).
 pub const TAP_MAX_MS: u64 = 250;
+/// …and must last at least this long. A single-frame contact (start == peak →
+/// `dur == 0`) is a sensor glitch from the private MultitouchSupport feed, not a
+/// real tap — without this floor those glitches muted "by themselves".
+pub const TAP_MIN_MS: u64 = 10;
 
 // ── Normalized gesture event ─────────────────────────────────────────────────
 
@@ -312,7 +318,7 @@ impl Recognizer {
             let dur = self.peak.2.saturating_sub(self.start.2);
             let fingers = self.max_contacts;
             let moved = dx.hypot(dy);
-            if dur <= TAP_MAX_MS && moved <= TAP_MAX_MOVE_NORM {
+            if (TAP_MIN_MS..=TAP_MAX_MS).contains(&dur) && moved <= TAP_MAX_MOVE_NORM {
                 return Some(GestureEvent { kind: GestureKind::Tap, fingers });
             }
             classify_swipe(dx, dy, SWIPE_THRESHOLD_NORM)
@@ -415,6 +421,30 @@ mod tests {
             TouchFrame { contacts: 0, x: 0.51, y: 0.5, t_ms: 120 },
         ]);
         assert_eq!(ev, Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 }));
+    }
+
+    #[test]
+    fn recognizer_single_frame_glitch_is_not_a_tap() {
+        // 3 fingers appear + vanish in one frame (dur == 0) — a sensor glitch,
+        // not a real tap. Must NOT fire (this caused mute "by itself").
+        let ev = frames_to_event(&[
+            TouchFrame { contacts: 3, x: 0.5, y: 0.5, t_ms: 40 },
+            TouchFrame { contacts: 0, x: 0.5, y: 0.5, t_ms: 40 },
+        ]);
+        assert_eq!(ev, None);
+    }
+
+    #[test]
+    fn recognizer_short_quick_swipe_is_not_a_tap() {
+        // A quick 3-finger flick that moves 0.04 of the pad (between the tightened
+        // tap-move limit 0.03 and the swipe threshold 0.12) must NOT register as a
+        // tap → no spurious mute. It's an ambiguous flick → no action.
+        let ev = frames_to_event(&[
+            TouchFrame { contacts: 3, x: 0.50, y: 0.50, t_ms: 0 },
+            TouchFrame { contacts: 3, x: 0.50, y: 0.46, t_ms: 60 },
+            TouchFrame { contacts: 0, x: 0.50, y: 0.46, t_ms: 110 },
+        ]);
+        assert_eq!(ev, None);
     }
 
     #[test]

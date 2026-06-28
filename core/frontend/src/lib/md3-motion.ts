@@ -190,12 +190,35 @@ export function playEntrance(
   token: SpringToken = MD3_SPRING.spatial.expressive.fast,
   opts: { fromScale?: number; riseY?: number } = {},
 ): void {
-  if (!el || typeof el.animate !== "function" || prefersReducedMotion()) return;
+  if (!el || typeof el.animate !== "function") return;
+  // The shell is "primed" to the entrance START state (opacity 0 + slightly
+  // small) WHILE the popup is hidden (see App.tsx's popup-hidden handler), so the
+  // OS `show()` — which makes the window visible *before* this handler runs —
+  // never flashes a frame of full-opacity content. `settle` removes that prime
+  // (back to the CSS-natural state) once the entrance has played.
+  const settle = () => {
+    el.style.opacity = "";
+    el.style.transform = "";
+  };
+  if (prefersReducedMotion()) {
+    settle();
+    return;
+  }
   // Clear any `forwards`-filled exit animation still applied from the last
-  // dismiss, so the entrance starts from a clean state (no stuck opacity:0).
+  // dismiss, so the entrance starts from a clean state.
   el.getAnimations?.().forEach((a) => a.cancel());
   const { keyframes, durationMs } = popInKeyframes(token, opts);
-  el.animate(keyframes, { duration: durationMs, easing: "linear", fill: "none" });
+  // `fill: "forwards"` holds the final (opacity 1) frame so there's no flash back
+  // to the primed opacity:0 between the animation finishing and `settle` running.
+  const anim = el.animate(keyframes, { duration: durationMs, easing: "linear", fill: "forwards" });
+  anim.addEventListener(
+    "finish",
+    () => {
+      settle();
+      anim.cancel();
+    },
+    { once: true },
+  );
 }
 
 /** Duration (ms) of the dismiss animation — short + within the feedback budget,

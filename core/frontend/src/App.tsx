@@ -1528,6 +1528,15 @@ function App() {
     setQuery("");
     setSelected(0);
     setPwgenEditing(false);
+    // Prime the shell to the entrance START state (opacity 0 + slightly small)
+    // WHILE hidden — so the next open doesn't flash a frame of full-opacity
+    // content before `playEntrance` runs (the OS makes the window visible before
+    // the window-shown handler fires). `playEntrance`'s `settle` clears it.
+    const el = shellRef.current;
+    if (el) {
+      el.style.opacity = "0";
+      el.style.transform = "translateY(8px) scale(0.97)";
+    }
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

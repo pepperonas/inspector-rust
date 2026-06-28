@@ -1543,7 +1543,6 @@ pub fn show_popup(app: &AppHandle) -> Result<()> {
 }
 
 pub fn hide_popup(app: &AppHandle) {
-    tracing::info!("popup-diag: hide_popup");
     if let Some(w) = app.get_webview_window(POPUP_LABEL) {
         let _ = w.hide();
     }
@@ -1583,17 +1582,10 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     #[cfg(not(target_os = "macos"))]
     let positioned = false;
     if !positioned {
-        match pick_cursor_monitor(window) {
-            Some(m) => {
-                tracing::info!(
-                    "popup-diag: target monitor pos=({},{}) size={}x{} scale={}",
-                    m.position().x, m.position().y, m.size().width, m.size().height, m.scale_factor()
-                );
-                if let Err(e) = clamp_into_monitor(window, &m) {
-                    tracing::debug!("pre-show clamp_into_monitor: {e:#}");
-                }
+        if let Some(m) = pick_cursor_monitor(window) {
+            if let Err(e) = clamp_into_monitor(window, &m) {
+                tracing::debug!("pre-show clamp_into_monitor: {e:#}");
             }
-            None => tracing::warn!("popup-diag: no cursor monitor resolved"),
         }
     }
 
@@ -1602,9 +1594,6 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     mark_shown();
 
     window.show()?;
-    if let Ok(p) = window.outer_position() {
-        tracing::info!("popup-diag: position after show = ({},{})", p.x, p.y);
-    }
     // On Windows, force the foreground via the AttachThreadInput trick so the
     // popup reliably activates (a background-process SetForegroundWindow is
     // otherwise blocked); elsewhere a plain set_focus is correct.
@@ -1797,10 +1786,6 @@ fn position_popup_native_macos(window: &WebviewWindow) -> bool {
         let x = sf.origin.x + gap_w / 2.0;
         let y = sf.origin.y + gap_h * 2.0 / 3.0;
         let _: () = msg_send![nswindow, setFrameOrigin: NSPoint { x, y }];
-        tracing::info!(
-            "popup-diag: native setFrameOrigin cocoa=({x},{y}) on screen origin=({},{}) size={}x{}",
-            sf.origin.x, sf.origin.y, sf.size.width, sf.size.height
-        );
     }
     true
 }
@@ -1860,9 +1845,6 @@ fn clamp_into_monitor(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
     x = x.clamp(min_x, max_x);
     y = y.clamp(min_y, max_y);
 
-    tracing::info!(
-        "popup-diag: clamp logical=({lw},{lh}) phys_size={ww}x{wh} → set ({x},{y})"
-    );
     window.set_position(PhysicalPosition::new(x, y))?;
     Ok(())
 }

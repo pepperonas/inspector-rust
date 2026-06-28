@@ -1954,6 +1954,18 @@ export function adjustVolume(delta: number): Promise<number> {
   return invoke("adjust_volume", { delta });
 }
 
+/** Read the current system output volume (0–100), or null if no read-back
+ *  (e.g. Windows). Backend: `commands::get_system_volume`. */
+export function getSystemVolume(): Promise<number | null> {
+  return invoke("get_system_volume");
+}
+
+/** Set the system output volume to an absolute level (0–100); returns the
+ *  applied level, or null if unsupported. Backend: `commands::set_system_volume`. */
+export function setSystemVolume(level: number): Promise<number | null> {
+  return invoke("set_system_volume", { level });
+}
+
 /** Toggle system output mute. Returns the new state (`true` = now
  *  muted). The `mute` search-bar command. macOS-only. Backend:
  *  `commands::toggle_mute`. */

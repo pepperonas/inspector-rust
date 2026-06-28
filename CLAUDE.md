@@ -335,12 +335,13 @@ Pure, unit-tested mappings: `percent_to_raw`/`raw_to_percent` (DDC, scaled to ea
 
 ### Audio output device (`audio.rs`, v0.80.0)
 
-`sound` (alias **`audio`**) opens an inline **output-device picker** in the right preview column —
+`sound` (alias **`audio`**) opens an inline **audio output panel** in the right preview column —
 same arrow-key model as `brightness`. Enter on the `sound` row → `App.tsx`'s
-`soundMode` + `soundFocus` render `SoundPanel.tsx`: **↑/↓** select a device,
-**Enter** switches the system default output to it, **Esc** leaves. `useKeyboardNav`
-is gated off while `soundFocus`; `soundMode` auto-exits when the query is no
-longer `sound`. IPC: `list_audio_outputs` / `set_audio_output` (`AudioDevice { id, name, is_default }`).
+`soundMode` + `soundFocus` render `SoundPanel.tsx`: a **volume slider at the top**
+(**←/→** adjust ∓5 immediately — no Enter — + click/drag the bar) above the
+device list, where **↑/↓** select a device, **Enter** switches the system default
+output to it, **Esc** leaves. `useKeyboardNav` is gated off while `soundFocus`;
+`soundMode` auto-exits when the query is no longer `sound`. IPC: `list_audio_outputs` / `set_audio_output` (`AudioDevice { id, name, is_default }`) + **`get_system_volume` / `set_system_volume`** (absolute level with read-back; macOS via `osascript`, Linux via `wpctl`/`pactl`; Windows has no cheap read-back so the slider hides — `adjust_volume` stays the relative Shift+↑/↓ path). The volume slider reads the level on mount, applies absolute sets optimistically + reconciles with the returned applied level.
 
 - **macOS:** raw CoreAudio FFI (`#[link(... "CoreAudio")]`). Enumerate
   `kAudioHardwarePropertyDevices`, keep devices with output channels (stream

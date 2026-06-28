@@ -564,6 +564,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::system_shutdown,
             commands::system_lock,
             commands::adjust_volume,
+            commands::get_system_volume,
+            commands::set_system_volume,
             commands::toggle_mute,
             commands::wakelock_set,
             commands::wakelock_get,

@@ -295,6 +295,76 @@ pub fn clamp_volume(level: i32) -> u8 {
     level.clamp(0, 100) as u8
 }
 
+/// Read the current system output volume (0–100). Blocking (one osascript /
+/// wpctl call) — for the inline volume slider, NOT the hot gesture path.
+/// `None` when the platform has no cheap read-back.
+pub fn get_system_volume() -> Option<u8> {
+    #[cfg(target_os = "macos")]
+    {
+        let out = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg("output volume of (get volume settings)")
+            .output()
+            .ok()?;
+        String::from_utf8_lossy(&out.stdout)
+            .trim()
+            .parse::<i32>()
+            .ok()
+            .map(clamp_volume)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // `wpctl get-volume @DEFAULT_AUDIO_SINK@` → "Volume: 0.42"
+        let out = std::process::Command::new("wpctl")
+            .args(["get-volume", "@DEFAULT_AUDIO_SINK@"])
+            .output()
+            .ok()?;
+        let s = String::from_utf8_lossy(&out.stdout);
+        let frac: f32 = s.split_whitespace().nth(1)?.parse().ok()?;
+        Some(clamp_volume((frac * 100.0).round() as i32))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        None
+    }
+}
+
+/// Set the system output volume to an absolute level (0–100). Returns the
+/// clamped level actually applied, or `None` if unsupported. Blocking.
+pub fn set_system_volume(level: i32) -> Option<u8> {
+    let lv = clamp_volume(level);
+    #[cfg(target_os = "macos")]
+    {
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(format!("set volume output volume {lv}"))
+            .status();
+        Some(lv)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let frac = format!("{:.2}", lv as f32 / 100.0);
+        let ok = std::process::Command::new("wpctl")
+            .args(["set-volume", "@DEFAULT_AUDIO_SINK@", &frac])
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false)
+            || std::process::Command::new("pactl")
+                .args(["set-sink-volume", "@DEFAULT_SINK@", &format!("{lv}%")])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false);
+        ok.then_some(lv)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        // Windows has no simple absolute-set without the endpoint COM API; the
+        // slider falls back to relative key-taps via `adjust_volume` there.
+        let _ = lv;
+        None
+    }
+}
+
 /// Adjust the system output volume by `delta` percentage points
 /// (positive = louder, negative = quieter). Bound to Shift+↑ / Shift+↓
 /// in the popup.

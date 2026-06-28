@@ -3289,6 +3289,18 @@ pub fn adjust_volume(delta: i32) -> Result<u8, String> {
     crate::system_commands::adjust_system_volume(delta).map_err(map_err)
 }
 
+/// Read the current system output volume (0–100), or null if no read-back.
+#[tauri::command]
+pub fn get_system_volume() -> Option<u8> {
+    crate::system_commands::get_system_volume()
+}
+
+/// Set the system output volume to an absolute level; returns the applied level.
+#[tauri::command]
+pub fn set_system_volume(level: i32) -> Option<u8> {
+    crate::system_commands::set_system_volume(level)
+}
+
 /// `mute` — toggle the system output mute. Returns the new state
 /// (`true` = now muted). macOS-only.
 #[tauri::command]

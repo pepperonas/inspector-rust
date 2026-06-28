@@ -1573,20 +1573,9 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     // handler would close the popup ("flickers / sometimes closes" on Windows).
     // Doing all positioning here, before show(), sidesteps that entirely.
     //
-    // macOS: place natively via NSWindow setFrame in Cocoa points — the Tauri
-    // path (clamp_into_monitor) computes from `outer_size()`, which is in the
-    // window's *current* scale-factor pixels and is wrong/laggy right after the
-    // cursor crosses to a different-DPI display, so the popup landed off-centre
-    // or on the wrong screen. The native path is scale-independent + reliable.
-    #[cfg(target_os = "macos")]
-    let positioned = position_popup_native_macos(window);
-    #[cfg(not(target_os = "macos"))]
-    let positioned = false;
-    if !positioned {
-        if let Some(m) = pick_cursor_monitor(window) {
-            if let Err(e) = clamp_into_monitor(window, &m) {
-                tracing::debug!("pre-show clamp_into_monitor: {e:#}");
-            }
+    if let Some(m) = pick_cursor_monitor(window) {
+        if let Err(e) = clamp_into_monitor(window, &m) {
+            tracing::debug!("pre-show clamp_into_monitor: {e:#}");
         }
     }
 
@@ -1642,19 +1631,16 @@ fn pick_cursor_monitor(window: &WebviewWindow) -> Option<Monitor> {
         .or_else(|| window.primary_monitor().ok().flatten())
 }
 
-/// macOS: position the popup natively via `NSWindow setFrame:display:` in Cocoa
-/// **points** — centred horizontally + ~⅓ down on whichever NSScreen the live
-/// cursor (`NSEvent mouseLocation`) is on. Reliable across mixed-DPI / display
-/// switches because NSWindow works in points: no Tauri physical↔logical /
-/// scale-factor conversion (which is wrong/laggy right after the cursor crosses
-/// to a different-DPI display — that's why the popup landed off-centre / on the
-/// wrong screen). Keeps the window's current size. Returns `false` if AppKit
-/// isn't reachable (caller falls back to `clamp_into_monitor`). Main-thread only.
+/// macOS: the popup's logical (point) size read straight off the **NSWindow
+/// frame** — which is valid even while the window is hidden, unlike Tauri's
+/// `outer_size()`, which returns 0/stale for a hidden macOS window. That zero
+/// made `clamp_into_monitor` bail (no positioning → the popup opened on whatever
+/// screen it was last on). Returns `None` if AppKit isn't reachable / not ready.
 #[cfg(target_os = "macos")]
-fn position_popup_native_macos(window: &WebviewWindow) -> bool {
+fn native_window_logical_size(window: &WebviewWindow) -> Option<(f64, f64)> {
     use objc2::encode::{Encode, Encoding};
     use objc2::msg_send;
-    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::runtime::AnyObject;
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
@@ -1684,64 +1670,16 @@ fn position_popup_native_macos(window: &WebviewWindow) -> bool {
         const ENCODING: Encoding = Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
     }
 
-    let Ok(ptr) = window.ns_window() else {
-        return false;
-    };
+    let ptr = window.ns_window().ok()?;
     let nswindow = ptr as *mut AnyObject;
     if nswindow.is_null() {
-        return false;
+        return None;
     }
-    unsafe {
-        let (Some(ns_event), Some(ns_screen)) =
-            (AnyClass::get(c"NSEvent"), AnyClass::get(c"NSScreen"))
-        else {
-            return false;
-        };
-        let cursor: NSPoint = msg_send![ns_event, mouseLocation];
-        let screens: *mut AnyObject = msg_send![ns_screen, screens];
-        if screens.is_null() {
-            return false;
-        }
-        let count: usize = msg_send![screens, count];
-        let mut target: *mut AnyObject = std::ptr::null_mut();
-        for i in 0..count {
-            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
-            if s.is_null() {
-                continue;
-            }
-            let f: NSRect = msg_send![s, frame];
-            if cursor.x >= f.origin.x
-                && cursor.x < f.origin.x + f.size.width
-                && cursor.y >= f.origin.y
-                && cursor.y < f.origin.y + f.size.height
-            {
-                target = s;
-                break;
-            }
-        }
-        if target.is_null() {
-            target = msg_send![ns_screen, mainScreen];
-        }
-        if target.is_null() {
-            return false;
-        }
-        let sf: NSRect = msg_send![target, frame];
-        let wf: NSRect = msg_send![nswindow, frame];
-        let (ww, wh) = (wf.size.width, wf.size.height);
-        if ww <= 1.0 || wh <= 1.0 {
-            return false; // size not ready — let the caller fall back
-        }
-        let gap_w = (sf.size.width - ww).max(0.0);
-        let gap_h = (sf.size.height - wh).max(0.0);
-        let x = sf.origin.x + gap_w / 2.0;
-        // ~⅓ down from the TOP → Cocoa bottom-left origin = origin.y + gap·⅔.
-        let y = sf.origin.y + gap_h * 2.0 / 3.0;
-        // `setFrameOrigin:` (move only) — NOT `setFrame:display:` — so the window
-        // keeps its size and AppKit doesn't force a re-layout/redraw of the
-        // webview on show (that re-layout was the brief flicker).
-        let _: () = msg_send![nswindow, setFrameOrigin: NSPoint { x, y }];
+    let wf: NSRect = unsafe { msg_send![nswindow, frame] };
+    if wf.size.width <= 1.0 || wf.size.height <= 1.0 {
+        return None;
     }
-    true
+    Some((wf.size.width, wf.size.height))
 }
 
 /// Center horizontally, place ~⅓ down vertically, then clamp so the window
@@ -1749,17 +1687,42 @@ fn position_popup_native_macos(window: &WebviewWindow) -> bool {
 fn clamp_into_monitor(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
     let mpos = monitor.position();
     let msize = monitor.size();
-    let wsize = window.outer_size().unwrap_or_default();
+    let mscale = monitor.scale_factor();
 
-    // If outer_size is still bogus (zero), bail rather than placing wrongly.
-    if wsize.width == 0 || wsize.height == 0 {
-        return Ok(());
+    // The window's PHYSICAL size **on the target monitor**. Computing this from
+    // the logical (point) size × the target monitor's scale avoids two macOS
+    // traps: (a) `outer_size()` is 0/stale for a hidden window (→ the popup used
+    // to open on the wrong screen when the bail-on-zero guard tripped), and (b)
+    // `outer_size()` is in the window's *current* scale, which is wrong right
+    // after the cursor crosses to a different-DPI display. The point size comes
+    // from the native NSWindow frame (reliable even when hidden); the Tauri
+    // `outer_size()/scale_factor()` is the cross-platform fallback.
+    let logical = {
+        #[cfg(target_os = "macos")]
+        {
+            native_window_logical_size(window)
+        }
+        #[cfg(not(target_os = "macos"))]
+        {
+            None
+        }
     }
+    .or_else(|| {
+        let s = window.outer_size().ok()?;
+        if s.width == 0 || s.height == 0 {
+            return None;
+        }
+        let sf = window.scale_factor().unwrap_or(1.0);
+        Some((s.width as f64 / sf, s.height as f64 / sf))
+    });
+    let Some((lw, lh)) = logical else {
+        return Ok(()); // size genuinely not ready — bail rather than misplace
+    };
 
     let mw = msize.width as i32;
     let mh = msize.height as i32;
-    let ww = wsize.width as i32;
-    let wh = wsize.height as i32;
+    let ww = (lw * mscale).round() as i32;
+    let wh = (lh * mscale).round() as i32;
 
     // Desired position: horizontally centered, ~⅓ down.
     let mut x = mpos.x + (mw - ww) / 2;

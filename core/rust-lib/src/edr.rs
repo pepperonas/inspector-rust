@@ -125,7 +125,8 @@ mod macos {
     // Tuning (verify/tune on EDR hardware). `above` runs 0..2 for 100..300 %.
     // Preferred path: the overlay MULTIPLIES the desktop (CIMultiplyCompositing)
     // by `factor`, so black stays black (no wash) and brights lift into EDR.
-    const MULT_GAIN: f32 = 0.75; // factor = 1 + above·MULT_GAIN → up to 2.5× at 300 %
+    const MULT_GAIN: f32 = 3.0; // factor = 1 + above·MULT_GAIN → up to 7× at 300 %
+                                // (clamped by the display's live EDR headroom)
     // Fallback (no CoreImage / multiply unavailable): an additive white veil
     // (brightens but washes). Never an opaque grey screen.
     const VEIL_GAIN: f32 = 1.6;

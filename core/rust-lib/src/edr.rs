@@ -404,13 +404,13 @@ mod macos {
         let result = unsafe {
             objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
                 autoreleasepool(|_| {
-                    let mut lum = (1.0 + above * VEIL_GAIN) as f64;
+                    // `above` ∈ 0..2 → lum max ≈ 4.2, well under the detected
+                    // headroom (16), so no per-frame clamp is needed. (The
+                    // headroom lives on NSScreen, not the layer — reading it off
+                    // the layer is what raised the unrecognized-selector
+                    // exception.)
+                    let lum = (1.0 + above * VEIL_GAIN) as f64;
                     let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
-                    let head: f64 =
-                        msg_send![layer, maximumExtendedDynamicRangeColorComponentValue];
-                    if head > 1.0 && lum > head {
-                        lum = head;
-                    }
                     draw_frame(layer, queue, lum, alpha);
                 });
             }))

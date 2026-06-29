@@ -1134,13 +1134,18 @@ function App() {
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
       ...(openerEntry ? [openerEntry] : []),
-      ...(appEntry ? [appEntry] : []),
+      // EVERY keyword-triggered custom command outranks the app-launcher hit.
+      // These dedicated command rows (bruno/pwgen/bpm/2fa+otp/rz) must therefore
+      // come BEFORE `appEntry` — otherwise an app whose name fuzzy-matches the
+      // keyword wins (e.g. the "OTP Manager" app beating the `otp` command, or
+      // Terminal.app beating `terminal`). Custom commands ALWAYS have priority.
       ...(brunoEntry ? [brunoEntry] : []),
       ...(pwgenEntry ? [pwgenEntry] : []),
       ...(bpmEntry ? [bpmEntry] : []),
       ...(totpManageEntry ? [totpManageEntry] : []),
       ...totpAutocompleteEntries,
       ...resizePresetEntries,
+      ...(appEntry ? [appEntry] : []),
       ...finderFileEntries,
       ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
       ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),

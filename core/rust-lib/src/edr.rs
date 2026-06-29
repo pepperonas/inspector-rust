@@ -148,7 +148,9 @@ mod macos {
     const VEIL_GAIN: f32 = 1.6;
     const VEIL_ALPHA: f32 = 0.14;
     const MAX_ALPHA: f32 = 0.32;
-    const TICK_MS: u64 = 100; // ~10 fps; the worker ticks, the main thread draws
+    const TICK_MS: u64 = 100; // ~10 fps once settled; the worker ticks, main draws
+    const FADE_MS: u64 = 16; // ~60 fps while fading the overlay in
+    const FADE_STEP: f32 = 0.12; // window-alpha ramp per fade tick (~150 ms total)
 
     // True once the layer's CIMultiplyCompositing filter is in place.
     static MULTIPLY_OK: AtomicBool = AtomicBool::new(false);
@@ -280,18 +282,25 @@ mod macos {
         // CALayer property access) from a background thread raises an Obj-C
         // exception that unwinds through our Rust frames → SIGABRT (the crash).
         // The worker thread only ticks + dispatches each frame to the main thread.
+        let win_ptr = window.0 as usize;
         let layer_ptr = layer.0 as usize;
         let queue_ptr = queue.0 as usize;
         let app2 = app.clone();
         let thread = std::thread::spawn(move || {
+            // The window starts at alphaValue 0 (set in build_window). Fade it in
+            // so EDR engages *gradually* — a snap into EDR mode shows as a brief
+            // bright flash, and any imperfect first frame is hidden while α≈0.
+            let mut fade = 0.0f32;
             while r2.load(Ordering::Relaxed) {
                 if RENDER_FAILED.load(Ordering::Relaxed) {
                     break; // a draw raised an exception; stop ticking
                 }
                 let above = t2.load(Ordering::Relaxed) as f32 / 1000.0;
-                let (l, q) = (layer_ptr, queue_ptr);
-                let _ = app2.run_on_main_thread(move || draw_edr_frame(l, q, above));
-                std::thread::sleep(std::time::Duration::from_millis(TICK_MS));
+                let fading = fade < 1.0;
+                fade = (fade + FADE_STEP).min(1.0);
+                let (w, l, q, a, f) = (win_ptr, layer_ptr, queue_ptr, above, fade);
+                let _ = app2.run_on_main_thread(move || draw_edr_frame(w, l, q, a, f));
+                std::thread::sleep(std::time::Duration::from_millis(if fading { FADE_MS } else { TICK_MS }));
             }
             // Release the +1 command queue on the main thread, for symmetry.
             let q = queue_ptr;
@@ -428,6 +437,8 @@ mod macos {
         let _: () = msg_send![view, setLayer: layer];
         let _: () = msg_send![win, setContentView: view];
 
+        // Start fully transparent; the render loop fades it in (no engage flash).
+        let _: () = msg_send![win, setAlphaValue: 0.0f64];
         let _: () = msg_send![win, orderFrontRegardless];
 
         // Resolve the command queue here on the main thread; the render thread
@@ -490,7 +501,7 @@ mod macos {
 
     /// Draw one EDR frame. **MUST run on the main thread** — Core-Animation layer
     /// access off-main raises an Obj-C exception that aborts the process.
-    fn draw_edr_frame(layer_ptr: usize, queue_ptr: usize, above: f32) {
+    fn draw_edr_frame(win_ptr: usize, layer_ptr: usize, queue_ptr: usize, above: f32, fade: f32) {
         let layer = layer_ptr as *mut AnyObject;
         let queue = queue_ptr as *mut AnyObject;
         if layer.is_null() || queue.is_null() {
@@ -500,6 +511,12 @@ mod macos {
         // through the run loop and abort the app; log the reason once.
         let result = unsafe {
             objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                // Fade the whole overlay window in (0→1) → EDR engages gradually,
+                // no bright flash, and a bad first frame is hidden while α≈0.
+                let win = win_ptr as *mut AnyObject;
+                if !win.is_null() {
+                    let _: () = msg_send![win, setAlphaValue: fade.clamp(0.0, 1.0) as f64];
+                }
                 autoreleasepool(|_| {
                     let (val, alpha) = if MULTIPLY_OK.load(Ordering::Relaxed) {
                         // Multiply: desktop × factor (≥ 1). Opaque; the filter

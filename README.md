@@ -28,7 +28,7 @@
   - 🎬 **Media tools** — **download** YouTube / Instagram / TikTok / Facebook (video or audio — just paste a URL; Tab toggles on YouTube); **audio swap** (`Ctrl+Shift+Alt+M`) to replace or mix a video's audio with a local file or a YouTube track; **trim** audio/video (`trim`) lossless-fast or frame-accurate. Need ffmpeg / yt-dlp.
   - ⏱️ **Time tracking / Timesheet** (`track on/off`; `track` or **`Ctrl+Shift+T`**; macOS) — opt-in, event-based app-usage tracking by window focus with retroactive idle auto-pause; an editable **Timesheet tab** with day/week views, inline-SVG charts (timeline · app donut · categories · projects), CSV + self-contained HTML export; detects **Claude Code** usage per project (time + tokens); an optional **browser extension** (loopback socket only). Window titles + URLs encrypted at rest.
   - 📊 **System stats** (`stats`) — live inline dashboard: CPU (overall + per-core), memory + swap, **battery & power draw in watts**, temperatures + **fan RPM** (SMC / hwmon), disks, live network throughput, uptime. **Live ↔ History** toggle with per-metric line charts (1 h / 6 h / 24 h / 7 d).
-  - ☀️ **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview for built-in *and* external displays (**↑↓** pick a monitor, **←→** adjust). Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux.
+  - ☀️ **Monitor brightness** (`brightness` / `bri`) — sliders inline in the preview for built-in *and* external displays (**↑↓** pick a monitor, **←→** adjust). Software (gamma) dimming on macOS + Windows, hardware DDC/CI on Linux. On **EDR-capable Macs** (14"/16" MBP XDR, Pro Display XDR) the *same* slider runs **past 100 %** to push the display into its **extra-brightness (EDR/XDR) range** — Vivid-style, up to ~7× — via a multiply-blend Metal overlay; macOS thermal-throttles it automatically (same path as HDR video, within spec).
   - 💡 **Philips Hue** (`hue`) — control your lamps inline: all-lamps on/off + brightness, per-lamp brightness, and 8 colour-preset swatches on colour bulbs. Plus a **Beat-sync** disco that pulses the lamps to music from the mic. Local LAN pairing (discover or enter IP + link button); no cloud.
   - 🖐️ **Touchpad gestures** (opt-in) — **3-finger swipe** up/down for volume, **3-finger tap** to mute, fed through the system volume pipeline. macOS via the private MultitouchSupport API (consumes the swipe so the app underneath doesn't scroll); Windows Precision Touchpad; Linux libinput.
   - 🔐 **2FA / TOTP manager** — type `2fa` for the TOTP vault; `otp <issuer>` for instant OTP autocomplete with a live 30-second countdown. Imports Google Authenticator / Aegis / 2FAS / `otpauth`. Secrets encrypted, never cross the IPC boundary.
@@ -52,16 +52,16 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1379 unit tests (594 Rust + 785 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1392 unit tests (606 Rust + 786 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code (Rust + TypeScript source)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~80k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~81k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 594 Rust + 785 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-1379%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 606 Rust + 786 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-1392%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -184,7 +184,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1261%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-1392%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-197-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-65-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
@@ -396,7 +396,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Replace / overlay audio** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — select a video in Finder → overlay to **replace** or **mix** in a local audio file or a **yt-dlp'd YouTube track** at a chosen start position + trim. Writes a sibling `-audioswap.mp4`. Needs ffmpeg (+ yt-dlp) | core |
 | **Download social media** *(v0.84.28+)* | Paste / copy a **YouTube / Instagram / TikTok / Facebook** URL → auto-detected in the search bar or a clip → preview offers **Download video** (all) + **Download audio** (YouTube) → Downloads. Prefers **H.264** so the file plays in QuickTime; on YouTube's anti-bot gate it retries with your browser cookies (Chrome/Firefox/…). Needs yt-dlp | core |
 | **Trim audio / video** *(v0.84.28+)* | Type `trim` → pick a local file → set start/end → **lossless & fast** (`-c copy`) or **frame-accurate** (re-encode) → sibling `-trim` copy. Needs ffmpeg | core |
-| **Monitor brightness** *(v0.62.0+)* | Type `brightness` (alias `bri`) → inline per-monitor slider overlay (software gamma dimming on macOS/Windows, DDC/CI on Linux) | core |
+| **Monitor brightness** *(v0.62.0+)* | Type `brightness` (alias `bri`) → inline per-monitor slider overlay (software gamma dimming on macOS/Windows, DDC/CI on Linux). On EDR/XDR-capable Macs the slider extends **past 100 %** to drive the display's extra-brightness (EDR) range via a multiply-blend Metal overlay (Vivid-style; OS thermal-throttled) | core |
 | **Audio-output picker** *(v0.80.0+)* | Type `sound` (alias `audio`) → inline picker to switch the system default output device | core |
 | **Philips Hue control** *(v0.84.40+)* | Type `hue` → inline lamp controls in the preview: an **all-lamps** on/off + brightness master, plus a row per lamp with on/off, brightness (←→), and **8 colour-preset swatches** (1–8) on colour bulbs. First run pairs the bridge (local SSDP discovery or manual IP → press the bridge link button → Connect); LAN-only, no Philips cloud. A Beat-sync section listens to the mic and pulses the lamps to the beat (rainbow/pulse/strobe, round-robin chase) | core |
 | **Disk cleaner** *(v0.60.0+)* | Type `clean` (alias `cleanup`) → scans an allow-listed set of cache/log/temp roots → confirm → delete; Safe / Standard / Aggressive levels in Settings | core |
@@ -701,8 +701,8 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 ### Tests
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 721 tests
-cargo test --workspace  # Rust unit tests — 477 tests (hue, db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, …)
+pnpm test               # frontend unit tests (vitest + happy-dom) — 786 tests
+cargo test --workspace  # Rust unit tests — 606 tests (hue, db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, edr, …)
 ```
 
 The same commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR.

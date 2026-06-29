@@ -28,7 +28,7 @@
   - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - ⏱️ **Zeiterfassung / Timesheet** (`track on/off`; `track` oder **`Ctrl+Shift+T`**; macOS) — opt-in, event-basierte App-Nutzungserfassung per Fensterfokus mit rückwirkender Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tages-/Wochen-Ansicht, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Projekte), CSV- + self-contained-HTML-Export; erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); optionale **Browser-Extension** (nur Loopback-Socket). Fenstertitel + URLs at-rest verschlüsselt.
   - 📊 **System-Stats** (`stats`) — Live-Inline-Dashboard: CPU (gesamt + pro Kern), Speicher + Swap, **Akku & Leistungsaufnahme in Watt**, Temperaturen + **Lüfter-RPM** (SMC / hwmon), Disks, Live-Netzwerk-Durchsatz, Uptime. **Live ↔ History**-Umschalter mit Linien-Charts pro Metrik (1 h / 6 h / 24 h / 7 d).
-  - ☀️ **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau für interne *und* externe Displays (**↑↓** Monitor wählen, **←→** anpassen). Software-(Gamma-)Dimming auf macOS + Windows, Hardware-DDC/CI auf Linux.
+  - ☀️ **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau für interne *und* externe Displays (**↑↓** Monitor wählen, **←→** anpassen). Software-(Gamma-)Dimming auf macOS + Windows, Hardware-DDC/CI auf Linux. Auf **EDR-fähigen Macs** (14"/16" MBP XDR, Pro Display XDR) läuft *derselbe* Slider **über 100 %** hinaus und hebt das Display in seinen **Extra-Helligkeits-Bereich (EDR/XDR)** — Vivid-Stil, bis ~7× — via Multiply-Blend-Metal-Overlay; macOS drosselt thermisch automatisch (gleicher Pfad wie HDR-Video, innerhalb der Spezifikation).
   - 💡 **Philips Hue** (`hue`) — steuere deine Lampen inline: Alle-Lampen an/aus + Helligkeit, Helligkeit pro Lampe, 8 Farb-Preset-Swatches auf Farb-Bulbs. Plus eine **Beat-Sync**-Disco, die die Lampen zur Musik vom Mikro pulsen lässt. Lokales LAN-Pairing (Discovery oder IP + Link-Button); keine Cloud.
   - 🖐️ **Touchpad-Gesten** (opt-in) — **3-Finger-Swipe** hoch/runter für Lautstärke, **3-Finger-Tap** zum Stummschalten, über die System-Volume-Pipeline. macOS via die private MultitouchSupport-API (schluckt den Swipe, damit das Fenster darunter nicht scrollt); Windows Precision Touchpad; Linux libinput.
   - 🔐 **2FA / TOTP-Manager** — tippe `2fa` für den TOTP-Tresor; `otp <issuer>` für sofortige OTP-Autovervollständigung mit Live-30-Sekunden-Countdown. Importiert Google Authenticator / Aegis / 2FAS / `otpauth`. Secrets verschlüsselt, überqueren nie die IPC-Grenze.
@@ -52,16 +52,16 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1379 Unit-Tests (594 Rust + 785 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1392 Unit-Tests (606 Rust + 786 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Codezeilen (Rust + TypeScript Quellcode)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~80k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~81k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 594 Rust + 785 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-1379%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 606 Rust + 786 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-1392%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -83,7 +83,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1379%20(594%20Rust%20%2B%20785%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1392%20(606%20Rust%20%2B%20786%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -156,7 +156,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1379%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-1392%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-197-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-65-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
@@ -366,7 +366,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Audio ersetzen / überlagern** *(v0.84.22+, macOS)* | `Ctrl+Shift+Alt+M` — Video im Finder wählen → Overlay zum **Ersetzen** oder **Mischen** einer lokalen Audiodatei oder eines **yt-dlp-YouTube-Tracks** an gewählter Startposition + Trim. Schreibt `-audioswap.mp4` daneben. ffmpeg (+ yt-dlp) nötig | core |
 | **Social-Media-Download** *(v0.84.28+)* | **YouTube / Instagram / TikTok / Facebook**-URL einfügen/kopieren → in Suchleiste oder Clip auto-erkannt → Preview bietet **Video laden** (alle) + **Audio laden** (YouTube) → Downloads. Bevorzugt **H.264** (in QuickTime spielbar); bei YouTubes Bot-Schutz erneuter Versuch mit deinen Browser-Cookies (Chrome/Firefox/…). yt-dlp nötig | core |
 | **Audio/Video trimmen** *(v0.84.28+)* | `trim` tippen → lokale Datei wählen → Start/Ende setzen → **verlustfrei & schnell** (`-c copy`) oder **frame-genau** (re-encode) → `-trim`-Kopie. ffmpeg nötig | core |
-| **Monitor-Helligkeit** *(v0.62.0+)* | `brightness` (Alias `bri`) → Inline-Slider-Overlay pro Monitor (Software-Gamma-Dimming auf macOS/Windows, DDC/CI auf Linux) | core |
+| **Monitor-Helligkeit** *(v0.62.0+)* | `brightness` (Alias `bri`) → Inline-Slider-Overlay pro Monitor (Software-Gamma-Dimming auf macOS/Windows, DDC/CI auf Linux). Auf EDR/XDR-fähigen Macs läuft der Slider **über 100 %** hinaus und treibt den Extra-Helligkeits-Bereich (EDR) via Multiply-Blend-Metal-Overlay (Vivid-Stil; OS-thermal-gedrosselt) | core |
 | **Audio-Ausgabegerät** *(v0.80.0+)* | `sound` (Alias `audio`) → Inline-Picker zum Umschalten des Standard-Ausgabegeräts | core |
 | **Philips-Hue-Steuerung** *(v0.84.40+)* | `hue` tippen → Inline-Lampensteuerung in der Vorschau: **Alle-Lampen**-Schalter + Helligkeit, plus eine Zeile pro Lampe mit An/Aus, Helligkeit (←→) und **8 Farb-Presets** (1–8) bei Farb-Lampen. Beim ersten Mal wird die Bridge gekoppelt (lokale SSDP-Discovery oder IP → Link-Button drücken → Connect); nur LAN, keine Philips-Cloud. Eine **Beat-Sync-Sektion** hört aufs Mikrofon und pulst die Lampen im Takt (rainbow/pulse/strobe, Round-Robin-Chase) | core |
 | **Aufräum-Tool** *(v0.60.0+)* | `clean` (Alias `cleanup`) → scannt eine Allowlist von Cache-/Log-/Temp-Verzeichnissen → bestätigen → löschen; Safe / Standard / Aggressive in Settings | core |

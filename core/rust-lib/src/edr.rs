@@ -36,6 +36,23 @@ pub fn edr_max_percent(headroom: f32) -> u16 {
     }
 }
 
+/// Per-`above` gain of the EDR multiply factor. `factor = 1 + above·MULT_GAIN`,
+/// so at 300 % (`above = 2`) the overlay multiplies the desktop by up to 7×
+/// (then clamped by the display's live EDR headroom).
+const MULT_GAIN: f32 = 3.0;
+
+/// The above-SDR amount for a slider `percent`: 0 at ≤ 100, rising to 2.0 at
+/// 300 % (clamped). Pure + unit-tested.
+pub fn above_amount(percent: u16) -> f32 {
+    ((percent as f32 - 100.0) / 100.0).clamp(0.0, 2.0)
+}
+
+/// The desktop multiply factor for an above-SDR `above` amount. `0 → 1.0`
+/// (identity, no brightening); rises with `MULT_GAIN`. Pure + unit-tested.
+pub fn multiply_factor(above: f32) -> f32 {
+    1.0 + above.max(0.0) * MULT_GAIN
+}
+
 /// The potential EDR headroom of the display with CoreGraphics id `cg_id`
 /// (1.0 = none / not EDR-capable). Reads
 /// `NSScreen.maximumPotentialExtendedDynamicRangeColorComponentValue` for the
@@ -123,10 +140,9 @@ mod macos {
     use tauri::AppHandle;
 
     // Tuning (verify/tune on EDR hardware). `above` runs 0..2 for 100..300 %.
-    // Preferred path: the overlay MULTIPLIES the desktop (CIMultiplyCompositing)
-    // by `factor`, so black stays black (no wash) and brights lift into EDR.
-    const MULT_GAIN: f32 = 3.0; // factor = 1 + above·MULT_GAIN → up to 7× at 300 %
-                                // (clamped by the display's live EDR headroom)
+    // Preferred path: the overlay MULTIPLIES the desktop ("multiplyBlendMode"
+    // compositingFilter) by `super::multiply_factor(above)`, so black stays black
+    // (no wash) and brights lift into EDR (clamped by the live EDR headroom).
     // Fallback (no CoreImage / multiply unavailable): an additive white veil
     // (brightens but washes). Never an opaque grey screen.
     const VEIL_GAIN: f32 = 1.6;
@@ -220,7 +236,7 @@ mod macos {
     }
 
     pub fn set_level(app: &AppHandle, cg_id: u32, percent: u16) {
-        let above = ((percent as f32 - 100.0) / 100.0).clamp(0.0, 2.0);
+        let above = super::above_amount(percent);
         if percent <= 100 || above <= 0.0 {
             teardown(app);
             return;
@@ -488,7 +504,7 @@ mod macos {
                     let (val, alpha) = if MULTIPLY_OK.load(Ordering::Relaxed) {
                         // Multiply: desktop × factor (≥ 1). Opaque; the filter
                         // does the blend. Blacks stay black, brights lift → EDR.
-                        ((1.0 + above * MULT_GAIN) as f64, 1.0)
+                        (super::multiply_factor(above) as f64, 1.0)
                     } else {
                         // Additive veil fallback (brightens but washes).
                         let lum = (1.0 + above * VEIL_GAIN) as f64;
@@ -598,5 +614,30 @@ mod tests {
         assert_eq!(edr_max_percent(16.0), EDR_MAX_CAP, "huge headroom is capped");
         // Just-capable displays still get a usable range above 100.
         assert!(edr_max_percent(1.06) >= 110);
+    }
+
+    #[test]
+    fn above_amount_maps_slider_to_edr_range() {
+        assert_eq!(above_amount(100), 0.0, "at SDR max → no boost");
+        assert_eq!(above_amount(50), 0.0, "below 100 clamps to 0");
+        assert_eq!(above_amount(200), 1.0);
+        assert_eq!(above_amount(300), 2.0);
+        assert_eq!(above_amount(900), 2.0, "clamps at 2.0");
+    }
+
+    #[test]
+    fn multiply_factor_is_identity_at_sdr_then_rises() {
+        assert_eq!(multiply_factor(0.0), 1.0, "no boost = ×1 (desktop unchanged)");
+        assert_eq!(multiply_factor(-1.0), 1.0, "negative clamps to identity");
+        assert!((multiply_factor(1.0) - 4.0).abs() < 1e-6, "1 + 1·3 = 4×");
+        assert!((multiply_factor(2.0) - 7.0).abs() < 1e-6, "1 + 2·3 = 7× at 300 %");
+        assert!(multiply_factor(2.0) > multiply_factor(1.0), "monotonic");
+    }
+
+    #[test]
+    fn slider_percent_round_trips_to_factor() {
+        // The two helpers compose: 100 % → ×1 (off), 300 % → ×7.
+        assert_eq!(multiply_factor(above_amount(100)), 1.0);
+        assert!((multiply_factor(above_amount(300)) - 7.0).abs() < 1e-6);
     }
 }

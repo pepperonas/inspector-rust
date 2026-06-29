@@ -123,10 +123,18 @@ mod macos {
     use tauri::AppHandle;
 
     // Tuning (verify/tune on EDR hardware). `above` runs 0..2 for 100..300 %.
-    const VEIL_GAIN: f32 = 1.6; // luminance lift per `above`
-    const VEIL_ALPHA: f32 = 0.14; // overlay opacity per `above`
+    // Preferred path: the overlay MULTIPLIES the desktop (CIMultiplyCompositing)
+    // by `factor`, so black stays black (no wash) and brights lift into EDR.
+    const MULT_GAIN: f32 = 0.75; // factor = 1 + above·MULT_GAIN → up to 2.5× at 300 %
+    // Fallback (no CoreImage / multiply unavailable): an additive white veil
+    // (brightens but washes). Never an opaque grey screen.
+    const VEIL_GAIN: f32 = 1.6;
+    const VEIL_ALPHA: f32 = 0.14;
     const MAX_ALPHA: f32 = 0.32;
     const TICK_MS: u64 = 100; // ~10 fps; the worker ticks, the main thread draws
+
+    // True once the layer's CIMultiplyCompositing filter is in place.
+    static MULTIPLY_OK: AtomicBool = AtomicBool::new(false);
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
@@ -387,6 +395,27 @@ mod macos {
         if !cs.is_null() {
             let _: () = msg_send![layer, setColorspace: cs];
         }
+
+        // Multiply the desktop behind the window instead of alpha-blending a
+        // white veil → blacks stay black (no wash). Dimming apps use this same
+        // compositingFilter trick (with factor < 1). If CoreImage / the filter
+        // isn't available we fall back to the veil (MULTIPLY_OK stays false), so
+        // the overlay is never an opaque grey rectangle.
+        MULTIPLY_OK.store(false, Ordering::Relaxed);
+        if let Some(ci) = AnyClass::get(c"CIFilter") {
+            let name = super::nsstring("CIMultiplyCompositing");
+            if !name.is_null() {
+                let filter: *mut AnyObject = msg_send![ci, filterWithName: name];
+                if !filter.is_null() {
+                    let _: () = msg_send![layer, setCompositingFilter: filter];
+                    MULTIPLY_OK.store(true, Ordering::Relaxed);
+                }
+            }
+        }
+        if !MULTIPLY_OK.load(Ordering::Relaxed) {
+            tracing::warn!("edr: CIMultiplyCompositing unavailable — falling back to additive veil");
+        }
+
         // Keep the device referenced via the layer; queue created in the loop.
         Some(layer)
     }
@@ -404,14 +433,17 @@ mod macos {
         let result = unsafe {
             objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
                 autoreleasepool(|_| {
-                    // `above` ∈ 0..2 → lum max ≈ 4.2, well under the detected
-                    // headroom (16), so no per-frame clamp is needed. (The
-                    // headroom lives on NSScreen, not the layer — reading it off
-                    // the layer is what raised the unrecognized-selector
-                    // exception.)
-                    let lum = (1.0 + above * VEIL_GAIN) as f64;
-                    let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
-                    draw_frame(layer, queue, lum, alpha);
+                    let (val, alpha) = if MULTIPLY_OK.load(Ordering::Relaxed) {
+                        // Multiply: desktop × factor (≥ 1). Opaque; the filter
+                        // does the blend. Blacks stay black, brights lift → EDR.
+                        ((1.0 + above * MULT_GAIN) as f64, 1.0)
+                    } else {
+                        // Additive veil fallback (brightens but washes).
+                        let lum = (1.0 + above * VEIL_GAIN) as f64;
+                        let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
+                        (lum, alpha)
+                    };
+                    draw_frame(layer, queue, val, alpha);
                 });
             }))
         };

@@ -452,24 +452,20 @@ mod macos {
             let _: () = msg_send![layer, setColorspace: cs];
         }
 
-        // Multiply the desktop behind the window instead of alpha-blending a
-        // white veil → blacks stay black (no wash). Dimming apps use this same
-        // compositingFilter trick (with factor < 1). If CoreImage / the filter
-        // isn't available we fall back to the veil (MULTIPLY_OK stays false), so
-        // the overlay is never an opaque grey rectangle.
+        // CALayer accepts a blend-mode *name string* as its compositingFilter.
+        // The "multiplyBlendMode" BLEND (this is the technique BrightXDR/Vivid
+        // use) preserves EDR values > 1 in the extended-linear RGBA16Float layer
+        // — unlike the CIMultiplyCompositing *compositing op*, which clamps the
+        // result to SDR (so it could only darken). The drawn factor (> 1) thus
+        // multiplies the desktop into the EDR range: black×f = black (no wash),
+        // bright×f → EDR. If the string isn't accepted we fall back to the veil.
         MULTIPLY_OK.store(false, Ordering::Relaxed);
-        if let Some(ci) = AnyClass::get(c"CIFilter") {
-            let name = super::nsstring("CIMultiplyCompositing");
-            if !name.is_null() {
-                let filter: *mut AnyObject = msg_send![ci, filterWithName: name];
-                if !filter.is_null() {
-                    let _: () = msg_send![layer, setCompositingFilter: filter];
-                    MULTIPLY_OK.store(true, Ordering::Relaxed);
-                }
-            }
-        }
-        if !MULTIPLY_OK.load(Ordering::Relaxed) {
-            tracing::warn!("edr: CIMultiplyCompositing unavailable — falling back to additive veil");
+        let blend = super::nsstring("multiplyBlendMode");
+        if !blend.is_null() {
+            let _: () = msg_send![layer, setCompositingFilter: blend];
+            MULTIPLY_OK.store(true, Ordering::Relaxed);
+        } else {
+            tracing::warn!("edr: multiplyBlendMode unavailable — falling back to additive veil");
         }
 
         // Keep the device referenced via the layer; queue created in the loop.

@@ -126,7 +126,7 @@ mod macos {
     const VEIL_GAIN: f32 = 1.6; // luminance lift per `above`
     const VEIL_ALPHA: f32 = 0.14; // overlay opacity per `above`
     const MAX_ALPHA: f32 = 0.32;
-    const FRAME_MS: u64 = 33; // ~30 fps render loop
+    const TICK_MS: u64 = 100; // ~10 fps; the worker ticks, the main thread draws
 
     #[repr(C)]
     #[derive(Copy, Clone, Default)]
@@ -235,10 +235,26 @@ mod macos {
             tracing::warn!("edr: overlay window build failed");
             return;
         };
-        // The render loop runs off-main (Metal submission is thread-safe).
+        // Render ON THE MAIN THREAD. Drawing a CAMetalLayer (nextDrawable /
+        // CALayer property access) from a background thread raises an Obj-C
+        // exception that unwinds through our Rust frames → SIGABRT (the crash).
+        // The worker thread only ticks + dispatches each frame to the main thread.
         let layer_ptr = layer.0 as usize;
         let queue_ptr = queue.0 as usize;
-        let thread = std::thread::spawn(move || render_loop(layer_ptr, queue_ptr, t2, r2));
+        let app2 = app.clone();
+        let thread = std::thread::spawn(move || {
+            while r2.load(Ordering::Relaxed) {
+                let above = t2.load(Ordering::Relaxed) as f32 / 1000.0;
+                let (l, q) = (layer_ptr, queue_ptr);
+                let _ = app2.run_on_main_thread(move || draw_edr_frame(l, q, above));
+                std::thread::sleep(std::time::Duration::from_millis(TICK_MS));
+            }
+            // Release the +1 command queue on the main thread, for symmetry.
+            let q = queue_ptr;
+            let _ = app2.run_on_main_thread(move || unsafe {
+                let _: () = msg_send![q as *mut AnyObject, release];
+            });
+        });
         *STATE.lock() = Some(Overlay {
             cg_id,
             target,
@@ -356,33 +372,24 @@ mod macos {
         Some(layer)
     }
 
-    fn render_loop(layer_ptr: usize, queue_ptr: usize, target: Arc<AtomicU32>, running: Arc<AtomicBool>) {
-        // The layer + queue were resolved on the main thread (build_window) and
-        // handed in. CAMetalLayer + MTLCommandQueue + drawables are safe off-main;
-        // the NSWindow/NSView are NEVER touched here.
+    /// Draw one EDR frame. **MUST run on the main thread** — Core-Animation layer
+    /// access off-main raises an Obj-C exception that aborts the process.
+    fn draw_edr_frame(layer_ptr: usize, queue_ptr: usize, above: f32) {
         let layer = layer_ptr as *mut AnyObject;
         let queue = queue_ptr as *mut AnyObject;
         if layer.is_null() || queue.is_null() {
             return;
         }
-
-        while running.load(Ordering::Relaxed) {
-            autoreleasepool(|_| unsafe {
-                let above = target.load(Ordering::Relaxed) as f32 / 1000.0;
-                let mut lum = (1.0 + above * VEIL_GAIN) as f64;
-                let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
-                // Clamp luminance to the display's *current* EDR headroom.
-                let head: f64 = msg_send![layer, maximumExtendedDynamicRangeColorComponentValue];
-                if head > 1.0 && lum > head {
-                    lum = head;
-                }
-                draw_frame(layer, queue, lum, alpha);
-            });
-            std::thread::sleep(std::time::Duration::from_millis(FRAME_MS));
-        }
-        unsafe {
-            let _: () = msg_send![queue, release];
-        }
+        autoreleasepool(|_| unsafe {
+            let mut lum = (1.0 + above * VEIL_GAIN) as f64;
+            let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
+            // Clamp luminance to the display's *current* EDR headroom.
+            let head: f64 = msg_send![layer, maximumExtendedDynamicRangeColorComponentValue];
+            if head > 1.0 && lum > head {
+                lum = head;
+            }
+            draw_frame(layer, queue, lum, alpha);
+        });
     }
 
     unsafe fn draw_frame(layer: *mut AnyObject, queue: *mut AnyObject, lum: f64, alpha: f64) {

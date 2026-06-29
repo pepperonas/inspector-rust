@@ -287,7 +287,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
 
-**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `spacer` (Space Invaders), `learningtofly` (Flappy Bird), `opener` (German pickup line), `2fa` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
+**Hidden triggers — exact word, NOT in `COMMANDS`** (never autocompleted; detection lives in `lib/commands.ts`): `getshaky` (Pong), `rockthebox`/`rockthabox` (Snake), `spacer` (Space Invaders), `learningtofly` (Flappy Bird), `opener` (German pickup line), `2fa`/`otp` (`is2faTrigger` → TOTP overlay), `otp <issuer>` (`parseOtpQuery` → TOTP autocomplete rows), `bpm`/`bpms`/`bpmusic` (`isBpmTrigger`, Enter-activated → BPM detector). The app-launcher and Finder-selection rows are also implicit (no keyword).
 
 ### System commands (`system_commands.rs`, v0.19.0+)
 
@@ -300,10 +300,10 @@ Four system-level commands, also in the search-bar palette:
 
 ### 2FA / TOTP manager (`totp_store.rs`, `totp_import.rs`, `crypto.rs`, v0.47.0)
 
-RFC 6238 authenticator built into the popup. Two entry points: typing **`2fa`** (`is2faTrigger`) replaces the popup body with `<TotpOverlay>` (List / Add / Import-Export tabs); typing **`otp <issuer>`** (`parseOtpQuery`) surfaces matching accounts as `totp` rows with the live 6-digit code — Enter copies it. The List tab refreshes every 1 s via `totp_current_codes_all` and draws a countdown ring.
+RFC 6238 authenticator built into the popup. Two entry points: typing **`2fa`** *or* bare **`otp`** (`is2faTrigger` matches both, v0.84.197) replaces the popup body with `<TotpOverlay>` (List / Add / Import-Export tabs — manual token creation lives in the **Add** tab); typing **`otp <issuer>`** (`parseOtpQuery`, now requires an argument so bare `otp` falls through to the overlay) surfaces matching accounts as `totp` rows with the live 6-digit code — Enter copies it. The List tab refreshes every 1 s via `totp_current_codes_all` and draws a countdown ring.
 
 - Storage is the `totp_entries` table; secrets are `crypto::encrypt`-ed and **never** returned over IPC — only generated codes (`TotpCode { code, seconds_remaining }`) cross the boundary.
-- **Import** (`totp_import.rs`) autodetects format from the first bytes: `otpauth://totp/…` single URI, `otpauth-migration://offline?data=…` (Google Authenticator bulk protobuf), Aegis JSON, 2FAS JSON, or a plaintext file of one `otpauth://` per line. Per-line failures are recorded in `ImportSummary { added, failed }`, never aborting the batch.
+- **Import** (`totp_import.rs`) autodetects format from the first bytes: `otpauth://totp/…` single URI, `otpauth-migration://offline?data=…` (Google Authenticator bulk protobuf), Aegis JSON, 2FAS JSON, the **OTPManager (macOS) "Tokens JSON"** export (a top-level JSON **array** of `{Issuer,Username,Secret,Digits,Period,Algorithm}` — `parse_otpmanager_json`, dispatched on a leading `[`; the `HMAC-` algorithm prefix is stripped; v0.84.197), or a plaintext file of one `otpauth://` per line. Per-line failures are recorded in `ImportSummary { added, failed }`, never aborting the batch.
 - IPC: `totp_list`, `totp_add`, `totp_delete`, `totp_current_code`, `totp_current_codes_all`, `totp_import`, `totp_export`. Frontend types in `lib/totp.ts` (`matchTotpEntries` is the fuzzy issuer/account ranker).
 
 ### Markdown → PDF (`md_to_pdf.rs`, v0.46.0)

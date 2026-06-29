@@ -22,6 +22,7 @@ import {
   parseShotDelay,
   parseTimerArg,
   parseOtpQuery,
+  is2faTrigger,
   isBpmTrigger,
   isFlappyTrigger,
   formatBytes,
@@ -1092,17 +1093,34 @@ describe("bare pwgen surfaces the action (not a suggestion)", () => {
 
 describe("parseOtpQuery", () => {
   it("returns the issuer filter for `otp <issuer>` (trimmed)", () => {
-    expect(parseOtpQuery("otp")).toBe("");
-    expect(parseOtpQuery("otp ")).toBe("");
     expect(parseOtpQuery("otp amazon")).toBe("amazon");
     expect(parseOtpQuery("OTP  GitHub ")).toBe("GitHub");
     expect(parseOtpQuery("otp google work")).toBe("google work");
+  });
+  it("returns null for bare `otp` (the overlay opens via is2faTrigger instead)", () => {
+    expect(parseOtpQuery("otp")).toBeNull();
+    expect(parseOtpQuery("otp ")).toBeNull();
+    expect(parseOtpQuery("otp   ")).toBeNull();
   });
   it("returns null when the query isn't an otp query", () => {
     expect(parseOtpQuery("")).toBeNull();
     expect(parseOtpQuery("otpfoo")).toBeNull(); // no boundary
     expect(parseOtpQuery("2fa")).toBeNull();
     expect(parseOtpQuery("note otp")).toBeNull();
+  });
+});
+
+describe("is2faTrigger", () => {
+  it("matches bare `2fa` and `otp` (case/space tolerant)", () => {
+    expect(is2faTrigger("2fa")).toBe(true);
+    expect(is2faTrigger("otp")).toBe(true);
+    expect(is2faTrigger("  OTP  ")).toBe(true);
+    expect(is2faTrigger("2FA")).toBe(true);
+  });
+  it("does not match `otp <issuer>` or unrelated input", () => {
+    expect(is2faTrigger("otp amazon")).toBe(false);
+    expect(is2faTrigger("otpfoo")).toBe(false);
+    expect(is2faTrigger("hello")).toBe(false);
   });
 });
 

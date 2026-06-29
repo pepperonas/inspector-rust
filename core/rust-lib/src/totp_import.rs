@@ -79,6 +79,14 @@ pub fn import_auto(input: &str) -> Result<Vec<ImportedEntry>> {
             "JSON input matched no known authenticator-app schema (Aegis / 2FAS)"
         ));
     }
+    if trimmed.starts_with('[') {
+        // JSON array → OTPManager (macOS) "Tokens JSON" export.
+        let entries = parse_otpmanager_json(trimmed)?;
+        if entries.is_empty() {
+            return Err(anyhow!("JSON array matched no known schema (OTPManager)"));
+        }
+        return Ok(entries);
+    }
     if trimmed.starts_with("otpauth-migration://") {
         return parse_otpauth_migration(trimmed);
     }
@@ -396,6 +404,53 @@ pub fn parse_2fas_json(json: &str) -> Result<Vec<ImportedEntry>> {
     Ok(out)
 }
 
+// ── OTPManager (macOS) "Tokens JSON" export ──────────────────────────
+
+#[derive(Deserialize)]
+struct OtpManagerEntry {
+    #[serde(rename = "Issuer")]
+    issuer: Option<String>,
+    #[serde(rename = "Username")]
+    username: Option<String>,
+    #[serde(rename = "Secret")]
+    secret: Option<String>,
+    #[serde(rename = "Digits")]
+    digits: Option<u32>,
+    #[serde(rename = "Period")]
+    period: Option<u32>,
+    #[serde(rename = "Algorithm")]
+    algorithm: Option<String>,
+}
+
+/// Parse the **OTPManager** macOS app's "Tokens JSON" export — a top-level
+/// JSON array of `{ Issuer, Username, Secret, Digits, Period, Algorithm }`.
+/// `Algorithm` is `"HMAC-SHA1"`-style; the `HMAC-` prefix is stripped.
+pub fn parse_otpmanager_json(json: &str) -> Result<Vec<ImportedEntry>> {
+    let parsed: Vec<OtpManagerEntry> =
+        serde_json::from_str(json).context("not OTPManager JSON shape")?;
+    let mut out = Vec::new();
+    for e in parsed {
+        let secret = match e.secret {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => continue,
+        };
+        let algorithm = e
+            .algorithm
+            .unwrap_or_else(|| "SHA1".into())
+            .to_ascii_uppercase()
+            .replace("HMAC-", "");
+        out.push(ImportedEntry {
+            issuer: e.issuer.unwrap_or_default().trim().to_string(),
+            account: e.username.unwrap_or_default().trim().to_string(),
+            secret_base32: totp_store::normalise_secret(&secret),
+            digits: e.digits.unwrap_or(6),
+            period: e.period.unwrap_or(30),
+            algorithm,
+        });
+    }
+    Ok(out)
+}
+
 // ── Export ──────────────────────────────────────────────────────────
 
 /// Export all entries as a JSON array of `otpauth://` URIs — the most
@@ -677,6 +732,29 @@ mod tests {
     fn import_auto_unknown_format_errors() {
         assert!(import_auto("hello world this is nothing").is_err());
         assert!(import_auto(r#"{"random":"json"}"#).is_err());
+    }
+
+    #[test]
+    fn parses_otpmanager_array() {
+        // The OTPManager (macOS) "Tokens JSON" export — a top-level array.
+        let json = r#"[
+          { "Issuer": "Dropbox", "Algorithm": "HMAC-SHA1", "Secret": "A3TR3BCVR4UT52EDBLUY44D5A4",
+            "Digits": 6, "Username": "martinpaush@gmail.com", "Period": 30 },
+          { "Issuer": "Amazon", "Algorithm": "HMAC-SHA256", "Secret": "QF4D6C6II7YXWWGJ",
+            "Digits": 8, "Username": "me", "Period": 60 }
+        ]"#;
+        let entries = import_auto(json).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].issuer, "Dropbox");
+        assert_eq!(entries[0].account, "martinpaush@gmail.com");
+        assert_eq!(entries[0].algorithm, "SHA1"); // HMAC- prefix stripped
+        assert_eq!(entries[0].digits, 6);
+        assert_eq!(entries[0].period, 30);
+        assert!(!entries[0].secret_base32.is_empty());
+        // Per-entry digits/period/algorithm are honoured.
+        assert_eq!(entries[1].algorithm, "SHA256");
+        assert_eq!(entries[1].digits, 8);
+        assert_eq!(entries[1].period, 60);
     }
 
     #[test]

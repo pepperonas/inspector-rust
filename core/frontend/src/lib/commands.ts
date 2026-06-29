@@ -1017,21 +1017,24 @@ export function isBpmTrigger(query: string): boolean {
  * match, whitespace + case tolerant.
  */
 export function is2faTrigger(query: string): boolean {
-  return query.trim().toLowerCase() === "2fa";
+  const q = query.trim().toLowerCase();
+  // Bare `otp` opens the same overlay as `2fa` (add / import / export / delete);
+  // `otp <issuer>` stays an autocomplete (parseOtpQuery requires an argument).
+  return q === "2fa" || q === "otp";
 }
 
 /**
  * `otp <query>` → autocomplete trigger for TOTP entries. Returns the
- * trimmed query portion (so `otp ama` → `"ama"`) when the input
- * starts with `otp` followed by a space; otherwise null.
+ * trimmed query portion (so `otp ama` → `"ama"`) when the input is
+ * `otp` followed by a non-empty query; otherwise null.
  *
- * Special-case: bare `otp` (no space, no query) returns the empty
- * string so the autocomplete shows all entries unfiltered.
+ * Bare `otp` returns null (it opens the overlay via `is2faTrigger`
+ * instead) so the two don't fight over the same input.
  */
 export function parseOtpQuery(query: string): string | null {
-  const m = query.match(/^otp(\s+(.*))?$/i);
+  const m = query.match(/^otp\s+(.+)$/i);
   if (!m) return null;
-  return (m[2] ?? "").trim();
+  return m[1].trim() || null;
 }
 
 /**

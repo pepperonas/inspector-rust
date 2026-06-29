@@ -149,14 +149,14 @@ pub fn get(id: u32) -> Result<u8, String> {
 
 /// Drive the EDR boost for monitor `id` to `percent` (the full slider value;
 /// ≤ 100 / 0 = off). macOS-only; a no-op everywhere else.
-pub fn set_edr_level(id: u32, percent: u16) {
+pub fn set_edr_level(app: &tauri::AppHandle, id: u32, percent: u16) {
     #[cfg(target_os = "macos")]
     {
-        macos_gamma::set_edr_level(id, percent);
+        macos_gamma::set_edr_level(app, id, percent);
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _ = (id, percent);
+        let _ = (app, id, percent);
     }
 }
 
@@ -306,10 +306,10 @@ mod macos_gamma {
 
     /// Resolve the monitor index to its CoreGraphics id + hand the EDR boost to
     /// the EDR module (the overlay).
-    pub fn set_edr_level(idx: u32, percent: u16) {
+    pub fn set_edr_level(app: &tauri::AppHandle, idx: u32, percent: u16) {
         let cg = cache().lock().get(idx as usize).map(|en| en.cg_id);
         if let Some(cg_id) = cg {
-            crate::edr::set_level(cg_id, percent);
+            crate::edr::set_level(app, cg_id, percent);
         }
     }
 

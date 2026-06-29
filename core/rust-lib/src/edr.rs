@@ -184,6 +184,21 @@ mod macos {
     }
 
     static STATE: Mutex<Option<Overlay>> = Mutex::new(None);
+    // Set when a Metal/CA draw raises an Obj-C exception — the ticker then stops
+    // (the overlay window stays but is inert) instead of letting the exception
+    // unwind through the run loop and abort the whole app.
+    static RENDER_FAILED: AtomicBool = AtomicBool::new(false);
+
+    unsafe fn ns_to_string(s: *mut AnyObject) -> String {
+        if s.is_null() {
+            return String::new();
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![s, UTF8String];
+        if utf8.is_null() {
+            return String::new();
+        }
+        std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned()
+    }
 
     #[link(name = "Metal", kind = "framework")]
     extern "C" {
@@ -217,6 +232,7 @@ mod macos {
     }
 
     fn build(app: &AppHandle, cg_id: u32, above: f32) {
+        RENDER_FAILED.store(false, Ordering::Relaxed);
         let target = Arc::new(AtomicU32::new((above * 1000.0) as u32));
         let running = Arc::new(AtomicBool::new(true));
         let (t2, r2) = (target.clone(), running.clone());
@@ -244,6 +260,9 @@ mod macos {
         let app2 = app.clone();
         let thread = std::thread::spawn(move || {
             while r2.load(Ordering::Relaxed) {
+                if RENDER_FAILED.load(Ordering::Relaxed) {
+                    break; // a draw raised an exception; stop ticking
+                }
                 let above = t2.load(Ordering::Relaxed) as f32 / 1000.0;
                 let (l, q) = (layer_ptr, queue_ptr);
                 let _ = app2.run_on_main_thread(move || draw_edr_frame(l, q, above));
@@ -380,16 +399,40 @@ mod macos {
         if layer.is_null() || queue.is_null() {
             return;
         }
-        autoreleasepool(|_| unsafe {
-            let mut lum = (1.0 + above * VEIL_GAIN) as f64;
-            let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
-            // Clamp luminance to the display's *current* EDR headroom.
-            let head: f64 = msg_send![layer, maximumExtendedDynamicRangeColorComponentValue];
-            if head > 1.0 && lum > head {
-                lum = head;
+        // Catch any Obj-C exception from the Metal/CA calls so it can't unwind
+        // through the run loop and abort the app; log the reason once.
+        let result = unsafe {
+            objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
+                autoreleasepool(|_| {
+                    let mut lum = (1.0 + above * VEIL_GAIN) as f64;
+                    let alpha = (above * VEIL_ALPHA).min(MAX_ALPHA) as f64;
+                    let head: f64 =
+                        msg_send![layer, maximumExtendedDynamicRangeColorComponentValue];
+                    if head > 1.0 && lum > head {
+                        lum = head;
+                    }
+                    draw_frame(layer, queue, lum, alpha);
+                });
+            }))
+        };
+        if let Err(exc) = result {
+            if !RENDER_FAILED.swap(true, Ordering::Relaxed) {
+                let (name, reason) = unsafe {
+                    match exc.as_deref() {
+                        Some(e) => {
+                            let p = e as *const _ as *mut AnyObject;
+                            let n: *mut AnyObject = msg_send![p, name];
+                            let r: *mut AnyObject = msg_send![p, reason];
+                            (ns_to_string(n), ns_to_string(r))
+                        }
+                        None => ("<none>".to_string(), "<none>".to_string()),
+                    }
+                };
+                tracing::error!(
+                    "edr: Metal draw raised Obj-C exception '{name}': {reason} — EDR overlay disabled"
+                );
             }
-            draw_frame(layer, queue, lum, alpha);
-        });
+        }
     }
 
     unsafe fn draw_frame(layer: *mut AnyObject, queue: *mut AnyObject, lum: f64, alpha: f64) {

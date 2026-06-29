@@ -8,6 +8,7 @@ mod media_trim;
 mod social_dl;
 mod backup;
 mod brightness;
+mod edr;
 mod bruno;
 mod cli_dispatch;
 mod cleaner;
@@ -612,6 +613,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_brightness_monitors,
             commands::get_monitor_brightness,
             commands::set_monitor_brightness,
+            commands::set_edr_level,
             commands::list_audio_outputs,
             commands::set_audio_output,
             commands::get_system_stats,

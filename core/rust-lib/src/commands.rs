@@ -3737,6 +3737,13 @@ pub fn set_monitor_brightness(id: u32, percent: u8) -> Result<(), String> {
     crate::brightness::set(id, percent)
 }
 
+/// Drive the EDR boost for monitor `id` to `percent` (the full slider value;
+/// ≤ 100 / 0 = off). macOS EDR-capable displays only; a no-op elsewhere.
+#[tauri::command]
+pub fn set_edr_level(id: u32, percent: u16) {
+    crate::brightness::set_edr_level(id, percent);
+}
+
 /// List the system audio output devices (`sound` command). Marks the default.
 #[tauri::command]
 pub fn list_audio_outputs() -> Result<Vec<crate::audio::AudioDevice>, String> {

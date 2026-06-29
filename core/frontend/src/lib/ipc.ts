@@ -1277,6 +1277,8 @@ export interface MonitorInfo {
   brightness: number;
   /** Whether the monitor answered DDC (slider usable). */
   supports_ddc: boolean;
+  /** Slider upper bound (%). 100 = SDR only; > 100 on macOS EDR-capable displays. */
+  edr_max: number;
 }
 
 /** Enumerate DDC monitors + current brightness (slow; call once on open). */
@@ -1288,6 +1290,11 @@ export function getMonitorBrightness(id: number): Promise<number> {
 }
 export function setMonitorBrightness(id: number, percent: number): Promise<void> {
   return invoke("set_monitor_brightness", { id, percent });
+}
+/** Drive the EDR boost for monitor `id` to the full slider value (≤ 100 / 0 = off).
+ *  macOS EDR-capable displays only; a no-op elsewhere. */
+export function setEdrLevel(id: number, percent: number): Promise<void> {
+  return invoke("set_edr_level", { id, percent });
 }
 /** Hide the popup + open the brightness slider overlay window. */
 export function brightnessOpen(): Promise<void> {

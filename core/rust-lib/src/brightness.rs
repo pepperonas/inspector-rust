@@ -89,6 +89,10 @@ pub struct MonitorInfo {
     pub brightness: u8,
     /// Whether the monitor's brightness is controllable (slider enabled).
     pub supports_ddc: bool,
+    /// The slider's upper bound in percent. **100** on Windows/Linux + non-EDR
+    /// macOS displays (SDR only); **> 100** on macOS EDR-capable displays (the
+    /// extra range drives the EDR overlay — see `edr.rs`).
+    pub edr_max: u16,
 }
 
 // ── Platform dispatch ────────────────────────────────────────────────────────
@@ -140,6 +144,19 @@ pub fn get(id: u32) -> Result<u8, String> {
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         ddc::get(id)
+    }
+}
+
+/// Drive the EDR boost for monitor `id` to `percent` (the full slider value;
+/// ≤ 100 / 0 = off). macOS-only; a no-op everywhere else.
+pub fn set_edr_level(id: u32, percent: u16) {
+    #[cfg(target_os = "macos")]
+    {
+        macos_gamma::set_edr_level(id, percent);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (id, percent);
     }
 }
 
@@ -250,11 +267,17 @@ mod macos_gamma {
                 .find(|(pid, _)| *pid == id)
                 .map(|(_, p)| *p)
                 .unwrap_or(100);
+            let headroom = crate::edr::display_headroom(id);
+            let edr_max = crate::edr::edr_max_percent(headroom);
+            if edr_max > 100 {
+                tracing::info!("edr: display {id} EDR-capable (headroom {headroom:.2} → slider max {edr_max}%)");
+            }
             infos.push(MonitorInfo {
                 id: i as u32,
                 name,
                 brightness: percent,
                 supports_ddc: true,
+                edr_max,
             });
             entries.push(Entry { cg_id: id, percent });
         }
@@ -279,6 +302,15 @@ mod macos_gamma {
             .get(idx as usize)
             .map(|en| en.percent)
             .ok_or_else(|| format!("monitor {idx} out of range"))
+    }
+
+    /// Resolve the monitor index to its CoreGraphics id + hand the EDR boost to
+    /// the EDR module (the overlay).
+    pub fn set_edr_level(idx: u32, percent: u16) {
+        let cg = cache().lock().get(idx as usize).map(|en| en.cg_id);
+        if let Some(cg_id) = cg {
+            crate::edr::set_level(cg_id, percent);
+        }
     }
 
     /// Restore every display's gamma to the system default. Wired to app
@@ -427,6 +459,7 @@ mod win_gamma {
                 name,
                 brightness: percent,
                 supports_ddc: true,
+                edr_max: 100, // EDR is macOS-only
             });
             entries.push(Entry { device, percent });
         }
@@ -499,6 +532,7 @@ mod ddc {
                 name,
                 brightness,
                 supports_ddc,
+                edr_max: 100, // EDR is macOS-only
             });
             keep.push(d);
         }

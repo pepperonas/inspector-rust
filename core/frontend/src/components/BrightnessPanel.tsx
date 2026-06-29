@@ -3,6 +3,7 @@ import { MonitorIcon } from "lucide-react";
 import {
   listBrightnessMonitors,
   setMonitorBrightness,
+  setEdrLevel,
   type MonitorInfo,
 } from "../lib/ipc";
 
@@ -57,10 +58,15 @@ export function BrightnessPanel({
     [monitors],
   );
 
-  const push = (id: number, percent: number) => {
+  // One slider drives both paths: 0–100 = SDR (gamma dimming, as before); above
+  // 100 (macOS EDR-capable only) = full SDR + the EDR overlay boost.
+  const push = (id: number, percent: number, edrMax: number) => {
     if (timers.current[id]) window.clearTimeout(timers.current[id]);
     timers.current[id] = window.setTimeout(() => {
-      void setMonitorBrightness(id, percent).catch(() => undefined);
+      void setMonitorBrightness(id, Math.min(percent, 100)).catch(() => undefined);
+      if (edrMax > 100) {
+        void setEdrLevel(id, percent > 100 ? percent : 0).catch(() => undefined);
+      }
     }, 80);
   };
 
@@ -84,8 +90,8 @@ export function BrightnessPanel({
         if (!m) return;
         setValues((v) => {
           const cur = v[m.id] ?? m.brightness;
-          const next = Math.max(MIN, Math.min(100, cur + delta));
-          push(m.id, next);
+          const next = Math.max(MIN, Math.min(m.edr_max, cur + delta));
+          push(m.id, next, m.edr_max);
           return { ...v, [m.id]: next };
         });
       };
@@ -164,14 +170,44 @@ export function BrightnessPanel({
               >
                 <span className="flex items-center justify-between text-[12px]">
                   <span className="truncate pr-2">{m.name}</span>
-                  <span className="tabular-nums font-medium">{value}%</span>
+                  <span className="tabular-nums font-medium">
+                    {value}%
+                    {value > 100 && (
+                      <span className="ml-1 text-[10px] font-semibold text-amber-500">EDR</span>
+                    )}
+                  </span>
                 </span>
-                <span className="h-2 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+                <span className="relative block h-2 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
+                  {/* SDR portion */}
                   <span
-                    className="block h-full rounded-full bg-[var(--color-accent)] transition-[width]"
-                    style={{ width: `${value}%` }}
+                    className="absolute left-0 top-0 h-full rounded-full bg-[var(--color-accent)] transition-[width]"
+                    style={{ width: `${(Math.min(value, 100) / m.edr_max) * 100}%` }}
                   />
+                  {/* EDR portion (above 100) */}
+                  {value > 100 && (
+                    <span
+                      className="absolute top-0 h-full bg-amber-500 transition-[width]"
+                      style={{
+                        left: `${(100 / m.edr_max) * 100}%`,
+                        width: `${((value - 100) / m.edr_max) * 100}%`,
+                      }}
+                    />
+                  )}
+                  {/* SDR-max marker (EDR-capable displays only) */}
+                  {m.edr_max > 100 && (
+                    <span
+                      className="absolute top-0 h-full w-px bg-[var(--color-fg)]/40"
+                      style={{ left: `${(100 / m.edr_max) * 100}%` }}
+                    />
+                  )}
                 </span>
+                {value > 100 && (
+                  <span className="mt-1 text-[10px] leading-snug text-amber-500/90">
+                    ⚠ EDR boost — raises display heat (~5–10 %) + battery use; colours may
+                    shift slightly. macOS may throttle on heat, and needs “Automatically Adjust
+                    Brightness” enabled (Tahoe).
+                  </span>
+                )}
               </button>
             );
           })}

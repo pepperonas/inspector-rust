@@ -291,6 +291,61 @@ mod macos {
             thread: Some(thread),
         });
         tracing::info!("edr: overlay active on display {cg_id}");
+
+        // Diagnostic: is the system actually GRANTING EDR headroom? Log the
+        // screen's *current* headroom now + again after EDR content has been on
+        // screen for 3 s. If `current` stays ~1.0, the OS isn't granting EDR
+        // (e.g. Tahoe "Automatically Adjust Brightness" off) and no overlay
+        // compositing can brighten — that's the root cause, not our maths.
+        log_headroom(app, cg_id, "at-build");
+        let app3 = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_secs(3));
+            log_headroom(&app3, cg_id, "after-3s");
+        });
+    }
+
+    fn log_headroom(app: &AppHandle, cg_id: u32, when: &'static str) {
+        let _ = app.run_on_main_thread(move || {
+            let (cur, pot) = unsafe { screen_headrooms(cg_id) };
+            tracing::info!("edr: headroom [{when}] current={cur:.2} potential={pot:.2}");
+        });
+    }
+
+    /// `(current, potential)` EDR headroom of the screen with id `cg_id`. The
+    /// **current** value is what's actually granted right now (1.0 = none).
+    unsafe fn screen_headrooms(cg_id: u32) -> (f32, f32) {
+        let Some(ns_screen) = AnyClass::get(c"NSScreen") else {
+            return (1.0, 1.0);
+        };
+        let screens: *mut AnyObject = msg_send![ns_screen, screens];
+        if screens.is_null() {
+            return (1.0, 1.0);
+        }
+        let count: usize = msg_send![screens, count];
+        let key = super::nsstring("NSScreenNumber");
+        for i in 0..count {
+            let s: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            if s.is_null() {
+                continue;
+            }
+            let desc: *mut AnyObject = msg_send![s, deviceDescription];
+            if desc.is_null() {
+                continue;
+            }
+            let num: *mut AnyObject = msg_send![desc, objectForKey: key];
+            if num.is_null() {
+                continue;
+            }
+            let screen_no: u32 = msg_send![num, unsignedIntValue];
+            if screen_no == cg_id {
+                let cur: f64 = msg_send![s, maximumExtendedDynamicRangeColorComponentValue];
+                let pot: f64 =
+                    msg_send![s, maximumPotentialExtendedDynamicRangeColorComponentValue];
+                return (cur as f32, pot as f32);
+            }
+        }
+        (1.0, 1.0)
     }
 
     pub fn teardown(app: &AppHandle) {

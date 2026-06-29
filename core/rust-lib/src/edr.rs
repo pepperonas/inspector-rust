@@ -220,21 +220,25 @@ mod macos {
         let target = Arc::new(AtomicU32::new((above * 1000.0) as u32));
         let running = Arc::new(AtomicBool::new(true));
         let (t2, r2) = (target.clone(), running.clone());
-        let (tx, rx) = std::sync::mpsc::channel::<Option<SendPtr>>();
+        #[allow(clippy::type_complexity)]
+        let (tx, rx) = std::sync::mpsc::channel::<Option<(SendPtr, SendPtr, SendPtr)>>();
 
-        // Window creation must be on the main thread.
+        // Window + layer + queue creation must all be on the main thread (AppKit
+        // is main-thread-only). The render thread only ever touches the resolved
+        // CAMetalLayer + MTLCommandQueue (both safe off-main) — NOT the window.
         let _ = app.run_on_main_thread(move || {
-            let win = unsafe { build_window(cg_id) };
-            let _ = tx.send(win.map(SendPtr));
+            let res = unsafe { build_window(cg_id) };
+            let _ = tx.send(res.map(|(w, l, q)| (SendPtr(w), SendPtr(l), SendPtr(q))));
         });
-        let Ok(Some(window)) = rx.recv() else {
+        let Ok(Some((window, layer, queue))) = rx.recv() else {
             running.store(false, Ordering::Relaxed);
             tracing::warn!("edr: overlay window build failed");
             return;
         };
         // The render loop runs off-main (Metal submission is thread-safe).
-        let win_ptr = window.0 as usize;
-        let thread = std::thread::spawn(move || render_loop(win_ptr, cg_id, t2, r2));
+        let layer_ptr = layer.0 as usize;
+        let queue_ptr = queue.0 as usize;
+        let thread = std::thread::spawn(move || render_loop(layer_ptr, queue_ptr, t2, r2));
         *STATE.lock() = Some(Overlay {
             cg_id,
             target,
@@ -266,9 +270,10 @@ mod macos {
 
     /// Build the borderless, transparent, click-through, always-on-top window
     /// covering the screen with CoreGraphics id `cg_id`, hosting a CAMetalLayer.
-    /// Returns the (retained) NSWindow* — the CAMetalLayer is reachable as its
-    /// content view's layer. Main-thread only.
-    unsafe fn build_window(cg_id: u32) -> Option<*mut AnyObject> {
+    /// Returns `(NSWindow*, CAMetalLayer*, MTLCommandQueue*)` — the window is kept
+    /// for teardown; the layer + queue go to the render thread (both safe
+    /// off-main, unlike the window). **Main-thread only.**
+    unsafe fn build_window(cg_id: u32) -> Option<(*mut AnyObject, *mut AnyObject, *mut AnyObject)> {
         let frame = screen_frame(cg_id)?;
 
         let ns_window = AnyClass::get(c"NSWindow")?;
@@ -309,7 +314,18 @@ mod macos {
         let _: () = msg_send![win, setContentView: view];
 
         let _: () = msg_send![win, orderFrontRegardless];
-        Some(win)
+
+        // Resolve the command queue here on the main thread; the render thread
+        // gets only the layer + queue (never the NSWindow/NSView).
+        let device: *mut AnyObject = msg_send![layer, device];
+        if device.is_null() {
+            return None;
+        }
+        let queue: *mut AnyObject = msg_send![device, newCommandQueue];
+        if queue.is_null() {
+            return None;
+        }
+        Some((win, layer, queue))
     }
 
     unsafe fn build_metal_layer(size: NSSize) -> Option<*mut AnyObject> {
@@ -340,31 +356,15 @@ mod macos {
         Some(layer)
     }
 
-    fn render_loop(win_ptr: usize, _cg_id: u32, target: Arc<AtomicU32>, running: Arc<AtomicBool>) {
-        // Resolve the layer + a command queue once.
-        let (layer, queue) = unsafe {
-            let win = win_ptr as *mut AnyObject;
-            if win.is_null() {
-                return;
-            }
-            let view: *mut AnyObject = msg_send![win, contentView];
-            if view.is_null() {
-                return;
-            }
-            let layer: *mut AnyObject = msg_send![view, layer];
-            if layer.is_null() {
-                return;
-            }
-            let device: *mut AnyObject = msg_send![layer, device];
-            if device.is_null() {
-                return;
-            }
-            let queue: *mut AnyObject = msg_send![device, newCommandQueue];
-            if queue.is_null() {
-                return;
-            }
-            (layer, queue)
-        };
+    fn render_loop(layer_ptr: usize, queue_ptr: usize, target: Arc<AtomicU32>, running: Arc<AtomicBool>) {
+        // The layer + queue were resolved on the main thread (build_window) and
+        // handed in. CAMetalLayer + MTLCommandQueue + drawables are safe off-main;
+        // the NSWindow/NSView are NEVER touched here.
+        let layer = layer_ptr as *mut AnyObject;
+        let queue = queue_ptr as *mut AnyObject;
+        if layer.is_null() || queue.is_null() {
+            return;
+        }
 
         while running.load(Ordering::Relaxed) {
             autoreleasepool(|_| unsafe {

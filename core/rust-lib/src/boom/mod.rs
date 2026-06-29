@@ -76,6 +76,59 @@ impl Biquad {
         self.a2 = a2 / a0;
     }
 
+    /// Low-shelf (RBJ cookbook, slope S=1). `gain_db` 0 → passthrough. Boosts /
+    /// cuts everything below `freq` — used by the **Bass** enhancement.
+    pub fn set_lowshelf(&mut self, freq: f64, gain_db: f64, sample_rate: f64) {
+        self.set_shelf(freq, gain_db, sample_rate, true);
+    }
+
+    /// High-shelf (RBJ cookbook, slope S=1). `gain_db` 0 → passthrough. Boosts /
+    /// cuts everything above `freq` — used by the **Fidelity** ("air") effect.
+    pub fn set_highshelf(&mut self, freq: f64, gain_db: f64, sample_rate: f64) {
+        self.set_shelf(freq, gain_db, sample_rate, false);
+    }
+
+    fn set_shelf(&mut self, freq: f64, gain_db: f64, sample_rate: f64, low: bool) {
+        if gain_db.abs() < 1e-6 || sample_rate <= 0.0 {
+            self.b0 = 1.0;
+            self.b1 = 0.0;
+            self.b2 = 0.0;
+            self.a1 = 0.0;
+            self.a2 = 0.0;
+            return;
+        }
+        let a = 10f64.powf(gain_db / 40.0);
+        let w0 = 2.0 * std::f64::consts::PI * (freq / sample_rate);
+        let cos = w0.cos();
+        // S = 1 → alpha = sin/2 · √2.
+        let alpha = w0.sin() / 2.0 * std::f64::consts::SQRT_2;
+        let two_sqrt_a_alpha = 2.0 * a.sqrt() * alpha;
+        let (b0, b1, b2, a0, a1, a2) = if low {
+            (
+                a * ((a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha),
+                2.0 * a * ((a - 1.0) - (a + 1.0) * cos),
+                a * ((a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha),
+                (a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha,
+                -2.0 * ((a - 1.0) + (a + 1.0) * cos),
+                (a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha,
+            )
+        } else {
+            (
+                a * ((a + 1.0) + (a - 1.0) * cos + two_sqrt_a_alpha),
+                -2.0 * a * ((a - 1.0) + (a + 1.0) * cos),
+                a * ((a + 1.0) + (a - 1.0) * cos - two_sqrt_a_alpha),
+                (a + 1.0) - (a - 1.0) * cos + two_sqrt_a_alpha,
+                2.0 * ((a - 1.0) - (a + 1.0) * cos),
+                (a + 1.0) - (a - 1.0) * cos - two_sqrt_a_alpha,
+            )
+        };
+        self.b0 = b0 / a0;
+        self.b1 = b1 / a0;
+        self.b2 = b2 / a0;
+        self.a1 = a1 / a0;
+        self.a2 = a2 / a0;
+    }
+
     #[inline]
     pub fn process(&mut self, x: f64) -> f64 {
         let y = self.b0 * x + self.z1;
@@ -125,6 +178,57 @@ pub struct DspParams {
     pub band_gains_db: Vec<f32>,
     /// Volume boost in percent (100 = unity, 200 = +6 dB make-up).
     pub boost_pct: f32,
+    /// Enhancement-effect intensities (0..1).
+    pub effects: Effects,
+}
+
+// ── Enhancement-effect tuning (one place) ────────────────────────────────────
+const BASS_FREQ: f64 = 90.0; // low-shelf corner
+const BASS_MAX_DB: f64 = 9.0; // at intensity 1.0
+const CLARITY_FREQ: f64 = 3000.0; // presence peak
+const CLARITY_Q: f64 = 0.9;
+const CLARITY_MAX_DB: f64 = 6.0;
+const FIDELITY_FREQ: f64 = 9000.0; // high-shelf "air"
+const FIDELITY_MAX_DB: f64 = 6.0;
+const AMBIENCE_MAX_WIDTH: f32 = 0.8; // width = 1 + ambience·0.8 (up to 1.8× side)
+const NIGHT_THRESH_DB: f32 = -22.0;
+const NIGHT_MAX_RATIO: f32 = 5.0; // up to 5:1 downward compression
+const NIGHT_MAX_MAKEUP_DB: f32 = 6.0;
+const NIGHT_ATTACK_MS: f32 = 5.0;
+const NIGHT_RELEASE_MS: f32 = 150.0;
+
+/// Soft-knee-free downward compressor for the **Night** effect (level the loud +
+/// quiet so it's listenable at low volume). All precomputed; only `env` is state.
+#[derive(Clone, Copy, Debug)]
+struct Compressor {
+    active: bool,
+    thresh: f32,   // linear threshold
+    exponent: f32, // 1 − 1/ratio
+    makeup: f32,   // linear make-up gain
+    atk: f32,      // envelope attack coefficient
+    rel: f32,      // envelope release coefficient
+    env: f32,      // running envelope (state)
+}
+
+impl Default for Compressor {
+    fn default() -> Self {
+        Compressor { active: false, thresh: 1.0, exponent: 0.0, makeup: 1.0, atk: 0.0, rel: 0.0, env: 0.0 }
+    }
+}
+
+impl Compressor {
+    /// Linked-stereo gain for the frame's `peak`, with attack/release smoothing.
+    #[inline]
+    fn gain(&mut self, peak: f32) -> f32 {
+        let coeff = if peak > self.env { self.atk } else { self.rel };
+        self.env = coeff * self.env + (1.0 - coeff) * peak;
+        let g = if self.env > self.thresh {
+            (self.thresh / self.env).powf(self.exponent)
+        } else {
+            1.0
+        };
+        g * self.makeup
+    }
 }
 
 pub struct DspChain {
@@ -132,6 +236,15 @@ pub struct DspChain {
     freqs: Vec<f32>,
     bands_l: Vec<Biquad>,
     bands_r: Vec<Biquad>,
+    // Enhancement effects — per-channel shelf/peak filters.
+    bass_l: Biquad,
+    bass_r: Biquad,
+    clarity_l: Biquad,
+    clarity_r: Biquad,
+    fidelity_l: Biquad,
+    fidelity_r: Biquad,
+    width: f32, // ambience stereo width; 1.0 = off
+    comp: Compressor,
     preamp: f32,
     boost: f32,
     ceiling: f32,
@@ -144,6 +257,14 @@ impl DspChain {
             freqs: freqs.to_vec(),
             bands_l: vec![Biquad::default(); freqs.len()],
             bands_r: vec![Biquad::default(); freqs.len()],
+            bass_l: Biquad::default(),
+            bass_r: Biquad::default(),
+            clarity_l: Biquad::default(),
+            clarity_r: Biquad::default(),
+            fidelity_l: Biquad::default(),
+            fidelity_r: Biquad::default(),
+            width: 1.0,
+            comp: Compressor::default(),
             preamp: 1.0,
             boost: 1.0,
             ceiling: LIMITER_CEILING,
@@ -160,34 +281,111 @@ impl DspChain {
             self.bands_l[i].set_peaking(f as f64, BAND_Q, g, self.sample_rate);
             self.bands_r[i].set_peaking(f as f64, BAND_Q, g, self.sample_rate);
         }
+
+        // ── Enhancement effects (intensity 0..1; 0 → exact passthrough) ──────
+        let fx = &params.effects;
+        let bass_db = fx.bass.clamp(0.0, 1.0) as f64 * BASS_MAX_DB;
+        self.bass_l.set_lowshelf(BASS_FREQ, bass_db, self.sample_rate);
+        self.bass_r.set_lowshelf(BASS_FREQ, bass_db, self.sample_rate);
+
+        let clarity_db = fx.clarity.clamp(0.0, 1.0) as f64 * CLARITY_MAX_DB;
+        self.clarity_l.set_peaking(CLARITY_FREQ, CLARITY_Q, clarity_db, self.sample_rate);
+        self.clarity_r.set_peaking(CLARITY_FREQ, CLARITY_Q, clarity_db, self.sample_rate);
+
+        let fid_db = fx.fidelity.clamp(0.0, 1.0) as f64 * FIDELITY_MAX_DB;
+        self.fidelity_l.set_highshelf(FIDELITY_FREQ, fid_db, self.sample_rate);
+        self.fidelity_r.set_highshelf(FIDELITY_FREQ, fid_db, self.sample_rate);
+
+        self.width = 1.0 + fx.ambience.clamp(0.0, 1.0) * AMBIENCE_MAX_WIDTH;
+
+        let night = fx.night.clamp(0.0, 1.0);
+        if night > 1e-4 {
+            let ratio = 1.0 + night * (NIGHT_MAX_RATIO - 1.0);
+            let fs = self.sample_rate as f32;
+            self.comp.active = true;
+            self.comp.thresh = db_to_linear(NIGHT_THRESH_DB);
+            self.comp.exponent = 1.0 - 1.0 / ratio;
+            self.comp.makeup = db_to_linear(night * NIGHT_MAX_MAKEUP_DB);
+            self.comp.atk = (-1.0 / (fs * NIGHT_ATTACK_MS / 1000.0)).exp();
+            self.comp.rel = (-1.0 / (fs * NIGHT_RELEASE_MS / 1000.0)).exp();
+        } else {
+            self.comp.active = false;
+        }
     }
 
     pub fn reset(&mut self) {
         for b in self.bands_l.iter_mut().chain(self.bands_r.iter_mut()) {
             b.reset();
         }
-    }
-
-    #[inline]
-    fn process_sample(bands: &mut [Biquad], pre: f32, boost: f32, ceiling: f32, x: f32) -> f32 {
-        let mut s = (x * pre) as f64;
-        for b in bands.iter_mut() {
-            s = b.process(s);
+        for b in [
+            &mut self.bass_l,
+            &mut self.bass_r,
+            &mut self.clarity_l,
+            &mut self.clarity_r,
+            &mut self.fidelity_l,
+            &mut self.fidelity_r,
+        ] {
+            b.reset();
         }
-        soft_limit(s as f32 * boost, ceiling)
+        self.comp.env = 0.0;
     }
 
-    /// Process an interleaved buffer in place. `channels` ≥ 1; channel 0 uses the
-    /// L bank, channel 1 the R bank, any further channels reuse the L bank.
+    /// Process an interleaved buffer in place. Per frame: per-channel
+    /// preamp→EQ→bass→clarity→fidelity, then ×boost, then the (linked) Night
+    /// compressor, then Ambience stereo-widen, then the limiter. `channels` ≥ 1;
+    /// channel 0 uses the L banks, channel 1 the R banks, further channels reuse L.
     pub fn process_interleaved(&mut self, buf: &mut [f32], channels: usize) {
         if channels == 0 {
             return;
         }
-        let (pre, boost, ceil) = (self.preamp, self.boost, self.ceiling);
+        let pre = self.preamp;
+        let boost = self.boost;
+        let ceil = self.ceiling;
+        let width = self.width;
+        let comp_active = self.comp.active;
+
         for frame in buf.chunks_mut(channels) {
+            // 1. per-channel filter chain + preamp + boost.
             for (ch, sample) in frame.iter_mut().enumerate() {
-                let bank = if ch == 1 { &mut self.bands_r } else { &mut self.bands_l };
-                *sample = Self::process_sample(bank, pre, boost, ceil, *sample);
+                let (bands, bass, clarity, fidelity) = if ch == 1 {
+                    (&mut self.bands_r, &mut self.bass_r, &mut self.clarity_r, &mut self.fidelity_r)
+                } else {
+                    (&mut self.bands_l, &mut self.bass_l, &mut self.clarity_l, &mut self.fidelity_l)
+                };
+                let mut s = (*sample * pre) as f64;
+                for b in bands.iter_mut() {
+                    s = b.process(s);
+                }
+                s = bass.process(s);
+                s = clarity.process(s);
+                s = fidelity.process(s);
+                *sample = s as f32 * boost;
+            }
+
+            // 2. Night compressor — linked across the frame's channels.
+            if comp_active {
+                let mut peak = 0.0f32;
+                for &s in frame.iter() {
+                    peak = peak.max(s.abs());
+                }
+                let g = self.comp.gain(peak);
+                for s in frame.iter_mut() {
+                    *s *= g;
+                }
+            }
+
+            // 3. Ambience — mid/side stereo widening (needs L+R).
+            if width != 1.0 && channels >= 2 {
+                let (l, r) = (frame[0], frame[1]);
+                let mid = 0.5 * (l + r);
+                let side = 0.5 * (l - r) * width;
+                frame[0] = mid + side;
+                frame[1] = mid - side;
+            }
+
+            // 4. Limiter — last, so it tames any peaks the effects/boost added.
+            for s in frame.iter_mut() {
+                *s = soft_limit(*s, ceil);
             }
         }
     }
@@ -335,6 +533,7 @@ impl BoomConfig {
             preamp_db: self.preamp_db,
             band_gains_db: self.band_gains_db.clone(),
             boost_pct: self.boost_pct,
+            effects: self.effects.clone(),
         }
     }
 }
@@ -496,7 +695,7 @@ mod tests {
     #[test]
     fn flat_chain_is_near_passthrough() {
         let mut chain = DspChain::new(48000.0, &BANDS_10);
-        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 100.0 });
+        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 100.0, effects: Effects::default() });
         let mut buf = sine(440.0, 48000.0, 2048, 0.2);
         let orig = buf.clone();
         chain.process_interleaved(&mut buf, 2);
@@ -508,7 +707,7 @@ mod tests {
     #[test]
     fn boost_amplifies_small_signals_before_the_limiter() {
         let mut chain = DspChain::new(48000.0, &BANDS_10);
-        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 200.0 });
+        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 200.0, effects: Effects::default() });
         let mut buf = vec![0.05f32; 64];
         chain.process_interleaved(&mut buf, 1);
         // 200 % ≈ ×2 (well below the limiter knee for a 0.05 signal).
@@ -518,7 +717,7 @@ mod tests {
     #[test]
     fn boost_output_is_limited_for_loud_input() {
         let mut chain = DspChain::new(48000.0, &BANDS_10);
-        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 300.0 });
+        chain.set_params(&DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 300.0, effects: Effects::default() });
         let mut buf = vec![0.9f32; 64];
         chain.process_interleaved(&mut buf, 1);
         assert!(buf.iter().all(|&s| s.abs() <= LIMITER_CEILING + 1e-6));
@@ -551,5 +750,82 @@ mod tests {
         assert_eq!(c.band_gains_db[1], -12.0);
         assert_eq!(c.preamp_db, 12.0);
         assert_eq!(c.boost_pct, 300.0);
+    }
+
+    // ── Enhancement effects ──────────────────────────────────────────────────
+
+    fn fx_params(set: impl FnOnce(&mut Effects)) -> DspParams {
+        let mut e = Effects::default();
+        set(&mut e);
+        DspParams { preamp_db: 0.0, band_gains_db: vec![0.0; 10], boost_pct: 100.0, effects: e }
+    }
+
+    fn process_mono(chain: &mut DspChain, input: &[f32]) -> Vec<f32> {
+        let mut buf = input.to_vec();
+        chain.process_interleaved(&mut buf, 1);
+        buf
+    }
+
+    #[test]
+    fn bass_effect_lifts_low_frequencies() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|e| e.bass = 1.0));
+        let input = sine(50.0, 48000.0, 4800, 0.15); // below the 90 Hz shelf corner
+        let out = process_mono(&mut chain, &input);
+        assert!(rms(&out[2400..]) > rms(&input[2400..]) * 1.5, "bass should boost 50 Hz");
+    }
+
+    #[test]
+    fn fidelity_effect_lifts_high_frequencies() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|e| e.fidelity = 1.0));
+        let input = sine(14000.0, 48000.0, 4800, 0.15);
+        let out = process_mono(&mut chain, &input);
+        assert!(rms(&out[2400..]) > rms(&input[2400..]) * 1.3, "fidelity should boost highs");
+    }
+
+    #[test]
+    fn clarity_effect_lifts_presence() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|e| e.clarity = 1.0));
+        let input = sine(3000.0, 48000.0, 4800, 0.15);
+        let out = process_mono(&mut chain, &input);
+        assert!(rms(&out[2400..]) > rms(&input[2400..]) * 1.2, "clarity should boost ~3 kHz");
+    }
+
+    #[test]
+    fn ambience_effect_widens_stereo() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|e| e.ambience = 1.0));
+        // Constant stereo with L≠R → a non-zero side component to widen.
+        let mut buf = Vec::new();
+        for _ in 0..64 {
+            buf.push(0.3);
+            buf.push(0.1);
+        }
+        chain.process_interleaved(&mut buf, 2);
+        let (l, r) = (buf[buf.len() - 2], buf[buf.len() - 1]);
+        // mid 0.2 stays; side 0.1 × 1.8 = 0.18 → L≈0.38, R≈0.02.
+        assert!(l > 0.30 && r < 0.10, "ambience widens L↔R (got L={l}, R={r})");
+    }
+
+    #[test]
+    fn ambience_off_keeps_stereo_unchanged() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|_| {})); // all effects 0
+        let mut buf = vec![0.3f32, 0.1, 0.3, 0.1];
+        chain.process_interleaved(&mut buf, 2);
+        assert!((buf[0] - 0.3).abs() < 1e-3 && (buf[1] - 0.1).abs() < 1e-3, "no widen when ambience=0");
+    }
+
+    #[test]
+    fn night_effect_compresses_loud_signal() {
+        let mut chain = DspChain::new(48000.0, &BANDS_10);
+        chain.set_params(&fx_params(|e| e.night = 1.0));
+        // Loud, well above the -22 dB threshold → downward compression dominates.
+        let mut buf = vec![0.5f32; 9600];
+        chain.process_interleaved(&mut buf, 1);
+        // After the envelope settles, the steady output is below the 0.5 input.
+        assert!(buf[9599].abs() < 0.4, "night should compress a loud signal (got {})", buf[9599]);
     }
 }

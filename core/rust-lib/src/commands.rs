@@ -2127,6 +2127,22 @@ pub fn totp_import(
     Ok(TotpImportResult { added, error: None })
 }
 
+/// Import TOTP entries from a **file path** (drag-and-drop). Reads the file as
+/// UTF-8 text and runs the same autodetecting importer as `totp_import`.
+#[tauri::command]
+pub fn totp_import_file(db: State<'_, DbHandle>, path: String) -> Result<TotpImportResult, String> {
+    let input = match std::fs::read_to_string(&path) {
+        Ok(s) => s,
+        Err(e) => {
+            return Ok(TotpImportResult {
+                added: 0,
+                error: Some(format!("Couldn't read {path}: {e}")),
+            });
+        }
+    };
+    totp_import(db, input)
+}
+
 /// Export all entries as a newline-separated list of `otpauth://`
 /// URIs. **Plaintext** — the user must understand they're holding the
 /// crown jewels of their 2FA. UI hint says so.

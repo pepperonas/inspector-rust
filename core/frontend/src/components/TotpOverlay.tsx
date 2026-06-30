@@ -8,12 +8,15 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import {
+  setSuppressHide,
   totpAdd,
   totpCurrentCodesAll,
   totpDelete,
   totpExport,
   totpImport,
+  totpImportFile,
   totpList,
 } from "../lib/ipc";
 import type { TotpCode, TotpEntry } from "../lib/totp";
@@ -60,6 +63,7 @@ export function TotpOverlay({ onExit }: Props) {
 
   // Import-tab state
   const [importText, setImportText] = useState("");
+  const [dragOver, setDragOver] = useState(false);
 
   // Esc to exit — owned by this overlay.
   useEffect(() => {
@@ -73,6 +77,59 @@ export function TotpOverlay({ onExit }: Props) {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onExit]);
+
+  // Keep the popup alive while the overlay is open — so dragging an import file
+  // in from Finder doesn't dismiss it on focus-loss (only Esc closes it) — and
+  // wire OS drag-and-drop: dropping a file anywhere imports it.
+  useEffect(() => {
+    void setSuppressHide(true).catch(() => undefined);
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    getCurrentWebviewWindow()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "enter" || p.type === "over") {
+          setDragOver(true);
+        } else if (p.type === "leave") {
+          setDragOver(false);
+        } else if (p.type === "drop") {
+          setDragOver(false);
+          const path = p.paths[0];
+          if (!path) return;
+          setBusy(true);
+          totpImportFile(path)
+            .then(async (result) => {
+              if (result.error) {
+                setToast({ kind: "err", message: result.error });
+                return;
+              }
+              setToast({
+                kind: "ok",
+                message: `${result.added} entry/entries imported from ${path.split("/").pop()}.`,
+              });
+              const [list, currentCodes] = await Promise.all([
+                totpList(),
+                totpCurrentCodesAll(),
+              ]);
+              setEntries(list);
+              setCodes(new Map(currentCodes.map((c) => [c.id, c])));
+              setTab("list");
+            })
+            .catch((e) => setToast({ kind: "err", message: String(e) }))
+            .finally(() => setBusy(false));
+        }
+      })
+      .then((u) => {
+        if (cancelled) u();
+        else unlisten = u;
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      void setSuppressHide(false).catch(() => undefined);
+    };
+  }, []);
 
   // Initial fetch + 1 s polling of live codes.
   useEffect(() => {
@@ -214,7 +271,17 @@ export function TotpOverlay({ onExit }: Props) {
   };
 
   return (
-    <div className="flex h-full w-full flex-col bg-[var(--color-bg)] text-[var(--color-fg)]">
+    <div className="relative flex h-full w-full flex-col bg-[var(--color-bg)] text-[var(--color-fg)]">
+      {/* Drag-and-drop import hint — the drop is handled window-wide. */}
+      {dragOver && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-[var(--color-accent)] bg-[var(--color-bg)]/85 backdrop-blur-sm">
+          <Upload size={28} className="text-[var(--color-accent)]" />
+          <span className="text-[13px] font-semibold">Drop to import</span>
+          <span className="text-[11px] text-[var(--color-muted)]">
+            otpauth URIs · Aegis / 2FAS / OTPManager JSON · migration QR
+          </span>
+        </div>
+      )}
       {/* Top bar */}
       <div className="flex items-center justify-between border-b border-[var(--color-border)] px-4 py-2 text-[12px]">
         <div className="flex items-center gap-2">
@@ -620,6 +687,10 @@ function ImportExportTab({
           <Upload size={14} className="text-[var(--color-accent)]" />
           Import
         </h3>
+        <p className="mb-2 text-[11px] text-[var(--color-muted)]">
+          Paste below, or <strong>drag a file anywhere onto this window</strong> to import it
+          (otpauth URIs · Aegis / 2FAS / OTPManager JSON · Google-Auth migration).
+        </p>
         <textarea
           value={importText}
           onChange={(e) => setImportText(e.target.value)}

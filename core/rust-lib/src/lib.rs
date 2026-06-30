@@ -515,6 +515,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::totp_current_code,
             commands::totp_current_codes_all,
             commands::totp_import,
+            commands::totp_import_file,
             commands::totp_export,
             commands::trigger_expand_at_cursor,
             commands::diagnose_expand_at_cursor,

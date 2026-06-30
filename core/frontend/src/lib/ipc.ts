@@ -903,6 +903,11 @@ export function totpImport(input: string): Promise<TotpImportResult> {
   return invoke("totp_import", { input });
 }
 
+/** Import TOTP entries from a dropped file path (read + parsed in Rust). */
+export function totpImportFile(path: string): Promise<TotpImportResult> {
+  return invoke("totp_import_file", { path });
+}
+
 /** Returns a newline-separated list of `otpauth://` URIs. Plaintext —
  *  the user is responsible for storing safely. */
 export function totpExport(): Promise<string> {

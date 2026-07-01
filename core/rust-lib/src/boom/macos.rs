@@ -525,7 +525,13 @@ pub(crate) fn reset_stale_default() {
     // If boom is actively bridging, the boom-Audio default is LEGITIMATE (not
     // stale) — leave it. Otherwise this fires on every config change / overlay
     // close and yanks the output device away mid-session.
-    if ENGINE.lock().as_ref().is_some_and(|e| e.session.is_some()) {
+    //
+    // The ENGINE guard is held across the WHOLE body (not just this check):
+    // otherwise a concurrent start_locked() could bring a session up between the
+    // check and set_default_output below, and we'd yank the default away from a
+    // just-started bridge (session "active" but the OS output bypassing the EQ).
+    let guard = ENGINE.lock();
+    if guard.as_ref().is_some_and(|e| e.session.is_some()) {
         return;
     }
     unsafe {
@@ -539,6 +545,7 @@ pub(crate) fn reset_stale_default() {
             tracing::info!("boom: reset stale default → {target}");
         }
     }
+    drop(guard);
 }
 
 /// Set a device's nominal sample rate (used to match boom Audio to the real
@@ -718,8 +725,25 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
 
-    AudioDeviceStart(boom_dev, cap_proc);
-    AudioDeviceStart(real_dev, play_proc);
+    // A failed start must NOT be reported as success — otherwise the default
+    // output is switched to boom Audio with no running bridge and the user's
+    // system audio goes silent while the UI claims boom is on. Check both, and
+    // unwind everything created so far on failure (so retry_start can retry).
+    let st_cap = AudioDeviceStart(boom_dev, cap_proc);
+    if st_cap != 0 {
+        tracing::warn!("boom: AudioDeviceStart(capture) failed: {st_cap}");
+        AudioDeviceDestroyIOProcID(boom_dev, cap_proc);
+        AudioDeviceDestroyIOProcID(real_dev, play_proc);
+        return false;
+    }
+    let st_play = AudioDeviceStart(real_dev, play_proc);
+    if st_play != 0 {
+        tracing::warn!("boom: AudioDeviceStart(playback) failed: {st_play}");
+        AudioDeviceStop(boom_dev, cap_proc);
+        AudioDeviceDestroyIOProcID(boom_dev, cap_proc);
+        AudioDeviceDestroyIOProcID(real_dev, play_proc);
+        return false;
+    }
 
     // Route the default output to boom Audio so apps render into it; we bridge
     // its loopback → real device. Saved + restored on stop / quit.

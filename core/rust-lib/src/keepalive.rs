@@ -127,6 +127,10 @@ fn macos_plist(exe: &str, interval_secs: u32) -> String {
 /// systemd oneshot launcher service. `KillMode=none` keeps the detached app
 /// alive after the (oneshot) unit goes inactive.
 fn systemd_service(exe: &str) -> String {
+    // The exe path sits inside a single-quoted `sh -c '...'` string — a literal
+    // `'` in the path would end the quoting and break ExecStart. POSIX-escape
+    // it the standard way ('\'' = close, escaped quote, reopen).
+    let exe = exe.replace('\'', r"'\''");
     format!(
         "[Unit]\n\
          Description=Inspector Rust keep-alive (relaunch if not running)\n\n\

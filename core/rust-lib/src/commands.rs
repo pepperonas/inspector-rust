@@ -2138,6 +2138,10 @@ pub struct TotpImportResult {
     pub added: usize,
     #[serde(default)]
     pub skipped: usize,
+    /// Entries that parsed but failed validation at insert (e.g. empty issuer,
+    /// undecodable secret) — surfaced so the UI never under-reports drops.
+    #[serde(default)]
+    pub failed: usize,
     pub error: Option<String>,
 }
 
@@ -2152,6 +2156,7 @@ pub fn totp_import(
             return Ok(TotpImportResult {
                 added: 0,
                 skipped: 0,
+                failed: 0,
                 error: Some(format!("{e:#}")),
             });
         }
@@ -2162,6 +2167,7 @@ pub fn totp_import(
     let mut seen = crate::totp_store::existing_keys(&db).unwrap_or_default();
     let mut added = 0usize;
     let mut skipped = 0usize;
+    let mut failed = 0usize;
     for entry in parsed {
         let key = crate::totp_store::dedup_key(&entry.issuer, &entry.account, &entry.secret_base32);
         if !seen.insert(key) {
@@ -2178,10 +2184,13 @@ pub fn totp_import(
             &entry.algorithm,
         ) {
             Ok(_) => added += 1,
-            Err(e) => tracing::warn!("totp_import: skipping entry {entry:?}: {e:#}"),
+            Err(e) => {
+                failed += 1;
+                tracing::warn!("totp_import: skipping entry {entry:?}: {e:#}");
+            }
         }
     }
-    Ok(TotpImportResult { added, skipped, error: None })
+    Ok(TotpImportResult { added, skipped, failed, error: None })
 }
 
 /// Import TOTP entries from a **file path** (drag-and-drop). Reads the file as
@@ -2194,6 +2203,7 @@ pub fn totp_import_file(db: State<'_, DbHandle>, path: String) -> Result<TotpImp
             return Ok(TotpImportResult {
                 added: 0,
                 skipped: 0,
+                failed: 0,
                 error: Some(format!("Couldn't read {path}: {e}")),
             });
         }

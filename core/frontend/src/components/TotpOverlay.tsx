@@ -50,10 +50,14 @@ interface Props {
 
 type Tab = "list" | "add" | "import";
 
-function importSummary(r: { added: number; skipped?: number }, from?: string): string {
+function importSummary(
+  r: { added: number; skipped?: number; failed?: number },
+  from?: string,
+): string {
   const src = from ? ` from ${from}` : "";
   const skip = r.skipped ? `, ${r.skipped} duplicate(s) skipped` : "";
-  return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}.`;
+  const fail = r.failed ? `, ${r.failed} invalid entr${r.failed === 1 ? "y" : "ies"} dropped` : "";
+  return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}${fail}.`;
 }
 
 export function TotpOverlay({ onExit }: Props) {
@@ -165,13 +169,16 @@ export function TotpOverlay({ onExit }: Props) {
     };
     void refresh();
     const interval = setInterval(refresh, 1000);
-    const tick = setInterval(() => setTickNow(Date.now()), 100);
+    // The 100 ms tick only drives the countdown rings, which render on the
+    // List tab — don't burn 10 re-renders/s while Add or Import is showing.
+    const tick =
+      tab === "list" ? setInterval(() => setTickNow(Date.now()), 100) : undefined;
     return () => {
       cancelled = true;
       clearInterval(interval);
-      clearInterval(tick);
+      if (tick !== undefined) clearInterval(tick);
     };
-  }, []);
+  }, [tab]);
 
   const doAdd = async () => {
     // On edit, a blank secret keeps the current one; on add it's required.
@@ -525,12 +532,24 @@ function ListTab({
   const [confirmClear, setConfirmClear] = useState(false);
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
 
+  // Removes the live drag's window listeners; set while a drag is active.
+  // Needed so unmount (Esc closes the overlay mid-drag) detaches them — they'd
+  // otherwise stay on `window` forever and the next unrelated pointerup would
+  // fire onReorder with stale state against the unmounted component.
+  const dragCleanupRef = useRef<(() => void) | null>(null);
+
   useEffect(() => {
     orderRef.current = order;
   }, [order]);
   useEffect(() => {
     if (draggingRef.current === null) setOrder(entries); // don't clobber a live drag
   }, [entries]);
+  useEffect(
+    () => () => {
+      dragCleanupRef.current?.();
+    },
+    [],
+  );
 
   const beginDrag = (ev: React.PointerEvent, id: number) => {
     ev.preventDefault();
@@ -558,9 +577,13 @@ function ListTab({
         setOrder(next);
       }
     };
-    const up = () => {
+    const detach = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      dragCleanupRef.current = null;
+    };
+    const up = () => {
+      detach();
       const wasDragging = draggingRef.current !== null;
       draggingRef.current = null;
       setDraggingId(null);
@@ -568,6 +591,11 @@ function ListTab({
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    // Unmount mid-drag → just detach (no onReorder — the drop never happened).
+    dragCleanupRef.current = () => {
+      detach();
+      draggingRef.current = null;
+    };
   };
 
   if (entries.length === 0) {

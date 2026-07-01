@@ -1290,8 +1290,16 @@ function App() {
   // handler sees it. The Rust handler forwards the hotkey string via
   // `expander-hotkey-forwarded` whenever it fires while we own focus —
   // route Cmd+Digit1…4 / Ctrl+Digit1…4 to the same mode-switch path.
+  // The handler reads `selectedPwgen` through a ref: the listener is
+  // subscribed once (empty deps), so a direct capture would be a stale
+  // closure permanently stuck on the initial `null` (dead code); a deps
+  // array would re-subscribe on every keystroke instead.
+  const selectedPwgenRef = useRef(selectedPwgen);
+  useEffect(() => {
+    selectedPwgenRef.current = selectedPwgen;
+  }, [selectedPwgen]);
   useTauriEvent<string>("expander-hotkey-forwarded", (e) => {
-    if (!selectedPwgen) return;
+    if (!selectedPwgenRef.current) return;
     const hotkey = e.payload;
     const m = hotkey.match(/^(Cmd|Ctrl)\+Digit([1-4])$/i);
     if (!m) return;
@@ -1342,15 +1350,24 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSuggestion, gameMode]);
 
-  // Find matching snippets whenever query changes.
+  // Find matching snippets whenever query changes. The cancelled guard keeps
+  // an out-of-order older response from clobbering a newer query's result.
   useEffect(() => {
     if (!query.trim()) {
       setMatchingSnippets([]);
       return;
     }
+    let cancelled = false;
     findSnippets(query)
-      .then(setMatchingSnippets)
-      .catch(() => setMatchingSnippets([]));
+      .then((s) => {
+        if (!cancelled) setMatchingSnippets(s);
+      })
+      .catch(() => {
+        if (!cancelled) setMatchingSnippets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [query]);
 
   useEffect(() => {

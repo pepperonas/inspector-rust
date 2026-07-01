@@ -925,6 +925,8 @@ export function totpCurrentCodesAll(): Promise<TotpCode[]> {
 export interface TotpImportResult {
   added: number;
   skipped?: number;
+  /** Parsed but failed validation at insert (empty issuer, bad secret, …). */
+  failed?: number;
   error: string | null;
 }
 

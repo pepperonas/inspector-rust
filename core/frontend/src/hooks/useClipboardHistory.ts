@@ -15,17 +15,26 @@ export function useClipboardHistory() {
 
   useEffect(() => {
     void refresh();
+    // Unmount-before-resolve guard: if the effect tears down before listen()
+    // resolves, the resolved unlisten must still be called or the listener
+    // leaks for the process lifetime (same pattern as useTauriEvent).
+    let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     let unshow: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen("clipboard-changed", () => {
-        void refresh();
-      });
-      unshow = await listen("window-shown", () => {
-        void refresh();
-      });
-    })();
+    void listen("clipboard-changed", () => {
+      void refresh();
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    void listen("window-shown", () => {
+      void refresh();
+    }).then((u) => {
+      if (cancelled) u();
+      else unshow = u;
+    });
     return () => {
+      cancelled = true;
       unlisten?.();
       unshow?.();
     };

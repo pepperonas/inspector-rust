@@ -237,25 +237,37 @@ mod macos {
         static kCGColorSpaceExtendedLinearDisplayP3: *const std::ffi::c_void;
     }
 
+    // Serializes every overlay build/teardown transition. Without it two
+    // concurrent `set_level` IPC calls (rapid slider updates, or two EDR
+    // monitors — the frontend debounce is per-monitor) can both observe "no
+    // overlay" and both `build()`: only the last `*STATE = Some(..)` wins, and
+    // the loser's Overlay is dropped with `running` still true — its ticker
+    // thread spins forever and its NSWindow is never closed (a real leak).
+    // `build()` blocks on a main-thread round trip while this is held, which is
+    // safe: Tauri commands never run on the main thread (the pre-existing
+    // `rx.recv()` inside `build` would already deadlock otherwise).
+    static OP: Mutex<()> = Mutex::new(());
+
     pub fn set_level(app: &AppHandle, cg_id: u32, percent: u16) {
+        let _op = OP.lock();
         let above = super::above_amount(percent);
         if percent <= 100 || above <= 0.0 {
-            teardown(app);
+            teardown_locked(app);
             return;
         }
-        let guard = STATE.lock();
-        match guard.as_ref() {
+        {
+            let guard = STATE.lock();
             // Already running on this display → just update the target.
-            Some(o) if o.cg_id == cg_id => {
-                o.target.store((above * 1000.0) as u32, Ordering::Relaxed);
-            }
-            _ => {
-                // Different display or none → (re)build.
-                drop(guard);
-                teardown(app);
-                build(app, cg_id, above);
+            if let Some(o) = guard.as_ref() {
+                if o.cg_id == cg_id {
+                    o.target.store((above * 1000.0) as u32, Ordering::Relaxed);
+                    return;
+                }
             }
         }
+        // Different display or none → (re)build, serialized by `_op`.
+        teardown_locked(app);
+        build(app, cg_id, above);
     }
 
     fn build(app: &AppHandle, cg_id: u32, above: f32) {
@@ -373,7 +385,9 @@ mod macos {
         (1.0, 1.0)
     }
 
-    pub fn teardown(app: &AppHandle) {
+    /// Tear the overlay down. Callers must hold [`OP`] (the only public entry
+    /// point, [`set_level`], does) so a teardown can't race a concurrent build.
+    fn teardown_locked(app: &AppHandle) {
         let Some(mut o) = STATE.lock().take() else {
             return;
         };
@@ -436,6 +450,10 @@ mod macos {
         let layer = build_metal_layer(frame.size)?;
         let _: () = msg_send![view, setLayer: layer];
         let _: () = msg_send![win, setContentView: view];
+        // Balance the view's alloc/init (+1) — the window's setContentView:
+        // retain keeps it alive; without this every build/teardown cycle leaked
+        // one NSView (the window close only releases the window's own retain).
+        let _: () = msg_send![view, release];
 
         // Start fully transparent; the render loop fades it in (no engage flash).
         let _: () = msg_send![win, setAlphaValue: 0.0f64];
@@ -465,6 +483,9 @@ mod macos {
             return None;
         }
         let _: () = msg_send![layer, setDevice: device];
+        // Balance MTLCreateSystemDefaultDevice's Create-rule +1 — the layer's
+        // setDevice: retain keeps the (process-singleton) device alive.
+        let _: () = msg_send![device, release];
         // RGBA16Float = 115.
         let _: () = msg_send![layer, setPixelFormat: 115u64];
         let _: () = msg_send![layer, setWantsExtendedDynamicRangeContent: true];

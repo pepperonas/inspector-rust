@@ -1612,12 +1612,12 @@ function App() {
   // tracker status change (start/stop/idle-pause emit `track-status-changed`).
   useEffect(() => {
     void trackStatus()
-      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused }))
+      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }))
       .catch(() => undefined);
   }, []);
   useTauriEvent("track-status-changed", () => {
     void trackStatus()
-      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused }))
+      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }))
       .catch(() => undefined);
   });
   useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {

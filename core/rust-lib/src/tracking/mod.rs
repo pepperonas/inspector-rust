@@ -55,6 +55,9 @@ pub struct Runtime {
     /// collapsed `app\0\0source` form). Blocks in-place tab enrichment — denied
     /// time must never be retroactively attributed to the next tab's host.
     open_was_denied: bool,
+    /// Manually paused by the user (Pause button / IPC): the session stays
+    /// active but the run loop records nothing until resume.
+    manual_paused: bool,
     stop: Option<Arc<AtomicBool>>,
     claude_stop: Option<Arc<AtomicBool>>,
     bridge_stop: Option<Arc<AtomicBool>>,
@@ -114,6 +117,9 @@ pub struct TrackStatus {
     pub active: bool,
     pub session_id: Option<i64>,
     pub paused: bool,
+    /// True while the user has manually paused (session stays active, but no
+    /// events are recorded until resume) — distinct from the idle auto-pause.
+    pub manual_paused: bool,
     pub since: Option<i64>,
     pub active_app: Option<String>,
 }
@@ -281,9 +287,39 @@ pub fn status(state: &TrackerState) -> TrackStatus {
         active: rt.session_id.is_some(),
         session_id: rt.session_id,
         paused: rt.paused,
+        manual_paused: rt.manual_paused,
         since: rt.session_started,
         active_app: rt.active_app.clone(),
     }
+}
+
+/// Manually pause / resume recording without ending the session. Pausing
+/// closes the open interval **at the pause moment** (not the next tick) so the
+/// boundary is exact; resuming lets the next tick open a fresh interval.
+pub fn set_manual_paused(
+    app: &AppHandle,
+    db: &DbHandle,
+    state: &TrackerState,
+    paused: bool,
+) -> Result<(), String> {
+    let mut rt = state.0.lock();
+    if rt.session_id.is_none() {
+        return Err("not tracking".into());
+    }
+    if rt.manual_paused == paused {
+        return Ok(());
+    }
+    rt.manual_paused = paused;
+    if paused {
+        if let Some(open_id) = rt.open_event_id.take() {
+            let _ = tdb::close_event(db, open_id, now_ms());
+        }
+        rt.open_key = None;
+        rt.open_was_denied = false;
+    }
+    drop(rt);
+    let _ = app.emit("track-status-changed", ());
+    Ok(())
 }
 
 // ── The focus / idle loop ────────────────────────────────────────────────────
@@ -312,15 +348,22 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
             if g.session_id != Some(sid) {
                 break; // session ended / replaced
             }
-            let was_paused = g.paused;
-            apply_tick(&db, &mut g, sid, Tick {
-                now,
-                focus,
-                idle_s,
-                threshold_s: threshold,
-                denylist: &denylist,
-            });
-            (g.paused != was_paused, g.open_event_id)
+            // Manual pause: record nothing (the open interval was closed at
+            // pause time), but keep the loop alive so resume picks right up.
+            if g.manual_paused {
+                g.active_app = focus.map(|f| f.app_name);
+                (false, None)
+            } else {
+                let was_paused = g.paused;
+                apply_tick(&db, &mut g, sid, Tick {
+                    now,
+                    focus,
+                    idle_s,
+                    threshold_s: threshold,
+                    denylist: &denylist,
+                });
+                (g.paused != was_paused, g.open_event_id)
+            }
         };
         // Heartbeat the open event so a crash/quit leaves it ended at the last
         // live tick — the offline gap is never recorded as phantom usage, which

@@ -1476,6 +1476,8 @@ export interface TrackStatus {
   active: boolean;
   session_id: number | null;
   paused: boolean;
+  /** Manually paused (session active, nothing recorded until resume). */
+  manual_paused: boolean;
   since: number | null;
   active_app: string | null;
 }
@@ -1570,6 +1572,11 @@ export interface TrackEventPatch {
 export function trackStart(label?: string): Promise<number> {
   return invoke("track_start", { label: label ?? null });
 }
+/** Manually pause/resume recording without ending the session. */
+export function trackSetPaused(paused: boolean): Promise<void> {
+  return invoke("track_set_paused", { paused });
+}
+
 export function trackStop(): Promise<void> {
   return invoke("track_stop");
 }
@@ -1647,6 +1654,15 @@ export function trackAddEvent(args: {
   });
 }
 /** Tidy a day: delete idle spans + sub-`minSeconds` fragments. Returns count. */
+/** Tidy a whole local-date range (inclusive) in one call — see trackCleanupDay. */
+export function trackCleanupRange(
+  from: string,
+  to: string,
+  minSeconds: number,
+): Promise<number> {
+  return invoke("track_cleanup_range", { from, to, minSeconds });
+}
+
 export function trackCleanupDay(date: string, minSeconds: number): Promise<number> {
   return invoke("track_cleanup_day", { date, minSeconds });
 }

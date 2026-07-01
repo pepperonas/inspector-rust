@@ -599,10 +599,11 @@ pub enum ActionId {
     Record,
     AudioSwap,
     Timesheet,
+    TrackToggle,
 }
 
 impl ActionId {
-    pub const ALL: [ActionId; 8] = [
+    pub const ALL: [ActionId; 9] = [
         ActionId::Ocr,
         ActionId::Screenshot,
         ActionId::Color,
@@ -611,6 +612,7 @@ impl ActionId {
         ActionId::Record,
         ActionId::AudioSwap,
         ActionId::Timesheet,
+        ActionId::TrackToggle,
     ];
 
     pub fn key(self) -> &'static str {
@@ -623,6 +625,7 @@ impl ActionId {
             ActionId::Record => "record",
             ActionId::AudioSwap => "audioswap",
             ActionId::Timesheet => "timesheet",
+            ActionId::TrackToggle => "tracktoggle",
         }
     }
 
@@ -640,6 +643,7 @@ impl ActionId {
             ActionId::Record => "Screen recording",
             ActionId::AudioSwap => "Audio swap",
             ActionId::Timesheet => "Open Timesheet",
+            ActionId::TrackToggle => "Toggle time tracking",
         }
     }
 
@@ -654,6 +658,9 @@ impl ActionId {
             ActionId::Record => "Ctrl+Shift+Alt+KeyS",
             ActionId::AudioSwap => "Ctrl+Shift+Alt+KeyM",
             ActionId::Timesheet => "Ctrl+Shift+KeyT",
+            // Every toggle fires a status toast, so an accidental press is
+            // visible (never silent background recording).
+            ActionId::TrackToggle => "Ctrl+Shift+Alt+KeyT",
         }
     }
 
@@ -810,6 +817,38 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
                     tracing::warn!("show popup for timesheet: {e:#}");
                 }
                 let _ = app_main.emit("open-timesheet-tab", ());
+            });
+        }
+        ActionId::TrackToggle => {
+            // Start/stop time tracking from anywhere. Worker thread (start/stop
+            // do DB work + spawn the run loop); the status toast makes every
+            // toggle visible so an accidental press is never silent.
+            let app = app.clone();
+            std::thread::spawn(move || {
+                let db = app.state::<crate::db::DbHandle>().inner().clone();
+                let tracker = app.state::<crate::tracking::TrackerState>();
+                let active = crate::tracking::status(&tracker).active;
+                let result = if active {
+                    crate::tracking::stop(&app, &db, &tracker)
+                } else {
+                    crate::tracking::start(&app, &db, &tracker, None).map(|_| ())
+                };
+                match result {
+                    Ok(()) => crate::status_toast::announce(
+                        &app,
+                        crate::status_toast::StatusToast {
+                            kind: "track".into(),
+                            on: !active,
+                            title: if active { "Tracking off" } else { "Tracking on" }.into(),
+                            subtitle: if active {
+                                "Session ended".into()
+                            } else {
+                                "Recording app usage".into()
+                            },
+                        },
+                    ),
+                    Err(e) => tracing::warn!("track toggle hotkey: {e}"),
+                }
             });
         }
     }
@@ -1308,7 +1347,7 @@ mod tests {
                 id.key()
             );
         }
-        assert_eq!(keys.len(), 8, "expected 8 action hotkeys");
+        assert_eq!(keys.len(), 9, "expected 9 action hotkeys");
         assert_eq!(ActionId::from_key("nope"), None);
     }
 

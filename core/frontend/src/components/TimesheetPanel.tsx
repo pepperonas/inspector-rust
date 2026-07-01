@@ -8,6 +8,7 @@ import {
   Clock,
   GitMerge,
   Pause,
+  Play,
   Pencil,
   Download,
   Plus,
@@ -17,6 +18,7 @@ import {
 } from "lucide-react";
 import {
   trackGetDay,
+  trackSetPaused,
   trackStatus,
   trackUpdateEvent,
   trackDeleteEvent,
@@ -32,6 +34,7 @@ import {
   trackExportProjects,
   trackAddEvent,
   trackCleanupDay,
+  trackCleanupRange,
   getTimesheetConfig,
   type DayReport,
   type TrackEvent,
@@ -108,6 +111,8 @@ export function TimesheetPanel() {
   // Transient error banner (edit validation + IPC errors like the live-event
   // guard) — previously these only went to console.error, invisible in the app.
   const [panelErr, setPanelErr] = useState<string | null>(null);
+  // Bumped after a week-scope cleanup so the (self-fetching) week view remounts.
+  const [weekReload, setWeekReload] = useState(0);
   useEffect(() => {
     if (!panelErr) return;
     const t = window.setTimeout(() => setPanelErr(null), 6000);
@@ -336,19 +341,48 @@ export function TimesheetPanel() {
     refresh();
   };
 
+  // Exports the visible scope: the day in Day mode, Mon–Sun in Week mode.
   const doExport = (format: "csv" | "html") => {
-    const from = dayStart;
-    void trackExport(format, from, from + 86_400_000).catch((e) =>
-      console.error("export failed", e),
-    );
+    const [from, to] =
+      mode === "week"
+        ? (() => {
+            const w = weekBounds(date);
+            return [dayStartMs(w.from), dayEndMs(w.to)];
+          })()
+        : [dayStart, dayEnd];
+    void trackExport(format, from, to).catch((e) => {
+      console.error("export failed", e);
+      setPanelErr(String(e));
+    });
   };
 
+  // Cleans the visible scope: the day in Day mode, the whole week in Week mode.
   const doCleanup = async () => {
     try {
-      const n = await trackCleanupDay(date, 15);
-      if (n > 0) refresh();
+      const n =
+        mode === "week"
+          ? await (() => {
+              const w = weekBounds(date);
+              return trackCleanupRange(w.from, w.to, 15);
+            })()
+          : await trackCleanupDay(date, 15);
+      if (n > 0) {
+        refresh();
+        setWeekReload((k) => k + 1);
+      }
     } catch (e) {
       console.error("cleanup failed", e);
+      setPanelErr(String(e));
+    }
+  };
+
+  const togglePause = async () => {
+    if (!status) return;
+    try {
+      await trackSetPaused(!status.manual_paused);
+      setStatus(await trackStatus());
+    } catch (e) {
+      setPanelErr(String(e));
     }
   };
 
@@ -477,13 +511,13 @@ export function TimesheetPanel() {
           Today
         </button>
 
-        {mode === "day" && report && report.events.length > 0 && (
+        {(mode === "week" || (report && report.events.length > 0)) && (
           <div className="flex items-center gap-1">
             <button
               type="button"
               onClick={() => doExport("csv")}
               className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-              title="Export this day as CSV → Downloads"
+              title={mode === "week" ? "Export this week (Mon–Sun) as CSV → Downloads" : "Export this day as CSV → Downloads"}
             >
               <Download size={13} /> CSV
             </button>
@@ -491,25 +525,61 @@ export function TimesheetPanel() {
               type="button"
               onClick={() => doExport("html")}
               className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
-              title="Export this day as a self-contained HTML report → Downloads"
+              title={mode === "week" ? "Export this week (Mon–Sun) as a self-contained HTML report → Downloads" : "Export this day as a self-contained HTML report → Downloads"}
             >
               <Download size={13} /> HTML
             </button>
+            {mode === "week" && (
+              <button
+                type="button"
+                onClick={() => void doCleanup()}
+                className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+                title="Delete idle spans + sub-15s fragments for the whole week"
+              >
+                <Sparkles size={13} /> Clean up week
+              </button>
+            )}
           </div>
         )}
 
-        <div className="ml-auto flex items-center gap-1 text-[12px]">
+        <div className="ml-auto flex items-center gap-2 text-[12px]">
           {status?.active ? (
-            status.paused ? (
-              <span className="flex items-center gap-1 text-[var(--color-muted)]">
-                <Pause size={13} /> paused (idle)
-              </span>
-            ) : (
-              <span className="flex items-center gap-1 text-rose-400">
-                <Circle size={11} className="animate-pulse fill-rose-500 text-rose-500" />
-                recording{status.active_app ? ` · ${status.active_app}` : ""}
-              </span>
-            )
+            <>
+              {status.manual_paused ? (
+                <span className="flex items-center gap-1 text-amber-500">
+                  <Pause size={13} /> paused
+                </span>
+              ) : status.paused ? (
+                <span className="flex items-center gap-1 text-[var(--color-muted)]">
+                  <Pause size={13} /> paused (idle)
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-rose-400">
+                  <Circle size={11} className="animate-pulse fill-rose-500 text-rose-500" />
+                  recording{status.active_app ? ` · ${status.active_app}` : ""}
+                </span>
+              )}
+              <button
+                type="button"
+                onClick={() => void togglePause()}
+                className="md3-press flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:bg-[var(--color-surface)]"
+                title={
+                  status.manual_paused
+                    ? "Resume recording"
+                    : "Pause recording (session stays active; nothing is recorded until resume)"
+                }
+              >
+                {status.manual_paused ? (
+                  <>
+                    <Play size={12} /> Resume
+                  </>
+                ) : (
+                  <>
+                    <Pause size={12} /> Pause
+                  </>
+                )}
+              </button>
+            </>
           ) : (
             <span className="text-[var(--color-muted)]">not tracking</span>
           )}
@@ -518,6 +588,7 @@ export function TimesheetPanel() {
 
       {mode === "week" ? (
         <TimesheetWeek
+          key={weekReload}
           date={date}
           onPickDay={(d) => {
             setDate(d);

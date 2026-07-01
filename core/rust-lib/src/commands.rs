@@ -343,6 +343,18 @@ pub fn track_status(
     crate::tracking::status(&state)
 }
 
+/// Manually pause / resume recording without ending the session (distinct from
+/// the automatic idle pause). Pausing closes the open interval immediately.
+#[tauri::command]
+pub fn track_set_paused(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::tracking::TrackerState>,
+    paused: bool,
+) -> Result<(), String> {
+    crate::tracking::set_manual_paused(&app, &db, &state, paused)
+}
+
 /// Day report (`"YYYY-MM-DD"`, local): events + totals + breakdowns.
 #[tauri::command]
 pub fn track_get_day(
@@ -497,6 +509,26 @@ pub fn track_cleanup_day(
     // a focus switch) would otherwise delete the row the heartbeat writes to.
     let live = crate::tracking::live_event_id(&tracker);
     crate::tracking::db::cleanup_day(&db, from, to, min_seconds.max(0), live).map_err(map_err)
+}
+
+/// Tidy a whole date range (`from`..=`to`, local "YYYY-MM-DD" days): the same
+/// idle + sub-`min_seconds` sweep as `track_cleanup_day`, in one call — so a
+/// week (or month) of noise doesn't need per-day clicking.
+#[tauri::command]
+pub fn track_cleanup_range(
+    db: State<'_, DbHandle>,
+    tracker: State<'_, crate::tracking::TrackerState>,
+    from: String,
+    to: String,
+    min_seconds: i64,
+) -> Result<usize, String> {
+    let (start, _) = crate::tracking::day_bounds(&from)?;
+    let (_, end) = crate::tracking::day_bounds(&to)?;
+    if end <= start {
+        return Err("range end before start".into());
+    }
+    let live = crate::tracking::live_event_id(&tracker);
+    crate::tracking::db::cleanup_day(&db, start, end, min_seconds.max(0), live).map_err(map_err)
 }
 
 /// Timesheet settings (Settings → Timesheet).

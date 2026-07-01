@@ -2052,6 +2052,50 @@ pub fn totp_delete(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
     crate::totp_store::delete(&db, id).map_err(map_err)
 }
 
+/// Persist a manual drag-reorder: `ids` in the desired top-to-bottom order.
+#[tauri::command]
+pub fn totp_set_order(db: State<'_, DbHandle>, ids: Vec<i64>) -> Result<(), String> {
+    crate::totp_store::set_order(&db, &ids).map_err(map_err)
+}
+
+/// Update every field of an entry (incl. the secret, re-encrypted).
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub fn totp_update(
+    db: State<'_, DbHandle>,
+    id: i64,
+    issuer: String,
+    account: String,
+    secret: String,
+    digits: Option<u32>,
+    period: Option<u32>,
+    algorithm: Option<String>,
+) -> Result<(), String> {
+    crate::totp_store::update(
+        &db,
+        id,
+        &issuer,
+        &account,
+        &secret,
+        digits.unwrap_or(6),
+        period.unwrap_or(30),
+        &algorithm.unwrap_or_else(|| "SHA1".into()),
+    )
+    .map_err(map_err)
+}
+
+/// Remove duplicate entries (same issuer+account+secret). Returns the count.
+#[tauri::command]
+pub fn totp_remove_duplicates(db: State<'_, DbHandle>) -> Result<usize, String> {
+    crate::totp_store::remove_duplicates(&db).map_err(map_err)
+}
+
+/// Delete every entry. Returns the count removed.
+#[tauri::command]
+pub fn totp_delete_all(db: State<'_, DbHandle>) -> Result<usize, String> {
+    crate::totp_store::delete_all(&db).map_err(map_err)
+}
+
 /// Current code + seconds-until-next-roll for a single entry.
 #[tauri::command]
 pub fn totp_current_code(
@@ -2092,6 +2136,8 @@ pub struct TotpCodeEntry {
 #[derive(serde::Serialize)]
 pub struct TotpImportResult {
     pub added: usize,
+    #[serde(default)]
+    pub skipped: usize,
     pub error: Option<String>,
 }
 
@@ -2105,12 +2151,23 @@ pub fn totp_import(
         Err(e) => {
             return Ok(TotpImportResult {
                 added: 0,
+                skipped: 0,
                 error: Some(format!("{e:#}")),
             });
         }
     };
+    // Skip entries already present (same issuer+account+secret) so re-importing
+    // the same export doesn't create duplicates. The set also dedups within this
+    // one import (an export containing the same entry twice).
+    let mut seen = crate::totp_store::existing_keys(&db).unwrap_or_default();
     let mut added = 0usize;
+    let mut skipped = 0usize;
     for entry in parsed {
+        let key = crate::totp_store::dedup_key(&entry.issuer, &entry.account, &entry.secret_base32);
+        if !seen.insert(key) {
+            skipped += 1;
+            continue;
+        }
         match crate::totp_store::add(
             &db,
             &entry.issuer,
@@ -2124,7 +2181,7 @@ pub fn totp_import(
             Err(e) => tracing::warn!("totp_import: skipping entry {entry:?}: {e:#}"),
         }
     }
-    Ok(TotpImportResult { added, error: None })
+    Ok(TotpImportResult { added, skipped, error: None })
 }
 
 /// Import TOTP entries from a **file path** (drag-and-drop). Reads the file as
@@ -2136,6 +2193,7 @@ pub fn totp_import_file(db: State<'_, DbHandle>, path: String) -> Result<TotpImp
         Err(e) => {
             return Ok(TotpImportResult {
                 added: 0,
+                skipped: 0,
                 error: Some(format!("Couldn't read {path}: {e}")),
             });
         }

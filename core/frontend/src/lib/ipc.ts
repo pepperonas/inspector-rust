@@ -884,6 +884,34 @@ export function totpDelete(id: number): Promise<void> {
   return invoke("totp_delete", { id });
 }
 
+/** Persist a manual drag-reorder (ids top-to-bottom). */
+export function totpSetOrder(ids: number[]): Promise<void> {
+  return invoke("totp_set_order", { ids });
+}
+
+/** Update every field of an entry (incl. the secret). */
+export function totpUpdate(args: {
+  id: number;
+  issuer: string;
+  account: string;
+  secret: string;
+  digits?: number;
+  period?: number;
+  algorithm?: string;
+}): Promise<void> {
+  return invoke("totp_update", args);
+}
+
+/** Remove duplicate entries (same issuer+account+secret). Returns the count. */
+export function totpRemoveDuplicates(): Promise<number> {
+  return invoke("totp_remove_duplicates");
+}
+
+/** Delete every entry. Returns the count removed. */
+export function totpDeleteAll(): Promise<number> {
+  return invoke("totp_delete_all");
+}
+
 export function totpCurrentCode(id: number): Promise<{ code: string; seconds_remaining: number }> {
   return invoke("totp_current_code", { id });
 }
@@ -896,6 +924,7 @@ export function totpCurrentCodesAll(): Promise<TotpCode[]> {
 
 export interface TotpImportResult {
   added: number;
+  skipped?: number;
   error: string | null;
 }
 

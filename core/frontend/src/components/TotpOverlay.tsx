@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  Clipboard,
+  Check,
+  Copy,
   Download,
+  GripVertical,
   KeyRound,
+  Pencil,
   Plus,
   Trash2,
   Upload,
@@ -14,10 +17,14 @@ import {
   totpAdd,
   totpCurrentCodesAll,
   totpDelete,
+  totpDeleteAll,
   totpExport,
   totpImport,
   totpImportFile,
   totpList,
+  totpRemoveDuplicates,
+  totpSetOrder,
+  totpUpdate,
 } from "../lib/ipc";
 import type { TotpCode, TotpEntry } from "../lib/totp";
 
@@ -43,6 +50,12 @@ interface Props {
 
 type Tab = "list" | "add" | "import";
 
+function importSummary(r: { added: number; skipped?: number }, from?: string): string {
+  const src = from ? ` from ${from}` : "";
+  const skip = r.skipped ? `, ${r.skipped} duplicate(s) skipped` : "";
+  return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}.`;
+}
+
 export function TotpOverlay({ onExit }: Props) {
   const [tab, setTab] = useState<Tab>("list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
@@ -52,7 +65,8 @@ export function TotpOverlay({ onExit }: Props) {
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
 
-  // Add-form state
+  // Add/Edit-form state. `editingId != null` → the Add tab is an Edit form.
+  const [editingId, setEditingId] = useState<number | null>(null);
   const [addIssuer, setAddIssuer] = useState("");
   const [addAccount, setAddAccount] = useState("");
   const [addSecret, setAddSecret] = useState("");
@@ -105,7 +119,7 @@ export function TotpOverlay({ onExit }: Props) {
               }
               setToast({
                 kind: "ok",
-                message: `${result.added} entry/entries imported from ${path.split("/").pop()}.`,
+                message: importSummary(result, path.split("/").pop()),
               });
               const [list, currentCodes] = await Promise.all([
                 totpList(),
@@ -160,33 +174,38 @@ export function TotpOverlay({ onExit }: Props) {
   }, []);
 
   const doAdd = async () => {
-    if (!addIssuer.trim() || !addSecret.trim()) {
+    // On edit, a blank secret keeps the current one; on add it's required.
+    if (!addIssuer.trim() || (editingId === null && !addSecret.trim())) {
       setToast({ kind: "err", message: "Issuer and Secret are required." });
       return;
     }
     setBusy(true);
     setToast(null);
     try {
-      await totpAdd({
-        issuer: addIssuer.trim(),
-        account: addAccount.trim(),
-        secret: addSecret.trim(),
-        digits: addDigits,
-        period: addPeriod,
-        algorithm: addAlgorithm,
-      });
-      setAddIssuer("");
-      setAddAccount("");
-      setAddSecret("");
-      setAddAdvanced(false);
-      setAddDigits(6);
-      setAddPeriod(30);
-      setAddAlgorithm("SHA1");
-      setToast({ kind: "ok", message: "Entry added." });
-      // Refresh visible list immediately.
-      const [list, currentCodes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
-      setEntries(list);
-      setCodes(new Map(currentCodes.map((c) => [c.id, c])));
+      if (editingId !== null) {
+        await totpUpdate({
+          id: editingId,
+          issuer: addIssuer.trim(),
+          account: addAccount.trim(),
+          secret: addSecret.trim(), // blank → keep current
+          digits: addDigits,
+          period: addPeriod,
+          algorithm: addAlgorithm,
+        });
+      } else {
+        await totpAdd({
+          issuer: addIssuer.trim(),
+          account: addAccount.trim(),
+          secret: addSecret.trim(),
+          digits: addDigits,
+          period: addPeriod,
+          algorithm: addAlgorithm,
+        });
+      }
+      const wasEdit = editingId !== null;
+      resetAddForm();
+      setToast({ kind: "ok", message: wasEdit ? "Entry updated." : "Entry added." });
+      await refreshList();
       setTab("list");
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -195,8 +214,15 @@ export function TotpOverlay({ onExit }: Props) {
     }
   };
 
+  const refreshList = async () => {
+    const [list, currentCodes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
+    setEntries(list);
+    setCodes(new Map(currentCodes.map((c) => [c.id, c])));
+  };
+
+  // Actual delete — confirmation is handled inline in the list (window.confirm
+  // is unreliable in the Tauri webview, which is why delete "didn't work").
   const doDelete = async (id: number, label: string) => {
-    if (!window.confirm(`Delete entry "${label}"?`)) return;
     setBusy(true);
     try {
       await totpDelete(id);
@@ -207,6 +233,71 @@ export function TotpOverlay({ onExit }: Props) {
         return next;
       });
       setToast({ kind: "ok", message: `"${label}" deleted.` });
+    } catch (e) {
+      setToast({ kind: "err", message: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const resetAddForm = () => {
+    setEditingId(null);
+    setAddIssuer("");
+    setAddAccount("");
+    setAddSecret("");
+    setAddAdvanced(false);
+    setAddDigits(6);
+    setAddPeriod(30);
+    setAddAlgorithm("SHA1");
+  };
+
+  // Open the Add tab pre-filled as an Edit form. The secret is never exposed by
+  // the list, so it's left blank (a placeholder says "leave blank to keep").
+  const startEdit = (e: TotpEntry) => {
+    setEditingId(e.id);
+    setAddIssuer(e.issuer);
+    setAddAccount(e.account);
+    setAddSecret("");
+    setAddDigits(e.digits);
+    setAddPeriod(e.period);
+    setAddAlgorithm(e.algorithm);
+    setAddAdvanced(e.digits !== 6 || e.period !== 30 || e.algorithm !== "SHA1");
+    setToast(null);
+    setTab("add");
+  };
+
+  // Persist a manual drag-reorder (called by the list on drop).
+  const doReorder = async (ordered: TotpEntry[]) => {
+    setEntries(ordered);
+    try {
+      await totpSetOrder(ordered.map((e) => e.id));
+    } catch (e) {
+      setToast({ kind: "err", message: String(e) });
+    }
+  };
+
+  const doRemoveDuplicates = async () => {
+    setBusy(true);
+    try {
+      const removed = await totpRemoveDuplicates();
+      await refreshList();
+      setToast({
+        kind: "ok",
+        message: removed > 0 ? `${removed} duplicate(s) removed.` : "No duplicates found.",
+      });
+    } catch (e) {
+      setToast({ kind: "err", message: String(e) });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doDeleteAll = async () => {
+    setBusy(true);
+    try {
+      const removed = await totpDeleteAll();
+      await refreshList();
+      setToast({ kind: "ok", message: `${removed} entr${removed === 1 ? "y" : "ies"} deleted.` });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
     } finally {
@@ -237,12 +328,9 @@ export function TotpOverlay({ onExit }: Props) {
       if (result.error) {
         setToast({ kind: "err", message: result.error });
       } else {
-        setToast({ kind: "ok", message: `${result.added} entry/entries imported.` });
+        setToast({ kind: "ok", message: importSummary(result) });
         setImportText("");
-        // Refresh.
-        const [list, currentCodes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
-        setEntries(list);
-        setCodes(new Map(currentCodes.map((c) => [c.id, c])));
+        await refreshList();
         setTab("list");
       }
     } catch (e) {
@@ -292,7 +380,7 @@ export function TotpOverlay({ onExit }: Props) {
             List {entries.length > 0 ? `(${entries.length})` : ""}
           </TabButton>
           <TabButton active={tab === "add"} onClick={() => setTab("add")}>
-            Add
+            {editingId !== null ? "Edit" : "Add"}
           </TabButton>
           <TabButton active={tab === "import"} onClick={() => setTab("import")}>
             Import / Export
@@ -316,6 +404,10 @@ export function TotpOverlay({ onExit }: Props) {
             tickNow={tickNow}
             onCopy={doCopy}
             onDelete={doDelete}
+            onEdit={startEdit}
+            onReorder={doReorder}
+            onRemoveDuplicates={doRemoveDuplicates}
+            onDeleteAll={doDeleteAll}
             busy={busy}
           />
         )}
@@ -336,6 +428,11 @@ export function TotpOverlay({ onExit }: Props) {
             algorithm={addAlgorithm}
             setAlgorithm={setAddAlgorithm}
             onSubmit={doAdd}
+            editing={editingId !== null}
+            onCancel={() => {
+              resetAddForm();
+              setTab("list");
+            }}
             busy={busy}
           />
         )}
@@ -400,6 +497,10 @@ function ListTab({
   tickNow,
   onCopy,
   onDelete,
+  onEdit,
+  onReorder,
+  onRemoveDuplicates,
+  onDeleteAll,
   busy,
 }: {
   entries: TotpEntry[];
@@ -407,8 +508,68 @@ function ListTab({
   tickNow: number;
   onCopy: (id: number, label: string) => void;
   onDelete: (id: number, label: string) => void;
+  onEdit: (e: TotpEntry) => void;
+  onReorder: (ordered: TotpEntry[]) => void;
+  onRemoveDuplicates: () => void;
+  onDeleteAll: () => void;
   busy: boolean;
 }) {
+  // Local order for smooth pointer-drag reordering. Pointer events (not HTML5
+  // DnD) because Tauri's OS drag-drop — which we use for file import — swallows
+  // HTML5 element drags.
+  const [order, setOrder] = useState<TotpEntry[]>(entries);
+  const orderRef = useRef(order);
+  const draggingRef = useRef<number | null>(null);
+  const [draggingId, setDraggingId] = useState<number | null>(null);
+  const [confirmId, setConfirmId] = useState<number | null>(null);
+  const [confirmClear, setConfirmClear] = useState(false);
+  const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
+
+  useEffect(() => {
+    orderRef.current = order;
+  }, [order]);
+  useEffect(() => {
+    if (draggingRef.current === null) setOrder(entries); // don't clobber a live drag
+  }, [entries]);
+
+  const beginDrag = (ev: React.PointerEvent, id: number) => {
+    ev.preventDefault();
+    draggingRef.current = id;
+    setDraggingId(id);
+    const move = (e: PointerEvent) => {
+      const cur = orderRef.current;
+      const dragIdx = cur.findIndex((x) => x.id === draggingRef.current);
+      if (dragIdx < 0) return;
+      let target = cur.length - 1;
+      for (let i = 0; i < cur.length; i++) {
+        const el = rowRefs.current.get(cur[i].id);
+        if (!el) continue;
+        const r = el.getBoundingClientRect();
+        if (e.clientY < r.top + r.height / 2) {
+          target = i;
+          break;
+        }
+      }
+      if (target !== dragIdx) {
+        const next = [...cur];
+        const [m] = next.splice(dragIdx, 1);
+        next.splice(target, 0, m);
+        orderRef.current = next;
+        setOrder(next);
+      }
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      const wasDragging = draggingRef.current !== null;
+      draggingRef.current = null;
+      setDraggingId(null);
+      if (wasDragging) onReorder(orderRef.current);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   if (entries.length === 0) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[var(--color-muted)]">
@@ -422,27 +583,87 @@ function ListTab({
     );
   }
 
+  const iconBtn =
+    "rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] disabled:opacity-40";
+
   return (
     <div className="flex flex-col gap-2">
-      {entries.map((e) => {
+      {/* Toolbar: reorder hint + cleanup */}
+      <div className="mb-1 flex items-center gap-2 text-[11px]">
+        <span className="mr-auto text-[var(--color-muted)]">Drag the ⠿ handle to reorder.</span>
+        <button
+          onClick={onRemoveDuplicates}
+          disabled={busy}
+          className="rounded border border-[var(--color-border)] px-2 py-1 hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
+        >
+          Remove duplicates
+        </button>
+        {confirmClear ? (
+          <span className="flex items-center gap-1">
+            <span className="text-rose-500">Delete all?</span>
+            <button
+              onClick={() => {
+                setConfirmClear(false);
+                onDeleteAll();
+              }}
+              className="rounded border border-rose-500/60 px-2 py-1 text-rose-500 hover:bg-rose-500/10"
+            >
+              Yes
+            </button>
+            <button
+              onClick={() => setConfirmClear(false)}
+              className="rounded border border-[var(--color-border)] px-2 py-1"
+            >
+              No
+            </button>
+          </span>
+        ) : (
+          <button
+            onClick={() => setConfirmClear(true)}
+            disabled={busy}
+            className="rounded border border-[var(--color-border)] px-2 py-1 hover:border-rose-500/60 hover:text-rose-500 disabled:opacity-40"
+          >
+            Clear all
+          </button>
+        )}
+      </div>
+
+      {order.map((e) => {
         const c = codes.get(e.id);
         const label = `${e.issuer || "?"}${e.account ? " · " + e.account : ""}`;
+        const confirming = confirmId === e.id;
         return (
           <div
             key={e.id}
-            className="flex items-center gap-3 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3"
+            ref={(el) => {
+              if (el) rowRefs.current.set(e.id, el);
+              else rowRefs.current.delete(e.id);
+            }}
+            className={
+              "flex items-center gap-2 rounded-lg border p-3 " +
+              (draggingId === e.id
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 shadow-lg"
+                : "border-[var(--color-border)] bg-[var(--color-surface)]")
+            }
           >
-            {/* Countdown ring */}
+            <button
+              onPointerDown={(ev) => beginDrag(ev, e.id)}
+              title="Drag to reorder"
+              className="cursor-grab touch-none text-[var(--color-muted)] hover:text-[var(--color-fg)] active:cursor-grabbing"
+            >
+              <GripVertical size={16} />
+            </button>
             <CountdownRing
               secondsRemaining={c?.seconds_remaining ?? 0}
               period={e.period}
               tickNow={tickNow}
             />
-            {/* Label + code */}
-            <div className="flex flex-1 flex-col">
-              <div className="text-[13px] font-semibold">{e.issuer || "(no issuer)"}</div>
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="truncate text-[13px] font-semibold">
+                {e.issuer || "(no issuer)"}
+              </div>
               {e.account && (
-                <div className="text-[11px] text-[var(--color-muted)]">{e.account}</div>
+                <div className="truncate text-[11px] text-[var(--color-muted)]">{e.account}</div>
               )}
             </div>
             <button
@@ -453,22 +674,54 @@ function ListTab({
             >
               {c?.code ?? "…"}
             </button>
-            <button
-              onClick={() => onCopy(e.id, label)}
-              disabled={busy || !c}
-              title="Copy"
-              className="rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
-            >
-              <Clipboard size={14} />
-            </button>
-            <button
-              onClick={() => onDelete(e.id, label)}
-              disabled={busy}
-              title="Delete"
-              className="rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] hover:border-rose-500/60 hover:text-rose-500 disabled:opacity-40"
-            >
-              <Trash2 size={14} />
-            </button>
+            {confirming ? (
+              <>
+                <button
+                  onClick={() => {
+                    setConfirmId(null);
+                    onDelete(e.id, label);
+                  }}
+                  title="Confirm delete"
+                  className="rounded border border-rose-500/60 p-1.5 text-rose-500 hover:bg-rose-500/10"
+                >
+                  <Check size={14} />
+                </button>
+                <button
+                  onClick={() => setConfirmId(null)}
+                  title="Cancel"
+                  className={iconBtn + " hover:text-[var(--color-fg)]"}
+                >
+                  <X size={14} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => onCopy(e.id, label)}
+                  disabled={busy || !c}
+                  title="Copy"
+                  className={iconBtn + " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"}
+                >
+                  <Copy size={14} />
+                </button>
+                <button
+                  onClick={() => onEdit(e)}
+                  disabled={busy}
+                  title="Edit"
+                  className={iconBtn + " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"}
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  onClick={() => setConfirmId(e.id)}
+                  disabled={busy}
+                  title="Delete"
+                  className={iconBtn + " hover:border-rose-500/60 hover:text-rose-500"}
+                >
+                  <Trash2 size={14} />
+                </button>
+              </>
+            )}
           </div>
         );
       })}
@@ -553,10 +806,23 @@ function AddTab(props: {
   algorithm: string;
   setAlgorithm: (s: string) => void;
   onSubmit: () => void;
+  editing: boolean;
+  onCancel: () => void;
   busy: boolean;
 }) {
   return (
     <div className="mx-auto flex max-w-md flex-col gap-3">
+      {props.editing && (
+        <div className="flex items-center justify-between text-[12px]">
+          <span className="font-semibold text-[var(--color-accent)]">Editing entry</span>
+          <button
+            onClick={props.onCancel}
+            className="rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] hover:text-[var(--color-fg)]"
+          >
+            Cancel
+          </button>
+        </div>
+      )}
       <label className="flex flex-col gap-1 text-[12px]">
         <span className="font-semibold">Issuer / Service</span>
         <input
@@ -579,16 +845,18 @@ function AddTab(props: {
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
-        <span className="font-semibold">Secret (Base32)</span>
+        <span className="font-semibold">Secret (Base32){props.editing ? " — optional" : ""}</span>
         <textarea
           value={props.secret}
           onChange={(e) => props.setSecret(e.target.value)}
-          placeholder="JBSW Y3DP EHPK 3PXP"
+          placeholder={props.editing ? "Leave blank to keep the current secret" : "JBSW Y3DP EHPK 3PXP"}
           rows={2}
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[13px] focus:border-[var(--color-accent)] focus:outline-none"
         />
         <span className="text-[10px] text-[var(--color-muted)]">
-          Spaces and hyphens are stripped automatically; padding (=) is optional.
+          {props.editing
+            ? "Enter a new secret to replace it, or leave blank to keep the current one."
+            : "Spaces and hyphens are stripped automatically; padding (=) is optional."}
         </span>
       </label>
 
@@ -642,11 +910,11 @@ function AddTab(props: {
 
       <button
         onClick={props.onSubmit}
-        disabled={props.busy || !props.issuer.trim() || !props.secret.trim()}
+        disabled={props.busy || !props.issuer.trim() || (!props.editing && !props.secret.trim())}
         className="mt-2 flex items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2 text-[13px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
       >
-        <Plus size={14} />
-        Add
+        {props.editing ? <Check size={14} /> : <Plus size={14} />}
+        {props.editing ? "Save changes" : "Add"}
       </button>
     </div>
   );
@@ -675,6 +943,7 @@ function ImportExportTab({
       "otpauth-migration://offline?data=… (Google Authenticator bulk export)",
       "Aegis JSON (Android Aegis Authenticator, unencrypted)",
       "2FAS JSON (2FAS Auth)",
+      "OTPManager JSON (macOS OTP Manager app export)",
       "Plain text: one otpauth:// URI per line",
     ],
     [],

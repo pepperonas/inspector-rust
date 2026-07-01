@@ -75,6 +75,14 @@ pub fn init_table(db: &DbHandle) -> Result<()> {
         [],
     )
     .context("create totp_issuer index")?;
+    // Lazy migration: manual sort order (v0.84.200). ALTER errors harmlessly if
+    // the column already exists; seed NULLs from `id` so existing rows keep a
+    // stable order until the user reorders them.
+    let _ = conn.execute("ALTER TABLE totp_entries ADD COLUMN sort_order INTEGER", []);
+    let _ = conn.execute(
+        "UPDATE totp_entries SET sort_order = id WHERE sort_order IS NULL",
+        [],
+    );
     Ok(())
 }
 
@@ -113,6 +121,8 @@ pub fn add(
         rusqlite::params![issuer.trim(), account.trim(), encrypted, digits, period, algorithm, now],
     )?;
     let id = conn.last_insert_rowid();
+    // New entries append to the end of the manual order.
+    conn.execute("UPDATE totp_entries SET sort_order = ?1 WHERE id = ?1", [id])?;
     Ok(TotpEntry {
         id,
         issuer: issuer.trim().to_string(),
@@ -128,7 +138,7 @@ pub fn list(db: &DbHandle) -> Result<Vec<TotpEntry>> {
     let conn = db.lock();
     let mut stmt = conn.prepare(
         "SELECT id, issuer, account, digits, period, algorithm, created_at
-         FROM totp_entries ORDER BY LOWER(issuer), LOWER(account)",
+         FROM totp_entries ORDER BY COALESCE(sort_order, id), LOWER(issuer), LOWER(account)",
     )?;
     let rows = stmt
         .query_map([], |row| {
@@ -150,6 +160,129 @@ pub fn delete(db: &DbHandle, id: i64) -> Result<()> {
     let conn = db.lock();
     conn.execute("DELETE FROM totp_entries WHERE id = ?1", [id])?;
     Ok(())
+}
+
+/// Persist a manual reorder: `ordered_ids` top-to-bottom.
+pub fn set_order(db: &DbHandle, ordered_ids: &[i64]) -> Result<()> {
+    let conn = db.lock();
+    for (pos, id) in ordered_ids.iter().enumerate() {
+        conn.execute(
+            "UPDATE totp_entries SET sort_order = ?1 WHERE id = ?2",
+            rusqlite::params![pos as i64, id],
+        )?;
+    }
+    Ok(())
+}
+
+/// Update an entry. Every field is editable; **the secret stays as-is when
+/// `secret_base32` is blank** (the list never exposes the current secret, so the
+/// edit form leaves it empty unless the user wants to replace it). A non-blank
+/// secret is base32-validated + re-encrypted.
+#[allow(clippy::too_many_arguments)]
+pub fn update(
+    db: &DbHandle,
+    id: i64,
+    issuer: &str,
+    account: &str,
+    secret_base32: &str,
+    digits: u32,
+    period: u32,
+    algorithm: &str,
+) -> Result<()> {
+    if issuer.trim().is_empty() {
+        return Err(anyhow!("issuer cannot be empty"));
+    }
+    let algorithm = normalise_algorithm(algorithm);
+    // Validate + encrypt the new secret up front (if one was supplied).
+    let new_secret_enc = if secret_base32.trim().is_empty() {
+        None
+    } else {
+        let normalised = normalise_secret(secret_base32);
+        decode_base32(&normalised).context("secret is not valid base32")?;
+        Some(crypto::encrypt(&normalised))
+    };
+    let conn = db.lock();
+    let n = match &new_secret_enc {
+        Some(enc) => conn.execute(
+            "UPDATE totp_entries SET issuer=?1, account=?2, secret_enc=?3, digits=?4, period=?5, algorithm=?6 WHERE id=?7",
+            rusqlite::params![issuer.trim(), account.trim(), enc, digits, period, algorithm, id],
+        )?,
+        None => conn.execute(
+            "UPDATE totp_entries SET issuer=?1, account=?2, digits=?3, period=?4, algorithm=?5 WHERE id=?6",
+            rusqlite::params![issuer.trim(), account.trim(), digits, period, algorithm, id],
+        )?,
+    };
+    if n == 0 {
+        return Err(anyhow!("no entry with id {id}"));
+    }
+    Ok(())
+}
+
+/// A duplicate-detection key: `(lower issuer, lower account, normalised secret)`.
+pub fn dedup_key(issuer: &str, account: &str, secret_base32: &str) -> (String, String, String) {
+    (
+        issuer.trim().to_ascii_lowercase(),
+        account.trim().to_ascii_lowercase(),
+        normalise_secret(secret_base32),
+    )
+}
+
+/// The set of dedup keys already stored — used to skip identical entries on
+/// import. Decrypts each secret (one-time cost at import).
+pub fn existing_keys(db: &DbHandle) -> Result<std::collections::HashSet<(String, String, String)>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare("SELECT issuer, account, secret_enc FROM totp_entries")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    drop(stmt);
+    drop(conn);
+    Ok(rows
+        .into_iter()
+        .map(|(iss, acc, enc)| dedup_key(&iss, &acc, &crypto::decrypt(&enc)))
+        .collect())
+}
+
+/// Remove duplicate entries (same issuer+account+secret), keeping the lowest
+/// id of each group. Returns how many rows were deleted.
+pub fn remove_duplicates(db: &DbHandle) -> Result<usize> {
+    let conn = db.lock();
+    let mut stmt =
+        conn.prepare("SELECT id, issuer, account, secret_enc FROM totp_entries ORDER BY id")?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+                row.get::<_, String>(3)?,
+            ))
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    drop(stmt);
+    let mut seen = std::collections::HashSet::new();
+    let mut to_delete = Vec::new();
+    for (id, iss, acc, enc) in rows {
+        if !seen.insert(dedup_key(&iss, &acc, &crypto::decrypt(&enc))) {
+            to_delete.push(id);
+        }
+    }
+    for id in &to_delete {
+        conn.execute("DELETE FROM totp_entries WHERE id = ?1", [id])?;
+    }
+    Ok(to_delete.len())
+}
+
+/// Delete every entry. Returns how many were removed.
+pub fn delete_all(db: &DbHandle) -> Result<usize> {
+    let conn = db.lock();
+    Ok(conn.execute("DELETE FROM totp_entries", [])?)
 }
 
 /// Compute the current TOTP code for an entry. Decrypts the secret
@@ -237,8 +370,11 @@ pub fn generate_at(
         other => return Err(anyhow!("unsupported TOTP algorithm: {other}")),
     };
     let secret_bytes = decode_base32(secret_base32)?;
-    let totp = TOTP::new(algo, digits as usize, 1, period as u64, secret_bytes)
-        .map_err(|e| anyhow!("TOTP::new: {e}"))?;
+    // `TOTP::new` rejects secrets shorter than 128 bits, but plenty of real,
+    // working secrets are shorter (e.g. 80-bit / 16-char base32 from OTPManager,
+    // Stripe, etc.) — Google Authenticator generates codes for them fine. Use
+    // `new_unchecked` so those import cleanly + show a code instead of blank.
+    let totp = TOTP::new_unchecked(algo, digits as usize, 1, period as u64, secret_bytes);
     let code = totp.generate(now);
     let seconds_remaining = (period as u64) - (now % period as u64);
     Ok(TotpCode {
@@ -402,5 +538,27 @@ mod tests {
     #[test]
     fn generate_rejects_unknown_algorithm() {
         assert!(generate_at(SEED_SHA1, 6, 30, "MD5", 59).is_err());
+    }
+
+    #[test]
+    fn generate_works_for_short_sub_128bit_secrets() {
+        // TOTP::new rejects < 128-bit secrets; new_unchecked (what we use) does
+        // not — these shorter secrets are valid + common (OTPManager, Stripe, …).
+        // 16 base32 chars = 80 bits.
+        let c = generate_at("GEZDGNBVGY3TQOJQ", 6, 30, "SHA1", 0).unwrap();
+        assert_eq!(c.code.len(), 6);
+        assert!(c.code.chars().all(|ch| ch.is_ascii_digit()));
+        // 24 base32 chars = 120 bits.
+        let c2 = generate_at("GEZDGNBVGY3TQOJQGEZDGNBV", 6, 30, "SHA1", 0).unwrap();
+        assert_eq!(c2.code.len(), 6);
+    }
+
+    #[test]
+    fn dedup_key_is_case_insensitive_and_normalised() {
+        assert_eq!(
+            dedup_key("GitHub", "  Me ", "jbsw y3dp"),
+            dedup_key("github", "me", "JBSW-Y3DP"),
+        );
+        assert_ne!(dedup_key("A", "b", "JBSWY3DP"), dedup_key("A", "b", "MZXW6YTB"));
     }
 }

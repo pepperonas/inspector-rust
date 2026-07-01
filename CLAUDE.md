@@ -557,8 +557,16 @@ unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
 MultitouchSupport frame callback; guards: the rest finger must be down alone
 ≥ `TIPTAP_REST_MIN_MS` (80 ms) before the tap lands (kills 2-finger
 scroll/click, whose fingers land together), the tap must lift within 300 ms,
-either finger moving > 0.05 (norm) poisons the attempt until all-lift, and taps
-chain while the rest finger stays down. Direction = tap-x vs rest-x. Key
+either finger moving > 0.05 (norm) poisons the attempt, and taps chain while
+the rest finger stays down. Direction = tap-x vs rest-x. **Robustness
+(v0.84.208):** tip-tap contacts are filtered to MT finger **state 4 (touching)**
+— a lifting finger lingers in the frame array in the leaving states (5–7),
+which read as still-down contacts (stuck recogniser + phantom taps); a
+**poisoned attempt recovers at ≤ 1 remaining contact** with a fresh settle (the
+old all-lift requirement killed tip-taps after a few uses until the user lifted
+everything); post-emit the settle timer **restarts** (no backdating) and a
+**150 ms emit refractory** (`TIPTAP_EMIT_GAP_MS`) caps the rate — a bouncing
+lift contact can no longer machine-gun tab switches. Key
 synthesis via raw CGEvent FFI (thread-safe, posted inline from the capture
 thread; needs the same Accessibility grant). Toggle: `gestures.tiptap`
 (default on, gated by the master toggle; Settings row appears when gestures are

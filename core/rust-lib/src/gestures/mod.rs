@@ -64,6 +64,10 @@ pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
 /// The tap must land at least this far (|Δx|, normalized) from the resting
 /// finger for the left/right decision to be reliable.
 pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
+/// Refractory period between two tip-tap emits. A physical tap's lift can
+/// "bounce" (the contact re-appears for a frame or two) — without this gap one
+/// tap could fire several tab switches ("apps jump around wildly").
+pub const TIPTAP_EMIT_GAP_MS: u64 = 150;
 
 // ── Normalized gesture event ─────────────────────────────────────────────────
 
@@ -452,6 +456,8 @@ enum TtState {
 #[derive(Debug, Default)]
 pub struct TipTapRecognizer {
     state: Option<TtState>,
+    /// Timestamp of the last emit (refractory guard against contact bounce).
+    last_emit: Option<u64>,
 }
 
 impl TipTapRecognizer {
@@ -463,6 +469,17 @@ impl TipTapRecognizer {
         let state = self.state.take().unwrap_or(TtState::Idle);
         let (next, emit) = Self::step(state, t_ms, contacts);
         self.state = Some(next);
+        // Refractory: a tap's lift can bounce (contact re-appears for a frame),
+        // which would re-run the whole tap cycle — cap the emit rate instead of
+        // trusting every cycle.
+        if emit.is_some() {
+            if let Some(last) = self.last_emit {
+                if t_ms.saturating_sub(last) < TIPTAP_EMIT_GAP_MS {
+                    return None;
+                }
+            }
+            self.last_emit = Some(t_ms);
+        }
         emit
     }
 
@@ -517,14 +534,11 @@ impl TipTapRecognizer {
                             } else {
                                 GestureKind::TipTapLeft
                             });
-                        // Rest stays down → immediately re-armed for chained taps.
-                        (
-                            TtState::Resting {
-                                rest: c[0],
-                                since: t_ms.saturating_sub(TIPTAP_REST_MIN_MS),
-                            },
-                            emit,
-                        )
+                        // Rest stays down → back to Resting. The settle timer
+                        // restarts (no backdating): chained taps at human speed
+                        // (> ~80 ms apart) still work, but a bouncing lift
+                        // contact can't immediately re-arm another tap.
+                        (TtState::Resting { rest: c[0], since: t_ms }, emit)
                     } else {
                         // The rest lifted; the former tap finger becomes a fresh rest.
                         (TtState::Resting { rest: c[0], since: t_ms }, None)
@@ -550,13 +564,16 @@ impl TipTapRecognizer {
                 }
                 _ => (TtState::Poisoned, None),
             },
-            TtState::Poisoned => {
-                if c.is_empty() {
-                    (TtState::Idle, None)
-                } else {
-                    (TtState::Poisoned, None)
-                }
-            }
+            TtState::Poisoned => match c.len() {
+                // Recover as soon as at most the resting finger remains — a
+                // rejected tap (moved / overstayed / ghost contact) must NOT
+                // require lifting everything before tip-taps work again ("works
+                // 5-6 times, then I have to lift"). The fresh settle timer still
+                // blocks any scroll/pinch continuation from firing.
+                0 => (TtState::Idle, None),
+                1 => (TtState::Resting { rest: c[0], since: t_ms }, None),
+                _ => (TtState::Poisoned, None),
+            },
         }
     }
 }
@@ -653,16 +670,53 @@ mod tests {
 
     #[test]
     fn tiptap_chains_while_rest_stays_down() {
+        // Human-speed chaining: each tap re-settles ≥ TIPTAP_REST_MIN_MS and the
+        // emits are > TIPTAP_EMIT_GAP_MS apart.
         let evs = tiptap_events(&[
             (0, vec![c(0.45)]),
             (100, vec![c(0.45)]),
             (120, vec![c(0.45), c(0.60)]),
-            (180, vec![c(0.45)]),
-            (220, vec![c(0.45), c(0.30)]),
-            (280, vec![c(0.45)]),
-            (400, vec![]),
+            (180, vec![c(0.45)]), // emit #1 (Right)
+            (300, vec![c(0.45)]),
+            (380, vec![c(0.45), c(0.30)]),
+            (440, vec![c(0.45)]), // emit #2 (Left)
+            (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapLeft]);
+    }
+
+    #[test]
+    fn tiptap_recovers_after_a_rejected_attempt_without_full_lift() {
+        // A two-finger scroll poisons; lifting back to ONE finger + re-settling
+        // must re-arm (the old all-lift requirement made tip-taps die after a
+        // few uses until the user lifted everything).
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (10, vec![c(0.40), c(0.55)]), // landed together → poisoned
+            (200, vec![c(0.40), c(0.55)]),
+            (250, vec![c(0.40)]), // one lifted → recovering rest
+            (400, vec![c(0.40)]), // settled ≥ 80 ms
+            (420, vec![c(0.40), c(0.55)]),
+            (480, vec![c(0.40)]), // valid tap → emit
+            (600, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
+    }
+
+    #[test]
+    fn tiptap_bounce_fires_at_most_once() {
+        // The tap's lift "bounces": the contact re-appears for a frame right
+        // after lifting. The settle timer + emit refractory must swallow it.
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]),
+            (210, vec![c(0.40)]), // emit
+            (230, vec![c(0.40), c(0.55)]), // bounce re-contact (20 ms later)
+            (260, vec![c(0.40)]),
+            (400, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
     }
 
     #[test]

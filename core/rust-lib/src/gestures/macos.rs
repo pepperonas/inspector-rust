@@ -268,15 +268,29 @@ extern "C" fn frame_callback(
 
     // Tip-tap runs on per-contact positions (the centroid can't tell which
     // finger tapped). Same y-flip as above; ≤ 4 contacts is plenty (the
-    // recogniser poisons itself at ≥ 3 anyway).
+    // recogniser poisons itself at ≥ 3 anyway). CRUCIAL: only fingers whose
+    // MT `state` is TOUCHING (4) count — a lifting finger lingers in the frame
+    // array for several frames in the leaving states (5-7), which read as a
+    // still-down contact and made taps overstay/bounce (stuck recogniser +
+    // multi-fire tab switches).
+    const MT_STATE_TOUCHING: c_int = 4;
     let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
-    let cn = fingers.len().min(4);
-    for (slot, f) in contacts.iter_mut().zip(fingers.iter()) {
-        *slot = Contact {
+    let mut cn = 0usize;
+    for f in fingers.iter() {
+        if f.state != MT_STATE_TOUCHING {
+            continue;
+        }
+        if cn >= contacts.len() {
+            cn = contacts.len() + 1; // >4 real contacts → let the recogniser poison
+            break;
+        }
+        contacts[cn] = Contact {
             x: f.normalized.pos.x as f64,
             y: 1.0 - f.normalized.pos.y as f64,
         };
+        cn += 1;
     }
+    let cn = cn.min(contacts.len());
     let tt_kind = {
         let mut rec = TIPTAP_REC.lock();
         rec.get_or_insert_with(TipTapRecognizer::new).feed(t_ms, &contacts[..cn])

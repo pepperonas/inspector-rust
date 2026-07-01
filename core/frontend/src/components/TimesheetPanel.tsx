@@ -48,6 +48,7 @@ import {
   formatClock,
   formatDuration,
   dayStartMs,
+  dayEndMs,
   localDateStr,
   msToTimeInput,
   paletteColor,
@@ -104,6 +105,14 @@ export function TimesheetPanel() {
   const [search, setSearch] = useState("");
   // Manual "add entry" form open?
   const [adding, setAdding] = useState(false);
+  // Transient error banner (edit validation + IPC errors like the live-event
+  // guard) — previously these only went to console.error, invisible in the app.
+  const [panelErr, setPanelErr] = useState<string | null>(null);
+  useEffect(() => {
+    if (!panelErr) return;
+    const t = window.setTimeout(() => setPanelErr(null), 6000);
+    return () => window.clearTimeout(t);
+  }, [panelErr]);
   // Rubber-band drag-selection over the timeline list.
   const listRef = useRef<HTMLDivElement>(null);
   const [bandRect, setBandRect] = useState<{ left: number; top: number; width: number; height: number } | null>(null);
@@ -187,6 +196,7 @@ export function TimesheetPanel() {
     [report],
   );
   const dayStart = useMemo(() => dayStartMs(date), [date]);
+  const dayEnd = useMemo(() => dayEndMs(date), [date]);
 
   // The timeline's colour + label for an event, by the chosen mode. Both the
   // Gantt bands AND the legend use these, so they can never diverge.
@@ -215,7 +225,7 @@ export function TimesheetPanel() {
     const seen = new Set<string>();
     let hasIdle = false;
     for (const e of report?.events ?? []) {
-      if (!timelineBand(e.started_at, e.ended_at, dayStart, now)) continue;
+      if (!timelineBand(e.started_at, e.ended_at, dayStart, now, dayEnd)) continue;
       if (e.is_idle) {
         hasIdle = true;
         continue;
@@ -230,7 +240,7 @@ export function TimesheetPanel() {
     if (hasIdle) out.push({ key: "Idle", color: "var(--color-border)" });
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [report, timelineColorBy, appColors, dayStart, now]);
+  }, [report, timelineColorBy, appColors, dayStart, dayEnd, now]);
 
   // Timeline list after applying the drill-down filter + search.
   const shownEvents = useMemo(() => {
@@ -290,13 +300,23 @@ export function TimesheetPanel() {
     };
     if (!draft.wasOpen && draft.end) {
       const endedAt = timeInputToMs(dayStart, draft.end, e.ended_at ?? undefined);
-      if (endedAt != null) patch.ended_at = endedAt;
+      if (endedAt != null) {
+        // Reject inverted intervals (e.g. 23:50 → 00:10 typed as an overnight
+        // span resolves against the same day) instead of persisting a
+        // nonsensical reversed row that silently aggregates as 0s.
+        if (endedAt <= startedAt) {
+          setPanelErr("End must be after start — edit not saved.");
+          return;
+        }
+        patch.ended_at = endedAt;
+      }
     }
     try {
       await trackUpdateEvent(e.id, patch);
       if (draft.applyAll && cat !== "") await trackSetCategory(patch.app_name ?? e.app_name, cat);
     } catch (err) {
       console.error("track update failed", err);
+      setPanelErr(String(err));
     }
     refresh();
   };
@@ -306,6 +326,7 @@ export function TimesheetPanel() {
       await trackDeleteEvent(id);
     } catch (err) {
       console.error("track delete failed", err);
+      setPanelErr(String(err));
     }
     setSelected((s) => {
       const n = new Set(s);
@@ -384,6 +405,7 @@ export function TimesheetPanel() {
       await trackMergeEvents(ids);
     } catch (err) {
       console.error("track merge failed", err);
+      setPanelErr(String(err));
     }
     setSelected(new Set());
     refresh();
@@ -391,6 +413,11 @@ export function TimesheetPanel() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden text-[var(--color-fg)]">
+      {panelErr && (
+        <div className="shrink-0 border-b border-rose-500/40 bg-rose-500/10 px-4 py-1.5 text-[12px]">
+          {panelErr}
+        </div>
+      )}
       {/* Day navigation + status */}
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-border)] px-4 py-2">
         {/* Day ↔ Week mode */}
@@ -583,6 +610,7 @@ export function TimesheetPanel() {
             <Timeline
               events={report.events}
               dayStart={dayStart}
+              dayEnd={dayEnd}
               now={now}
               colorOf={tlColor}
               onSelectRange={(ids, t1, t2) => setProjAssign(ids.length ? { ids, t1, t2 } : null)}
@@ -1607,11 +1635,10 @@ function Card({
   );
 }
 
-const DAY_MS = 86_400_000;
-
 function Timeline({
   events,
   dayStart,
+  dayEnd,
   now,
   colorOf,
   onSelectRange,
@@ -1619,6 +1646,8 @@ function Timeline({
 }: {
   events: TrackEvent[];
   dayStart: number;
+  /** Next local midnight (DST-correct; a transition day is 23/25 h). */
+  dayEnd: number;
   now: number;
   colorOf: (e: TrackEvent) => string;
   /** Called on a drag-release with the active events overlapping [t1,t2]. */
@@ -1652,8 +1681,9 @@ function Timeline({
       const endX = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
       const f1 = Math.min(startX, endX) / rect.width;
       const f2 = Math.max(startX, endX) / rect.width;
-      const t1 = dayStart + f1 * DAY_MS;
-      const t2 = dayStart + f2 * DAY_MS;
+      const span = dayEnd - dayStart;
+      const t1 = dayStart + f1 * span;
+      const t2 = dayStart + f2 * span;
       const ids = events
         .filter(
           (ev2) =>
@@ -1669,9 +1699,10 @@ function Timeline({
     window.addEventListener("pointerup", onUp);
   };
 
-  const hiLeft = highlight ? Math.max(0, ((highlight.t1 - dayStart) / DAY_MS) * 100) : 0;
+  const daySpan = dayEnd - dayStart;
+  const hiLeft = highlight ? Math.max(0, ((highlight.t1 - dayStart) / daySpan) * 100) : 0;
   const hiWidth = highlight
-    ? Math.min(100 - hiLeft, ((highlight.t2 - highlight.t1) / DAY_MS) * 100)
+    ? Math.min(100 - hiLeft, ((highlight.t2 - highlight.t1) / daySpan) * 100)
     : 0;
 
   return (
@@ -1686,7 +1717,7 @@ function Timeline({
         title={onSelectRange ? "Drag to select a time window → assign a project" : undefined}
       >
         {events.map((e) => {
-          const band = timelineBand(e.started_at, e.ended_at, dayStart, now);
+          const band = timelineBand(e.started_at, e.ended_at, dayStart, now, dayEnd);
           if (!band) return null;
           return (
             <div

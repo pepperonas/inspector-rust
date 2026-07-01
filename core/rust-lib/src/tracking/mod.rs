@@ -51,6 +51,10 @@ pub struct Runtime {
     open_event_id: Option<i64>,
     open_key: Option<String>,
     open_started_at: i64,
+    /// True when the open interval matched the privacy denylist (its key is the
+    /// collapsed `app\0\0source` form). Blocks in-place tab enrichment — denied
+    /// time must never be retroactively attributed to the next tab's host.
+    open_was_denied: bool,
     stop: Option<Arc<AtomicBool>>,
     claude_stop: Option<Arc<AtomicBool>>,
     bridge_stop: Option<Arc<AtomicBool>>,
@@ -131,15 +135,7 @@ pub fn start(
         return Err("already tracking".into());
     }
     let now = now_ms();
-    // Retention: drop data older than N days (0 = keep forever).
-    if let Ok(days) = crate::settings::get_or(db, "track.retention_days", "0") {
-        if let Ok(d) = days.parse::<i64>() {
-            if d > 0 {
-                let cutoff = now - d * 86_400_000;
-                let _ = tdb::prune_before(db, cutoff);
-            }
-        }
-    }
+    prune_by_retention(db, now);
     let sid = tdb::start_session(db, label.as_deref(), now).map_err(|e| e.to_string())?;
     let stop = Arc::new(AtomicBool::new(false));
     // Claude-Code watcher (default on; settings-gated) — its own stop flag.
@@ -181,6 +177,9 @@ pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
     // later event — the "today shows >2h after 1h" bug). Heartbeats keep live
     // events stamped, so this only catches truly-orphaned ones.
     let _ = tdb::finalize_all_open_events(db);
+    // Retention must also apply on the resume path — with keep-alive on, a user
+    // may never run `track on` again, and pruning would otherwise never fire.
+    prune_by_retention(db, now_ms());
 
     let session = match tdb::active_session(db) {
         Ok(Some(s)) => s,
@@ -227,6 +226,30 @@ pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
     tracing::info!("timesheet: resumed active session {sid}");
 }
 
+/// Enforce `track.retention_days` (0 = keep forever): prune events + empty
+/// sessions older than the cutoff. Called on `track on`, on resume, and hourly
+/// from the run loop (so a never-restarted keep-alive session still prunes).
+fn prune_by_retention(db: &DbHandle, now: i64) {
+    if let Ok(days) = crate::settings::get_or(db, "track.retention_days", "0") {
+        if let Ok(d) = days.parse::<i64>() {
+            if d > 0 {
+                let cutoff = now - d * 86_400_000;
+                if let Err(e) = tdb::prune_before(db, cutoff) {
+                    tracing::warn!("timesheet: retention prune failed: {e:#}");
+                }
+            }
+        }
+    }
+}
+
+/// The id of the currently-growing (live) event, if any. Used by the IPC layer
+/// to protect the live row from delete/merge/cleanup — the run loop's heartbeat
+/// writes to this id, and removing the row would silently stop persisting all
+/// further time in the current focus span.
+pub fn live_event_id(state: &TrackerState) -> Option<i64> {
+    state.0.lock().open_event_id
+}
+
 pub fn stop(app: &AppHandle, db: &DbHandle, state: &TrackerState) -> Result<(), String> {
     let mut rt = state.0.lock();
     let Some(sid) = rt.session_id else {
@@ -266,7 +289,14 @@ pub fn status(state: &TrackerState) -> TrackStatus {
 // ── The focus / idle loop ────────────────────────────────────────────────────
 
 fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, stop: Arc<AtomicBool>) {
+    let mut last_prune = std::time::Instant::now();
     while !stop.load(Ordering::SeqCst) {
+        // Hourly retention enforcement — a keep-alive session may run for weeks
+        // without ever passing through `start()` again.
+        if last_prune.elapsed().as_secs() >= 3600 {
+            last_prune = std::time::Instant::now();
+            prune_by_retention(&db, now_ms());
+        }
         let threshold = crate::settings::get_or(&db, "track.idle_seconds", "300")
             .ok()
             .and_then(|s| s.parse::<f64>().ok())
@@ -390,7 +420,8 @@ fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
     };
     // Privacy denylist: for matching apps/hosts/urls, keep only the app + time —
     // strip title/url/host and collapse the key so tabs don't even split by URL.
-    if !d.is_idle && is_denied(&d, denylist) {
+    let denied = !d.is_idle && is_denied(&d, denylist);
+    if denied {
         d.title = None;
         d.host = None;
         d.url = None;
@@ -398,6 +429,28 @@ fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
     }
     if rt.open_key.as_deref() == Some(d.key.as_str()) {
         return; // unchanged → leave the interval open
+    }
+
+    // Browser tab info usually arrives a tick AFTER the browser interval opened
+    // (MV3 worker wake + WS round trip): the interval starts with empty
+    // host/url, and the late report would then SPLIT it — a tiny "(unknown)"
+    // fragment on every browser refocus. Instead, enrich the *young* open
+    // interval in place (same app, tab info newly arrived). Denied intervals
+    // are never enriched (their time must not be attributed to the next tab).
+    const ENRICH_WITHIN_MS: i64 = 15_000;
+    if !d.is_idle
+        && d.source == "browser"
+        && d.url.is_some()
+        && !rt.open_was_denied
+        && rt.open_key.as_deref() == Some(format!("{}\u{0}\u{0}browser", d.app).as_str())
+        && now - rt.open_started_at <= ENRICH_WITHIN_MS
+    {
+        if let Some(open_id) = rt.open_event_id {
+            let _ =
+                tdb::enrich_event(db, open_id, d.host.as_deref(), d.title.as_deref(), d.url.as_deref());
+            rt.open_key = Some(d.key);
+            return;
+        }
     }
 
     // Transition: close the open interval (clamped so it can't end before it
@@ -429,6 +482,7 @@ fn apply_tick(db: &DbHandle, rt: &mut Runtime, sid: i64, t: Tick) {
     rt.open_event_id = tdb::open_event(db, &ne).ok();
     rt.open_key = Some(d.key);
     rt.open_started_at = d.started_at;
+    rt.open_was_denied = denied;
     rt.paused = d.is_idle;
 }
 
@@ -555,16 +609,32 @@ fn longest_run_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
 }
 
 /// Local-day `[midnight, next-midnight)` in unix ms for a `"YYYY-MM-DD"`.
+///
+/// The upper bound is the **next day's local midnight**, not `from + 24 h` — a
+/// DST transition day is 23 or 25 real hours, and a fixed offset would double-
+/// count (spring) or drop (fall) an hour between adjacent days' reports.
+/// Invariant: `day_bounds(d).1 == day_bounds(d + 1).0` for every date.
 pub fn day_bounds(date: &str) -> Result<(i64, i64), String> {
     use chrono::{Local, NaiveDate, TimeZone};
+    // Local-midnight resolver, robust across DST: `.earliest()` picks the first
+    // valid instant when midnight is ambiguous (fall-back) and, when midnight
+    // itself is skipped (spring-forward at 00:00, e.g. historic Brazil), falls
+    // back to 01:00 of the same day.
+    let local_midnight = |nd: NaiveDate| -> Result<i64, String> {
+        let mid = nd.and_hms_opt(0, 0, 0).ok_or_else(|| "invalid date".to_string())?;
+        if let Some(dt) = Local.from_local_datetime(&mid).earliest() {
+            return Ok(dt.timestamp_millis());
+        }
+        let one = nd.and_hms_opt(1, 0, 0).ok_or_else(|| "invalid date".to_string())?;
+        Local
+            .from_local_datetime(&one)
+            .earliest()
+            .map(|dt| dt.timestamp_millis())
+            .ok_or_else(|| "unrepresentable local date".to_string())
+    };
     let d = NaiveDate::parse_from_str(date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
-    let midnight = d.and_hms_opt(0, 0, 0).ok_or_else(|| "invalid date".to_string())?;
-    let from = Local
-        .from_local_datetime(&midnight)
-        .single()
-        .ok_or_else(|| "ambiguous local date".to_string())?
-        .timestamp_millis();
-    Ok((from, from + 86_400_000))
+    let next = d.succ_opt().ok_or_else(|| "date overflow".to_string())?;
+    Ok((local_midnight(d)?, local_midnight(next)?))
 }
 
 fn to_buckets(map: std::collections::HashMap<String, i64>) -> Vec<Bucket> {
@@ -1111,6 +1181,59 @@ mod tests {
         apply_tick(&db, &mut rt, sid, Tick { now: 2_000, focus: None, idle_s: 0.0, threshold_s: 300.0, denylist: &[] }); // no info
         assert_eq!(rt.open_event_id, before, "should not churn the interval");
         assert_eq!(tdb::events_in_range(&db, -1, 1_000_000).unwrap().len(), 1);
+    }
+
+    #[test]
+    fn late_tab_report_enriches_instead_of_splitting() {
+        let db = test_db();
+        let sid = tdb::start_session(&db, None, 0).unwrap();
+        let mut rt = Runtime { session_id: Some(sid), ..Default::default() };
+        let deny: Vec<String> = vec![];
+        // Tick 1: browser frontmost, the extension hasn't reported the tab yet.
+        apply_tick(&db, &mut rt, sid, Tick { now: 1_000, focus: focus("Safari", Some("Loading…")), idle_s: 0.0, threshold_s: 300.0, denylist: &deny });
+        let evs = tdb::events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].host, None);
+        let first_id = evs[0].id;
+        // Tick 2: tab report arrived → the young interval is enriched IN PLACE
+        // (no "(unknown)" fragment split).
+        rt.last_tab = Some(TabInfo {
+            host: Some("github.com".into()),
+            title: Some("PR".into()),
+            url: Some("https://github.com/pr".into()),
+        });
+        apply_tick(&db, &mut rt, sid, Tick { now: 2_500, focus: focus("Safari", Some("PR")), idle_s: 0.0, threshold_s: 300.0, denylist: &deny });
+        let evs = tdb::events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.len(), 1, "no fragment split — enriched in place");
+        assert_eq!(evs[0].id, first_id);
+        assert_eq!(evs[0].host.as_deref(), Some("github.com"));
+        // A LATER tab change still splits normally (that's a real transition).
+        rt.last_tab = Some(TabInfo {
+            host: Some("news.com".into()),
+            title: Some("News".into()),
+            url: Some("https://news.com/".into()),
+        });
+        apply_tick(&db, &mut rt, sid, Tick { now: 4_000, focus: focus("Safari", Some("News")), idle_s: 0.0, threshold_s: 300.0, denylist: &deny });
+        assert_eq!(tdb::events_in_range(&db, -1, 1_000_000).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn day_bounds_adjacent_days_share_the_boundary() {
+        // The invariant that survives DST (day N's upper bound IS day N+1's
+        // lower bound) — checked across both 2026 EU transition days + normal
+        // days. With the old fixed `from + 24h` upper bound, the spring day
+        // double-counted an hour and the fall day dropped one.
+        for (a, b) in [
+            ("2026-03-29", "2026-03-30"), // EU spring-forward day (23 h in CET)
+            ("2026-10-25", "2026-10-26"), // EU fall-back day (25 h in CET)
+            ("2026-07-01", "2026-07-02"),
+            ("2026-12-31", "2027-01-01"),
+        ] {
+            let (fa, ta) = day_bounds(a).unwrap();
+            let (fb, _) = day_bounds(b).unwrap();
+            assert_eq!(ta, fb, "{a} upper bound must equal {b} lower bound");
+            assert!(ta > fa, "{a} must be a non-empty day");
+        }
     }
 
     #[test]

@@ -293,8 +293,12 @@ pub fn finalize_all_open_events(db: &DbHandle) -> rusqlite::Result<usize> {
     )
 }
 
-/// Enrich the still-open event with browser tab metadata (host/title/url) — used
-/// while a browser is frontmost and the extension reports the active tab.
+/// Enrich the tracker's live event with browser tab metadata (host/title/url) —
+/// called by `apply_tick` when the extension's tab report arrives a tick after
+/// the browser interval opened (instead of splitting off an "(unknown)"
+/// fragment). The caller guarantees `id` is the live event; no `ended_at IS
+/// NULL` guard here — the heartbeat stamps `ended_at` every tick, so that
+/// condition would make enrichment a permanent no-op.
 pub fn enrich_event(
     db: &DbHandle,
     id: i64,
@@ -308,7 +312,7 @@ pub fn enrich_event(
     conn.execute(
         "UPDATE track_events SET host = COALESCE(?2, host), \
          window_title = COALESCE(?3, window_title), url = COALESCE(?4, url) \
-         WHERE id = ?1 AND ended_at IS NULL",
+         WHERE id = ?1",
         params![id, host, enc_title, enc_url],
     )?;
     Ok(())
@@ -411,16 +415,27 @@ pub fn manual_session_id(db: &DbHandle, now: i64) -> rusqlite::Result<i64> {
 
 /// Delete cleanup-able events in `[from, to)`: all `idle` spans plus any
 /// non-idle, non-claude event shorter than `min_seconds` (quick-switch noise).
-/// Returns rows deleted.
-pub fn cleanup_day(db: &DbHandle, from: i64, to: i64, min_seconds: i64) -> rusqlite::Result<usize> {
+/// `exclude` protects the tracker's **live** (still-growing) event — its
+/// heartbeat-stamped `ended_at` makes it look closed (and a freshly-opened row
+/// is naturally short), so without the exclusion a cleanup during tracking
+/// would delete the row the heartbeat writes to and silently stop persisting
+/// the rest of the focus span. Returns rows deleted.
+pub fn cleanup_day(
+    db: &DbHandle,
+    from: i64,
+    to: i64,
+    min_seconds: i64,
+    exclude: Option<i64>,
+) -> rusqlite::Result<usize> {
     let conn = db.lock();
     conn.execute(
         "DELETE FROM track_events \
          WHERE started_at >= ?1 AND started_at < ?2 \
+           AND id != ?4 \
            AND ( is_idle = 1 \
                  OR (source != 'claude' AND ended_at IS NOT NULL \
                      AND (ended_at - started_at) / 1000 < ?3) )",
-        params![from, to, min_seconds],
+        params![from, to, min_seconds, exclude.unwrap_or(-1)],
     )
 }
 
@@ -753,12 +768,31 @@ mod tests {
         insert_event(&db, &idle, 900_000).unwrap(); // idle
         assert_eq!(events_in_range(&db, -1, 10_000_000).unwrap().len(), 3);
         // Clean up: idle + sub-15s → removes the fragment + the idle span.
-        let removed = cleanup_day(&db, -1, 10_000_000, 15).unwrap();
+        let removed = cleanup_day(&db, -1, 10_000_000, 15, None).unwrap();
         assert_eq!(removed, 2);
         let left = events_in_range(&db, -1, 10_000_000).unwrap();
         assert_eq!(left.len(), 1);
         assert_eq!(left[0].app_name, "Code");
         assert!(!left[0].is_idle);
+    }
+
+    #[test]
+    fn cleanup_day_spares_the_excluded_live_event() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        // A live idle span (heartbeat-stamped ended_at makes it look closed) +
+        // a genuinely-old idle span. Excluding the live id must spare it.
+        let mut live = ev(sid, "Idle", 0);
+        live.is_idle = true;
+        let live_id = insert_event(&db, &live, 5_000).unwrap();
+        let mut old = ev(sid, "Idle", 10_000);
+        old.is_idle = true;
+        insert_event(&db, &old, 20_000).unwrap();
+        let removed = cleanup_day(&db, -1, 10_000_000, 15, Some(live_id)).unwrap();
+        assert_eq!(removed, 1, "only the non-live idle span is deleted");
+        let left = events_in_range(&db, -1, 10_000_000).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, live_id);
     }
 
     #[test]
@@ -799,7 +833,7 @@ mod tests {
     }
 
     #[test]
-    fn enrich_only_touches_open_event() {
+    fn enrich_updates_event_even_after_heartbeat() {
         let db = test_db();
         let sid = start_session(&db, None, 0).unwrap();
         let eid = open_event(&db, &ev(sid, "Safari", 0)).unwrap();
@@ -807,11 +841,15 @@ mod tests {
         let evs = events_in_range(&db, -1, 100).unwrap();
         assert_eq!(evs[0].host.as_deref(), Some("github.com"));
         assert_eq!(evs[0].window_title.as_deref(), Some("Title"));
-        // After close, enrich is a no-op.
-        close_event(&db, eid, 50).unwrap();
+        // The live event's ended_at is heartbeat-stamped every tick — enrichment
+        // must still work then (the caller guarantees the id is the live event;
+        // the old `ended_at IS NULL` guard made it a permanent no-op).
+        touch_event(&db, eid, 50).unwrap();
         enrich_event(&db, eid, Some("other.com"), None, None).unwrap();
         let evs = events_in_range(&db, -1, 100).unwrap();
-        assert_eq!(evs[0].host.as_deref(), Some("github.com"));
+        assert_eq!(evs[0].host.as_deref(), Some("other.com"));
+        // COALESCE keeps existing values when the report carries None.
+        assert_eq!(evs[0].window_title.as_deref(), Some("Title"));
     }
 
     #[test]

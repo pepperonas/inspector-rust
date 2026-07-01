@@ -45,6 +45,14 @@ export function dayStartMs(date: string): number {
   return new Date(y, (m || 1) - 1, d || 1, 0, 0, 0, 0).getTime();
 }
 
+/** The NEXT day's local midnight (unix ms) — DST-correct upper bound for the
+ *  day window (a transition day is 23/25 h, so `start + 24h` would be wrong;
+ *  the JS Date day-rollover handles the shift). Mirrors Rust's `day_bounds`. */
+export function dayEndMs(date: string): number {
+  const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
+  return new Date(y, (m || 1) - 1, (d || 1) + 1, 0, 0, 0, 0).getTime();
+}
+
 /** The ISO week (Mon–Sun) containing `date` as `{from, to}` ("YYYY-MM-DD"). */
 export function weekBounds(date: string): { from: string; to: string } {
   const [y, m, d] = date.split("-").map((n) => parseInt(n, 10));
@@ -204,14 +212,17 @@ export function timelineBand(
   endedAt: number | null,
   dayStart: number,
   now: number,
+  dayEnd: number = dayStart + 86_400_000,
 ): { leftPct: number; widthPct: number } | null {
-  const DAY = 86_400_000;
-  const dayEnd = dayStart + DAY;
+  // Pass `dayEnd` (from `dayEndMs`) for DST-correct rendering on 23/25-hour
+  // transition days; the 24 h default keeps old callers/tests working.
+  const span = dayEnd - dayStart;
+  if (span <= 0) return null;
   const s = Math.max(startedAt, dayStart);
   const e = Math.min(endedAt ?? now, dayEnd);
   if (e <= s) return null;
   return {
-    leftPct: ((s - dayStart) / DAY) * 100,
-    widthPct: ((e - s) / DAY) * 100,
+    leftPct: ((s - dayStart) / span) * 100,
+    widthPct: ((e - s) / span) * 100,
   };
 }

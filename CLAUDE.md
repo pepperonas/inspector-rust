@@ -468,6 +468,26 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   sub-15s fragments, `cleanup_day`), and Enter/Esc in the editor. A **Day ↔ Week**
   toggle: week = per-day bars + category/app/project + productive% over the
   Mon–Sun week (`range_report`); the day adds a **By project** card + Productive%.
+- **Integrity fixes (v0.84.203):** (1) **Live-event guard** — the run loop's
+  heartbeat writes to `Runtime.open_event_id`, so delete/merge on that id (its
+  heartbeat-stamped `ended_at` makes it look closed) or a cleanup during
+  idle-pause silently killed all further persistence in the focus span;
+  `tracking::live_event_id` + IPC guards reject delete/merge of the live row and
+  `cleanup_day` takes an `exclude` id. (2) **Retention on resume + hourly** —
+  pruning only ran on `track on`; with keep-alive a session can run for weeks, so
+  `prune_by_retention` now also fires in `resume_if_active` + hourly in the run
+  loop. (3) **DST-safe `day_bounds`** — upper bound is the *next* local midnight,
+  not `from + 24h` (23/25-h transition days double-counted/dropped an hour);
+  invariant `day_bounds(d).1 == day_bounds(d+1).0` is unit-tested; frontend
+  mirror `dayEndMs` + `timelineBand(.., dayEnd)`. (4) **Editor validation** —
+  the inline editor rejects `end <= start` (was silently persisting inverted
+  rows); IPC errors now surface in a panel banner instead of console-only.
+  (5) **In-place tab enrichment** — the extension's tab report arrives a tick
+  after a browser interval opens; `apply_tick` now enriches the young (≤15 s)
+  interval via `enrich_event` (whose dead `ended_at IS NULL` guard — always
+  false after the first heartbeat — is removed) instead of splitting off an
+  "(unknown)" fragment; denied intervals are never enriched
+  (`Runtime.open_was_denied`).
 - **IPC:** `track_start/stop/status/get_day/get_range/update_event/delete_event/
   merge_events/set_category/category_rules/delete_category_rule/
   distinct_categories/add_event/cleanup_day/clear_all/export/bridge_info/

@@ -371,13 +371,35 @@ pub fn track_update_event(
     crate::tracking::db::update_event(&db, id, &patch).map_err(map_err)
 }
 
+/// The still-growing (live) event must never be deleted/merged: the run loop's
+/// heartbeat keeps writing to that id, so removing the row silently stops
+/// persisting all further time in the current focus span (unbounded data loss).
+const ERR_LIVE_EVENT: &str =
+    "This entry is still being recorded — switch apps or stop tracking first.";
+
 #[tauri::command]
-pub fn track_delete_event(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+pub fn track_delete_event(
+    db: State<'_, DbHandle>,
+    tracker: State<'_, crate::tracking::TrackerState>,
+    id: i64,
+) -> Result<(), String> {
+    if crate::tracking::live_event_id(&tracker) == Some(id) {
+        return Err(ERR_LIVE_EVENT.into());
+    }
     crate::tracking::db::delete_event(&db, id).map_err(map_err)
 }
 
 #[tauri::command]
-pub fn track_merge_events(db: State<'_, DbHandle>, ids: Vec<i64>) -> Result<Option<i64>, String> {
+pub fn track_merge_events(
+    db: State<'_, DbHandle>,
+    tracker: State<'_, crate::tracking::TrackerState>,
+    ids: Vec<i64>,
+) -> Result<Option<i64>, String> {
+    if let Some(live) = crate::tracking::live_event_id(&tracker) {
+        if ids.contains(&live) {
+            return Err(ERR_LIVE_EVENT.into());
+        }
+    }
     crate::tracking::db::merge_events(&db, &ids).map_err(map_err)
 }
 
@@ -466,11 +488,15 @@ pub fn track_add_event(
 #[tauri::command]
 pub fn track_cleanup_day(
     db: State<'_, DbHandle>,
+    tracker: State<'_, crate::tracking::TrackerState>,
     date: String,
     min_seconds: i64,
 ) -> Result<usize, String> {
     let (from, to) = crate::tracking::day_bounds(&date)?;
-    crate::tracking::db::cleanup_day(&db, from, to, min_seconds.max(0)).map_err(map_err)
+    // The live event is excluded — a cleanup while idle-paused (or right after
+    // a focus switch) would otherwise delete the row the heartbeat writes to.
+    let live = crate::tracking::live_event_id(&tracker);
+    crate::tracking::db::cleanup_day(&db, from, to, min_seconds.max(0), live).map_err(map_err)
 }
 
 /// Timesheet settings (Settings → Timesheet).

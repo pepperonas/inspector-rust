@@ -29,7 +29,7 @@
 
 #![allow(dead_code)]
 
-use super::{BoomConfig, DspChain, BANDS_10};
+use super::{BoomConfig, DspChain, BANDS_10, DspParams};
 use block2::RcBlock;
 use objc2::rc::Retained;
 use objc2::runtime::AnyObject;
@@ -283,6 +283,11 @@ unsafe impl Send for Session {}
 struct Engine {
     session: Option<Session>,
     dsp: Arc<Mutex<DspChain>>,
+    /// The last params pushed from the config. `start_locked` re-applies them to
+    /// the fresh chain it swaps in — without this, enabling boom ran a DEFAULT
+    /// (flat) chain until the next slider touch pushed params again (the "have
+    /// to move a slider for settings to apply" bug).
+    params: DspParams,
 }
 
 static ENGINE: Mutex<Option<Engine>> = Mutex::new(None);
@@ -692,7 +697,11 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     set_device_sample_rate(boom_dev, sr);
     std::thread::sleep(std::time::Duration::from_millis(80));
     {
+        // Fresh chain at the REAL device's sample rate — and immediately re-apply
+        // the saved config params: the swap otherwise left a default (flat) chain
+        // live until the next slider touch pushed params again.
         let mut chain = DspChain::new(sr, &BANDS_10);
+        chain.set_params(&eng.params);
         std::mem::swap(&mut *eng.dsp.lock(), &mut chain);
     }
     let ring = Ring::new(1 << 15); // 32768 f32 ~= 0.34 s of stereo @ 48 kHz
@@ -915,11 +924,14 @@ pub(crate) fn set_active(cfg: &BoomConfig) {
         *slot = Some(Engine {
             session: None,
             dsp: Arc::new(Mutex::new(DspChain::new(48000.0, &BANDS_10))),
+            params: DspParams::default(),
         });
     }
     let eng = slot.as_mut().unwrap();
-    // Push params (applied whether or not audio is live).
-    eng.dsp.lock().set_params(&cfg.dsp_params());
+    // Push params (applied whether or not audio is live) + remember them so
+    // start_locked can re-apply to the fresh chain it swaps in.
+    eng.params = cfg.dsp_params();
+    eng.dsp.lock().set_params(&eng.params);
 
     if cfg.enabled && ENGINE_ENABLED {
         SHOULD_RUN.store(true, Ordering::SeqCst);

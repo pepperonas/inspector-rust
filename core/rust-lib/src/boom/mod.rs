@@ -21,9 +21,16 @@ pub const BANDS_10: [f32; 10] = [
 
 /// Default per-band Q for a graphic EQ (≈ octave-wide peaking filters).
 const BAND_Q: f64 = 1.41;
-/// Soft-limiter output ceiling (linear). Keeps the signal just under full scale
-/// so the boost can never hard-clip / blow the internal speakers.
-pub const LIMITER_CEILING: f32 = 0.985;
+/// Soft-limiter output ceiling (linear). Full scale — output may use the whole
+/// range; the soft knee below only shapes actual overs so the boost can never
+/// hard-clip / blow the internal speakers.
+pub const LIMITER_CEILING: f32 = 1.0;
+/// The limiter is exactly transparent below `KNEE_FRACTION × ceiling`. This must
+/// sit ABOVE normal music peaks: modern masters peak at ~0 dBFS, so the original
+/// 0.8 knee (−2 dB) tanh-compressed the top 2 dB of every peak — flat-EQ boom
+/// audibly dulled transients vs. bypass ("sounds worse with boom on"). At 0.95
+/// (−0.45 dB) only genuine overs get shaped.
+pub const KNEE_FRACTION: f32 = 0.95;
 
 // ── Biquad (RBJ peaking EQ, transposed direct-form II) ───────────────────────
 
@@ -143,16 +150,17 @@ impl Biquad {
     }
 }
 
-/// Soft-knee limiter: **exactly transparent** below the knee (0.8·ceiling), then
-/// smoothly compresses everything above toward `±ceiling` — so normal-level
-/// audio is untouched and only peaks near clipping are tamed (never exceeds
-/// `±ceiling`). A plain `tanh(x)` would attenuate even quiet signals.
+/// Soft-knee limiter: **exactly transparent** below the knee
+/// ([`KNEE_FRACTION`]·ceiling), then smoothly compresses everything above toward
+/// `±ceiling` — so normal-level audio (incl. full-scale music peaks) is
+/// untouched and only genuine overs are tamed (never exceeds `±ceiling`). A
+/// plain `tanh(x)` would attenuate even quiet signals.
 #[inline]
 pub fn soft_limit(x: f32, ceiling: f32) -> f32 {
     if ceiling <= 0.0 {
         return 0.0;
     }
-    let knee = ceiling * 0.8;
+    let knee = ceiling * KNEE_FRACTION;
     let a = x.abs();
     if a <= knee {
         return x;
@@ -180,6 +188,18 @@ pub struct DspParams {
     pub boost_pct: f32,
     /// Enhancement-effect intensities (0..1).
     pub effects: Effects,
+}
+
+impl Default for DspParams {
+    /// Flat / bypass-equivalent: 0 dB pre-amp, flat EQ, 100 % boost, effects off.
+    fn default() -> Self {
+        DspParams {
+            preamp_db: 0.0,
+            band_gains_db: vec![0.0; BANDS_10.len()],
+            boost_pct: 100.0,
+            effects: Effects::default(),
+        }
+    }
 }
 
 // ── Enhancement-effect tuning (one place) ────────────────────────────────────
@@ -683,6 +703,25 @@ mod tests {
         }
         // ~linear for small signals.
         assert!((soft_limit(0.01, 0.985) - 0.01).abs() < 1e-3);
+    }
+
+    #[test]
+    fn limiter_transparent_for_full_scale_music_peaks() {
+        // Modern masters peak near 0 dBFS. The limiter must pass those bit-exact
+        // (the old 0.8 knee compressed the top 2 dB of every peak → boom sounded
+        // worse than bypass at flat settings). Only genuine overs are shaped.
+        for x in [0.5f32, 0.85, 0.90, 0.94, -0.94] {
+            assert_eq!(soft_limit(x, LIMITER_CEILING), x, "must be bit-transparent at {x}");
+        }
+        // A flat chain passes a loud music-level signal through unchanged.
+        let mut chain = DspChain::new(48_000.0, &BANDS_10);
+        chain.set_params(&DspParams::default());
+        let mut buf = vec![0.94f32; 64];
+        chain.process_interleaved(&mut buf, 1);
+        assert!(buf.iter().all(|&s| (s - 0.94).abs() < 1e-4), "flat boom must be transparent");
+        // Genuine overs are shaped, never exceed the ceiling.
+        let over = soft_limit(1.4, LIMITER_CEILING);
+        assert!(over > 0.95 && over <= LIMITER_CEILING + 1e-6);
     }
 
     #[test]

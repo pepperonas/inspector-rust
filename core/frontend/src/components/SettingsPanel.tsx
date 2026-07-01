@@ -409,6 +409,22 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       .then(setGestureCfg)
       .catch(() => setGestureCfg(null));
   }, []);
+  const toggleTipTap = async (next: boolean) => {
+    if (!gestureCfg) return;
+    setGestureBusy(true);
+    const optimistic = { ...gestureCfg, tiptap: next };
+    setGestureCfg(optimistic);
+    try {
+      const applied = await setGestureConfig(optimistic);
+      setGestureCfg(applied);
+    } catch (e) {
+      console.error("tip-tap toggle failed", e);
+      setGestureCfg({ ...gestureCfg, tiptap: !next });
+    } finally {
+      setGestureBusy(false);
+    }
+  };
+
   const toggleGestures = async (next: boolean) => {
     if (!gestureCfg) return;
     setGestureBusy(true);
@@ -1139,7 +1155,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <Section
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
             title="Touchpad gestures"
-            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, tip-tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
           >
             <Row label="Enable gestures">
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -1159,6 +1175,23 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 </span>
               </label>
             </Row>
+            {gestureCfg?.enabled && (
+              <Row label="Tip-tap tab switch">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={gestureCfg?.tiptap ?? true}
+                    disabled={gestureCfg === null || gestureBusy}
+                    onChange={(e) => void toggleTipTap(e.target.checked)}
+                    className="accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    Rest one finger, tap a second to its right → next tab (Ctrl+Tab); tap to
+                    its left → previous tab (Ctrl+Shift+Tab)
+                  </span>
+                </label>
+              </Row>
+            )}
           </Section>
         </div>
 

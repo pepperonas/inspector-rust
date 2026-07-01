@@ -682,6 +682,8 @@ export interface GestureConfig {
   enabled: boolean;
   fingers: number;
   volume_step: number;
+  /** Tip-tap tab switching (rest one finger, tap another left/right). */
+  tiptap: boolean;
 }
 
 export function getGestureConfig(): Promise<GestureConfig> {

@@ -5,6 +5,8 @@
 //! | 3-finger swipe up  | volume up   (`adjust_system_volume(+step)`) |
 //! | 3-finger swipe down| volume down (`adjust_system_volume(-step)`) |
 //! | 3-finger tap       | mute toggle (`toggle_system_mute()`)        |
+//! | tip-tap right (1 finger resting, a 2nd taps to its RIGHT) | next tab (Ctrl+Tab) |
+//! | tip-tap left  (1 finger resting, a 2nd taps to its LEFT)  | previous tab (Ctrl+Shift+Tab) |
 //!
 //! Design: this module is **platform-independent** and holds the normalized
 //! event type, the config, the gesture→action dispatcher, and the pure
@@ -47,6 +49,22 @@ pub const TAP_MAX_MS: u64 = 250;
 /// real tap — without this floor those glitches muted "by themselves".
 pub const TAP_MIN_MS: u64 = 10;
 
+// Tip-tap (BetterTouchTool-style "TipTap, 1 finger fix"): one finger rests, a
+// second taps briefly to its left/right → previous/next tab.
+/// The resting finger must be down alone at least this long before the tap
+/// lands — two fingers landing together are a scroll/click, never a tip-tap.
+pub const TIPTAP_REST_MIN_MS: u64 = 80;
+/// The tapping finger must lift within this window (else it's a two-finger rest).
+pub const TIPTAP_TAP_MAX_MS: u64 = 300;
+/// …and must be down at least this long (single-frame sensor glitch filter).
+pub const TIPTAP_TAP_MIN_MS: u64 = 20;
+/// Max movement (normalized) either finger may make during the tap — more is a
+/// scroll/pinch, and a drifting rest finger re-arms its settle timer.
+pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
+/// The tap must land at least this far (|Δx|, normalized) from the resting
+/// finger for the left/right decision to be reliable.
+pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
+
 // ── Normalized gesture event ─────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +74,10 @@ pub enum GestureKind {
     SwipeLeft,
     SwipeRight,
     Tap,
+    /// One finger resting, a second tapped to its LEFT (→ previous tab).
+    TipTapLeft,
+    /// One finger resting, a second tapped to its RIGHT (→ next tab).
+    TipTapRight,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -68,12 +90,20 @@ pub struct GestureEvent {
 
 const KEY_ENABLED: &str = "gestures.enabled";
 const KEY_VOLUME_STEP: &str = "gestures.volume_step";
+const KEY_TIPTAP: &str = "gestures.tiptap";
+
+fn default_true() -> bool {
+    true
+}
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct GestureConfig {
     pub enabled: bool,
     pub fingers: u8,
     pub volume_step: i32,
+    /// Tip-tap tab switching (rest one finger, tap another left/right).
+    #[serde(default = "default_true")]
+    pub tiptap: bool,
 }
 
 impl Default for GestureConfig {
@@ -82,6 +112,7 @@ impl Default for GestureConfig {
             enabled: false, // opt-in
             fingers: DEFAULT_FINGERS,
             volume_step: DEFAULT_VOLUME_STEP,
+            tiptap: true,
         }
     }
 }
@@ -97,12 +128,14 @@ impl GestureConfig {
                 .and_then(|s| s.parse().ok())
                 .filter(|v: &i32| *v > 0 && *v <= 50)
                 .unwrap_or(d.volume_step),
+            tiptap: crate::settings::get_bool(db, KEY_TIPTAP, d.tiptap).unwrap_or(d.tiptap),
         }
     }
 
     pub fn save(&self, db: &DbHandle) -> anyhow::Result<()> {
         crate::settings::set(db, KEY_ENABLED, if self.enabled { "true" } else { "false" })?;
         crate::settings::set(db, KEY_VOLUME_STEP, &self.volume_step.to_string())?;
+        crate::settings::set(db, KEY_TIPTAP, if self.tiptap { "true" } else { "false" })?;
         Ok(())
     }
 }
@@ -114,16 +147,23 @@ pub enum GestureAction {
     VolumeUp,
     VolumeDown,
     MuteToggle,
+    NextTab,
+    PrevTab,
 }
 
 /// Pure mapping (config-gated). Fixed bindings for now, but isolated here so a
 /// future remap UI only has to change this function. Returns `None` when
 /// gestures are off, the finger count doesn't match, or the gesture is unbound.
 pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureAction> {
-    if !cfg.enabled || ev.fingers != cfg.fingers {
+    if !cfg.enabled {
         return None;
     }
+    // Tip-taps are inherently two-finger; the `fingers` count only gates the
+    // swipe/tap family.
     match ev.kind {
+        GestureKind::TipTapLeft => cfg.tiptap.then_some(GestureAction::PrevTab),
+        GestureKind::TipTapRight => cfg.tiptap.then_some(GestureAction::NextTab),
+        _ if ev.fingers != cfg.fingers => None,
         GestureKind::SwipeUp => Some(GestureAction::VolumeUp),
         GestureKind::SwipeDown => Some(GestureAction::VolumeDown),
         GestureKind::Tap => Some(GestureAction::MuteToggle),
@@ -139,6 +179,14 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// `StatusToast.tsx`), they don't re-pop.
 fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     tracing::debug!("gesture action: {action:?} (step {step})");
+    // Tab switching: synthesize the (near-universal) Ctrl+Tab / Ctrl+Shift+Tab
+    // directly — no toast, the visibly switching tab is the feedback. CGEventPost
+    // is thread-safe, so this runs inline on the capture thread (fast path).
+    if matches!(action, GestureAction::NextTab | GestureAction::PrevTab) {
+        #[cfg(target_os = "macos")]
+        send_tab_switch(matches!(action, GestureAction::NextTab));
+        return;
+    }
     let app = app.clone();
     std::thread::spawn(move || {
         let toast = match action {
@@ -165,6 +213,8 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
                     subtitle: "Volume".into(),
                 }
             }
+            // Handled above (early return) — kept for match exhaustiveness.
+            GestureAction::NextTab | GestureAction::PrevTab => return,
         };
         let app2 = app.clone();
         let _ = app.run_on_main_thread(move || {
@@ -174,6 +224,46 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
             crate::status_toast::show_passive(&app2, toast);
         });
     });
+}
+
+/// Synthesize Ctrl+Tab (next) / Ctrl+Shift+Tab (previous) — the tab-navigation
+/// shortcut virtually every tabbed macOS app understands (Safari, Chrome,
+/// Firefox, VS Code, iTerm2, Terminal, Finder, …). Raw CGEvent FFI; posting to
+/// the HID tap needs the Accessibility grant the gestures feature already uses.
+#[cfg(target_os = "macos")]
+fn send_tab_switch(next: bool) {
+    use std::ffi::c_void;
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventCreateKeyboardEvent(
+            source: *mut c_void,
+            keycode: u16,
+            keydown: bool,
+        ) -> *mut c_void;
+        fn CGEventSetFlags(event: *mut c_void, flags: u64);
+        fn CGEventPost(tap: u32, event: *mut c_void);
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        // Signature matches audio.rs's declaration (clashing_extern_declarations).
+        fn CFRelease(cf: *const c_void);
+    }
+    const KEY_TAB: u16 = 48; // kVK_Tab
+    const FLAG_SHIFT: u64 = 0x0002_0000; // kCGEventFlagMaskShift
+    const FLAG_CONTROL: u64 = 0x0004_0000; // kCGEventFlagMaskControl
+    const HID_TAP: u32 = 0; // kCGHIDEventTap
+    let flags = FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT };
+    unsafe {
+        for down in [true, false] {
+            let ev = CGEventCreateKeyboardEvent(std::ptr::null_mut(), KEY_TAB, down);
+            if ev.is_null() {
+                return;
+            }
+            CGEventSetFlags(ev, flags);
+            CGEventPost(HID_TAP, ev);
+            CFRelease(ev as *const c_void);
+        }
+    }
 }
 
 static SUPPRESS_GEN: AtomicU64 = AtomicU64::new(0);
@@ -327,6 +417,150 @@ impl Recognizer {
     }
 }
 
+// ── Tip-tap recognition (pure) ───────────────────────────────────────────────
+
+/// One touch contact, normalized to 0..1 over the pad.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Contact {
+    pub x: f64,
+    pub y: f64,
+}
+
+fn dist(a: Contact, b: Contact) -> f64 {
+    (a.x - b.x).hypot(a.y - b.y)
+}
+
+#[derive(Debug, Clone, Copy)]
+enum TtState {
+    Idle,
+    /// One finger down, settling/resting.
+    Resting { rest: Contact, since: u64 },
+    /// Rest + a second (tap) finger down.
+    TapDown { rest: Contact, tap: Contact, tap_start_x: f64, started: u64 },
+    /// Disqualified (scroll/pinch/3+ fingers) — wait for all-lift.
+    Poisoned,
+}
+
+/// BetterTouchTool-style **TipTap (1 finger fix)** recogniser: one finger rests
+/// on the pad, a second taps briefly to its left/right → [`GestureKind::
+/// TipTapLeft`]/[`TipTapRight`]. Pure + unit-tested; fed per-frame with every
+/// contact's position (unordered). Guards: the rest finger must be down alone
+/// ≥ `TIPTAP_REST_MIN_MS` first (kills two-finger scroll/click, whose fingers
+/// land together), the tap must lift within `TIPTAP_TAP_MAX_MS`, and any
+/// movement > `TIPTAP_MAX_MOVE_NORM` by either finger disqualifies the attempt.
+/// Taps chain: the rest finger can stay down and tap repeatedly.
+#[derive(Debug, Default)]
+pub struct TipTapRecognizer {
+    state: Option<TtState>,
+}
+
+impl TipTapRecognizer {
+    pub fn new() -> Self {
+        TipTapRecognizer::default()
+    }
+
+    pub fn feed(&mut self, t_ms: u64, contacts: &[Contact]) -> Option<GestureKind> {
+        let state = self.state.take().unwrap_or(TtState::Idle);
+        let (next, emit) = Self::step(state, t_ms, contacts);
+        self.state = Some(next);
+        emit
+    }
+
+    fn step(state: TtState, t_ms: u64, c: &[Contact]) -> (TtState, Option<GestureKind>) {
+        match state {
+            TtState::Idle => match c.len() {
+                0 => (TtState::Idle, None),
+                1 => (TtState::Resting { rest: c[0], since: t_ms }, None),
+                _ => (TtState::Poisoned, None),
+            },
+            TtState::Resting { rest, since } => match c.len() {
+                0 => (TtState::Idle, None),
+                1 => {
+                    // Track the rest finger; big movement (cursor drag) re-arms
+                    // the settle timer so a tap right after a drag can't fire.
+                    let moved = dist(c[0], rest) > TIPTAP_MAX_MOVE_NORM;
+                    (
+                        TtState::Resting { rest: c[0], since: if moved { t_ms } else { since } },
+                        None,
+                    )
+                }
+                2 => {
+                    if t_ms.saturating_sub(since) < TIPTAP_REST_MIN_MS {
+                        // Both fingers landed ~together → scroll/click, not tip-tap.
+                        return (TtState::Poisoned, None);
+                    }
+                    // The contact closer to the tracked rest position IS the rest.
+                    let (r, t) = if dist(c[0], rest) <= dist(c[1], rest) {
+                        (c[0], c[1])
+                    } else {
+                        (c[1], c[0])
+                    };
+                    if (t.x - r.x).abs() < TIPTAP_MIN_SEP_NORM {
+                        return (TtState::Poisoned, None); // too close to call left/right
+                    }
+                    (TtState::TapDown { rest: r, tap: t, tap_start_x: t.x, started: t_ms }, None)
+                }
+                _ => (TtState::Poisoned, None),
+            },
+            TtState::TapDown { rest, tap, tap_start_x, started } => match c.len() {
+                0 => (TtState::Idle, None), // both lifted → a two-finger tap, not tip-tap
+                1 => {
+                    // One finger lifted. If the REST remains → the tap finger
+                    // tapped: emit (direction = where the tap landed vs. rest).
+                    let remaining_is_rest = dist(c[0], rest) <= dist(c[0], tap);
+                    if remaining_is_rest {
+                        let dur = t_ms.saturating_sub(started);
+                        let emit = (TIPTAP_TAP_MIN_MS..=TIPTAP_TAP_MAX_MS)
+                            .contains(&dur)
+                            .then_some(if tap_start_x > rest.x {
+                                GestureKind::TipTapRight
+                            } else {
+                                GestureKind::TipTapLeft
+                            });
+                        // Rest stays down → immediately re-armed for chained taps.
+                        (
+                            TtState::Resting {
+                                rest: c[0],
+                                since: t_ms.saturating_sub(TIPTAP_REST_MIN_MS),
+                            },
+                            emit,
+                        )
+                    } else {
+                        // The rest lifted; the former tap finger becomes a fresh rest.
+                        (TtState::Resting { rest: c[0], since: t_ms }, None)
+                    }
+                }
+                2 => {
+                    // Match contacts to rest/tap by proximity; movement by either
+                    // disqualifies (that's a scroll/pinch), as does overstaying.
+                    let (r, t) = if dist(c[0], rest) + dist(c[1], tap)
+                        <= dist(c[1], rest) + dist(c[0], tap)
+                    {
+                        (c[0], c[1])
+                    } else {
+                        (c[1], c[0])
+                    };
+                    if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
+                        || dist(t, tap) > TIPTAP_MAX_MOVE_NORM
+                        || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
+                    {
+                        return (TtState::Poisoned, None);
+                    }
+                    (TtState::TapDown { rest: r, tap: t, tap_start_x, started }, None)
+                }
+                _ => (TtState::Poisoned, None),
+            },
+            TtState::Poisoned => {
+                if c.is_empty() {
+                    (TtState::Idle, None)
+                } else {
+                    (TtState::Poisoned, None)
+                }
+            }
+        }
+    }
+}
+
 // ── Runtime state + lifecycle ────────────────────────────────────────────────
 
 use parking_lot::Mutex;
@@ -341,8 +575,10 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
     let cfg = GestureConfig::load(db);
     let mut guard = state.0.lock();
     if cfg.enabled {
-        if guard.is_some() {
-            return; // already running
+        // Restart if already running — the sink closure captures the config, so
+        // a settings change (tip-tap toggle, volume step) needs a fresh start.
+        if let Some(mut running) = guard.take() {
+            running.stop();
         }
         let Some(mut source) = platform_source() else {
             return; // unsupported platform → no-op
@@ -376,6 +612,119 @@ mod tests {
             }
         }
         out
+    }
+
+    // ── Tip-tap ──────────────────────────────────────────────────────────
+
+    fn c(x: f64) -> Contact {
+        Contact { x, y: 0.5 }
+    }
+
+    fn tiptap_events(frames: &[(u64, Vec<Contact>)]) -> Vec<GestureKind> {
+        let mut r = TipTapRecognizer::new();
+        frames.iter().filter_map(|(t, cs)| r.feed(*t, cs)).collect()
+    }
+
+    #[test]
+    fn tiptap_right_rest_then_tap_right_of_it() {
+        // Index rests at x=0.40; middle taps at 0.55 for ~60 ms → next tab.
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]),
+            (210, vec![c(0.40)]), // tap lifted, rest stays
+            (300, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
+    }
+
+    #[test]
+    fn tiptap_left_rest_then_tap_left_of_it() {
+        // Middle rests at 0.55; index taps at 0.40 → previous tab.
+        let evs = tiptap_events(&[
+            (0, vec![c(0.55)]),
+            (100, vec![c(0.55)]),
+            (150, vec![c(0.55), c(0.40)]),
+            (210, vec![c(0.55)]),
+            (300, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapLeft]);
+    }
+
+    #[test]
+    fn tiptap_chains_while_rest_stays_down() {
+        let evs = tiptap_events(&[
+            (0, vec![c(0.45)]),
+            (100, vec![c(0.45)]),
+            (120, vec![c(0.45), c(0.60)]),
+            (180, vec![c(0.45)]),
+            (220, vec![c(0.45), c(0.30)]),
+            (280, vec![c(0.45)]),
+            (400, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapLeft]);
+    }
+
+    #[test]
+    fn tiptap_rejects_fingers_landing_together_scroll_guard() {
+        // Two fingers within the settle window (a 2-finger scroll/click).
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (30, vec![c(0.40), c(0.55)]), // 30 ms < TIPTAP_REST_MIN_MS
+            (90, vec![c(0.40)]),
+            (150, vec![]),
+        ]);
+        assert!(evs.is_empty());
+    }
+
+    #[test]
+    fn tiptap_rejects_movement_and_overstay() {
+        // Both fingers glide (scroll) → poisoned, nothing fires.
+        let scroll = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]),
+            (200, vec![Contact { x: 0.40, y: 0.30 }, Contact { x: 0.55, y: 0.30 }]),
+            (260, vec![c(0.40)]),
+            (300, vec![]),
+        ]);
+        assert!(scroll.is_empty());
+        // Second finger overstays (a two-finger rest, not a tap).
+        let hold = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]),
+            (600, vec![c(0.40), c(0.55)]), // > TIPTAP_TAP_MAX_MS
+            (700, vec![c(0.40)]),
+            (800, vec![]),
+        ]);
+        assert!(hold.is_empty());
+    }
+
+    #[test]
+    fn tiptap_no_emit_when_the_rest_finger_lifts_instead() {
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]),
+            (210, vec![c(0.55)]), // the REST lifted; tap finger stays
+            (300, vec![]),
+        ]);
+        assert!(evs.is_empty());
+    }
+
+    #[test]
+    fn tiptap_map_action_gated_by_config() {
+        let mut cfg = GestureConfig { enabled: true, ..Default::default() };
+        let left = GestureEvent { kind: GestureKind::TipTapLeft, fingers: 2 };
+        let right = GestureEvent { kind: GestureKind::TipTapRight, fingers: 2 };
+        assert_eq!(map_action(&left, &cfg), Some(GestureAction::PrevTab));
+        assert_eq!(map_action(&right, &cfg), Some(GestureAction::NextTab));
+        cfg.tiptap = false;
+        assert_eq!(map_action(&left, &cfg), None);
+        cfg.tiptap = true;
+        cfg.enabled = false;
+        assert_eq!(map_action(&right, &cfg), None);
     }
 
     #[test]
@@ -492,7 +841,7 @@ mod tests {
 
     #[test]
     fn map_action_respects_config_and_fingers() {
-        let on = GestureConfig { enabled: true, fingers: 3, volume_step: 6 };
+        let on = GestureConfig { enabled: true, fingers: 3, volume_step: 6, tiptap: true };
         let off = GestureConfig { enabled: false, ..on };
         let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
         let tap = GestureEvent { kind: GestureKind::Tap, fingers: 3 };

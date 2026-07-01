@@ -19,7 +19,7 @@
 //! macOS could change them; the code is fully guarded so it never crashes — at
 //! worst gestures stop until the layout is updated.
 
-use super::{GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TouchFrame};
+use super::{Contact, GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TipTapRecognizer, TouchFrame};
 use parking_lot::Mutex;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
@@ -167,6 +167,7 @@ unsafe fn load_mt() -> Option<Mt> {
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
 static REC: Mutex<Option<Recognizer>> = Mutex::new(None);
+static TIPTAP_REC: Mutex<Option<TipTapRecognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
@@ -262,6 +263,28 @@ extern "C" fn frame_callback(
         tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
         if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
+        }
+    }
+
+    // Tip-tap runs on per-contact positions (the centroid can't tell which
+    // finger tapped). Same y-flip as above; ≤ 4 contacts is plenty (the
+    // recogniser poisons itself at ≥ 3 anyway).
+    let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
+    let cn = fingers.len().min(4);
+    for (slot, f) in contacts.iter_mut().zip(fingers.iter()) {
+        *slot = Contact {
+            x: f.normalized.pos.x as f64,
+            y: 1.0 - f.normalized.pos.y as f64,
+        };
+    }
+    let tt_kind = {
+        let mut rec = TIPTAP_REC.lock();
+        rec.get_or_insert_with(TipTapRecognizer::new).feed(t_ms, &contacts[..cn])
+    };
+    if let Some(kind) = tt_kind {
+        tracing::debug!("gestures(mac): recognised {kind:?} (tip-tap)");
+        if let Some(sink) = SINK.lock().as_ref() {
+            sink(GestureEvent { kind, fingers: 2 });
         }
     }
     0
@@ -406,6 +429,7 @@ impl GestureSource for MacGestureSource {
         let _ = START.set(Instant::now());
         FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
         *REC.lock() = Some(Recognizer::new());
+        *TIPTAP_REC.lock() = Some(TipTapRecognizer::new());
         *SINK.lock() = Some(sink);
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).

@@ -549,7 +549,22 @@ Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock cho
 BetterTouchTool-style trackpad gestures feeding the **existing** volume/mute
 pipeline (`system_commands::adjust_system_volume` / `toggle_system_mute`) — **not**
 a new action layer. Bindings: **3-finger swipe up/down → volume ±**, **3-finger
-tap → mute**. **Opt-in** (settings key `gestures.enabled`, off by default);
+tap → mute**, and (v0.84.206) **tip-tap → tab switch**: rest one finger, tap a
+second briefly to its **right → next tab** (synthesized `Ctrl+Tab`) or **left →
+previous tab** (`Ctrl+Shift+Tab`) — BTT's "TipTap (1 finger fix)". The pure,
+unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
+(the centroid stream can't tell which finger tapped) from the same macOS
+MultitouchSupport frame callback; guards: the rest finger must be down alone
+≥ `TIPTAP_REST_MIN_MS` (80 ms) before the tap lands (kills 2-finger
+scroll/click, whose fingers land together), the tap must lift within 300 ms,
+either finger moving > 0.05 (norm) poisons the attempt until all-lift, and taps
+chain while the rest finger stays down. Direction = tap-x vs rest-x. Key
+synthesis via raw CGEvent FFI (thread-safe, posted inline from the capture
+thread; needs the same Accessibility grant). Toggle: `gestures.tiptap`
+(default on, gated by the master toggle; Settings row appears when gestures are
+enabled). macOS-only for now (the Windows/Linux sources feed only the centroid
+recogniser). `apply` now **restarts** a running source on config change so
+toggles take effect live. **Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
 starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
 `get_/set_gesture_config`; Settings → **Touchpad gestures** master toggle.

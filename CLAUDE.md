@@ -450,10 +450,18 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   the **union** of intervals (`union_seconds`), not the raw sum — so overlapping
   events can never make "today" exceed real wall-clock. (by_app/category/host
   stay raw per-bucket sums.)
-- **Per-OS active window + idle (`tracking/os/`):** macOS (`osascript` frontmost +
-  `CGEventSourceSecondsSinceLastEventType`), Windows (`GetForegroundWindow` +
-  `QueryFullProcessImageNameW` + `GetLastInputInfo`), Linux (X11 `xdotool` +
-  `xprintidle`; Wayland → `None`, clean degrade).
+- **Per-OS active window + idle (`tracking/os/`):** macOS — **native fast path
+  (v0.84.205): `NSWorkspace.frontmostApplication` (app name/bundle, no
+  permission) + AX `AXFocusedWindow`→`AXTitle` (title, needs Accessibility)**;
+  with Accessibility granted that's **zero process spawns** (previously one
+  osascript spawn per 1.5 s tick ≈ 19 000 per 8-h day). Without Accessibility
+  the old osascript path (Automation grant) still supplies the title; if that
+  fails too, the native app-level info is returned. Idle via
+  `CGEventSourceSecondsSinceLastEventType`. The run loop also **caches the
+  idle-threshold + denylist settings** (re-read every ~30 s instead of twice per
+  tick). Windows (`GetForegroundWindow` + `QueryFullProcessImageNameW` +
+  `GetLastInputInfo`), Linux (X11 `xdotool` + `xprintidle`; Wayland → `None`,
+  clean degrade).
 - **Persistence (`tracking/db.rs`):** `track_sessions`/`track_events`/
   `track_claude_turns`/`track_categories`; `window_title`+`url` AES-256-GCM via
   `crypto` (TEXT columns); plaintext app/host/category/project. `prune_before`

@@ -325,6 +325,14 @@ pub fn set_manual_paused(
 // ── The focus / idle loop ────────────────────────────────────────────────────
 
 fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, stop: Arc<AtomicBool>) {
+    // Settings (idle threshold + denylist) are cached and re-read every
+    // `SETTINGS_RELOAD_TICKS` (~30 s) instead of twice per 1.5 s tick — that's
+    // ~5 700 fewer DB-mutex acquisitions per 8-hour day, and a settings change
+    // still applies within half a minute.
+    const SETTINGS_RELOAD_TICKS: u32 = 20;
+    let mut threshold = DEFAULT_IDLE_SECONDS;
+    let mut denylist: Vec<String> = Vec::new();
+    let mut ticks_since_reload = SETTINGS_RELOAD_TICKS; // force a load on tick 1
     let mut last_prune = std::time::Instant::now();
     while !stop.load(Ordering::SeqCst) {
         // Hourly retention enforcement — a keep-alive session may run for weeks
@@ -333,12 +341,16 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
             last_prune = std::time::Instant::now();
             prune_by_retention(&db, now_ms());
         }
-        let threshold = crate::settings::get_or(&db, "track.idle_seconds", "300")
-            .ok()
-            .and_then(|s| s.parse::<f64>().ok())
-            .filter(|v| *v > 0.0)
-            .unwrap_or(DEFAULT_IDLE_SECONDS);
-        let denylist = load_denylist(&db);
+        if ticks_since_reload >= SETTINGS_RELOAD_TICKS {
+            ticks_since_reload = 0;
+            threshold = crate::settings::get_or(&db, "track.idle_seconds", "300")
+                .ok()
+                .and_then(|s| s.parse::<f64>().ok())
+                .filter(|v| *v > 0.0)
+                .unwrap_or(DEFAULT_IDLE_SECONDS);
+            denylist = load_denylist(&db);
+        }
+        ticks_since_reload += 1;
         let focus = os::frontmost();
         let idle_s = os::idle_seconds().unwrap_or(0.0);
         let now = now_ms();

@@ -193,12 +193,42 @@ fn force_foreground(window: &WebviewWindow) {
     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
+        SystemParametersInfoW, SPI_GETFOREGROUNDLOCKTIMEOUT, SPI_SETFOREGROUNDLOCKTIMEOUT,
+        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     };
     let Ok(hwnd) = window.hwnd() else {
         let _ = window.set_focus();
         return;
     };
     unsafe {
+        // **Defeat the foreground-lock timeout.** Windows refuses a background
+        // (tray) process's `SetForegroundWindow` once its foreground-lock timeout
+        // has elapsed — i.e. after the user has been interacting with *other*
+        // apps for a while (`SPI_GETFOREGROUNDLOCKTIMEOUT`). When that happens the
+        // popup `show()`s but never activates, so the settle-confirm sees a
+        // foreign foreground and hides it again — the "after a while, opening the
+        // app closes it immediately" bug (Windows-only; a fresh boot/relaunch
+        // temporarily resets the lock, which is why a restart appears to fix it).
+        // AttachThreadInput alone doesn't reliably beat the *timeout*. Set it to 0
+        // around the activation, then restore the user's value. Flags = 0 →
+        // in-memory only (no registry write, no WM_SETTINGCHANGE broadcast).
+        let mut prev_timeout: u32 = 0;
+        let saved = SystemParametersInfoW(
+            SPI_GETFOREGROUNDLOCKTIMEOUT,
+            0,
+            Some(&mut prev_timeout as *mut u32 as *mut core::ffi::c_void),
+            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+        )
+        .is_ok();
+        if saved {
+            let _ = SystemParametersInfoW(
+                SPI_SETFOREGROUNDLOCKTIMEOUT,
+                0,
+                Some(std::ptr::null_mut()), // pvParam carries the value (0) directly
+                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+            );
+        }
+
         let fg = GetForegroundWindow();
         let our_thread = GetCurrentThreadId();
         let fg_thread = GetWindowThreadProcessId(fg, None);
@@ -210,6 +240,16 @@ fn force_foreground(window: &WebviewWindow) {
         let _ = BringWindowToTop(hwnd);
         if attached {
             let _ = AttachThreadInput(fg_thread, our_thread, false);
+        }
+
+        // Restore the user's original foreground-lock timeout.
+        if saved {
+            let _ = SystemParametersInfoW(
+                SPI_SETFOREGROUNDLOCKTIMEOUT,
+                0,
+                Some(prev_timeout as usize as *mut core::ffi::c_void),
+                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
+            );
         }
     }
     let _ = window.set_focus();

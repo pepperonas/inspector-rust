@@ -384,6 +384,21 @@ fn show_window(app: &AppHandle, x: f64, y: f64) {
     };
     let _ = win.set_position(LogicalPosition::new(x, y));
     let _ = win.set_size(LogicalSize::new(PAL_W, PAL_H));
+    // The palette must stack ABOVE the snap-overlay preview: both windows are
+    // `always_on_top` (NSFloatingWindowLevel), and at EQUAL level every preview
+    // `show()` re-ordered the overlay over the palette — visually tinting it
+    // and killing WKWebView's hover tracking, so the preset previews stopped
+    // switching while hovering. One level up (floating + 1), re-asserted on
+    // every show since it's cheap and the window is reused.
+    if let Ok(ns) = win.ns_window() {
+        unsafe {
+            use objc2::msg_send;
+            let w = ns as *mut objc2::runtime::AnyObject;
+            if !w.is_null() {
+                let _: () = msg_send![w, setLevel: 4i64]; // NSFloatingWindowLevel + 1
+            }
+        }
+    }
     let _ = win.show();
     // Tell the (reused) webview to (re)load context + reset its drag state.
     let _ = app.emit("window-palette-shown", ());

@@ -708,7 +708,12 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   (`window-palette`, `WindowPalette.tsx`) — **not** click-through (it needs the
   drag) — positioned under the button **clamped into the screen** (Moom's
   right/bottom-edge case); built lazily + reused (hidden/shown), re-reading its
-  context on the `window-palette-shown` event. Picking a preset / releasing a
+  context on the `window-palette-shown` event. **The palette's NSWindow level is
+  floating+1 (v0.84.217):** both the palette and the snap-overlay preview are
+  `always_on_top` (= NSFloatingWindowLevel), and at EQUAL level every preview
+  `show()` re-ordered the overlay ABOVE the palette — tinting it and killing
+  WKWebView's hover tracking (preset previews stopped switching on hover); one
+  level up keeps the palette on top of its own preview. Picking a preset / releasing a
   hex-grid drag calls `window_palette_apply(fx,fy,fw,fh)` → `set_window_frame`
   (AX position→size→position; fixed-size windows move-only) on the **retained
   hovered window** (not the focused one), then hides. Moving off button+palette

@@ -1140,3 +1140,18 @@ describe("hidden game/word triggers (exact word, case-insensitive)", () => {
     expect(isFlappyTrigger("learningtofly!")).toBe(false);
   });
 });
+
+describe("platform gating", () => {
+  it("boom is available on macOS and Windows (Equalizer-APO backend), not Linux", () => {
+    const boom = COMMANDS.find((c) => c.kind === "boom");
+    expect(boom?.platform).toEqual(["mac", "win"]);
+  });
+
+  it("every platform-gated command names only known platforms", () => {
+    for (const c of COMMANDS) {
+      if (!c.platform) continue;
+      expect(c.platform.length).toBeGreaterThan(0);
+      for (const p of c.platform) expect(["mac", "win", "linux"]).toContain(p);
+    }
+  });
+});

@@ -1067,6 +1067,61 @@ mod tests {
     }
 
     #[test]
+    fn apo_boost_zero_renders_deep_attenuation() {
+        let cfg = BoomConfig { enabled: true, boost_pct: 0.0, ..BoomConfig::default() };
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Preamp: -60.0 dB"), "{t}");
+    }
+
+    #[test]
+    fn apo_boost_below_100_attenuates() {
+        let cfg = BoomConfig { enabled: true, boost_pct: 50.0, ..BoomConfig::default() };
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Preamp: -6.0 dB"), "{t}");
+    }
+
+    #[test]
+    fn apo_negative_preamp_renders_signed() {
+        let cfg = BoomConfig { enabled: true, preamp_db: -6.5, ..BoomConfig::default() };
+        let t = apo_config_text(&cfg);
+        // no positive gain anywhere → controlled boost reserves no headroom
+        assert!(t.contains("Preamp: -6.5 dB"), "{t}");
+    }
+
+    #[test]
+    fn apo_headroom_counts_effect_gains_too() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.effects.bass = 1.0; // low-shelf +9 dB is the largest boost in the chain
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Preamp: -9.0 dB"), "{t}");
+    }
+
+    #[test]
+    fn apo_extra_band_gains_are_ignored() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.controlled_boost = false;
+        cfg.band_gains_db = vec![3.0; 12]; // 2 more than the 10 EQ bands
+        let t = apo_config_text(&cfg);
+        assert_eq!(t.matches("ON PK").count(), 10, "{t}");
+        assert!(!t.contains("Filter 11:"), "{t}");
+    }
+
+    #[test]
+    fn apo_full_ambience_widen_matrix() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.effects.ambience = 1.0; // width 1.8 → a = 1.4, b = −0.4
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Copy: L=1.400*L-0.400*R R=-0.400*L+1.400*R"), "{t}");
+    }
+
+    #[test]
+    fn apo_commented_include_line_does_not_count() {
+        let updated = apo_ensure_include("# Include: inspector-rust-boom.txt");
+        assert!(updated.is_some(), "a commented-out include must not satisfy the check");
+        assert!(updated.unwrap().ends_with("Include: inspector-rust-boom.txt\n"));
+    }
+
+    #[test]
     fn apo_ensure_include_appends_once() {
         let updated = apo_ensure_include("Preamp: -3 dB").unwrap();
         assert!(updated.ends_with("Include: inspector-rust-boom.txt\n"), "{updated}");

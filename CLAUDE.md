@@ -680,7 +680,8 @@ stops the monitor (mirrors `window_snap`/`gestures`).
 
 - **Pure core (`window_palette/mod.rs`, unit-tested):** `fraction_to_rect(fx,fy,
   fw,fh, screen)` maps a 0..1 grid fraction → an absolute top-left rect on the
-  target screen's visible frame; `WindowPaletteConfig` (clamped 2..16 cells). The
+  target screen's visible frame; `WindowPaletteConfig` (clamped 2..24 cells,
+  default **16×10** since v0.84.214 — was 12×8). The
   **hex-grid geometry is the pure `lib/hexgrid.ts`** (`hexCenters` offset tiling,
   `nearestCell` hit-test, `boundingFraction` cell-range → 0..1 screen fraction,
   `hexPolygon`/`cellInRange` for rendering) — all unit-tested.
@@ -718,7 +719,18 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   **pointy-top** honeycomb (rows offset half a cell, 0.75·height row pitch),
   rendered undistorted via a natural-aspect viewBox + `preserveAspectRatio="meet"`
   (the pointer→cell map undoes the meet scale). The **hex geometry is the pure,
-  unit-tested `lib/hexgrid.ts`**. **MVP follow-ups:** per-app blacklist,
+  unit-tested `lib/hexgrid.ts`**. **Visual pass (v0.84.214):** cells are **rounded
+  hexagons** (`lib/hexgrid.ts::roundedHexPath` — quadratic corner cuts through
+  the sharp vertices, pure + tested; `hexPolygon` retained), with a **magnetic
+  hover** (the cell under the cursor scales 1.18 via `transform-box: fill-box`),
+  a **selection gradient** (`wp-sel` linearGradient + brighter stroke; unselected
+  cells dim to 0.28 opacity during a drag so the lit region reads instantly), a
+  **radial bloom entrance** (per-cell `animation-delay` ∝ distance from the comb
+  centre, `backwards` fill so the finished animation releases `transform` to the
+  hover class — `both` would freeze it), a **live readout** in the hint line
+  while dragging (`4×3 · 25 % × 30 %`, accent-tinted), and a crosshair cursor.
+  Palette window 300×236 → **340×268**; all animations honour
+  `prefers-reduced-motion`. **MVP follow-ups:** per-app blacklist,
   configurable delays/colours.
 
 ### Keep-alive — always running (`keepalive.rs`, v0.84.126)

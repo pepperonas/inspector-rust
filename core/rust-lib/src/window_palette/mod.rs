@@ -21,10 +21,10 @@ const KEY_ENABLED: &str = "windowpalette.enabled";
 const KEY_COLS: &str = "windowpalette.cols";
 const KEY_ROWS: &str = "windowpalette.rows";
 
-pub const DEFAULT_COLS: u32 = 12;
-pub const DEFAULT_ROWS: u32 = 8;
+pub const DEFAULT_COLS: u32 = 16;
+pub const DEFAULT_ROWS: u32 = 10;
 const MIN_CELLS: u32 = 2;
-const MAX_CELLS: u32 = 16;
+const MAX_CELLS: u32 = 24;
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct WindowPaletteConfig {

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import {
+  roundedHexPath, describe, expect, it } from "vitest";
 import {
   boundingFraction,
   cellInRange,
   hexCenters,
   hexPolygon,
+  roundedHexPath,
   nearestCell,
 } from "./hexgrid";
 
@@ -127,5 +129,41 @@ describe("hexPolygon", () => {
     const my = ys.reduce((s, y) => s + y, 0) / ys.length;
     expect(mx).toBeCloseTo(100, 1);
     expect(my).toBeCloseTo(80, 1);
+  });
+});
+
+describe("roundedHexPath", () => {
+  it("emits an M start, six quadratic corners, and a close", () => {
+    const d = roundedHexPath(50, 50, 20, 22);
+    expect(d.startsWith("M ")).toBe(true);
+    expect(d.trim().endsWith("Z")).toBe(true);
+    expect(d.split("Q").length - 1).toBe(6);
+    expect(d.split("L").length - 1).toBe(5); // 6 segments, first is the M
+  });
+
+  it("with corner 0 the curve control points ARE the sharp vertices", () => {
+    const sharp = hexPolygon(50, 50, 20, 22)
+      .split(" ")
+      .map((pt) => pt.split(",").map(Number));
+    const d = roundedHexPath(50, 50, 20, 22, 0);
+    // Every Q's control point must match a sharp vertex, in order.
+    const controls = [...d.matchAll(/Q (-?[\d.]+) (-?[\d.]+)/g)].map((m) => [
+      Number(m[1]),
+      Number(m[2]),
+    ]);
+    expect(controls.length).toBe(6);
+    controls.forEach(([x, y], i) => {
+      expect(x).toBeCloseTo(sharp[i][0], 1);
+      expect(y).toBeCloseTo(sharp[i][1], 1);
+    });
+  });
+
+  it("stays centered like the sharp hexagon", () => {
+    const d = roundedHexPath(100, 80, 30, 24, 0.25);
+    const nums = [...d.matchAll(/(-?[\d.]+) (-?[\d.]+)/g)];
+    const mx = nums.reduce((s, m) => s + Number(m[1]), 0) / nums.length;
+    const my = nums.reduce((s, m) => s + Number(m[2]), 0) / nums.length;
+    expect(mx).toBeCloseTo(100, 0);
+    expect(my).toBeCloseTo(80, 0);
   });
 });

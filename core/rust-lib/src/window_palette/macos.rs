@@ -20,8 +20,8 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindowBuilder};
 
 const PALETTE_LABEL: &str = "window-palette";
-const PAL_W: f64 = 300.0;
-const PAL_H: f64 = 236.0;
+const PAL_W: f64 = 340.0;
+const PAL_H: f64 = 268.0;
 const GAP: f64 = 8.0;
 const HOVER_DELAY_MS: u64 = 180;
 const GRACE_MS: u128 = 260;

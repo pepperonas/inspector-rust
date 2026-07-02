@@ -108,6 +108,41 @@ export function hexPolygon(cx: number, cy: number, rx: number, ry: number): stri
   return pts.join(" ");
 }
 
+/**
+ * A pointy-top hexagon as an SVG **path with rounded corners** — each vertex is
+ * cut at `corner` (fraction of the half-edge, 0..0.5) and bridged with a
+ * quadratic curve through the original vertex. `corner = 0` degenerates to the
+ * sharp hexagon. Same vertex layout/order as `hexPolygon`.
+ */
+export function roundedHexPath(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  corner = 0.22,
+): string {
+  const pts: Array<[number, number]> = [];
+  for (let i = 0; i < 6; i++) {
+    const angle = (Math.PI / 180) * (60 * i - 90);
+    pts.push([cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]);
+  }
+  const t = Math.min(0.5, Math.max(0, corner));
+  const parts: string[] = [];
+  for (let i = 0; i < 6; i++) {
+    const p = pts[i];
+    const prev = pts[(i + 5) % 6];
+    const next = pts[(i + 1) % 6];
+    const ax = p[0] + (prev[0] - p[0]) * t;
+    const ay = p[1] + (prev[1] - p[1]) * t;
+    const bx = p[0] + (next[0] - p[0]) * t;
+    const by = p[1] + (next[1] - p[1]) * t;
+    parts.push(`${i === 0 ? "M" : "L"} ${ax.toFixed(2)} ${ay.toFixed(2)}`);
+    parts.push(`Q ${p[0].toFixed(2)} ${p[1].toFixed(2)} ${bx.toFixed(2)} ${by.toFixed(2)}`);
+  }
+  parts.push("Z");
+  return parts.join(" ");
+}
+
 /** Whether cell `(col,row)` is inside the inclusive bounding box of `a`..`b`. */
 export function cellInRange(
   col: number,

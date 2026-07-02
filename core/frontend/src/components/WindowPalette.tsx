@@ -23,8 +23,8 @@ import {
   boundingFraction,
   cellInRange,
   hexCenters,
-  hexPolygon,
   nearestCell,
+  roundedHexPath,
 } from "../lib/hexgrid";
 
 interface Cell {
@@ -58,6 +58,7 @@ export function WindowPalette() {
   const [ctx, setCtx] = useState<PaletteContext | null>(null);
   const [optionDown, setOptionDown] = useState(false);
   const [drag, setDrag] = useState<{ a: Cell; b: Cell } | null>(null);
+  const [hover, setHover] = useState<Cell | null>(null);
   const [showSeq, setShowSeq] = useState(0); // bumps each show → replays entrance
   const svgRef = useRef<SVGSVGElement>(null);
   const draggingRef = useRef(false);
@@ -67,6 +68,7 @@ export function WindowPalette() {
       .then(setCtx)
       .catch(() => {});
     setDrag(null);
+    setHover(null);
     draggingRef.current = false;
     setShowSeq((s) => s + 1);
   }, []);
@@ -156,9 +158,16 @@ export function WindowPalette() {
     setDrag({ a: c, b: c });
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    if (!draggingRef.current) return;
     const c = cellFromEvent(e);
-    if (c) setDrag((d) => (d ? { a: d.a, b: c } : null));
+    if (draggingRef.current) {
+      if (c) setDrag((d) => (d ? { a: d.a, b: c } : null));
+      return;
+    }
+    // Magnetic hover highlight while just gliding over the comb.
+    setHover((h) => (c && h && c.col === h.col && c.row === h.row ? h : c));
+  };
+  const onPointerLeave = () => {
+    if (!draggingRef.current) setHover(null);
   };
   const onPointerUp = () => {
     if (!draggingRef.current || !drag) {
@@ -199,30 +208,62 @@ export function WindowPalette() {
         ref={svgRef}
         viewBox={`0 0 ${boxW} ${boxH}`}
         preserveAspectRatio="xMidYMid meet"
-        className="w-full flex-1 touch-none select-none"
+        className="w-full flex-1 cursor-crosshair touch-none select-none"
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}
+        onPointerLeave={onPointerLeave}
       >
+        <defs>
+          {/* Soft accent sheen for selected cells — reads as one lit region. */}
+          <linearGradient id="wp-sel" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--color-accent)" stopOpacity="1" />
+            <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0.72" />
+          </linearGradient>
+        </defs>
         {cells.map((c) => {
           const on = drag ? cellInRange(c.col, c.row, drag.a, drag.b) : false;
+          const isHover = !drag && hover !== null && hover.col === c.col && hover.row === c.row;
+          // Radial entrance: cells bloom outward from the comb's centre.
+          const delay = showSeq >= 0
+            ? Math.hypot(c.cx - boxW / 2, c.cy - boxH / 2) /
+              Math.hypot(boxW / 2, boxH / 2) * 130
+            : 0;
           return (
-            <polygon
+            <path
               key={`${c.col}-${c.row}`}
-              className="wp-cell"
-              points={hexPolygon(c.cx, c.cy, cellRx, cellRy)}
-              fill={on ? "var(--color-accent)" : "var(--color-bg)"}
-              fillOpacity={on ? 0.9 : 0.45}
-              stroke={on ? "var(--color-accent)" : "var(--color-border)"}
-              strokeWidth={1}
+              className={
+                "wp-cell wp-cell-in" +
+                (on ? " wp-on" : "") +
+                (isHover ? " wp-hover" : "")
+              }
+              style={{ animationDelay: `${delay.toFixed(0)}ms` }}
+              d={roundedHexPath(c.cx, c.cy, cellRx, cellRy)}
+              fill={on ? "url(#wp-sel)" : "var(--color-bg)"}
+              fillOpacity={on ? 0.95 : isHover ? 0.85 : drag ? 0.28 : 0.5}
+              stroke={on || isHover ? "var(--color-accent)" : "var(--color-border)"}
+              strokeWidth={on ? 1.4 : 1}
               vectorEffect="non-scaling-stroke"
             />
           );
         })}
       </svg>
 
-      <p className="text-center text-[9px] text-[var(--color-muted)]">
-        drag to snap · ⌥ quarters · Esc cancel
+      <p className="text-center font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">
+        {drag ? (
+          (() => {
+            const f = boundingFraction(drag.a, drag.b, cols, rows);
+            const cw = Math.abs(drag.b.col - drag.a.col) + 1;
+            const ch = Math.abs(drag.b.row - drag.a.row) + 1;
+            return (
+              <span className="text-[var(--color-accent)]">
+                {cw}×{ch} · {Math.round(f.w * 100)} % × {Math.round(f.h * 100)} %
+              </span>
+            );
+          })()
+        ) : (
+          <>drag to snap · ⌥ quarters · Esc cancel</>
+        )}
       </p>
     </div>
   );

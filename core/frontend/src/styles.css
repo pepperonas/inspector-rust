@@ -872,8 +872,28 @@ code {
   to   { opacity: 1; transform: none; }
 }
 .wp-pop { animation: wp-pop 0.16s cubic-bezier(0.2, 0, 0, 1) both; transform-origin: top center; }
-.wp-cell { transition: fill 0.12s ease, fill-opacity 0.12s ease, stroke 0.12s ease; }
+.wp-cell {
+  transition:
+    fill 0.12s ease,
+    fill-opacity 0.12s ease,
+    stroke 0.12s ease,
+    transform 0.16s cubic-bezier(0.2, 0, 0, 1);
+  transform-box: fill-box;
+  transform-origin: center;
+}
+/* Magnetic hover: the comb cell under the cursor lifts toward the finger. */
+.wp-hover { transform: scale(1.18); }
+/* Radial entrance: cells bloom outward from the comb's centre (per-cell
+   animation-delay is set inline from the distance). `backwards` (not `both`)
+   so the finished animation releases `transform` back to the hover class. */
+@keyframes wp-cell-in {
+  from { opacity: 0; transform: scale(0.55); }
+  to { opacity: 1; transform: scale(1); }
+}
+.wp-cell-in { animation: wp-cell-in 0.24s cubic-bezier(0.2, 0, 0, 1) backwards; }
 @media (prefers-reduced-motion: reduce) {
   .wp-pop { animation: none; }
   .wp-cell { transition: none; }
+  .wp-cell-in { animation: none; }
+  .wp-hover { transform: none; }
 }

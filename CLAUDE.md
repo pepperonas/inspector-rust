@@ -565,9 +565,15 @@ Android Studio/Xcode/Zed/Warp/kitty/TablePlus/DBeaver → `⇧⌘]/[`; everythin
 else → the system-standard `Ctrl+Tab` default. **User override:**
 `<data-dir>/tab-shortcuts.json` (same shape) is merged on top — its entries
 match first, its `default` replaces the bundled one; loaded once per run
-(restart to apply), a broken file is logged + ignored. Runs on the main thread
-(TIS requirement); frontmost bundle id via NSWorkspace; unresolvable chords
-fall back to Ctrl+Tab. The pure,
+(restart to apply), a broken file is logged + ignored. **Latency fast path (v0.84.212):** the dispatch runs
+INLINE on the capture thread (map = OnceLock, bundle = NSWorkspace snapshot
+read, CGEventPost is thread-safe); layout-dependent chars come from
+`LAYOUT_KEY_CACHE`, prewarmed ON the main thread at source start
+(`prewarm_tab_keys` — TIS is main-thread-only; a layout switch mid-session
+refreshes on the next source restart). Only an uncached char (user-override
+edited mid-session) takes a one-time main-thread hop. The emit refractory is
+200 ms (350 swallowed deliberate rapid taps → felt laggy; bounce is primarily
+blocked by the post-emit settle). Unresolvable chords fall back to Ctrl+Tab. The pure,
 unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
 (the centroid stream can't tell which finger tapped) from the same macOS
 MultitouchSupport frame callback; guards: the rest finger must be down alone

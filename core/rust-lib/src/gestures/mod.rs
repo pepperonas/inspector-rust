@@ -68,8 +68,11 @@ pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
 pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// Refractory period between two tip-tap emits. A physical tap's lift can
 /// "bounce" (the contact re-appears for a frame or two) — without this gap one
-/// tap could fire several tab switches ("apps jump around wildly").
-pub const TIPTAP_EMIT_GAP_MS: u64 = 350;
+/// tap could fire several tab switches ("apps jump around wildly"). Bounce is
+/// primarily blocked by the post-emit settle (`TIPTAP_REST_MIN_MS`); this gap
+/// is belt-and-braces, so it's kept short — 200 ms still allows ~5 deliberate
+/// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
+pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
 /// The tap must land at a similar HEIGHT as the resting finger (|Δy|, 0..1).
 /// Two fingertips sit side by side; a thumb anchored at the pad's bottom edge
 /// vs. a pointing finger has a large Δy — that posture is normal cursor use,
@@ -195,17 +198,13 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// `StatusToast.tsx`), they don't re-pop.
 fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     tracing::debug!("gesture action: {action:?} (step {step})");
-    // Tab switching: send the frontmost app's OWN tab-nav shortcut (per-app
-    // strategy table — Ctrl+Tab default, ⌘⌥arrows for the VS Code family,
-    // layout-aware ⇧⌘]/[ for JetBrains/Xcode). No toast — the visibly switching
-    // tab is the feedback. Runs on the main thread (the bracket strategy reads
-    // the keyboard layout via TIS, a main-thread API).
+    // Tab switching: send the frontmost app's OWN tab-nav shortcut (data-driven
+    // per-app map). No toast — the visibly switching tab is the feedback. Runs
+    // INLINE on the capture thread for minimal latency; layout-dependent chars
+    // come from the prewarmed cache (see `prewarm_tab_keys`).
     if matches!(action, GestureAction::NextTab | GestureAction::PrevTab) {
         #[cfg(target_os = "macos")]
-        {
-            let next = matches!(action, GestureAction::NextTab);
-            let _ = app.run_on_main_thread(move || send_tab_switch_for_frontmost(next));
-        }
+        dispatch_tab_switch(app, matches!(action, GestureAction::NextTab));
         return;
     }
     let app = app.clone();
@@ -347,12 +346,16 @@ fn effective_tab_map() -> &'static TabShortcutMap {
     })
 }
 
-/// Send the right tab-switch shortcut **for the frontmost app** (chords from
-/// [`effective_tab_map`]). MUST run on the main thread: character chords query
-/// the keyboard layout via TIS/HIToolbox (main-thread API); CGEventPost itself
-/// is thread-safe. Needs the Accessibility grant gestures already use.
+// ── Tab-switch key synthesis (macOS) ─────────────────────────────────────────
+// Latency-critical: a tip-tap should feel instant. Everything is resolved
+// inline on the capture thread — the map is a OnceLock, the frontmost bundle a
+// snapshot NSWorkspace read, and layout-dependent characters come from a cache
+// that `prewarm_tab_keys` fills ON THE MAIN THREAD at gesture-source start (TIS
+// is a main-thread API). Only an uncached char (e.g. after a user-override edit)
+// takes the one-time main-thread hop; CGEventPost itself is thread-safe.
+
 #[cfg(target_os = "macos")]
-fn send_tab_switch_for_frontmost(next: bool) {
+mod tab_keys {
     use std::ffi::c_void;
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
@@ -369,60 +372,127 @@ fn send_tab_switch_for_frontmost(next: bool) {
         // Signature matches audio.rs's declaration (clashing_extern_declarations).
         fn CFRelease(cf: *const c_void);
     }
-    const KEY_TAB: u16 = 48;
-    const KEY_LEFT: u16 = 123;
-    const KEY_RIGHT: u16 = 124;
-    const FLAG_SHIFT: u64 = 0x0002_0000;
-    const FLAG_CONTROL: u64 = 0x0004_0000;
-    const FLAG_ALT: u64 = 0x0008_0000;
-    const FLAG_CMD: u64 = 0x0010_0000;
-    const FLAG_NUMPAD: u64 = 0x0020_0000; // real arrow keys carry NumericPad…
-    const FLAG_FN: u64 = 0x0080_0000; // …and Fn — some apps (iTerm2) match exactly
+    pub const KEY_TAB: u16 = 48;
+    pub const KEY_LEFT: u16 = 123;
+    pub const KEY_RIGHT: u16 = 124;
+    pub const FLAG_SHIFT: u64 = 0x0002_0000;
+    pub const FLAG_CONTROL: u64 = 0x0004_0000;
+    pub const FLAG_ALT: u64 = 0x0008_0000;
+    pub const FLAG_CMD: u64 = 0x0010_0000;
+    pub const FLAG_NUMPAD: u64 = 0x0020_0000; // real arrow keys carry NumericPad…
+    pub const FLAG_FN: u64 = 0x0080_0000; // …and Fn — some apps (iTerm2) match exactly
     const HID_TAP: u32 = 0;
 
-    let post = |keycode: u16, flags: u64| unsafe {
-        for down in [true, false] {
-            let ev = CGEventCreateKeyboardEvent(std::ptr::null_mut(), keycode, down);
-            if ev.is_null() {
-                return;
+    /// Post one keydown+keyup chord. Thread-safe (raw CGEventPost).
+    pub fn post(keycode: u16, flags: u64) {
+        unsafe {
+            for down in [true, false] {
+                let ev = CGEventCreateKeyboardEvent(std::ptr::null_mut(), keycode, down);
+                if ev.is_null() {
+                    return;
+                }
+                CGEventSetFlags(ev, flags);
+                CGEventPost(HID_TAP, ev);
+                CFRelease(ev as *const c_void);
             }
-            CGEventSetFlags(ev, flags);
-            CGEventPost(HID_TAP, ev);
-            CFRelease(ev as *const c_void);
         }
-    };
-    let mod_flags = |mods: &[String]| -> u64 {
-        mods.iter()
-            .map(|m| match m.as_str() {
-                "cmd" => FLAG_CMD,
-                "shift" => FLAG_SHIFT,
-                "ctrl" => FLAG_CONTROL,
-                "alt" => FLAG_ALT,
-                _ => 0,
-            })
-            .fold(0, |a, b| a | b)
-    };
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn chord_mod_flags(mods: &[String]) -> u64 {
+    use tab_keys::*;
+    mods.iter()
+        .map(|m| match m.as_str() {
+            "cmd" => FLAG_CMD,
+            "shift" => FLAG_SHIFT,
+            "ctrl" => FLAG_CONTROL,
+            "alt" => FLAG_ALT,
+            _ => 0,
+        })
+        .fold(0, |a, b| a | b)
+}
+
+/// Layout-resolved character keys, filled on the main thread (TIS). Keyed by
+/// char; value = (virtual keycode, the char's own extra modifier flags).
+/// The keyboard layout rarely changes mid-session; after a layout switch the
+/// cache refreshes on the next prewarm (source restart) — documented trade-off.
+#[cfg(target_os = "macos")]
+static LAYOUT_KEY_CACHE: parking_lot::Mutex<Vec<(char, (u16, u64))>> =
+    parking_lot::Mutex::new(Vec::new());
+
+/// Resolve every single-char key in the effective map ON THE MAIN THREAD and
+/// fill [`LAYOUT_KEY_CACHE`], so gestures never pay the TIS cost (or a
+/// main-thread hop) at tap time. Called from `apply` right after the source
+/// starts. Also forces the map OnceLock (disk read for the user override) so
+/// the first gesture is as fast as every other.
+#[cfg(target_os = "macos")]
+fn prewarm_tab_keys(app: &tauri::AppHandle) {
+    let _ = app.run_on_main_thread(|| {
+        let map = effective_tab_map();
+        let mut chars: Vec<char> = Vec::new();
+        for e in &map.apps {
+            for c in [&e.next, &e.prev] {
+                if !matches!(c.key.as_str(), "tab" | "left" | "right") {
+                    if let Some(ch) = c.key.chars().next() {
+                        if !chars.contains(&ch) {
+                            chars.push(ch);
+                        }
+                    }
+                }
+            }
+        }
+        let mut cache = LAYOUT_KEY_CACHE.lock();
+        cache.clear();
+        for ch in chars {
+            if let Some(resolved) = key_for_char(ch) {
+                cache.push((ch, resolved));
+            }
+        }
+        tracing::debug!("gestures: prewarmed {} layout key(s) for tab chords", cache.len());
+    });
+}
+
+/// Send the right tab-switch shortcut **for the frontmost app**. Runs INLINE on
+/// the capture thread (fast path — no main-thread hop): map + bundle lookup are
+/// snapshot reads, chars come from the prewarmed cache. Only an uncached char
+/// (user-override edited mid-session) falls back to a one-time main-thread
+/// resolve. Needs the Accessibility grant gestures already use.
+#[cfg(target_os = "macos")]
+fn dispatch_tab_switch(app: &tauri::AppHandle, next: bool) {
+    use tab_keys::*;
     let map = effective_tab_map();
     let bundle = frontmost_bundle_id().unwrap_or_default();
-    let (next_chord, prev_chord) = tab_chords_for(map, &bundle);
-    let chord = if next { next_chord } else { prev_chord };
-    let flags = mod_flags(&chord.mods);
+    let (n, p) = tab_chords_for(map, &bundle);
+    let chord = if next { n } else { p };
+    let flags = chord_mod_flags(&chord.mods);
     match chord.key.as_str() {
-        "tab" => post(KEY_TAB, flags),
-        "left" => post(KEY_LEFT, flags | FLAG_NUMPAD | FLAG_FN),
-        "right" => post(KEY_RIGHT, flags | FLAG_NUMPAD | FLAG_FN),
+        "tab" => tab_keys::post(KEY_TAB, flags),
+        "left" => tab_keys::post(KEY_LEFT, flags | FLAG_NUMPAD | FLAG_FN),
+        "right" => tab_keys::post(KEY_RIGHT, flags | FLAG_NUMPAD | FLAG_FN),
         other => {
             let Some(target) = other.chars().next().filter(|_| other.chars().count() == 1) else {
                 tracing::warn!("gestures: bad tab chord key {other:?} — falling back to Ctrl+Tab");
-                post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT });
+                tab_keys::post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT });
                 return;
             };
-            // Layout-aware: find the physical key producing the char under the
-            // CURRENT layout (German: ] = „6" + ⌥) and add its own modifiers.
-            match key_for_char(target) {
-                Some((code, extra)) => post(code, flags | extra),
-                None => post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT }),
+            // Fast path: prewarmed layout cache → inline post.
+            if let Some((code, extra)) =
+                LAYOUT_KEY_CACHE.lock().iter().find(|(c, _)| *c == target).map(|(_, r)| *r)
+            {
+                tab_keys::post(code, flags | extra);
+                return;
             }
+            // Miss (edited override mid-session): resolve once on the main
+            // thread (TIS requirement), cache, post.
+            let app = app.clone();
+            let _ = app.run_on_main_thread(move || match key_for_char(target) {
+                Some((code, extra)) => {
+                    LAYOUT_KEY_CACHE.lock().push((target, (code, extra)));
+                    tab_keys::post(code, flags | extra);
+                }
+                None => tab_keys::post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT }),
+            });
         }
     }
 }
@@ -877,14 +947,21 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
             return; // unsupported platform → no-op
         };
         let step = cfg.volume_step;
-        let app = app.clone();
+        let app_sink = app.clone();
         let sink: GestureSink = Box::new(move |ev| {
             if let Some(action) = map_action(&ev, &cfg) {
-                perform(&app, action, step);
+                perform(&app_sink, action, step);
             }
         });
         match source.start(cfg, sink) {
-            Ok(()) => *guard = Some(source),
+            Ok(()) => {
+                *guard = Some(source);
+                // Pre-resolve the tab map + layout-dependent chord keys so the
+                // first gesture is as fast as every other (no disk/TIS at tap
+                // time).
+                #[cfg(target_os = "macos")]
+                prewarm_tab_keys(app);
+            }
             Err(e) => tracing::warn!("touchpad gestures: source failed to start: {e}"),
         }
     } else if let Some(mut source) = guard.take() {
@@ -959,6 +1036,23 @@ mod tests {
             (800, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapLeft]);
+    }
+
+    #[test]
+    fn tiptap_rapid_deliberate_chaining_is_not_swallowed() {
+        // Two deliberate taps ~250 ms apart must BOTH fire — the old 350 ms
+        // emit gap swallowed the second one, which read as "laggy".
+        let evs = tiptap_events(&[
+            (0, vec![c(0.45)]),
+            (100, vec![c(0.45)]),
+            (120, vec![c(0.45), c(0.60)]),
+            (180, vec![c(0.45)]), // emit #1
+            (280, vec![c(0.45)]), // settle done (100 ms after emit)
+            (370, vec![c(0.45), c(0.60)]),
+            (430, vec![c(0.45)]), // emit #2 — 250 ms after #1
+            (600, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapRight]);
     }
 
     #[test]

@@ -551,16 +551,23 @@ pipeline (`system_commands::adjust_system_volume` / `toggle_system_mute`) — **
 a new action layer. Bindings: **3-finger swipe up/down → volume ±**, **3-finger
 tap → mute**, and (v0.84.206) **tip-tap → tab switch**: rest one finger, tap a
 second briefly to its **right → next tab** or **left → previous tab** — BTT's
-"TipTap (1 finger fix)". **Per-app shortcut dispatch (v0.84.210):** the gesture
-sends the FRONTMOST app's own tab-nav shortcut via the pure, tested
-`tab_strategy_for(bundle_id)` table — `CtrlTab` default (Safari/Chrome/Firefox/
-iTerm2/Finder/Electron), **`⌘⌥→/←`** for the VS Code family (their Ctrl+Tab is
-an MRU switcher, wrong for a spatial gesture), **`⇧⌘]/[`** for JetBrains +
-Xcode. The bracket keys are layout-dependent, so `key_for_char` resolves the
-physical key via **TIS + `UCKeyTranslate`** at gesture time (German layout:
-`]` = keycode 22 „6" + ⌥ — live-verified) and falls back to Ctrl+Tab when the
-layout data is unavailable (IMEs). Runs on the main thread (TIS requirement);
-frontmost bundle id via NSWorkspace. The pure,
+"TipTap (1 finger fix)". **Per-app shortcut dispatch — DATA-DRIVEN (v0.84.211):** the gesture sends the
+FRONTMOST app's own tab-nav chords from **`assets/tab_shortcuts.json`**
+(compile-time `include_str!`, validated by a unit test): bundle-id-prefix
+entries with `{key, mods}` chords — key = `"tab"`/`"left"`/`"right"` (fixed
+keycodes; arrows get the NumericPad+Fn flags real hardware carries — iTerm2
+matches exactly) or a **single char** resolved for the CURRENT layout via
+`key_for_char` (**TIS + `UCKeyTranslate`**; German: `]` = keycode 22 „6" + ⌥ —
+live-verified). Bundled entries: **iTerm2 → `⌘→/⌘←`** (its Ctrl+Tab is "Next
+MRU Tab" — recency order, verified from the user's GlobalKeyMap plist), VS
+Code family/Sublime → `⌘⌥→/←` (their Ctrl+Tab = MRU switcher), JetBrains/
+Android Studio/Xcode/Zed/Warp/kitty/TablePlus/DBeaver → `⇧⌘]/[`; everything
+else → the system-standard `Ctrl+Tab` default. **User override:**
+`<data-dir>/tab-shortcuts.json` (same shape) is merged on top — its entries
+match first, its `default` replaces the bundled one; loaded once per run
+(restart to apply), a broken file is logged + ignored. Runs on the main thread
+(TIS requirement); frontmost bundle id via NSWorkspace; unresolvable chords
+fall back to Ctrl+Tab. The pure,
 unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
 (the centroid stream can't tell which finger tapped) from the same macOS
 MultitouchSupport frame callback; guards: the rest finger must be down alone

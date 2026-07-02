@@ -1,0 +1,85 @@
+{
+  "_comment": "Per-app tab-navigation shortcuts for the tip-tap gesture. Matched by bundle-id PREFIX, first hit wins; unlisted apps get `default` (the system-standard Ctrl+Tab). `key`: \"tab\" | \"left\" | \"right\" | a single character (resolved for the CURRENT keyboard layout at gesture time, incl. e.g. ⌥6 for ] on German). `mods`: cmd | shift | ctrl | alt. A user override with the same shape at <app-data-dir>/tab-shortcuts.json is merged on top (its entries win; its `default` replaces this one).",
+  "apps": [
+    {
+      "_why": "iTerm2: Ctrl+Tab is 'Next MRU Tab' (recency order — bounces between two tabs). Cmd+arrows are its in-order Next/Previous Tab defaults.",
+      "prefix": "com.googlecode.iterm2",
+      "next": { "key": "right", "mods": ["cmd"] },
+      "prev": { "key": "left", "mods": ["cmd"] }
+    },
+    {
+      "_why": "VS Code family: Ctrl+Tab is an MRU quick-switcher; ⌘⌥arrows = Open Next/Previous Editor (in order).",
+      "prefix": "com.microsoft.VSCode",
+      "next": { "key": "right", "mods": ["cmd", "alt"] },
+      "prev": { "key": "left", "mods": ["cmd", "alt"] }
+    },
+    {
+      "prefix": "com.todesktop.",
+      "_why": "Cursor (VS Code fork).",
+      "next": { "key": "right", "mods": ["cmd", "alt"] },
+      "prev": { "key": "left", "mods": ["cmd", "alt"] }
+    },
+    {
+      "prefix": "com.vscodium",
+      "next": { "key": "right", "mods": ["cmd", "alt"] },
+      "prev": { "key": "left", "mods": ["cmd", "alt"] }
+    },
+    {
+      "_why": "Sublime Text: next_view/prev_view.",
+      "prefix": "com.sublimetext.",
+      "next": { "key": "right", "mods": ["cmd", "alt"] },
+      "prev": { "key": "left", "mods": ["cmd", "alt"] }
+    },
+    {
+      "_why": "JetBrains IDEs (IntelliJ/PyCharm/WebStorm/…): Select Next/Previous Tab; their Ctrl+Tab is the MRU Switcher popup.",
+      "prefix": "com.jetbrains.",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "prefix": "com.google.android.studio",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "Xcode: Show Next/Previous Tab.",
+      "prefix": "com.apple.dt.Xcode",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "Zed: pane::ActivateNext/PrevItem.",
+      "prefix": "dev.zed.Zed",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "Warp terminal.",
+      "prefix": "dev.warp.Warp",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "kitty terminal.",
+      "prefix": "net.kovidgoyal.kitty",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "TablePlus.",
+      "prefix": "com.tinyapp.TablePlus",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    },
+    {
+      "_why": "DBeaver (Eclipse-based): Next/Previous Editor.",
+      "prefix": "org.jkiss.dbeaver",
+      "next": { "key": "]", "mods": ["cmd", "shift"] },
+      "prev": { "key": "[", "mods": ["cmd", "shift"] }
+    }
+  ],
+  "default": {
+    "next": { "key": "tab", "mods": ["ctrl"] },
+    "prev": { "key": "tab", "mods": ["ctrl", "shift"] }
+  }
+}

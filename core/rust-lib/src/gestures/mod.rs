@@ -247,53 +247,110 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     });
 }
 
-/// How the frontmost app expects "next/previous tab" to be triggered.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TabNavStrategy {
-    /// `Ctrl+Tab` / `Ctrl+Shift+Tab` — the system-standard "Show Next Tab"
-    /// (Safari, Chrome family, Firefox, iTerm2, Terminal, Finder, native
-    /// tabbed windows, most Electron apps).
-    CtrlTab,
-    /// `⌘⌥→` / `⌘⌥←` — VS Code family "Open Next/Previous Editor" (in
-    /// order; their `Ctrl+Tab` is an MRU switcher, which feels wrong for a
-    /// spatial left/right gesture). Arrow keycodes are layout-independent.
-    CmdAltArrow,
-    /// `⇧⌘]` / `⇧⌘[` — JetBrains "Select Next/Previous Tab" + Xcode (their
-    /// `Ctrl+Tab` is also an MRU switcher). The bracket keys are
-    /// **layout-dependent** (German: `]` = `⌥6`), so synthesis resolves the
-    /// physical key via `UCKeyTranslate` at gesture time.
-    CmdShiftBracket,
+/// One synthesizable key chord (from `assets/tab_shortcuts.json` or the user
+/// override). `key` is `"tab"` / `"left"` / `"right"` or a single character —
+/// characters are resolved for the CURRENT keyboard layout at gesture time
+/// (German: `]` = physical „6" + ⌥), named keys use fixed virtual keycodes.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize)]
+pub struct KeyChord {
+    pub key: String,
+    #[serde(default)]
+    pub mods: Vec<String>,
 }
 
-/// The built-in per-app strategy table (bundle-id prefix match) — so the
-/// gesture "just works" everywhere without per-app user configuration. Pure +
-/// unit-tested; unknown apps get the system-standard `CtrlTab`.
-pub fn tab_strategy_for(bundle_id: &str) -> TabNavStrategy {
-    const BRACKET: &[&str] = &[
-        "com.jetbrains.",          // IntelliJ / PyCharm / WebStorm / …
-        "com.google.android.studio",
-        "com.apple.dt.Xcode",
-    ];
-    const ARROW: &[&str] = &[
-        "com.microsoft.VSCode",    // incl. Insiders
-        "com.todesktop.",          // Cursor
-        "com.vscodium",
-        "com.sublimetext.",
-        "dev.zed.Zed",
-    ];
-    if BRACKET.iter().any(|p| bundle_id.starts_with(p)) {
-        return TabNavStrategy::CmdShiftBracket;
-    }
-    if ARROW.iter().any(|p| bundle_id.starts_with(p)) {
-        return TabNavStrategy::CmdAltArrow;
-    }
-    TabNavStrategy::CtrlTab
+/// A per-app entry: bundle-id prefix → the app's own next/prev-tab chords.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TabAppEntry {
+    pub prefix: String,
+    pub next: KeyChord,
+    pub prev: KeyChord,
 }
 
-/// Send the right tab-switch shortcut **for the frontmost app** (strategy from
-/// [`tab_strategy_for`]). MUST run on the main thread: the bracket strategy
-/// queries the keyboard layout via TIS/HIToolbox (main-thread API); CGEventPost
-/// itself is thread-safe. Needs the Accessibility grant gestures already use.
+/// The whole map: bundled defaults (`assets/tab_shortcuts.json`), optionally
+/// overlaid by a user file of the same shape at `<data-dir>/tab-shortcuts.json`
+/// (its entries are checked FIRST; its `default` replaces the bundled one).
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TabShortcutMap {
+    #[serde(default)]
+    pub apps: Vec<TabAppEntry>,
+    pub default: TabDefault,
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct TabDefault {
+    pub next: KeyChord,
+    pub prev: KeyChord,
+}
+
+/// The bundled map — a compile-time asset so a bad edit fails the build/tests,
+/// not the user. Unlisted apps get the system-standard Ctrl+Tab default.
+pub const TAB_SHORTCUTS_JSON: &str = include_str!("../../assets/tab_shortcuts.json");
+
+pub fn parse_tab_map(json: &str) -> Result<TabShortcutMap, serde_json::Error> {
+    serde_json::from_str(json)
+}
+
+/// Merge `user` over `built_in`: user entries match first, user default wins.
+pub fn merge_tab_maps(built_in: TabShortcutMap, user: Option<TabShortcutMap>) -> TabShortcutMap {
+    match user {
+        None => built_in,
+        Some(u) => TabShortcutMap {
+            apps: u.apps.into_iter().chain(built_in.apps).collect(),
+            default: u.default,
+        },
+    }
+}
+
+/// The chords for `bundle_id` (first prefix match wins, else the default).
+pub fn tab_chords_for<'a>(map: &'a TabShortcutMap, bundle_id: &str) -> (&'a KeyChord, &'a KeyChord) {
+    for e in &map.apps {
+        if bundle_id.starts_with(&e.prefix) {
+            return (&e.next, &e.prev);
+        }
+    }
+    (&map.default.next, &map.default.prev)
+}
+
+/// The effective map: bundled + user override, loaded once per app run (edit
+/// the override file → restart to apply). Never fails — the bundled JSON is
+/// validated by a unit test, and a broken user file is logged + ignored.
+#[cfg(target_os = "macos")]
+fn effective_tab_map() -> &'static TabShortcutMap {
+    use std::sync::OnceLock;
+    static MAP: OnceLock<TabShortcutMap> = OnceLock::new();
+    MAP.get_or_init(|| {
+        let built_in = parse_tab_map(TAB_SHORTCUTS_JSON).unwrap_or_else(|e| {
+            tracing::error!("gestures: bundled tab_shortcuts.json invalid: {e}");
+            TabShortcutMap {
+                apps: Vec::new(),
+                default: TabDefault {
+                    next: KeyChord { key: "tab".into(), mods: vec!["ctrl".into()] },
+                    prev: KeyChord { key: "tab".into(), mods: vec!["ctrl".into(), "shift".into()] },
+                },
+            }
+        });
+        let user = crate::db::default_db_path()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join("tab-shortcuts.json")))
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .and_then(|txt| match parse_tab_map(&txt) {
+                Ok(m) => {
+                    tracing::info!("gestures: user tab-shortcuts.json loaded ({} entries)", m.apps.len());
+                    Some(m)
+                }
+                Err(e) => {
+                    tracing::warn!("gestures: user tab-shortcuts.json invalid — ignored: {e}");
+                    None
+                }
+            });
+        merge_tab_maps(built_in, user)
+    })
+}
+
+/// Send the right tab-switch shortcut **for the frontmost app** (chords from
+/// [`effective_tab_map`]). MUST run on the main thread: character chords query
+/// the keyboard layout via TIS/HIToolbox (main-thread API); CGEventPost itself
+/// is thread-safe. Needs the Accessibility grant gestures already use.
 #[cfg(target_os = "macos")]
 fn send_tab_switch_for_frontmost(next: bool) {
     use std::ffi::c_void;
@@ -312,14 +369,15 @@ fn send_tab_switch_for_frontmost(next: bool) {
         // Signature matches audio.rs's declaration (clashing_extern_declarations).
         fn CFRelease(cf: *const c_void);
     }
-    const KEY_TAB: u16 = 48; // kVK_Tab
+    const KEY_TAB: u16 = 48;
     const KEY_LEFT: u16 = 123;
     const KEY_RIGHT: u16 = 124;
     const FLAG_SHIFT: u64 = 0x0002_0000;
     const FLAG_CONTROL: u64 = 0x0004_0000;
     const FLAG_ALT: u64 = 0x0008_0000;
     const FLAG_CMD: u64 = 0x0010_0000;
-    const FLAG_FN: u64 = 0x0080_0000; // real arrow keys carry the Fn flag
+    const FLAG_NUMPAD: u64 = 0x0020_0000; // real arrow keys carry NumericPad…
+    const FLAG_FN: u64 = 0x0080_0000; // …and Fn — some apps (iTerm2) match exactly
     const HID_TAP: u32 = 0;
 
     let post = |keycode: u16, flags: u64| unsafe {
@@ -333,26 +391,37 @@ fn send_tab_switch_for_frontmost(next: bool) {
             CFRelease(ev as *const c_void);
         }
     };
-    let ctrl_tab = |next: bool| {
-        post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT });
+    let mod_flags = |mods: &[String]| -> u64 {
+        mods.iter()
+            .map(|m| match m.as_str() {
+                "cmd" => FLAG_CMD,
+                "shift" => FLAG_SHIFT,
+                "ctrl" => FLAG_CONTROL,
+                "alt" => FLAG_ALT,
+                _ => 0,
+            })
+            .fold(0, |a, b| a | b)
     };
-
-    let strategy = frontmost_bundle_id()
-        .map(|b| tab_strategy_for(&b))
-        .unwrap_or(TabNavStrategy::CtrlTab);
-    match strategy {
-        TabNavStrategy::CtrlTab => ctrl_tab(next),
-        TabNavStrategy::CmdAltArrow => {
-            post(if next { KEY_RIGHT } else { KEY_LEFT }, FLAG_CMD | FLAG_ALT | FLAG_FN);
-        }
-        TabNavStrategy::CmdShiftBracket => {
-            // Resolve which physical key produces ]/[ under the CURRENT layout
-            // (US: the bracket keys; German: ⌥6/⌥5) and press it with ⌘⇧ plus
-            // whatever extra modifier the char itself needs — exactly what a
-            // human would type. Falls back to Ctrl+Tab if unresolvable.
-            match key_for_char(if next { ']' } else { '[' }) {
-                Some((code, extra)) => post(code, FLAG_CMD | FLAG_SHIFT | extra),
-                None => ctrl_tab(next),
+    let map = effective_tab_map();
+    let bundle = frontmost_bundle_id().unwrap_or_default();
+    let (next_chord, prev_chord) = tab_chords_for(map, &bundle);
+    let chord = if next { next_chord } else { prev_chord };
+    let flags = mod_flags(&chord.mods);
+    match chord.key.as_str() {
+        "tab" => post(KEY_TAB, flags),
+        "left" => post(KEY_LEFT, flags | FLAG_NUMPAD | FLAG_FN),
+        "right" => post(KEY_RIGHT, flags | FLAG_NUMPAD | FLAG_FN),
+        other => {
+            let Some(target) = other.chars().next().filter(|_| other.chars().count() == 1) else {
+                tracing::warn!("gestures: bad tab chord key {other:?} — falling back to Ctrl+Tab");
+                post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT });
+                return;
+            };
+            // Layout-aware: find the physical key producing the char under the
+            // CURRENT layout (German: ] = „6" + ⌥) and add its own modifiers.
+            match key_for_char(target) {
+                Some((code, extra)) => post(code, flags | extra),
+                None => post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT }),
             }
         }
     }
@@ -990,38 +1059,63 @@ mod tests {
     }
 
     #[test]
-    fn tab_strategy_table_routes_by_bundle_prefix() {
-        use TabNavStrategy::*;
-        // System-standard Ctrl+Tab family (incl. unknown apps).
-        for b in [
-            "com.apple.Safari",
-            "com.google.Chrome",
-            "org.mozilla.firefox",
-            "com.googlecode.iterm2",
-            "com.apple.finder",
-            "md.obsidian",
-            "com.unknown.app",
-        ] {
-            assert_eq!(tab_strategy_for(b), CtrlTab, "{b}");
+    fn bundled_tab_shortcuts_json_parses_and_routes() {
+        let map = parse_tab_map(TAB_SHORTCUTS_JSON).expect("bundled tab_shortcuts.json must parse");
+        assert!(!map.apps.is_empty());
+        // Every entry has sane chords.
+        for e in &map.apps {
+            for c in [&e.next, &e.prev] {
+                let named = matches!(c.key.as_str(), "tab" | "left" | "right");
+                assert!(named || c.key.chars().count() == 1, "bad key {:?} for {}", c.key, e.prefix);
+                assert!(!c.mods.is_empty(), "chord without modifiers for {}", e.prefix);
+                for m in &c.mods {
+                    assert!(matches!(m.as_str(), "cmd" | "shift" | "ctrl" | "alt"), "bad mod {m}");
+                }
+            }
         }
-        // VS Code family → ⌘⌥arrows (their Ctrl+Tab is an MRU switcher).
-        for b in [
-            "com.microsoft.VSCode",
-            "com.microsoft.VSCodeInsiders",
-            "com.todesktop.230313mzl4w4u92", // Cursor
-            "com.sublimetext.4",
-        ] {
-            assert_eq!(tab_strategy_for(b), CmdAltArrow, "{b}");
+        let chord = |b: &str, next: bool| {
+            let (n, p) = tab_chords_for(&map, b);
+            if next { n.clone() } else { p.clone() }
+        };
+        // iTerm2: Ctrl+Tab is its MRU cycle → the map must use ⌘→/⌘← instead.
+        assert_eq!(chord("com.googlecode.iterm2", true).key, "right");
+        assert_eq!(chord("com.googlecode.iterm2", true).mods, vec!["cmd"]);
+        assert_eq!(chord("com.googlecode.iterm2", false).key, "left");
+        // VS Code family → ⌘⌥ arrows.
+        for b in ["com.microsoft.VSCode", "com.todesktop.230313mzl4w4u92", "com.sublimetext.4"] {
+            let c = chord(b, true);
+            assert_eq!(c.key, "right", "{b}");
+            assert!(c.mods.contains(&"alt".to_string()), "{b}");
         }
-        // JetBrains family + Xcode → ⇧⌘]/[ (layout-aware synthesis).
-        for b in [
-            "com.jetbrains.intellij",
-            "com.jetbrains.pycharm",
-            "com.google.android.studio",
-            "com.apple.dt.Xcode",
-        ] {
-            assert_eq!(tab_strategy_for(b), CmdShiftBracket, "{b}");
+        // JetBrains family + Xcode → layout-aware brackets.
+        for b in ["com.jetbrains.intellij", "com.jetbrains.pycharm", "com.google.android.studio", "com.apple.dt.Xcode"] {
+            assert_eq!(chord(b, true).key, "]", "{b}");
+            assert_eq!(chord(b, false).key, "[", "{b}");
         }
+        // Unknown apps → the system-standard Ctrl+Tab default.
+        let (n, p) = tab_chords_for(&map, "com.unknown.app");
+        assert_eq!((n.key.as_str(), p.key.as_str()), ("tab", "tab"));
+        assert!(n.mods.contains(&"ctrl".to_string()) && p.mods.contains(&"shift".to_string()));
+    }
+
+    #[test]
+    fn user_tab_map_overrides_built_in() {
+        let built_in = parse_tab_map(TAB_SHORTCUTS_JSON).unwrap();
+        let user = parse_tab_map(
+            r#"{ "apps": [ { "prefix": "com.googlecode.iterm2",
+                 "next": { "key": "]", "mods": ["cmd", "shift"] },
+                 "prev": { "key": "[", "mods": ["cmd", "shift"] } } ],
+                 "default": { "next": { "key": "tab", "mods": ["ctrl"] },
+                              "prev": { "key": "tab", "mods": ["ctrl", "shift"] } } }"#,
+        )
+        .unwrap();
+        let merged = merge_tab_maps(built_in, Some(user));
+        // The user's iTerm2 entry is found FIRST (overrides the bundled one).
+        let (n, _) = tab_chords_for(&merged, "com.googlecode.iterm2");
+        assert_eq!(n.key, "]");
+        // Bundled entries still resolve for other apps.
+        let (n2, _) = tab_chords_for(&merged, "com.jetbrains.idea");
+        assert_eq!(n2.key, "]");
     }
 
     #[test]

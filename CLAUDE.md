@@ -721,7 +721,17 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   `orderFrontRegardless` orders it on-screen without touching key status
   (applies to drag-snap previews too, which no longer steal key from the
   dragged app). The preset row's preview-hide is debounced (~90 ms) so moving
-  between adjacent presets doesn't blink the outline. Picking a preset / releasing a
+  between adjacent presets doesn't blink the outline. **Hover is tap-driven
+  (v0.84.219):** WKWebView's own hover tracking (`NSTrackingActiveInKeyWindow`)
+  only fires while the palette window is KEY — which the non-activating
+  floating panel often never becomes (launch-context dependent: worked from a
+  terminal launch, dead via LaunchServices). The palette's mouse-move
+  CGEventTap forwards the cursor in palette-local points to the webview
+  (`window-palette-pointer` event, ~60 Hz capped, `(-1,-1)` = left); the
+  webview hit-tests the preset row + hex grid from those coordinates and
+  drives preset previews + the magnetic hex hover — deterministic,
+  key-status-independent. Native pointer handlers remain as a fast path
+  (`lastPresetRef` dedupes the two sources). Picking a preset / releasing a
   hex-grid drag calls `window_palette_apply(fx,fy,fw,fh)` → `set_window_frame`
   (AX position→size→position; fixed-size windows move-only) on the **retained
   hovered window** (not the focused one), then hides. Moving off button+palette

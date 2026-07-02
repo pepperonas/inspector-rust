@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.218] — 2026-07-02
+
+### Fixed
+
+- **Window palette: preset previews now show and switch reliably while hovering.** Root cause: the on-screen preview overlay was shown via Tauri `show()` = `makeKeyAndOrderFront` — every preview made the passive outline the *key window*, stealing key status from the palette and killing its hover tracking (previews froze after the first, then flapped hidden). The overlay is now ordered front via `orderFrontRegardless` (never takes key; also stops drag-snap previews stealing key from the dragged app), and moving between adjacent presets no longer blinks the preview (debounced hide).
+
+## [0.84.217] — 2026-07-02
+
+### Fixed
+
+- **Window palette: palette window stacks above its own preview overlay** (NSWindow level floating+1) — at equal level the preview tinted the palette.
+
 ## [0.84.144] — 2026-06-27
 
 ### Added

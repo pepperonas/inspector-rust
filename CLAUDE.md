@@ -713,7 +713,15 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   `always_on_top` (= NSFloatingWindowLevel), and at EQUAL level every preview
   `show()` re-ordered the overlay ABOVE the palette — tinting it and killing
   WKWebView's hover tracking (preset previews stopped switching on hover); one
-  level up keeps the palette on top of its own preview. Picking a preset / releasing a
+  level up keeps the palette on top of its own preview. **The overlay is shown
+  via `orderFrontRegardless`, never Tauri `show()` (v0.84.218):** Tauri/tao
+  `show()` is `makeKeyAndOrderFront` — every preview made the passive outline
+  the KEY window, stealing key from the palette webview and killing its
+  WKWebView hover tracking (preset previews froze / flapped hidden).
+  `orderFrontRegardless` orders it on-screen without touching key status
+  (applies to drag-snap previews too, which no longer steal key from the
+  dragged app). The preset row's preview-hide is debounced (~90 ms) so moving
+  between adjacent presets doesn't blink the outline. Picking a preset / releasing a
   hex-grid drag calls `window_palette_apply(fx,fy,fw,fh)` → `set_window_frame`
   (AX position→size→position; fixed-size windows move-only) on the **retained
   hovered window** (not the focused one), then hides. Moving off button+palette

@@ -207,6 +207,8 @@ mod macos {
         target: Arc<AtomicU32>, // above-SDR ×1000 (0 = off)
         running: Arc<AtomicBool>,
         window: SendPtr,
+        layer: SendPtr,
+        queue: SendPtr,
         thread: Option<std::thread::JoinHandle<()>>,
     }
 
@@ -314,17 +316,16 @@ mod macos {
                 let _ = app2.run_on_main_thread(move || draw_edr_frame(w, l, q, a, f));
                 std::thread::sleep(std::time::Duration::from_millis(if fading { FADE_MS } else { TICK_MS }));
             }
-            // Release the +1 command queue on the main thread, for symmetry.
-            let q = queue_ptr;
-            let _ = app2.run_on_main_thread(move || unsafe {
-                let _: () = msg_send![q as *mut AnyObject, release];
-            });
+            // The +1 command queue is released by teardown_locked (which still
+            // needs it for the fade-out draws after this thread exits).
         });
         *STATE.lock() = Some(Overlay {
             cg_id,
             target,
             running,
             window,
+            layer,
+            queue,
             thread: Some(thread),
         });
         tracing::info!("edr: overlay active on display {cg_id}");
@@ -396,11 +397,36 @@ mod macos {
             let _ = t.join();
         }
         let win = o.window.0 as usize;
+        let layer = o.layer.0 as usize;
+        let queue = o.queue.0 as usize;
+        // Fade OUT before closing — the mirror of the fade-in. An abrupt removal
+        // flashed the screen WHITE when crossing back under 100 %: the layer's
+        // content is literally white (uniform factor values) and during close it
+        // can composite for a frame without the multiply filter; the granted EDR
+        // headroom also snaps instead of ramping. Ramping the window alpha to 0
+        // first makes the content invisible regardless of filter state.
+        if !RENDER_FAILED.load(Ordering::Relaxed) {
+            let above = o.target.load(Ordering::Relaxed) as f32 / 1000.0;
+            let mut fade = 1.0f32;
+            while fade > 0.0 {
+                fade = (fade - FADE_STEP).max(0.0);
+                let (w, l, q, f) = (win, layer, queue, fade);
+                let _ = app.run_on_main_thread(move || draw_edr_frame(w, l, q, above, f));
+                std::thread::sleep(std::time::Duration::from_millis(FADE_MS));
+            }
+        }
         let _ = app.run_on_main_thread(move || unsafe {
             let w = win as *mut AnyObject;
             if !w.is_null() {
                 let _: () = msg_send![w, orderOut: std::ptr::null::<AnyObject>()];
                 let _: () = msg_send![w, close];
+            }
+            // Release the +1 command queue here (moved out of the ticker so the
+            // fade-out draws above could still use it). FIFO on the main queue
+            // guarantees every fade draw ran before this.
+            let q = queue as *mut AnyObject;
+            if !q.is_null() {
+                let _: () = msg_send![q, release];
             }
         });
         tracing::info!("edr: overlay torn down");

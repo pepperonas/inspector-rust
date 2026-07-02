@@ -1186,8 +1186,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     className="accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    Rest one finger, tap a second to its right → next tab (Ctrl+Tab); tap to
-                    its left → previous tab (Ctrl+Shift+Tab)
+                    Experimental — off by default. Rest one finger, tap a second to its right →
+                    next tab (Ctrl+Tab); left → previous tab (Ctrl+Shift+Tab). If you rest your
+                    thumb on the trackpad while pointing, leave this off (it can misfire).
                   </span>
                 </label>
               </Row>

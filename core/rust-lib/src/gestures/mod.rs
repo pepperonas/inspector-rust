@@ -56,8 +56,10 @@ pub const TAP_MIN_MS: u64 = 10;
 pub const TIPTAP_REST_MIN_MS: u64 = 80;
 /// The tapping finger must lift within this window (else it's a two-finger rest).
 pub const TIPTAP_TAP_MAX_MS: u64 = 300;
-/// …and must be down at least this long (single-frame sensor glitch filter).
-pub const TIPTAP_TAP_MIN_MS: u64 = 20;
+/// …and must be down at least this long. 40 ms also filters MT state flicker
+/// (a lightly-resting finger can bounce between touching/hover states frame to
+/// frame, which looks like machine-gun micro-taps).
+pub const TIPTAP_TAP_MIN_MS: u64 = 40;
 /// Max movement (normalized) either finger may make during the tap — more is a
 /// scroll/pinch, and a drifting rest finger re-arms its settle timer.
 pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
@@ -67,7 +69,14 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// Refractory period between two tip-tap emits. A physical tap's lift can
 /// "bounce" (the contact re-appears for a frame or two) — without this gap one
 /// tap could fire several tab switches ("apps jump around wildly").
-pub const TIPTAP_EMIT_GAP_MS: u64 = 150;
+pub const TIPTAP_EMIT_GAP_MS: u64 = 350;
+/// The tap must land at a similar HEIGHT as the resting finger (|Δy|, 0..1).
+/// Two fingertips sit side by side; a thumb anchored at the pad's bottom edge
+/// vs. a pointing finger has a large Δy — that posture is normal cursor use,
+/// never a tip-tap (it caused runaway tab switching in iTerm & co.).
+pub const TIPTAP_MAX_DY_NORM: f64 = 0.22;
+/// …and not implausibly far sideways (adjacent fingertips, not a wide pinch).
+pub const TIPTAP_MAX_DX_NORM: f64 = 0.40;
 
 // ── Normalized gesture event ─────────────────────────────────────────────────
 
@@ -96,8 +105,8 @@ const KEY_ENABLED: &str = "gestures.enabled";
 const KEY_VOLUME_STEP: &str = "gestures.volume_step";
 const KEY_TIPTAP: &str = "gestures.tiptap";
 
-fn default_true() -> bool {
-    true
+fn default_false() -> bool {
+    false
 }
 
 #[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
@@ -106,7 +115,10 @@ pub struct GestureConfig {
     pub fingers: u8,
     pub volume_step: i32,
     /// Tip-tap tab switching (rest one finger, tap another left/right).
-    #[serde(default = "default_true")]
+    /// **Opt-in (default off)**: normal thumb-anchored trackpad use (thumb
+    /// resting low while the index finger points) reads as rest+tap and caused
+    /// runaway tab switching for users who never wanted the gesture.
+    #[serde(default = "default_false")]
     pub tiptap: bool,
 }
 
@@ -116,7 +128,7 @@ impl Default for GestureConfig {
             enabled: false, // opt-in
             fingers: DEFAULT_FINGERS,
             volume_step: DEFAULT_VOLUME_STEP,
-            tiptap: true,
+            tiptap: false, // opt-in (see the field doc — accidental-trigger risk)
         }
     }
 }
@@ -512,8 +524,13 @@ impl TipTapRecognizer {
                     } else {
                         (c[1], c[0])
                     };
-                    if (t.x - r.x).abs() < TIPTAP_MIN_SEP_NORM {
-                        return (TtState::Poisoned, None); // too close to call left/right
+                    let dx = (t.x - r.x).abs();
+                    if !(TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&dx)
+                        || (t.y - r.y).abs() > TIPTAP_MAX_DY_NORM
+                    {
+                        // Too close to call left/right, implausibly wide, or a
+                        // thumb-vs-finger height mismatch (normal cursor use).
+                        return (TtState::Poisoned, None);
                     }
                     (TtState::TapDown { rest: r, tap: t, tap_start_x: t.x, started: t_ms }, None)
                 }
@@ -585,6 +602,20 @@ use parking_lot::Mutex;
 /// Managed Tauri state: holds the running platform source (if any).
 #[derive(Default)]
 pub struct GestureState(pub Mutex<Option<Box<dyn GestureSource>>>);
+
+/// One-shot migration (v0.84.209): tip-tap shipped default-ON in v0.84.206-208
+/// and misfired badly during normal thumb-anchored trackpad use (runaway tab
+/// switching). It is opt-in now — and any stored `true` from that window is
+/// reset once, since it was never an explicit user choice. Users who want it
+/// re-enable it consciously in Settings.
+pub fn migrate_tiptap_optin(db: &DbHandle) {
+    const FLAG: &str = "gestures.tiptap_optin_migrated_v0_84_209";
+    if crate::settings::get_bool(db, FLAG, false).unwrap_or(false) {
+        return;
+    }
+    let _ = crate::settings::set(db, KEY_TIPTAP, "false");
+    let _ = crate::settings::set(db, FLAG, "true");
+}
 
 /// Start/stop the gesture daemon to match the saved config. Called at startup
 /// and after a settings change (idempotent). Mirrors `auto_expand::apply`.
@@ -677,10 +708,10 @@ mod tests {
             (100, vec![c(0.45)]),
             (120, vec![c(0.45), c(0.60)]),
             (180, vec![c(0.45)]), // emit #1 (Right)
-            (300, vec![c(0.45)]),
-            (380, vec![c(0.45), c(0.30)]),
-            (440, vec![c(0.45)]), // emit #2 (Left)
-            (600, vec![]),
+            (400, vec![c(0.45)]),
+            (560, vec![c(0.45), c(0.30)]),
+            (620, vec![c(0.45)]), // emit #2 (Left) — > TIPTAP_EMIT_GAP_MS later
+            (800, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapLeft]);
     }
@@ -701,6 +732,21 @@ mod tests {
             (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
+    }
+
+    #[test]
+    fn tiptap_rejects_thumb_anchor_posture() {
+        // Thumb resting at the pad's bottom while the index finger touches
+        // higher up — normal cursor use, large Δy → must NEVER fire (this
+        // posture caused runaway tab switching).
+        let evs = tiptap_events(&[
+            (0, vec![Contact { x: 0.45, y: 0.92 }]), // thumb, bottom edge
+            (200, vec![Contact { x: 0.45, y: 0.92 }]),
+            (250, vec![Contact { x: 0.45, y: 0.92 }, Contact { x: 0.55, y: 0.35 }]),
+            (330, vec![Contact { x: 0.45, y: 0.92 }]),
+            (500, vec![]),
+        ]);
+        assert!(evs.is_empty(), "thumb+finger height mismatch must not fire");
     }
 
     #[test]
@@ -769,7 +815,7 @@ mod tests {
 
     #[test]
     fn tiptap_map_action_gated_by_config() {
-        let mut cfg = GestureConfig { enabled: true, ..Default::default() };
+        let mut cfg = GestureConfig { enabled: true, tiptap: true, ..Default::default() };
         let left = GestureEvent { kind: GestureKind::TipTapLeft, fingers: 2 };
         let right = GestureEvent { kind: GestureKind::TipTapRight, fingers: 2 };
         assert_eq!(map_action(&left, &cfg), Some(GestureAction::PrevTab));

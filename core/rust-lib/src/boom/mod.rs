@@ -176,6 +176,18 @@ pub fn db_to_linear(db: f32) -> f32 {
     10f32.powf(db / 20.0)
 }
 
+/// Perceptual volume taper for the system volume slider while boom is active:
+/// amplitude = scalar² (the classic audio power taper, dB = 40·log₁₀ s —
+/// 60 % ≈ −9 dB, 40 % ≈ −16 dB, 20 % ≈ −28 dB). The boom-Audio driver publishes
+/// the volume control but no longer applies it (its stock curve was linear over
+/// −64..0 dB: 40 % = −38 dB ≈ inaudible, 20 % = −51 dB — the "volume scaling
+/// feels wrong" bug); the playback bridge applies this gain instead.
+#[inline]
+pub fn volume_gain(scalar: f32) -> f32 {
+    let s = scalar.clamp(0.0, 1.0);
+    s * s
+}
+
 // ── DSP chain (pre-amp → EQ → boost → limiter) ───────────────────────────────
 
 /// Live parameters pushed to the chain (the realtime engine will pass these
@@ -703,6 +715,20 @@ mod tests {
         }
         // ~linear for small signals.
         assert!((soft_limit(0.01, 0.985) - 0.01).abs() < 1e-3);
+    }
+
+    #[test]
+    fn volume_gain_is_a_perceptual_power_taper() {
+        assert_eq!(volume_gain(0.0), 0.0);
+        assert_eq!(volume_gain(1.0), 1.0);
+        assert!((volume_gain(0.5) - 0.25).abs() < 1e-6);
+        // Monotonic + clamped.
+        assert!(volume_gain(0.6) > volume_gain(0.4));
+        assert_eq!(volume_gain(1.5), 1.0);
+        assert_eq!(volume_gain(-0.2), 0.0);
+        // Sanity of the dB feel: 40 % ≈ −16 dB (audible), NOT the old −38 dB.
+        let db = 20.0 * volume_gain(0.4).log10();
+        assert!(db > -18.0 && db < -14.0, "40% → {db} dB");
     }
 
     #[test]

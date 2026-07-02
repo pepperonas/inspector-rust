@@ -51,6 +51,12 @@ static CB_OUT_BYTES: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_CH: AtomicU32 = AtomicU32::new(0);
 static CB_OUT_RMS_BITS: AtomicU32 = AtomicU32::new(0);
 static CLIP: AtomicBool = AtomicBool::new(false);
+/// Perceptual output gain (f32 bits) from the boom-Audio volume scalar — the
+/// driver publishes the control but no longer applies it (its stock curve was
+/// linear over −64..0 dB → "40 % is barely audible"); the playback bridge
+/// multiplies by `boom::volume_gain(scalar)` (scalar²) instead. Updated by a
+/// CoreAudio property listener + the initial read at start.
+static VOLUME_GAIN_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 
 /// CATapMuteBehavior: 0 = unmuted (doubles → echo), 1 = muted (also muted our
 /// output device → silence), 2 = mutedWhenTapped. The tone probe proved our
@@ -93,6 +99,7 @@ const PROP_DEVICES: u32 = fourcc(b"dev#"); // kAudioHardwarePropertyDevices
 const PROP_DEVICE_UID: u32 = fourcc(b"uid "); // kAudioDevicePropertyDeviceUID
 const PROP_TAP_UID: u32 = fourcc(b"tuid"); // kAudioTapPropertyUID
 const PROP_NOMINAL_SR: u32 = fourcc(b"nsrt"); // kAudioDevicePropertyNominalSampleRate
+const PROP_VOLUME_SCALAR: u32 = fourcc(b"volm"); // kAudioDevicePropertyVolumeScalar
 
 const KCF_UTF8: u32 = 0x0800_0100;
 
@@ -651,7 +658,16 @@ fn playback_cb(ring: &Ring, dsp: &Mutex<DspChain>, output: *mut AudioBufferList)
         if let Some(chain) = guard.as_mut() {
             chain.process_interleaved(slice, ob.number_channels.max(1) as usize);
         }
-        // Output level (RMS, post-DSP) + clip detection for the meter.
+        // System volume (perceptual taper) — applied here, post-DSP, since the
+        // driver no longer applies its own (badly-tapered) gain. RT-safe: one
+        // atomic load + a multiply.
+        let gain = f32::from_bits(VOLUME_GAIN_BITS.load(Ordering::Relaxed));
+        if gain != 1.0 {
+            for x in slice.iter_mut() {
+                *x *= gain;
+            }
+        }
+        // Output level (RMS, post-DSP + volume) + clip detection for the meter.
         let mut sum = 0f32;
         let mut peak = 0f32;
         for &x in slice.iter() {
@@ -771,6 +787,9 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     // Follow later output-device changes (e.g. the user picks Bluetooth) so boom
     // keeps EQ-ing the selected device instead of being pinned to this one.
     add_default_listener();
+    // Track boom Audio's volume scalar (keys/HUD/our slider all write it) →
+    // the bridge applies the perceptual gain (driver-side application is off).
+    add_volume_listener(boom_dev);
     tracing::info!("boom: enabled — routing '{}' through the EQ (sr {sr})", device_name(real_dev));
     tracing::debug!("boom: real_dev={real_dev} boom_audio={boom_dev}");
     true
@@ -894,6 +913,57 @@ fn follow_default_change() {
         stop_ioprocs_only(eng); // keep new_def as the default
         start_locked(eng); // captures default_output() == new_def as the real device
     }
+}
+
+/// Re-read boom Audio's volume scalar → store the perceptual gain. Called at
+/// start + from the property listener on every volume change (keys, HUD, our
+/// slider — they all write the device scalar).
+unsafe fn refresh_volume_gain(boom_dev: AudioObjectID) {
+    let a = AudioObjectPropertyAddress {
+        selector: PROP_VOLUME_SCALAR,
+        scope: SCOPE_OUTPUT,
+        element: ELEMENT_MAIN,
+    };
+    let mut scalar: f32 = 1.0;
+    let mut size = std::mem::size_of::<f32>() as u32;
+    let st = AudioObjectGetPropertyData(
+        boom_dev,
+        &a,
+        0,
+        std::ptr::null(),
+        &mut size,
+        &mut scalar as *mut f32 as *mut c_void,
+    );
+    if st == 0 {
+        let gain = super::volume_gain(scalar);
+        VOLUME_GAIN_BITS.store(gain.to_bits(), Ordering::Relaxed);
+        tracing::debug!("boom: volume scalar {scalar:.2} → gain {gain:.3}");
+    }
+}
+
+extern "C" fn boom_volume_changed(
+    object: AudioObjectID,
+    _n: u32,
+    _addrs: *const AudioObjectPropertyAddress,
+    _client: *mut c_void,
+) -> OSStatus {
+    unsafe { refresh_volume_gain(object) };
+    0
+}
+
+static VOLUME_LISTENER_ON: AtomicBool = AtomicBool::new(false);
+
+unsafe fn add_volume_listener(boom_dev: AudioObjectID) {
+    refresh_volume_gain(boom_dev);
+    if VOLUME_LISTENER_ON.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let a = AudioObjectPropertyAddress {
+        selector: PROP_VOLUME_SCALAR,
+        scope: SCOPE_OUTPUT,
+        element: ELEMENT_MAIN,
+    };
+    AudioObjectAddPropertyListener(boom_dev, &a, boom_volume_changed, std::ptr::null_mut());
 }
 
 unsafe fn add_default_listener() {

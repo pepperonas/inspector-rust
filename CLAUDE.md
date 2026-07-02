@@ -578,21 +578,31 @@ unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
 (the centroid stream can't tell which finger tapped) from the same macOS
 MultitouchSupport frame callback; guards: the rest finger must be down alone
 ≥ `TIPTAP_REST_MIN_MS` (80 ms) before the tap lands (kills 2-finger
-scroll/click, whose fingers land together), the tap must lift within 300 ms,
-either finger moving > 0.05 (norm) poisons the attempt, and taps chain while
-the rest finger stays down. Direction = tap-x vs rest-x. **Robustness
+scroll/click, whose fingers land together), the tap must last 40–300 ms
+(`TIPTAP_TAP_MIN/MAX_MS` — the floor filters MT state flicker), either finger
+moving > 0.05 (norm) poisons the attempt, the tap must land 0.03–0.40 |Δx|
+from the rest (direction certainty / adjacent fingertips), and a
+**posture-aware Δy guard** (v0.84.209/.215/.216): |Δy| ≤ **0.55** mid-pad
+(generous — strongly angled hands register; 0.22 and 0.35 rejected real
+tip-taps when one finger sat higher) but a STRICT **0.18** when either contact
+is in the bottom-edge **thumb zone** (`TIPTAP_THUMB_ZONE_Y` y > 0.80) — the
+thumb-anchored-while-pointing posture that caused runaway tab switching stays
+blocked. Taps chain while the rest finger stays down. Direction = tap-x vs
+rest-x. **Robustness
 (v0.84.208):** tip-tap contacts are filtered to MT finger **state 4 (touching)**
 — a lifting finger lingers in the frame array in the leaving states (5–7),
 which read as still-down contacts (stuck recogniser + phantom taps); a
 **poisoned attempt recovers at ≤ 1 remaining contact** with a fresh settle (the
 old all-lift requirement killed tip-taps after a few uses until the user lifted
-everything); post-emit the settle timer **restarts** (no backdating) and a
-**150 ms emit refractory** (`TIPTAP_EMIT_GAP_MS`) caps the rate — a bouncing
-lift contact can no longer machine-gun tab switches. Key
+everything); post-emit the settle timer **restarts** (no backdating) and the emit
+refractory (`TIPTAP_EMIT_GAP_MS`, 150 → **200 ms** in v0.84.212) caps the rate
+— a bouncing lift contact can no longer machine-gun tab switches. Key
 synthesis via raw CGEvent FFI (thread-safe, posted inline from the capture
-thread; needs the same Accessibility grant). Toggle: `gestures.tiptap`
-(default on, gated by the master toggle; Settings row appears when gestures are
-enabled). macOS-only for now (the Windows/Linux sources feed only the centroid
+thread; needs the same Accessibility grant). Toggle: `gestures.tiptap` — **OPT-IN, default OFF (v0.84.209)**: it shipped
+default-on in v0.84.206–.208 and misfired during thumb-anchored cursor use, so
+a one-shot migration (`gestures.tiptap_optin_migrated_v0_84_209`) reset any
+stored `true` from that window; enabling is a conscious Settings action
+(labelled experimental, row appears when gestures are enabled). macOS-only for now (the Windows/Linux sources feed only the centroid
 recogniser). `apply` now **restarts** a running source on config change so
 toggles take effect live. **Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`

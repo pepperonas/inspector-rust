@@ -1,5 +1,4 @@
-import {
-  roundedHexPath, describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   boundingFraction,
   cellInRange,

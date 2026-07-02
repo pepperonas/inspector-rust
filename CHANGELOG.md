@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.220] — 2026-07-03
+
+### Added
+
+- **`boom` audio enhancement on Windows (via Equalizer APO; runtime-unverified).** The `boom` command now surfaces on Windows too: instead of a virtual driver (kernel-mode + WHQL-signed on Windows — not shippable ad-hoc), boom renders its config — pre-amp, 10-band EQ, presets, volume boost, Bass/Clarity/Fidelity shelves and the Ambience stereo-widen — into an Equalizer APO include file that EqAPO hot-reloads. `controlled_boost` reserves clipping headroom in the preamp (EqAPO has no limiter). The panel shows a "Get Equalizer APO" card when the backend is missing; Night (compressor) and the live level meters are macOS-only.
+
 ## [0.84.219] — 2026-07-03
 
 ### Fixed

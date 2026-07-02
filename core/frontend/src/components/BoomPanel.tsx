@@ -5,7 +5,9 @@
  * routing that makes it audible lands in phase 1b (a banner says so). Esc exits.
  */
 import { useEffect, useRef, useState } from "react";
-import { Volume2, Power, AlertTriangle, Download, Loader2 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
+import { Volume2, Power, AlertTriangle, Download, Loader2, RefreshCw } from "lucide-react";
+import { IS_WINDOWS } from "../lib/platform";
 import {
   boomAvailable,
   boomDriverInstalled,
@@ -25,8 +27,11 @@ const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
   { key: "clarity", label: "Clarity" },
   { key: "ambience", label: "Ambience" },
   { key: "fidelity", label: "Fidelity" },
-  { key: "night", label: "Night" },
+  // Night is a compressor — no Equalizer-APO equivalent on Windows.
+  ...(IS_WINDOWS ? [] : [{ key: "night", label: "Night" } as const]),
 ];
+
+const EQAPO_URL = "https://sourceforge.net/projects/equalizerapo/";
 
 export function BoomPanel({
   focused,
@@ -123,7 +128,7 @@ export function BoomPanel({
   // Poll live levels while the engine is on (read-only; ~8 Hz).
   const enabled = cfg?.enabled ?? false;
   useEffect(() => {
-    if (!enabled) {
+    if (!enabled || IS_WINDOWS) {
       setMeterIn(0);
       setMeterOut(0);
       setClip(false);
@@ -192,7 +197,38 @@ export function BoomPanel({
     return <p className="p-4 text-[12px] text-[var(--color-muted)]">Loading…</p>;
   }
 
-  // The virtual audio driver must be installed before boom can route audio.
+  // The audio backend must be present first. Windows: Equalizer APO (boom
+  // writes its config — installed manually, link + recheck). macOS: the
+  // bundled boom Audio virtual driver (installed in-app).
+  if (driverInstalled === false && IS_WINDOWS) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+        <Volume2 size={24} className="text-[var(--color-accent)]" />
+        <p className="text-[13px] font-medium text-[var(--color-fg)]">Install Equalizer APO</p>
+        <p className="text-[11px] text-[var(--color-muted)]">
+          On Windows, boom drives Equalizer APO — the standard system-wide audio processor. Install
+          it once (enable it for your playback device in its Configurator, then reboot); boom then
+          applies the EQ, presets and effects through it automatically.
+        </p>
+        <div className="mt-1 flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void openUrl(EQAPO_URL)}
+            className="flex items-center gap-1.5 rounded-full bg-[var(--color-accent)] px-3.5 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
+          >
+            <Download size={13} /> Get Equalizer APO
+          </button>
+          <button
+            type="button"
+            onClick={() => void boomDriverInstalled().then(setDriverInstalled).catch(() => {})}
+            className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1.5 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+          >
+            <RefreshCw size={13} /> Check again
+          </button>
+        </div>
+      </div>
+    );
+  }
   if (driverInstalled === false) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
@@ -255,20 +291,26 @@ export function BoomPanel({
 
       {/* Driver status + uninstall. */}
       <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
-        <span>Routes system audio through the boom Audio driver.</span>
-        <button
-          type="button"
-          onClick={() => void uninstall()}
-          disabled={installing}
-          className="shrink-0 underline decoration-dotted hover:text-[var(--color-fg)] disabled:opacity-50"
-        >
-          {installing ? "…" : "Uninstall driver"}
-        </button>
+        <span>
+          {IS_WINDOWS
+            ? "Applies system-wide via Equalizer APO."
+            : "Routes system audio through the boom Audio driver."}
+        </span>
+        {!IS_WINDOWS && (
+          <button
+            type="button"
+            onClick={() => void uninstall()}
+            disabled={installing}
+            className="shrink-0 underline decoration-dotted hover:text-[var(--color-fg)] disabled:opacity-50"
+          >
+            {installing ? "…" : "Uninstall driver"}
+          </button>
+        )}
       </div>
       {installError && <p className="text-[10px] text-red-400">{installError}</p>}
 
-      {/* Live level meters (only while running). */}
-      {cfg.enabled && (
+      {/* Live level meters (only while running; no readout on the EqAPO backend). */}
+      {cfg.enabled && !IS_WINDOWS && (
         <div className="flex flex-col gap-1 rounded-lg border border-[var(--color-border)] p-2">
           <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
             <span>Levels</span>

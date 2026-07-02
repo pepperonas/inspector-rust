@@ -571,9 +571,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "boom",
     keyword: "boom",
     syntax: "boom",
-    description: "Audio enhancement — system EQ, presets & volume boost (macOS)",
+    description: "Audio enhancement — system EQ, presets & volume boost",
     requiresArg: false,
-    platform: ["mac"],
+    platform: ["mac", "win"],
   },
   {
     kind: "uptime",

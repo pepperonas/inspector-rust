@@ -88,6 +88,8 @@ windows = { version = "0.61", features = [
     "Win32_UI_Input_KeyboardAndMouse",
     # SetDeviceGammaRamp for the brightness software-dimming path (brightness.rs)
     "Win32_UI_ColorSystem",
+    # Equalizer-APO config-dir lookup for the boom Windows backend (boom/windows.rs)
+    "Win32_System_Registry",
     # Audio output-device picker (audio.rs): MMDevice enumeration + IPolicyConfig
     "Win32_Media_Audio",
     "Win32_Devices_FunctionDiscovery",

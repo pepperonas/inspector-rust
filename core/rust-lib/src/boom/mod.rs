@@ -584,7 +584,14 @@ pub fn is_supported() -> bool {
             .map(|v| version_ge_14_2(v.trim()))
             .unwrap_or(false)
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // The command surfaces on Windows; the panel shows an "install
+        // Equalizer APO" card when the backend is missing (mirrors the macOS
+        // driver-install card).
+        true
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }
@@ -615,7 +622,15 @@ pub fn apply(db: &DbHandle) {
         macos::reset_stale_default();
         macos::set_active(&cfg);
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        // Enabled or not, (re)write the include file — disabled renders as a
+        // passthrough comment, so toggling boom off truly clears the EQ.
+        if let Err(e) = windows::apply_config(&cfg) {
+            tracing::warn!("boom(win): apply failed: {e}");
+        }
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         let _ = cfg;
     }
@@ -641,6 +656,103 @@ pub fn levels() -> BoomLevels {
         BoomLevels::default()
     }
 }
+
+// ── Windows backend — Equalizer APO config renderer (pure, cross-platform) ───
+//
+// On Windows boom drives **Equalizer APO** (the established user-mode APO that
+// hooks the Windows audio engine) instead of a virtual driver: `apply` renders
+// the saved config into an include file inside EqAPO's config directory and
+// EqAPO hot-reloads it. The renderer mirrors the DspChain stage order
+// (pre-amp → 10-band EQ → bass/clarity/fidelity shelves → ambience widen);
+// the volume boost is folded into the preamp (20·log10), and — since EqAPO has
+// no limiter — `controlled_boost` subtracts the largest positive gain as
+// clipping headroom. The Night compressor has no EqAPO equivalent and is
+// omitted (hidden in the Windows UI).
+
+/// Name of the include file boom manages inside EqAPO's config directory.
+pub const APO_INCLUDE_FILE: &str = "inspector-rust-boom.txt";
+const APO_HEADER: &str = "# Managed by Inspector Rust (boom) — do not edit; rewritten on every change.";
+
+/// Render the Equalizer APO include-file content for `cfg`. Pure + unit-tested.
+pub fn apo_config_text(cfg: &BoomConfig) -> String {
+    let mut out = String::new();
+    out.push_str(APO_HEADER);
+    out.push('\n');
+    if !cfg.enabled {
+        out.push_str("# boom is off — passthrough.\n");
+        return out;
+    }
+
+    let e = &cfg.effects;
+    let bass_db = (e.bass as f64 * BASS_MAX_DB) as f32;
+    let clarity_db = (e.clarity as f64 * CLARITY_MAX_DB) as f32;
+    let fidelity_db = (e.fidelity as f64 * FIDELITY_MAX_DB) as f32;
+
+    // Boost folds into the preamp; controlled boost reserves headroom for the
+    // largest positive gain anywhere in the chain (EqAPO has no limiter).
+    let boost_db = if cfg.boost_pct > 0.0 { 20.0 * (cfg.boost_pct / 100.0).log10() } else { -60.0 };
+    let max_pos_gain = cfg
+        .band_gains_db
+        .iter()
+        .copied()
+        .chain([cfg.preamp_db.max(0.0), bass_db, clarity_db, fidelity_db])
+        .fold(0.0_f32, f32::max);
+    let headroom = if cfg.controlled_boost { -max_pos_gain } else { 0.0 };
+    let preamp = cfg.preamp_db + boost_db + headroom;
+    out.push_str(&format!("Preamp: {preamp:.1} dB\n"));
+
+    let mut n = 0;
+    let mut filter = |out: &mut String, body: String| {
+        n += 1;
+        out.push_str(&format!("Filter {n}: {body}\n"));
+    };
+    for (freq, gain) in BANDS_10.iter().zip(cfg.band_gains_db.iter()) {
+        if *gain != 0.0 {
+            filter(&mut out, format!("ON PK Fc {freq:.0} Hz Gain {gain:.1} dB Q {BAND_Q}"));
+        }
+    }
+    if bass_db > 0.0 {
+        filter(&mut out, format!("ON LS Fc {BASS_FREQ:.0} Hz Gain {bass_db:.1} dB"));
+    }
+    if clarity_db > 0.0 {
+        filter(
+            &mut out,
+            format!("ON PK Fc {CLARITY_FREQ:.0} Hz Gain {clarity_db:.1} dB Q {CLARITY_Q}"),
+        );
+    }
+    if fidelity_db > 0.0 {
+        filter(&mut out, format!("ON HS Fc {FIDELITY_FREQ:.0} Hz Gain {fidelity_db:.1} dB"));
+    }
+    // Ambience = mid/side widen, expressed as a simultaneous stereo mix
+    // (EqAPO's Copy uses the pre-command channel values on the right side):
+    //   L' = a·L + b·R,  R' = b·L + a·R  with a=(1+w)/2, b=(1-w)/2.
+    if e.ambience > 0.0 {
+        let w = 1.0 + e.ambience * AMBIENCE_MAX_WIDTH;
+        let a = (1.0 + w) / 2.0;
+        let b = (1.0 - w) / 2.0;
+        out.push_str(&format!("Copy: L={a:.3}*L{b:+.3}*R R={b:+.3}*L+{a:.3}*R\n"));
+    }
+    out
+}
+
+/// Ensure `config.txt` contains the `Include:` line for our file — returns the
+/// new content when an edit is needed, `None` when it's already present. Pure.
+pub fn apo_ensure_include(config_txt: &str) -> Option<String> {
+    let line = format!("Include: {APO_INCLUDE_FILE}");
+    if config_txt.lines().any(|l| l.trim() == line) {
+        return None;
+    }
+    let mut s = config_txt.to_string();
+    if !s.is_empty() && !s.ends_with('\n') {
+        s.push('\n');
+    }
+    s.push_str(&line);
+    s.push('\n');
+    Some(s)
+}
+
+#[cfg(target_os = "windows")]
+pub(crate) mod windows;
 
 /// Tear the engine down (app quit) so the system output is never left altered.
 pub fn shutdown() {
@@ -892,5 +1004,77 @@ mod tests {
         chain.process_interleaved(&mut buf, 1);
         // After the envelope settles, the steady output is below the 0.5 input.
         assert!(buf[9599].abs() < 0.4, "night should compress a loud signal (got {})", buf[9599]);
+    }
+
+    // ── Equalizer APO renderer (Windows backend) ────────────────────────────
+
+    #[test]
+    fn apo_disabled_is_passthrough() {
+        let cfg = BoomConfig::default();
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("passthrough"));
+        assert!(!t.contains("Preamp"));
+        assert!(!t.contains("Filter"));
+    }
+
+    #[test]
+    fn apo_flat_enabled_has_zero_preamp_and_no_filters() {
+        let cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Preamp: 0.0 dB"), "{t}");
+        assert!(!t.contains("Filter"), "flat EQ must emit no filters: {t}");
+        assert!(!t.contains("Copy:"));
+    }
+
+    #[test]
+    fn apo_bands_render_as_peaking_filters() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.band_gains_db[0] = 4.0; // 31 Hz
+        cfg.band_gains_db[9] = -3.0; // 16 kHz
+        cfg.controlled_boost = false;
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Filter 1: ON PK Fc 31 Hz Gain 4.0 dB Q 1.41"), "{t}");
+        assert!(t.contains("Filter 2: ON PK Fc 16000 Hz Gain -3.0 dB Q 1.41"), "{t}");
+    }
+
+    #[test]
+    fn apo_boost_folds_into_preamp_and_controlled_reserves_headroom() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.boost_pct = 200.0; // +6.02 dB
+        cfg.band_gains_db[3] = 5.0;
+        cfg.controlled_boost = true;
+        let t = apo_config_text(&cfg);
+        // 0 preamp + 6.0 boost − 5.0 headroom ≈ 1.0 dB
+        assert!(t.contains("Preamp: 1.0 dB"), "{t}");
+        cfg.controlled_boost = false;
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("Preamp: 6.0 dB"), "{t}");
+    }
+
+    #[test]
+    fn apo_effects_map_to_shelves_peak_and_copy() {
+        let mut cfg = BoomConfig { enabled: true, ..BoomConfig::default() };
+        cfg.controlled_boost = false;
+        cfg.effects = Effects { bass: 1.0, clarity: 0.5, fidelity: 1.0, ambience: 0.5, night: 1.0 };
+        let t = apo_config_text(&cfg);
+        assert!(t.contains("ON LS Fc 90 Hz Gain 9.0 dB"), "{t}");
+        assert!(t.contains("ON PK Fc 3000 Hz Gain 3.0 dB Q 0.9"), "{t}");
+        assert!(t.contains("ON HS Fc 9000 Hz Gain 6.0 dB"), "{t}");
+        // ambience 0.5 → width 1.4 → a=1.2, b=−0.2
+        assert!(t.contains("Copy: L=1.200*L-0.200*R R=-0.200*L+1.200*R"), "{t}");
+        // night has no EqAPO equivalent — nothing rendered for it
+        assert!(!t.to_lowercase().contains("night"));
+    }
+
+    #[test]
+    fn apo_ensure_include_appends_once() {
+        let updated = apo_ensure_include("Preamp: -3 dB").unwrap();
+        assert!(updated.ends_with("Include: inspector-rust-boom.txt\n"), "{updated}");
+        assert!(updated.starts_with("Preamp: -3 dB\n"));
+        // already present (any indentation) → no rewrite
+        assert!(apo_ensure_include(&updated).is_none());
+        assert!(apo_ensure_include("  Include: inspector-rust-boom.txt  ").is_none());
+        // empty config.txt → just the include line
+        assert_eq!(apo_ensure_include(""), Some("Include: inspector-rust-boom.txt\n".into()));
     }
 }

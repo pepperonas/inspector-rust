@@ -1465,14 +1465,19 @@ pub fn boom_presets() -> Vec<crate::boom::Preset> {
     crate::boom::presets()
 }
 
-/// Whether the "boom Audio" virtual driver is installed + loaded.
+/// Whether the audio backend is installed — macOS: the "boom Audio" virtual
+/// driver; Windows: Equalizer APO (boom writes its config; no own driver).
 #[tauri::command]
 pub fn boom_driver_installed() -> bool {
     #[cfg(target_os = "macos")]
     {
         crate::boom::macos::driver_present()
     }
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(target_os = "windows")]
+    {
+        crate::boom::windows::available()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
         false
     }

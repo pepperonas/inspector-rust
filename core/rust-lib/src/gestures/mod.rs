@@ -74,10 +74,11 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
 /// The tap must land at a roughly similar HEIGHT as the resting finger
-/// (|Δy|, 0..1). Tolerant enough for an angled hand (index + middle fingers
-/// easily sit 0.25–0.3 apart vertically) — the original 0.22 rejected real
-/// tip-taps whenever one finger sat higher on the pad.
-pub const TIPTAP_MAX_DY_NORM: f64 = 0.35;
+/// (|Δy|, 0..1). Generous — strongly angled hands are fine (the runaway
+/// thumb-anchor posture is caught by the bottom-edge zone below, so mid-pad
+/// height differences carry little false-positive risk). 0.22 and even 0.35
+/// rejected real tip-taps whenever one finger sat higher on the pad.
+pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
 /// STRICTER Δy when either contact sits in the pad's bottom-edge **thumb
 /// zone** — a thumb anchored there while the index finger points is normal
 /// cursor use, never a tip-tap (the runaway-tab-switching posture). Deliberate
@@ -1097,13 +1098,21 @@ mod tests {
             (400, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
-        // …but an extreme mismatch (Δy = 0.45, still outside the thumb zone)
-        // is not a tip-tap posture.
+        // A strongly angled hand (Δy = 0.45, outside the thumb zone) fires too.
         let evs = tiptap_events(&[
             (0, vec![Contact { x: 0.40, y: 0.70 }]),
             (100, vec![Contact { x: 0.40, y: 0.70 }]),
             (150, vec![Contact { x: 0.40, y: 0.70 }, Contact { x: 0.55, y: 0.25 }]),
             (210, vec![Contact { x: 0.40, y: 0.70 }]),
+            (400, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
+        // …but beyond the generous limit (Δy = 0.62) it's no tip-tap posture.
+        let evs = tiptap_events(&[
+            (0, vec![Contact { x: 0.40, y: 0.72 }]),
+            (100, vec![Contact { x: 0.40, y: 0.72 }]),
+            (150, vec![Contact { x: 0.40, y: 0.72 }, Contact { x: 0.55, y: 0.10 }]),
+            (210, vec![Contact { x: 0.40, y: 0.72 }]),
             (400, vec![]),
         ]);
         assert!(evs.is_empty());

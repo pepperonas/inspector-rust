@@ -272,11 +272,31 @@ pub(crate) fn show_overlay(app: &AppHandle, target: Option<Rect>) {
             let _ = win.set_position(LogicalPosition::new(r.x, r.y));
             let _ = win.set_size(LogicalSize::new(r.w.max(1.0), r.h.max(1.0)));
             let _ = win.set_ignore_cursor_events(true);
-            let _ = win.show();
+            // Show via `orderFrontRegardless` — NOT Tauri `show()`, which is
+            // `makeKeyAndOrderFront` and made this passive outline the KEY
+            // window on every preview. That key-steal broke the window
+            // palette's WKWebView hover tracking (pointerenter/leave stopped
+            // firing → preset previews froze / flapped hidden) and would
+            // likewise steal key from the app being drag-snapped.
+            let mut ordered = false;
+            if let Ok(ns) = win.ns_window() {
+                let w = ns as *mut AnyObject;
+                if !w.is_null() {
+                    unsafe {
+                        let _: () = msg_send![w, orderFrontRegardless];
+                    }
+                    ordered = true;
+                }
+            }
+            if !ordered {
+                let _ = win.show();
+            }
+            tracing::debug!("snap-overlay: show at {r:?}");
         }
         None => {
             if let Some(win) = app.get_webview_window(OVERLAY_LABEL) {
                 let _ = win.hide();
+                tracing::debug!("snap-overlay: hide");
             }
         }
     });

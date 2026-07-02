@@ -586,9 +586,14 @@ pub(crate) fn cancel() {
 /// the shared `snap-overlay` window (same outline as the window-snap feature).
 pub(crate) fn preview(fx: f64, fy: f64, fw: f64, fh: f64) {
     let vf = *TARGET_VF.lock();
-    if let (Some(vf), Some(app)) = (vf, app_handle()) {
-        let rect = fraction_to_rect(fx, fy, fw, fh, vf);
-        crate::window_snap::macos::show_overlay(&app, Some(rect));
+    match (vf, app_handle()) {
+        (Some(vf), Some(app)) => {
+            let rect = fraction_to_rect(fx, fy, fw, fh, vf);
+            tracing::debug!("window-palette: preview {rect:?}");
+            crate::window_snap::macos::show_overlay(&app, Some(rect));
+        }
+        (None, _) => tracing::debug!("window-palette: preview ignored (no target screen)"),
+        _ => {}
     }
 }
 

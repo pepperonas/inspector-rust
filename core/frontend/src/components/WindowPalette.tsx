@@ -113,6 +113,26 @@ export function WindowPalette() {
   // Safety: clear any on-screen preview when the palette webview unmounts.
   useEffect(() => () => void windowPalettePreviewHide(), []);
 
+  // Debounced preview hide for the preset row: moving between adjacent preset
+  // buttons fires leave→enter back-to-back — hiding immediately made the
+  // on-screen outline flap. The next enter cancels the pending hide, so the
+  // preview only clears when the pointer actually leaves the preset row.
+  const previewHideTimer = useRef<number | null>(null);
+  const presetPreview = (frac: [number, number, number, number]) => {
+    if (previewHideTimer.current !== null) {
+      window.clearTimeout(previewHideTimer.current);
+      previewHideTimer.current = null;
+    }
+    void windowPalettePreview(frac[0], frac[1], frac[2], frac[3]);
+  };
+  const presetPreviewHide = () => {
+    if (previewHideTimer.current !== null) window.clearTimeout(previewHideTimer.current);
+    previewHideTimer.current = window.setTimeout(() => {
+      previewHideTimer.current = null;
+      void windowPalettePreviewHide();
+    }, 90);
+  };
+
   // Grid box at the honeycomb's *natural* aspect so pointy-top cells stay
   // regular (rendered with preserveAspectRatio="meet", not stretched). For a
   // regular hex hexHeight = wHex·2/√3, so:
@@ -192,9 +212,9 @@ export function WindowPalette() {
             type="button"
             title={p.label}
             onClick={() => apply(p.frac)}
-            onPointerEnter={() => void windowPalettePreview(p.frac[0], p.frac[1], p.frac[2], p.frac[3])}
+            onPointerEnter={() => presetPreview(p.frac)}
             onPointerLeave={() => {
-              if (!draggingRef.current) void windowPalettePreviewHide();
+              if (!draggingRef.current) presetPreviewHide();
             }}
             className="group flex h-9 flex-1 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:border-[var(--color-accent)]"
           >

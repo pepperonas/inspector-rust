@@ -293,6 +293,8 @@ static HOVER_BTN_FRAME: Mutex<Option<Rect>> = Mutex::new(None);
 static PALETTE_RECT: Mutex<Option<Rect>> = Mutex::new(None);
 static TARGET_VF: Mutex<Option<Rect>> = Mutex::new(None);
 static OUT_SINCE: Mutex<Option<Instant>> = Mutex::new(None);
+static POINTER_INSIDE: AtomicBool = AtomicBool::new(false);
+static LAST_PTR_EMIT: Mutex<Option<Instant>> = Mutex::new(None);
 static LAST_HITTEST: Mutex<Option<Instant>> = Mutex::new(None);
 static CONFIG: Mutex<(u32, u32)> = Mutex::new((super::DEFAULT_COLS, super::DEFAULT_ROWS));
 static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
@@ -416,6 +418,7 @@ fn hide_palette() {
     *HOVER_BTN_FRAME.lock() = None;
     *OUT_SINCE.lock() = None;
     *TARGET_VF.lock() = None;
+    POINTER_INSIDE.store(false, Ordering::SeqCst);
     if let Some(app) = app_handle() {
         crate::window_snap::macos::show_overlay(&app, None); // hide the outline preview
         let a = app.clone();
@@ -445,6 +448,36 @@ unsafe fn on_grace(cursor: (f64, f64)) {
                 hide_palette();
             }
         }
+    }
+}
+
+/// Forward the cursor (palette-local points) to the palette webview. The
+/// palette is a non-activating floating panel, so WKWebView's own hover
+/// tracking (`NSTrackingActiveInKeyWindow`) is unreliable — pointerenter/leave
+/// may never fire when the window isn't key (observed to depend on launch
+/// context). The tap already sees every mouse move; the webview drives preset
+/// previews + the hex hover from these events instead. `(-1,-1)` = left.
+fn forward_pointer(cursor: (f64, f64)) {
+    let Some(r) = *PALETTE_RECT.lock() else { return };
+    let inside = rect_contains(r, cursor, 0.0);
+    let was_inside = POINTER_INSIDE.swap(inside, Ordering::SeqCst);
+    if !inside && !was_inside {
+        return;
+    }
+    if inside {
+        // ~60 Hz cap so the webview isn't flooded on high-rate mice.
+        let mut l = LAST_PTR_EMIT.lock();
+        let now = Instant::now();
+        if let Some(t) = *l {
+            if now.duration_since(t) < Duration::from_millis(16) {
+                return;
+            }
+        }
+        *l = Some(now);
+    }
+    if let Some(app) = app_handle() {
+        let payload = if inside { (cursor.0 - r.x, cursor.1 - r.y) } else { (-1.0, -1.0) };
+        let _ = app.emit("window-palette-pointer", payload);
     }
 }
 
@@ -498,6 +531,7 @@ extern "C" fn on_event(_proxy: CGEventTapProxy, ty: u32, event: CGEventRef, _inf
             unsafe {
                 if PALETTE_SHOWN.load(Ordering::SeqCst) {
                     on_grace(cursor);
+                    forward_pointer(cursor);
                 } else {
                     maybe_hittest(cursor);
                 }

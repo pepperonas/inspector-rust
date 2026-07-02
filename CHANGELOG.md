@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.219] — 2026-07-03
+
+### Fixed
+
+- **Window palette: hover now works regardless of window focus.** WKWebView's own hover tracking only fires while the palette window is *key* — which a non-activating floating panel often never becomes (observed to depend on launch context: worked when the app was started from a terminal, dead when started via LaunchServices). The palette's mouse-move tap now forwards the cursor position (palette-local points) to the webview via a `window-palette-pointer` event; the webview hit-tests the preset row + hex grid from those coordinates, so preset previews and the magnetic hex hover work deterministically. Native pointer events remain as a fast path.
+
 ## [0.84.218] — 2026-07-02
 
 ### Fixed

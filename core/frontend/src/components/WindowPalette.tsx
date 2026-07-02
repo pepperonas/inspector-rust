@@ -133,6 +133,7 @@ export function WindowPalette() {
     }, 90);
   };
 
+
   // Grid box at the honeycomb's *natural* aspect so pointy-top cells stay
   // regular (rendered with preserveAspectRatio="meet", not stretched). For a
   // regular hex hexHeight = wHex·2/√3, so:
@@ -149,6 +150,76 @@ export function WindowPalette() {
   const cellRy = (hHex / 2) * 0.94;
 
   const presets = optionDown ? QUARTERS : HALVES;
+
+  // Rust-driven hover. The palette is a non-activating floating panel, and
+  // WKWebView's own hover tracking (NSTrackingActiveInKeyWindow) is unreliable
+  // when the window never becomes key — pointerenter/leave may simply not fire
+  // (observed to depend on how the app was launched). The palette's mouse-move
+  // tap forwards the cursor in palette-local points via the
+  // "window-palette-pointer" event ((-1,-1) = left the palette); this hit-tests
+  // the preset row + hex grid from those coordinates so hover always works.
+  // The native pointer handlers stay as a fast path; `lastPresetRef` dedupes.
+  const presetRowRef = useRef<HTMLDivElement>(null);
+  const lastPresetRef = useRef<number>(-1);
+  const pointerAtRef = useRef<(x: number, y: number) => void>(() => {});
+  // Re-assigned every render (inside an effect — the lint-clean latest-closure
+  // pattern) so the handler always sees the current presets/cells/layout.
+  useEffect(() => {
+    pointerAtRef.current = (x: number, y: number) => {
+    if (draggingRef.current) return; // native drag events own the grid
+    if (x < 0) {
+      if (lastPresetRef.current >= 0) {
+        lastPresetRef.current = -1;
+        presetPreviewHide();
+      }
+      setHover(null);
+      return;
+    }
+    // Preset row hit-test.
+    const row = presetRowRef.current;
+    let presetIdx = -1;
+    if (row) {
+      const buttons = Array.from(row.querySelectorAll("button"));
+      presetIdx = buttons.findIndex((b) => {
+        const r = b.getBoundingClientRect();
+        return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom;
+      });
+    }
+    if (presetIdx !== lastPresetRef.current) {
+      lastPresetRef.current = presetIdx;
+      if (presetIdx >= 0) presetPreview(presets[presetIdx].frac);
+      else presetPreviewHide();
+    }
+    // Hex-grid magnetic hover.
+    const svg = svgRef.current;
+    if (svg) {
+      const r = svg.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) {
+        const s = Math.min(r.width / boxW, r.height / boxH);
+        const px = (x - r.left - (r.width - boxW * s) / 2) / s;
+        const py = (y - r.top - (r.height - boxH * s) / 2) / s;
+        const c = nearestCell(cells, px, py);
+        setHover((h) => (c && h && c.col === h.col && c.row === h.row ? h : c ? { col: c.col, row: c.row } : null));
+      } else {
+        setHover(null);
+      }
+    }
+    };
+  });
+  useEffect(() => {
+    let cancelled = false;
+    let un: (() => void) | undefined;
+    void listen<[number, number]>("window-palette-pointer", (e) => {
+      pointerAtRef.current(e.payload[0], e.payload[1]);
+    }).then((u) => {
+      if (cancelled) u();
+      else un = u;
+    });
+    return () => {
+      cancelled = true;
+      un?.();
+    };
+  }, []);
 
   const apply = (frac: [number, number, number, number]) => {
     void windowPaletteApply(frac[0], frac[1], frac[2], frac[3]);
@@ -205,16 +276,22 @@ export function WindowPalette() {
       className="wp-pop flex h-screen w-screen flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-2.5 text-[var(--color-fg)] shadow-2xl backdrop-blur"
     >
       {/* Preset row */}
-      <div className="flex items-center justify-between gap-1">
+      <div ref={presetRowRef} className="flex items-center justify-between gap-1">
         {presets.map((p) => (
           <button
             key={p.key}
             type="button"
             title={p.label}
             onClick={() => apply(p.frac)}
-            onPointerEnter={() => presetPreview(p.frac)}
+            onPointerEnter={() => {
+              lastPresetRef.current = presets.indexOf(p);
+              presetPreview(p.frac);
+            }}
             onPointerLeave={() => {
-              if (!draggingRef.current) presetPreviewHide();
+              if (!draggingRef.current) {
+                lastPresetRef.current = -1;
+                presetPreviewHide();
+              }
             }}
             className="group flex h-9 flex-1 items-center justify-center rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] transition-colors hover:border-[var(--color-accent)]"
           >

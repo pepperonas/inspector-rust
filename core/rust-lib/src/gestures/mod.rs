@@ -73,11 +73,17 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// is belt-and-braces, so it's kept short — 200 ms still allows ~5 deliberate
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
-/// The tap must land at a similar HEIGHT as the resting finger (|Δy|, 0..1).
-/// Two fingertips sit side by side; a thumb anchored at the pad's bottom edge
-/// vs. a pointing finger has a large Δy — that posture is normal cursor use,
-/// never a tip-tap (it caused runaway tab switching in iTerm & co.).
-pub const TIPTAP_MAX_DY_NORM: f64 = 0.22;
+/// The tap must land at a roughly similar HEIGHT as the resting finger
+/// (|Δy|, 0..1). Tolerant enough for an angled hand (index + middle fingers
+/// easily sit 0.25–0.3 apart vertically) — the original 0.22 rejected real
+/// tip-taps whenever one finger sat higher on the pad.
+pub const TIPTAP_MAX_DY_NORM: f64 = 0.35;
+/// STRICTER Δy when either contact sits in the pad's bottom-edge **thumb
+/// zone** — a thumb anchored there while the index finger points is normal
+/// cursor use, never a tip-tap (the runaway-tab-switching posture). Deliberate
+/// tip-taps done low on the pad have both fingers in the zone → small Δy → OK.
+pub const TIPTAP_THUMB_ZONE_Y: f64 = 0.80;
+pub const TIPTAP_THUMB_DY_NORM: f64 = 0.18;
 /// …and not implausibly far sideways (adjacent fingertips, not a wide pinch).
 pub const TIPTAP_MAX_DX_NORM: f64 = 0.40;
 
@@ -840,9 +846,13 @@ impl TipTapRecognizer {
                         (c[1], c[0])
                     };
                     let dx = (t.x - r.x).abs();
-                    if !(TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&dx)
-                        || (t.y - r.y).abs() > TIPTAP_MAX_DY_NORM
-                    {
+                    let dy = (t.y - r.y).abs();
+                    // Height guard, posture-aware: tolerant for an angled hand
+                    // mid-pad, strict when the bottom-edge thumb zone is
+                    // involved (thumb anchor + pointing finger = cursor use).
+                    let in_thumb_zone = r.y.max(t.y) > TIPTAP_THUMB_ZONE_Y;
+                    let dy_limit = if in_thumb_zone { TIPTAP_THUMB_DY_NORM } else { TIPTAP_MAX_DY_NORM };
+                    if !(TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&dx) || dy > dy_limit {
                         // Too close to call left/right, implausibly wide, or a
                         // thumb-vs-finger height mismatch (normal cursor use).
                         return (TtState::Poisoned, None);
@@ -1071,6 +1081,32 @@ mod tests {
             (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
+    }
+
+    #[test]
+    fn tiptap_tolerates_an_angled_hand_mid_pad() {
+        // Index resting mid-pad, middle finger tapping noticeably HIGHER
+        // (Δy = 0.28) — a natural angled-hand tip-tap; must fire. The old
+        // 0.22 limit rejected this ("not recognised when one finger sits
+        // higher on the pad").
+        let evs = tiptap_events(&[
+            (0, vec![Contact { x: 0.40, y: 0.62 }]),
+            (100, vec![Contact { x: 0.40, y: 0.62 }]),
+            (150, vec![Contact { x: 0.40, y: 0.62 }, Contact { x: 0.55, y: 0.34 }]),
+            (210, vec![Contact { x: 0.40, y: 0.62 }]),
+            (400, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
+        // …but an extreme mismatch (Δy = 0.45, still outside the thumb zone)
+        // is not a tip-tap posture.
+        let evs = tiptap_events(&[
+            (0, vec![Contact { x: 0.40, y: 0.70 }]),
+            (100, vec![Contact { x: 0.40, y: 0.70 }]),
+            (150, vec![Contact { x: 0.40, y: 0.70 }, Contact { x: 0.55, y: 0.25 }]),
+            (210, vec![Contact { x: 0.40, y: 0.70 }]),
+            (400, vec![]),
+        ]);
+        assert!(evs.is_empty());
     }
 
     #[test]

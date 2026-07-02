@@ -195,12 +195,17 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// `StatusToast.tsx`), they don't re-pop.
 fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     tracing::debug!("gesture action: {action:?} (step {step})");
-    // Tab switching: synthesize the (near-universal) Ctrl+Tab / Ctrl+Shift+Tab
-    // directly — no toast, the visibly switching tab is the feedback. CGEventPost
-    // is thread-safe, so this runs inline on the capture thread (fast path).
+    // Tab switching: send the frontmost app's OWN tab-nav shortcut (per-app
+    // strategy table — Ctrl+Tab default, ⌘⌥arrows for the VS Code family,
+    // layout-aware ⇧⌘]/[ for JetBrains/Xcode). No toast — the visibly switching
+    // tab is the feedback. Runs on the main thread (the bracket strategy reads
+    // the keyboard layout via TIS, a main-thread API).
     if matches!(action, GestureAction::NextTab | GestureAction::PrevTab) {
         #[cfg(target_os = "macos")]
-        send_tab_switch(matches!(action, GestureAction::NextTab));
+        {
+            let next = matches!(action, GestureAction::NextTab);
+            let _ = app.run_on_main_thread(move || send_tab_switch_for_frontmost(next));
+        }
         return;
     }
     let app = app.clone();
@@ -242,12 +247,55 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     });
 }
 
-/// Synthesize Ctrl+Tab (next) / Ctrl+Shift+Tab (previous) — the tab-navigation
-/// shortcut virtually every tabbed macOS app understands (Safari, Chrome,
-/// Firefox, VS Code, iTerm2, Terminal, Finder, …). Raw CGEvent FFI; posting to
-/// the HID tap needs the Accessibility grant the gestures feature already uses.
+/// How the frontmost app expects "next/previous tab" to be triggered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TabNavStrategy {
+    /// `Ctrl+Tab` / `Ctrl+Shift+Tab` — the system-standard "Show Next Tab"
+    /// (Safari, Chrome family, Firefox, iTerm2, Terminal, Finder, native
+    /// tabbed windows, most Electron apps).
+    CtrlTab,
+    /// `⌘⌥→` / `⌘⌥←` — VS Code family "Open Next/Previous Editor" (in
+    /// order; their `Ctrl+Tab` is an MRU switcher, which feels wrong for a
+    /// spatial left/right gesture). Arrow keycodes are layout-independent.
+    CmdAltArrow,
+    /// `⇧⌘]` / `⇧⌘[` — JetBrains "Select Next/Previous Tab" + Xcode (their
+    /// `Ctrl+Tab` is also an MRU switcher). The bracket keys are
+    /// **layout-dependent** (German: `]` = `⌥6`), so synthesis resolves the
+    /// physical key via `UCKeyTranslate` at gesture time.
+    CmdShiftBracket,
+}
+
+/// The built-in per-app strategy table (bundle-id prefix match) — so the
+/// gesture "just works" everywhere without per-app user configuration. Pure +
+/// unit-tested; unknown apps get the system-standard `CtrlTab`.
+pub fn tab_strategy_for(bundle_id: &str) -> TabNavStrategy {
+    const BRACKET: &[&str] = &[
+        "com.jetbrains.",          // IntelliJ / PyCharm / WebStorm / …
+        "com.google.android.studio",
+        "com.apple.dt.Xcode",
+    ];
+    const ARROW: &[&str] = &[
+        "com.microsoft.VSCode",    // incl. Insiders
+        "com.todesktop.",          // Cursor
+        "com.vscodium",
+        "com.sublimetext.",
+        "dev.zed.Zed",
+    ];
+    if BRACKET.iter().any(|p| bundle_id.starts_with(p)) {
+        return TabNavStrategy::CmdShiftBracket;
+    }
+    if ARROW.iter().any(|p| bundle_id.starts_with(p)) {
+        return TabNavStrategy::CmdAltArrow;
+    }
+    TabNavStrategy::CtrlTab
+}
+
+/// Send the right tab-switch shortcut **for the frontmost app** (strategy from
+/// [`tab_strategy_for`]). MUST run on the main thread: the bracket strategy
+/// queries the keyboard layout via TIS/HIToolbox (main-thread API); CGEventPost
+/// itself is thread-safe. Needs the Accessibility grant gestures already use.
 #[cfg(target_os = "macos")]
-fn send_tab_switch(next: bool) {
+fn send_tab_switch_for_frontmost(next: bool) {
     use std::ffi::c_void;
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
@@ -265,13 +313,18 @@ fn send_tab_switch(next: bool) {
         fn CFRelease(cf: *const c_void);
     }
     const KEY_TAB: u16 = 48; // kVK_Tab
-    const FLAG_SHIFT: u64 = 0x0002_0000; // kCGEventFlagMaskShift
-    const FLAG_CONTROL: u64 = 0x0004_0000; // kCGEventFlagMaskControl
-    const HID_TAP: u32 = 0; // kCGHIDEventTap
-    let flags = FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT };
-    unsafe {
+    const KEY_LEFT: u16 = 123;
+    const KEY_RIGHT: u16 = 124;
+    const FLAG_SHIFT: u64 = 0x0002_0000;
+    const FLAG_CONTROL: u64 = 0x0004_0000;
+    const FLAG_ALT: u64 = 0x0008_0000;
+    const FLAG_CMD: u64 = 0x0010_0000;
+    const FLAG_FN: u64 = 0x0080_0000; // real arrow keys carry the Fn flag
+    const HID_TAP: u32 = 0;
+
+    let post = |keycode: u16, flags: u64| unsafe {
         for down in [true, false] {
-            let ev = CGEventCreateKeyboardEvent(std::ptr::null_mut(), KEY_TAB, down);
+            let ev = CGEventCreateKeyboardEvent(std::ptr::null_mut(), keycode, down);
             if ev.is_null() {
                 return;
             }
@@ -279,6 +332,129 @@ fn send_tab_switch(next: bool) {
             CGEventPost(HID_TAP, ev);
             CFRelease(ev as *const c_void);
         }
+    };
+    let ctrl_tab = |next: bool| {
+        post(KEY_TAB, FLAG_CONTROL | if next { 0 } else { FLAG_SHIFT });
+    };
+
+    let strategy = frontmost_bundle_id()
+        .map(|b| tab_strategy_for(&b))
+        .unwrap_or(TabNavStrategy::CtrlTab);
+    match strategy {
+        TabNavStrategy::CtrlTab => ctrl_tab(next),
+        TabNavStrategy::CmdAltArrow => {
+            post(if next { KEY_RIGHT } else { KEY_LEFT }, FLAG_CMD | FLAG_ALT | FLAG_FN);
+        }
+        TabNavStrategy::CmdShiftBracket => {
+            // Resolve which physical key produces ]/[ under the CURRENT layout
+            // (US: the bracket keys; German: ⌥6/⌥5) and press it with ⌘⇧ plus
+            // whatever extra modifier the char itself needs — exactly what a
+            // human would type. Falls back to Ctrl+Tab if unresolvable.
+            match key_for_char(if next { ']' } else { '[' }) {
+                Some((code, extra)) => post(code, FLAG_CMD | FLAG_SHIFT | extra),
+                None => ctrl_tab(next),
+            }
+        }
+    }
+}
+
+/// Bundle id of the frontmost app via `NSWorkspace` (no permission needed).
+#[cfg(target_os = "macos")]
+fn frontmost_bundle_id() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let ws_cls = AnyClass::get(c"NSWorkspace")?;
+        let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
+        if ws.is_null() {
+            return None;
+        }
+        let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        let bid: *mut AnyObject = msg_send![app, bundleIdentifier];
+        if bid.is_null() {
+            return None;
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![bid, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
+/// Find `(virtual keycode, extra CGEvent modifier flags)` that produce `target`
+/// under the **current keyboard layout** (TIS + `UCKeyTranslate`, scanning
+/// keycodes 0–127 × {∅, ⇧, ⌥, ⇧⌥}). German layout: `]` → `(22 /*"6"*/, ⌥)`.
+/// `None` when the layout data is unavailable (IMEs) → caller falls back.
+#[cfg(target_os = "macos")]
+fn key_for_char(target: char) -> Option<(u16, u64)> {
+    use std::ffi::c_void;
+    #[link(name = "Carbon", kind = "framework")]
+    extern "C" {
+        fn TISCopyCurrentKeyboardLayoutInputSource() -> *mut c_void;
+        fn TISGetInputSourceProperty(src: *mut c_void, key: *const c_void) -> *mut c_void;
+        static kTISPropertyUnicodeKeyLayoutData: *const c_void;
+        fn CFDataGetBytePtr(data: *mut c_void) -> *const u8;
+        fn LMGetKbdType() -> u8;
+        fn UCKeyTranslate(
+            layout: *const c_void,
+            vkey: u16,
+            action: u16,
+            modifier_key_state: u32,
+            kbd_type: u32,
+            options: u32,
+            dead_key_state: *mut u32,
+            max_len: usize,
+            actual_len: *mut usize,
+            unicode_string: *mut u16,
+        ) -> i32;
+    }
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFRelease(cf: *const c_void);
+    }
+    const FLAG_SHIFT: u64 = 0x0002_0000;
+    const FLAG_ALT: u64 = 0x0008_0000;
+    // (Carbon modifier-key-state bits >> 8: shift = 2, option = 8.)
+    const COMBOS: [(u32, u64); 4] = [
+        (0, 0),
+        (2, FLAG_SHIFT),
+        (8, FLAG_ALT),
+        (10, FLAG_SHIFT | FLAG_ALT),
+    ];
+    unsafe {
+        let src = TISCopyCurrentKeyboardLayoutInputSource();
+        if src.is_null() {
+            return None;
+        }
+        let data = TISGetInputSourceProperty(src, kTISPropertyUnicodeKeyLayoutData);
+        if data.is_null() {
+            CFRelease(src as *const c_void);
+            return None;
+        }
+        let layout = CFDataGetBytePtr(data) as *const c_void;
+        let kbd_type = LMGetKbdType() as u32;
+        let mut found: Option<(u16, u64)> = None;
+        'outer: for (mod_state, extra_flags) in COMBOS {
+            for vkey in 0u16..128 {
+                let mut dead: u32 = 0;
+                let mut len: usize = 0;
+                let mut chars = [0u16; 4];
+                // action 0 = key down; options bit 0 = no dead keys.
+                let err = UCKeyTranslate(
+                    layout, vkey, 0, mod_state, kbd_type, 1, &mut dead, 4, &mut len, chars.as_mut_ptr(),
+                );
+                if err == 0 && len == 1 && chars[0] as u32 == target as u32 {
+                    found = Some((vkey, extra_flags));
+                    break 'outer;
+                }
+            }
+        }
+        CFRelease(src as *const c_void);
+        found
     }
 }
 
@@ -811,6 +987,57 @@ mod tests {
             (300, vec![]),
         ]);
         assert!(evs.is_empty());
+    }
+
+    #[test]
+    fn tab_strategy_table_routes_by_bundle_prefix() {
+        use TabNavStrategy::*;
+        // System-standard Ctrl+Tab family (incl. unknown apps).
+        for b in [
+            "com.apple.Safari",
+            "com.google.Chrome",
+            "org.mozilla.firefox",
+            "com.googlecode.iterm2",
+            "com.apple.finder",
+            "md.obsidian",
+            "com.unknown.app",
+        ] {
+            assert_eq!(tab_strategy_for(b), CtrlTab, "{b}");
+        }
+        // VS Code family → ⌘⌥arrows (their Ctrl+Tab is an MRU switcher).
+        for b in [
+            "com.microsoft.VSCode",
+            "com.microsoft.VSCodeInsiders",
+            "com.todesktop.230313mzl4w4u92", // Cursor
+            "com.sublimetext.4",
+        ] {
+            assert_eq!(tab_strategy_for(b), CmdAltArrow, "{b}");
+        }
+        // JetBrains family + Xcode → ⇧⌘]/[ (layout-aware synthesis).
+        for b in [
+            "com.jetbrains.intellij",
+            "com.jetbrains.pycharm",
+            "com.google.android.studio",
+            "com.apple.dt.Xcode",
+        ] {
+            assert_eq!(tab_strategy_for(b), CmdShiftBracket, "{b}");
+        }
+    }
+
+    #[test]
+    #[cfg(target_os = "macos")]
+    fn key_for_char_resolves_brackets_on_the_current_layout() {
+        // Live layout query (TIS) — headless CI may yield None; on a real
+        // session both brackets must resolve to a sane keycode. On a German
+        // layout ] is ⌥6 → the extra flags must include Alt.
+        for ch in [']', '['] {
+            if let Some((code, flags)) = key_for_char(ch) {
+                assert!(code < 128, "keycode for {ch:?} out of range: {code}");
+                eprintln!("key_for_char({ch:?}) → keycode {code}, extra flags {flags:#x}");
+            } else {
+                eprintln!("key_for_char({ch:?}) → None");
+            }
+        }
     }
 
     #[test]

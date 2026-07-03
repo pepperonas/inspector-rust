@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.226] — 2026-07-04
+
+### Fixed
+
+Five bugs from a systematic multi-agent code audit, each verified at the source before fixing:
+
+- **Backup restore no longer duplicates all 2FA/TOTP accounts.** The restore path claimed to upsert but relied on catching a UNIQUE-constraint error the table can't produce — every restore into a non-empty DB duplicated every TOTP entry (twice per re-restore). Restore now dedupes by (issuer, account, secret), the same key the regular 2FA import uses.
+- **Timesheet retention can no longer delete the live, in-progress tracking interval.** With `track.retention_days` set, the hourly prune deleted purely by start time — a long-open span (e.g. an idle weekend) could age past the cutoff while still being written to, silently stopping all further time recording until the next focus change. The live event is now excluded (new regression test).
+- **2FA list: dragging an entry downward no longer overshoots by one position.** The insertion index wasn't adjusted for the removed row, so every downward drag landed (and persisted) one slot too far.
+- **A rejected direct-hotkey-slot change no longer kills all existing slots.** Validation used to run *after* every working slot had already been unregistered — a collision error left all direct snippet hotkeys dead until the next successful save or restart. Validation is now side-effect-free, and a partial OS-registration failure rolls back cleanly instead of leaking shortcuts.
+- **Popup/clipboard-history hotkey changes can no longer leave the hotkey dead.** If the OS-level registration of the new shortcut failed (e.g. it's owned by another app — invisible to our own collision set), the old binding was already gone. The previous binding is now restored on failure.
+
 ## [0.84.225] — 2026-07-04
 
 ### Fixed

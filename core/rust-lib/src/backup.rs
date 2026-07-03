@@ -273,13 +273,22 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
         }
     }
 
-    // 4) TOTP entries — upsert by (issuer, account). The plaintext secret
-    //    from the backup is re-encrypted with this machine's key.
+    // 4) TOTP entries — dedup by (issuer, account, secret), same key the
+    //    `totp_import` IPC uses. The table has NO unique constraint (a plain
+    //    INSERT always succeeds), so the old "catch the UNIQUE error" branch
+    //    was dead code and every restore into a non-empty DB duplicated all
+    //    2FA accounts. Present entries count as imported (the desired state
+    //    already exists). Secrets are re-encrypted with this machine's key.
+    let existing = totp_store::existing_keys(db).unwrap_or_default();
     for (idx, te) in backup.totp_entries.iter().enumerate() {
         if te.issuer.trim().is_empty() || te.secret.trim().is_empty() {
             result
                 .errors
                 .push(format!("totp #{idx}: empty issuer or secret"));
+            continue;
+        }
+        if existing.contains(&totp_store::dedup_key(&te.issuer, &te.account, &te.secret)) {
+            result.totp_imported += 1; // already present — nothing to do
             continue;
         }
         match totp_store::add(
@@ -293,15 +302,9 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
         ) {
             Ok(_) => result.totp_imported += 1,
             Err(e) => {
-                // If it already exists (duplicate), that's fine — count as imported.
-                let msg = e.to_string();
-                if msg.contains("UNIQUE constraint") || msg.contains("already exists") {
-                    result.totp_imported += 1;
-                } else {
-                    result
-                        .errors
-                        .push(format!("totp #{idx} ({}): {e}", te.issuer));
-                }
+                result
+                    .errors
+                    .push(format!("totp #{idx} ({}): {e}", te.issuer));
             }
         }
     }

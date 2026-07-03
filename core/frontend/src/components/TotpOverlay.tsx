@@ -559,7 +559,12 @@ function ListTab({
       const cur = orderRef.current;
       const dragIdx = cur.findIndex((x) => x.id === draggingRef.current);
       if (dragIdx < 0) return;
-      let target = cur.length - 1;
+      // `target` is an INSERTION POINT (0..=length): "insert before row i",
+      // with length meaning "append". After removing the dragged row, every
+      // index past dragIdx shifts left by one — without the `- 1` adjustment
+      // every downward drag overshot its drop position by one row (and that
+      // wrong order was persisted via onReorder).
+      let target = cur.length;
       for (let i = 0; i < cur.length; i++) {
         const el = rowRefs.current.get(cur[i].id);
         if (!el) continue;
@@ -569,10 +574,11 @@ function ListTab({
           break;
         }
       }
-      if (target !== dragIdx) {
+      const insertAt = target > dragIdx ? target - 1 : target;
+      if (insertAt !== dragIdx) {
         const next = [...cur];
         const [m] = next.splice(dragIdx, 1);
-        next.splice(target, 0, m);
+        next.splice(insertAt, 0, m);
         orderRef.current = next;
         setOrder(next);
       }

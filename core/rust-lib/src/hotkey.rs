@@ -518,23 +518,35 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
     // Unregister the previous popup hotkey (if any) only AFTER all
     // validation passes — that way a rejected change leaves the old
     // hotkey still working.
-    {
-        let mut current = state.current.lock();
-        if let Some(prev) = current.take() {
-            let _ = app.global_shortcut().unregister(prev);
-        }
+    let prev = state.current.lock().take();
+    if let Some(p) = prev {
+        let _ = app.global_shortcut().unregister(p);
     }
 
-    let app_for_popup = app.clone();
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == shortcut {
-                if let Err(e) = toggle_popup(&app_for_popup) {
-                    tracing::warn!("toggle_popup failed: {e:#}");
+    let arm = |sc: Shortcut| -> Result<()> {
+        let app_for_popup = app.clone();
+        app.global_shortcut()
+            .on_shortcut(sc, move |_app, fired, event| {
+                if event.state == ShortcutState::Pressed && *fired == sc {
+                    if let Err(e) = toggle_popup(&app_for_popup) {
+                        tracing::warn!("toggle_popup failed: {e:#}");
+                    }
                 }
+            })
+            .with_context(|| format!("failed to register popup hotkey {sc:?}"))
+    };
+    if let Err(e) = arm(shortcut) {
+        // The OS-level registration itself failed (e.g. the shortcut is owned
+        // by another application — our own collision set can't see those).
+        // Re-arm the previous binding so the popup hotkey is never left dead.
+        if let Some(p) = prev {
+            if arm(p).is_ok() {
+                *state.current.lock() = Some(p);
+                tracing::warn!("popup hotkey change failed — previous binding restored");
             }
-        })
-        .with_context(|| format!("failed to register popup hotkey {hotkey:?}"))?;
+        }
+        return Err(e);
+    }
 
     *state.current.lock() = Some(shortcut);
     tracing::info!("popup hotkey armed: {hotkey}");
@@ -575,23 +587,34 @@ pub fn register_history_hotkey(
     }
 
     // Unregister the previous history hotkey only after validation passes.
-    {
-        let mut hist = state.history.lock();
-        if let Some(prev) = hist.take() {
-            let _ = app.global_shortcut().unregister(prev);
-        }
+    let prev = state.history.lock().take();
+    if let Some(p) = prev {
+        let _ = app.global_shortcut().unregister(p);
     }
 
-    let app_for_history = app.clone();
-    app.global_shortcut()
-        .on_shortcut(shortcut, move |_app, sc, event| {
-            if event.state == ShortcutState::Pressed && *sc == shortcut {
-                if let Err(e) = toggle_popup(&app_for_history) {
-                    tracing::warn!("toggle_popup (history hotkey) failed: {e:#}");
+    let arm = |sc: Shortcut| -> Result<()> {
+        let app_for_history = app.clone();
+        app.global_shortcut()
+            .on_shortcut(sc, move |_app, fired, event| {
+                if event.state == ShortcutState::Pressed && *fired == sc {
+                    if let Err(e) = toggle_popup(&app_for_history) {
+                        tracing::warn!("toggle_popup (history hotkey) failed: {e:#}");
+                    }
                 }
+            })
+            .with_context(|| format!("failed to register clipboard-history hotkey {sc:?}"))
+    };
+    if let Err(e) = arm(shortcut) {
+        // OS-level registration failure (shortcut owned by another app) —
+        // restore the previous binding instead of leaving the hotkey dead.
+        if let Some(p) = prev {
+            if arm(p).is_ok() {
+                *state.history.lock() = Some(p);
+                tracing::warn!("history hotkey change failed — previous binding restored");
             }
-        })
-        .with_context(|| format!("failed to register clipboard-history hotkey {hotkey:?}"))?;
+        }
+        return Err(e);
+    }
 
     *state.history.lock() = Some(shortcut);
     tracing::info!("clipboard-history hotkey armed: {hotkey}");
@@ -1198,15 +1221,13 @@ pub fn register_direct_slots(
     state: &ExpanderShortcutState,
     slots: &[crate::expander::DirectSlot],
 ) -> Result<()> {
-    // 1) Unregister whatever was registered before.
-    {
-        let mut cur = state.direct.lock();
-        for (sc, _) in cur.drain(..) {
-            let _ = app.global_shortcut().unregister(sc);
-        }
-    }
-
-    // 2) Parse + validate against every LIVE binding (popup + history as
+    // 1) Parse + validate FIRST — with no side effects. The old order
+    //    unregistered every working slot before validating, so a rejected
+    //    change (collision / duplicate / parse error) silently killed all
+    //    existing direct-hotkey bindings until the next successful save or an
+    //    app restart (v0.84.226).
+    //
+    // 2) Validate against every LIVE binding (popup + history as
     //    currently bound, action hotkeys as configured, the abbreviation
     //    expander — v0.84.221; the slots themselves are excluded since this
     //    call replaces them) and against each other.
@@ -1227,7 +1248,19 @@ pub fn register_direct_slots(
         parsed.push((sc, slot.snippet_id));
     }
 
-    // 3) Register each.
+    // 3) All valid — NOW retire the previous registrations and arm the new
+    //    set, tracking what's been registered so a mid-loop failure can be
+    //    rolled back (previously a partial failure leaked the already-armed
+    //    shortcuts: they stayed registered with the OS but were never
+    //    recorded in `state.direct`, so nothing could ever unregister them).
+    {
+        let mut cur = state.direct.lock();
+        for (sc, _) in cur.drain(..) {
+            let _ = app.global_shortcut().unregister(sc);
+        }
+    }
+    let mut armed: Vec<Shortcut> = Vec::with_capacity(parsed.len());
+    let mut register_all = || -> Result<()> {
     for &(sc, snippet_id) in &parsed {
         let app_h = app.clone();
         // Find this slot's hotkey string so we can forward it when
@@ -1301,6 +1334,16 @@ pub fn register_direct_slots(
                 });
             })
             .with_context(|| format!("failed to register direct-slot hotkey {sc:?}"))?;
+        armed.push(sc);
+    }
+        Ok(())
+    };
+    if let Err(e) = register_all() {
+        // Roll back the partially-armed set so no OS registration leaks.
+        for sc in armed {
+            let _ = app.global_shortcut().unregister(sc);
+        }
+        return Err(e);
     }
 
     *state.direct.lock() = parsed;

@@ -653,14 +653,23 @@ pub fn claude_tokens_by_project(
 
 /// Delete events (+ their claude turns + now-empty sessions) started before
 /// `cutoff_ms` (the retention setting). Returns the events deleted.
-pub fn prune_before(db: &DbHandle, cutoff_ms: i64) -> rusqlite::Result<usize> {
+pub fn prune_before(db: &DbHandle, cutoff_ms: i64, exclude: Option<i64>) -> rusqlite::Result<usize> {
+    // `exclude` protects the currently-open (live) event — same rationale as
+    // `cleanup_day`'s exclude: its `started_at` can age past an aggressive
+    // retention cutoff (e.g. a long idle span), and deleting the row the run
+    // loop's heartbeat writes to silently stops persisting all further time
+    // in the current focus span.
+    let ex = exclude.unwrap_or(-1);
     let conn = db.lock();
     conn.execute(
         "DELETE FROM track_claude_turns WHERE event_id IN \
-         (SELECT id FROM track_events WHERE started_at < ?1)",
-        params![cutoff_ms],
+         (SELECT id FROM track_events WHERE started_at < ?1 AND id != ?2)",
+        params![cutoff_ms, ex],
     )?;
-    let n = conn.execute("DELETE FROM track_events WHERE started_at < ?1", params![cutoff_ms])?;
+    let n = conn.execute(
+        "DELETE FROM track_events WHERE started_at < ?1 AND id != ?2",
+        params![cutoff_ms, ex],
+    )?;
     conn.execute(
         "DELETE FROM track_sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM track_events)",
         [],

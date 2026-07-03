@@ -141,7 +141,7 @@ pub fn start(
         return Err("already tracking".into());
     }
     let now = now_ms();
-    prune_by_retention(db, now);
+    prune_by_retention(db, now, None); // fresh session — no live event yet
     let sid = tdb::start_session(db, label.as_deref(), now).map_err(|e| e.to_string())?;
     let stop = Arc::new(AtomicBool::new(false));
     // Claude-Code watcher (default on; settings-gated) — its own stop flag.
@@ -185,7 +185,7 @@ pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
     let _ = tdb::finalize_all_open_events(db);
     // Retention must also apply on the resume path — with keep-alive on, a user
     // may never run `track on` again, and pruning would otherwise never fire.
-    prune_by_retention(db, now_ms());
+    prune_by_retention(db, now_ms(), None); // open events were just finalized
 
     let session = match tdb::active_session(db) {
         Ok(Some(s)) => s,
@@ -235,12 +235,12 @@ pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
 /// Enforce `track.retention_days` (0 = keep forever): prune events + empty
 /// sessions older than the cutoff. Called on `track on`, on resume, and hourly
 /// from the run loop (so a never-restarted keep-alive session still prunes).
-fn prune_by_retention(db: &DbHandle, now: i64) {
+fn prune_by_retention(db: &DbHandle, now: i64, exclude_live: Option<i64>) {
     if let Ok(days) = crate::settings::get_or(db, "track.retention_days", "0") {
         if let Ok(d) = days.parse::<i64>() {
             if d > 0 {
                 let cutoff = now - d * 86_400_000;
-                if let Err(e) = tdb::prune_before(db, cutoff) {
+                if let Err(e) = tdb::prune_before(db, cutoff, exclude_live) {
                     tracing::warn!("timesheet: retention prune failed: {e:#}");
                 }
             }
@@ -339,7 +339,10 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
         // without ever passing through `start()` again.
         if last_prune.elapsed().as_secs() >= 3600 {
             last_prune = std::time::Instant::now();
-            prune_by_retention(&db, now_ms());
+            // Never prune the row the heartbeat is writing to (a long idle
+            // span can age past an aggressive retention cutoff while open).
+            let live = rt.lock().open_event_id;
+            prune_by_retention(&db, now_ms(), live);
         }
         if ticks_since_reload >= SETTINGS_RELOAD_TICKS {
             ticks_since_reload = 0;
@@ -1330,10 +1333,35 @@ mod tests {
             url: None, host: None, category: None, project: None, source: "focus".into(),
             is_idle: false, started_at: 10_001_000,
         }).unwrap();
-        let n = tdb::prune_before(&db, 5_000_000).unwrap();
+        let n = tdb::prune_before(&db, 5_000_000, None).unwrap();
         assert_eq!(n, 1);
         let evs = tdb::events_in_range(&db, -1, 100_000_000).unwrap();
         assert_eq!(evs.len(), 1);
         assert_eq!(evs[0].app_name, "B");
+    }
+
+    #[test]
+    fn prune_before_never_deletes_the_excluded_live_event() {
+        let db = test_db();
+        let sid = tdb::start_session(&db, None, 0).unwrap();
+        // A long-open (live) event whose started_at is older than the cutoff —
+        // e.g. a multi-day idle span under an aggressive retention setting.
+        let live = tdb::open_event(&db, &tdb::NewEvent {
+            session_id: sid, app_name: "Live".into(), app_id: None, window_title: None,
+            url: None, host: None, category: None, project: None, source: "focus".into(),
+            is_idle: true, started_at: 1_000,
+        }).unwrap();
+        // An equally-old but CLOSED event that must still be pruned.
+        let old = tdb::open_event(&db, &tdb::NewEvent {
+            session_id: sid, app_name: "Old".into(), app_id: None, window_title: None,
+            url: None, host: None, category: None, project: None, source: "focus".into(),
+            is_idle: false, started_at: 2_000,
+        }).unwrap();
+        tdb::close_event(&db, old, 3_000).unwrap();
+        let n = tdb::prune_before(&db, 5_000_000, Some(live)).unwrap();
+        assert_eq!(n, 1, "only the closed old event is pruned");
+        let evs = tdb::events_in_range(&db, -1, 100_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].app_name, "Live", "the heartbeat's row survives");
     }
 }

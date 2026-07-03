@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.221] — 2026-07-03
+
+### Fixed
+
+- **Hotkey collision checks now validate against the *live* bindings.** The popup, clipboard-history and direct-snippet-slot validators still compared against a hard-coded list of the *default* action hotkeys — so a default you had re-bound away (e.g. OCR moved off `Ctrl+Shift+O`) stayed falsely blocked, while a custom action binding could be silently double-bound (two handlers on one shortcut). All validators now share one live collision set (`live_bindings`, with self-exclusion per owner), with the actual conflicting binding named in the error.
+
 ## [0.84.220] — 2026-07-03
 
 ### Added

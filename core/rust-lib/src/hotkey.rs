@@ -423,54 +423,14 @@ pub fn register_popup(app: &AppHandle, state: &PopupShortcutState, hotkey: &str)
     let shortcut = parse_shortcut(hotkey)
         .with_context(|| format!("could not parse popup hotkey {hotkey:?}"))?;
 
-    // ── Collision check against the still-hard-coded global shortcuts.
-    let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
-    let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
-    let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
-    let finder = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF);
-    let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
-    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS);
-    let aswap = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM);
-    let timesheet = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT);
-    let reserved = [
-        (ocr, "OCR region (Ctrl+Shift+O)"),
-        (screenshot, "Screenshot region (Ctrl+Shift+S)"),
-        (color, "Eyedropper (Ctrl+Shift+C)"),
-        (finder, "Finder selection (Ctrl+Shift+F)"),
-        (markdown, "Markdown → PDF (Ctrl+Shift+M)"),
-        (record, "Screen recording (Ctrl+Shift+Alt+S)"),
-        (aswap, "Audio swap (Ctrl+Shift+Alt+M)"),
-        (timesheet, "Timesheet (Ctrl+Shift+T)"),
-    ];
-    for (sc, name) in reserved {
-        if shortcut == sc {
-            return Err(anyhow!(
-                "hotkey {hotkey} is reserved by {name} — pick another"
-            ));
-        }
+    // ── Collision check against every LIVE binding (action hotkeys as
+    //    currently configured, expander, direct slots, history) — not the old
+    //    hard-coded default list (v0.84.221).
+    if let Some(label) = find_conflict(shortcut, &live_bindings(app, Some(BindingOwner::Popup))) {
+        return Err(anyhow!("hotkey {hotkey} is already used by {label} — pick another"));
     }
-
-    // ── Collision check against the currently-armed expander + direct-slot
-    //    hotkeys (read from the existing ExpanderShortcutState if any).
-    if let Some(exp_state) = app.try_state::<ExpanderShortcutState>() {
-        if let Some(abbr) = *exp_state.current.lock() {
-            if shortcut == abbr {
-                return Err(anyhow!(
-                    "hotkey {hotkey} is bound to the text expander — pick another"
-                ));
-            }
-        }
-        for (sc, _id) in exp_state.direct.lock().iter() {
-            if shortcut == *sc {
-                return Err(anyhow!(
-                    "hotkey {hotkey} is bound to a direct snippet slot — pick another"
-                ));
-            }
-        }
-    }
-
-    // ── Don't let the main popup hotkey collide with the second
-    //    (clipboard-history) hotkey.
+    // Belt-and-braces via the state param too (live_bindings needs the managed
+    // state, which is absent in early startup edge cases).
     if *state.history.lock() == Some(shortcut) {
         return Err(anyhow!(
             "hotkey {hotkey} is bound to the clipboard-history shortcut — pick another"
@@ -525,38 +485,15 @@ pub fn register_history_hotkey(
     let shortcut = parse_shortcut(hotkey)
         .with_context(|| format!("could not parse clipboard-history hotkey {hotkey:?}"))?;
 
-    // ── Reserved hard-coded globals (same set as register_popup).
-    let reserved = [
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO), "OCR region (Ctrl+Shift+O)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS), "Screenshot region (Ctrl+Shift+S)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC), "Eyedropper (Ctrl+Shift+C)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyF), "Finder selection (Ctrl+Shift+F)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM), "Markdown → PDF (Ctrl+Shift+M)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS), "Screen recording (Ctrl+Shift+Alt+S)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM), "Audio swap (Ctrl+Shift+Alt+M)"),
-        (Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyT), "Timesheet (Ctrl+Shift+T)"),
-    ];
-    for (sc, name) in reserved {
-        if shortcut == sc {
-            return Err(anyhow!("hotkey {hotkey} is reserved by {name} — pick another"));
-        }
+    // ── Collision check against every LIVE binding (v0.84.221 — see
+    //    register_popup).
+    if let Some(label) = find_conflict(shortcut, &live_bindings(app, Some(BindingOwner::History))) {
+        return Err(anyhow!("hotkey {hotkey} is already used by {label} — pick another"));
     }
-
-    // ── Must not equal the main popup hotkey.
     if *state.current.lock() == Some(shortcut) {
         return Err(anyhow!(
             "hotkey {hotkey} is already the main popup hotkey — pick another"
         ));
-    }
-
-    // ── Expander + direct-slot collisions.
-    if let Some(exp_state) = app.try_state::<ExpanderShortcutState>() {
-        if *exp_state.current.lock() == Some(shortcut) {
-            return Err(anyhow!("hotkey {hotkey} is bound to the text expander — pick another"));
-        }
-        if exp_state.direct.lock().iter().any(|(sc, _)| *sc == shortcut) {
-            return Err(anyhow!("hotkey {hotkey} is bound to a direct snippet slot — pick another"));
-        }
     }
 
     // Unregister the previous history hotkey only after validation passes.
@@ -929,31 +866,50 @@ pub fn action_views(app: &AppHandle) -> Vec<ActionHotkeyView> {
         .collect()
 }
 
-/// Every shortcut bound anywhere (popup, history, expander, direct slots,
-/// action hotkeys), each with a human label — for collision checks. `except`
-/// excludes one action (when re-binding it).
-pub fn all_bound_shortcuts(app: &AppHandle, except: Option<ActionId>) -> Vec<(Shortcut, String)> {
+/// Which binding "slot" a collision check runs FOR — that owner's own current
+/// entries are excluded from the live set (re-binding replaces them anyway).
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum BindingOwner {
+    Popup,
+    History,
+    DirectSlots,
+    Action(ActionId),
+}
+
+/// Every shortcut bound anywhere **right now** (popup, history, expander,
+/// direct slots, the 9 rebindable action hotkeys — read from settings, NOT
+/// their hard-coded defaults), each with a human label — the single collision
+/// set every hotkey validator checks against (v0.84.221; previously
+/// popup/history/direct-slots validated against a stale hard-coded default
+/// list, so a freed default was still blocked and a re-bound action wasn't).
+pub fn live_bindings(app: &AppHandle, owner: Option<BindingOwner>) -> Vec<(Shortcut, String)> {
     use tauri::Manager as _;
     let mut out: Vec<(Shortcut, String)> = Vec::new();
     if let Some(p) = app.try_state::<PopupShortcutState>() {
-        if let Some(s) = *p.current.lock() {
-            out.push((s, "Popup".into()));
+        if owner != Some(BindingOwner::Popup) {
+            if let Some(s) = *p.current.lock() {
+                out.push((s, "the popup hotkey".into()));
+            }
         }
-        if let Some(s) = *p.history.lock() {
-            out.push((s, "Clipboard history".into()));
+        if owner != Some(BindingOwner::History) {
+            if let Some(s) = *p.history.lock() {
+                out.push((s, "the clipboard-history hotkey".into()));
+            }
         }
     }
     if let Some(e) = app.try_state::<ExpanderShortcutState>() {
         if let Some(s) = *e.current.lock() {
-            out.push((s, "Text expander".into()));
+            out.push((s, "the text expander".into()));
         }
-        for (s, _id) in e.direct.lock().iter() {
-            out.push((*s, "Direct snippet".into()));
+        if owner != Some(BindingOwner::DirectSlots) {
+            for (s, _id) in e.direct.lock().iter() {
+                out.push((*s, "a direct snippet slot".into()));
+            }
         }
     }
     if let Some(db) = app.try_state::<crate::db::DbHandle>() {
         for id in ActionId::ALL {
-            if Some(id) == except {
+            if owner == Some(BindingOwner::Action(id)) {
                 continue;
             }
             let spec = effective_action_spec(&db, id);
@@ -961,11 +917,21 @@ pub fn all_bound_shortcuts(app: &AppHandle, except: Option<ActionId>) -> Vec<(Sh
                 continue;
             }
             if let Ok(s) = parse_shortcut(&spec) {
-                out.push((s, id.label().to_string()));
+                out.push((s, format!("{} ({spec})", id.label())));
             }
         }
     }
     out
+}
+
+/// First binding in `set` equal to `shortcut` → its label. Pure + unit-tested.
+pub fn find_conflict(shortcut: Shortcut, set: &[(Shortcut, String)]) -> Option<&str> {
+    set.iter().find(|(s, _)| *s == shortcut).map(|(_, l)| l.as_str())
+}
+
+/// Back-compat shim for the Settings action-hotkey validator.
+pub fn all_bound_shortcuts(app: &AppHandle, except: Option<ActionId>) -> Vec<(Shortcut, String)> {
+    live_bindings(app, except.map(BindingOwner::Action))
 }
 
 /// Set (or clear, with an empty `spec`) an action hotkey, validating against
@@ -1162,35 +1128,18 @@ pub fn register_direct_slots(
         }
     }
 
-    // 2) Parse + validate against the reserved shortcuts and each other.
-    let popup = Shortcut::new(Some(Modifiers::CONTROL), Code::Space);
-    let ocr = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyO);
-    let screenshot = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyS);
-    let color = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyC);
-    let markdown = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT), Code::KeyM);
-    let record = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyS);
-    let aswap = Shortcut::new(Some(Modifiers::CONTROL | Modifiers::SHIFT | Modifiers::ALT), Code::KeyM);
-    let abbr_hotkey: Option<Shortcut> = *state.current.lock();
-    // The optional second (clipboard-history) popup hotkey, if armed.
-    let history_hotkey: Option<Shortcut> =
-        app.try_state::<PopupShortcutState>().and_then(|s| *s.history.lock());
-
+    // 2) Parse + validate against every LIVE binding (popup + history as
+    //    currently bound, action hotkeys as configured, the abbreviation
+    //    expander — v0.84.221; the slots themselves are excluded since this
+    //    call replaces them) and against each other.
+    let live = live_bindings(app, Some(BindingOwner::DirectSlots));
     let mut parsed: Vec<(Shortcut, i64)> = Vec::with_capacity(slots.len());
     for slot in slots {
         let sc = parse_shortcut(&slot.hotkey)
             .with_context(|| format!("invalid direct-slot hotkey {:?}", slot.hotkey))?;
-        if sc == popup
-            || sc == ocr
-            || sc == screenshot
-            || sc == color
-            || sc == markdown
-            || sc == record
-            || sc == aswap
-            || abbr_hotkey == Some(sc)
-            || history_hotkey == Some(sc)
-        {
+        if let Some(label) = find_conflict(sc, &live) {
             return Err(anyhow!(
-                "hotkey {} is reserved (popup / clipboard-history / OCR / screenshot / color picker / markdown / recording / audio-swap / text-expander) — pick another",
+                "hotkey {} is already used by {label} — pick another",
                 slot.hotkey
             ));
         }
@@ -1593,6 +1542,25 @@ mod tests {
         let db = mem_db();
         assert_eq!(migrate_legacy_popup_default(&db), DEFAULT_POPUP_HOTKEY);
     }
+
+    #[test]
+    fn find_conflict_matches_only_equal_shortcuts() {
+        let set = vec![
+            (parse_shortcut("Ctrl+Shift+KeyO").unwrap(), "OCR region (Ctrl+Shift+O)".to_string()),
+            (parse_shortcut("Alt+Digit1").unwrap(), "the text expander".to_string()),
+        ];
+        let hit = find_conflict(parse_shortcut("Ctrl+Shift+KeyO").unwrap(), &set);
+        assert_eq!(hit, Some("OCR region (Ctrl+Shift+O)"));
+        assert_eq!(find_conflict(parse_shortcut("Alt+Digit1").unwrap(), &set), Some("the text expander"));
+        // Same key, different modifiers → no conflict.
+        assert_eq!(find_conflict(parse_shortcut("Ctrl+Alt+KeyO").unwrap(), &set), None);
+        assert_eq!(find_conflict(parse_shortcut("Ctrl+Shift+KeyP").unwrap(), &set), None);
+    }
+
+    #[test]
+    fn find_conflict_empty_set_is_free() {
+        assert_eq!(find_conflict(parse_shortcut("Ctrl+Space").unwrap(), &[]), None);
+    }
 }
 
 pub fn toggle_popup(app: &AppHandle) -> Result<()> {
@@ -1926,4 +1894,5 @@ fn clamp_into_monitor(window: &WebviewWindow, monitor: &Monitor) -> Result<()> {
 
     window.set_position(PhysicalPosition::new(x, y))?;
     Ok(())
+
 }

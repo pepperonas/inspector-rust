@@ -326,22 +326,49 @@ export function WindowPalette() {
             ? Math.hypot(c.cx - boxW / 2, c.cy - boxH / 2) /
               Math.hypot(boxW / 2, boxH / 2) * 130
             : 0;
+          // Drag sweep: the light-up radiates outward from the drag ANCHOR —
+          // each cell's ignite (transform/halo/fill transitions) is delayed by
+          // its hex-distance to where the drag started, so a fast diagonal
+          // pull reads as a wave, not a simultaneous flip. Un-lighting is
+          // always immediate (delay 0) so shrinking the range never feels
+          // laggy.
+          const sweep = on && drag
+            ? Math.min(Math.hypot(c.col - drag.a.col, c.row - drag.a.row) * 16, 140)
+            : 0;
+          const sweepDelay = `${sweep.toFixed(0)}ms`;
+          const d = roundedHexPath(c.cx, c.cy, cellRx, cellRy);
           return (
-            <path
+            <g
               key={`${c.col}-${c.row}`}
               className={
                 "wp-cell wp-cell-in" +
                 (on ? " wp-on" : "") +
                 (isHover ? " wp-hover" : "")
               }
-              style={{ animationDelay: `${delay.toFixed(0)}ms` }}
-              d={roundedHexPath(c.cx, c.cy, cellRx, cellRy)}
-              fill={on ? "url(#wp-sel)" : "var(--color-bg)"}
-              fillOpacity={on ? 0.95 : isHover ? 0.85 : drag ? 0.28 : 0.5}
-              stroke={on || isHover ? "var(--color-accent)" : "var(--color-border)"}
-              strokeWidth={on ? 1.4 : 1}
-              vectorEffect="non-scaling-stroke"
-            />
+              style={{ animationDelay: `${delay.toFixed(0)}ms`, transitionDelay: sweepDelay }}
+            >
+              <path
+                className="wp-base"
+                d={d}
+                fill="var(--color-bg)"
+                fillOpacity={isHover ? 0.85 : drag && !on ? 0.28 : 0.5}
+                stroke={on || isHover ? "var(--color-accent)" : "var(--color-border)"}
+                strokeWidth={on ? 1.4 : 1}
+                vectorEffect="non-scaling-stroke"
+                style={{ transitionDelay: sweepDelay }}
+              />
+              {/* Gradient overlay: a solid-colour → gradient `fill` swap can't
+                  interpolate (it snapped) — crossfading this layer's opacity
+                  makes the selection fill genuinely fade in/out. */}
+              <path
+                className="wp-fill"
+                d={d}
+                fill="url(#wp-sel)"
+                fillOpacity={on ? 0.95 : 0}
+                stroke="none"
+                style={{ transitionDelay: sweepDelay }}
+              />
+            </g>
           );
         })}
       </svg>

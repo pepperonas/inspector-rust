@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.223] — 2026-07-03
+
+### Changed
+
+- **Window palette: the drag selection itself now animates.** The selection fill genuinely crossfades (the old solid-colour → gradient `fill` swap couldn't interpolate and snapped), and the light-up **sweeps outward from the drag anchor** — each cell ignites with a small delay proportional to its distance from where the drag started, so pulling a region open reads as a wave. Shrinking the selection un-lights immediately (never laggy). Honours `prefers-reduced-motion`.
+
 ## [0.84.222] — 2026-07-03
 
 ### Changed

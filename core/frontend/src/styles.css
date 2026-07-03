@@ -873,14 +873,20 @@ code {
 }
 .wp-pop { animation: wp-pop 0.16s cubic-bezier(0.2, 0, 0, 1) both; transform-origin: top center; }
 .wp-cell {
+  /* The cell is a <g> (base hex + gradient-overlay path): transform + halo
+     animate on the group, paint crossfades on the child paths. transition-
+     delay comes per-cell from the inline drag-sweep style (inline wins over
+     the shorthand's implicit 0s). */
   transition:
-    fill 0.12s ease,
-    fill-opacity 0.12s ease,
-    stroke 0.12s ease,
     transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1),
     filter 0.22s ease;
   transform-box: fill-box;
   transform-origin: center;
+}
+.wp-cell path {
+  transition:
+    fill-opacity 0.18s ease,
+    stroke 0.12s ease;
 }
 /* Light-up: a selected cell springs up a touch (overshoot bezier above) and
    gains a soft accent halo — the glow fades in/out via the filter transition
@@ -909,4 +915,5 @@ code {
   .wp-cell-in { animation: none; }
   .wp-hover { transform: none; filter: none; }
   .wp-on { transform: none; filter: none; }
+  .wp-cell path { transition: none; }
 }

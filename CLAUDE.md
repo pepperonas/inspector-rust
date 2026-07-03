@@ -759,7 +759,12 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   hover** (the cell under the cursor scales 1.18 via `transform-box: fill-box`;
   since v0.84.222 hover + selected cells also get a soft accent drop-shadow
   halo, and a newly-selected cell springs to 1.045 on an overshoot bezier —
-  the subtle "ignite" light-up, reduced-motion-guarded),
+  the subtle "ignite" light-up, reduced-motion-guarded; v0.84.223 makes each
+  cell a `<g>` of base hex + gradient-overlay path so the selection fill
+  **crossfades** — a solid→gradient `fill` swap can't interpolate — and the
+  drag light-up **sweeps from the drag anchor** via per-cell inline
+  `transitionDelay` ∝ hex-distance, capped 140 ms; un-lighting is always
+  delay-0),
   a **selection gradient** (`wp-sel` linearGradient + brighter stroke; unselected
   cells dim to 0.28 opacity during a drag so the lit region reads instantly), a
   **radial bloom entrance** (per-cell `animation-delay` ∝ distance from the comb

@@ -104,24 +104,67 @@ pub fn popup_was_focused() -> bool {
     POPUP_HAS_FOCUS.load(Ordering::Relaxed)
 }
 
-/// Pure decision for the Windows settle-confirm: hide only if nothing happened
-/// since the `Focused(false)` (generation unchanged), the user hasn't armed a
-/// modal (`suppressed`), the OS foreground is **still** a foreign process, and
-/// the popup is still visible. Unit-tested; the runtime just feeds live values.
+/// One activation retry per show (see [`settle_verdict`]) — reset by
+/// [`mark_shown`], consumed by the settle-confirm.
+static SETTLE_RETRIED: AtomicBool = AtomicBool::new(false);
+
+/// How long after a show the popup is considered *intentionally opened*: a
+/// settle-confirm that wants to hide within this window is treated as the
+/// foreground-lock snap-back (activation stolen back right after the hotkey
+/// press), NOT a user dismiss — the user literally just asked for the popup.
 #[cfg_attr(not(target_os = "windows"), allow(dead_code))]
-fn settle_should_hide(
+const SHOW_INTENT: Duration = Duration::from_millis(2_000);
+
+/// What the Windows settle-confirm should do (pure; unit-tested).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+enum SettleVerdict {
+    /// Bounce resolved / modal armed / already hidden — nothing to do.
+    Keep,
+    /// Foreign foreground right after an intentional show → the activation was
+    /// snapped back, not dismissed. Re-run `force_foreground` once.
+    RetryActivate,
+    /// Activation failed twice within the intent window → leave the popup
+    /// visible (unfocused). Closing a popup the user summoned 200 ms ago is
+    /// never right; they can click it / press Esc.
+    StayVisible,
+    /// Real dismiss (foreign foreground, past the intent window) → hide.
+    Hide,
+}
+
+/// Pure decision for the Windows settle-confirm. Hide requires: nothing
+/// happened since the `Focused(false)` (generation unchanged), no modal armed
+/// (`suppressed`), the OS foreground **still** foreign, the popup still
+/// visible — and, new in v0.84.225, the show **not** being ~2 s fresh: a hide
+/// verdict inside the intent window means the OS snapped foreground back after
+/// a failed activation (the chronic "opens then closes in 200 ms" bug), so we
+/// retry activation once and otherwise keep the popup on screen.
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+fn settle_verdict(
     captured_gen: u64,
     current_gen: u64,
     suppressed: bool,
     foreground_is_ours: bool,
     visible: bool,
-) -> bool {
-    captured_gen == current_gen && !suppressed && !foreground_is_ours && visible
+    just_shown: bool,
+    already_retried: bool,
+) -> SettleVerdict {
+    let wants_hide = captured_gen == current_gen && !suppressed && !foreground_is_ours && visible;
+    if !wants_hide {
+        return SettleVerdict::Keep;
+    }
+    if just_shown {
+        if already_retried {
+            return SettleVerdict::StayVisible;
+        }
+        return SettleVerdict::RetryActivate;
+    }
+    SettleVerdict::Hide
 }
 
 /// Windows: defer the hide decision. On a `Focused(false)`, capture the current
 /// generation and re-evaluate ~`SETTLE_MS` later on the main thread — confirming
-/// a real dismiss vs. a transient WebView2 focus bounce (see [`settle_should_hide`]).
+/// a real dismiss vs. a transient WebView2 focus bounce (see [`settle_verdict`]).
 #[cfg(target_os = "windows")]
 pub fn schedule_settle_hide(app: &AppHandle) {
     use tauri::Manager as _;
@@ -139,17 +182,42 @@ pub fn schedule_settle_hide(app: &AppHandle) {
                 .get_webview_window(POPUP_LABEL)
                 .and_then(|w| w.is_visible().ok())
                 .unwrap_or(false);
-            if settle_should_hide(
+            let just_shown =
+                is_within_grace(*LAST_SHOWN_AT.lock(), Instant::now(), SHOW_INTENT);
+            match settle_verdict(
                 captured,
                 SHOW_GEN.load(Ordering::Relaxed),
                 suppressed,
                 foreground_belongs_to_our_process(),
                 visible,
+                just_shown,
+                SETTLE_RETRIED.load(Ordering::Relaxed),
             ) {
-                tracing::debug!("settle-confirm: real dismiss → hiding popup");
-                hide_popup(&app2);
-            } else {
-                tracing::debug!("settle-confirm: focus bounce / re-show → keeping popup");
+                SettleVerdict::Hide => {
+                    tracing::debug!("settle-confirm: real dismiss → hiding popup");
+                    hide_popup(&app2);
+                }
+                SettleVerdict::RetryActivate => {
+                    tracing::info!(
+                        "settle-confirm: foreground snapped back right after show — retrying activation"
+                    );
+                    SETTLE_RETRIED.store(true, Ordering::Relaxed);
+                    if let Some(w) = app2.get_webview_window(POPUP_LABEL) {
+                        force_foreground(&w);
+                    }
+                    // Re-arm: a successful retry bumps SHOW_GEN via
+                    // Focused(true) and cancels this; a failed one lands in
+                    // StayVisible next time.
+                    schedule_settle_hide(&app2);
+                }
+                SettleVerdict::StayVisible => {
+                    tracing::info!(
+                        "settle-confirm: activation failed twice — leaving the popup visible (no auto-hide)"
+                    );
+                }
+                SettleVerdict::Keep => {
+                    tracing::debug!("settle-confirm: focus bounce / re-show → keeping popup");
+                }
             }
         });
     });
@@ -181,53 +249,66 @@ pub fn foreground_belongs_to_our_process() -> bool {
 }
 
 /// Windows: reliably bring the popup to the foreground from our background
-/// (tray) process. A plain `SetForegroundWindow` from a non-foreground process
-/// is usually blocked by the OS foreground lock — the window then shows *behind*
-/// the active app, never activates, and emits the spurious `Focused(false)`
-/// noise that the settle-confirm has to clean up. The standard workaround:
-/// briefly `AttachThreadInput` to the current foreground window's thread so our
-/// `SetForegroundWindow` is honoured, then detach. Best-effort — falls back to a
-/// plain `set_focus` if anything is unavailable.
+/// (tray) process — the chronic "popup opens and closes itself within ~200 ms
+/// after a while of use" bug lived here.
+///
+/// Why every previous attempt failed: once the user has been interacting with
+/// other apps, the OS **foreground lock** refuses a background process's
+/// `SetForegroundWindow`. `AttachThreadInput` alone is unreliable on Win10/11,
+/// and the v0.84.201 `SPI_SETFOREGROUNDLOCKTIMEOUT`-to-0 trick was **circular**:
+/// per the `SystemParametersInfo` docs that call itself only succeeds for a
+/// process that is *already allowed* to change the foreground window — so
+/// exactly when we needed it, it silently no-oped. Worse, the attach trick
+/// often activated the popup for a *moment* before the OS snapped foreground
+/// back to the previous app → `Focused(true)` then `Focused(false)` → the
+/// settle-confirm saw a foreign foreground and (correctly, per its rules) hid
+/// the popup ~250 ms after it appeared.
+///
+/// The fix is the battle-tested launcher technique (PowerToys Run PR #1282,
+/// Flow Launcher / Wox lineage): **synthesize a benign ALT press+release via
+/// `SendInput` first**. Receiving that input makes *our* process "the process
+/// that received the last input event" — one of the documented conditions
+/// under which `SetForegroundWindow` is honoured — and Windows additionally
+/// unlocks foreground changes on an ALT press. Then `SetForegroundWindow` +
+/// `BringWindowToTop` (with the `AttachThreadInput` bridge kept as
+/// belt-and-braces), verify, and log the outcome so field debugging finally
+/// has a signal. Returns whether the popup is the foreground window afterwards.
 #[cfg(target_os = "windows")]
-fn force_foreground(window: &WebviewWindow) {
+fn force_foreground(window: &WebviewWindow) -> bool {
     use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
+    use windows::Win32::UI::Input::KeyboardAndMouse::{
+        SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VK_MENU,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
         BringWindowToTop, GetForegroundWindow, GetWindowThreadProcessId, SetForegroundWindow,
-        SystemParametersInfoW, SPI_GETFOREGROUNDLOCKTIMEOUT, SPI_SETFOREGROUNDLOCKTIMEOUT,
-        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
     };
     let Ok(hwnd) = window.hwnd() else {
         let _ = window.set_focus();
-        return;
+        return false;
     };
     unsafe {
-        // **Defeat the foreground-lock timeout.** Windows refuses a background
-        // (tray) process's `SetForegroundWindow` once its foreground-lock timeout
-        // has elapsed — i.e. after the user has been interacting with *other*
-        // apps for a while (`SPI_GETFOREGROUNDLOCKTIMEOUT`). When that happens the
-        // popup `show()`s but never activates, so the settle-confirm sees a
-        // foreign foreground and hides it again — the "after a while, opening the
-        // app closes it immediately" bug (Windows-only; a fresh boot/relaunch
-        // temporarily resets the lock, which is why a restart appears to fix it).
-        // AttachThreadInput alone doesn't reliably beat the *timeout*. Set it to 0
-        // around the activation, then restore the user's value. Flags = 0 →
-        // in-memory only (no registry write, no WM_SETTINGCHANGE broadcast).
-        let mut prev_timeout: u32 = 0;
-        let saved = SystemParametersInfoW(
-            SPI_GETFOREGROUNDLOCKTIMEOUT,
-            0,
-            Some(&mut prev_timeout as *mut u32 as *mut core::ffi::c_void),
-            SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-        )
-        .is_ok();
-        if saved {
-            let _ = SystemParametersInfoW(
-                SPI_SETFOREGROUNDLOCKTIMEOUT,
-                0,
-                Some(std::ptr::null_mut()), // pvParam carries the value (0) directly
-                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            );
+        if GetForegroundWindow() == hwnd {
+            let _ = window.set_focus();
+            return true;
         }
+
+        // The ALT tap. Down+up as one batch; no modifier state leaks (the up
+        // event lands in the same call). Only sent when we actually need to
+        // take foreground (checked above).
+        let key = |flags| INPUT {
+            r#type: INPUT_KEYBOARD,
+            Anonymous: INPUT_0 {
+                ki: KEYBDINPUT {
+                    wVk: VK_MENU,
+                    wScan: 0,
+                    dwFlags: flags,
+                    time: 0,
+                    dwExtraInfo: 0,
+                },
+            },
+        };
+        let taps = [key(Default::default()), key(KEYEVENTF_KEYUP)];
+        let _ = SendInput(&taps, std::mem::size_of::<INPUT>() as i32);
 
         let fg = GetForegroundWindow();
         let our_thread = GetCurrentThreadId();
@@ -242,17 +323,13 @@ fn force_foreground(window: &WebviewWindow) {
             let _ = AttachThreadInput(fg_thread, our_thread, false);
         }
 
-        // Restore the user's original foreground-lock timeout.
-        if saved {
-            let _ = SystemParametersInfoW(
-                SPI_SETFOREGROUNDLOCKTIMEOUT,
-                0,
-                Some(prev_timeout as usize as *mut core::ffi::c_void),
-                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            );
+        let _ = window.set_focus();
+        let ok = GetForegroundWindow() == hwnd;
+        if !ok {
+            tracing::info!("force_foreground: still not foreground after ALT-tap + attach");
         }
+        ok
     }
-    let _ = window.set_focus();
 }
 
 /// Stamp "popup shown now" so the auto-hide grace window starts. Resets the
@@ -260,6 +337,7 @@ fn force_foreground(window: &WebviewWindow) {
 /// freshly opened popup before it receives `Focused(true)`.
 fn mark_shown() {
     POPUP_HAS_FOCUS.store(false, Ordering::Relaxed);
+    SETTLE_RETRIED.store(false, Ordering::Relaxed);
     *LAST_SHOWN_AT.lock() = Some(Instant::now());
     // Bump the generation so a pending settle-confirm from a previous lifecycle
     // can never hide the freshly-shown popup.
@@ -1239,35 +1317,68 @@ mod tests {
     use super::*;
 
     #[test]
-    fn settle_confirm_hides_only_on_a_stable_foreign_dismiss() {
-        // Real click-away: gen unchanged, foreground foreign, visible, not modal → hide.
-        assert!(settle_should_hide(5, 5, false, false, true));
+    fn settle_verdict_hides_only_on_a_stable_foreign_dismiss_past_the_intent_window() {
+        use SettleVerdict::*;
+        // Real click-away: gen unchanged, foreground foreign, visible, not
+        // modal, show not fresh → hide.
+        assert_eq!(settle_verdict(5, 5, false, false, true, false, false), Hide);
         // Focus bounce resolved: foreground returned to our process → keep.
-        assert!(!settle_should_hide(5, 5, false, true, true));
+        assert_eq!(settle_verdict(5, 5, false, true, true, false, false), Keep);
         // Re-shown / re-focused during the settle (generation bumped) → keep.
-        assert!(!settle_should_hide(5, 6, false, false, true));
+        assert_eq!(settle_verdict(5, 6, false, false, true, false, false), Keep);
         // A modal (file dialog) is up → keep.
-        assert!(!settle_should_hide(5, 5, true, false, true));
+        assert_eq!(settle_verdict(5, 5, true, false, true, false, false), Keep);
         // Already hidden somehow → nothing to do.
-        assert!(!settle_should_hide(5, 5, false, false, false));
+        assert_eq!(settle_verdict(5, 5, false, false, false, false, false), Keep);
     }
 
     #[test]
-    fn settle_should_hide_is_the_conjunction_of_all_guards() {
-        // Exhaustive truth table: hide IFF the generation is unchanged AND not
-        // suppressed AND the foreground is foreign AND the window is visible.
+    fn settle_verdict_never_hides_a_freshly_summoned_popup() {
+        use SettleVerdict::*;
+        // The chronic Windows bug: activation snapped back right after the
+        // hotkey show. First settle inside the intent window → retry the
+        // activation instead of hiding.
+        assert_eq!(settle_verdict(5, 5, false, false, true, true, false), RetryActivate);
+        // Retry also failed → the popup STAYS on screen (visible, unfocused).
+        assert_eq!(settle_verdict(5, 5, false, false, true, true, true), StayVisible);
+        // Fresh show but the bounce resolved (foreground ours) → plain keep,
+        // no retry churn.
+        assert_eq!(settle_verdict(5, 5, false, true, true, true, false), Keep);
+        // Past the intent window the retry flag is irrelevant — foreign
+        // foreground = the user really left → hide.
+        assert_eq!(settle_verdict(5, 5, false, false, true, false, true), Hide);
+    }
+
+    #[test]
+    fn settle_verdict_hide_requires_the_conjunction_of_all_guards() {
+        // Exhaustive truth table: with the show not fresh, hide IFF the
+        // generation is unchanged AND not suppressed AND the foreground is
+        // foreign AND the window is visible — and a fresh show NEVER hides.
         for &gen_changed in &[false, true] {
             for &suppressed in &[false, true] {
                 for &fg_ours in &[false, true] {
                     for &visible in &[false, true] {
-                        let captured = 7;
-                        let current = if gen_changed { 8 } else { 7 };
-                        let expected = !gen_changed && !suppressed && !fg_ours && visible;
-                        assert_eq!(
-                            settle_should_hide(captured, current, suppressed, fg_ours, visible),
-                            expected,
-                            "gen_changed={gen_changed} suppressed={suppressed} fg_ours={fg_ours} visible={visible}"
-                        );
+                        for &just_shown in &[false, true] {
+                            for &retried in &[false, true] {
+                                let captured = 7;
+                                let current = if gen_changed { 8 } else { 7 };
+                                let v = settle_verdict(
+                                    captured, current, suppressed, fg_ours, visible, just_shown,
+                                    retried,
+                                );
+                                let wants = !gen_changed && !suppressed && !fg_ours && visible;
+                                let expected = match (wants, just_shown, retried) {
+                                    (false, _, _) => SettleVerdict::Keep,
+                                    (true, false, _) => SettleVerdict::Hide,
+                                    (true, true, false) => SettleVerdict::RetryActivate,
+                                    (true, true, true) => SettleVerdict::StayVisible,
+                                };
+                                assert_eq!(
+                                    v, expected,
+                                    "gen_changed={gen_changed} suppressed={suppressed} fg_ours={fg_ours} visible={visible} just_shown={just_shown} retried={retried}"
+                                );
+                            }
+                        }
                     }
                 }
             }

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.225] — 2026-07-04
+
+### Fixed
+
+- **Windows: the popup no longer opens and instantly closes again after prolonged use (the chronic `Ctrl+Space` flash bug).** Root cause chain finally identified: once the OS foreground lock engages, `SetForegroundWindow` from the tray process is refused; the previous `SPI_SETFOREGROUNDLOCKTIMEOUT` workaround was circular (that call itself requires foreground permission — it silently no-oped exactly when needed), and `AttachThreadInput` often activated the popup for a moment before Windows snapped foreground back — the settle-confirm then saw a foreign foreground and hid the popup ~250 ms after it appeared. Two-layer fix: (1) `force_foreground` now uses the proven launcher technique (PowerToys Run / Flow Launcher) — a benign synthetic ALT tap via `SendInput` makes our process the last-input receiver, a documented condition under which `SetForegroundWindow` is honoured; (2) the settle logic can no longer close a popup summoned < 2 s ago — on a snap-back it retries activation once and otherwise leaves the popup visible (unfocused) instead of hiding it. (Windows runtime-unverified; FFI compile-validated, decision logic exhaustively unit-tested.)
+
 ## [0.84.224] — 2026-07-04
 
 ### Fixed

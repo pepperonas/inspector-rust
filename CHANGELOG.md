@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.222] — 2026-07-03
+
+### Changed
+
+- **Window palette: hex cells now light up with a subtle animation.** Selecting cells (drag) springs each newly-lit hexagon up a touch (overshoot easing) and fades in a soft accent halo; the magnetic hover cell gets the same gentle glow. Honours `prefers-reduced-motion`.
+
 ## [0.84.221] — 2026-07-03
 
 ### Fixed

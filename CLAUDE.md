@@ -756,7 +756,10 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   unit-tested `lib/hexgrid.ts`**. **Visual pass (v0.84.214):** cells are **rounded
   hexagons** (`lib/hexgrid.ts::roundedHexPath` — quadratic corner cuts through
   the sharp vertices, pure + tested; `hexPolygon` retained), with a **magnetic
-  hover** (the cell under the cursor scales 1.18 via `transform-box: fill-box`),
+  hover** (the cell under the cursor scales 1.18 via `transform-box: fill-box`;
+  since v0.84.222 hover + selected cells also get a soft accent drop-shadow
+  halo, and a newly-selected cell springs to 1.045 on an overshoot bezier —
+  the subtle "ignite" light-up, reduced-motion-guarded),
   a **selection gradient** (`wp-sel` linearGradient + brighter stroke; unselected
   cells dim to 0.28 opacity during a drag so the lit region reads instantly), a
   **radial bloom entrance** (per-cell `animation-delay` ∝ distance from the comb

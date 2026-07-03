@@ -877,12 +877,24 @@ code {
     fill 0.12s ease,
     fill-opacity 0.12s ease,
     stroke 0.12s ease,
-    transform 0.16s cubic-bezier(0.2, 0, 0, 1);
+    transform 0.22s cubic-bezier(0.34, 1.4, 0.64, 1),
+    filter 0.22s ease;
   transform-box: fill-box;
   transform-origin: center;
 }
+/* Light-up: a selected cell springs up a touch (overshoot bezier above) and
+   gains a soft accent halo — the glow fades in/out via the filter transition
+   (CSS interpolates none → drop-shadow from the neutral shadow), so sweeping
+   a drag across the comb reads as cells gently igniting, not snapping. */
+.wp-on {
+  transform: scale(1.045);
+  filter: drop-shadow(0 0 3.5px color-mix(in srgb, var(--color-accent) 45%, transparent));
+}
 /* Magnetic hover: the comb cell under the cursor lifts toward the finger. */
-.wp-hover { transform: scale(1.18); }
+.wp-hover {
+  transform: scale(1.18);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-accent) 40%, transparent));
+}
 /* Radial entrance: cells bloom outward from the comb's centre (per-cell
    animation-delay is set inline from the distance). `backwards` (not `both`)
    so the finished animation releases `transform` back to the hover class. */
@@ -895,5 +907,6 @@ code {
   .wp-pop { animation: none; }
   .wp-cell { transition: none; }
   .wp-cell-in { animation: none; }
-  .wp-hover { transform: none; }
+  .wp-hover { transform: none; filter: none; }
+  .wp-on { transform: none; filter: none; }
 }

@@ -437,14 +437,19 @@ impl MacGestureSource {
 
 impl GestureSource for MacGestureSource {
     fn start(&mut self, _cfg: GestureConfig, sink: GestureSink) -> Result<(), String> {
+        // Install the fresh sink FIRST — the old early return dropped it when
+        // RUNNING was still true, leaving a live capture that recognised
+        // gestures but dispatched nothing (the frame callback lazily revives
+        // the recognisers after a stop, so a stop/start race could keep the
+        // capture alive sink-less).
+        *SINK.lock() = Some(sink);
         if RUNNING.swap(true, Ordering::SeqCst) {
-            return Ok(()); // already running
+            return Ok(()); // already capturing — the sink above was swapped in place
         }
         let _ = START.set(Instant::now());
         FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
         *REC.lock() = Some(Recognizer::new());
         *TIPTAP_REC.lock() = Some(TipTapRecognizer::new());
-        *SINK.lock() = Some(sink);
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).
         std::thread::Builder::new()

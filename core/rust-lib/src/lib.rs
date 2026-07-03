@@ -333,6 +333,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 let g_state = app.state::<gestures::GestureState>();
                 gestures::migrate_tiptap_optin(&db_handle);
                 gestures::apply(app.handle(), &db_handle, g_state.inner());
+                gestures::spawn_wake_watchdog(app.handle());
             }
 
             // Window snapping (opt-in; off by default). macOS-only monitor.

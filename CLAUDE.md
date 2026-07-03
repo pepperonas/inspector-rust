@@ -605,7 +605,14 @@ a one-shot migration (`gestures.tiptap_optin_migrated_v0_84_209`) reset any
 stored `true` from that window; enabling is a conscious Settings action
 (labelled experimental, row appears when gestures are enabled). macOS-only for now (the Windows/Linux sources feed only the centroid
 recogniser). `apply` now **restarts** a running source on config change so
-toggles take effect live. **Opt-in** (settings key `gestures.enabled`, off by default);
+toggles take effect live. **Wake watchdog (v0.84.224):** the MultitouchSupport registration goes
+stale across system sleep (after wake: no/erratic frames until an app restart
+— "gestures stopped working"); `spawn_wake_watchdog` detects sleep via
+monotonic-vs-wall-clock drift (`Instant` doesn't advance during sleep; > 60 s
+jump = slept) and re-`apply`s the source. `start()` also installs the fresh
+sink BEFORE its already-running early return — a stop/start overlap could
+previously leave a live capture sink-less (recognised but dispatched nothing).
+**Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
 starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
 `get_/set_gesture_config`; Settings → **Touchpad gestures** master toggle.

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.224] — 2026-07-04
+
+### Fixed
+
+- **Touchpad gestures survive sleep/wake.** The private MultitouchSupport capture goes stale across system sleep — after waking, gestures were recognised erratically or not at all until an app restart (the "gestures stopped working" report). A wake watchdog now detects sleep (monotonic vs. wall clock drift, no AppKit observer needed) and transparently rebuilds the touch capture. Also fixed a latent race where a stop/start overlap could leave the capture running without an action sink (gestures recognised but nothing dispatched).
+
 ## [0.84.223] — 2026-07-03
 
 ### Changed

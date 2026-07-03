@@ -980,6 +980,52 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
     }
 }
 
+/// Rebuild the gesture capture after system sleep. The private
+/// MultitouchSupport registration goes stale across sleep/wake — the run loop
+/// keeps spinning but the device delivers no (or late/erratic) frames, so
+/// gestures "stop working" until an app restart. Sleep is detected without any
+/// AppKit observer: `Instant` (mach_absolute_time) does NOT advance while the
+/// Mac sleeps but `SystemTime` does, so a wall-clock jump far beyond the
+/// monotonic sleep interval means we slept. On detection the source is
+/// restarted via `apply` (a no-op when gestures are disabled). Spawned once at
+/// startup.
+pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static SPAWNED: AtomicBool = AtomicBool::new(false);
+    if SPAWNED.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::Builder::new()
+        .name("ir-gestures-wake".into())
+        .spawn(move || {
+            use tauri::Manager as _;
+            const TICK: std::time::Duration = std::time::Duration::from_secs(30);
+            const SLEPT_SLACK: std::time::Duration = std::time::Duration::from_secs(60);
+            loop {
+                let mono = std::time::Instant::now();
+                let wall = std::time::SystemTime::now();
+                std::thread::sleep(TICK);
+                let mono_elapsed = mono.elapsed();
+                let wall_elapsed = wall.elapsed().unwrap_or(mono_elapsed);
+                if wall_elapsed > mono_elapsed + SLEPT_SLACK {
+                    tracing::info!(
+                        "gestures: system slept ~{}s — rebuilding the touch capture",
+                        (wall_elapsed - mono_elapsed).as_secs()
+                    );
+                    let (Some(db), Some(state)) = (
+                        app.try_state::<DbHandle>(),
+                        app.try_state::<GestureState>(),
+                    ) else {
+                        continue;
+                    };
+                    apply(&app, &db, &state);
+                }
+            }
+        })
+        .ok();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

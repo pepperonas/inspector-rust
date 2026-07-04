@@ -760,7 +760,20 @@ stops the monitor (mirrors `window_snap`/`gestures`).
   **pointy-top** honeycomb (rows offset half a cell, 0.75·height row pitch),
   rendered undistorted via a natural-aspect viewBox + `preserveAspectRatio="meet"`
   (the pointer→cell map undoes the meet scale). The **hex geometry is the pure,
-  unit-tested `lib/hexgrid.ts`**. **Visual pass (v0.84.214):** cells are **rounded
+  unit-tested `lib/hexgrid.ts`**. **M3-Expressive spring motion (v0.84.227):** hover + selection transforms
+  are driven by REAL spring physics — `lib/md3-motion.ts::springScaleCss`
+  (pure, tested) bakes the analytic spring step response of the MD3 spring
+  tokens into CSS `@keyframes` that `WindowPalette.tsx` injects once
+  (`wp-spring-hover` 1→1.2, `wp-spring-ignite` 0.82→1.07, both
+  `spatial.expressive.fast` — played with `linear` timing so the ring lives in
+  the samples). Search phase: hover cell springs with overshoot-wobble +
+  direct neighbours lift softly (`.wp-near`, pixel-distance < wHex·1.25, via
+  the base transition). Select phase: newly-on cells run ignite + a
+  `wp-ignite-glow` flare and then `wp-breathe` (2.2 s alternate, staggered)
+  while the button is held. GOTCHA: the entrance bloom's per-cell delay is a
+  CSS var (`--bloom`; `--sweep` for the drag sweep) — an inline
+  `animation-delay` would override the spring classes' per-animation delay
+  lists. **Visual pass (v0.84.214):** cells are **rounded
   hexagons** (`lib/hexgrid.ts::roundedHexPath` — quadratic corner cuts through
   the sharp vertices, pure + tested; `hexPolygon` retained), with a **magnetic
   hover** (the cell under the cursor scales 1.18 via `transform-box: fill-box`;

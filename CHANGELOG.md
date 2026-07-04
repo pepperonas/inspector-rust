@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.227] — 2026-07-05
+
+### Changed
+
+- **Window palette: the hex selection now moves with real Material 3 Expressive spring physics.** The motion curves are generated from the MD3 spring motion tokens (analytic mass-spring-damper step response baked into CSS keyframes — `springScaleCss`, pure + unit-tested), not bezier approximations. **Search phase (subtle):** the hovered cell springs up with a visible overshoot-wobble, and its direct neighbours lift softly with it — a magnetic field that follows the cursor across the comb. **Select phase (strong):** while the mouse button is held, every newly-captured cell ignites with a hard spring pop (0.82 → overshoot → settle) plus a glow flash, riding the existing anchor sweep — and the held selection keeps gently breathing (staggered, organic) until release. De-selection settles back instantly. Honours `prefers-reduced-motion`.
+
 ## [0.84.226] — 2026-07-04
 
 ### Fixed

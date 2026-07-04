@@ -140,6 +140,30 @@ function lerp(a: number, b: number, t: number): number {
 }
 
 /**
+ * Render a spring-driven scale as a CSS `@keyframes` rule — real M3 spring
+ * physics baked into evenly-spaced percentage steps (play the animation with
+ * `animation-timing-function: linear`; the overshoot/ring lives in the
+ * samples). Pure + unit-tested; the window palette injects the result once.
+ */
+export function springScaleCss(
+  name: string,
+  fromScale: number,
+  toScale: number,
+  token: SpringToken,
+): { css: string; durationMs: number } {
+  const sim = simulateSpring(token.stiffness, token.dampingRatio, { sampleCount: 28 });
+  const n = sim.samples.length;
+  const steps = sim.samples
+    .map((v, i) => {
+      const pct = ((100 * i) / (n - 1)).toFixed(2);
+      const scale = lerp(fromScale, toScale, v).toFixed(4);
+      return `${pct}% { transform: scale(${scale}); }`;
+    })
+    .join(" ");
+  return { css: `@keyframes ${name} { ${steps} }`, durationMs: sim.durationMs };
+}
+
+/**
  * Build Web-Animations keyframes for a "pop-in" entrance from a spring token:
  * fade in while rising (`riseY` px) and scaling up (`fromScale` → 1). The
  * spring's overshoot makes it settle past the target and back — the expressive

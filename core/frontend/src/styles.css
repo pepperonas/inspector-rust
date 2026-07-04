@@ -888,17 +888,31 @@ code {
     fill-opacity 0.18s ease,
     stroke 0.12s ease;
 }
-/* Light-up: a selected cell springs up a touch (overshoot bezier above) and
-   gains a soft accent halo — the glow fades in/out via the filter transition
-   (CSS interpolates none → drop-shadow from the neutral shadow), so sweeping
-   a drag across the comb reads as cells gently igniting, not snapping. */
+/* Light-up (v0.84.227 — real M3 spring physics): the transform of hover +
+   selected cells is driven by spring keyframes injected by WindowPalette.tsx
+   (`wp-spring-hover` / `wp-spring-ignite` + the held-selection `wp-breathe`,
+   all generated from the MD3 spring tokens via springScaleCss). This file
+   keeps the paint layers: the steady halo below is the fallback/resting glow,
+   `wp-ignite-glow` flares over it during the pop. */
 .wp-on {
-  transform: scale(1.045);
   filter: drop-shadow(0 0 3.5px color-mix(in srgb, var(--color-accent) 45%, transparent));
+}
+/* The magnetic field around the hover cell — neighbours lift softly via the
+   base .wp-cell transition (spring-in is on the hover cell itself). */
+.wp-near {
+  transform: scale(1.06);
+}
+@keyframes wp-ignite-glow {
+  0% { filter: drop-shadow(0 0 2px color-mix(in srgb, var(--color-accent) 20%, transparent)); }
+  30% { filter: drop-shadow(0 0 10px color-mix(in srgb, var(--color-accent) 80%, transparent)); }
+  100% { filter: drop-shadow(0 0 4px color-mix(in srgb, var(--color-accent) 45%, transparent)); }
+}
+@keyframes wp-breathe {
+  from { transform: scale(1.07); }
+  to { transform: scale(1.035); }
 }
 /* Magnetic hover: the comb cell under the cursor lifts toward the finger. */
 .wp-hover {
-  transform: scale(1.18);
   filter: drop-shadow(0 0 5px color-mix(in srgb, var(--color-accent) 40%, transparent));
 }
 /* Radial entrance: cells bloom outward from the comb's centre (per-cell
@@ -908,12 +922,13 @@ code {
   from { opacity: 0; transform: scale(0.55); }
   to { opacity: 1; transform: scale(1); }
 }
-.wp-cell-in { animation: wp-cell-in 0.24s cubic-bezier(0.2, 0, 0, 1) backwards; }
+.wp-cell-in { animation: wp-cell-in 0.24s cubic-bezier(0.2, 0, 0, 1) backwards; animation-delay: var(--bloom, 0ms); }
 @media (prefers-reduced-motion: reduce) {
   .wp-pop { animation: none; }
   .wp-cell { transition: none; }
   .wp-cell-in { animation: none; }
-  .wp-hover { transform: none; filter: none; }
-  .wp-on { transform: none; filter: none; }
+  .wp-hover { transform: none; filter: none; animation: none; }
+  .wp-on { transform: none; filter: none; animation: none; }
+  .wp-near { transform: none; }
   .wp-cell path { transition: none; }
 }

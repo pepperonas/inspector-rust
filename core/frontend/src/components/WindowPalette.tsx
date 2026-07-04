@@ -11,6 +11,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
+import { MD3_SPRING, springScaleCss } from "../lib/md3-motion";
 import {
   windowPaletteApply,
   windowPaletteCancel,
@@ -53,6 +54,37 @@ const QUARTERS: Preset[] = [
   { key: "bl", label: "Bottom-left", frac: [0, 0.5, 0.5, 0.5] },
   { key: "br", label: "Bottom-right", frac: [0.5, 0.5, 0.5, 0.5] },
 ];
+
+// ── M3-Expressive spring motion (real physics, baked to CSS once) ────────────
+// Search phase (subtle): the hovered cell springs up with a visible
+// overshoot-wobble; its direct neighbours lift slightly (the "magnetic field"
+// — handled by .wp-near via the base transition). Select phase (strong): every
+// newly-captured cell ignites with a hard spring pop + glow flash (delayed by
+// the anchor sweep via --sweep), then the held selection keeps breathing
+// (wp-breathe, staggered by --bloom) while the button stays down.
+const HOVER_SPRING = springScaleCss("wp-spring-hover", 1, 1.2, MD3_SPRING.spatial.expressive.fast);
+const IGNITE_SPRING = springScaleCss("wp-spring-ignite", 0.82, 1.07, MD3_SPRING.spatial.expressive.fast);
+const SPRING_CSS = `
+${HOVER_SPRING.css}
+${IGNITE_SPRING.css}
+.wp-hover {
+  animation: wp-spring-hover ${HOVER_SPRING.durationMs}ms linear both;
+  animation-delay: 0ms;
+}
+.wp-on {
+  animation:
+    wp-spring-ignite ${IGNITE_SPRING.durationMs}ms linear both,
+    wp-ignite-glow ${IGNITE_SPRING.durationMs}ms ease-out both,
+    wp-breathe 2.2s ease-in-out infinite alternate;
+  animation-delay:
+    var(--sweep, 0ms),
+    var(--sweep, 0ms),
+    calc(var(--sweep, 0ms) + ${IGNITE_SPRING.durationMs}ms + var(--bloom, 0ms));
+}
+@media (prefers-reduced-motion: reduce) {
+  .wp-hover, .wp-on { animation: none; }
+}
+`;
 
 export function WindowPalette() {
   const [ctx, setCtx] = useState<PaletteContext | null>(null);
@@ -275,6 +307,7 @@ export function WindowPalette() {
       key={showSeq}
       className="wp-pop flex h-screen w-screen flex-col gap-2 rounded-2xl border border-[var(--color-border)] bg-[var(--color-surface)]/95 p-2.5 text-[var(--color-fg)] shadow-2xl backdrop-blur"
     >
+      <style>{SPRING_CSS}</style>
       {/* Preset row */}
       <div ref={presetRowRef} className="flex items-center justify-between gap-1">
         {presets.map((p) => (
@@ -318,16 +351,29 @@ export function WindowPalette() {
             <stop offset="100%" stopColor="var(--color-accent)" stopOpacity="0.72" />
           </linearGradient>
         </defs>
-        {cells.map((c) => {
+        {(() => {
+          // Hoisted once per render: the hover cell's centre for the
+          // magnetic-field distance test below.
+          const hoverCell = !drag && hover !== null
+            ? cells.find((x) => x.col === hover.col && x.row === hover.row)
+            : undefined;
+          return cells.map((c) => {
           const on = drag ? cellInRange(c.col, c.row, drag.a, drag.b) : false;
           const isHover = !drag && hover !== null && hover.col === c.col && hover.row === c.row;
-          // Radial entrance: cells bloom outward from the comb's centre.
+          // The magnetic field: direct neighbours of the hover cell lift
+          // slightly with it (pixel-distance test — one hex pitch + slack).
+          const isNear =
+            !isHover && hoverCell !== undefined &&
+            Math.hypot(c.cx - hoverCell.cx, c.cy - hoverCell.cy) < wHex * 1.25;
+          // Radial entrance: cells bloom outward from the comb's centre. Set as
+          // a CSS var (--bloom), NOT inline animation-delay — an inline delay
+          // would override the per-animation delay lists of the spring classes.
           const delay = showSeq >= 0
             ? Math.hypot(c.cx - boxW / 2, c.cy - boxH / 2) /
               Math.hypot(boxW / 2, boxH / 2) * 130
             : 0;
           // Drag sweep: the light-up radiates outward from the drag ANCHOR —
-          // each cell's ignite (transform/halo/fill transitions) is delayed by
+          // each cell's ignite (spring pop/glow/fill crossfade) is delayed by
           // its hex-distance to where the drag started, so a fast diagonal
           // pull reads as a wave, not a simultaneous flip. Un-lighting is
           // always immediate (delay 0) so shrinking the range never feels
@@ -343,9 +389,14 @@ export function WindowPalette() {
               className={
                 "wp-cell wp-cell-in" +
                 (on ? " wp-on" : "") +
-                (isHover ? " wp-hover" : "")
+                (isHover ? " wp-hover" : "") +
+                (isNear ? " wp-near" : "")
               }
-              style={{ animationDelay: `${delay.toFixed(0)}ms`, transitionDelay: sweepDelay }}
+              style={{
+                "--bloom": `${delay.toFixed(0)}ms`,
+                "--sweep": sweepDelay,
+                transitionDelay: sweepDelay,
+              } as React.CSSProperties}
             >
               <path
                 className="wp-base"
@@ -370,7 +421,8 @@ export function WindowPalette() {
               />
             </g>
           );
-        })}
+          });
+        })()}
       </svg>
 
       <p className="text-center font-[var(--font-mono)] text-[9px] text-[var(--color-muted)]">

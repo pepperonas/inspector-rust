@@ -5,6 +5,7 @@ import {
   MD3_DURATION,
   simulateSpring,
   popInKeyframes,
+  springScaleCss,
 } from "./md3-motion";
 
 describe("MD3 token tables", () => {
@@ -80,5 +81,27 @@ describe("popInKeyframes", () => {
     const { keyframes } = popInKeyframes(MD3_SPRING.spatial.expressive.fast, { fromScale: 0.9 });
     expect(keyframes[0].opacity).toBe(0);
     expect(keyframes[0].transform).toContain("scale(0.9000)");
+  });
+});
+
+describe("springScaleCss", () => {
+  it("emits a named @keyframes rule pinned to the from/to scales", () => {
+    const { css, durationMs } = springScaleCss("t-spring", 1, 1.2, MD3_SPRING.spatial.expressive.fast);
+    expect(css.startsWith("@keyframes t-spring {")).toBe(true);
+    expect(css).toContain("0.00% { transform: scale(1.0000); }");
+    expect(css).toContain("100.00% { transform: scale(1.2000); }");
+    expect(durationMs).toBeGreaterThan(0);
+  });
+
+  it("an underdamped (expressive) spring overshoots past the target", () => {
+    const { css } = springScaleCss("t-over", 0.8, 1.1, MD3_SPRING.spatial.expressive.fast);
+    const scales = [...css.matchAll(/scale\((\d+\.\d+)\)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...scales)).toBeGreaterThan(1.1);
+  });
+
+  it("a critically damped (effects) spring never overshoots", () => {
+    const { css } = springScaleCss("t-crit", 1, 1.5, MD3_SPRING.effects.standard.default);
+    const scales = [...css.matchAll(/scale\((\d+\.\d+)\)/g)].map((m) => Number(m[1]));
+    expect(Math.max(...scales)).toBeLessThanOrEqual(1.5001);
   });
 });

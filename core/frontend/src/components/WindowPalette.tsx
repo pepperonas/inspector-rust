@@ -283,7 +283,15 @@ export function WindowPalette() {
   const onPointerMove = (e: React.PointerEvent) => {
     const c = cellFromEvent(e);
     if (draggingRef.current) {
-      if (c) setDrag((d) => (d ? { a: d.a, b: c } : null));
+      // Dedupe on the cell, not the pixel: raw pointermove fires many times
+      // per pixel; returning the same object lets React bail out, so the
+      // 160-cell SVG re-render + the preview IPC only run once per cell
+      // actually entered.
+      if (c) {
+        setDrag((d) =>
+          d && d.b.col === c.col && d.b.row === c.row ? d : d ? { a: d.a, b: c } : null,
+        );
+      }
       return;
     }
     // Magnetic hover highlight while just gliding over the comb.

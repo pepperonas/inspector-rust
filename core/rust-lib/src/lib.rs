@@ -130,25 +130,48 @@ pub fn run(context: tauri::Context<Wry>) {
             settings::init_table(&db_handle)?;
             totp_store::init_table(&db_handle)?;
 
-            // One-shot migration: rewrite any pre-encryption rows in
-            // place so the next read paths through the cipher cleanly.
-            // Idempotent — already-encrypted rows are skipped.
+            // One-shot migration: rewrite any pre-encryption rows in place so
+            // the next read paths through the cipher cleanly. Idempotent —
+            // already-encrypted rows are skipped. Runs on a WORKER, not the
+            // setup path (v0.84.228): the scan is a per-row/per-column N+1
+            // over entries+snippets+notes and used to block tray + hotkey
+            // readiness on every launch; nothing downstream needs it done
+            // synchronously because `crypto::decrypt` is permissive toward
+            // legacy plaintext. A settings flag skips the scan entirely once
+            // a pass completed cleanly (rows can only be legacy-plaintext if
+            // written by a pre-v0.47 build — every current write encrypts).
             {
-                let conn = db_handle.lock();
-                let mut total = 0usize;
-                for (table, cols) in &[
-                    ("entries", &["content_text", "content_data"][..]),
-                    ("snippets", &["body"][..]),
-                    ("notes", &["content_text", "content_data"][..]),
-                ] {
-                    match crypto::migrate_table(&conn, table, cols) {
-                        Ok(n) => total += n,
-                        Err(e) => tracing::warn!("crypto migrate {table}: {e:#}"),
+                let db = db_handle.clone();
+                std::thread::spawn(move || {
+                    const FLAG: &str = "crypto.migrated_v1";
+                    if settings::get_bool(&db, FLAG, false).unwrap_or(false) {
+                        return;
                     }
-                }
-                if total > 0 {
-                    tracing::info!("encrypted {total} legacy plaintext field(s) at startup");
-                }
+                    let mut total = 0usize;
+                    let mut clean = true;
+                    for (table, cols) in &[
+                        ("entries", &["content_text", "content_data"][..]),
+                        ("snippets", &["body"][..]),
+                        ("notes", &["content_text", "content_data"][..]),
+                    ] {
+                        // Lock per table so the scan never monopolises the DB
+                        // mutex against interactive use.
+                        let conn = db.lock();
+                        match crypto::migrate_table(&conn, table, cols) {
+                            Ok(n) => total += n,
+                            Err(e) => {
+                                clean = false;
+                                tracing::warn!("crypto migrate {table}: {e:#}");
+                            }
+                        }
+                    }
+                    if total > 0 {
+                        tracing::info!("encrypted {total} legacy plaintext field(s)");
+                    }
+                    if clean {
+                        let _ = settings::set(&db, FLAG, "true");
+                    }
+                });
             }
 
             // First-run: seed the curated default AI-prompt snippets.

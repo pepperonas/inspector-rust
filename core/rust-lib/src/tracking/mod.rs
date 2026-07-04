@@ -333,6 +333,7 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
     let mut threshold = DEFAULT_IDLE_SECONDS;
     let mut denylist: Vec<String> = Vec::new();
     let mut ticks_since_reload = SETTINGS_RELOAD_TICKS; // force a load on tick 1
+    let mut heartbeat_tick: u32 = 0;
     let mut last_prune = std::time::Instant::now();
     while !stop.load(Ordering::SeqCst) {
         // Hourly retention enforcement — a keep-alive session may run for weeks
@@ -381,10 +382,17 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
             }
         };
         // Heartbeat the open event so a crash/quit leaves it ended at the last
-        // live tick — the offline gap is never recorded as phantom usage, which
-        // is what lets `resume_if_active` pick up cleanly after a restart.
-        if let Some(id) = heartbeat_id {
-            let _ = tdb::touch_event(&db, id, now);
+        // live stamp — the offline gap is never recorded as phantom usage,
+        // which is what lets `resume_if_active` pick up cleanly after a
+        // restart. Stamped every 4th tick (~6 s): an unconditional UPDATE per
+        // 1.5 s tick was ~19k writes per 8-h day on the shared DB mutex; a ~6 s
+        // crash-recovery window is plenty (same precision/cost trade as the
+        // 30 s settings-reload above).
+        heartbeat_tick = heartbeat_tick.wrapping_add(1);
+        if heartbeat_tick.is_multiple_of(4) {
+            if let Some(id) = heartbeat_id {
+                let _ = tdb::touch_event(&db, id, now);
+            }
         }
         if paused_changed {
             let _ = app.emit("track-status-changed", ());

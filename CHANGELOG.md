@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.228] — 2026-07-05
+
+### Performance
+
+Seven wins from a systematic three-agent performance audit (each verified at the source):
+
+- **Auxiliary windows no longer load the whole app bundle.** Every window component is now code-split (`React.lazy`): the entry chunk shrank from ~760 kB to ~218 kB shared + a 0.4–14 kB chunk per window — the ~1.6 s status toast, screenshot pins and the record stop bar no longer parse the games/BPM/stats/timesheet code. The popup's own chunk loads once at app start (hotkey-to-visible latency unaffected).
+- **Startup no longer runs the crypto legacy-scan synchronously.** The pre-encryption migration (a per-row N+1 over entries/snippets/notes) blocked tray + hotkey readiness on every launch; it now runs on a worker and is skipped entirely (settings flag) once a pass completed cleanly.
+- **Typing in the popup stopped re-lowercasing the whole clipboard history.** The substring filter lowercased every clip (up to 1000, often multi-KB) on every keystroke; now once per history change.
+- **Window palette: drag updates dedupe on the cell, not the pixel** — the 160-cell SVG re-render + the preview IPC now run once per cell entered instead of ~100×/s; the pointer stream also targets only the palette webview (`emit_to`) instead of broadcasting to every window at 60 Hz.
+- **Window snapping: no more per-mouse-move heap allocation** (the drag tap cloned the screen list on every dragged event).
+- **Timesheet: 75 % fewer DB writes** (heartbeat every ~6 s instead of every 1.5 s tick; crash-recovery window widens accordingly) and **Linux: 1 process spawn per tick instead of 4** (chained xdotool call + `/proc/<pid>/comm`).
+
 ## [0.84.227] — 2026-07-05
 
 ### Changed

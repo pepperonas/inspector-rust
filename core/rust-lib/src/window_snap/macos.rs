@@ -358,8 +358,13 @@ extern "C" fn tap_callback(
             }
             let p = unsafe { CGEventGetLocation(event) };
             let cursor = (p.x, p.y);
-            let screens = SCREENS.lock().clone();
-            let Some(screen) = screen_for_cursor(cursor, &screens) else {
+            // Copy out the one matching Rect under the lock — cloning the
+            // whole Vec allocated on every mouseDragged event (100+/s).
+            let screen = {
+                let screens = SCREENS.lock();
+                screen_for_cursor(cursor, &screens)
+            };
+            let Some(screen) = screen else {
                 return event;
             };
             let prev = *CURRENT_ZONE.lock();

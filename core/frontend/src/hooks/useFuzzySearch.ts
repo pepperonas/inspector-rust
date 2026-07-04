@@ -11,18 +11,25 @@ import type { ClipEntry } from "../lib/types";
  * (The name is kept for import stability; the behaviour is plain substring.)
  */
 export function useFuzzySearch(entries: ClipEntry[], query: string): ClipEntry[] {
+  // Lowercase once per clip-list change, not once per keystroke: clips are
+  // often multi-KB text blobs and the history holds up to 1000 rows — the old
+  // shape re-allocated the lowercased copy of EVERY clip on EVERY keystroke.
+  const lowered = useMemo(
+    () => entries.map((e) => (e.content_text ?? "").toLowerCase()),
+    [entries],
+  );
   return useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return entries;
     const prefix: ClipEntry[] = [];
     const infix: ClipEntry[] = [];
-    for (const e of entries) {
-      const text = (e.content_text ?? "").toLowerCase();
+    for (let i = 0; i < entries.length; i++) {
+      const text = lowered[i];
       if (!text) continue;
       const idx = text.indexOf(q);
-      if (idx === 0) prefix.push(e);
-      else if (idx > 0) infix.push(e);
+      if (idx === 0) prefix.push(entries[i]);
+      else if (idx > 0) infix.push(entries[i]);
     }
     return [...prefix, ...infix];
-  }, [entries, query]);
+  }, [entries, lowered, query]);
 }

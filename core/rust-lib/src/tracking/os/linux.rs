@@ -16,18 +16,22 @@ fn run(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 pub fn frontmost() -> Option<FocusInfo> {
-    let id = run("xdotool", &["getactivewindow"])?;
-    let id = id.trim();
-    if id.is_empty() {
-        return None;
-    }
-    let title = run("xdotool", &["getwindowname", id])
+    // ONE chained xdotool invocation instead of three (`getwindowname` /
+    // `getwindowpid` consume the window id `getactivewindow` pushes on
+    // xdotool's window stack), and `/proc/<pid>/comm` instead of a `ps`
+    // spawn — this runs every 1.5 s tick while tracking, so the old shape
+    // was 4 fork/execs per tick (~77k per 8-h day); now it's 1.
+    let out = run("xdotool", &["getactivewindow", "getwindowname", "getwindowpid"])?;
+    let mut lines = out.lines();
+    let title = lines
+        .next()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let app_name = run("xdotool", &["getwindowpid", id])
+    let app_name = lines
+        .next()
         .map(|s| s.trim().to_string())
-        .filter(|p| !p.is_empty())
-        .and_then(|pid| run("ps", &["-p", &pid, "-o", "comm="]))
+        .filter(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_digit()))
+        .and_then(|pid| std::fs::read_to_string(format!("/proc/{pid}/comm")).ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Unknown".to_string());

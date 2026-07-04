@@ -403,7 +403,7 @@ fn show_window(app: &AppHandle, x: f64, y: f64) {
     }
     let _ = win.show();
     // Tell the (reused) webview to (re)load context + reset its drag state.
-    let _ = app.emit("window-palette-shown", ());
+    let _ = app.emit_to(PALETTE_LABEL, "window-palette-shown", ());
 }
 
 fn hide_palette() {
@@ -477,7 +477,10 @@ fn forward_pointer(cursor: (f64, f64)) {
     }
     if let Some(app) = app_handle() {
         let payload = if inside { (cursor.0 - r.x, cursor.1 - r.y) } else { (-1.0, -1.0) };
-        let _ = app.emit("window-palette-pointer", payload);
+        // emit_to: this streams at up to ~60 Hz — a global emit would
+        // serialize + eval into EVERY live webview (popup, overlays, toast),
+        // not just the palette.
+        let _ = app.emit_to(PALETTE_LABEL, "window-palette-pointer", payload);
     }
 }
 

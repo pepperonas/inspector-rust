@@ -25,7 +25,8 @@ jobs:
             libxdo-dev \
             libxcb-shape0-dev \
             libxcb-xfixes0-dev \
-            libudev-dev
+            libudev-dev \
+            libinput-dev
 
       - uses: dtolnay/rust-toolchain@stable
 

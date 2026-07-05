@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.229] — 2026-07-06
+
+### Fixed
+
+- **Screenshot editor: the full screenshot is always visible again.** The canvas is backed by the shot's physical pixels and was clamped only by CSS (`max-w-full`), but its wrapper's width derives from the canvas itself — a circular constraint the browser ignores. A Retina screenshot therefore rendered at full physical width, overflowed the 900-pt editor window, and only a crop was visible behind (invisible) scrollbars. The canvas is now fitted deterministically into the viewport (ResizeObserver-driven, aspect kept, never scaled above true on-screen size), live through window resizes. Verified against Retina-fullscreen, ultra-wide and ultra-tall captures; annotation coordinates and full-resolution save are unaffected (mapping goes through the live bounding rect).
+
 ## [0.84.228] — 2026-07-05
 
 ### Performance

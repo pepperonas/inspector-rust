@@ -106,6 +106,47 @@ export function ScreenshotEditor() {
 
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const fitBoxRef = useRef<HTMLDivElement>(null);
+
+  // ── Fit the canvas into the viewport, deterministically ─────────
+  // The canvas' backing store is the screenshot's NATURAL (physical) pixels;
+  // its on-screen size is set here explicitly. The old CSS-only clamp
+  // (`max-w-full max-h-[78vh]`) silently failed horizontally: the canvas sits
+  // in a content-sized wrapper (needed for the absolutely-positioned text
+  // overlay), and `max-width: 100%` against a parent whose width comes from
+  // the child is circular — so a Retina screenshot rendered at full physical
+  // width, overflowed the window, and the editor showed only a crop behind
+  // invisible scrollbars. Scale = fit into the container, but never above the
+  // image's true on-screen size (1 physical px = 1/dpr CSS px).
+  const fitCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    const box = fitBoxRef.current;
+    const img = imgRef.current;
+    if (!canvas || !box || !img) return;
+    const cs = getComputedStyle(box);
+    const availW = box.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    const availH = box.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    if (availW <= 0 || availH <= 0) return;
+    const scale = Math.min(
+      availW / img.naturalWidth,
+      availH / img.naturalHeight,
+      1 / (window.devicePixelRatio || 1),
+    );
+    canvas.style.width = `${Math.max(1, Math.round(img.naturalWidth * scale))}px`;
+    canvas.style.height = `${Math.max(1, Math.round(img.naturalHeight * scale))}px`;
+  }, []);
+
+  // Refit on container resizes (editor window is user-resizable) + once the
+  // image is in.
+  useEffect(() => {
+    if (!imgReady) return;
+    fitCanvas();
+    const box = fitBoxRef.current;
+    if (!box) return;
+    const ro = new ResizeObserver(() => fitCanvas());
+    ro.observe(box);
+    return () => ro.disconnect();
+  }, [imgReady, fitCanvas]);
 
   // ── Load the pending screenshot on mount ─────────────────────────
   const loadImage = useCallback(async () => {
@@ -127,12 +168,14 @@ export function ScreenshotEditor() {
         canvas.height = img.naturalHeight;
       }
       setImgReady(true);
+      // sized in the imgReady effect too — this avoids one unfitted frame
+      requestAnimationFrame(() => fitCanvas());
     };
     img.onerror = (e) => {
       console.error("editor: screenshot image failed to load", e);
     };
     img.src = dataUrl;
-  }, []);
+  }, [fitCanvas]);
 
   useEffect(() => {
     void loadImage();
@@ -472,7 +515,10 @@ export function ScreenshotEditor() {
           strokeWidth={strokeWidth}
           setStrokeWidth={setStrokeWidth}
         />
-        <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto bg-[#0f0f0f] p-4">
+        <div
+          ref={fitBoxRef}
+          className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#0f0f0f] p-4"
+        >
           {imgReady ? (
             <div className="relative">
               <canvas
@@ -485,7 +531,7 @@ export function ScreenshotEditor() {
                   // mid-stroke — feels less buggy than abandoning it.
                   if (dragStart) onCanvasMouseUp(e);
                 }}
-                className="max-h-[78vh] max-w-full cursor-crosshair shadow-2xl"
+                className="cursor-crosshair shadow-2xl"
                 style={{
                   cursor:
                     tool === "text" ? "text" : tool === "blur" ? "cell" : "crosshair",

@@ -162,20 +162,16 @@ export function ScreenshotEditor() {
     const img = new Image();
     img.onload = () => {
       imgRef.current = img;
-      const canvas = canvasRef.current;
-      if (canvas) {
-        canvas.width = img.naturalWidth;
-        canvas.height = img.naturalHeight;
-      }
+      // NOTE: no canvas sizing here — the canvas is not mounted yet (it
+      // renders behind `imgReady`), so `canvasRef.current` is null at this
+      // point; the redraw effect below owns the backing-store size.
       setImgReady(true);
-      // sized in the imgReady effect too — this avoids one unfitted frame
-      requestAnimationFrame(() => fitCanvas());
     };
     img.onerror = (e) => {
       console.error("editor: screenshot image failed to load", e);
     };
     img.src = dataUrl;
-  }, [fitCanvas]);
+  }, []);
 
   useEffect(() => {
     void loadImage();
@@ -196,6 +192,18 @@ export function ScreenshotEditor() {
     const canvas = canvasRef.current;
     const img = imgRef.current;
     if (!canvas || !img) return;
+    // Size the backing store HERE — the canvas is conditionally rendered
+    // (`{imgReady ? <canvas/> : …}`), so during `img.onload` the ref is still
+    // null and any sizing there is silently skipped. The canvas then mounted
+    // at the browser default 300×150 and `drawImage(img, 0, 0)` painted only
+    // the screenshot's top-left 300×150 crop, upscaled — THE "editor doesn't
+    // show the full screenshot" bug. This effect runs after the canvas is in
+    // the DOM, so the natural-size assignment is guaranteed to land.
+    if (canvas.width !== img.naturalWidth || canvas.height !== img.naturalHeight) {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      fitCanvas();
+    }
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
 
@@ -217,7 +225,7 @@ export function ScreenshotEditor() {
       );
       if (preview) drawAnnotation(ctx, preview, img);
     }
-  }, [annotations, dragStart, dragCurrent, tool, color, strokeWidth, imgReady]);
+  }, [annotations, dragStart, dragCurrent, tool, color, strokeWidth, imgReady, fitCanvas]);
 
   // ── Undo / Redo / Save / Cancel ──────────────────────────────────
   const undo = useCallback(() => {

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Editor Mock</title>
+    <script>
+      // Minimal Tauri v2 internals shim so the REAL ScreenshotEditor component
+      // runs in a plain browser. Dev-only file, never bundled into the app.
+      (function () {
+        let cbId = 0;
+        // a big synthetic "Retina screenshot" data URL, generated lazily
+        function makeShot(w, h) {
+          const c = document.createElement("canvas");
+          c.width = w; c.height = h;
+          const g = c.getContext("2d");
+          const grad = g.createLinearGradient(0, 0, w, h);
+          grad.addColorStop(0, "#204060"); grad.addColorStop(1, "#803050");
+          g.fillStyle = grad; g.fillRect(0, 0, w, h);
+          g.fillStyle = "#fff";
+          g.fillRect(0, 0, 60, 60); g.fillRect(w - 60, 0, 60, 60);
+          g.fillRect(0, h - 60, 60, 60); g.fillRect(w - 60, h - 60, 60, 60);
+          g.font = "120px sans-serif";
+          g.fillText("TL", 80, 140); g.fillText("BR", w - 260, h - 80);
+          return c.toDataURL("image/png");
+        }
+        const params = new URLSearchParams(location.search);
+        const W = parseInt(params.get("w") || "3456", 10);
+        const H = parseInt(params.get("h") || "2234", 10);
+        window.__TAURI_INTERNALS__ = {
+          metadata: {
+            currentWindow: { label: "screenshot-editor" },
+            currentWebview: { label: "screenshot-editor", windowLabel: "screenshot-editor" },
+          },
+          transformCallback(cb) {
+            const id = ++cbId;
+            window[`_cb_${id}`] = cb;
+            return id;
+          },
+          invoke(cmd) {
+            if (cmd === "get_pending_screenshot_data_url") return Promise.resolve(makeShot(W, H));
+            if (cmd === "plugin:event|listen" || cmd === "plugin:event|unlisten") return Promise.resolve(cbId);
+            if (cmd === "plugin:window|scale_factor") return Promise.resolve(2);
+            if (cmd === "editor_set_size" || cmd === "editor_cancel") return Promise.resolve(null);
+            return Promise.resolve(null);
+          },
+        };
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.230] — 2026-07-06
+
+### Fixed
+
+- **Screenshot editor: the full screenshot really shows now (actual root cause).** The canvas element only mounts after the image has loaded (`imgReady`) — but its backing-store size was assigned inside `img.onload`, where the canvas ref is still null and a silent guard skipped the assignment. The canvas therefore mounted at the browser default **300×150** and the editor painted only the screenshot's top-left 300×150 crop, upscaled and blurry. The backing store is now sized in the redraw effect (which runs after the canvas is in the DOM), guaranteed. Reproduced and verified against the real component in a browser with a mocked Tauri IPC layer (`core/frontend/dev-editor.html`, kept as a dev harness): Retina 3456×2234 and ultra-wide 7000×600 both display in full and sharp. The v0.84.229 fit-to-viewport fix remains (it was necessary, just not sufficient).
+
 ## [0.84.229] — 2026-07-06
 
 ### Fixed

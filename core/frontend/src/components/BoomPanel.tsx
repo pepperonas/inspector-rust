@@ -6,7 +6,7 @@
  */
 import { useEffect, useRef, useState } from "react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { Volume2, Power, AlertTriangle, Download, Loader2, RefreshCw } from "lucide-react";
+import { Volume2, AlertTriangle, Download, Loader2, RefreshCw } from "lucide-react";
 import { IS_WINDOWS } from "../lib/platform";
 import {
   boomAvailable,
@@ -57,10 +57,18 @@ export function BoomPanel({
   const cfgRef = useRef<BoomConfig | null>(null);
 
   useEffect(() => {
-    boomAvailable().then(setAvailable).catch(() => setAvailable(false));
-    boomDriverInstalled().then(setDriverInstalled).catch(() => setDriverInstalled(false));
-    boomPresets().then(setPresets).catch(() => {});
-    getBoomConfig().then(setCfg).catch(() => {});
+    boomAvailable()
+      .then(setAvailable)
+      .catch(() => setAvailable(false));
+    boomDriverInstalled()
+      .then(setDriverInstalled)
+      .catch(() => setDriverInstalled(false));
+    boomPresets()
+      .then(setPresets)
+      .catch(() => {});
+    getBoomConfig()
+      .then(setCfg)
+      .catch(() => {});
   }, []);
 
   const install = async () => {
@@ -155,7 +163,10 @@ export function BoomPanel({
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement | null;
-      if (t && (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "BUTTON")) {
+      if (
+        t &&
+        (t.tagName === "INPUT" || t.tagName === "SELECT" || t.tagName === "BUTTON")
+      ) {
         if (e.key !== "Escape") return;
       }
       if (e.key === "Escape") {
@@ -188,8 +199,12 @@ export function BoomPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-[var(--color-muted)]">
         <Volume2 size={22} className="text-[var(--color-accent)]" />
-        <p className="text-[13px] text-[var(--color-fg)]">boom needs macOS 14.2 or newer</p>
-        <p className="text-[11px]">The driverless audio engine uses Apple’s Core-Audio process taps (macOS 14.2+).</p>
+        <p className="text-[13px] text-[var(--color-fg)]">
+          boom needs macOS 14.2 or newer
+        </p>
+        <p className="text-[11px]">
+          The driverless audio engine uses Apple’s Core-Audio process taps (macOS 14.2+).
+        </p>
       </div>
     );
   }
@@ -204,11 +219,14 @@ export function BoomPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <Volume2 size={24} className="text-[var(--color-accent)]" />
-        <p className="text-[13px] font-medium text-[var(--color-fg)]">Install Equalizer APO</p>
+        <p className="text-[13px] font-medium text-[var(--color-fg)]">
+          Install Equalizer APO
+        </p>
         <p className="text-[11px] text-[var(--color-muted)]">
-          On Windows, boom drives Equalizer APO — the standard system-wide audio processor. Install
-          it once (enable it for your playback device in its Configurator, then reboot); boom then
-          applies the EQ, presets and effects through it automatically.
+          On Windows, boom drives Equalizer APO — the standard system-wide audio
+          processor. Install it once (enable it for your playback device in its
+          Configurator, then reboot); boom then applies the EQ, presets and effects
+          through it automatically.
         </p>
         <div className="mt-1 flex items-center gap-2">
           <button
@@ -220,7 +238,11 @@ export function BoomPanel({
           </button>
           <button
             type="button"
-            onClick={() => void boomDriverInstalled().then(setDriverInstalled).catch(() => {})}
+            onClick={() =>
+              void boomDriverInstalled()
+                .then(setDriverInstalled)
+                .catch(() => {})
+            }
             className="flex items-center gap-1.5 rounded-full border border-[var(--color-border)] px-3.5 py-1.5 text-[12px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
           >
             <RefreshCw size={13} /> Check again
@@ -233,11 +255,13 @@ export function BoomPanel({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <Volume2 size={24} className="text-[var(--color-accent)]" />
-        <p className="text-[13px] font-medium text-[var(--color-fg)]">Install the boom Audio driver</p>
+        <p className="text-[13px] font-medium text-[var(--color-fg)]">
+          Install the boom Audio driver
+        </p>
         <p className="text-[11px] text-[var(--color-muted)]">
-          boom needs a small virtual audio device (one-time). The installer asks for your admin
-          password and briefly restarts the audio service (~1 s). It routes all system audio through
-          the EQ; uninstall any time.
+          boom needs a small virtual audio device (one-time). The installer asks for your
+          admin password and briefly restarts the audio service (~1 s). It routes all
+          system audio through the EQ; uninstall any time.
         </p>
         <button
           type="button"
@@ -275,26 +299,48 @@ export function BoomPanel({
         <div className="flex items-center gap-2 text-[13px] font-medium">
           <Volume2 size={15} className="text-[var(--color-accent)]" /> boom
         </div>
+        {/* State-first switch: an "On"-labelled pill read as an ACTION ("press
+            to turn on") — users couldn't tell whether boom was active. A real
+            switch (knob position + colour) plus an explicit state word is
+            unambiguous. */}
         <button
           type="button"
+          role="switch"
+          aria-checked={cfg.enabled}
           onClick={() => update({ enabled: !cfg.enabled }, true)}
-          className={
-            "flex items-center gap-1.5 rounded-full px-3 py-1 text-[12px] font-medium transition-colors " +
-            (cfg.enabled
-              ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-              : "border border-[var(--color-border)] text-[var(--color-muted)]")
-          }
+          className="flex items-center gap-2 text-[12px] font-medium"
         >
-          <Power size={13} /> {cfg.enabled ? "On" : "Off"}
+          <span
+            className={
+              cfg.enabled ? "text-[var(--color-accent)]" : "text-[var(--color-muted)]"
+            }
+          >
+            {cfg.enabled ? "Active" : "Off"}
+          </span>
+          <span
+            className={
+              "relative inline-block h-5 w-9 rounded-full transition-colors " +
+              (cfg.enabled ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]")
+            }
+          >
+            <span
+              className={
+                "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform " +
+                (cfg.enabled ? "translate-x-4" : "")
+              }
+            />
+          </span>
         </button>
       </div>
 
       {/* Driver status + uninstall. */}
       <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
         <span>
-          {IS_WINDOWS
-            ? "Applies system-wide via Equalizer APO."
-            : "Routes system audio through the boom Audio driver."}
+          {cfg.enabled
+            ? IS_WINDOWS
+              ? "Active — applies system-wide via Equalizer APO."
+              : "Active — routing system audio through the boom Audio driver."
+            : "Inactive — audio passes through untouched."}
         </span>
         {!IS_WINDOWS && (
           <button
@@ -309,13 +355,29 @@ export function BoomPanel({
       </div>
       {installError && <p className="text-[10px] text-red-400">{installError}</p>}
 
+      {/* While boom is OFF the whole settings surface is hidden — audio passes
+          through untouched (the engine is stopped / EqAPO renders passthrough),
+          so showing EQ/boost/effect controls would suggest they do something. */}
+      {!cfg.enabled && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-[var(--color-muted)]">
+          <Volume2 size={20} className="opacity-40" />
+          <p className="text-[12px]">boom is off — audio passes through untouched.</p>
+          <p className="text-[11px]">Turn it on to configure EQ, presets and effects.</p>
+        </div>
+      )}
+
       {/* Live level meters (only while running; no readout on the EqAPO backend). */}
       {cfg.enabled && !IS_WINDOWS && (
         <div className="flex flex-col gap-1 rounded-lg border border-[var(--color-border)] p-2">
           <div className="flex items-center justify-between text-[10px] text-[var(--color-muted)]">
             <span>Levels</span>
             <span className={"flex items-center gap-1 " + (clip ? "text-red-400" : "")}>
-              <span className={"inline-block h-1.5 w-1.5 rounded-full " + (clip ? "bg-red-500" : "bg-[var(--color-border)]")} />
+              <span
+                className={
+                  "inline-block h-1.5 w-1.5 rounded-full " +
+                  (clip ? "bg-red-500" : "bg-[var(--color-border)]")
+                }
+              />
               clip
             </span>
           </div>
@@ -324,117 +386,142 @@ export function BoomPanel({
         </div>
       )}
 
-      {/* Preset */}
-      <label className="flex items-center justify-between gap-2 text-[12px]">
-        <span className="text-[var(--color-muted)]">Preset</span>
-        <select
-          value={cfg.preset}
-          onChange={(e) => {
-            applyPreset(e.target.value);
-            onInteract?.();
-          }}
-          className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[12px] text-[var(--color-fg)] outline-none"
-        >
-          {cfg.preset === "Custom" && <option value="Custom">Custom</option>}
-          <optgroup label="Genre">
-            {presets.filter((p) => p.group === "Genre").map((p) => (
-              <option key={p.name} value={p.name}>{p.name}</option>
-            ))}
-          </optgroup>
-          <optgroup label="Device">
-            {presets.filter((p) => p.group === "Device").map((p) => (
-              <option key={p.name} value={p.name}>{p.name}</option>
-            ))}
-          </optgroup>
-        </select>
-      </label>
+      {cfg.enabled && (
+        <>
+          {/* Preset */}
+          <label className="flex items-center justify-between gap-2 text-[12px]">
+            <span className="text-[var(--color-muted)]">Preset</span>
+            <select
+              value={cfg.preset}
+              onChange={(e) => {
+                applyPreset(e.target.value);
+                onInteract?.();
+              }}
+              className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[12px] text-[var(--color-fg)] outline-none"
+            >
+              {cfg.preset === "Custom" && <option value="Custom">Custom</option>}
+              <optgroup label="Genre">
+                {presets
+                  .filter((p) => p.group === "Genre")
+                  .map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+              </optgroup>
+              <optgroup label="Device">
+                {presets
+                  .filter((p) => p.group === "Device")
+                  .map((p) => (
+                    <option key={p.name} value={p.name}>
+                      {p.name}
+                    </option>
+                  ))}
+              </optgroup>
+            </select>
+          </label>
 
-      {/* Pre-amp */}
-      <Slider
-        label="Pre-amp"
-        value={cfg.preamp_db}
-        min={-12}
-        max={12}
-        step={0.5}
-        suffix=" dB"
-        onChange={(v) => update({ preamp_db: v })}
-      />
-
-      {/* 10-band graphic EQ */}
-      <div className="rounded-xl border border-[var(--color-border)] p-2.5">
-        <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">Graphic EQ</div>
-        <div className="flex items-end justify-between gap-1">
-          {BOOM_BANDS.map((label, i) => {
-            const g = cfg.band_gains_db[i] ?? 0;
-            return (
-              <div key={label} className="flex flex-1 flex-col items-center gap-1">
-                <span className="text-[9px] tabular-nums text-[var(--color-muted)]">
-                  {g > 0 ? "+" : ""}{g.toFixed(0)}
-                </span>
-                <input
-                  type="range"
-                  min={-12}
-                  max={12}
-                  step={0.5}
-                  value={g}
-                  onChange={(e) => setBand(i, Number(e.target.value))}
-                  className="accent-[var(--color-accent)]"
-                  style={{ writingMode: "vertical-lr", direction: "rtl", height: 96, width: 16 }}
-                />
-                <span className="text-[9px] text-[var(--color-muted)]">{label}</span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Volume boost */}
-      <div>
-        <Slider
-          label="Volume boost"
-          value={cfg.boost_pct}
-          min={0}
-          max={300}
-          step={5}
-          suffix="%"
-          tick={100}
-          accent={boosting ? "#f59e0b" : undefined}
-          onChange={(v) => update({ boost_pct: v })}
-        />
-        {boosting && (
-          <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-500">
-            <AlertTriangle size={11} /> Above 100 % — sustained boost can stress internal speakers (limiter active).
-          </p>
-        )}
-        <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--color-muted)]">
-          <input
-            type="checkbox"
-            checked={cfg.controlled_boost}
-            onChange={(e) => update({ controlled_boost: e.target.checked })}
-            className="accent-[var(--color-accent)]"
+          {/* Pre-amp */}
+          <Slider
+            label="Pre-amp"
+            value={cfg.preamp_db}
+            min={-12}
+            max={12}
+            step={0.5}
+            suffix=" dB"
+            onChange={(v) => update({ preamp_db: v })}
           />
-          Controlled boost (stronger limiting for distortion-free high boost)
-        </label>
-      </div>
 
-      {/* Enhancement effects */}
-      <div className="rounded-xl border border-[var(--color-border)] p-2.5">
-        <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">Enhancement</div>
-        <div className="flex flex-col gap-2">
-          {EFFECTS.map((fx) => (
+          {/* 10-band graphic EQ */}
+          <div className="rounded-xl border border-[var(--color-border)] p-2.5">
+            <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">
+              Graphic EQ
+            </div>
+            <div className="flex items-end justify-between gap-1">
+              {BOOM_BANDS.map((label, i) => {
+                const g = cfg.band_gains_db[i] ?? 0;
+                return (
+                  <div key={label} className="flex flex-1 flex-col items-center gap-1">
+                    <span className="text-[9px] tabular-nums text-[var(--color-muted)]">
+                      {g > 0 ? "+" : ""}
+                      {g.toFixed(0)}
+                    </span>
+                    <input
+                      type="range"
+                      min={-12}
+                      max={12}
+                      step={0.5}
+                      value={g}
+                      onChange={(e) => setBand(i, Number(e.target.value))}
+                      className="accent-[var(--color-accent)]"
+                      style={{
+                        writingMode: "vertical-lr",
+                        direction: "rtl",
+                        height: 96,
+                        width: 16,
+                      }}
+                    />
+                    <span className="text-[9px] text-[var(--color-muted)]">{label}</span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Volume boost */}
+          <div>
             <Slider
-              key={fx.key}
-              label={fx.label}
-              value={Math.round((cfg.effects[fx.key] ?? 0) * 100)}
+              label="Volume boost"
+              value={cfg.boost_pct}
               min={0}
-              max={100}
-              step={1}
+              max={300}
+              step={5}
               suffix="%"
-              onChange={(v) => update({ effects: { ...cfg.effects, [fx.key]: v / 100 } })}
+              tick={100}
+              accent={boosting ? "#f59e0b" : undefined}
+              onChange={(v) => update({ boost_pct: v })}
             />
-          ))}
-        </div>
-      </div>
+            {boosting && (
+              <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-500">
+                <AlertTriangle size={11} /> Above 100 % — sustained boost can stress
+                internal speakers (limiter active).
+              </p>
+            )}
+            <label className="mt-1.5 flex cursor-pointer items-center gap-2 text-[11px] text-[var(--color-muted)]">
+              <input
+                type="checkbox"
+                checked={cfg.controlled_boost}
+                onChange={(e) => update({ controlled_boost: e.target.checked })}
+                className="accent-[var(--color-accent)]"
+              />
+              Controlled boost (stronger limiting for distortion-free high boost)
+            </label>
+          </div>
+
+          {/* Enhancement effects */}
+          <div className="rounded-xl border border-[var(--color-border)] p-2.5">
+            <div className="mb-2 text-[11px] font-medium text-[var(--color-muted)]">
+              Enhancement
+            </div>
+            <div className="flex flex-col gap-2">
+              {EFFECTS.map((fx) => (
+                <Slider
+                  key={fx.key}
+                  label={fx.label}
+                  value={Math.round((cfg.effects[fx.key] ?? 0) * 100)}
+                  min={0}
+                  max={100}
+                  step={1}
+                  suffix="%"
+                  onChange={(v) =>
+                    update({ effects: { ...cfg.effects, [fx.key]: v / 100 } })
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        </>
+      )}
 
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc close</p>
@@ -454,7 +541,8 @@ function Meter({ label, value }: { label: string; value: number }) {
           className="absolute inset-0 origin-left rounded-full"
           style={{
             transform: `scaleX(${w})`,
-            backgroundColor: w > 0.85 ? "#ef4444" : w > 0.6 ? "#f59e0b" : "var(--color-accent)",
+            backgroundColor:
+              w > 0.85 ? "#ef4444" : w > 0.6 ? "#f59e0b" : "var(--color-accent)",
             transition: "transform 90ms linear",
           }}
         />
@@ -489,7 +577,10 @@ function Slider({
     <div>
       <div className="mb-0.5 flex items-center justify-between text-[11px]">
         <span className="text-[var(--color-muted)]">{label}</span>
-        <span className="tabular-nums">{value % 1 === 0 ? value : value.toFixed(1)}{suffix}</span>
+        <span className="tabular-nums">
+          {value % 1 === 0 ? value : value.toFixed(1)}
+          {suffix}
+        </span>
       </div>
       <div className="relative">
         <input

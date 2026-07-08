@@ -215,7 +215,7 @@ export function FeaturesPanel() {
         { name: "Time tracking", trigger: "track on · track off · track", typed: true, note: "macOS. `track on` starts an opt-in tracking session (records app usage by focus; idle auto-pauses), `track off` ends it; bare `track` opens the Timesheet tab (day navigation + charts + editable events + CSV/HTML export). Window titles + URLs encrypted at rest. Settings → Timesheet for idle/retention/denylist/Claude + the loopback browser-extension token." },
         { name: "Random number", trigger: "rnd · random [max] [min max]", typed: true, note: "Rolls a number (default 1–6; `rnd 100` = 1–100, `rnd 5 500` = 5–500), shown big on screen." },
         { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
-        { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export." },
+        { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export. Just type to filter the list; Enter copies the top match's code." },
         { name: "TOTP code", trigger: "otp <issuer> · 2fa <issuer>", typed: true, note: "e.g. otp ama or 2fa hosti → live code for the matching provider, Enter copies it." },
         { name: "BPM detector", trigger: "bpm", typed: true, note: "Press Enter — taps your mic, shows live BPM. Enter again pins it (click-outside won't close; visualizer turns red)." },
         { name: "Disco (beat-sync lamps)", trigger: "disco 1 / 0", typed: true, note: "Toggle the mic→Hue beat-sync (disco 1 = on, 0 = off, bare = toggle). Keeps running after the popup closes; same engine as the hue panel's Beat-sync." },

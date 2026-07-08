@@ -232,7 +232,9 @@ function App() {
   // entirely client-side. No icons until the row is selected.
   const [installedApps, setInstalledApps] = useState<AppEntry[]>([]);
   useEffect(() => {
-    void listApps().then(setInstalledApps).catch(() => undefined);
+    void listApps()
+      .then(setInstalledApps)
+      .catch(() => undefined);
   }, []);
 
   // Wakelock state for the footer LED (v0.36.0+). Loaded once on
@@ -246,7 +248,10 @@ function App() {
   const [activeTimerCount, setActiveTimerCount] = useState(0);
   // Timesheet tracking footer indicator — updated on mount + the
   // `track-status-changed` event the tracker emits.
-  const [trackStatusState, setTrackStatusState] = useState<{ active: boolean; paused: boolean }>({
+  const [trackStatusState, setTrackStatusState] = useState<{
+    active: boolean;
+    paused: boolean;
+  }>({
     active: false,
     paused: false,
   });
@@ -291,7 +296,9 @@ function App() {
   // Failure (e.g. browser dev preview without Tauri context) is silent —
   // the footer just hides the version chip.
   useEffect(() => {
-    getVersion().then(setVersion).catch(() => undefined);
+    getVersion()
+      .then(setVersion)
+      .catch(() => undefined);
   }, []);
 
   // Apply the persisted theme preference as early as possible. The
@@ -612,7 +619,8 @@ function App() {
       }
       case "optim":
         label = "Compress the selected image(s)";
-        hint = "Finder/Explorer selection → <name>-optim (PNG lossless · JPEG re-encoded); else the clipboard PNG";
+        hint =
+          "Finder/Explorer selection → <name>-optim (PNG lossless · JPEG re-encoded); else the clipboard PNG";
         break;
       case "rmvvls": {
         const preview = arg.replace(/[aeiouAEIOUäöüÄÖÜ]/g, "");
@@ -661,7 +669,8 @@ function App() {
         label = tcontent
           ? `Create "${tname}" with content in the open folder`
           : `Create file "${tname}" in the open folder`;
-        hint = "Frontmost Explorer (Windows) / Finder (macOS) folder · `touch name > text` writes content";
+        hint =
+          "Frontmost Explorer (Windows) / Finder (macOS) folder · `touch name > text` writes content";
         break;
       }
       case "mkdir":
@@ -670,7 +679,8 @@ function App() {
         break;
       case "terminal":
         label = "Open a terminal in the open folder";
-        hint = "Windows Terminal/PowerShell (Windows) · iTerm2/Terminal (macOS) · frontmost folder";
+        hint =
+          "Windows Terminal/PowerShell (Windows) · iTerm2/Terminal (macOS) · frontmost folder";
         break;
       case "timer": {
         const t = parseTimerArg(arg);
@@ -708,13 +718,19 @@ function App() {
       }
       case "shot-full": {
         const delay = parseShotDelay(arg);
-        label = delay > 0 ? `Screenshot the whole screen in ${delay}s` : "Screenshot the whole screen";
+        label =
+          delay > 0
+            ? `Screenshot the whole screen in ${delay}s`
+            : "Screenshot the whole screen";
         hint = "Full screen → floating preview";
         break;
       }
       case "shot-window": {
         const delay = parseShotDelay(arg);
-        label = delay > 0 ? `Screenshot the active window in ${delay}s` : "Screenshot the active window";
+        label =
+          delay > 0
+            ? `Screenshot the active window in ${delay}s`
+            : "Screenshot the active window";
         hint = "Active window → floating preview";
         break;
       }
@@ -732,15 +748,18 @@ function App() {
         break;
       case "sound":
         label = "Audio output + volume";
-        hint = "Shown in the preview — Enter to control: ←→ volume ∓5 · ↑↓ device · Enter switch";
+        hint =
+          "Shown in the preview — Enter to control: ←→ volume ∓5 · ↑↓ device · Enter switch";
         break;
       case "hue":
         label = "Control Philips Hue lamps";
-        hint = "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
+        hint =
+          "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
         break;
       case "stats":
         label = "Live system stats";
-        hint = "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        hint =
+          "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
         break;
       case "boom":
         label = "Audio enhancement";
@@ -899,9 +918,7 @@ function App() {
   // sees what's about to fire.
   const finderFileEntries: ListEntry[] = useMemo(() => {
     if (!finderFiles) return [];
-    return finderFiles.map(
-      (f): ListEntry => ({ kind: "finder-file", data: f }),
-    );
+    return finderFiles.map((f): ListEntry => ({ kind: "finder-file", data: f }));
   }, [finderFiles]);
 
   // Bruno (Brutto→Netto). User's persisted defaults override the
@@ -911,11 +928,15 @@ function App() {
   // IPC round-trip completes.
   const [brunoDefaults, setBrunoDefaults] = useState<BrunoDefaults | null>(null);
   useEffect(() => {
-    void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
+    void brunoGetDefaults()
+      .then(setBrunoDefaults)
+      .catch(() => undefined);
     let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     void listen("bruno-defaults-changed", () => {
-      void brunoGetDefaults().then(setBrunoDefaults).catch(() => undefined);
+      void brunoGetDefaults()
+        .then(setBrunoDefaults)
+        .catch(() => undefined);
     }).then((u) => {
       if (cancelled) u();
       else unlisten = u;
@@ -1092,10 +1113,7 @@ function App() {
         const [{ totpList, totpCurrentCodesAll }] = await Promise.all([
           import("./lib/ipc"),
         ]);
-        const [entries, codes] = await Promise.all([
-          totpList(),
-          totpCurrentCodesAll(),
-        ]);
+        const [entries, codes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
         if (cancelled) return;
         setTotpEntries(entries);
         setTotpCodes(new Map(codes.map((c) => [c.id, c])));
@@ -1205,7 +1223,8 @@ function App() {
   // highlighted button in the preview.
   const [socialMode, setSocialMode] = useState<"video" | "audio">("video");
   const [socialRunSignal, setSocialRunSignal] = useState(0);
-  const selectedSocial = combined[selected]?.kind === "social" ? combined[selected] : null;
+  const selectedSocial =
+    combined[selected]?.kind === "social" ? combined[selected] : null;
   const selectedSocialUrl =
     selectedSocial?.kind === "social" ? selectedSocial.data.url : null;
   const selectedSocialIsYt =
@@ -1244,7 +1263,7 @@ function App() {
       const delta = e.key === "ArrowRight" ? 1 : -1;
       const n = TOP_OPENERS.length;
       setOpenerDir(delta);
-      setOpenerIndex((cur) => (cur === null ? 0 : ((cur + delta) % n + n) % n));
+      setOpenerIndex((cur) => (cur === null ? 0 : (((cur + delta) % n) + n) % n));
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -1275,7 +1294,9 @@ function App() {
   // *text* row — pwgen rows have no text content, so the transform
   // listener is unmounted and Cmd/Ctrl+1…4 is free.
   const selectedPwgen =
-    combined[selected]?.kind === "pwgen" ? (combined[selected] as Extract<typeof combined[number], { kind: "pwgen" }>) : null;
+    combined[selected]?.kind === "pwgen"
+      ? (combined[selected] as Extract<(typeof combined)[number], { kind: "pwgen" }>)
+      : null;
   useEffect(() => {
     if (!selectedPwgen) return;
     const codeToMode: Record<string, PwgenMode> = {
@@ -1290,9 +1311,7 @@ function App() {
       // Reject the other modifier so we don't fire on accidental
       // Cmd+Ctrl combos, and reject Alt+Shift to keep digit-typing
       // shortcuts free.
-      const modOk = IS_MAC
-        ? e.metaKey && !e.ctrlKey
-        : e.ctrlKey && !e.metaKey;
+      const modOk = IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
       if (!modOk || e.altKey || e.shiftKey) return;
       const newMode = codeToMode[e.code];
       if (!newMode) return;
@@ -1300,7 +1319,9 @@ function App() {
       e.stopPropagation();
       setPwgenMode(newMode);
       setPwgenSeed((s) => s + 1);
-      console.info(`pwgen → ${IS_MAC ? "Cmd" : "Ctrl"}+${e.code.slice(-1)} switched to ${newMode} + regenerated`);
+      console.info(
+        `pwgen → ${IS_MAC ? "Cmd" : "Ctrl"}+${e.code.slice(-1)} switched to ${newMode} + regenerated`,
+      );
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
@@ -1340,9 +1361,7 @@ function App() {
   // is already at the end of the input — otherwise → still moves
   // the caret within the typed text as normal.
   const selectedSuggestion =
-    combined[selected]?.kind === "command-suggestion"
-      ? combined[selected]
-      : null;
+    combined[selected]?.kind === "command-suggestion" ? combined[selected] : null;
   useEffect(() => {
     if (!selectedSuggestion || gameMode) return;
     const onKey = (e: KeyboardEvent) => {
@@ -1541,14 +1560,20 @@ function App() {
         setSelected(0);
         requestAnimationFrame(() => searchRef.current?.focus());
       });
-      if (cancelled) { u1(); return; }
+      if (cancelled) {
+        u1();
+        return;
+      }
       unlistenLoaded = u1;
       const u2 = await listen("finder-automation-needed", () => {
         setFinderAutomationDenied(true);
         setFinderFiles([]);
         setActiveTab("history");
       });
-      if (cancelled) { u2(); return; }
+      if (cancelled) {
+        u2();
+        return;
+      }
       unlistenDenied = u2;
     })();
     return () => {
@@ -1572,6 +1597,9 @@ function App() {
     setQuery("");
     setSelected(0);
     setPwgenEditing(false);
+    // The TOTP overlay is transient too — its Enter-copies-top-match hides the
+    // popup, and the next open must start on the normal history view.
+    setTotpMode(false);
     // Prime the shell to the entrance START state (opacity 0 + slightly small)
     // WHILE hidden — so the next open doesn't flash a frame of full-opacity
     // content before `playEntrance` runs (the OS makes the window visible before
@@ -1624,22 +1652,30 @@ function App() {
   // ordering needed since the count is recomputed via list_timers
   // on every change.
   useEffect(() => {
-    void listTimers().then((ts) => setActiveTimerCount(ts.length)).catch(() => undefined);
+    void listTimers()
+      .then((ts) => setActiveTimerCount(ts.length))
+      .catch(() => undefined);
   }, []);
   useTauriEvent("timers-changed", () => {
-    void listTimers().then((ts) => setActiveTimerCount(ts.length)).catch(() => undefined);
+    void listTimers()
+      .then((ts) => setActiveTimerCount(ts.length))
+      .catch(() => undefined);
   });
 
   // Timesheet tracking footer indicator — fetch on mount + on every
   // tracker status change (start/stop/idle-pause emit `track-status-changed`).
   useEffect(() => {
     void trackStatus()
-      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }))
+      .then((s) =>
+        setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }),
+      )
       .catch(() => undefined);
   }, []);
   useTauriEvent("track-status-changed", () => {
     void trackStatus()
-      .then((s) => setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }))
+      .then((s) =>
+        setTrackStatusState({ active: s.active, paused: s.paused || s.manual_paused }),
+      )
       .catch(() => undefined);
   });
   useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {
@@ -1686,9 +1722,8 @@ function App() {
         // slug / hash transform the argument; json / jwt transform whatever is
         // currently on the clipboard. The result lands in history too.
         try {
-          const { writeText, readText } = await import(
-            "@tauri-apps/plugin-clipboard-manager"
-          );
+          const { writeText, readText } =
+            await import("@tauri-apps/plugin-clipboard-manager");
           let out: string;
           if (commandKind === "uuid") {
             out = generateUuids(parseInt(arg, 10) || 1);
@@ -1787,13 +1822,21 @@ function App() {
         await hidePopup();
       } else if (commandKind === "reboot") {
         // Destructive: native confirmation before firing osascript.
-        if (!window.confirm("Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+        if (
+          !window.confirm(
+            "Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
+          )
+        ) {
           return true;
         }
         await systemReboot();
         await hidePopup();
       } else if (commandKind === "shutdown") {
-        if (!window.confirm("Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.")) {
+        if (
+          !window.confirm(
+            "Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
+          )
+        ) {
           return true;
         }
         await systemShutdown();
@@ -2125,9 +2168,8 @@ function App() {
         // Paste the net amount — period-matched. Typing `bruno 5000m`
         // → user is thinking monthly → paste monthly net. Typing
         // `bruno 60000` → yearly. German number format (de-DE Intl).
-        const v = target.data.period === "monthly"
-          ? target.data.netMonth
-          : target.data.netYear;
+        const v =
+          target.data.period === "monthly" ? target.data.netMonth : target.data.netYear;
         const formatted = new Intl.NumberFormat("de-DE", {
           style: "currency",
           currency: "EUR",
@@ -2143,7 +2185,10 @@ function App() {
         // Anything still needing an argument (or pwgen, which shows a live
         // preview) yields `false` from dispatchCommand → fill the input.
         const parsed = parseCommand(target.data.completion);
-        if (parsed && (await dispatchCommand(parsed.spec.kind, parsed.arg, parsed.spec.keyword))) {
+        if (
+          parsed &&
+          (await dispatchCommand(parsed.spec.kind, parsed.arg, parsed.spec.keyword))
+        ) {
           return;
         }
         setQuery(target.data.completion);
@@ -2284,7 +2329,18 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !boomFocus && !uptimeFocus && !calendarFocus,
+      activeTab === "history" &&
+      !gameMode &&
+      !bpmMode &&
+      !totpMode &&
+      !pwgenEditing &&
+      !brightnessFocus &&
+      !soundFocus &&
+      !hueFocus &&
+      !statsFocus &&
+      !boomFocus &&
+      !uptimeFocus &&
+      !calendarFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2349,7 +2405,7 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
-          <TotpOverlay onExit={exitTotp} />
+          <TotpOverlay onExit={exitTotp} onHidePopup={hidePopup} />
         </div>
       </div>
     );
@@ -2358,7 +2414,6 @@ function App() {
   return (
     <div className="flex h-screen w-screen p-2">
       <div ref={shellRef} className="app-shell fade-in flex h-full w-full flex-col">
-
         {/* Paste-failure banner — sticky at the top, click-to-dismiss. */}
         {pasteError && (
           <div
@@ -2372,10 +2427,9 @@ function App() {
             <span className="flex-1">
               {pasteError === "ax" ? (
                 <>
-                  <b>Paste failed — macOS Accessibility access not granted.</b>{" "}
-                  Open the <b>Settings</b> tab and click <b>Force re-grant</b>{" "}
-                  in the amber banner. After granting in System Settings, click{" "}
-                  <b>Restart now</b>.
+                  <b>Paste failed — macOS Accessibility access not granted.</b> Open the{" "}
+                  <b>Settings</b> tab and click <b>Force re-grant</b> in the amber banner.
+                  After granting in System Settings, click <b>Restart now</b>.
                 </>
               ) : (
                 <b>Paste failed.</b>
@@ -2405,10 +2459,11 @@ function App() {
         {ocrPermissionMissing && (
           <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
-              <b>OCR failed — macOS Screen Recording access not granted.</b>{" "}
-              Without it, <code>screencapture</code> is denied and the
-              region marquee never appears. Grant it in <b>System Settings → Privacy &amp; Security → Screen Recording</b>{" "}
-              for Inspector Rust, then relaunch.
+              <b>OCR failed — macOS Screen Recording access not granted.</b> Without it,{" "}
+              <code>screencapture</code> is denied and the region marquee never appears.
+              Grant it in{" "}
+              <b>System Settings → Privacy &amp; Security → Screen Recording</b> for
+              Inspector Rust, then relaunch.
             </span>
             <button
               onClick={() => setOcrPermissionMissing(false)}
@@ -2424,9 +2479,9 @@ function App() {
           <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Text expansion failed — macOS Accessibility access not granted.</b>{" "}
-              Inspector Rust can&apos;t read the focused field or type the snippet
-              without it. Use <b>Force re-grant</b> in the amber banner below,
-              then click <b>Restart now</b>.
+              Inspector Rust can&apos;t read the focused field or type the snippet without
+              it. Use <b>Force re-grant</b> in the amber banner below, then click{" "}
+              <b>Restart now</b>.
             </span>
             <button
               onClick={() => setExpanderPermissionMissing(false)}
@@ -2442,7 +2497,10 @@ function App() {
           <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Finder selection unavailable — macOS Automation access not granted.</b>{" "}
-              Open <b>System Settings → Privacy &amp; Security → Automation → Inspector Rust</b>{" "}
+              Open{" "}
+              <b>
+                System Settings → Privacy &amp; Security → Automation → Inspector Rust
+              </b>{" "}
               and toggle <b>Finder</b> on. Then press <b>Ctrl+Shift+F</b> again.
             </span>
             <button
@@ -2461,27 +2519,25 @@ function App() {
               {expanderBlocked === "password" ? (
                 <>
                   <b>Text expansion blocked — focused field is a password input.</b>{" "}
-                  Refusing on purpose: pasting a snippet into a credential
-                  field would leak the body into your password manager / sudo
-                  prompt / OS password dialog.
+                  Refusing on purpose: pasting a snippet into a credential field would
+                  leak the body into your password manager / sudo prompt / OS password
+                  dialog.
                 </>
               ) : expanderBlocked === "secure_input" ? (
                 <>
-                  <b>Text expansion blocked — secure event input is active.</b>{" "}
-                  macOS is suppressing synthetic input (typically because a
-                  password field is the keyboard responder). Try again after
-                  leaving the secure field.
+                  <b>Text expansion blocked — secure event input is active.</b> macOS is
+                  suppressing synthetic input (typically because a password field is the
+                  keyboard responder). Try again after leaving the secure field.
                 </>
               ) : (
                 <>
-                  <b>Text expansion can't work in terminals.</b>{" "}
-                  Terminals don't expose their input line to the accessibility
-                  API, and the keystroke-cycle fallback (<code>⌥⇧←</code> select-word)
-                  becomes an ESC-sequence instead of a selection. Workarounds:{" "}
-                  <b>type the abbreviation here in the popup search bar</b> and
-                  press <b>⏎</b> to paste, OR configure a{" "}
-                  <b>Direct hotkey → snippet</b> in Settings (those bypass
-                  reading and work in any app, terminals included).
+                  <b>Text expansion can't work in terminals.</b> Terminals don't expose
+                  their input line to the accessibility API, and the keystroke-cycle
+                  fallback (<code>⌥⇧←</code> select-word) becomes an ESC-sequence instead
+                  of a selection. Workarounds:{" "}
+                  <b>type the abbreviation here in the popup search bar</b> and press{" "}
+                  <b>⏎</b> to paste, OR configure a <b>Direct hotkey → snippet</b> in
+                  Settings (those bypass reading and work in any app, terminals included).
                 </>
               )}
             </span>
@@ -2538,28 +2594,46 @@ function App() {
             </div>
           )}
           <div className="absolute right-3 top-1/2 flex -translate-y-1/2 gap-1">
-            <TabButton active={activeTab === "history"} onClick={() => setActiveTab("history")}>
+            <TabButton
+              active={activeTab === "history"}
+              onClick={() => setActiveTab("history")}
+            >
               History
             </TabButton>
-            <TabButton active={activeTab === "snippets"} onClick={() => {
-              setActiveTab("snippets");
-              void refreshSnippets();
-            }}>
+            <TabButton
+              active={activeTab === "snippets"}
+              onClick={() => {
+                setActiveTab("snippets");
+                void refreshSnippets();
+              }}
+            >
               Snippets
             </TabButton>
-            <TabButton active={activeTab === "notes"} onClick={() => {
-              setActiveTab("notes");
-              void refreshNotes();
-            }}>
+            <TabButton
+              active={activeTab === "notes"}
+              onClick={() => {
+                setActiveTab("notes");
+                void refreshNotes();
+              }}
+            >
               Notes
             </TabButton>
-            <TabButton active={activeTab === "timesheet"} onClick={() => setActiveTab("timesheet")}>
+            <TabButton
+              active={activeTab === "timesheet"}
+              onClick={() => setActiveTab("timesheet")}
+            >
               Timesheet
             </TabButton>
-            <TabButton active={activeTab === "features"} onClick={() => setActiveTab("features")}>
+            <TabButton
+              active={activeTab === "features"}
+              onClick={() => setActiveTab("features")}
+            >
               Features
             </TabButton>
-            <TabButton active={activeTab === "settings"} onClick={() => setActiveTab("settings")}>
+            <TabButton
+              active={activeTab === "settings"}
+              onClick={() => setActiveTab("settings")}
+            >
               Settings
             </TabButton>
           </div>
@@ -2568,152 +2642,159 @@ function App() {
         {/* Content — keyed on the active tab so it replays the MD3
             emphasized-decelerate enter transition on every tab switch. */}
         <div key={activeTab} className="md3-tab-enter flex min-h-0 flex-1 flex-col">
-        {activeTab === "history" ? (
-          <div className="flex min-h-0 flex-1">
-            <div className="w-2/5 border-r border-[var(--color-border)]">
-              <HistoryList
-                entries={combined}
-                selectedIndex={selected}
-                onSelect={setSelected}
-                onActivate={activate}
-                onSaveAsNote={onSaveAsNote}
-                onDeleteClip={onDeleteClip}
-                onTogglePin={onTogglePin}
-                onClearAll={onClearAllHistory}
-              />
+          {activeTab === "history" ? (
+            <div className="flex min-h-0 flex-1">
+              <div className="w-2/5 border-r border-[var(--color-border)]">
+                <HistoryList
+                  entries={combined}
+                  selectedIndex={selected}
+                  onSelect={setSelected}
+                  onActivate={activate}
+                  onSaveAsNote={onSaveAsNote}
+                  onDeleteClip={onDeleteClip}
+                  onTogglePin={onTogglePin}
+                  onClearAll={onClearAllHistory}
+                />
+              </div>
+              <div className="w-3/5 min-w-0">
+                {brightnessMode ? (
+                  <div className="md3-pop-in h-full">
+                    <BrightnessPanel
+                      focused={brightnessFocus}
+                      onUnfocus={() => {
+                        setBrightnessFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                      onExit={() => {
+                        setBrightnessMode(false);
+                        setBrightnessFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : soundMode ? (
+                  <div className="md3-pop-in h-full">
+                    <SoundPanel
+                      focused={soundFocus}
+                      onExit={() => {
+                        setSoundMode(false);
+                        setSoundFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : hueMode ? (
+                  <div className="md3-pop-in h-full">
+                    <HuePanel
+                      focused={hueFocus}
+                      onExit={() => {
+                        setHueMode(false);
+                        setHueFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : statsMode ? (
+                  <div className="md3-pop-in h-full">
+                    <StatsPanel
+                      focused={statsFocus}
+                      onExit={() => {
+                        setStatsMode(false);
+                        setStatsFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : boomMode ? (
+                  <div className="md3-pop-in h-full">
+                    <BoomPanel
+                      focused={boomFocus}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
+                      onExit={() => {
+                        setBoomMode(false);
+                        setBoomFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : uptimeMode ? (
+                  <div className="md3-pop-in h-full">
+                    <UptimePanel
+                      focused={uptimeFocus}
+                      onExit={() => {
+                        setUptimeMode(false);
+                        setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : calendarMode ? (
+                  <div className="md3-pop-in h-full">
+                    <CalendarPanel
+                      focused={calendarFocus}
+                      arg={isCalendarCmd ? (parsedCommand?.arg ?? "") : ""}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
+                      onExit={() => {
+                        setCalendarMode(false);
+                        setCalendarFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <PreviewPanel
+                    entry={current}
+                    pwgenMode={pwgenMode}
+                    onPwgenModeChange={(m) => {
+                      setPwgenMode(m);
+                      setPwgenSeed((s) => s + 1);
+                    }}
+                    onPwgenReroll={() => setPwgenSeed((s) => s + 1)}
+                    onPwgenEdit={(value) =>
+                      setPwgenEdit({ seed: pwgenSeed, query, mode: pwgenMode, value })
+                    }
+                    onPwgenEditingChange={setPwgenEditing}
+                    onPwgenCommit={async () => {
+                      if (current?.kind !== "pwgen") return;
+                      const { writeText } =
+                        await import("@tauri-apps/plugin-clipboard-manager");
+                      await writeText(current.data.password);
+                      await hidePopup();
+                    }}
+                    socialMode={socialMode}
+                    onSocialModeChange={setSocialMode}
+                    socialRunSignal={socialRunSignal}
+                  />
+                )}
+              </div>
             </div>
-            <div className="w-3/5 min-w-0">
-              {brightnessMode ? (
-                <div className="md3-pop-in h-full">
-                  <BrightnessPanel
-                    focused={brightnessFocus}
-                    onUnfocus={() => {
-                      setBrightnessFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                    onExit={() => {
-                      setBrightnessMode(false);
-                      setBrightnessFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : soundMode ? (
-                <div className="md3-pop-in h-full">
-                  <SoundPanel
-                    focused={soundFocus}
-                    onExit={() => {
-                      setSoundMode(false);
-                      setSoundFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : hueMode ? (
-                <div className="md3-pop-in h-full">
-                  <HuePanel
-                    focused={hueFocus}
-                    onExit={() => {
-                      setHueMode(false);
-                      setHueFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : statsMode ? (
-                <div className="md3-pop-in h-full">
-                  <StatsPanel
-                    focused={statsFocus}
-                    onExit={() => {
-                      setStatsMode(false);
-                      setStatsFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : boomMode ? (
-                <div className="md3-pop-in h-full">
-                  <BoomPanel
-                    focused={boomFocus}
-                    onInteract={() => requestAnimationFrame(() => searchRef.current?.focus())}
-                    onExit={() => {
-                      setBoomMode(false);
-                      setBoomFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : uptimeMode ? (
-                <div className="md3-pop-in h-full">
-                  <UptimePanel
-                    focused={uptimeFocus}
-                    onExit={() => {
-                      setUptimeMode(false);
-                      setUptimeFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : calendarMode ? (
-                <div className="md3-pop-in h-full">
-                  <CalendarPanel
-                    focused={calendarFocus}
-                    arg={isCalendarCmd ? (parsedCommand?.arg ?? "") : ""}
-                    onInteract={() => requestAnimationFrame(() => searchRef.current?.focus())}
-                    onExit={() => {
-                      setCalendarMode(false);
-                      setCalendarFocus(false);
-                      requestAnimationFrame(() => searchRef.current?.focus());
-                    }}
-                  />
-                </div>
-              ) : (
-              <PreviewPanel
-                entry={current}
-                pwgenMode={pwgenMode}
-                onPwgenModeChange={(m) => {
-                  setPwgenMode(m);
-                  setPwgenSeed((s) => s + 1);
-                }}
-                onPwgenReroll={() => setPwgenSeed((s) => s + 1)}
-                onPwgenEdit={(value) =>
-                  setPwgenEdit({ seed: pwgenSeed, query, mode: pwgenMode, value })
-                }
-                onPwgenEditingChange={setPwgenEditing}
-                onPwgenCommit={async () => {
-                  if (current?.kind !== "pwgen") return;
-                  const { writeText } = await import(
-                    "@tauri-apps/plugin-clipboard-manager"
-                  );
-                  await writeText(current.data.password);
-                  await hidePopup();
-                }}
-                socialMode={socialMode}
-                onSocialModeChange={setSocialMode}
-                socialRunSignal={socialRunSignal}
-              />
-              )}
-            </div>
-          </div>
-        ) : activeTab === "snippets" ? (
-          <SnippetsPanel snippets={snippets} onRefresh={refreshSnippets} />
-        ) : activeTab === "notes" ? (
-          <NotesPanel notes={notes} categories={noteCategories} onRefresh={refreshNotes} />
-        ) : activeTab === "timesheet" ? (
-          <TimesheetPanel />
-        ) : activeTab === "features" ? (
-          <FeaturesPanel />
-        ) : (
-          <SettingsPanel
-            onBackupImported={async () => {
-              // After a Backup → Import, refresh every list that might
-              // have new rows. History reloads itself via the
-              // `clipboard-changed` event the watcher emits, but Notes
-              // and Snippets need an explicit nudge.
-              await Promise.all([refreshHistory(), refreshSnippets(), refreshNotes()]);
-            }}
-          />
-        )}
+          ) : activeTab === "snippets" ? (
+            <SnippetsPanel snippets={snippets} onRefresh={refreshSnippets} />
+          ) : activeTab === "notes" ? (
+            <NotesPanel
+              notes={notes}
+              categories={noteCategories}
+              onRefresh={refreshNotes}
+            />
+          ) : activeTab === "timesheet" ? (
+            <TimesheetPanel />
+          ) : activeTab === "features" ? (
+            <FeaturesPanel />
+          ) : (
+            <SettingsPanel
+              onBackupImported={async () => {
+                // After a Backup → Import, refresh every list that might
+                // have new rows. History reloads itself via the
+                // `clipboard-changed` event the watcher emits, but Notes
+                // and Snippets need an explicit nudge.
+                await Promise.all([refreshHistory(), refreshSnippets(), refreshNotes()]);
+              }}
+            />
+          )}
         </div>
 
         <Footer

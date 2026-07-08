@@ -7,6 +7,7 @@ import {
   KeyRound,
   Pencil,
   Plus,
+  Search,
   Trash2,
   Upload,
   X,
@@ -26,6 +27,7 @@ import {
   totpSetOrder,
   totpUpdate,
 } from "../lib/ipc";
+import { matchTotpEntries } from "../lib/totp";
 import type { TotpCode, TotpEntry } from "../lib/totp";
 
 /**
@@ -46,6 +48,9 @@ import type { TotpCode, TotpEntry } from "../lib/totp";
 
 interface Props {
   onExit: () => void;
+  /** Hide the whole popup (animated) — used by Enter-copies-top-match so the
+   *  copied code is immediately pasteable. Falls back to a toast-only copy. */
+  onHidePopup?: () => Promise<void>;
 }
 
 type Tab = "list" | "add" | "import";
@@ -56,18 +61,25 @@ function importSummary(
 ): string {
   const src = from ? ` from ${from}` : "";
   const skip = r.skipped ? `, ${r.skipped} duplicate(s) skipped` : "";
-  const fail = r.failed ? `, ${r.failed} invalid entr${r.failed === 1 ? "y" : "ies"} dropped` : "";
+  const fail = r.failed
+    ? `, ${r.failed} invalid entr${r.failed === 1 ? "y" : "ies"} dropped`
+    : "";
   return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}${fail}.`;
 }
 
-export function TotpOverlay({ onExit }: Props) {
+export function TotpOverlay({ onExit, onHidePopup }: Props) {
   const [tab, setTab] = useState<Tab>("list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
   const [codes, setCodes] = useState<Map<number, TotpCode>>(new Map());
   // Bumped on every 1s tick; used to drive the smooth countdown ring.
   const [tickNow, setTickNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
+  const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(
+    null,
+  );
+  // List-tab filter — fed by the filter input AND by type-anywhere capture
+  // (typing on the List tab always filters, no click into the field needed).
+  const [filter, setFilter] = useState("");
 
   // Add/Edit-form state. `editingId != null` → the Add tab is an Edit form.
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -82,19 +94,6 @@ export function TotpOverlay({ onExit }: Props) {
   // Import-tab state
   const [importText, setImportText] = useState("");
   const [dragOver, setDragOver] = useState(false);
-
-  // Esc to exit — owned by this overlay.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        onExit();
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [onExit]);
 
   // Keep the popup alive while the overlay is open — so dragging an import file
   // in from Finder doesn't dismiss it on focus-loss (only Esc closes it) — and
@@ -290,7 +289,8 @@ export function TotpOverlay({ onExit }: Props) {
       await refreshList();
       setToast({
         kind: "ok",
-        message: removed > 0 ? `${removed} duplicate(s) removed.` : "No duplicates found.",
+        message:
+          removed > 0 ? `${removed} duplicate(s) removed.` : "No duplicates found.",
       });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
@@ -304,7 +304,10 @@ export function TotpOverlay({ onExit }: Props) {
     try {
       const removed = await totpDeleteAll();
       await refreshList();
-      setToast({ kind: "ok", message: `${removed} entr${removed === 1 ? "y" : "ies"} deleted.` });
+      setToast({
+        kind: "ok",
+        message: `${removed} entr${removed === 1 ? "y" : "ies"} deleted.`,
+      });
     } catch (e) {
       setToast({ kind: "err", message: String(e) });
     } finally {
@@ -323,6 +326,65 @@ export function TotpOverlay({ onExit }: Props) {
       setToast({ kind: "err", message: String(e) });
     }
   };
+
+  // Copy the best filter match's current code; optionally hide the popup so
+  // the code is immediately pasteable (the same UX as Enter on an
+  // `otp <issuer>` row).
+  const copyTopMatch = async () => {
+    const matched = matchTotpEntries(filter, entries);
+    const top = matched.find((e) => codes.get(e.id)?.code);
+    if (!top) return;
+    const label = `${top.issuer || "?"}${top.account ? " · " + top.account : ""}`;
+    await doCopy(top.id, label);
+    if (onHidePopup) await onHidePopup();
+  };
+
+  // Keyboard, owned by this overlay:
+  //   Esc      — clears an active filter first, then exits (two-stage).
+  //   typing   — on the List tab, printable keys + Backspace feed the filter
+  //              from anywhere (no need to click into the field).
+  //   Enter    — with a non-empty filter, copies the top match's code and
+  //              hides the popup.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        if (tab === "list" && filter) {
+          setFilter("");
+        } else {
+          onExit();
+        }
+        return;
+      }
+      if (tab !== "list") return;
+      const t = e.target as HTMLElement | null;
+      const inField =
+        t &&
+        (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
+      if (e.key === "Enter") {
+        // The List tab's only text field is the filter itself, so Enter is
+        // safe to own globally here.
+        if (filter.trim()) {
+          e.preventDefault();
+          e.stopPropagation();
+          void copyTopMatch();
+        }
+        return;
+      }
+      if (inField || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Backspace") {
+        e.preventDefault();
+        setFilter((f) => f.slice(0, -1));
+      } else if (e.key.length === 1) {
+        e.preventDefault();
+        setFilter((f) => f + e.key);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onExit, tab, filter, entries, codes]);
 
   const doImport = async () => {
     if (!importText.trim()) {
@@ -408,6 +470,8 @@ export function TotpOverlay({ onExit }: Props) {
           <ListTab
             entries={entries}
             codes={codes}
+            filter={filter}
+            setFilter={setFilter}
             tickNow={tickNow}
             onCopy={doCopy}
             onDelete={doDelete}
@@ -501,6 +565,8 @@ function TabButton({
 function ListTab({
   entries,
   codes,
+  filter,
+  setFilter,
   tickNow,
   onCopy,
   onDelete,
@@ -512,6 +578,8 @@ function ListTab({
 }: {
   entries: TotpEntry[];
   codes: Map<number, TotpCode>;
+  filter: string;
+  setFilter: (f: string) => void;
   tickNow: number;
   onCopy: (id: number, label: string) => void;
   onDelete: (id: number, label: string) => void;
@@ -610,8 +678,7 @@ function ListTab({
         <KeyRound size={32} className="opacity-50" />
         <div className="text-[14px]">No 2FA entries yet.</div>
         <div className="text-[12px]">
-          Switch to <b>Add</b> or <b>Import</b> to set up your
-          authenticator accounts.
+          Switch to <b>Add</b> or <b>Import</b> to set up your authenticator accounts.
         </div>
       </div>
     );
@@ -620,11 +687,46 @@ function ListTab({
   const iconBtn =
     "rounded border border-[var(--color-border)] p-1.5 text-[var(--color-muted)] disabled:opacity-40";
 
+  const filtering = filter.trim().length > 0;
+  // Fuzzy-ranked view while filtering (issuer/account, same ranker as
+  // `otp <issuer>`); dragging is disabled then — a partial list has no
+  // meaningful persistent order.
+  const visible = filtering ? matchTotpEntries(filter, order) : order;
+
   return (
     <div className="flex flex-col gap-2">
+      {/* Filter — fed by typing anywhere on this tab. */}
+      <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-1.5">
+        <Search size={13} className="shrink-0 text-[var(--color-muted)]" />
+        <input
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Type to filter — Enter copies the top match"
+          className="min-w-0 flex-1 bg-transparent text-[12px] outline-none placeholder:text-[var(--color-muted)]"
+        />
+        {filtering && (
+          <>
+            <span className="shrink-0 text-[10px] tabular-nums text-[var(--color-muted)]">
+              {visible.length} / {order.length}
+            </span>
+            <button
+              onClick={() => setFilter("")}
+              title="Clear filter (Esc)"
+              className="shrink-0 rounded-full p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+            >
+              <X size={12} />
+            </button>
+          </>
+        )}
+      </div>
+
       {/* Toolbar: reorder hint + cleanup */}
       <div className="mb-1 flex items-center gap-2 text-[11px]">
-        <span className="mr-auto text-[var(--color-muted)]">Drag the ⠿ handle to reorder.</span>
+        <span className="mr-auto text-[var(--color-muted)]">
+          {filtering
+            ? "Enter copies the highlighted match."
+            : "Drag the ⠿ handle to reorder."}
+        </span>
         <button
           onClick={onRemoveDuplicates}
           disabled={busy}
@@ -662,10 +764,18 @@ function ListTab({
         )}
       </div>
 
-      {order.map((e) => {
+      {filtering && visible.length === 0 && (
+        <div className="flex flex-col items-center gap-1 py-8 text-center text-[var(--color-muted)]">
+          <div className="text-[13px]">No entries match “{filter.trim()}”.</div>
+          <div className="text-[11px]">Esc clears the filter.</div>
+        </div>
+      )}
+      {visible.map((e, idx) => {
         const c = codes.get(e.id);
         const label = `${e.issuer || "?"}${e.account ? " · " + e.account : ""}`;
         const confirming = confirmId === e.id;
+        // The top match is what Enter copies — ring it so that's visible.
+        const topMatch = filtering && idx === 0;
         return (
           <div
             key={e.id}
@@ -677,13 +787,21 @@ function ListTab({
               "flex items-center gap-2 rounded-lg border p-3 " +
               (draggingId === e.id
                 ? "border-[var(--color-accent)] bg-[var(--color-accent)]/10 shadow-lg"
-                : "border-[var(--color-border)] bg-[var(--color-surface)]")
+                : topMatch
+                  ? "border-[var(--color-accent)] bg-[var(--color-surface)] ring-1 ring-inset ring-[var(--color-accent)]"
+                  : "border-[var(--color-border)] bg-[var(--color-surface)]")
             }
           >
             <button
-              onPointerDown={(ev) => beginDrag(ev, e.id)}
-              title="Drag to reorder"
-              className="cursor-grab touch-none text-[var(--color-muted)] hover:text-[var(--color-fg)] active:cursor-grabbing"
+              onPointerDown={filtering ? undefined : (ev) => beginDrag(ev, e.id)}
+              title={
+                filtering ? "Reordering is disabled while filtering" : "Drag to reorder"
+              }
+              className={
+                filtering
+                  ? "cursor-default touch-none text-[var(--color-muted)] opacity-30"
+                  : "cursor-grab touch-none text-[var(--color-muted)] hover:text-[var(--color-fg)] active:cursor-grabbing"
+              }
             >
               <GripVertical size={16} />
             </button>
@@ -697,7 +815,9 @@ function ListTab({
                 {e.issuer || "(no issuer)"}
               </div>
               {e.account && (
-                <div className="truncate text-[11px] text-[var(--color-muted)]">{e.account}</div>
+                <div className="truncate text-[11px] text-[var(--color-muted)]">
+                  {e.account}
+                </div>
               )}
             </div>
             <button
@@ -734,7 +854,10 @@ function ListTab({
                   onClick={() => onCopy(e.id, label)}
                   disabled={busy || !c}
                   title="Copy"
-                  className={iconBtn + " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"}
+                  className={
+                    iconBtn +
+                    " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  }
                 >
                   <Copy size={14} />
                 </button>
@@ -742,7 +865,10 @@ function ListTab({
                   onClick={() => onEdit(e)}
                   disabled={busy}
                   title="Edit"
-                  className={iconBtn + " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"}
+                  className={
+                    iconBtn +
+                    " hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                  }
                 >
                   <Pencil size={14} />
                 </button>
@@ -879,11 +1005,17 @@ function AddTab(props: {
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
-        <span className="font-semibold">Secret (Base32){props.editing ? " — optional" : ""}</span>
+        <span className="font-semibold">
+          Secret (Base32){props.editing ? " — optional" : ""}
+        </span>
         <textarea
           value={props.secret}
           onChange={(e) => props.setSecret(e.target.value)}
-          placeholder={props.editing ? "Leave blank to keep the current secret" : "JBSW Y3DP EHPK 3PXP"}
+          placeholder={
+            props.editing
+              ? "Leave blank to keep the current secret"
+              : "JBSW Y3DP EHPK 3PXP"
+          }
           rows={2}
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[13px] focus:border-[var(--color-accent)] focus:outline-none"
         />
@@ -944,7 +1076,9 @@ function AddTab(props: {
 
       <button
         onClick={props.onSubmit}
-        disabled={props.busy || !props.issuer.trim() || (!props.editing && !props.secret.trim())}
+        disabled={
+          props.busy || !props.issuer.trim() || (!props.editing && !props.secret.trim())
+        }
         className="mt-2 flex items-center justify-center gap-2 rounded bg-[var(--color-accent)] px-4 py-2 text-[13px] font-semibold text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-40"
       >
         {props.editing ? <Check size={14} /> : <Plus size={14} />}
@@ -991,8 +1125,8 @@ function ImportExportTab({
           Import
         </h3>
         <p className="mb-2 text-[11px] text-[var(--color-muted)]">
-          Paste below, or <strong>drag a file anywhere onto this window</strong> to import it
-          (otpauth URIs · Aegis / 2FAS / OTPManager JSON · Google-Auth migration).
+          Paste below, or <strong>drag a file anywhere onto this window</strong> to import
+          it (otpauth URIs · Aegis / 2FAS / OTPManager JSON · Google-Auth migration).
         </p>
         <textarea
           value={importText}
@@ -1035,13 +1169,13 @@ function ImportExportTab({
           Exports all {entryCount} entries as a list of{" "}
           <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[11px]">
             otpauth://
-          </code>
-          {" "}URIs to the clipboard.
+          </code>{" "}
+          URIs to the clipboard.
         </p>
         <div className="mb-3 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
-          <b>Caution:</b> Plaintext. The secrets are the long-term root
-          of your 2FA — store the export encrypted (e.g. password
-          manager, encrypted archive) and clear the clipboard afterwards.
+          <b>Caution:</b> Plaintext. The secrets are the long-term root of your 2FA —
+          store the export encrypted (e.g. password manager, encrypted archive) and clear
+          the clipboard afterwards.
         </div>
         <button
           onClick={onExport}

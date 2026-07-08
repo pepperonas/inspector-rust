@@ -284,6 +284,7 @@ The search bar parses shell-style commands via `lib/commands.ts::parseCommand`. 
 | `alarm <HH:MM>` | Alarm at a clock time — next occurrence (`parseAlarmArg`); reuses the timer scheduler; status toast on set | `timer` |
 | `md2pdf [path]` | Markdown → PDF — same as `Ctrl+Shift+M`. macOS: Finder selection or path. Windows: path → Edge headless. | `md_to_pdf_run` |
 | `pwgen [N]` | Password generator (bare = default length, runnable so it outranks snippet matches) | `lib/pwgen.ts` |
+| `calendar [month year]` (alias `cal`) | **Month-view calendar in the preview** (v0.84.234) — research which weekday a date was. Shows directly while typed (`sound` pattern); Enter hands the arrows to it: **←/→** month, **↑/↓** year, **PgUp/PgDn** month, **T**/Home today, Esc exits; click a day → full-date readout + distance from today ("in 142 days"). Arg jumps the view live: `calendar märz 1990` · `cal 3.2024` · `cal 2024-03` · bare year. Monday-start weeks + ISO week-number gutter; today = accent ring, neighbour-month days dimmed; directional slide on month change (reduced-motion-guarded). Pure, unit-tested date math in `lib/calendar.ts` (`monthMatrix`/`isoWeek`/`addMonths`/`parseCalendarArg` DE+EN month names/`dayDelta`); `CalendarPanel.tsx` renders. Frontend-only. | `lib/calendar.ts` + `CalendarPanel.tsx` |
 
 `image_ops.rs` holds the resize/optim pipelines; `oxipng` is a workspace dep (pure-Rust, statically linked).
 

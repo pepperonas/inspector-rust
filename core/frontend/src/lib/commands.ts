@@ -76,7 +76,8 @@ export type CommandKind =
   | "boom"
   | "uptime"
   | "track"
-  | "trim";
+  | "trim"
+  | "calendar";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -581,6 +582,21 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "uptime",
     description: "Live system uptime — animated to the microsecond in the preview",
     requiresArg: false,
+  },
+  {
+    kind: "calendar",
+    keyword: "calendar",
+    syntax: "calendar [month year]",
+    description: "Month-view calendar in the preview — which weekday was that date? ←→ month · ↑↓ year",
+    requiresArg: false,
+  },
+  {
+    kind: "calendar",
+    keyword: "cal",
+    syntax: "cal [month year]",
+    description: "Alias for calendar",
+    requiresArg: false,
+    hidden: true,
   },
   {
     kind: "track",

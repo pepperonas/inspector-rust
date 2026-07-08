@@ -14,6 +14,7 @@ import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { BoomPanel } from "./components/BoomPanel";
+import { CalendarPanel } from "./components/CalendarPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
@@ -183,6 +184,11 @@ function App() {
   // animated uptime odometer in the right preview column.
   const [uptimeMode, setUptimeMode] = useState(false);
   const [uptimeFocus, setUptimeFocus] = useState(false);
+  // Calendar mode — typing `calendar`/`cal` renders the month view in the
+  // right preview column directly (like `sound`); Enter hands the arrow keys
+  // to it (←→ month, ↑↓ year).
+  const [calendarMode, setCalendarMode] = useState(false);
+  const [calendarFocus, setCalendarFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -526,6 +532,18 @@ function App() {
     }
   }, [isUptimeCmd, uptimeMode]);
 
+  // Calendar mode shows directly while `calendar`/`cal` is typed (no Enter
+  // needed — like `sound`); Enter only hands it keyboard focus.
+  const isCalendarCmd = parsedCommand?.spec.kind === "calendar";
+  useEffect(() => {
+    if (isCalendarCmd && !calendarMode) {
+      setCalendarMode(true);
+    } else if (!isCalendarCmd && calendarMode) {
+      setCalendarMode(false);
+      setCalendarFocus(false);
+    }
+  }, [isCalendarCmd, calendarMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -731,6 +749,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "calendar":
+        label = arg ? `Calendar: ${arg}` : "Calendar — month view";
+        hint = "Enter to navigate: ←→ month · ↑↓ year · T today — or type e.g. märz 1990";
         break;
       case "track": {
         const m = parseTrackArg(arg);
@@ -1972,6 +1994,14 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "calendar") {
+        // Inline month-view calendar in the preview column. Canonicalise the
+        // keyword but KEEP a typed argument (`cal märz 1990`) so the jump
+        // target survives entering the mode from a partial suggestion.
+        setQuery(arg ? `calendar ${arg}` : "calendar");
+        setCalendarMode(true);
+        setCalendarFocus(true);
+        return true;
       } else if (commandKind === "disco") {
         // Toggle the persistent beat-sync engine (runs even after the popup
         // closes). `disco 1`/`0` force on/off; bare `disco` toggles. Fire-and-
@@ -2254,7 +2284,7 @@ function App() {
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
     enabled:
-      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !boomFocus && !uptimeFocus,
+      activeTab === "history" && !gameMode && !bpmMode && !totpMode && !pwgenEditing && !brightnessFocus && !soundFocus && !hueFocus && !statsFocus && !boomFocus && !uptimeFocus && !calendarFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2620,6 +2650,19 @@ function App() {
                     onExit={() => {
                       setUptimeMode(false);
                       setUptimeFocus(false);
+                      requestAnimationFrame(() => searchRef.current?.focus());
+                    }}
+                  />
+                </div>
+              ) : calendarMode ? (
+                <div className="md3-pop-in h-full">
+                  <CalendarPanel
+                    focused={calendarFocus}
+                    arg={isCalendarCmd ? (parsedCommand?.arg ?? "") : ""}
+                    onInteract={() => requestAnimationFrame(() => searchRef.current?.focus())}
+                    onExit={() => {
+                      setCalendarMode(false);
+                      setCalendarFocus(false);
                       requestAnimationFrame(() => searchRef.current?.focus());
                     }}
                   />

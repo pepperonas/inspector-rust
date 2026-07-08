@@ -117,35 +117,46 @@ export function isCommandAvailable(
  * Data-driven (like `TRANSLATE_LANGS`) — a new engine is one entry here, which
  * also generates its `COMMANDS` row. `url(q)` must URL-encode the query.
  */
-export const SEARCH_BANGS: Record<
-  string,
-  { name: string; url: (q: string) => string }
-> = {
-  g: { name: "Google", url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}` },
-  ddg: { name: "DuckDuckGo", url: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}` },
-  gh: {
-    name: "GitHub",
-    url: (q) => `https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`,
-  },
-  yt: {
-    name: "YouTube",
-    url: (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
-  },
-  npm: { name: "npm", url: (q) => `https://www.npmjs.com/search?q=${encodeURIComponent(q)}` },
-  crates: { name: "crates.io", url: (q) => `https://crates.io/search?q=${encodeURIComponent(q)}` },
-  so: {
-    name: "Stack Overflow",
-    url: (q) => `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
-  },
-  mdn: {
-    name: "MDN",
-    url: (q) => `https://developer.mozilla.org/en-US/search?q=${encodeURIComponent(q)}`,
-  },
-  wiki: {
-    name: "Wikipedia",
-    url: (q) => `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(q)}`,
-  },
-};
+export const SEARCH_BANGS: Record<string, { name: string; url: (q: string) => string }> =
+  {
+    g: {
+      name: "Google",
+      url: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+    },
+    ddg: {
+      name: "DuckDuckGo",
+      url: (q) => `https://duckduckgo.com/?q=${encodeURIComponent(q)}`,
+    },
+    gh: {
+      name: "GitHub",
+      url: (q) =>
+        `https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`,
+    },
+    yt: {
+      name: "YouTube",
+      url: (q) => `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}`,
+    },
+    npm: {
+      name: "npm",
+      url: (q) => `https://www.npmjs.com/search?q=${encodeURIComponent(q)}`,
+    },
+    crates: {
+      name: "crates.io",
+      url: (q) => `https://crates.io/search?q=${encodeURIComponent(q)}`,
+    },
+    so: {
+      name: "Stack Overflow",
+      url: (q) => `https://stackoverflow.com/search?q=${encodeURIComponent(q)}`,
+    },
+    mdn: {
+      name: "MDN",
+      url: (q) => `https://developer.mozilla.org/en-US/search?q=${encodeURIComponent(q)}`,
+    },
+    wiki: {
+      name: "Wikipedia",
+      url: (q) => `https://en.wikipedia.org/w/index.php?search=${encodeURIComponent(q)}`,
+    },
+  };
 
 const SEARCH_BANG_COMMANDS: CommandSpec[] = Object.entries(SEARCH_BANGS).map(
   ([keyword, { name }]) => ({
@@ -226,7 +237,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "resize",
     keyword: "rz",
     syntax: "rz <W>x<H>",
-    description: "Resize the selected image(s) in Finder/Explorer (Lanczos3) — e.g. rz 1200x800 or rz 1200 800; else the clipboard image",
+    description:
+      "Resize the selected image(s) in Finder/Explorer (Lanczos3) — e.g. rz 1200x800 or rz 1200 800; else the clipboard image",
     requiresArg: true,
   },
   {
@@ -241,7 +253,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "optim",
     keyword: "optim",
     syntax: "optim",
-    description: "Compress the selected image(s) in Finder/Explorer (PNG/JPEG → <name>-optim); else the clipboard PNG",
+    description:
+      "Compress the selected image(s) in Finder/Explorer (PNG/JPEG → <name>-optim); else the clipboard PNG",
     requiresArg: false,
   },
   {
@@ -264,7 +277,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "kill",
     keyword: "kill",
     syntax: "kill [-9] [pattern | pid]",
-    description: "Kill a process — live picker by name or PID (e.g. kill slack, kill 1234, kill -9 …)",
+    description:
+      "Kill a process — live picker by name or PID (e.g. kill slack, kill 1234, kill -9 …)",
     // requiresArg = false → empty `kill` is valid; the UI opens the
     // process picker showing all processes for selection.
     requiresArg: false,
@@ -370,7 +384,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "touch",
     keyword: "touch",
     syntax: "touch <name> [> text]",
-    description: "Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch hallo.txt > das ist ein test` writes that content",
+    description:
+      "Create a file (nested OK, e.g. touch a/b/c.txt) in the active folder — `touch hallo.txt > das ist ein test` writes that content",
     requiresArg: true,
     // File-manager integration exists on macOS (Finder) + Windows (Explorer).
     platform: ["mac", "win"],
@@ -379,7 +394,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "mkdir",
     keyword: "mkdir",
     syntax: "mkdir <name>",
-    description: "Create a folder (nested OK, e.g. mkdir a/b) in the active Explorer/Finder folder",
+    description:
+      "Create a folder (nested OK, e.g. mkdir a/b) in the active Explorer/Finder folder",
     requiresArg: true,
     platform: ["mac", "win"],
   },
@@ -443,7 +459,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "clean",
     keyword: "clean",
     syntax: "clean",
-    description: "Clean caches/logs — shows a preview first, deletes only after you confirm",
+    description:
+      "Clean caches/logs — shows a preview first, deletes only after you confirm",
     requiresArg: false,
   },
   {
@@ -473,7 +490,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "random",
     keyword: "rnd",
     syntax: "rnd [max] | rnd [min] [max]",
-    description: "Roll a random number (default 1–6); `rnd 100` = 1–100, `rnd 5 500` = 5–500",
+    description:
+      "Roll a random number (default 1–6); `rnd 100` = 1–100, `rnd 5 500` = 5–500",
     requiresArg: false,
   },
   {
@@ -558,14 +576,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "hue",
     keyword: "hue",
     syntax: "hue",
-    description: "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
+    description:
+      "Control Philips Hue lamps — all-lamps switch + brightness + per-lamp colour",
     requiresArg: false,
   },
   {
     kind: "stats",
     keyword: "stats",
     syntax: "stats",
-    description: "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
+    description:
+      "Live system stats — CPU, memory, disks, network, temps, fans, battery & power",
     requiresArg: false,
   },
   {
@@ -587,7 +607,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "calendar",
     keyword: "calendar",
     syntax: "calendar [month year]",
-    description: "Month-view calendar in the preview — which weekday was that date? ←→ month · ↑↓ year",
+    description:
+      "Month-view calendar in the preview — which weekday was that date? ←→ month · ↑↓ year",
     requiresArg: false,
   },
   {
@@ -602,7 +623,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "track",
     keyword: "track",
     syntax: "track on|off",
-    description: "Time tracking — `track on` / `track off`; bare `track` opens the timesheet",
+    description:
+      "Time tracking — `track on` / `track off`; bare `track` opens the timesheet",
     requiresArg: false,
     platform: ["mac"],
   },
@@ -610,7 +632,8 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "disco",
     keyword: "disco",
     syntax: "disco 1|0",
-    description: "Beat-sync Hue lamps to the mic — disco 1 = on, disco 0 = off (bare = toggle). Keeps running after the popup closes",
+    description:
+      "Beat-sync Hue lamps to the mic — disco 1 = on, disco 0 = off (bare = toggle). Keeps running after the popup closes",
     requiresArg: false,
   },
   ...SEARCH_BANG_COMMANDS,
@@ -837,14 +860,16 @@ export function commandSuggestions(query: string): CommandSpec[] {
   const needle = trimmed.toLowerCase();
   if (needle.length === 0) return [];
 
-  return COMMANDS.filter((c) => !c.hidden)
-    .map((c) => ({ c, score: fuzzyScore(c.keyword.toLowerCase(), needle) }))
-    .filter((s): s is { c: CommandSpec; score: number } => s.score !== null)
-    .sort((a, b) => a.score - b.score || a.c.keyword.localeCompare(b.c.keyword))
-    .map((s) => s.c)
-    // Suppress a no-arg EXACT match — it runs with Enter via parseCommand,
-    // so an autocomplete row echoing what was just typed is pure clutter.
-    .filter((c) => !(c.keyword === needle && !c.requiresArg));
+  return (
+    COMMANDS.filter((c) => !c.hidden)
+      .map((c) => ({ c, score: fuzzyScore(c.keyword.toLowerCase(), needle) }))
+      .filter((s): s is { c: CommandSpec; score: number } => s.score !== null)
+      .sort((a, b) => a.score - b.score || a.c.keyword.localeCompare(b.c.keyword))
+      .map((s) => s.c)
+      // Suppress a no-arg EXACT match — it runs with Enter via parseCommand,
+      // so an autocomplete row echoing what was just typed is pure clutter.
+      .filter((c) => !(c.keyword === needle && !c.requiresArg))
+  );
 }
 
 /**
@@ -1035,20 +1060,22 @@ export function isBpmTrigger(query: string): boolean {
 export function is2faTrigger(query: string): boolean {
   const q = query.trim().toLowerCase();
   // Bare `otp` opens the same overlay as `2fa` (add / import / export / delete);
-  // `otp <issuer>` stays an autocomplete (parseOtpQuery requires an argument).
+  // `otp <issuer>` / `2fa <issuer>` stay an autocomplete (parseOtpQuery
+  // requires an argument).
   return q === "2fa" || q === "otp";
 }
 
 /**
- * `otp <query>` → autocomplete trigger for TOTP entries. Returns the
- * trimmed query portion (so `otp ama` → `"ama"`) when the input is
- * `otp` followed by a non-empty query; otherwise null.
+ * `otp <query>` / `2fa <query>` → autocomplete trigger for TOTP entries.
+ * Returns the trimmed query portion (so `otp ama` / `2fa ama` → `"ama"`)
+ * when the input is either keyword followed by a non-empty query;
+ * otherwise null. Enter on a match copies the current code.
  *
- * Bare `otp` returns null (it opens the overlay via `is2faTrigger`
- * instead) so the two don't fight over the same input.
+ * Bare `otp` / `2fa` return null (they open the overlay via
+ * `is2faTrigger` instead) so the two don't fight over the same input.
  */
 export function parseOtpQuery(query: string): string | null {
-  const m = query.match(/^otp\s+(.+)$/i);
+  const m = query.match(/^(?:otp|2fa)\s+(.+)$/i);
   if (!m) return null;
   return m[1].trim() || null;
 }
@@ -1106,7 +1133,16 @@ export function parseTimerArg(arg: string): TimerSpec | null {
   // Sub-second precision wouldn't be useful (notification latency
   // alone is ~100 ms). Round to nearest whole second after applying
   // the unit multiplier.
-  const SECONDS = new Set(["s", "sec", "secs", "sek", "second", "seconds", "sekunde", "sekunden"]);
+  const SECONDS = new Set([
+    "s",
+    "sec",
+    "secs",
+    "sek",
+    "second",
+    "seconds",
+    "sekunde",
+    "sekunden",
+  ]);
   const MINUTES = new Set(["", "m", "min", "mins", "minute", "minutes", "minuten"]);
   const HOURS = new Set(["h", "hr", "hrs", "hour", "hours", "std", "stunde", "stunden"]);
 

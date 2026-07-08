@@ -123,7 +123,14 @@ describe("COMMANDS catalogue", () => {
   });
 
   it("all six new language-pair translate commands are present + require an arg", () => {
-    const langKeywords = ["trde2it", "trit2de", "trde2sp", "trsp2de", "trde2pl", "trpl2de"];
+    const langKeywords = [
+      "trde2it",
+      "trit2de",
+      "trde2sp",
+      "trsp2de",
+      "trde2pl",
+      "trpl2de",
+    ];
     for (const kw of langKeywords) {
       const spec = COMMANDS.find((c) => c.keyword === kw);
       expect(spec, `missing command ${kw}`).toBeDefined();
@@ -240,9 +247,16 @@ describe("custom-command priority preconditions", () => {
 
   it("these arg-less commands are not flagged requiresArg in the catalogue", () => {
     const argless = COMMANDS.filter((c) =>
-      ["terminal", "freeze", "lock", "mute", "reboot", "shutdown", "brightness", "bri"].includes(
-        c.keyword,
-      ),
+      [
+        "terminal",
+        "freeze",
+        "lock",
+        "mute",
+        "reboot",
+        "shutdown",
+        "brightness",
+        "bri",
+      ].includes(c.keyword),
     );
     expect(argless.length).toBe(8);
     expect(argless.every((c) => !c.requiresArg)).toBe(true);
@@ -467,9 +481,9 @@ describe("translate language-pair commands (v0.75.0)", () => {
   });
 
   it("every command in TRANSLATE_LANGS is in COMMANDS and vice-versa", () => {
-    const translateKeywords = COMMANDS.filter((c) =>
-      isTranslateKind(c.kind),
-    ).map((c) => c.kind);
+    const translateKeywords = COMMANDS.filter((c) => isTranslateKind(c.kind)).map(
+      (c) => c.kind,
+    );
     const mapKinds = Object.keys(TRANSLATE_LANGS);
     expect(translateKeywords.sort()).toEqual(mapKinds.sort());
     // 3 original + 6 new = 9 translate commands.
@@ -514,7 +528,9 @@ describe("web-search bangs (v0.76.0)", () => {
   it("each bang URL targets its engine and URL-encodes the query", () => {
     expect(SEARCH_BANGS.g.url("a b")).toContain("google.com/search?q=a%20b");
     expect(SEARCH_BANGS.gh.url("rust")).toContain("github.com/search?q=rust");
-    expect(SEARCH_BANGS.yt.url("lofi")).toContain("youtube.com/results?search_query=lofi");
+    expect(SEARCH_BANGS.yt.url("lofi")).toContain(
+      "youtube.com/results?search_query=lofi",
+    );
     expect(SEARCH_BANGS.npm.url("vite")).toContain("npmjs.com/search?q=vite");
     expect(SEARCH_BANGS.so.url("c++")).toContain("q=c%2B%2B");
   });
@@ -696,9 +712,9 @@ describe("rockTheBoxMode — hidden Snake easter egg", () => {
   });
   it("never surfaces as an autocomplete suggestion", () => {
     for (const prefix of ["r", "ro", "rock", "rockthe", "rocktha"]) {
-      expect(
-        commandSuggestions(prefix).some((c) => c.keyword.startsWith("rockth")),
-      ).toBe(false);
+      expect(commandSuggestions(prefix).some((c) => c.keyword.startsWith("rockth"))).toBe(
+        false,
+      );
     }
   });
 });
@@ -774,7 +790,9 @@ describe("isOpenerTrigger — hidden German pickup-line easter egg", () => {
   });
   it("never surfaces as an autocomplete suggestion", () => {
     for (const prefix of ["o", "op", "ope", "open", "opene"]) {
-      expect(commandSuggestions(prefix).some((c) => c.keyword.startsWith("open"))).toBe(false);
+      expect(commandSuggestions(prefix).some((c) => c.keyword.startsWith("open"))).toBe(
+        false,
+      );
     }
   });
 });
@@ -933,7 +951,16 @@ describe("parseTimerArg", () => {
     expect(parseTimerArg("1")).toEqual({ seconds: 60, label: "1 minute" });
   });
   it("seconds aliases (s / sec / sek / sekunden)", () => {
-    for (const u of ["s", "sec", "secs", "sek", "second", "seconds", "sekunde", "sekunden"]) {
+    for (const u of [
+      "s",
+      "sec",
+      "secs",
+      "sek",
+      "second",
+      "seconds",
+      "sekunde",
+      "sekunden",
+    ]) {
       expect(parseTimerArg(`30${u}`)).toEqual({ seconds: 30, label: "30 seconds" });
       expect(parseTimerArg(`30 ${u}`)).toEqual({ seconds: 30, label: "30 seconds" });
     }
@@ -1076,13 +1103,9 @@ describe("bare pwgen surfaces the action (not a suggestion)", () => {
   });
 
   it("does not suggest a bare pwgen (it runs as a command instead)", () => {
-    expect(commandSuggestions("pwgen").some((s) => s.keyword === "pwgen")).toBe(
-      false,
-    );
+    expect(commandSuggestions("pwgen").some((s) => s.keyword === "pwgen")).toBe(false);
     // …but a partial prefix still autocompletes to pwgen.
-    expect(commandSuggestions("pwg").some((s) => s.keyword === "pwgen")).toBe(
-      true,
-    );
+    expect(commandSuggestions("pwg").some((s) => s.keyword === "pwgen")).toBe(true);
   });
 
   it("exposes a sane default length", () => {
@@ -1097,15 +1120,22 @@ describe("parseOtpQuery", () => {
     expect(parseOtpQuery("OTP  GitHub ")).toBe("GitHub");
     expect(parseOtpQuery("otp google work")).toBe("google work");
   });
-  it("returns null for bare `otp` (the overlay opens via is2faTrigger instead)", () => {
+  it("also accepts the `2fa <issuer>` spelling", () => {
+    expect(parseOtpQuery("2fa hosti")).toBe("hosti");
+    expect(parseOtpQuery("2FA  Hostinger ")).toBe("Hostinger");
+    expect(parseOtpQuery("2fa google work")).toBe("google work");
+  });
+  it("returns null for bare `otp`/`2fa` (the overlay opens via is2faTrigger instead)", () => {
     expect(parseOtpQuery("otp")).toBeNull();
     expect(parseOtpQuery("otp ")).toBeNull();
     expect(parseOtpQuery("otp   ")).toBeNull();
+    expect(parseOtpQuery("2fa")).toBeNull();
+    expect(parseOtpQuery("2fa   ")).toBeNull();
   });
   it("returns null when the query isn't an otp query", () => {
     expect(parseOtpQuery("")).toBeNull();
     expect(parseOtpQuery("otpfoo")).toBeNull(); // no boundary
-    expect(parseOtpQuery("2fa")).toBeNull();
+    expect(parseOtpQuery("2fafoo")).toBeNull(); // no boundary
     expect(parseOtpQuery("note otp")).toBeNull();
   });
 });

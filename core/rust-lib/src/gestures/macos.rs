@@ -19,7 +19,10 @@
 //! macOS could change them; the code is fully guarded so it never crashes — at
 //! worst gestures stop until the layout is updated.
 
-use super::{Contact, GestureConfig, GestureEvent, GestureSink, GestureSource, Recognizer, TipTapRecognizer, TouchFrame};
+use super::{
+    Contact, GestureConfig, GestureEvent, GestureSink, GestureSource, PalmAwareRecognizer,
+    RawContact, TipTapRecognizer, PALM_SIZE,
+};
 use parking_lot::Mutex;
 use std::ffi::c_void;
 use std::os::raw::{c_char, c_int};
@@ -166,7 +169,7 @@ unsafe fn load_mt() -> Option<Mt> {
 
 static RUNNING: AtomicBool = AtomicBool::new(false);
 static SINK: Mutex<Option<GestureSink>> = Mutex::new(None);
-static REC: Mutex<Option<Recognizer>> = Mutex::new(None);
+static REC: Mutex<Option<PalmAwareRecognizer>> = Mutex::new(None);
 static TIPTAP_REC: Mutex<Option<TipTapRecognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
@@ -215,17 +218,55 @@ extern "C" fn frame_callback(
     let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
     if prev != n as i32 {
-        tracing::debug!("gestures(mac): contacts {prev} -> {n}");
+        // Sizes included for palm-threshold field tuning (fingertip ~0.5–1.5,
+        // palm heel larger — see PALM_SIZE).
+        let sizes = fingers
+            .iter()
+            .map(|f| format!("{:.2}", f.size))
+            .collect::<Vec<_>>()
+            .join(" ");
+        tracing::debug!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
     }
-    // Scroll-consume window: while ≥3 fingers are down, keep pushing the
-    // swallow deadline to now+GRACE — so it covers the whole gesture plus a
-    // grace tail (lift frames + momentum). On full lift, log the leak counters.
-    if n >= ARM_FINGERS {
+    // Per-contact feed for the palm-aware recogniser: stable id + position
+    // (y flipped so "up" = decreasing y, matching `classify_swipe`) + the
+    // driver's contact `size` (palm rejection). Only TOUCHING contacts count —
+    // a lifting finger lingers in the frame array in the leaving states (5-7).
+    const MT_STATE_TOUCHING: c_int = 4;
+    let t_ms = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+    let mut raw: [RawContact; 11] = [RawContact { id: 0, x: 0.0, y: 0.0, size: 0.0 }; 11];
+    let mut rn = 0usize;
+    for f in fingers.iter() {
+        if f.state != MT_STATE_TOUCHING || rn >= raw.len() {
+            continue;
+        }
+        raw[rn] = RawContact {
+            id: f.identifier,
+            x: f.normalized.pos.x as f64,
+            y: 1.0 - f.normalized.pos.y as f64,
+            size: f.size,
+        };
+        rn += 1;
+    }
+
+    let (event, prev_active, active) = {
+        let mut rec = REC.lock();
+        let rec = rec.get_or_insert_with(PalmAwareRecognizer::new);
+        let prev_active = rec.active_fingers();
+        let ev = rec.feed(t_ms, &raw[..rn]);
+        (ev, prev_active, rec.active_fingers())
+    };
+
+    // Scroll-consume window: while ≥3 ACTIVE fingers are down (parked palms /
+    // resting thumbs excluded — a palm + 2-finger scroll must keep scrolling),
+    // keep pushing the swallow deadline to now+GRACE — so it covers the whole
+    // gesture plus a grace tail (lift frames + momentum). On full lift, log the
+    // leak counters.
+    if active >= ARM_FINGERS {
         // On the leading edge of a gesture, re-assert the tap is enabled — a
         // display reconfiguration (monitor unplug) can silently disable a
         // CGEventTap, after which all scroll leaks. Cheap, idempotent, once per
-        // gesture (only when crossing into ≥3 fingers).
-        if prev < ARM_FINGERS as i32 {
+        // gesture (only when crossing into ≥3 active fingers).
+        if prev_active < ARM_FINGERS {
             let tap = SCROLL_TAP_PORT.load(Ordering::Relaxed) as CFMachPortRef;
             if !tap.is_null() {
                 unsafe { CGEventTapEnable(tap, true) };
@@ -239,26 +280,7 @@ extern "C" fn frame_callback(
             tracing::debug!("gestures(mac): scroll window: swallowed={sw} passed={ps}");
         }
     }
-    // Centroid of the active contacts; flip y so "up" = decreasing y (screen
-    // convention), matching `classify_swipe` (dy < 0 = up).
-    let (mut sx, mut sy) = (0.0f64, 0.0f64);
-    for f in fingers {
-        sx += f.normalized.pos.x as f64;
-        sy += 1.0 - f.normalized.pos.y as f64;
-    }
-    let count = fingers.len();
-    let (x, y) = if count > 0 {
-        (sx / count as f64, sy / count as f64)
-    } else {
-        (0.0, 0.0)
-    };
-    let t_ms = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
-    let frame = TouchFrame { contacts: count as u8, x, y, t_ms };
 
-    let event: Option<GestureEvent> = {
-        let mut rec = REC.lock();
-        rec.get_or_insert_with(Recognizer::new).feed(frame)
-    };
     if let Some(ev) = event {
         tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
         if let Some(sink) = SINK.lock().as_ref() {
@@ -267,17 +289,13 @@ extern "C" fn frame_callback(
     }
 
     // Tip-tap runs on per-contact positions (the centroid can't tell which
-    // finger tapped). Same y-flip as above; ≤ 4 contacts is plenty (the
-    // recogniser poisons itself at ≥ 3 anyway). CRUCIAL: only fingers whose
-    // MT `state` is TOUCHING (4) count — a lifting finger lingers in the frame
-    // array for several frames in the leaving states (5-7), which read as a
-    // still-down contact and made taps overstay/bounce (stuck recogniser +
-    // multi-fire tab switches).
-    const MT_STATE_TOUCHING: c_int = 4;
+    // finger tapped). Same y-flip + TOUCHING filter as above; ≤ 4 contacts is
+    // plenty (the recogniser poisons itself at ≥ 3 anyway). Size-palms are
+    // skipped so a resting palm heel doesn't poison every tip-tap attempt.
     let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
     let mut cn = 0usize;
     for f in fingers.iter() {
-        if f.state != MT_STATE_TOUCHING {
+        if f.state != MT_STATE_TOUCHING || f.size >= PALM_SIZE {
             continue;
         }
         if cn >= contacts.len() {
@@ -448,7 +466,7 @@ impl GestureSource for MacGestureSource {
         }
         let _ = START.set(Instant::now());
         FIRST_FRAME_LOGGED.store(false, Ordering::SeqCst);
-        *REC.lock() = Some(Recognizer::new());
+        *REC.lock() = Some(PalmAwareRecognizer::new());
         *TIPTAP_REC.lock() = Some(TipTapRecognizer::new());
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).

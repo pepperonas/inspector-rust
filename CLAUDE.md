@@ -622,8 +622,29 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   `map_action` dispatcher, and the **pure recognition** — `classify_swipe(dx,dy,
   threshold)` (dy<0 = up; screen/HID convention) + a `Recognizer` state machine
   (raw `TouchFrame`s → event, peak-position tracking so finger-lift centroid
-  skew doesn't corrupt the swipe). Fully unit-tested; this is where the tests
-  live (the platform sources are thin).
+  skew doesn't corrupt the swipe; **Windows-only at runtime** since v0.84.233).
+  Fully unit-tested; this is where the tests live (the platform sources are thin).
+- **Palm rejection (`PalmAwareRecognizer`, v0.84.233, macOS):** a palm heel
+  resting on one side of the pad made a 2-finger scroll read as a 3-finger
+  swipe (spurious volume) / a 2-finger tap as mute. macOS now feeds a pure
+  **per-contact** recogniser (`RawContact { id, x, y, size }` from the MT
+  frame; TOUCHING-state contacts only) with three layered guards mirroring
+  libinput/Karabiner-Elements: (1) **size** — a contact with `size ≥ PALM_SIZE`
+  (2.0, Karabiner's palm-threshold default on the same `Finger.size` field) is
+  stickily a palm; (2) **rest** — a contact parked ≥ 600 ms with < 0.03 total
+  movement (parked heel/anchored thumb) doesn't count as an active finger *and
+  doesn't block gestures from other fingers* (a 3-finger swipe now fires while
+  the palm stays down — the decision triggers when the ACTIVE count hits 0,
+  not on all-lift); (3) **per-finger movement at decision time** — only
+  contacts that themselves moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe
+  fingers, and only contacts down ≤ `TAP_MAX_MS` as tap fingers, so palm +
+  2-finger scroll/tap yields `fingers == 2`, which `map_action` ignores. The
+  **scroll-consume window arms on the active count too** (palm + 2-finger
+  scroll no longer swallows the legitimate scroll), and size-palms are skipped
+  in the tip-tap contact feed (a resting heel doesn't poison tip-taps). The
+  contact-transition debug log now includes per-contact sizes for threshold
+  field-tuning. 8 unit tests (palm+scroll ≠ swipe, size + rest variants,
+  swipe/tap-with-parked-palm still fire, rest-out-then-swipe, arming count).
 - **macOS (`gestures/macos.rs`):** the private **MultitouchSupport** framework
   (what BTT uses; NSEvent can't deliver global 3-finger gestures). **`dlopen`-ed
   at runtime** so a missing/changed private framework degrades gracefully instead

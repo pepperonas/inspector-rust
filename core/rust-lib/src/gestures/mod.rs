@@ -49,6 +49,29 @@ pub const TAP_MAX_MS: u64 = 250;
 /// real tap — without this floor those glitches muted "by themselves".
 pub const TAP_MIN_MS: u64 = 10;
 
+// Palm rejection (macOS per-contact recogniser). A palm/heel resting on one
+// side of the pad must never count toward the 3-finger gestures — without
+// this, palm + 2-finger scroll read as a 3-finger swipe (spurious volume) and
+// palm + 2-finger tap as mute. Layered like libinput's palm detection:
+/// A contact whose driver-reported `size` reaches this is a palm, immediately
+/// and stickily (fingertips ~0.5–1.5 on Apple pads; this is the same
+/// MultitouchSupport `Finger.size` field + default threshold Karabiner-Elements
+/// ships for its palm rejection). Devices reporting 0 sizes degrade gracefully
+/// to the rest/movement rules below.
+pub const PALM_SIZE: f32 = 2.0;
+/// A contact parked (nearly) motionless at least this long is "resting" (palm
+/// heel / anchored thumb) and doesn't count as an active gesture finger. Longer
+/// than `TAP_MAX_MS`, so a slow tap can never rest-out mid-gesture.
+pub const PALM_REST_MIN_MS: u64 = 600;
+/// "Motionless" = total displacement since touch-down below this (a resting
+/// palm wobbles slightly; a scrolling finger travels far past it).
+pub const PALM_REST_EPS_NORM: f64 = 0.03;
+/// At decision time a swipe finger must itself have moved at least this much —
+/// in a real 3-finger swipe every finger travels about the centroid distance
+/// (≥ `SWIPE_THRESHOLD_NORM`), while a resting palm moves ~0. Half the swipe
+/// threshold leaves slack for the outer fingers of a slightly rolling hand.
+pub const SWIPE_FINGER_MIN_MOVE_NORM: f64 = 0.06;
+
 // Tip-tap (BetterTouchTool-style "TipTap, 1 finger fix"): one finger rests, a
 // second taps briefly to its left/right → previous/next tab.
 /// The resting finger must be down alone at least this long before the tap
@@ -688,6 +711,9 @@ pub fn classify_swipe(dx: f64, dy: f64, threshold: f64) -> Option<GestureKind> {
 
 /// One touchpad frame (HID): contact count + the contacts' centroid, normalized
 /// to 0..1 over the pad's logical range, with a millisecond timestamp.
+/// Only constructed by the Windows Raw-Input path (+ tests) — macOS moved to
+/// the per-contact [`PalmAwareRecognizer`].
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Debug, Clone, Copy)]
 pub struct TouchFrame {
     pub contacts: u8,
@@ -700,6 +726,8 @@ pub struct TouchFrame {
 /// frames, it emits a [`GestureEvent`] when all fingers lift. To avoid the
 /// centroid skewing as fingers are released, the end position is taken from the
 /// last frame at the gesture's **peak** finger count, not the lift frame.
+/// (Windows-only at runtime; macOS uses [`PalmAwareRecognizer`].)
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 #[derive(Debug, Default)]
 pub struct Recognizer {
     active: bool,
@@ -708,6 +736,7 @@ pub struct Recognizer {
     max_contacts: u8,
 }
 
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
 impl Recognizer {
     pub fn new() -> Self {
         Recognizer::default()
@@ -752,6 +781,147 @@ impl Recognizer {
             classify_swipe(dx, dy, SWIPE_THRESHOLD_NORM)
                 .map(|kind| GestureEvent { kind, fingers })
         }
+    }
+}
+
+// ── Palm-aware per-contact recognition (pure; the macOS path) ────────────────
+
+/// One raw per-contact sample from the platform layer: the driver's stable
+/// contact id, normalized position (y already flipped to screen convention,
+/// like [`TouchFrame`]), and the driver-reported contact `size`.
+#[derive(Debug, Clone, Copy)]
+pub struct RawContact {
+    pub id: i32,
+    pub x: f64,
+    pub y: f64,
+    pub size: f32,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct PTrack {
+    id: i32,
+    start: (f64, f64),
+    t_down: u64,
+    last: (f64, f64),
+    t_last: u64,
+    present: bool,
+    /// Sticky size-based palm flag (once a palm, always a palm until lift).
+    palm: bool,
+}
+
+impl PTrack {
+    fn disp(&self) -> f64 {
+        (self.last.0 - self.start.0).hypot(self.last.1 - self.start.1)
+    }
+    /// Parked motionless long enough to be a resting palm heel / anchored thumb.
+    fn resting(&self, now: u64) -> bool {
+        now.saturating_sub(self.t_down) >= PALM_REST_MIN_MS && self.disp() < PALM_REST_EPS_NORM
+    }
+    fn active(&self, now: u64) -> bool {
+        self.present && !self.palm && !self.resting(now)
+    }
+}
+
+/// Per-contact recogniser with **palm rejection** — replaces the centroid
+/// [`Recognizer`] on macOS, where the private MultitouchSupport feed gives us
+/// per-contact ids + sizes. (Windows keeps `Recognizer`: its Raw-Input path only
+/// has the centroid, and Precision-Touchpad firmware already rejects palms.)
+///
+/// Three layered guards, mirroring libinput / Karabiner-Elements:
+/// 1. **Size**: a contact with `size ≥ PALM_SIZE` never counts (sticky).
+/// 2. **Rest**: a contact parked ≥ `PALM_REST_MIN_MS` with < `PALM_REST_EPS_NORM`
+///    total movement is a parked palm/thumb — it neither counts toward the
+///    active-finger count nor blocks a gesture from *other* fingers (a real
+///    3-finger swipe fires even while the palm stays down).
+/// 3. **Per-finger movement at decision time**: only contacts that themselves
+///    moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe fingers, and only
+///    contacts down ≤ `TAP_MAX_MS` count as tap fingers — so palm + 2-finger
+///    scroll yields `fingers == 2`, which `map_action` ignores.
+///
+/// A gesture is decided when the active-finger count falls back to 0 — which,
+/// unlike the all-lift rule, also happens while a palm remains resting.
+#[derive(Debug, Default)]
+pub struct PalmAwareRecognizer {
+    tracks: Vec<PTrack>,
+    prev_active: usize,
+}
+
+impl PalmAwareRecognizer {
+    pub fn new() -> Self {
+        PalmAwareRecognizer::default()
+    }
+
+    /// Active (present, non-palm, non-resting) contact count as of the last
+    /// `feed` — the platform layer arms its scroll-consume window on this, so a
+    /// parked palm + 2-finger scroll no longer swallows the legitimate scroll.
+    pub fn active_fingers(&self) -> usize {
+        self.prev_active
+    }
+
+    /// Feed one frame (every currently-touching contact). Returns `Some(event)`
+    /// exactly once per gesture, when the last active finger lifts (or parks).
+    pub fn feed(&mut self, t_ms: u64, contacts: &[RawContact]) -> Option<GestureEvent> {
+        for t in &mut self.tracks {
+            t.present = false;
+        }
+        for c in contacts {
+            let palm = c.size >= PALM_SIZE;
+            if let Some(t) = self.tracks.iter_mut().find(|t| t.id == c.id) {
+                t.last = (c.x, c.y);
+                t.t_last = t_ms;
+                t.present = true;
+                t.palm |= palm;
+            } else {
+                self.tracks.push(PTrack {
+                    id: c.id,
+                    start: (c.x, c.y),
+                    t_down: t_ms,
+                    last: (c.x, c.y),
+                    t_last: t_ms,
+                    present: true,
+                    palm,
+                });
+            }
+        }
+        let active = self.tracks.iter().filter(|t| t.active(t_ms)).count();
+        let ev = if self.prev_active > 0 && active == 0 { self.decide(t_ms) } else { None };
+        self.prev_active = active;
+        if active == 0 {
+            // Gesture over (or none in progress): drop lifted tracks — the
+            // decision above already consumed them. Parked palms stay tracked.
+            self.tracks.retain(|t| t.present);
+        }
+        ev
+    }
+
+    fn decide(&self, now: u64) -> Option<GestureEvent> {
+        let mut moved_n = 0usize;
+        let (mut dx, mut dy) = (0.0f64, 0.0f64);
+        let mut taps = 0usize;
+        for t in &self.tracks {
+            // Skip size-palms and STILL-PRESENT resters (a palm that lifted
+            // together with the fingers passes this gate, but its near-zero
+            // movement / long down-time disqualifies it below anyway).
+            if t.palm || (t.present && t.resting(now)) {
+                continue;
+            }
+            if t.disp() >= SWIPE_FINGER_MIN_MOVE_NORM {
+                moved_n += 1;
+                dx += t.last.0 - t.start.0;
+                dy += t.last.1 - t.start.1;
+            } else {
+                let dur = t.t_last.saturating_sub(t.t_down);
+                if (TAP_MIN_MS..=TAP_MAX_MS).contains(&dur) && t.disp() <= TAP_MAX_MOVE_NORM {
+                    taps += 1;
+                }
+            }
+        }
+        if moved_n > 0 {
+            let n = moved_n as f64;
+            return classify_swipe(dx / n, dy / n, SWIPE_THRESHOLD_NORM)
+                .map(|kind| GestureEvent { kind, fingers: moved_n as u8 });
+        }
+        (taps > 0).then_some(GestureEvent { kind: GestureKind::Tap, fingers: taps as u8 })
     }
 }
 
@@ -1039,6 +1209,150 @@ mod tests {
             }
         }
         out
+    }
+
+    // ── Palm-aware recogniser ────────────────────────────────────────────
+
+    fn rc(id: i32, x: f64, y: f64) -> RawContact {
+        RawContact { id, x, y, size: 1.0 } // ordinary fingertip
+    }
+    fn rc_palm(id: i32, x: f64, y: f64) -> RawContact {
+        RawContact { id, x, y, size: 3.0 } // heel-of-hand-sized contact
+    }
+
+    fn palm_events(frames: &[(u64, Vec<RawContact>)]) -> Vec<GestureEvent> {
+        let mut r = PalmAwareRecognizer::new();
+        frames.iter().filter_map(|(t, cs)| r.feed(*t, cs)).collect()
+    }
+
+    /// Three fingers swiping up from y0 to y1, palm-free — the baseline.
+    fn swipe_frames(t0: u64, y0: f64, y1: f64, extra: &[RawContact]) -> Vec<(u64, Vec<RawContact>)> {
+        let mut out = Vec::new();
+        for (i, step) in [0.0, 0.25, 0.5, 0.75, 1.0].iter().enumerate() {
+            let y = y0 + (y1 - y0) * step;
+            let mut cs = vec![rc(1, 0.4, y), rc(2, 0.5, y), rc(3, 0.6, y)];
+            cs.extend_from_slice(extra);
+            out.push((t0 + i as u64 * 50, cs));
+        }
+        out.push((t0 + 260, extra.to_vec())); // fingers lift, extras remain
+        out
+    }
+
+    #[test]
+    fn palm_rec_three_finger_swipe_up() {
+        let evs = palm_events(&swipe_frames(0, 0.8, 0.3, &[]));
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
+    }
+
+    #[test]
+    fn size_palm_plus_two_finger_scroll_is_not_a_three_finger_swipe() {
+        // A big (size ≥ PALM_SIZE) heel rests on the left while two fingers
+        // scroll — previously read as a 3-finger swipe → spurious volume.
+        let palm = rc_palm(9, 0.08, 0.9);
+        let frames: Vec<(u64, Vec<RawContact>)> = vec![
+            (0, vec![palm]),
+            (100, vec![palm, rc(1, 0.6, 0.8), rc(2, 0.7, 0.8)]),
+            (150, vec![palm, rc(1, 0.6, 0.6), rc(2, 0.7, 0.6)]),
+            (200, vec![palm, rc(1, 0.6, 0.4), rc(2, 0.7, 0.4)]),
+            (250, vec![palm]), // fingers lift, palm stays
+        ];
+        let evs = palm_events(&frames);
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].fingers, 2); // 2-finger event → map_action ignores it
+    }
+
+    #[test]
+    fn resting_normal_size_palm_plus_two_finger_scroll_is_not_three_fingers() {
+        // Same posture but the heel reports a fingertip-like size (some pads
+        // do) — the REST rule (parked ≥ PALM_REST_MIN_MS, no movement) and the
+        // per-finger-movement rule still keep it out of the count. The palm
+        // lifts TOGETHER with the fingers (the original misfire report).
+        let palm = rc(9, 0.08, 0.9);
+        let frames: Vec<(u64, Vec<RawContact>)> = vec![
+            (0, vec![palm]),
+            (700, vec![palm]), // parked past PALM_REST_MIN_MS
+            (1000, vec![palm, rc(1, 0.6, 0.8), rc(2, 0.7, 0.8)]),
+            (1050, vec![palm, rc(1, 0.6, 0.6), rc(2, 0.7, 0.6)]),
+            (1100, vec![palm, rc(1, 0.6, 0.4), rc(2, 0.7, 0.4)]),
+            (1150, vec![]), // everything lifts at once
+        ];
+        let evs = palm_events(&frames);
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].fingers, 2);
+    }
+
+    #[test]
+    fn swipe_fires_while_palm_stays_resting() {
+        // A real 3-finger swipe must still work with a heel parked on the pad —
+        // and the event fires even though the palm never lifts.
+        let palm = rc(9, 0.08, 0.9);
+        let mut frames: Vec<(u64, Vec<RawContact>)> = vec![(0, vec![palm]), (800, vec![palm])];
+        frames.extend(swipe_frames(1000, 0.8, 0.3, &[palm]));
+        let evs = palm_events(&frames);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
+    }
+
+    #[test]
+    fn palm_plus_two_finger_tap_is_not_a_three_finger_tap() {
+        // Parked heel + a quick 2-finger tap: the heel's long down-time
+        // disqualifies it as a tap finger → fingers = 2, no mute.
+        let palm = rc(9, 0.08, 0.9);
+        let frames: Vec<(u64, Vec<RawContact>)> = vec![
+            (0, vec![palm]),
+            (800, vec![palm]),
+            (1000, vec![palm, rc(1, 0.5, 0.5), rc(2, 0.6, 0.5)]),
+            (1100, vec![palm, rc(1, 0.5, 0.5), rc(2, 0.6, 0.5)]),
+            (1150, vec![palm]),
+        ];
+        let evs = palm_events(&frames);
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0], GestureEvent { kind: GestureKind::Tap, fingers: 2 });
+    }
+
+    #[test]
+    fn three_finger_tap_with_parked_palm_still_mutes() {
+        let palm = rc(9, 0.08, 0.9);
+        let frames: Vec<(u64, Vec<RawContact>)> = vec![
+            (0, vec![palm]),
+            (800, vec![palm]),
+            (1000, vec![palm, rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]),
+            (1100, vec![palm, rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]),
+            (1150, vec![palm]),
+        ];
+        let evs = palm_events(&frames);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }]);
+    }
+
+    #[test]
+    fn fingers_that_rest_out_then_swipe_still_recognised() {
+        // 3 fingers land, sit motionless past PALM_REST_MIN_MS (they "rest
+        // out" → a silent no-event decision), then swipe: the swipe must still
+        // be recognised on lift.
+        let mut frames: Vec<(u64, Vec<RawContact>)> = vec![
+            (0, vec![rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]),
+            (700, vec![rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]),
+        ];
+        frames.push((800, vec![rc(1, 0.4, 0.6), rc(2, 0.5, 0.6), rc(3, 0.6, 0.6)]));
+        frames.push((900, vec![rc(1, 0.4, 0.3), rc(2, 0.5, 0.3), rc(3, 0.6, 0.3)]));
+        frames.push((950, vec![]));
+        let evs = palm_events(&frames);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
+    }
+
+    #[test]
+    fn active_fingers_excludes_parked_palm() {
+        // The scroll-consume window arms on ACTIVE fingers: heel + 2 fingers
+        // must not reach 3 (it would swallow the user's legitimate scroll).
+        let mut r = PalmAwareRecognizer::new();
+        let palm = rc(9, 0.08, 0.9);
+        r.feed(0, &[palm]);
+        r.feed(800, &[palm]);
+        r.feed(1000, &[palm, rc(1, 0.6, 0.8), rc(2, 0.7, 0.8)]);
+        assert_eq!(r.active_fingers(), 2);
+        // …while 3 real fingers (fresh, moving) do arm.
+        let mut r2 = PalmAwareRecognizer::new();
+        r2.feed(0, &[rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]);
+        assert_eq!(r2.active_fingers(), 3);
     }
 
     // ── Tip-tap ──────────────────────────────────────────────────────────

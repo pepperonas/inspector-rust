@@ -4,6 +4,55 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.239] — 2026-07-09
+
+### Fixed
+
+- **Battery drain: the timesheet browser bridge no longer pins a full CPU core.** On macOS/BSD a socket accepted from a non-blocking listener **inherits O_NONBLOCK** (Linux clears it, which is why the pattern looked fine in code review). The bridge's listener is non-blocking for its accept loop — so every accepted extension connection had a non-blocking stream: the 500 ms read timeout never engaged, `ws.read()` returned `WouldBlock` instantly, and the per-connection loop spun at ~100 % CPU for as long as the browser extension stayed connected. Measured live before the fix: **~4.6 CPU-hours in one morning** (99.5 % CPU, pinned by `sample` — the `recvfrom`/EAGAIN hot loop dominated the trace). Fix: `set_nonblocking(false)` on the accepted stream so the read timeout actually blocks, plus a 10 ms belt-and-braces sleep in the `WouldBlock` arm so the loop can never run hot even if the flag reset fails. A regression test pins the blocking behaviour. Verified live: with the extension connected the app now averages **~0.9 % CPU** (was 100 %).
+
+## [0.84.238] — 2026-07-09
+
+### Fixed
+
+- **BPM detector: starting it no longer makes the currently playing music stutter.** The shared "warm" AudioContext was created lazily on the *first* `bpm` start — its output-unit spin-up reconfigured the audio device exactly while music was playing, and with **boom** enabled that drained the bridge's ring buffer → audible dropouts. The context is now **pre-warmed ~2 s after app launch** (a harmless moment: the popup is created hidden), so `bpm` attaches the mic to an already-running context; boom's ring cushion was also doubled (30 → 60 ms) to absorb capture stalls during the webview's mic open. Field-verified result: the first mic-open per app run is one clean ~3 s system-wide mute (macOS initialising the capture session) instead of ring stutter, then playback resumes cleanly — and detection quality is excellent (plausibly *because* the analyzer calibrates its noise floor inside that quiet window; the start sequence is deliberately left as-is).
+
+## [0.84.237] — 2026-07-09
+
+### Added
+
+- **Full-app backup: one export now covers everything, optionally password-encrypted.** Settings → Backup & restore was reworked: export always includes the whole app (history, snippets, notes, 2FA, settings — the old per-section tickboxes are gone) plus an opt-in **Timesheet data** checkbox; an **Encrypt with password** checkbox reveals password + repeat fields (show-toggle, match validation, an explicit no-recovery warning). Encryption is AES-256-GCM with an Argon2id-derived key (the envelope format that already existed in the backend). Import picks a file, auto-detects encryption, and shows an **inline unlock row** for encrypted files — a wrong password keeps the row so you can correct it without re-picking the file. The result banner shows all counts.
+- **Timesheet in the backup (format v3, backward-compatible).** Sessions, events, Claude turns and category rules round-trip; encrypted columns (window titles/URLs) are decrypted at export and **re-encrypted with the target machine's key on import**, so backups are portable across installs. Import merges with id remapping + dedup (re-import creates no duplicates); an imported `active` session is forced closed so it can never fight the machine's live session. A timesheet-less export still claims **version 2**, so older app builds keep importing it.
+
+## [0.84.236] — 2026-07-09
+
+### Added
+
+- **2FA overlay: type to filter.** With the `2fa`/`otp` overlay open, just start typing — printable keys anywhere on the List tab feed a fuzzy issuer/account filter (the same ranker as `otp <issuer>`). The top match is accent-ringed and **Enter copies its current code and hides the popup** (immediately pasteable). Esc is two-stage: first clears the filter, then exits. Drag-reorder is disabled while filtering (a partial list has no meaningful persistent order), and a hidden overlay can no longer resurrect on the next popup open.
+
+## [0.84.235] — 2026-07-09
+
+### Added
+
+- **`2fa <issuer>` now autocompletes accounts, like `otp <issuer>`.** Typing `2fa hosti` surfaces the matching 2FA accounts as live-code rows — Enter copies the current token to the clipboard. Both keywords are now interchangeable: bare `2fa`/`otp` opens the manager overlay, either keyword + an issuer fragment fetches tokens directly.
+
+## [0.84.234] — 2026-07-09
+
+### Added
+
+- **`calendar` (alias `cal`) — a month-view calendar in the preview column.** Research which weekday a date was: the calendar shows directly while you type; Enter hands the keyboard over — **←/→** month, **↑/↓** year, **PgUp/PgDn** month, **T**/Home jumps to today, Esc exits. Clicking a day gives a full-date readout plus the distance from today ("in 142 days"). An argument jumps the view live: `calendar märz 1990` · `cal 3.2024` · `cal 2024-03` · a bare year (German + English month names, either word order). Monday-start weeks with an ISO-week-number gutter; today gets an accent ring, neighbour-month days are dimmed; month changes play a directional slide (reduced-motion-guarded). Pure, unit-tested date math (12 tests).
+
+## [0.84.233] — 2026-07-09
+
+### Fixed
+
+- **Touchpad gestures: palm rejection.** A hand heel resting on one side of the trackpad made a 2-finger scroll read as a 3-finger swipe (spurious volume changes) or a 2-finger tap as mute. The macOS gesture source now feeds a per-contact recogniser with three layered guards mirroring libinput/Karabiner-Elements: a **size** threshold (a large contact is stickily a palm), **rest** detection (a contact parked ≥ 600 ms doesn't count as an active finger — and doesn't block gestures from the *other* fingers, so a 3-finger swipe still fires while the palm stays down), and **per-finger movement at decision time** (only fingers that actually moved count as swipe fingers). Palm + 2-finger scroll no longer swallows the legitimate scroll, and a resting heel no longer poisons tip-taps. 8 new unit tests.
+
+## [0.84.232] — 2026-07-09
+
+### Fixed
+
+- **boom: while off, the settings are hidden — and it's obvious whether boom is on.** With boom disabled the whole settings surface (preset, pre-amp, EQ, boost, effects, meters) is now hidden — the engine is stopped, so the controls would do nothing; only the toggle, driver status and an "audio passes through untouched" hint remain. The on/off control is a **state-first switch** (knob + colour + an explicit "Active"/"Off" word and a state-aware status line) — the old "On"-labelled pill read as an *action* button, so you couldn't tell whether boom was currently active.
+
 ## [0.84.230] — 2026-07-06
 
 ### Fixed

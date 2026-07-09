@@ -56,6 +56,17 @@ the range query (`events_in_range`, title/url decrypted), Claude turns, and
    extension is only a URL/title source (reports the active tab over the
    loopback WS). Per-tab duration comes from splitting the browser interval on
    tab change. No double-counting — the desktop stays the only time source.
+   **⚠️ Socket gotcha (the v0.84.239 battery-drain bug):** the bridge's
+   listener is non-blocking (for its stop-flag accept loop), and on
+   **macOS/BSD an `accept()`ed socket inherits O_NONBLOCK** (Linux clears
+   it) — so the per-connection handler MUST `set_nonblocking(false)` on the
+   accepted stream before relying on its read timeout. Without that reset,
+   `ws.read()` returned `WouldBlock` instantly, the timeout never engaged,
+   and the connection loop **spun a full CPU core for as long as the
+   extension was connected** (~4.6 CPU-hours in one morning, measured live).
+   A regression test (`accepted_stream_blocks_after_clearing_nonblocking`)
+   pins the blocking behaviour; a 10 ms sleep in the `WouldBlock` arm is the
+   belt-and-braces cap.
 4. **Claude-Code detection** — a `notify` watcher on `~/.claude/projects/**/*.jsonl`;
    appends mean active usage, aggregated per `cwd`, closed after a gap. Runs only
    while a session is active. Defensive JSONL parsing.

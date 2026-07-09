@@ -223,8 +223,8 @@ export function wakelockGet(): Promise<boolean> {
  *  Persistent via the SQLite settings table. Settings panel has a
  *  collapsible Bruno section that edits these. */
 export interface BrunoDefaults {
-  tax_class: number;          // 1..6
-  state: string;              // German state ISO short
+  tax_class: number; // 1..6
+  state: string; // German state ISO short
   children: number;
   is_church_member: boolean;
   /** Krankenkasse-Zusatzbeitrag in **percent** (e.g. 2.45 for TK 2025). */
@@ -582,6 +582,8 @@ export interface BackupExportOptions {
   includeNotes?: boolean;
   includeTotp?: boolean;
   includeSettings?: boolean;
+  /** Timesheet tracking data — opt-in (bumps the file format to v3). */
+  includeTimesheet?: boolean;
   /** If set, encrypt the backup with this password (AES-256-GCM + Argon2id). */
   password?: string;
 }
@@ -596,6 +598,7 @@ export function exportBackup(opts: BackupExportOptions = {}): Promise<string> {
     includeNotes: opts.includeNotes ?? true,
     includeTotp: opts.includeTotp ?? true,
     includeSettings: opts.includeSettings ?? true,
+    includeTimesheet: opts.includeTimesheet ?? false,
     password: opts.password ?? null,
   });
 }
@@ -614,6 +617,7 @@ export function saveBackupToFile(
     includeNotes: opts.includeNotes ?? true,
     includeTotp: opts.includeTotp ?? true,
     includeSettings: opts.includeSettings ?? true,
+    includeTimesheet: opts.includeTimesheet ?? false,
     password: opts.password ?? null,
   });
 }
@@ -800,7 +804,18 @@ export function setBoomConfig(config: BoomConfig): Promise<BoomConfig> {
 }
 
 /** Standard 10-band EQ centre-frequency labels (aligned to BANDS_10 in Rust). */
-export const BOOM_BANDS = ["31", "62", "125", "250", "500", "1k", "2k", "4k", "8k", "16k"];
+export const BOOM_BANDS = [
+  "31",
+  "62",
+  "125",
+  "250",
+  "500",
+  "1k",
+  "2k",
+  "4k",
+  "8k",
+  "16k",
+];
 
 /** Window palette (Moom-style hover palette over the green zoom button; macOS, opt-in). */
 export interface WindowPaletteConfig {
@@ -820,7 +835,9 @@ export function getWindowPaletteConfig(): Promise<WindowPaletteConfig> {
   return invoke("get_window_palette_config");
 }
 
-export function setWindowPaletteConfig(config: WindowPaletteConfig): Promise<WindowPaletteConfig> {
+export function setWindowPaletteConfig(
+  config: WindowPaletteConfig,
+): Promise<WindowPaletteConfig> {
   return invoke("set_window_palette_config", { config });
 }
 
@@ -828,7 +845,12 @@ export function windowPaletteContext(): Promise<PaletteContext> {
   return invoke("window_palette_context");
 }
 
-export function windowPaletteApply(fx: number, fy: number, fw: number, fh: number): Promise<void> {
+export function windowPaletteApply(
+  fx: number,
+  fy: number,
+  fw: number,
+  fh: number,
+): Promise<void> {
   return invoke("window_palette_apply", { fx, fy, fw, fh });
 }
 
@@ -837,7 +859,12 @@ export function windowPaletteCancel(): Promise<void> {
 }
 
 /** Show the live screen-outline preview for a 0..1 fraction (frame on-screen). */
-export function windowPalettePreview(fx: number, fy: number, fw: number, fh: number): Promise<void> {
+export function windowPalettePreview(
+  fx: number,
+  fy: number,
+  fw: number,
+  fh: number,
+): Promise<void> {
   return invoke("window_palette_preview", { fx, fy, fw, fh });
 }
 
@@ -857,9 +884,7 @@ export function setKeepaliveEnabled(enabled: boolean): Promise<boolean> {
 
 /** Persist a new auto-expansion config and (re)arm/disarm the passive
  *  monitor. Returns the now-effective config. */
-export function setAutoExpandConfig(
-  config: AutoExpandConfig,
-): Promise<AutoExpandConfig> {
+export function setAutoExpandConfig(config: AutoExpandConfig): Promise<AutoExpandConfig> {
   return invoke("set_auto_expand_config", { config });
 }
 
@@ -914,7 +939,9 @@ export function totpDeleteAll(): Promise<number> {
   return invoke("totp_delete_all");
 }
 
-export function totpCurrentCode(id: number): Promise<{ code: string; seconds_remaining: number }> {
+export function totpCurrentCode(
+  id: number,
+): Promise<{ code: string; seconds_remaining: number }> {
   return invoke("totp_current_code", { id });
 }
 
@@ -1092,7 +1119,10 @@ export function setAutostartEnabled(enabled: boolean): Promise<boolean> {
 
 /** Read a backup JSON file from `path` and merge it into the live database.
  *  If the backup is encrypted, `password` must be provided. */
-export function importBackup(path: string, password?: string): Promise<BackupImportResult> {
+export function importBackup(
+  path: string,
+  password?: string,
+): Promise<BackupImportResult> {
   return invoke("import_backup", { path, password: password ?? null });
 }
 
@@ -1819,7 +1849,10 @@ export function cancelRecordOverlay(): Promise<void> {
 /** Start recording the chosen region with the chosen audio tracks. Closes the
  *  overlay, shows the floating stop bar. Rejects with `record.no_ffmpeg` if
  *  ffmpeg is missing. */
-export function startScreenRecord(region: RecordRegion, audio: AudioChoice): Promise<void> {
+export function startScreenRecord(
+  region: RecordRegion,
+  audio: AudioChoice,
+): Promise<void> {
   return invoke("start_screen_record", { region, audio });
 }
 /** Pause the active recording (finalises the current segment). */
@@ -1875,7 +1908,11 @@ export function audioSwapDownloadYoutube(url: string): Promise<string> {
   return invoke("audio_swap_download_youtube", { url });
 }
 /** Mux the audio into the video; returns the output path (revealed in Finder). */
-export function audioSwapApply(video: string, audio: string, spec: SwapSpec): Promise<string> {
+export function audioSwapApply(
+  video: string,
+  audio: string,
+  spec: SwapSpec,
+): Promise<string> {
   return invoke("audio_swap_apply", { video, audio, spec });
 }
 /** Close the audio-swap overlay window. */
@@ -1913,7 +1950,12 @@ export function trimFileInfo(path: string): Promise<TrimFileInfo | null> {
   return invoke("trim_file_info", { path });
 }
 /** Trim a file to [start, end] (seconds); returns the output path (revealed). */
-export function trimApply(input: string, start: number, end: number, lossless: boolean): Promise<string> {
+export function trimApply(
+  input: string,
+  start: number,
+  end: number,
+  lossless: boolean,
+): Promise<string> {
   return invoke("trim_apply", { input, start, end, lossless });
 }
 
@@ -1939,7 +1981,10 @@ export interface ResizeResult {
 /** Resize the clipboard image to `width × height` using Lanczos3
  *  sampling. The resized PNG replaces the clipboard contents and is
  *  also pushed to History. Backend: `commands::resize_clipboard_image`. */
-export function resizeClipboardImage(width: number, height: number): Promise<ResizeResult> {
+export function resizeClipboardImage(
+  width: number,
+  height: number,
+): Promise<ResizeResult> {
   return invoke("resize_clipboard_image", { width, height });
 }
 

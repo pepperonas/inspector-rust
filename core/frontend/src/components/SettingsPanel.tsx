@@ -85,6 +85,7 @@ import {
   setClipboardPrivacy,
   type ClipboardPrivacy,
   importBackup,
+  isBackupEncrypted,
   listSnippets,
   openAccessibilitySettings,
   openFinderAutomationSettings,
@@ -189,9 +190,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
     | null
   >(null);
   const [status, setStatus] = useState<
-    | { kind: "ok"; message: string }
-    | { kind: "err"; message: string }
-    | null
+    { kind: "ok"; message: string } | { kind: "err"; message: string } | null
   >(null);
   const pollRef = useRef<number | null>(null);
 
@@ -216,20 +215,24 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   // releases all keys (mirrors the macOS-lock SettingsDialog UX).
   const [capturedChord, setCapturedChord] = useState<Set<string> | null>(null);
   const [inputLockSaving, setInputLockSaving] = useState(false);
-  const [inputLockStatus, setInputLockStatus] = useState<
-    { kind: "ok" | "err"; message: string } | null
-  >(null);
+  const [inputLockStatus, setInputLockStatus] = useState<{
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
 
   // ── Direct hotkey → snippet slots ───────────────────────────────────────
   const [snippetList, setSnippetList] = useState<Snippet[]>([]);
   const [slots, setSlots] = useState<DirectSlot[]>([]);
   const [savedSlots, setSavedSlots] = useState<DirectSlot[]>([]);
   const [slotsBusy, setSlotsBusy] = useState(false);
-  const [slotsStatus, setSlotsStatus] = useState<
-    { kind: "ok" | "err"; message: string } | null
-  >(null);
+  const [slotsStatus, setSlotsStatus] = useState<{
+    kind: "ok" | "err";
+    message: string;
+  } | null>(null);
   useEffect(() => {
-    listSnippets().then(setSnippetList).catch(() => undefined);
+    listSnippets()
+      .then(setSnippetList)
+      .catch(() => undefined);
     getDirectSlots()
       .then((s) => {
         setSlots(s);
@@ -239,8 +242,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   }, []);
   const slotKey = (s: { hotkey: string; snippet_id: number }) =>
     `${s.hotkey} ${s.snippet_id}`;
-  const slotsDirty =
-    slots.map(slotKey).join("|") !== savedSlots.map(slotKey).join("|");
+  const slotsDirty = slots.map(slotKey).join("|") !== savedSlots.map(slotKey).join("|");
   const updateSlot = (i: number, patch: Partial<DirectSlot>) =>
     setSlots((cur) => cur.map((s, j) => (j === i ? { ...s, ...patch } : s)));
   const addSlot = () =>
@@ -253,8 +255,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         title: snippetList[0]?.title ?? null,
       },
     ]);
-  const removeSlot = (i: number) =>
-    setSlots((cur) => cur.filter((_, j) => j !== i));
+  const removeSlot = (i: number) => setSlots((cur) => cur.filter((_, j) => j !== i));
   const saveSlots = async () => {
     setSlotsBusy(true);
     setSlotsStatus(null);
@@ -534,7 +535,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   // independent of the Tauri context (matters for component tests).
   const [appVersion, setAppVersion] = useState<string | undefined>(undefined);
   useEffect(() => {
-    getVersion().then(setAppVersion).catch(() => undefined);
+    getVersion()
+      .then(setAppVersion)
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -668,9 +671,17 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   };
 
   // ── Backup section state ────────────────────────────────────────────────
-  const [includeHistory, setIncludeHistory] = useState(true);
-  const [includeSnippets, setIncludeSnippets] = useState(true);
-  const [includeNotes, setIncludeNotes] = useState(true);
+  // Export always covers the whole app (history, snippets, notes, 2FA,
+  // settings); the timesheet is the one opt-in extra (large, machine-bound).
+  const [includeTimesheet, setIncludeTimesheet] = useState(false);
+  const [encryptBackup, setEncryptBackup] = useState(false);
+  const [backupPassword, setBackupPassword] = useState("");
+  const [backupPassword2, setBackupPassword2] = useState("");
+  const [showBackupPassword, setShowBackupPassword] = useState(false);
+  // A picked import file that turned out to be encrypted — we hold it here
+  // and ask for the password inline before actually importing.
+  const [pendingImport, setPendingImport] = useState<string | null>(null);
+  const [importPassword, setImportPassword] = useState("");
   const [backupBusy, setBackupBusy] = useState<"export" | "import" | null>(null);
   const [backupStatus, setBackupStatus] = useState<
     | { kind: "ok"; message: string }
@@ -680,12 +691,18 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
   >(null);
 
   const onExport = async () => {
-    if (!includeHistory && !includeSnippets && !includeNotes) {
-      setBackupStatus({
-        kind: "err",
-        message: "Select at least one section to export.",
-      });
-      return;
+    if (encryptBackup) {
+      if (backupPassword.length < 4) {
+        setBackupStatus({
+          kind: "err",
+          message: "Password must be at least 4 characters.",
+        });
+        return;
+      }
+      if (backupPassword !== backupPassword2) {
+        setBackupStatus({ kind: "err", message: "Passwords don't match." });
+        return;
+      }
     }
     setBackupStatus(null);
     setBackupBusy("export");
@@ -699,14 +716,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
       });
       if (!path) return;
       const bytes = await saveBackupToFile(path, {
-        includeHistory,
-        includeSnippets,
-        includeNotes,
+        includeTimesheet,
+        password: encryptBackup ? backupPassword : undefined,
       });
       const filename = path.split("/").pop() ?? path;
       setBackupStatus({
         kind: "ok",
-        message: `Exported ${formatBytes(bytes)} to ${filename}`,
+        message: `Exported ${formatBytes(bytes)} to ${filename}${encryptBackup ? " (encrypted)" : ""}`,
       });
     } catch (e) {
       setBackupStatus({ kind: "err", message: String(e) });
@@ -716,9 +732,27 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
     }
   };
 
+  const runImport = async (path: string, password?: string) => {
+    setBackupBusy("import");
+    try {
+      const result = await importBackup(path, password);
+      setBackupStatus({ kind: "import-ok", result });
+      setPendingImport(null);
+      setImportPassword("");
+      if (onBackupImported) await onBackupImported();
+    } catch (e) {
+      // Wrong password / corrupt file — keep the pending state so the user
+      // can correct the password without re-picking the file.
+      setBackupStatus({ kind: "err", message: String(e) });
+    } finally {
+      setBackupBusy(null);
+    }
+  };
+
   const onImport = async () => {
     setBackupStatus(null);
-    setBackupBusy("import");
+    setPendingImport(null);
+    setImportPassword("");
     await setSuppressHide(true).catch(() => {});
     try {
       const path = await openDialog({
@@ -728,14 +762,16 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         title: "Select Inspector Rust backup file",
       });
       if (!path) return;
-      const result = await importBackup(path);
-      setBackupStatus({ kind: "import-ok", result });
-      if (onBackupImported) await onBackupImported();
+      if (await isBackupEncrypted(path)) {
+        // Ask for the password inline; the actual import runs on "Unlock".
+        setPendingImport(path);
+        return;
+      }
+      await runImport(path);
     } catch (e) {
       setBackupStatus({ kind: "err", message: String(e) });
     } finally {
       await setSuppressHide(false).catch(() => {});
-      setBackupBusy(null);
     }
   };
 
@@ -947,8 +983,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
     if (accOk && scrOk && finOk) setChaining(false);
   }, [chaining, accessibility, screenRec, finderAutomation]);
 
-  const dirty =
-    cfg !== null && (cfg.enabled !== enabled || cfg.hotkey !== hotkey);
+  const dirty = cfg !== null && (cfg.enabled !== enabled || cfg.hotkey !== hotkey);
 
   const save = async () => {
     setBusy(true);
@@ -1004,14 +1039,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
 
             {/* Explainer — honest about what the button can and can't do. */}
             <p className="px-3 pt-2 text-[var(--color-muted)]">
-              <b className="text-[var(--color-fg)]">Set up permissions</b> wipes
-              any stale macOS TCC entry for Inspector Rust (via{" "}
-              <code>tccutil reset</code>, no admin password) and re-fires
-              the macOS permission prompt. Click <b>Allow → Open System
-              Settings</b>, flip the <b>Inspector Rust</b> switch — once both
-              grants are in, this card auto-prompts to restart. macOS only
-              lets <i>you</i> flip the switch; the reset removes the friction
-              when a switch <i>looks</i> on but Inspector Rust still asks.
+              <b className="text-[var(--color-fg)]">Set up permissions</b> wipes any stale
+              macOS TCC entry for Inspector Rust (via <code>tccutil reset</code>, no admin
+              password) and re-fires the macOS permission prompt. Click{" "}
+              <b>Allow → Open System Settings</b>, flip the <b>Inspector Rust</b> switch —
+              once both grants are in, this card auto-prompts to restart. macOS only lets{" "}
+              <i>you</i> flip the switch; the reset removes the friction when a switch{" "}
+              <i>looks</i> on but Inspector Rust still asks.
             </p>
 
             {/* Live per-permission status. */}
@@ -1054,12 +1088,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 Switch is already on, but it still doesn&apos;t work?
               </summary>
               <p className="mt-1.5">
-                macOS keys each grant to the app&apos;s code signature. As of
-                v0.23.2 <code>scripts/install-macos.sh</code> signs every build
-                with a stable self-signed certificate, so a grant survives
-                rebuilds — you should only need to do this once. If a switch
-                shows on but Inspector Rust still asks, the grant is stale:
-                reset it, then re-toggle and relaunch.
+                macOS keys each grant to the app&apos;s code signature. As of v0.23.2{" "}
+                <code>scripts/install-macos.sh</code> signs every build with a stable
+                self-signed certificate, so a grant survives rebuilds — you should only
+                need to do this once. If a switch shows on but Inspector Rust still asks,
+                the grant is stale: reset it, then re-toggle and relaunch.
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
@@ -1186,9 +1219,10 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     className="accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    Experimental — off by default. Rest one finger, tap a second to its right →
-                    next tab (Ctrl+Tab); left → previous tab (Ctrl+Shift+Tab). If you rest your
-                    thumb on the trackpad while pointing, leave this off (it can misfire).
+                    Experimental — off by default. Rest one finger, tap a second to its
+                    right → next tab (Ctrl+Tab); left → previous tab (Ctrl+Shift+Tab). If
+                    you rest your thumb on the trackpad while pointing, leave this off (it
+                    can misfire).
                   </span>
                 </label>
               </Row>
@@ -1261,7 +1295,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       max={16}
                       value={paletteCfg.cols}
                       disabled={paletteBusy}
-                      onChange={(e) => void updatePalette({ cols: Number(e.target.value) })}
+                      onChange={(e) =>
+                        void updatePalette({ cols: Number(e.target.value) })
+                      }
                       className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
                       aria-label="Hex grid columns"
                     />
@@ -1272,7 +1308,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       max={16}
                       value={paletteCfg.rows}
                       disabled={paletteBusy}
-                      onChange={(e) => void updatePalette({ rows: Number(e.target.value) })}
+                      onChange={(e) =>
+                        void updatePalette({ rows: Number(e.target.value) })
+                      }
                       className="w-12 rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-0.5 text-[var(--color-fg)]"
                       aria-label="Hex grid rows"
                     />
@@ -1303,8 +1341,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     className="mt-0.5 accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    <span className="text-[var(--color-fg)]">Alarm overlay</span> (default)
-                    — a loud sound (system volume is raised while it rings) + a
+                    <span className="text-[var(--color-fg)]">Alarm overlay</span>{" "}
+                    (default) — a loud sound (system volume is raised while it rings) + a
                     fullscreen overlay you click to stop.
                   </span>
                 </label>
@@ -1348,338 +1386,346 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
 
         {/* Text expander section */}
         <div className="mt-6">
-        <Section
-          icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
-          title="Text expander"
-          subtitle="Type a snippet abbreviation in any text field, then press your hotkey to replace it with the snippet body. Like aText / TextExpander."
-        >
-          {/* Granted state — shown inline since it's not actionable.
+          <Section
+            icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
+            title="Text expander"
+            subtitle="Type a snippet abbreviation in any text field, then press your hotkey to replace it with the snippet body. Like aText / TextExpander."
+          >
+            {/* Granted state — shown inline since it's not actionable.
               Special case: if we *just* detected the false→true edge
               while polling, prompt for a restart, because the running
               process can't see the new grant until macOS re-evaluates
               AXIsProcessTrusted on a fresh launch. */}
-          {accessibility === true && justGranted && (
-            <div className="mb-4 flex flex-col gap-2 rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5 text-[12px]">
-              <div className="flex items-start gap-2">
-                <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
-                <div className="flex-1">
-                  <div className="font-medium">Access detected — one more step</div>
-                  <div className="mt-0.5 text-[var(--color-muted)]">
-                    macOS caches the trust check per-process, so the
-                    running Inspector Rust can't actually use the just-granted
-                    permission until it relaunches. The new instance will
-                    take ~1 second to start.
+            {accessibility === true && justGranted && (
+              <div className="mb-4 flex flex-col gap-2 rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5 text-[12px]">
+                <div className="flex items-start gap-2">
+                  <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
+                  <div className="flex-1">
+                    <div className="font-medium">Access detected — one more step</div>
+                    <div className="mt-0.5 text-[var(--color-muted)]">
+                      macOS caches the trust check per-process, so the running Inspector
+                      Rust can't actually use the just-granted permission until it
+                      relaunches. The new instance will take ~1 second to start.
+                    </div>
                   </div>
                 </div>
+                <div className="flex flex-wrap gap-2 pl-6">
+                  <button
+                    onClick={async () => {
+                      setRestarting(true);
+                      try {
+                        await relaunchApp();
+                        // We won't reach this point — process is exiting.
+                      } catch (e) {
+                        setRestarting(false);
+                        setStatus({ kind: "err", message: String(e) });
+                      }
+                    }}
+                    disabled={restarting}
+                    className="rounded bg-emerald-500 px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  >
+                    {restarting ? "Restarting…" : "Restart now"}
+                  </button>
+                  <button
+                    onClick={() => setJustGranted(false)}
+                    className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+                    title="Dismiss this prompt — the expander will work next time you launch Inspector Rust"
+                  >
+                    Later
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-2 pl-6">
+            )}
+            {accessibility === true && !justGranted && (
+              <div className="mb-4 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px]">
+                <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />
+                <span className="font-medium">Accessibility access granted</span>
+              </div>
+            )}
+
+            <Row label="Enable">
+              <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={enabled}
+                  onChange={(e) => setEnabled(e.target.checked)}
+                  className="accent-[var(--color-accent)]"
+                />
+                <span className="text-[var(--color-muted)]">
+                  {enabled ? "Hotkey is registered globally" : "Hotkey is unregistered"}
+                </span>
+              </label>
+            </Row>
+
+            <Row
+              label="Hotkey"
+              help="Press a key combination, or pick a preset. Backspace clears, Esc cancels. Names match the W3C KeyboardEvent.code spec (Digit1, KeyE, Backquote, …). Tip: digit keys (Alt+1 …) are the most reliable — they're in the same place on every keyboard layout."
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <HotkeyCapture value={hotkey} onChange={setHotkey} disabled={busy} />
+                <button
+                  onClick={reset}
+                  disabled={busy || hotkey === DEFAULT_HOTKEY}
+                  className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
+                  title={`Reset to ${prettyHotkey(DEFAULT_HOTKEY)}`}
+                >
+                  Reset
+                </button>
+                <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
+                {QUICK_HOTKEYS.map((q) => {
+                  const active = hotkey === q.value;
+                  return (
+                    <button
+                      key={q.value}
+                      onClick={() => setHotkey(q.value)}
+                      disabled={busy}
+                      className={
+                        "rounded border px-2 py-1 text-[11px] disabled:opacity-40 " +
+                        (active
+                          ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                          : "border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]")
+                      }
+                      title={`Use ${q.label}`}
+                    >
+                      {q.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </Row>
+
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={() => void save()}
+                disabled={!dirty || busy || !hotkey}
+                className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : dirty ? "Save & re-register" : "No changes"}
+              </button>
+              {status && (
+                <span
+                  className={
+                    "text-[11px] " +
+                    (status.kind === "ok" ? "text-[var(--color-muted)]" : "text-red-400")
+                  }
+                >
+                  {status.message}
+                </span>
+              )}
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2 rounded border border-dashed border-[var(--color-border)] p-3">
+              <div className="flex items-start gap-3">
+                <PlayCircle
+                  size={14}
+                  className="mt-0.5 shrink-0 text-[var(--color-accent)]"
+                />
+                <div className="flex-1 text-[11px] text-[var(--color-muted)]">
+                  <div className="text-[var(--color-fg)]">
+                    Diagnose expansion (no paste)
+                  </div>
+                  <p className="mt-0.5">
+                    Type a snippet abbreviation in any text field, place the cursor right
+                    after it, then click <b>Diagnose</b>. Inspector Rust will hide its
+                    popup, capture the word before your cursor, look it up — and report
+                    what it found, without pasting. This isolates the lookup from the
+                    paste step so you can see exactly where expansion is breaking.
+                  </p>
+                </div>
                 <button
                   onClick={async () => {
-                    setRestarting(true);
+                    setDiagnose({ kind: "running" });
                     try {
-                      await relaunchApp();
-                      // We won't reach this point — process is exiting.
+                      const data = await diagnoseExpandAtCursor();
+                      setDiagnose({ kind: "result", data });
                     } catch (e) {
-                      setRestarting(false);
-                      setStatus({ kind: "err", message: String(e) });
+                      setDiagnose({ kind: "err", message: String(e) });
                     }
                   }}
-                  disabled={restarting}
-                  className="rounded bg-emerald-500 px-2.5 py-1 text-[11px] font-medium text-white hover:opacity-90 disabled:opacity-50"
+                  disabled={diagnose?.kind === "running"}
+                  className="rounded border border-[var(--color-border)] px-3 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
                 >
-                  {restarting ? "Restarting…" : "Restart now"}
-                </button>
-                <button
-                  onClick={() => setJustGranted(false)}
-                  className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
-                  title="Dismiss this prompt — the expander will work next time you launch Inspector Rust"
-                >
-                  Later
+                  {diagnose?.kind === "running" ? "Capturing…" : "Diagnose"}
                 </button>
               </div>
-            </div>
-          )}
-          {accessibility === true && !justGranted && (
-            <div className="mb-4 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px]">
-              <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />
-              <span className="font-medium">Accessibility access granted</span>
-            </div>
-          )}
 
-          <Row label="Enable">
-            <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-              <input
-                type="checkbox"
-                checked={enabled}
-                onChange={(e) => setEnabled(e.target.checked)}
-                className="accent-[var(--color-accent)]"
-              />
-              <span className="text-[var(--color-muted)]">
-                {enabled ? "Hotkey is registered globally" : "Hotkey is unregistered"}
-              </span>
-            </label>
-          </Row>
-
-          <Row
-            label="Hotkey"
-            help="Press a key combination, or pick a preset. Backspace clears, Esc cancels. Names match the W3C KeyboardEvent.code spec (Digit1, KeyE, Backquote, …). Tip: digit keys (Alt+1 …) are the most reliable — they're in the same place on every keyboard layout."
-          >
-            <div className="flex flex-wrap items-center gap-2">
-              <HotkeyCapture
-                value={hotkey}
-                onChange={setHotkey}
-                disabled={busy}
-              />
-              <button
-                onClick={reset}
-                disabled={busy || hotkey === DEFAULT_HOTKEY}
-                className="rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-fg)] disabled:opacity-40"
-                title={`Reset to ${prettyHotkey(DEFAULT_HOTKEY)}`}
-              >
-                Reset
-              </button>
-              <span className="text-[11px] text-[var(--color-muted)]">presets:</span>
-              {QUICK_HOTKEYS.map((q) => {
-                const active = hotkey === q.value;
-                return (
-                  <button
-                    key={q.value}
-                    onClick={() => setHotkey(q.value)}
-                    disabled={busy}
-                    className={
-                      "rounded border px-2 py-1 text-[11px] disabled:opacity-40 " +
-                      (active
-                        ? "border-[var(--color-accent)] text-[var(--color-accent)]"
-                        : "border-[var(--color-border)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]")
-                    }
-                    title={`Use ${q.label}`}
-                  >
-                    {q.label}
-                  </button>
-                );
-              })}
-            </div>
-          </Row>
-
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              onClick={() => void save()}
-              disabled={!dirty || busy || !hotkey}
-              className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
-            >
-              {busy ? "Saving…" : dirty ? "Save & re-register" : "No changes"}
-            </button>
-            {status && (
-              <span
-                className={
-                  "text-[11px] " +
-                  (status.kind === "ok"
-                    ? "text-[var(--color-muted)]"
-                    : "text-red-400")
-                }
-              >
-                {status.message}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-3 flex flex-col gap-2 rounded border border-dashed border-[var(--color-border)] p-3">
-            <div className="flex items-start gap-3">
-              <PlayCircle size={14} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
-              <div className="flex-1 text-[11px] text-[var(--color-muted)]">
-                <div className="text-[var(--color-fg)]">Diagnose expansion (no paste)</div>
-                <p className="mt-0.5">
-                  Type a snippet abbreviation in any text field, place the
-                  cursor right after it, then click <b>Diagnose</b>. Inspector Rust
-                  will hide its popup, capture the word before your cursor,
-                  look it up — and report what it found, without pasting.
-                  This isolates the lookup from the paste step so you can
-                  see exactly where expansion is breaking.
-                </p>
-              </div>
-              <button
-                onClick={async () => {
-                  setDiagnose({ kind: "running" });
-                  try {
-                    const data = await diagnoseExpandAtCursor();
-                    setDiagnose({ kind: "result", data });
-                  } catch (e) {
-                    setDiagnose({ kind: "err", message: String(e) });
-                  }
-                }}
-                disabled={diagnose?.kind === "running"}
-                className="rounded border border-[var(--color-border)] px-3 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-50"
-              >
-                {diagnose?.kind === "running" ? "Capturing…" : "Diagnose"}
-              </button>
-            </div>
-
-            {diagnose?.kind === "result" && (
-              <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[11px]">
-                <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
-                  <span className="text-[var(--color-muted)]">Capture path</span>
-                  <span>
-                    {diagnose.data.path === "ax" ? (
-                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
-                        macOS AX (clean — no clipboard touch)
-                      </span>
-                    ) : diagnose.data.path === "uia" ? (
-                      <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
-                        Windows UIA (clean — no clipboard touch)
-                      </span>
-                    ) : (
-                      <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-400">
-                        Clipboard fallback — focused app didn&apos;t expose accessibility info
-                      </span>
+              {diagnose?.kind === "result" && (
+                <div className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-2 text-[11px]">
+                  <div className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1">
+                    <span className="text-[var(--color-muted)]">Capture path</span>
+                    <span>
+                      {diagnose.data.path === "ax" ? (
+                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
+                          macOS AX (clean — no clipboard touch)
+                        </span>
+                      ) : diagnose.data.path === "uia" ? (
+                        <span className="rounded bg-emerald-500/10 px-1.5 py-0.5 font-medium text-emerald-400">
+                          Windows UIA (clean — no clipboard touch)
+                        </span>
+                      ) : (
+                        <span className="rounded bg-amber-500/10 px-1.5 py-0.5 font-medium text-amber-400">
+                          Clipboard fallback — focused app didn&apos;t expose
+                          accessibility info
+                        </span>
+                      )}
+                    </span>
+                    <span className="text-[var(--color-muted)]">Captured</span>
+                    <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
+                      {diagnose.data.captured || "(empty)"}
+                    </code>
+                    <span className="text-[var(--color-muted)]">Snippet match</span>
+                    <span>
+                      {diagnose.data.matched_abbreviation ? (
+                        <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-emerald-400">
+                          {diagnose.data.matched_abbreviation}
+                        </code>
+                      ) : (
+                        <span className="text-amber-400">
+                          no match — add a snippet with this abbreviation
+                        </span>
+                      )}
+                    </span>
+                    {diagnose.data.paste_preview && (
+                      <>
+                        <span className="text-[var(--color-muted)]">Would paste</span>
+                        <code className="block truncate rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
+                          {diagnose.data.paste_preview}
+                        </code>
+                      </>
                     )}
-                  </span>
-                  <span className="text-[var(--color-muted)]">Captured</span>
-                  <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
-                    {diagnose.data.captured || "(empty)"}
-                  </code>
-                  <span className="text-[var(--color-muted)]">Snippet match</span>
-                  <span>
-                    {diagnose.data.matched_abbreviation ? (
-                      <code className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-emerald-400">
-                        {diagnose.data.matched_abbreviation}
-                      </code>
-                    ) : (
-                      <span className="text-amber-400">
-                        no match — add a snippet with this abbreviation
-                      </span>
-                    )}
-                  </span>
-                  {diagnose.data.paste_preview && (
-                    <>
-                      <span className="text-[var(--color-muted)]">Would paste</span>
-                      <code className="block truncate rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
-                        {diagnose.data.paste_preview}
-                      </code>
-                    </>
+                  </div>
+                  {!diagnose.data.captured && (
+                    <p className="mt-2 text-[var(--color-muted)]">
+                      Empty capture usually means the popup didn't lose focus fast enough,
+                      or there was no text before your cursor. Try again with the cursor
+                      placed right after a typed abbreviation.
+                    </p>
+                  )}
+                  {diagnose.data.captured && !diagnose.data.matched_abbreviation && (
+                    <p className="mt-2 text-[var(--color-muted)]">
+                      The capture worked, but no snippet has{" "}
+                      <code className="rounded bg-[var(--color-bg)] px-1">
+                        {diagnose.data.captured}
+                      </code>{" "}
+                      as its abbreviation. Open the <b>Snippets</b> tab and create one, or
+                      pick a different abbreviation.
+                    </p>
                   )}
                 </div>
-                {!diagnose.data.captured && (
-                  <p className="mt-2 text-[var(--color-muted)]">
-                    Empty capture usually means the popup didn't lose focus
-                    fast enough, or there was no text before your cursor.
-                    Try again with the cursor placed right after a typed
-                    abbreviation.
-                  </p>
-                )}
-                {diagnose.data.captured && !diagnose.data.matched_abbreviation && (
-                  <p className="mt-2 text-[var(--color-muted)]">
-                    The capture worked, but no snippet has{" "}
-                    <code className="rounded bg-[var(--color-bg)] px-1">
-                      {diagnose.data.captured}
-                    </code>{" "}
-                    as its abbreviation. Open the <b>Snippets</b> tab and
-                    create one, or pick a different abbreviation.
-                  </p>
-                )}
-              </div>
-            )}
-            {diagnose?.kind === "err" && (
-              <div className="text-[11px] text-red-400">{diagnose.message}</div>
-            )}
-          </div>
+              )}
+              {diagnose?.kind === "err" && (
+                <div className="text-[11px] text-red-400">{diagnose.message}</div>
+              )}
+            </div>
 
-          <details className="mt-5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] text-[var(--color-muted)]">
-            <summary className="cursor-pointer font-medium">How it works</summary>
-            <ul className="mt-2 list-disc space-y-1 pl-5">
-              <li>
-                When you press the hotkey, Inspector Rust synthesizes{" "}
-                <kbd className="rounded border border-[var(--color-border)] px-1">
-                  Cmd/Ctrl+Shift+←
-                </kbd>{" "}
-                to select the previous word, copies it, and looks it up in
-                your snippets.
-              </li>
-              <li>
-                On a hit, the snippet body is written to the clipboard and{" "}
-                <kbd className="rounded border border-[var(--color-border)] px-1">
-                  Cmd/Ctrl+V
-                </kbd>{" "}
-                pastes over the still-selected abbreviation.
-              </li>
-              <li>
-                On a miss, the selection stays visible (visual cue) and your
-                clipboard is left untouched.
-              </li>
-              <li>
-                Caveats: <b>terminals</b> (iTerm2, Terminal.app, kitty, …) don&apos;t
-                expose the input line via accessibility and have no GUI
-                &quot;select previous word&quot; — the abbreviation hotkey does nothing
-                there. Use a <b>Direct hotkey → snippet</b> slot (below) or the popup
-                instead. Password fields refuse synthetic paste in many apps.
-              </li>
-            </ul>
-          </details>
-        </Section>
+            <details className="mt-5 rounded border border-[var(--color-border)] bg-[var(--color-surface)] p-3 text-[11px] text-[var(--color-muted)]">
+              <summary className="cursor-pointer font-medium">How it works</summary>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                <li>
+                  When you press the hotkey, Inspector Rust synthesizes{" "}
+                  <kbd className="rounded border border-[var(--color-border)] px-1">
+                    Cmd/Ctrl+Shift+←
+                  </kbd>{" "}
+                  to select the previous word, copies it, and looks it up in your
+                  snippets.
+                </li>
+                <li>
+                  On a hit, the snippet body is written to the clipboard and{" "}
+                  <kbd className="rounded border border-[var(--color-border)] px-1">
+                    Cmd/Ctrl+V
+                  </kbd>{" "}
+                  pastes over the still-selected abbreviation.
+                </li>
+                <li>
+                  On a miss, the selection stays visible (visual cue) and your clipboard
+                  is left untouched.
+                </li>
+                <li>
+                  Caveats: <b>terminals</b> (iTerm2, Terminal.app, kitty, …) don&apos;t
+                  expose the input line via accessibility and have no GUI &quot;select
+                  previous word&quot; — the abbreviation hotkey does nothing there. Use a{" "}
+                  <b>Direct hotkey → snippet</b> slot (below) or the popup instead.
+                  Password fields refuse synthetic paste in many apps.
+                </li>
+              </ul>
+            </details>
+          </Section>
         </div>
 
         {/* Clipboard privacy (v0.76.0) */}
         <div className="mt-8">
-        <Section
-          icon={<Lock size={16} className="text-[var(--color-accent)]" />}
-          title="Clipboard privacy"
-          subtitle="Keep secrets out of the clipboard history, and auto-wipe sensitive copies."
-        >
-          {privacy === null ? (
-            <p className="text-[12px] text-[var(--color-muted)]">Loading…</p>
-          ) : (
-            <div className="flex flex-col gap-4">
-              <label className="flex flex-col gap-1.5">
-                <span className="text-[12px]">
-                  <span className="text-[var(--color-fg)]">Never capture from these apps</span>
-                  <span className="block text-[11px] text-[var(--color-muted)]">
-                    One app-name (or part of it) per line or comma-separated — e.g. 1Password,
-                    KeePassXC, Bitwarden. Case-insensitive substring match against the frontmost app.
+          <Section
+            icon={<Lock size={16} className="text-[var(--color-accent)]" />}
+            title="Clipboard privacy"
+            subtitle="Keep secrets out of the clipboard history, and auto-wipe sensitive copies."
+          >
+            {privacy === null ? (
+              <p className="text-[12px] text-[var(--color-muted)]">Loading…</p>
+            ) : (
+              <div className="flex flex-col gap-4">
+                <label className="flex flex-col gap-1.5">
+                  <span className="text-[12px]">
+                    <span className="text-[var(--color-fg)]">
+                      Never capture from these apps
+                    </span>
+                    <span className="block text-[11px] text-[var(--color-muted)]">
+                      One app-name (or part of it) per line or comma-separated — e.g.
+                      1Password, KeePassXC, Bitwarden. Case-insensitive substring match
+                      against the frontmost app.
+                    </span>
                   </span>
-                </span>
-                <textarea
-                  value={privacy.exclude_apps}
-                  onChange={(e) => setPrivacy({ ...privacy, exclude_apps: e.target.value })}
-                  onBlur={() => void savePrivacy(privacy)}
-                  rows={3}
-                  placeholder={"1Password\nKeePassXC\nBitwarden"}
-                  className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 font-[var(--font-mono)] text-[12px]"
-                />
-              </label>
-
-              <label className="flex items-center justify-between gap-3">
-                <span className="text-[12px]">
-                  <span className="text-[var(--color-fg)]">Auto-clear the clipboard after</span>
-                  <span className="block text-[11px] text-[var(--color-muted)]">
-                    Wipes a copied value this many seconds later (a newer copy cancels it). 0 = off.
-                  </span>
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <input
-                    type="number"
-                    min={0}
-                    max={3600}
-                    value={privacy.auto_clear_seconds}
+                  <textarea
+                    value={privacy.exclude_apps}
                     onChange={(e) =>
-                      setPrivacy({
-                        ...privacy,
-                        auto_clear_seconds: Math.max(0, Math.min(3600, parseInt(e.target.value, 10) || 0)),
-                      })
+                      setPrivacy({ ...privacy, exclude_apps: e.target.value })
                     }
                     onBlur={() => void savePrivacy(privacy)}
-                    className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-[12px] tabular-nums"
+                    rows={3}
+                    placeholder={"1Password\nKeePassXC\nBitwarden"}
+                    className="rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] p-2 font-[var(--font-mono)] text-[12px]"
                   />
-                  <span className="text-[11px] text-[var(--color-muted)]">sec</span>
-                </span>
-              </label>
+                </label>
 
-              {privacySaved && (
-                <span className="flex items-center gap-1.5 text-[11px] text-green-500">
-                  <CheckCircle2 size={12} /> Saved
-                </span>
-              )}
-            </div>
-          )}
-        </Section>
+                <label className="flex items-center justify-between gap-3">
+                  <span className="text-[12px]">
+                    <span className="text-[var(--color-fg)]">
+                      Auto-clear the clipboard after
+                    </span>
+                    <span className="block text-[11px] text-[var(--color-muted)]">
+                      Wipes a copied value this many seconds later (a newer copy cancels
+                      it). 0 = off.
+                    </span>
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <input
+                      type="number"
+                      min={0}
+                      max={3600}
+                      value={privacy.auto_clear_seconds}
+                      onChange={(e) =>
+                        setPrivacy({
+                          ...privacy,
+                          auto_clear_seconds: Math.max(
+                            0,
+                            Math.min(3600, parseInt(e.target.value, 10) || 0),
+                          ),
+                        })
+                      }
+                      onBlur={() => void savePrivacy(privacy)}
+                      className="w-20 rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-right text-[12px] tabular-nums"
+                    />
+                    <span className="text-[11px] text-[var(--color-muted)]">sec</span>
+                  </span>
+                </label>
+
+                {privacySaved && (
+                  <span className="flex items-center gap-1.5 text-[11px] text-green-500">
+                    <CheckCircle2 size={12} /> Saved
+                  </span>
+                )}
+              </div>
+            )}
+          </Section>
         </div>
 
         {/* Passive auto-expansion (aText-style) section */}
@@ -1693,7 +1739,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
               <div className="mb-4 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px]">
                 <AlertTriangle size={14} className="shrink-0 text-amber-500" />
                 <span>
-                  Die passive Tastatur-Überwachung braucht macOS-Accessibility — gewähre sie im Abschnitt oben, dann aktiviert sich der Modus.
+                  Die passive Tastatur-Überwachung braucht macOS-Accessibility — gewähre
+                  sie im Abschnitt oben, dann aktiviert sich der Modus.
                 </span>
               </div>
             )}
@@ -1705,9 +1752,12 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 {/* Master toggle */}
                 <label className="flex items-center justify-between gap-3">
                   <span className="text-[12px]">
-                    <span className="text-[var(--color-fg)]">Auto-Expansion aktivieren</span>
+                    <span className="text-[var(--color-fg)]">
+                      Auto-Expansion aktivieren
+                    </span>
                     <span className="block text-[11px] text-[var(--color-muted)]">
-                      Überwacht systemweit deine Eingaben und ersetzt Abkürzungen automatisch.
+                      Überwacht systemweit deine Eingaben und ersetzt Abkürzungen
+                      automatisch.
                     </span>
                   </span>
                   <input
@@ -1746,7 +1796,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 </div>
 
                 {/* Boolean options */}
-                <div className={`flex flex-col gap-2 ${aeCfg.enabled ? "" : "pointer-events-none opacity-50"}`}>
+                <div
+                  className={`flex flex-col gap-2 ${aeCfg.enabled ? "" : "pointer-events-none opacity-50"}`}
+                >
                   <label className="flex items-center justify-between gap-3 text-[12px]">
                     <span>Groß-/Kleinschreibung beachten</span>
                     <input
@@ -1768,7 +1820,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       type="checkbox"
                       checked={aeCfg.expand_inside_words}
                       disabled={aeSaving}
-                      onChange={(e) => updateAutoExpand({ expand_inside_words: e.target.checked })}
+                      onChange={(e) =>
+                        updateAutoExpand({ expand_inside_words: e.target.checked })
+                      }
                       className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
                     />
                   </label>
@@ -1776,14 +1830,17 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     <span>
                       Rückgängig per Backspace
                       <span className="block text-[11px] text-[var(--color-muted)]">
-                        Ein Backspace direkt nach der Expansion stellt die Abkürzung wieder her.
+                        Ein Backspace direkt nach der Expansion stellt die Abkürzung
+                        wieder her.
                       </span>
                     </span>
                     <input
                       type="checkbox"
                       checked={aeCfg.undo_enabled}
                       disabled={aeSaving}
-                      onChange={(e) => updateAutoExpand({ undo_enabled: e.target.checked })}
+                      onChange={(e) =>
+                        updateAutoExpand({ undo_enabled: e.target.checked })
+                      }
                       className="h-4 w-4 shrink-0 accent-[var(--color-accent)]"
                     />
                   </label>
@@ -1796,11 +1853,23 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       Funktioniert in TextEdit/Notepad, Mail, Slack/Discord (Electron),
                       Chrome/Safari/Edge, VS Code u. v. m.
                     </li>
-                    <li>In Passwortfeldern wird <b>nie</b> expandiert.</li>
                     <li>
-                      Platzhalter wie <code className="rounded bg-[var(--color-bg)] px-1">{"{date}"}</code>,{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">{"{clipboard}"}</code> und{" "}
-                      <code className="rounded bg-[var(--color-bg)] px-1">{"{cursor}"}</code> greifen auch hier.
+                      In Passwortfeldern wird <b>nie</b> expandiert.
+                    </li>
+                    <li>
+                      Platzhalter wie{" "}
+                      <code className="rounded bg-[var(--color-bg)] px-1">
+                        {"{date}"}
+                      </code>
+                      ,{" "}
+                      <code className="rounded bg-[var(--color-bg)] px-1">
+                        {"{clipboard}"}
+                      </code>{" "}
+                      und{" "}
+                      <code className="rounded bg-[var(--color-bg)] px-1">
+                        {"{cursor}"}
+                      </code>{" "}
+                      greifen auch hier.
                     </li>
                     <li>
                       Terminals: je nach OS eingeschränkt. Linux (Wayland) bietet keinen
@@ -1824,7 +1893,12 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
               <div className="mb-4 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px]">
                 <AlertTriangle size={14} className="shrink-0 text-amber-500" />
                 <span>
-                  These hotkeys synthesize <kbd className="rounded border border-[var(--color-border)] px-1">Cmd+V</kbd>, so they need macOS Accessibility access too — grant it in the section above.
+                  These hotkeys synthesize{" "}
+                  <kbd className="rounded border border-[var(--color-border)] px-1">
+                    Cmd+V
+                  </kbd>
+                  , so they need macOS Accessibility access too — grant it in the section
+                  above.
                 </span>
               </div>
             )}
@@ -1913,7 +1987,16 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             </div>
 
             <p className="mt-3 text-[11px] leading-snug text-[var(--color-muted)]">
-              Pick a hotkey that doesn&apos;t clash with your text-expander hotkey, <kbd className="rounded border border-[var(--color-border)] px-1">{IS_MAC ? "⌃Space" : "Ctrl+Space"}</kbd>, or <kbd className="rounded border border-[var(--color-border)] px-1">{IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O"}</kbd> — the backend rejects collisions. Long bodies are fine (it pastes, doesn&apos;t type). The clipboard is restored afterward.
+              Pick a hotkey that doesn&apos;t clash with your text-expander hotkey,{" "}
+              <kbd className="rounded border border-[var(--color-border)] px-1">
+                {IS_MAC ? "⌃Space" : "Ctrl+Space"}
+              </kbd>
+              , or{" "}
+              <kbd className="rounded border border-[var(--color-border)] px-1">
+                {IS_MAC ? "⌃⇧O" : "Ctrl+Shift+O"}
+              </kbd>{" "}
+              — the backend rejects collisions. Long bodies are fine (it pastes,
+              doesn&apos;t type). The clipboard is restored afterward.
             </p>
           </Section>
         </div>
@@ -1931,11 +2014,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 aria-label="Colour theme"
                 className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
               >
-                {([
-                  { value: "system", label: "System", Icon: Monitor },
-                  { value: "light", label: "Light", Icon: Sun },
-                  { value: "dark", label: "Dark", Icon: Moon },
-                ] as const).map(({ value, label, Icon }) => {
+                {(
+                  [
+                    { value: "system", label: "System", Icon: Monitor },
+                    { value: "light", label: "Light", Icon: Sun },
+                    { value: "dark", label: "Dark", Icon: Moon },
+                  ] as const
+                ).map(({ value, label, Icon }) => {
                   const active = theme === value;
                   return (
                     <button
@@ -1974,11 +2059,13 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 aria-label="Overlay size"
                 className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
               >
-                {([
-                  { value: "small", label: "Small" },
-                  { value: "medium", label: "Medium" },
-                  { value: "large", label: "Large" },
-                ] as const).map(({ value, label }) => {
+                {(
+                  [
+                    { value: "small", label: "Small" },
+                    { value: "medium", label: "Medium" },
+                    { value: "large", label: "Large" },
+                  ] as const
+                ).map(({ value, label }) => {
                   const active = winSize === value;
                   return (
                     <button
@@ -2015,9 +2102,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <Section
             icon={<Power size={16} className="text-[var(--color-accent)]" />}
             title="Startup"
-            subtitle={IS_MAC
-              ? "Have Inspector Rust launch automatically when you log in. Uses a LaunchAgent (~/Library/LaunchAgents/InspectorRust.plist) — no Dock icon, opens hidden in the tray."
-              : "Have Inspector Rust launch automatically when you sign in. Registered via the Windows run-key — opens hidden in the system tray."}
+            subtitle={
+              IS_MAC
+                ? "Have Inspector Rust launch automatically when you log in. Uses a LaunchAgent (~/Library/LaunchAgents/InspectorRust.plist) — no Dock icon, opens hidden in the tray."
+                : "Have Inspector Rust launch automatically when you sign in. Registered via the Windows run-key — opens hidden in the system tray."
+            }
           >
             <Row label={IS_MAC ? "Start at login" : "Start with Windows"}>
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -2094,8 +2183,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
               <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 font-[var(--font-mono)]">
                 Enter
               </kbd>{" "}
-              in the popup to paste with original formatting{" "}
-              <em>this once</em>, regardless of the toggle above.
+              in the popup to paste with original formatting <em>this once</em>,
+              regardless of the toggle above.
             </div>
           </Section>
         </div>
@@ -2147,7 +2236,10 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       <span className="text-[var(--color-muted)]">Press your chord…</span>
                     ) : (
                       Array.from(capturedChord).map((k, i) => (
-                        <span key={i} className="rounded bg-[var(--color-bg)] px-1.5 py-0.5">
+                        <span
+                          key={i}
+                          className="rounded bg-[var(--color-bg)] px-1.5 py-0.5"
+                        >
                           {k}
                         </span>
                       ))
@@ -2158,7 +2250,10 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     <span className="text-[var(--color-muted)]">(none)</span>
                   ) : (
                     inputLockChord.map((k, i) => (
-                      <span key={i} className="rounded bg-[var(--color-bg)] px-1.5 py-0.5">
+                      <span
+                        key={i}
+                        className="rounded bg-[var(--color-bg)] px-1.5 py-0.5"
+                      >
                         {k}
                       </span>
                     ))
@@ -2167,7 +2262,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                 <button
                   type="button"
                   onClick={() => setCapturedChord(new Set())}
-                  disabled={inputLockChord === null || inputLockSaving || capturedChord !== null}
+                  disabled={
+                    inputLockChord === null || inputLockSaving || capturedChord !== null
+                  }
                   className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
                 >
                   {capturedChord !== null ? "Capturing…" : "Capture"}
@@ -2197,11 +2294,10 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
             </Row>
 
             <div className="mt-1 rounded border border-dashed border-[var(--color-border)] bg-[var(--color-surface)] p-2.5 text-[11px] text-[var(--color-muted)]">
-              <span className="text-[var(--color-fg)]">Safety:</span> OS-level
-              shortcuts ({IS_MAC ? "⌥⌘Esc Force Quit" : "Ctrl+Alt+Del"}) always
-              work — Inspector Rust can't intercept them, so you can never be
-              truly locked out. Linux Wayland is not supported by the underlying
-              grab API (X11 sessions only).
+              <span className="text-[var(--color-fg)]">Safety:</span> OS-level shortcuts (
+              {IS_MAC ? "⌥⌘Esc Force Quit" : "Ctrl+Alt+Del"}) always work — Inspector Rust
+              can't intercept them, so you can never be truly locked out. Linux Wayland is
+              not supported by the underlying grab API (X11 sessions only).
             </div>
           </Section>
         </div>
@@ -2242,7 +2338,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                             : "border-[var(--color-border)] text-[var(--color-muted)] hover:border-[var(--color-accent)]"
                         }`}
                       >
-                        {lv === "safe" ? "Safe" : lv === "standard" ? "Standard" : "Aggressive"}
+                        {lv === "safe"
+                          ? "Safe"
+                          : lv === "standard"
+                            ? "Standard"
+                            : "Aggressive"}
                       </button>
                     ))}
                   </div>
@@ -2250,7 +2350,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     <div className="mt-2 flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[11px]">
                       <AlertTriangle size={13} className="shrink-0 text-amber-500" />
                       <span>
-                        Aggressive löscht auch globale Dev-Tool-Caches (npm/pnpm/Gradle/Cargo) — diese müssen danach neu geladen werden.
+                        Aggressive löscht auch globale Dev-Tool-Caches
+                        (npm/pnpm/Gradle/Cargo) — diese müssen danach neu geladen werden.
                       </span>
                     </div>
                   )}
@@ -2313,7 +2414,9 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     })}
                 </div>
                 <p className="text-[11px] text-[var(--color-muted)]">
-                  Es werden ausschließlich Dateien innerhalb fest definierter Cache-/Log-/Temp-Ordner gelöscht — niemals Dokumente, Desktop o. Ä. Symlinks werden nie verfolgt.
+                  Es werden ausschließlich Dateien innerhalb fest definierter
+                  Cache-/Log-/Temp-Ordner gelöscht — niemals Dokumente, Desktop o. Ä.
+                  Symlinks werden nie verfolgt.
                 </p>
               </div>
             )}
@@ -2344,25 +2447,68 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <Section
             icon={<Archive size={16} className="text-[var(--color-accent)]" />}
             title="Backup & restore"
-            subtitle="Export everything (or just parts) to a single JSON file. Import merges back: snippets upsert by abbreviation, history dedupes by SHA-256, notes append."
+            subtitle="Export the whole app — clipboard history, snippets, notes, 2FA accounts and every setting — to a single file, optionally password-encrypted (AES-256-GCM, Argon2id). Import merges: snippets upsert by abbreviation, history dedupes by hash, settings overwrite by key, 2FA/timesheet dedupe; notes append."
           >
-            <Row label="What to export">
+            <Row label="What's included">
+              <div className="flex flex-col gap-1.5 text-[12px]">
+                <span className="text-[var(--color-muted)]">
+                  Always: clipboard history (incl. pins &amp; notes) · snippets · notes ·
+                  2FA accounts · all settings
+                </span>
+                <BackupCheckbox
+                  label="Timesheet data (sessions, events, categories — can be large)"
+                  checked={includeTimesheet}
+                  onChange={setIncludeTimesheet}
+                />
+              </div>
+            </Row>
+
+            <Row label="Encryption">
               <div className="flex flex-col gap-1.5 text-[12px]">
                 <BackupCheckbox
-                  label="Clipboard history"
-                  checked={includeHistory}
-                  onChange={setIncludeHistory}
+                  label="Encrypt with password (AES-256-GCM + Argon2id)"
+                  checked={encryptBackup}
+                  onChange={(v) => {
+                    setEncryptBackup(v);
+                    if (!v) {
+                      setBackupPassword("");
+                      setBackupPassword2("");
+                    }
+                  }}
                 />
-                <BackupCheckbox
-                  label="Snippets"
-                  checked={includeSnippets}
-                  onChange={setIncludeSnippets}
-                />
-                <BackupCheckbox
-                  label="Notes"
-                  checked={includeNotes}
-                  onChange={setIncludeNotes}
-                />
+                {encryptBackup && (
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      type={showBackupPassword ? "text" : "password"}
+                      value={backupPassword}
+                      onChange={(e) => setBackupPassword(e.target.value)}
+                      placeholder="Password"
+                      className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
+                    />
+                    <input
+                      type={showBackupPassword ? "text" : "password"}
+                      value={backupPassword2}
+                      onChange={(e) => setBackupPassword2(e.target.value)}
+                      placeholder="Repeat password"
+                      className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
+                    />
+                    <BackupCheckbox
+                      label="Show"
+                      checked={showBackupPassword}
+                      onChange={setShowBackupPassword}
+                    />
+                    {backupPassword2.length > 0 && backupPassword !== backupPassword2 && (
+                      <span className="text-[11px] text-red-400">
+                        Passwords don't match
+                      </span>
+                    )}
+                  </div>
+                )}
+                {encryptBackup && (
+                  <span className="text-[11px] text-amber-500">
+                    There is no recovery — without the password the backup is unreadable.
+                  </span>
+                )}
               </div>
             </Row>
 
@@ -2388,6 +2534,43 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
               </span>
             </div>
 
+            {pendingImport && (
+              <div className="mt-3 flex flex-wrap items-center gap-2 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[12px]">
+                <Lock size={13} className="shrink-0 text-[var(--color-accent)]" />
+                <span className="text-[var(--color-muted)]">
+                  {(pendingImport.split("/").pop() ?? pendingImport) + " is encrypted."}
+                </span>
+                <input
+                  type="password"
+                  value={importPassword}
+                  onChange={(e) => setImportPassword(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && importPassword)
+                      void runImport(pendingImport, importPassword);
+                  }}
+                  placeholder="Password"
+                  autoFocus
+                  className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] outline-none focus:border-[var(--color-accent)]"
+                />
+                <button
+                  onClick={() => void runImport(pendingImport, importPassword)}
+                  disabled={backupBusy !== null || !importPassword}
+                  className="rounded bg-[var(--color-accent)] px-2.5 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
+                >
+                  {backupBusy === "import" ? "Importing…" : "Unlock & import"}
+                </button>
+                <button
+                  onClick={() => {
+                    setPendingImport(null);
+                    setImportPassword("");
+                  }}
+                  className="rounded border border-[var(--color-border)] px-2.5 py-1 text-[12px]"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {backupStatus && (
               <div
                 className={
@@ -2401,10 +2584,16 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                   backupStatus.message
                 ) : backupStatus.kind === "import-ok" ? (
                   <>
-                    Imported{" "}
-                    <b>{backupStatus.result.notes_imported}</b> notes,{" "}
+                    Imported <b>{backupStatus.result.history_imported}</b> history,{" "}
                     <b>{backupStatus.result.snippets_imported}</b> snippets,{" "}
-                    <b>{backupStatus.result.history_imported}</b> history
+                    <b>{backupStatus.result.notes_imported}</b> notes,{" "}
+                    <b>{backupStatus.result.totp_imported}</b> 2FA,{" "}
+                    <b>{backupStatus.result.settings_imported}</b> settings
+                    {backupStatus.result.timesheet_imported > 0 && (
+                      <>
+                        , <b>{backupStatus.result.timesheet_imported}</b> timesheet events
+                      </>
+                    )}
                     {backupStatus.result.errors.length > 0 && (
                       <>
                         {" — "}
@@ -2489,9 +2678,7 @@ function PermRow({
         <div className="truncate text-[10px] text-[var(--color-muted)]">{hint}</div>
       </div>
       {granted === true ? (
-        <span className="shrink-0 text-[11px] font-medium text-emerald-500">
-          Enabled
-        </span>
+        <span className="shrink-0 text-[11px] font-medium text-emerald-500">Enabled</span>
       ) : (
         <button
           onClick={onOpen}
@@ -2570,25 +2757,38 @@ function TimesheetSection() {
       title="Timesheet"
       subtitle="Opt-in time tracking (track on/off). Records app usage by focus; idle auto-pauses; window titles + URLs are encrypted at rest. Nothing leaves your machine (the browser extension uses a loopback socket only)."
     >
-      <Row label="Idle threshold (seconds)" help="Inactivity beyond this retroactively pauses the active interval as idle.">
+      <Row
+        label="Idle threshold (seconds)"
+        help="Inactivity beyond this retroactively pauses the active interval as idle."
+      >
         <input
           type="number"
           min={10}
           value={cfg.idle_seconds}
-          onChange={(e) => setCfg({ ...cfg, idle_seconds: Number(e.target.value) || 300 })}
+          onChange={(e) =>
+            setCfg({ ...cfg, idle_seconds: Number(e.target.value) || 300 })
+          }
           className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
         />
       </Row>
-      <Row label="Retention (days)" help="On the next “track on”, events older than this are deleted. 0 = keep forever.">
+      <Row
+        label="Retention (days)"
+        help="On the next “track on”, events older than this are deleted. 0 = keep forever."
+      >
         <input
           type="number"
           min={0}
           value={cfg.retention_days}
-          onChange={(e) => setCfg({ ...cfg, retention_days: Number(e.target.value) || 0 })}
+          onChange={(e) =>
+            setCfg({ ...cfg, retention_days: Number(e.target.value) || 0 })
+          }
           className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
         />
       </Row>
-      <Row label="Claude Code usage" help="Watch ~/.claude/projects for active Claude Code usage per project (time + tokens).">
+      <Row
+        label="Claude Code usage"
+        help="Watch ~/.claude/projects for active Claude Code usage per project (time + tokens)."
+      >
         <label className="flex cursor-pointer items-center gap-2 text-[12px]">
           <input
             type="checkbox"
@@ -2601,17 +2801,25 @@ function TimesheetSection() {
           </span>
         </label>
       </Row>
-      <Row label="Daily focus goal (minutes)" help="Target active time per day (0 = off). Shows a progress bar in the Timesheet day view.">
+      <Row
+        label="Daily focus goal (minutes)"
+        help="Target active time per day (0 = off). Shows a progress bar in the Timesheet day view."
+      >
         <input
           type="number"
           min={0}
           step={30}
           value={cfg.daily_goal_minutes}
-          onChange={(e) => setCfg({ ...cfg, daily_goal_minutes: Number(e.target.value) || 0 })}
+          onChange={(e) =>
+            setCfg({ ...cfg, daily_goal_minutes: Number(e.target.value) || 0 })
+          }
           className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] tabular-nums"
         />
       </Row>
-      <Row label="Privacy denylist" help="Comma/newline-separated app names or hostnames. For matches, only the app name + time are stored — no window title or URL.">
+      <Row
+        label="Privacy denylist"
+        help="Comma/newline-separated app names or hostnames. For matches, only the app name + time are stored — no window title or URL."
+      >
         <textarea
           value={cfg.denylist}
           placeholder="1Password, KeePassXC, bank.com"
@@ -2628,10 +2836,17 @@ function TimesheetSection() {
         >
           {busy ? "Saving…" : "Save"}
         </button>
-        {dirty && !busy && <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>}
-        {savedOk && !dirty && <span className="text-[11px] text-[var(--color-muted)]">Saved</span>}
+        {dirty && !busy && (
+          <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
+        )}
+        {savedOk && !dirty && (
+          <span className="text-[11px] text-[var(--color-muted)]">Saved</span>
+        )}
       </div>
-      <Row label="App → category rules" help="Auto-categorize future events. Set rules by assigning a category to an app in the Timesheet's “By app” view; remove them here.">
+      <Row
+        label="App → category rules"
+        help="Auto-categorize future events. Set rules by assigning a category to an app in the Timesheet's “By app” view; remove them here."
+      >
         <CategoryRulesList />
       </Row>
     </Section>
@@ -2640,7 +2855,10 @@ function TimesheetSection() {
 
 function CategoryRulesList() {
   const [rules, setRules] = useState<[string, string][]>([]);
-  const reload = () => trackCategoryRules().then(setRules).catch(() => undefined);
+  const reload = () =>
+    trackCategoryRules()
+      .then(setRules)
+      .catch(() => undefined);
   useEffect(() => {
     void reload();
   }, []);
@@ -2687,13 +2905,9 @@ function Section({
         <h2 className="text-[14px] font-semibold">{title}</h2>
       </div>
       {subtitle && (
-        <p className="mb-4 text-[12px] text-[var(--color-muted)]">
-          {subtitle}
-        </p>
+        <p className="mb-4 text-[12px] text-[var(--color-muted)]">{subtitle}</p>
       )}
-      <div className="rounded-lg border border-[var(--color-border)] p-4">
-        {children}
-      </div>
+      <div className="rounded-lg border border-[var(--color-border)] p-4">{children}</div>
     </div>
   );
 }
@@ -2715,9 +2929,7 @@ function Row({
       </div>
       <div>{children}</div>
       {help && (
-        <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">
-          {help}
-        </p>
+        <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">{help}</p>
       )}
     </div>
   );
@@ -2744,18 +2956,46 @@ function ShortcutsTable() {
     {
       heading: "Global — work from anywhere",
       rows: [
-        [k("Ctrl", shift, "V"), "Open Inspector Rust popup", "OS-locked, not configurable"],
-        [k("Ctrl", shift, "O"), "OCR region capture", IS_MAC ? "Drag a marquee over text on screen → text → clipboard" : "Stub — macOS-only for now"],
-        [k("Ctrl", shift, "S"), "Screenshot region", IS_MAC ? "Drag a marquee → PNG → clipboard + history (no OCR)" : "Stub — macOS-only for now"],
-        [k("Ctrl", shift, "C"), "Color picker — eyedropper", "Click a pixel → hex (#RRGGBB) → clipboard + history (v0.17.0+)"],
-        [k(alt, "1"), "Trigger text expander", "Default Alt+1 — configurable above; opt-in"],
+        [
+          k("Ctrl", shift, "V"),
+          "Open Inspector Rust popup",
+          "OS-locked, not configurable",
+        ],
+        [
+          k("Ctrl", shift, "O"),
+          "OCR region capture",
+          IS_MAC
+            ? "Drag a marquee over text on screen → text → clipboard"
+            : "Stub — macOS-only for now",
+        ],
+        [
+          k("Ctrl", shift, "S"),
+          "Screenshot region",
+          IS_MAC
+            ? "Drag a marquee → PNG → clipboard + history (no OCR)"
+            : "Stub — macOS-only for now",
+        ],
+        [
+          k("Ctrl", shift, "C"),
+          "Color picker — eyedropper",
+          "Click a pixel → hex (#RRGGBB) → clipboard + history (v0.17.0+)",
+        ],
+        [
+          k(alt, "1"),
+          "Trigger text expander",
+          "Default Alt+1 — configurable above; opt-in",
+        ],
       ],
     },
     {
       heading: "Popup — list navigation",
       rows: [
         ["⏎", "Paste selected entry", "Plain text downgrade follows the Paste setting"],
-        [k(shift, "⏎"), "Paste with original formatting", "One-shot override of the plain-text setting"],
+        [
+          k(shift, "⏎"),
+          "Paste with original formatting",
+          "One-shot override of the plain-text setting",
+        ],
         ["↑ / ↓", "Navigate entries"],
         [k(shift, "↑ / ↓"), "System volume up / down", "±6% per press (macOS)"],
         ["Esc", "Close popup"],
@@ -2764,14 +3004,22 @@ function ShortcutsTable() {
     {
       heading: "Popup — image entry actions",
       rows: [
-        [k(cmd, "B"), "Cut out background → ~/Downloads", "Real subject segmentation via U²-Net"],
+        [
+          k(cmd, "B"),
+          "Cut out background → ~/Downloads",
+          "Real subject segmentation via U²-Net",
+        ],
         [k(cmd, "S"), "Save image to Downloads", "Saves the entry's PNG bytes unchanged"],
       ],
     },
     {
       heading: "Popup — text entry transforms",
       rows: [
-        [`${cmd}1 … ${cmd}9`, "Apply a string transform", "On a selected text entry — see the preview-pane toolbar"],
+        [
+          `${cmd}1 … ${cmd}9`,
+          "Apply a string transform",
+          "On a selected text entry — see the preview-pane toolbar",
+        ],
         [k(cmd, "1"), "Remove vowels"],
         [k(cmd, "2"), "UPPERCASE", `${cmd}3 lowercase · ${cmd}4 Title Case`],
         [k(cmd, "5"), "camelCase", `${cmd}6 snake_case · ${cmd}7 kebab-case`],
@@ -2842,7 +3090,9 @@ function PopupHotkeySection() {
   const [defaultHotkey, setDefaultHotkey] = useState<string>("");
   const [stored, setStored] = useState<string>("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
+  const [status, setStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     void Promise.all([getPopupHotkey(), getPopupHotkeyDefault()])
@@ -2951,7 +3201,10 @@ function PopupHotkeySection() {
         </button>
         {!dirty && stored && (
           <span className="text-[11px] text-[var(--color-muted)]">
-            Currently armed: <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">{prettyHotkey(stored)}</code>
+            Currently armed:{" "}
+            <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">
+              {prettyHotkey(stored)}
+            </code>
           </span>
         )}
       </div>
@@ -2981,7 +3234,9 @@ function HistoryHotkeySection() {
   const [defaultHotkey, setDefaultHotkey] = useState<string>("");
   const [stored, setStored] = useState<string>("");
   const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(null);
+  const [status, setStatus] = useState<{ kind: "ok" | "err"; message: string } | null>(
+    null,
+  );
 
   useEffect(() => {
     void Promise.all([getHistoryHotkey(), getHistoryHotkeyDefault()])
@@ -3180,7 +3435,10 @@ function BrunoSection() {
         </div>
       </Row>
 
-      <Row label="Bundesland" help="Beeinflusst den Kirchensteuersatz (BW + BY: 8 %, sonst 9 %).">
+      <Row
+        label="Bundesland"
+        help="Beeinflusst den Kirchensteuersatz (BW + BY: 8 %, sonst 9 %)."
+      >
         <select
           value={defs.state}
           onChange={(e) => setDefs({ ...defs, state: e.target.value })}
@@ -3194,7 +3452,10 @@ function BrunoSection() {
         </select>
       </Row>
 
-      <Row label="Kinder" help="Beeinflusst Pflegeversicherung (Ermäßigung ab Kind #2) + Kinderfreibetrag.">
+      <Row
+        label="Kinder"
+        help="Beeinflusst Pflegeversicherung (Ermäßigung ab Kind #2) + Kinderfreibetrag."
+      >
         <input
           type="number"
           min={0}
@@ -3366,8 +3627,8 @@ function MemeSection() {
         )}
       </div>
       <p className="mt-1 text-[11px] text-[var(--color-muted)]">
-        Animated previews only render for folders inside the scoped default
-        location; a custom folder still lists and copies memes.
+        Animated previews only render for folders inside the scoped default location; a
+        custom folder still lists and copies memes.
       </p>
     </Section>
   );

@@ -72,6 +72,8 @@ export interface BackupImportResult {
   notes_imported: number;
   totp_imported: number;
   settings_imported: number;
+  /** Timesheet events imported (v3 backups only; 0 otherwise). */
+  timesheet_imported: number;
   errors: string[];
 }
 

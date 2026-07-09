@@ -390,7 +390,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Image recolor** (logo tint, chromaticity-gated) | Preview pane on image entry → swatch / hex | core |
 | **ML background cutout** (U²-Net ONNX, ~4.5 MB embedded) | Preview pane → *Cut out background* or `⌘B` | core |
 | Save image to Downloads | Preview pane or `⌘S` (unchanged PNG) | core |
-| Backup — export/import single-file JSON (history + snippets + notes, per-section tickable) | Settings → Backup & restore | [backup.md](./docs/backup.md) |
+| Backup — export/import the whole app as a single file (history + snippets + notes + 2FA + settings, timesheet opt-in), optionally password-encrypted | Settings → Backup & restore | [backup.md](./docs/backup.md) |
 | Plain-text-only paste *(default on, v0.4.0+)* | Settings → Paste (Shift+Enter overrides for one paste) | core |
 | Autostart on login *(v0.14.0+)* | Settings → Startup *or* tray checkmark | core |
 | Pause clipboard capture | Tray → *Pause Capture* | core |
@@ -519,7 +519,7 @@ Persistent, categorized clipboard items in a separate SQLite table — **not** s
 - Reference: [`docs/notes.md`](./docs/notes.md).
 
 ### Backup — single-file JSON export/import (v0.2.6+)
-Settings tab → *Backup & restore* → tick history / snippets / notes individually → Export to a JSON file. Import merges back: snippets upsert by abbreviation, history upserts by SHA-256, notes append. Versioned schema — newer backups are refused rather than silently truncated. Reference: [`docs/backup.md`](./docs/backup.md).
+Settings tab → *Backup & restore* → Export writes the whole app (history, snippets, notes, 2FA accounts, every setting — timesheet opt-in) to one file, optionally password-encrypted (AES-256-GCM + Argon2id). Import detects encrypted files, asks for the password inline, and merges back: snippets upsert by abbreviation, history upserts by SHA-256, 2FA/timesheet dedupe, settings overwrite, notes append. Versioned schema — newer backups are refused rather than silently truncated. Reference: [`docs/backup.md`](./docs/backup.md).
 
 ### Plain-text paste (default on, v0.4.0)
 HTML / RTF clipboard entries are stripped to their text preview at paste time, so copy-from-Word / browser / mail no longer leaks styling into other apps. Toggle in Settings → Paste. Shift+Enter in the popup overrides for one paste.
@@ -736,8 +736,8 @@ See [`docs/snippets-import.md`](./docs/snippets-import.md) for the full schema, 
 Notes have their own tab; the categories sidebar has **+ New Note** and **Clear All**. Backup lives in the **Settings** tab now.
 
 - **Save a clipboard entry as a note:** hover any History row → click the bookmark icon → the entry lands in the `Uncategorized` bucket of the Notes tab. Move it to a category by editing the note.
-- **Export full backup:** Settings tab → **Backup & restore** → tick what to export (Clipboard history / Snippets / Notes — all default on) → **Export…** → choose a path. Inspector Rust writes a single JSON file (default name `inspector-rust-backup-<timestamp>.json`); unticked sections are written as empty arrays so you can share snippets without leaking your clipboard.
-- **Import a backup:** Settings tab → **Backup & restore** → **Import…** → pick the JSON file. Snippets and history merge by their natural keys (abbreviation / SHA-256 hash); notes are appended. Notes / Snippets / History tabs auto-refresh.
+- **Export full backup:** Settings tab → **Backup & restore** → optionally tick **Timesheet data** and/or **Encrypt with password** → **Export…** → choose a path. Inspector Rust writes a single file (default name `inspector-rust-backup-<timestamp>.json`) covering history, snippets, notes, 2FA accounts and every setting.
+- **Import a backup:** Settings tab → **Backup & restore** → **Import…** → pick the file (encrypted backups prompt for the password inline). Snippets and history merge by their natural keys (abbreviation / SHA-256 hash), 2FA and timesheet dedupe, settings overwrite; notes are appended. Notes / Snippets / History tabs auto-refresh.
 
 Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema and merge semantics: [`docs/backup.md`](./docs/backup.md).
 

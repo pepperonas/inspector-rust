@@ -1,32 +1,28 @@
 # Full-app backup
 
-Inspector Rust's **Backup** feature exports the complete database (`history` + `snippets` + `notes`) to a single JSON file and merges that file back on import. This is the way to:
+Inspector Rust's **Backup** feature exports the complete app (`history` + `snippets` + `notes` + `totp_entries` + `settings`, timesheet opt-in) to a single file — optionally password-encrypted — and merges that file back on import. This is the way to:
 
 - move your collection to a new machine,
 - snapshot your state before risky edits or before importing someone else's snippets,
 - share a curated set of notes/snippets with a colleague (after editing the JSON to keep just what's relevant).
 
-Backup was introduced in **v0.2.6**. Moved to the **Settings** tab and gained per-section selection in **v0.2.12**.
+Backup was introduced in **v0.2.6**; Settings-tab UI in **v0.2.12**; TOTP + settings sections and optional encryption in the backend in **v0.47/v0.79**. As of **v0.84.237** the Settings UI always exports the whole app (the per-section tickboxes are gone), adds an opt-in **Timesheet data** checkbox (format v3), and exposes **password encryption** for export + an inline password prompt on import.
 
 ## How to export
 
 1. Open the popup (`Ctrl+Space`).
 2. Click the **Settings** tab → **Backup & restore** section.
-3. Tick which sections to include — *Clipboard history*, *Snippets*, *Notes*. All three are checked by default; uncheck any you don't want in the file.
+3. Optionally tick **Timesheet data** (sessions/events/categories — can be large; bumps the file format to v3) and/or **Encrypt with password** (enter + repeat the password; there is no recovery without it).
 4. Click **Export…**. The native save dialog opens (NSSavePanel on macOS, Win32 SaveFileDialog on Windows). Default filename is `inspector-rust-backup-<ISO timestamp>.json`. Pick a location and confirm.
 
 The status line shows the bytes written, e.g. `Exported 124.5 KB to inspector-rust-backup-2026-04-25T09-30-15.json`.
 
-> **Tip — share snippets without leaking history.** Untick *Clipboard history* and *Notes* for a snippets-only file you can hand to a colleague. They run **Import…** and only your snippets get merged into their database (history dedupes against an empty array, notes append zero rows).
-
-Sections that are unticked are written as empty `Vec`s in the JSON — version + timestamp are still set so the resulting file is always parseable on import.
-
-> **Encryption note (v0.6.0+).** The DB columns are AES-256-GCM encrypted at rest, but the export file is **plaintext JSON**. Decryption happens at the read path (so the file is portable across machines without sharing your install's key) and re-encryption happens on import (so the destination machine's key is what protects the merged rows). If your backup file is sensitive — and most are — encrypt the file yourself: `gpg --symmetric backup.json`, a password-zipped archive, etc. See [`docs/encryption.md`](./encryption.md) for the full threat model.
+> **Encryption note.** The DB columns are AES-256-GCM encrypted at rest, but decryption happens at the export read path (so the file is portable across machines without sharing your install's key) and re-encryption happens on import (the destination machine's key protects the merged rows). An **unencrypted export is therefore plaintext JSON** — including 2FA secrets and (if ticked) timesheet window titles/urls. For anything sensitive tick **Encrypt with password**: the file becomes an AES-256-GCM envelope with an Argon2id-derived key (`{ "encrypted": true, "kdf": "argon2id", "salt", "nonce", "ciphertext" }`). See [`docs/encryption.md`](./encryption.md) for the full threat model.
 
 ## How to import
 
 1. Open the popup → **Settings** tab → **Backup & restore** → **Import…**.
-2. Pick a `.json` file in the open dialog.
+2. Pick a `.json` file in the open dialog. If the file is encrypted, an inline row asks for the password (**Unlock & import**; a wrong password keeps the row so you can correct it).
 
 Import is always full-merge; whatever sections the file actually contains get merged into the live database. Empty sections in the file are no-ops.
 
@@ -127,12 +123,14 @@ Notes have no natural unique key (you may legitimately want two notes with the s
 
 ## Versioning
 
-The exporter writes `"version": 1`. The importer:
+The exporter writes `"version": 2` (or `3` when the timesheet is included — timesheet-less files deliberately claim the older, more compatible version). The importer:
 
 | Backup version | Behaviour                                                   |
 |----------------|-------------------------------------------------------------|
-| `<= 1`         | Imported.                                                    |
-| `> 1` (newer)  | **Rejected** with `backup version N is newer than this app supports (1)`. |
+| `1`            | Imported (no 2FA/settings sections — they default to empty). |
+| `2`            | Imported.                                                    |
+| `3`            | Imported incl. timesheet (sessions dedup by start, events by (session, start, app, source), ids remapped, titles/urls re-encrypted; an `active` session is imported as `ended`). |
+| `> 3` (newer)  | **Rejected** with `backup version N is newer than this app supports (3)`. |
 
 This protects against a newer Inspector Rust writing fields the running build doesn't understand and silently discarding them. If you hit this, upgrade Inspector Rust or hand-edit the JSON to drop unknown fields and downgrade `version`.
 

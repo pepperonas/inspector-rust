@@ -1344,6 +1344,7 @@ pub fn export_backup(
     include_notes: Option<bool>,
     include_totp: Option<bool>,
     include_settings: Option<bool>,
+    include_timesheet: Option<bool>,
     password: Option<String>,
 ) -> Result<String, String> {
     let opts = backup::ExportOptions {
@@ -1352,6 +1353,7 @@ pub fn export_backup(
         include_notes: include_notes.unwrap_or(true),
         include_totp: include_totp.unwrap_or(true),
         include_settings: include_settings.unwrap_or(true),
+        include_timesheet: include_timesheet.unwrap_or(false),
     };
     backup::export_json_maybe_encrypted(&db, opts, password.as_deref()).map_err(map_err)
 }
@@ -1368,6 +1370,7 @@ pub fn save_backup_to_file(
     include_notes: Option<bool>,
     include_totp: Option<bool>,
     include_settings: Option<bool>,
+    include_timesheet: Option<bool>,
     password: Option<String>,
 ) -> Result<usize, String> {
     let opts = backup::ExportOptions {
@@ -1376,6 +1379,7 @@ pub fn save_backup_to_file(
         include_notes: include_notes.unwrap_or(true),
         include_totp: include_totp.unwrap_or(true),
         include_settings: include_settings.unwrap_or(true),
+        include_timesheet: include_timesheet.unwrap_or(false),
     };
     let json = backup::export_json_maybe_encrypted(&db, opts, password.as_deref())
         .map_err(map_err)?;

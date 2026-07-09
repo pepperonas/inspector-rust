@@ -19,6 +19,10 @@
 //!   * totp_entries  — upsert by (issuer, account); secret is re-encrypted with
 //!                     the target machine's key on import
 //!   * settings      — upsert by key (new values overwrite existing)
+//!   * timesheet     — (v3, opt-in) sessions dedup by `started_at`, events by
+//!                     (session, started_at, app, source), claude-turns by
+//!                     (event, ts); ids are remapped, encrypted titles/urls are
+//!                     re-encrypted with the target machine's key
 
 use anyhow::{anyhow, Context, Result};
 use chrono::Utc;
@@ -33,8 +37,10 @@ use crate::{crypto, settings, totp_store};
 
 /// Bumped whenever the on-disk shape changes. Importing a newer-versioned
 /// backup than this constant is rejected so users get a clear error rather
-/// than silently losing fields.
-pub const CURRENT_VERSION: u32 = 2;
+/// than silently losing fields. A file only *claims* version 3 when it
+/// actually carries the v3 `timesheet` section — timesheet-less exports keep
+/// writing version 2 so older app builds can still import them.
+pub const CURRENT_VERSION: u32 = 3;
 
 /// A TOTP entry as stored in the backup. Contains the **plaintext**
 /// base32 secret (decrypted at export time) so the backup is portable
@@ -49,6 +55,66 @@ pub struct TotpBackupEntry {
     pub period: u32,
     pub algorithm: String,
     pub created_at: i64,
+}
+
+// ── Timesheet backup (v3, opt-in) ────────────────────────────────────────────
+//
+// Portable snapshots of the `track_*` tables. `window_title` / `url` are
+// stored **plaintext** in the backup (decrypted at export) — like TOTP
+// secrets — and re-encrypted with the target machine's key on import.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackSessionBackup {
+    pub id: i64,
+    pub label: Option<String>,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub status: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackEventBackup {
+    pub id: i64,
+    pub session_id: i64,
+    pub app_name: String,
+    pub app_id: Option<String>,
+    pub window_title: Option<String>,
+    pub url: Option<String>,
+    pub host: Option<String>,
+    pub category: Option<String>,
+    pub project: Option<String>,
+    pub source: String,
+    pub is_idle: bool,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub duration_s: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackClaudeTurnBackup {
+    pub event_id: i64,
+    pub ts: i64,
+    pub model: Option<String>,
+    pub tokens_in: Option<i64>,
+    pub tokens_out: Option<i64>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrackCategoryBackup {
+    pub app_name: String,
+    pub category: String,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct TimesheetBackup {
+    #[serde(default)]
+    pub sessions: Vec<TrackSessionBackup>,
+    #[serde(default)]
+    pub events: Vec<TrackEventBackup>,
+    #[serde(default)]
+    pub claude_turns: Vec<TrackClaudeTurnBackup>,
+    #[serde(default)]
+    pub categories: Vec<TrackCategoryBackup>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -68,6 +134,10 @@ pub struct Backup {
     /// App settings as key-value pairs (v2+).
     #[serde(default)]
     pub settings: HashMap<String, String>,
+    /// Timesheet tracking data (v3+, opt-in — absent unless the user ticked
+    /// "include timesheet" at export time).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub timesheet: Option<TimesheetBackup>,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -77,6 +147,8 @@ pub struct BackupImportResult {
     pub notes_imported: usize,
     pub totp_imported: usize,
     pub settings_imported: usize,
+    /// Timesheet events imported (v3 backups only; 0 otherwise).
+    pub timesheet_imported: usize,
     pub errors: Vec<String>,
 }
 
@@ -93,6 +165,11 @@ pub struct ExportOptions {
     pub include_totp: bool,
     #[serde(default = "default_true")]
     pub include_settings: bool,
+    /// Timesheet tracking data — **opt-in** (defaults false everywhere,
+    /// including `all()`): it's often large, machine-bound telemetry, and
+    /// including it bumps the file's format version to 3.
+    #[serde(default)]
+    pub include_timesheet: bool,
 }
 
 fn default_true() -> bool {
@@ -107,6 +184,7 @@ impl ExportOptions {
             include_notes: true,
             include_totp: true,
             include_settings: true,
+            include_timesheet: false,
         }
     }
 }
@@ -121,7 +199,9 @@ impl Default for ExportOptions {
 /// written for sections the user opted out of via [`ExportOptions`].
 pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
     Ok(Backup {
-        version: CURRENT_VERSION,
+        // Claim v3 only when the file actually carries the v3 section, so
+        // timesheet-less backups stay importable by older app builds.
+        version: if opts.include_timesheet { 3 } else { 2 },
         exported_at: Utc::now().timestamp_millis(),
         // Pull *all* history entries (not the default 500 page size) when
         // included, so a backup is actually complete.
@@ -150,7 +230,73 @@ pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
         } else {
             HashMap::new()
         },
+        timesheet: if opts.include_timesheet {
+            Some(export_timesheet(db)?)
+        } else {
+            None
+        },
     })
+}
+
+/// Read the whole timesheet (`track_*` tables) with titles/urls decrypted.
+fn export_timesheet(db: &DbHandle) -> Result<TimesheetBackup> {
+    let conn = db.lock();
+    let sessions = conn
+        .prepare("SELECT id, label, started_at, ended_at, status FROM track_sessions ORDER BY id")?
+        .query_map([], |r| {
+            Ok(TrackSessionBackup {
+                id: r.get(0)?,
+                label: r.get(1)?,
+                started_at: r.get(2)?,
+                ended_at: r.get(3)?,
+                status: r.get(4)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    let events = conn
+        .prepare(
+            "SELECT id, session_id, app_name, app_id, window_title, url, host, category, \
+             project, source, is_idle, started_at, ended_at, duration_s \
+             FROM track_events ORDER BY id",
+        )?
+        .query_map([], |r| {
+            Ok(TrackEventBackup {
+                id: r.get(0)?,
+                session_id: r.get(1)?,
+                app_name: r.get(2)?,
+                app_id: r.get(3)?,
+                window_title: r.get::<_, Option<String>>(4)?.map(|v| crypto::decrypt(&v)),
+                url: r.get::<_, Option<String>>(5)?.map(|v| crypto::decrypt(&v)),
+                host: r.get(6)?,
+                category: r.get(7)?,
+                project: r.get(8)?,
+                source: r.get(9)?,
+                is_idle: r.get::<_, i64>(10)? != 0,
+                started_at: r.get(11)?,
+                ended_at: r.get(12)?,
+                duration_s: r.get(13)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    let claude_turns = conn
+        .prepare("SELECT event_id, ts, model, tokens_in, tokens_out FROM track_claude_turns ORDER BY id")?
+        .query_map([], |r| {
+            Ok(TrackClaudeTurnBackup {
+                event_id: r.get(0)?,
+                ts: r.get(1)?,
+                model: r.get(2)?,
+                tokens_in: r.get(3)?,
+                tokens_out: r.get(4)?,
+            })
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    let categories = conn
+        .prepare("SELECT app_name, category FROM track_categories ORDER BY app_name")?
+        .query_map([], |r| {
+            Ok(TrackCategoryBackup { app_name: r.get(0)?, category: r.get(1)? })
+        })?
+        .collect::<Result<Vec<_>, rusqlite::Error>>()?;
+    Ok(TimesheetBackup { sessions, events, claude_turns, categories })
 }
 
 /// Read all TOTP entries with their decrypted secrets for backup.
@@ -317,7 +463,137 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
         }
     }
 
+    // 6) Timesheet (v3, opt-in) — merge with id remapping + dedup so a
+    //    re-import creates no duplicates. Titles/urls are re-encrypted with
+    //    this machine's key.
+    if let Some(ts) = &backup.timesheet {
+        match import_timesheet(db, ts) {
+            Ok(n) => result.timesheet_imported = n,
+            Err(e) => result.errors.push(format!("timesheet: {e}")),
+        }
+    }
+
     Ok(result)
+}
+
+/// Merge a timesheet backup. Returns the number of events imported (newly
+/// inserted OR already present — mirroring the TOTP "desired state exists"
+/// counting). Sessions dedup by `started_at`; events by (session, started_at,
+/// app, source); claude turns by (event, ts); categories upsert by app.
+fn import_timesheet(db: &DbHandle, ts: &TimesheetBackup) -> Result<usize> {
+    let conn = db.lock();
+
+    // Sessions — remap backup ids to local ids.
+    let mut session_map: HashMap<i64, i64> = HashMap::new();
+    for s in &ts.sessions {
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM track_sessions WHERE started_at = ?1 LIMIT 1",
+                [s.started_at],
+                |r| r.get(0),
+            )
+            .map(Some)
+            .or_else(|e| if e == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(e) })?;
+        let local_id = match existing {
+            Some(id) => id,
+            None => {
+                // Never import a session as 'active' — the run loop owns the
+                // one live session; a second "active" row would be swept as
+                // stale at the next startup anyway. Close it at its last
+                // known moment.
+                let status = if s.status == "active" { "ended" } else { s.status.as_str() };
+                let ended_at = s.ended_at.or_else(|| {
+                    ts.events
+                        .iter()
+                        .filter(|e| e.session_id == s.id)
+                        .filter_map(|e| e.ended_at)
+                        .max()
+                        .or(Some(s.started_at))
+                });
+                conn.execute(
+                    "INSERT INTO track_sessions (label, started_at, ended_at, status) VALUES (?1, ?2, ?3, ?4)",
+                    rusqlite::params![s.label, s.started_at, ended_at, status],
+                )?;
+                conn.last_insert_rowid()
+            }
+        };
+        session_map.insert(s.id, local_id);
+    }
+
+    // Events — remap session ids, dedup, re-encrypt title/url.
+    let mut imported = 0usize;
+    let mut event_map: HashMap<i64, i64> = HashMap::new();
+    for e in &ts.events {
+        let Some(&session_id) = session_map.get(&e.session_id) else {
+            continue; // orphan event (backup inconsistency) — skip silently
+        };
+        let existing: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM track_events WHERE session_id = ?1 AND started_at = ?2 \
+                 AND app_name = ?3 AND source = ?4 LIMIT 1",
+                rusqlite::params![session_id, e.started_at, e.app_name, e.source],
+                |r| r.get(0),
+            )
+            .map(Some)
+            .or_else(|er| if er == rusqlite::Error::QueryReturnedNoRows { Ok(None) } else { Err(er) })?;
+        let local_id = match existing {
+            Some(id) => id,
+            None => {
+                conn.execute(
+                    "INSERT INTO track_events (session_id, app_name, app_id, window_title, url, \
+                     host, category, project, source, is_idle, started_at, ended_at, duration_s) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+                    rusqlite::params![
+                        session_id,
+                        e.app_name,
+                        e.app_id,
+                        e.window_title.as_deref().map(crypto::encrypt),
+                        e.url.as_deref().map(crypto::encrypt),
+                        e.host,
+                        e.category,
+                        e.project,
+                        e.source,
+                        e.is_idle as i64,
+                        e.started_at,
+                        e.ended_at,
+                        e.duration_s,
+                    ],
+                )?;
+                conn.last_insert_rowid()
+            }
+        };
+        event_map.insert(e.id, local_id);
+        imported += 1;
+    }
+
+    // Claude turns — dedup by (event, ts).
+    for t in &ts.claude_turns {
+        let Some(&event_id) = event_map.get(&t.event_id) else { continue };
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM track_claude_turns WHERE event_id = ?1 AND ts = ?2 LIMIT 1",
+                rusqlite::params![event_id, t.ts],
+                |_| Ok(true),
+            )
+            .or_else(|er| if er == rusqlite::Error::QueryReturnedNoRows { Ok(false) } else { Err(er) })?;
+        if !exists {
+            conn.execute(
+                "INSERT INTO track_claude_turns (event_id, ts, model, tokens_in, tokens_out) \
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                rusqlite::params![event_id, t.ts, t.model, t.tokens_in, t.tokens_out],
+            )?;
+        }
+    }
+
+    // Categories — upsert by app name.
+    for c in &ts.categories {
+        conn.execute(
+            "INSERT OR REPLACE INTO track_categories (app_name, category) VALUES (?1, ?2)",
+            rusqlite::params![c.app_name, c.category],
+        )?;
+    }
+
+    Ok(imported)
 }
 
 /// Helper used by tests and the IPC layer: drop everything and replace
@@ -510,12 +786,48 @@ mod tests {
             "#,
         )
         .unwrap();
+        crate::tracking::db::init_schema(&conn).unwrap();
         let db = Arc::new(Mutex::new(conn));
         snippets::init_table(&db).unwrap();
         notes::init_table(&db).unwrap();
         settings::init_table(&db).unwrap();
         totp_store::init_table(&db).unwrap();
         db
+    }
+
+    /// Seed one session with two events (one browser event with title+url),
+    /// one claude turn and one category rule.
+    fn seed_timesheet(db: &DbHandle) {
+        let conn = db.lock();
+        conn.execute(
+            "INSERT INTO track_sessions (label, started_at, ended_at, status) VALUES ('day', 1000, 5000, 'ended')",
+            [],
+        )
+        .unwrap();
+        let sid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO track_events (session_id, app_name, source, is_idle, started_at, ended_at, duration_s, window_title, url, host) \
+             VALUES (?1, 'Safari', 'browser', 0, 1000, 3000, 2000, ?2, ?3, 'github.com')",
+            rusqlite::params![sid, crypto::encrypt("Secret Title"), crypto::encrypt("https://github.com/x")],
+        )
+        .unwrap();
+        let eid = conn.last_insert_rowid();
+        conn.execute(
+            "INSERT INTO track_events (session_id, app_name, source, is_idle, started_at, ended_at, duration_s) \
+             VALUES (?1, 'iTerm2', 'focus', 0, 3000, 5000, 2000)",
+            [sid],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO track_claude_turns (event_id, ts, model, tokens_in, tokens_out) VALUES (?1, 1500, 'opus', 10, 20)",
+            [eid],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO track_categories (app_name, category) VALUES ('iTerm2', 'Dev')",
+            [],
+        )
+        .unwrap();
     }
 
     fn seed(db: &DbHandle) {
@@ -591,6 +903,7 @@ mod tests {
             include_notes: false,
             include_totp: false,
             include_settings: false,
+            include_timesheet: false,
         };
         let backup = export(&db, opts).unwrap();
         assert!(backup.history.is_empty(), "history should be empty");
@@ -608,13 +921,16 @@ mod tests {
             include_notes: false,
             include_totp: false,
             include_settings: false,
+            include_timesheet: false,
         };
         let backup = export(&db, opts).unwrap();
         assert!(backup.history.is_empty());
         assert!(backup.snippets.is_empty());
         assert!(backup.notes.is_empty());
         // Version + timestamp must still be set so the file is parseable.
-        assert_eq!(backup.version, CURRENT_VERSION);
+        // (2, not CURRENT_VERSION: without the timesheet section the file
+        // deliberately claims the older, more compatible format.)
+        assert_eq!(backup.version, 2);
         assert!(backup.exported_at > 0);
     }
 
@@ -666,6 +982,7 @@ mod tests {
             }],
             totp_entries: vec![],
             settings: HashMap::new(),
+            timesheet: None,
         };
         let r = replace_all(&db, backup).unwrap();
         assert_eq!(r.notes_imported, 1);
@@ -693,8 +1010,14 @@ mod tests {
 
     #[test]
     fn export_writes_current_version() {
+        // Timesheet-less exports claim the compatible v2; only a timesheet-
+        // carrying file claims CURRENT_VERSION (3).
         let db = fresh_db();
         let json = export_json(&db, ExportOptions::all()).unwrap();
+        let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(v["version"].as_u64().unwrap(), 2);
+        let opts = ExportOptions { include_timesheet: true, ..ExportOptions::all() };
+        let json = export_json(&db, opts).unwrap();
         let v: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(v["version"].as_u64().unwrap(), CURRENT_VERSION as u64);
     }
@@ -816,5 +1139,119 @@ mod tests {
         assert_eq!(r.totp_imported, 0);
         assert_eq!(r.settings_imported, 0);
         assert!(r.errors.is_empty());
+    }
+
+    // ── Timesheet (v3) ───────────────────────────────────────────────
+
+    #[test]
+    fn timesheet_excluded_by_default_and_file_stays_v2() {
+        let db = fresh_db();
+        seed_timesheet(&db);
+        let b = export(&db, ExportOptions::all()).unwrap();
+        assert_eq!(b.version, 2);
+        assert!(b.timesheet.is_none());
+        // …and the JSON carries no `timesheet` key at all.
+        let json = serde_json::to_string(&b).unwrap();
+        assert!(!json.contains("timesheet"));
+    }
+
+    #[test]
+    fn timesheet_roundtrip_decrypts_and_reencrypts() {
+        let db = fresh_db();
+        seed_timesheet(&db);
+        let opts = ExportOptions { include_timesheet: true, ..ExportOptions::all() };
+        let b = export(&db, opts).unwrap();
+        assert_eq!(b.version, 3);
+        let ts = b.timesheet.as_ref().unwrap();
+        assert_eq!(ts.sessions.len(), 1);
+        assert_eq!(ts.events.len(), 2);
+        assert_eq!(ts.claude_turns.len(), 1);
+        assert_eq!(ts.categories.len(), 1);
+        // Titles/urls are PLAINTEXT in the backup document.
+        assert_eq!(ts.events[0].window_title.as_deref(), Some("Secret Title"));
+        assert_eq!(ts.events[0].url.as_deref(), Some("https://github.com/x"));
+
+        // Import into a fresh db — everything lands, encrypted at rest again.
+        let db2 = fresh_db();
+        let json = serde_json::to_string(&b).unwrap();
+        let r = import_json(&db2, &json).unwrap();
+        assert_eq!(r.timesheet_imported, 2);
+        let conn = db2.lock();
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM track_sessions", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1);
+        let stored: String = conn
+            .query_row("SELECT window_title FROM track_events WHERE app_name='Safari'", [], |r| r.get(0))
+            .unwrap();
+        // The import path runs crypto::encrypt on the value. In unit tests the
+        // cipher is uninitialized (passthrough), so only the decrypt-roundtrip
+        // is asserted; in production this is AES-256-GCM at rest.
+        assert_eq!(crypto::decrypt(&stored), "Secret Title");
+        let turns: i64 = conn.query_row("SELECT COUNT(*) FROM track_claude_turns", [], |r| r.get(0)).unwrap();
+        assert_eq!(turns, 1);
+        let cat: String = conn
+            .query_row("SELECT category FROM track_categories WHERE app_name='iTerm2'", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(cat, "Dev");
+    }
+
+    #[test]
+    fn timesheet_reimport_creates_no_duplicates() {
+        let db = fresh_db();
+        seed_timesheet(&db);
+        let opts = ExportOptions { include_timesheet: true, ..ExportOptions::all() };
+        let json = serde_json::to_string(&export(&db, opts).unwrap()).unwrap();
+        // Import the backup into the SAME db twice — row counts must not grow.
+        for _ in 0..2 {
+            import_json(&db, &json).unwrap();
+        }
+        let conn = db.lock();
+        let sessions: i64 = conn.query_row("SELECT COUNT(*) FROM track_sessions", [], |r| r.get(0)).unwrap();
+        let events: i64 = conn.query_row("SELECT COUNT(*) FROM track_events", [], |r| r.get(0)).unwrap();
+        let turns: i64 = conn.query_row("SELECT COUNT(*) FROM track_claude_turns", [], |r| r.get(0)).unwrap();
+        assert_eq!((sessions, events, turns), (1, 2, 1));
+    }
+
+    #[test]
+    fn imported_active_session_is_closed() {
+        // A backup taken mid-session carries status='active' — importing it
+        // must never create a second live session on this machine.
+        let db = fresh_db();
+        {
+            let conn = db.lock();
+            conn.execute(
+                "INSERT INTO track_sessions (label, started_at, ended_at, status) VALUES (NULL, 7000, NULL, 'active')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO track_events (session_id, app_name, source, is_idle, started_at, ended_at, duration_s) \
+                 VALUES (1, 'Xcode', 'focus', 0, 7000, 9000, 2000)",
+                [],
+            )
+            .unwrap();
+        }
+        let opts = ExportOptions { include_timesheet: true, ..ExportOptions::all() };
+        let json = serde_json::to_string(&export(&db, opts).unwrap()).unwrap();
+        let db2 = fresh_db();
+        import_json(&db2, &json).unwrap();
+        let conn = db2.lock();
+        let (status, ended): (String, Option<i64>) = conn
+            .query_row("SELECT status, ended_at FROM track_sessions", [], |r| Ok((r.get(0)?, r.get(1)?)))
+            .unwrap();
+        assert_eq!(status, "ended");
+        assert_eq!(ended, Some(9000)); // closed at the last event's end
+    }
+
+    #[test]
+    fn encrypted_v3_roundtrip() {
+        let db = fresh_db();
+        seed_timesheet(&db);
+        let opts = ExportOptions { include_timesheet: true, ..ExportOptions::all() };
+        let enc = export_json_maybe_encrypted(&db, opts, Some("hunter2")).unwrap();
+        assert!(is_encrypted(&enc));
+        let db2 = fresh_db();
+        let r = import_json_maybe_encrypted(&db2, &enc, Some("hunter2")).unwrap();
+        assert_eq!(r.timesheet_imported, 2);
+        assert!(import_json_maybe_encrypted(&fresh_db(), &enc, Some("wrong")).is_err());
     }
 }

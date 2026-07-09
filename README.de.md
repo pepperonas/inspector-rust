@@ -45,7 +45,7 @@
   - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer.
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchleisten-Command. Smarte Defaults + Pro-User-Override in den Einstellungen.
   - ⚙️ **Power-Commands** — die Suchleiste parst Dutzende Shell-artige Commands: Übersetzen (`tr` / `tren` / `trde` / `trde2it` / …), System (`kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze`), `rnd` / `random` (Würfeln), `timer` / `alarm <HH:MM>`, `touch` / `mkdir` / `terminal` (im offenen Finder-Ordner), `rmvvls`, `pwgen`, `meme [query]`, `calendar [monat jahr]` (Monatsansicht — welcher Wochentag war Datum X?) — plus jedes oben genannte Command. Fuzzy-gematcht, immer über den Clips, mit rotem Akzent gerendert.
-  - 📓 **Snippets** (27 mitgelieferte KI-Prompts + 255 Material-Farben) · **Notes** (persistente Bookmarks) · **Backup** (Single-File-JSON, optional passwort-verschlüsselt).
+  - 📓 **Snippets** (27 mitgelieferte KI-Prompts + 255 Material-Farben) · **Notes** (persistente Bookmarks) · **Backup** (komplette App als eine Datei — inkl. 2FA + alle Settings, Timesheet optional; optional passwort-verschlüsselt, Import mit Inline-Passwortabfrage).
   - 🟢 **Keep-alive & Wakelock** — `wakelock on/off` (Alias `caffeine`) hält die Maschine wach (pulsierende Footer-LED + On-Screen-Toast); **„Always keep running"** (Einstellungen → Startup) startet die App nativ neu, falls sie je beendet/gekillt wird.
   - 🔒 **Local-first** — null Netzwerk-Calls, null Account; Daten nur unter `~/Library/Application Support/InspectorRust/history.db`, AES-256-GCM-verschlüsselt mit Keys im OS-Keychain.
   - 🎮 **Versteckte Spiele** — fünf Easter-Egg-Triggerwörter. Du wirst sie finden.
@@ -318,7 +318,7 @@ Literal Control auf jedem OS. Dieselbe Taste auf Windows und macOS. Der Expander
 | **Bild-Recolor** (Logo-Tinten, Chromaticity-gated) | Preview-Pane bei Image-Eintrag → Swatch / Hex | core |
 | **ML-Hintergrund-Cutout** (U²-Net-ONNX, ~4,5 MB embedded) | Preview-Pane → *Cut out background* oder `⌘B` | core |
 | Bild in Downloads speichern | Preview-Pane oder `⌘S` (PNG unverändert) | core |
-| Backup — Single-File-JSON-Export/Import (History + Snippets + Notes, per-Sektion ankreuzbar) | Settings → Backup & restore | [backup.md](./docs/backup.md) |
+| Backup — komplette App als eine Datei (History + Snippets + Notes + 2FA + Settings, Timesheet optional), optional passwort-verschlüsselt | Settings → Backup & restore | [backup.md](./docs/backup.md) |
 | Plain-Text-only Paste *(Default an, v0.4.0+)* | Settings → Paste (Shift+Enter überschreibt einmal) | core |
 | Autostart bei Login *(v0.14.0+)* | Settings → Startup *oder* Tray-Checkmark | core |
 | Clipboard-Capture pausieren | Tray → *Pause Capture* | core |
@@ -445,7 +445,7 @@ Persistente, kategorisierte Clipboard-Items in einer separaten SQLite-Tabelle �
 - Referenz: [`docs/notes.md`](./docs/notes.md).
 
 ### Backup — Single-File-JSON-Export/Import (v0.2.6+)
-Settings-Tab → *Backup & restore* → History / Snippets / Notes einzeln ankreuzen → Export in eine JSON-Datei. Import merged zurück: Snippets upsert nach Abbreviation, History upsert nach SHA-256, Notes appended. Versioniertes Schema — neuere Backups werden abgelehnt statt still zu kappen. Referenz: [`docs/backup.md`](./docs/backup.md).
+Settings-Tab → *Backup & restore* → Export schreibt die komplette App (History, Snippets, Notes, 2FA-Konten, alle Settings — Timesheet optional) in eine Datei, optional passwort-verschlüsselt (AES-256-GCM + Argon2id). Import erkennt verschlüsselte Dateien, fragt das Passwort inline ab und merged zurück: Snippets upsert nach Abbreviation, History upsert nach SHA-256, 2FA/Timesheet dedupliziert, Settings überschreiben, Notes appended. Versioniertes Schema — neuere Backups werden abgelehnt statt still zu kappen. Referenz: [`docs/backup.md`](./docs/backup.md).
 
 ### Plain-Text-Paste (Default an, v0.4.0)
 HTML- / RTF-Clipboard-Einträge werden zur Paste-Zeit auf ihren Text-Preview gestrippt, sodass Copy-aus-Word / -Browser / -Mail nicht länger Styling in andere Apps leakt. Toggle in Settings → Paste. Shift+Enter im Popup überschreibt für einen Paste.

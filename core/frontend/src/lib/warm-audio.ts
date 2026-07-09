@@ -32,11 +32,35 @@ export function warmContext(): AudioContext {
 }
 
 /**
+ * Pre-warm the shared context at app startup (v0.84.238). Previously the
+ * context was created lazily on the FIRST `bpm`/`disco` start — so its output
+ * unit spun up on the default output device exactly while the user was
+ * listening to music, and with **boom** enabled that reconfigured the boom
+ * Audio device mid-playback (the boom bridge's ring drained → audible
+ * dropouts/stutter at BPM-detector start). Warming at launch moves that
+ * one-time device spin-up to a harmless moment; later `bpm` starts attach the
+ * mic to an already-running context. Idempotent; failures are non-fatal (the
+ * lazy path still works).
+ */
+export function prewarmAudio(): void {
+  try {
+    const { ctx: c } = ensure();
+    // A context created without a user gesture may start suspended — resume
+    // so the silent output unit is actually running (Tauri webviews allow it).
+    if (c.state === "suspended") void c.resume().catch(() => undefined);
+  } catch {
+    // No audio hardware / context limit — the lazy path remains.
+  }
+}
+
+/**
  * Attach a mic stream to the shared context **without ducking**: suspend →
  * build the source + tie it into the silent output → resume (mic + output start
  * together). Returns the `MediaStreamSource` to wire your analysers onto.
  */
-export async function attachMic(stream: MediaStream): Promise<MediaStreamAudioSourceNode> {
+export async function attachMic(
+  stream: MediaStream,
+): Promise<MediaStreamAudioSourceNode> {
   const { ctx: c, silentOut: out } = ensure();
   await c.suspend().catch(() => undefined);
   const source = c.createMediaStreamSource(stream);

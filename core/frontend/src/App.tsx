@@ -301,6 +301,19 @@ function App() {
       .catch(() => undefined);
   }, []);
 
+  // Pre-warm the shared audio context shortly after startup (popup window is
+  // created hidden at launch, so this runs at a harmless moment). Without it
+  // the context + its output unit spun up lazily on the FIRST bpm/disco start
+  // — a CoreAudio device reconfiguration right while the user was listening
+  // to music, which (especially through the boom bridge) audibly stuttered
+  // the playback. Delayed a beat so it never competes with startup work.
+  useEffect(() => {
+    const id = window.setTimeout(() => {
+      void import("./lib/warm-audio").then((m) => m.prewarmAudio());
+    }, 2000);
+    return () => window.clearTimeout(id);
+  }, []);
+
   // Apply the persisted theme preference as early as possible. The
   // popup window is created hidden and only shown on the hotkey, so
   // this IPC round-trip finishes long before the user sees anything —

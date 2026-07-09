@@ -721,9 +721,12 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         std::mem::swap(&mut *eng.dsp.lock(), &mut chain);
     }
     let ring = Ring::new(1 << 15); // 32768 f32 ~= 0.34 s of stereo @ 48 kHz
-    // Pre-fill a ~30 ms silence cushion so playback never underruns at startup
-    // and has slack to absorb minor clock drift between the two devices.
-    let cushion = ((sr * 0.03) as usize) * 2;
+    // Pre-fill a ~60 ms silence cushion so playback never underruns at startup
+    // and has slack to absorb minor clock drift between the two devices AND
+    // brief capture-IOProc stalls while CoreAudio reconfigures devices — e.g.
+    // the webview opening the microphone for the BPM detector / disco, which
+    // used to drain the old 30 ms cushion and stutter the music (v0.84.238).
+    let cushion = ((sr * 0.06) as usize) * 2;
     ring.push(&vec![0.0f32; cushion]);
 
     let ring_c = ring.clone();

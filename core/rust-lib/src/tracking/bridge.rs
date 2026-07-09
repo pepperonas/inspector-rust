@@ -89,6 +89,12 @@ pub fn start(db: DbHandle, rt: Arc<Mutex<Runtime>>) -> Arc<AtomicBool> {
 }
 
 fn handle_conn(stream: TcpStream, rt: Arc<Mutex<Runtime>>, db: DbHandle, stop: Arc<AtomicBool>) {
+    // On macOS/BSD an accept()ed socket INHERITS the listener's O_NONBLOCK flag
+    // (Linux clears it). The listener is non-blocking for the accept loop, so
+    // without this reset every `ws.read()` below returns WouldBlock immediately
+    // — the read timeout never engages and the loop spins a full core for as
+    // long as the extension stays connected (the v0.84.239 battery-drain bug).
+    let _ = stream.set_nonblocking(false);
     // Read timeout so a blocked read wakes periodically to honour `stop`.
     let _ = stream.set_read_timeout(Some(Duration::from_millis(500)));
     let mut ws = match tungstenite::accept(stream) {
@@ -150,7 +156,14 @@ fn handle_conn(stream: TcpStream, rt: Arc<Mutex<Runtime>>, db: DbHandle, stop: A
             Ok(Message::Close(_)) => return,
             Ok(_) => {} // ping/pong/binary — tungstenite auto-handles ping
             Err(tungstenite::Error::Io(ref e))
-                if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut => {}
+                if e.kind() == ErrorKind::WouldBlock || e.kind() == ErrorKind::TimedOut =>
+            {
+                // Belt-and-braces: with a blocking socket this arm fires at most
+                // ~2×/s (the 500 ms timeout). Should the socket ever end up
+                // non-blocking again, this sleep caps the loop instead of
+                // letting it spin a core.
+                std::thread::sleep(Duration::from_millis(10));
+            }
             Err(_) => return,
         }
     }
@@ -173,6 +186,39 @@ pub fn host_from_url(url: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression test for the v0.84.239 battery-drain bug: on macOS/BSD a
+    /// socket accepted from a non-blocking listener inherits O_NONBLOCK, so a
+    /// read timeout alone never engages — reads return WouldBlock instantly
+    /// and the connection loop spins a full core. After `set_nonblocking(false)`
+    /// an empty read must actually block until the timeout.
+    #[test]
+    fn accepted_stream_blocks_after_clearing_nonblocking() {
+        use std::io::Read;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _client = TcpStream::connect(addr).unwrap();
+        let stream = loop {
+            match listener.accept() {
+                Ok((s, _)) => break s,
+                Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+                Err(e) => panic!("accept failed: {e}"),
+            }
+        };
+        // The two lines under test — the same calls handle_conn makes:
+        stream.set_nonblocking(false).unwrap();
+        stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+        let mut buf = [0u8; 16];
+        let t0 = std::time::Instant::now();
+        let res = (&stream).read(&mut buf);
+        assert!(
+            t0.elapsed() >= Duration::from_millis(50),
+            "read returned instantly ({res:?}) — the socket is still non-blocking"
+        );
+    }
 
     #[test]
     fn host_from_url_extracts_host() {

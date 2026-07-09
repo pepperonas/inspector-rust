@@ -477,6 +477,15 @@ modules are compile-validated but runtime-unverified, so the `track` command is
   the active tab to. **Token is read live per frame** so `regenerate_token`
   revokes in-flight sockets (fail-closed). `track_export_extension` writes the
   extension to `~/Downloads` (Chrome can't auto-install unpacked; load-unpacked).
+  **Battery-drain fix (v0.84.239):** `handle_conn` MUST `set_nonblocking(false)`
+  on the accepted stream — on macOS/BSD an `accept()`ed socket **inherits the
+  listener's O_NONBLOCK** (Linux clears it), so the 500 ms read timeout never
+  engaged: every `ws.read()` returned `WouldBlock` instantly and the per-
+  connection loop **spun a full core for as long as the extension was
+  connected** (measured live: ~4.6 CPU-hours in one morning, 99.5 % CPU).
+  A 10 ms sleep in the WouldBlock arm is the belt-and-braces cap; the
+  regression test `accepted_stream_blocks_after_clearing_nonblocking` pins the
+  blocking behaviour.
 - **Export (`tracking/export.rs`):** flat **CSV** + a **self-contained HTML**
   report (inline-SVG charts, zero external requests, footer
   `© 2026 Martin Pfeffer | celox.io`).

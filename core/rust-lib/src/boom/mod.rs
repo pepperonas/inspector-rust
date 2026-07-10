@@ -188,6 +188,36 @@ pub fn volume_gain(scalar: f32) -> f32 {
     s * s
 }
 
+// ── Idle gate (battery, v0.84.240) ───────────────────────────────────────────
+//
+// A running IOProc makes coreaudiod hold a `PreventUserIdleSystemSleep`
+// assertion for our process — with boom enabled the Mac could NEVER idle-sleep
+// (measured: a full night awake, 94 % → 41 % battery). The macOS bridge
+// therefore suspends its IOProcs after sustained true silence and resumes on
+// a `kAudioDevicePropertyDeviceIsRunningSomewhere` wake. These are the pure,
+// unit-tested decision helpers.
+
+/// Any sample above this is "audible". BlackHole's loopback delivers exact
+/// zeros when clients render silence (and when no client renders), so the
+/// epsilon only needs to dodge denormals — real music never sits below it.
+pub const GATE_SILENCE_EPS: f32 = 1.0e-6;
+
+/// Sustained true silence for this long → the bridge suspends its IOProcs.
+pub const GATE_SUSPEND_AFTER_MS: u64 = 60_000;
+
+/// Whether a capture buffer's peak counts as audible content.
+#[inline]
+pub fn gate_is_audible(peak: f32) -> bool {
+    peak > GATE_SILENCE_EPS
+}
+
+/// Whether the silence has lasted long enough to suspend. Saturating — a
+/// last-audible stamp from "the future" (clock weirdness) never underflows.
+#[inline]
+pub fn gate_should_suspend(last_audible_ms: u64, now_ms: u64) -> bool {
+    now_ms.saturating_sub(last_audible_ms) >= GATE_SUSPEND_AFTER_MS
+}
+
 // ── DSP chain (pre-amp → EQ → boost → limiter) ───────────────────────────────
 
 /// Live parameters pushed to the chain (the realtime engine will pass these
@@ -608,6 +638,16 @@ pub fn version_ge_14_2(v: &str) -> bool {
 #[cfg(target_os = "macos")]
 pub(crate) mod macos;
 
+/// Store the app handle so the macOS engine's idle gate can talk to the
+/// frontend (`warm-audio-suspend` / `warm-audio-resume` events). Called once at
+/// startup, before `apply`. No-op on non-macOS.
+pub fn set_app_handle(app: &tauri::AppHandle) {
+    #[cfg(target_os = "macos")]
+    macos::set_app_handle(app.clone());
+    #[cfg(not(target_os = "macos"))]
+    let _ = app;
+}
+
 /// (Re)sync the live audio engine to the saved config — start/stop the process
 /// tap + push DSP params. Called after a config change + at startup. No-op on
 /// non-macOS (and harmless if `enabled` is false). Phase 1b.
@@ -827,6 +867,29 @@ mod tests {
         }
         // ~linear for small signals.
         assert!((soft_limit(0.01, 0.985) - 0.01).abs() < 1e-3);
+    }
+
+    #[test]
+    fn idle_gate_audibility_uses_the_silence_epsilon() {
+        assert!(!gate_is_audible(0.0));
+        assert!(!gate_is_audible(GATE_SILENCE_EPS)); // boundary: not strictly above
+        assert!(gate_is_audible(2.0e-6));
+        assert!(gate_is_audible(0.5)); // real music is far above the epsilon
+    }
+
+    #[test]
+    fn idle_gate_suspends_only_after_the_full_silence_window() {
+        assert!(!gate_should_suspend(0, GATE_SUSPEND_AFTER_MS - 1));
+        assert!(gate_should_suspend(0, GATE_SUSPEND_AFTER_MS));
+        assert!(!gate_should_suspend(100_000, 100_000 + GATE_SUSPEND_AFTER_MS - 1));
+        assert!(gate_should_suspend(100_000, 100_000 + GATE_SUSPEND_AFTER_MS));
+    }
+
+    #[test]
+    fn idle_gate_never_underflows_on_a_future_stamp() {
+        // A last-audible stamp ahead of "now" must read as recent, not as an
+        // underflowed huge silence duration.
+        assert!(!gate_should_suspend(10_000, 5_000));
     }
 
     #[test]

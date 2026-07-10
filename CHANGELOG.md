@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.240] — 2026-07-10
+
+### Fixed
+
+- **boom no longer keeps the Mac awake — it now sleeps through silence.** With boom enabled, its always-running audio pipeline (capture + playback IOProcs, plus the webview's warm AudioContext) made coreaudiod hold `PreventUserIdleSystemSleep` assertions around the clock — the Mac could **never idle-sleep**, and a full night with the display off burned 94 % → 41 % battery. boom now has an **idle gate**: after 60 s of true silence it suspends both IOProcs (the sleep assertions are released, the Mac sleeps normally) — but only after verifying that **no other app** still has a running client on the boom device, so audio can never be lost; the wake listener is armed before that probe, and the moment any app starts playing, the bridge resumes within milliseconds (with its ring re-primed to the exact startup cushion, so latency never creeps). The webview's warm AudioContext is parked and woken alongside (it refuses to park while a mic is live, so a running BPM detector / disco keeps everything up), the launch pre-warm only runs when boom is enabled, and disabling boom now also parks the context. With boom on and music playing, nothing changes — including the field-verified BPM-start behaviour.
+
 ## [0.84.239] — 2026-07-09
 
 ### Fixed

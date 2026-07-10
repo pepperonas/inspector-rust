@@ -124,6 +124,7 @@ import {
   startTimer,
   listTimers,
   getThemePreference,
+  getBoomConfig,
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -305,13 +306,47 @@ function App() {
   // created hidden at launch, so this runs at a harmless moment). Without it
   // the context + its output unit spun up lazily on the FIRST bpm/disco start
   // — a CoreAudio device reconfiguration right while the user was listening
-  // to music, which (especially through the boom bridge) audibly stuttered
-  // the playback. Delayed a beat so it never competes with startup work.
+  // to music, which through the boom bridge audibly stuttered the playback.
+  // Delayed a beat so it never competes with startup work. **Gated on boom
+  // being enabled (v0.84.240):** the ring-drain the warm context protects
+  // against only exists through boom's bridge — and a permanently running
+  // silent output unit makes coreaudiod hold a PreventUserIdleSystemSleep
+  // assertion (the Mac never idle-sleeps → overnight battery drain). Without
+  // boom the context stays lazy, like pre-v0.84.238.
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void import("./lib/warm-audio").then((m) => m.prewarmAudio());
+      void getBoomConfig()
+        .then((cfg) => {
+          if (!cfg.enabled) return;
+          return import("./lib/warm-audio").then((m) => m.prewarmAudio());
+        })
+        .catch(() => undefined);
     }, 2000);
     return () => window.clearTimeout(id);
+  }, []);
+
+  // boom's idle gate (Rust) parks/wakes the warm context alongside its own
+  // bridge: a suspended context releases the webview's sleep assertion AND
+  // frees boom Audio of our own silent client so the gate's no-other-clients
+  // probe can pass. `suspendWarmIfIdle` refuses while a mic is live (bpm/disco
+  // running), which makes boom's probe fail and its bridge keep running.
+  useEffect(() => {
+    let cancelled = false;
+    const unlistens: UnlistenFn[] = [];
+    const hook = (event: string, run: (m: typeof import("./lib/warm-audio")) => void) => {
+      void listen(event, () => {
+        void import("./lib/warm-audio").then(run);
+      }).then((u) => {
+        if (cancelled) u();
+        else unlistens.push(u);
+      });
+    };
+    hook("warm-audio-suspend", (m) => m.suspendWarmIfIdle());
+    hook("warm-audio-resume", (m) => m.resumeWarm());
+    return () => {
+      cancelled = true;
+      unlistens.forEach((u) => u());
+    };
   }, []);
 
   // Apply the persisted theme preference as early as possible. The

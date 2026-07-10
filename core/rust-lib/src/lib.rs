@@ -376,6 +376,9 @@ pub fn run(context: tauri::Context<Wry>) {
             }
 
             // boom audio engine — (re)start if it was left enabled (off by default).
+            // The handle first: the idle gate talks to the webview's warm
+            // AudioContext via the warm-audio-suspend/-resume events.
+            boom::set_app_handle(app.handle());
             boom::apply(&db_handle);
 
             clipboard_watcher::spawn(

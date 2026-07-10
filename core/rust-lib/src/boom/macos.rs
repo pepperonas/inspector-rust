@@ -14,7 +14,18 @@
 //! **Single clock rate:** boom Audio's sample rate is matched to the real device
 //! at start (`set_device_sample_rate`) — otherwise apps render at boom Audio's
 //! rate while we play out at the real rate → slow playback + ring overruns
-//! (clicks). A ~30 ms silence cushion is pre-filled for startup + drift slack.
+//! (clicks). A ~60 ms silence cushion is pre-filled for startup + drift slack.
+//!
+//! **Idle gate (battery, v0.84.240):** a running IOProc makes coreaudiod hold a
+//! `PreventUserIdleSystemSleep` assertion — the Mac could never idle-sleep while
+//! boom was on. After 60 s of true silence the gate stops both IOProcs
+//! (assertions released, procs stay registered) — but only if, with our procs
+//! stopped, no OTHER client runs on boom Audio (`DeviceIsRunningSomewhere`
+//! probe; the wake listener is armed BEFORE the probe so a client starting in
+//! the gap is never missed). Any app starting playback fires the listener →
+//! resume in milliseconds (ring re-primed to the startup cushion). The webview's
+//! warm AudioContext is parked/woken alongside via the `warm-audio-suspend` /
+//! `warm-audio-resume` events (it is itself a client on boom Audio).
 //!
 //! Realtime safety: the IOProc closures don't allocate/lock-block — the ring is
 //! lock-free and `DspChain` params are read with `try_lock` (a contended tweak
@@ -58,6 +69,41 @@ static CLIP: AtomicBool = AtomicBool::new(false);
 /// CoreAudio property listener + the initial read at start.
 static VOLUME_GAIN_BITS: AtomicU32 = AtomicU32::new(1.0f32.to_bits());
 
+// ── Idle gate (battery, v0.84.240) ───────────────────────────────────────────
+// A running IOProc makes coreaudiod hold a PreventUserIdleSystemSleep assertion
+// for our process — the Mac could never idle-sleep while boom was enabled. The
+// gate suspends both IOProcs after `boom::GATE_SUSPEND_AFTER_MS` of true
+// silence (BlackHole delivers exact zeros when nothing renders) and resumes on
+// a `kAudioDevicePropertyDeviceIsRunningSomewhere` wake — with our own procs
+// stopped, that property reflects OTHER clients only, so any app starting
+// playback into boom Audio fires the listener within milliseconds.
+
+/// Millis since process start, written by the capture IOProc on every audible
+/// buffer. `Instant::elapsed` is a commpage read on macOS — RT-safe.
+static LAST_AUDIBLE_MS: AtomicU64 = AtomicU64::new(0);
+static GATE_EPOCH: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+static GATE_THREAD_ON: AtomicBool = AtomicBool::new(false);
+static RUNNING_LISTENER_ON: AtomicBool = AtomicBool::new(false);
+/// App handle for the `warm-audio-suspend`/`warm-audio-resume` frontend events
+/// (the webview's warm AudioContext is itself a client on boom Audio — it must
+/// park alongside the bridge or the "no other clients" probe never passes).
+static APP_HANDLE: std::sync::OnceLock<tauri::AppHandle> = std::sync::OnceLock::new();
+
+fn now_ms() -> u64 {
+    GATE_EPOCH.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64
+}
+
+pub(crate) fn set_app_handle(app: tauri::AppHandle) {
+    let _ = APP_HANDLE.set(app);
+}
+
+fn emit_frontend(event: &str) {
+    if let Some(app) = APP_HANDLE.get() {
+        use tauri::Emitter;
+        let _ = app.emit(event, ());
+    }
+}
+
 /// CATapMuteBehavior: 0 = unmuted (doubles → echo), 1 = muted (also muted our
 /// output device → silence), 2 = mutedWhenTapped. The tone probe proved our
 /// output reaches the speakers, so the silence under (1) is its device-mute.
@@ -100,6 +146,7 @@ const PROP_DEVICE_UID: u32 = fourcc(b"uid "); // kAudioDevicePropertyDeviceUID
 const PROP_TAP_UID: u32 = fourcc(b"tuid"); // kAudioTapPropertyUID
 const PROP_NOMINAL_SR: u32 = fourcc(b"nsrt"); // kAudioDevicePropertyNominalSampleRate
 const PROP_VOLUME_SCALAR: u32 = fourcc(b"volm"); // kAudioDevicePropertyVolumeScalar
+const PROP_IS_RUNNING_SOMEWHERE: u32 = fourcc(b"gone"); // kAudioDevicePropertyDeviceIsRunningSomewhere
 
 const KCF_UTF8: u32 = 0x0800_0100;
 
@@ -279,7 +326,14 @@ struct Session {
     // Kept alive for the lifetime of the IOProcs.
     _cap_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)>,
     _play_block: RcBlock<dyn Fn(*const c_void, *const c_void, *const c_void, *mut c_void, *const c_void)>,
-    _ring: Arc<Ring>,
+    ring: Arc<Ring>,
+    /// The startup silence cushion in samples — the idle-gate resume re-primes
+    /// the ring to exactly this, so bridge latency stays deterministic across
+    /// suspend/resume cycles instead of creeping toward the ring capacity.
+    cushion: usize,
+    /// False while the idle gate has the IOProcs suspended (procs stay
+    /// registered; only stopped — coreaudiod releases the sleep assertions).
+    io_running: bool,
 }
 
 // SAFETY: the CoreAudio object ids are plain integers; the block is only invoked
@@ -429,6 +483,16 @@ impl Ring {
         }
         self.write.store(w, Ordering::Release);
     }
+    /// Reset to exactly `cushion` samples of silence. ONLY safe while BOTH
+    /// IOProcs are stopped (no concurrent producer/consumer) — used by the
+    /// idle-gate resume so the bridge restarts with its deterministic startup
+    /// latency instead of whatever fill level the suspend froze.
+    unsafe fn reset_to_silence(&self, cushion: usize) {
+        let w = self.write.load(Ordering::Relaxed);
+        self.read.store(w, Ordering::Relaxed); // drain
+        self.push(&vec![0.0f32; cushion.min(self.cap)]);
+    }
+
     #[inline]
     unsafe fn pop_into(&self, dst: &mut [f32]) {
         let w = self.write.load(Ordering::Acquire);
@@ -634,9 +698,20 @@ fn capture_cb(ring: &Ring, input: *const AudioBufferList, output: *mut AudioBuff
         let s = std::slice::from_raw_parts(ib.data as *const f32, n);
         ring.push(s);
         CB_COUNT.fetch_add(1, Ordering::Relaxed);
-        // Input level (RMS) for the meter.
-        let rms = (s.iter().map(|x| x * x).sum::<f32>() / n.max(1) as f32).sqrt();
-        CB_IN_RMS_BITS.store(rms.to_bits(), Ordering::Relaxed);
+        // Input level (RMS) for the meter + peak for the idle gate, one pass.
+        let mut sum = 0f32;
+        let mut peak = 0f32;
+        for &x in s {
+            sum += x * x;
+            let a = x.abs();
+            if a > peak {
+                peak = a;
+            }
+        }
+        CB_IN_RMS_BITS.store((sum / n.max(1) as f32).sqrt().to_bits(), Ordering::Relaxed);
+        if super::gate_is_audible(peak) {
+            LAST_AUDIBLE_MS.store(now_ms(), Ordering::Relaxed);
+        }
     }
 }
 
@@ -785,8 +860,13 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         play_proc,
         _cap_block: cap_block,
         _play_block: play_block,
-        _ring: ring,
+        ring,
+        cushion,
+        io_running: true,
     });
+    // Idle-gate grace: a fresh bridge gets a full silence window before the
+    // gate may suspend it (LAST_AUDIBLE may be minutes stale from before).
+    LAST_AUDIBLE_MS.store(now_ms(), Ordering::Relaxed);
     // Follow later output-device changes (e.g. the user picks Bluetooth) so boom
     // keeps EQ-ing the selected device instead of being pinned to this one.
     add_default_listener();
@@ -858,12 +938,161 @@ pub(crate) fn uninstall_driver() -> Result<(), String> {
 /// output (used by the live re-bridge, which keeps the new device as default).
 unsafe fn stop_ioprocs_only(eng: &mut Engine) {
     if let Some(s) = eng.session.take() {
+        remove_running_listener(s.boom_dev); // idle-gate wake listener, if armed
         AudioDeviceStop(s.real_dev, s.play_proc);
         AudioDeviceStop(s.boom_dev, s.cap_proc);
         AudioDeviceDestroyIOProcID(s.real_dev, s.play_proc);
         AudioDeviceDestroyIOProcID(s.boom_dev, s.cap_proc);
         // blocks + ring drop here, after the IOProcs are destroyed.
     }
+}
+
+// ── Idle gate — suspend the bridge during silence so the Mac can sleep ───────
+
+/// `kAudioDevicePropertyDeviceIsRunningSomewhere` — with our own IOProcs
+/// stopped this reflects OTHER processes' clients only.
+unsafe fn is_running_somewhere(dev: AudioObjectID) -> bool {
+    let a = addr(PROP_IS_RUNNING_SOMEWHERE);
+    let mut v: u32 = 0;
+    let mut size = std::mem::size_of::<u32>() as u32;
+    AudioObjectGetPropertyData(dev, &a, 0, std::ptr::null(), &mut size, &mut v as *mut u32 as *mut c_void) == 0
+        && v != 0
+}
+
+/// Fires on any run-state change of boom Audio. Lightweight: hand off to a
+/// worker (same pattern as `default_output_changed`); `gate_resume` re-checks
+/// the actual state under the engine lock, so spurious fires are no-ops.
+extern "C" fn boom_running_changed(
+    _obj: AudioObjectID,
+    _n: u32,
+    _addrs: *const AudioObjectPropertyAddress,
+    _data: *mut c_void,
+) -> OSStatus {
+    std::thread::spawn(gate_resume);
+    0
+}
+
+unsafe fn add_running_listener(dev: AudioObjectID) {
+    if RUNNING_LISTENER_ON.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let a = addr(PROP_IS_RUNNING_SOMEWHERE);
+    AudioObjectAddPropertyListener(dev, &a, boom_running_changed, std::ptr::null_mut());
+}
+
+fn remove_running_listener(dev: AudioObjectID) {
+    if !RUNNING_LISTENER_ON.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    let a = addr(PROP_IS_RUNNING_SOMEWHERE);
+    unsafe {
+        AudioObjectRemovePropertyListener(dev, &a, boom_running_changed, std::ptr::null_mut());
+    }
+}
+
+/// The gate's monitor thread — one per process, ticking every few seconds.
+/// Cheap while there's nothing to do (two atomic loads).
+fn ensure_gate_thread() {
+    if GATE_THREAD_ON.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let spawned = std::thread::Builder::new()
+        .name("boom-idle-gate".into())
+        .spawn(|| loop {
+            std::thread::sleep(std::time::Duration::from_secs(5));
+            if !SHOULD_RUN.load(Ordering::SeqCst) {
+                continue;
+            }
+            if !super::gate_should_suspend(LAST_AUDIBLE_MS.load(Ordering::Relaxed), now_ms()) {
+                continue;
+            }
+            let mut slot = ENGINE.lock();
+            let Some(eng) = slot.as_mut() else { continue };
+            let Some(s) = eng.session.as_mut() else { continue };
+            if !s.io_running {
+                continue; // already suspended — the wake listener owns resume
+            }
+            unsafe { try_suspend(s) };
+        });
+    if spawned.is_err() {
+        GATE_THREAD_ON.store(false, Ordering::SeqCst);
+    }
+}
+
+/// Attempt to suspend the bridge (called with the engine lock held, after the
+/// silence window elapsed). **Audio must never be lost:** the wake listener is
+/// armed BEFORE the no-other-clients probe (a client starting in between fires
+/// it → immediate resume), and if any other client is still running on boom
+/// Audio the suspend is aborted and the bridge keeps running.
+unsafe fn try_suspend(s: &mut Session) {
+    // Ask the webview to park its warm AudioContext — it is itself a client on
+    // boom Audio and would otherwise always fail the probe below. (The frontend
+    // refuses while a mic is live, i.e. bpm/disco running → probe fails → we
+    // stay running. Correct: the user is actively using audio.)
+    emit_frontend("warm-audio-suspend");
+    add_running_listener(s.boom_dev);
+    AudioDeviceStop(s.real_dev, s.play_proc);
+    AudioDeviceStop(s.boom_dev, s.cap_proc);
+    s.io_running = false;
+    // Probe: give the (possibly timer-throttled, hidden) webview a moment to
+    // suspend its context, then require boom Audio to be client-free.
+    for _ in 0..12 {
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        if !is_running_somewhere(s.boom_dev) {
+            tracing::info!("boom: idle gate — bridge suspended (sleep assertions released)");
+            return;
+        }
+    }
+    // Another process still has a running (silent) client on boom Audio — or
+    // the webview couldn't park. Never risk inaudible playback: keep running.
+    remove_running_listener(s.boom_dev);
+    let a = AudioDeviceStart(s.boom_dev, s.cap_proc);
+    let b = AudioDeviceStart(s.real_dev, s.play_proc);
+    s.io_running = true;
+    emit_frontend("warm-audio-resume");
+    // Back off a full silence window before the next attempt.
+    LAST_AUDIBLE_MS.store(now_ms(), Ordering::Relaxed);
+    if a != 0 || b != 0 {
+        tracing::warn!("boom: idle-gate abort restart failed (cap {a}, play {b})");
+    } else {
+        tracing::info!("boom: idle-suspend aborted — another client still runs on boom Audio; retrying later");
+    }
+}
+
+/// Resume the suspended bridge — spawned by the wake listener the moment any
+/// app starts rendering into boom Audio again.
+fn gate_resume() {
+    let mut slot = ENGINE.lock();
+    let Some(eng) = slot.as_mut() else { return };
+    let Some(s) = eng.session.as_mut() else { return };
+    if s.io_running || !SHOULD_RUN.load(Ordering::SeqCst) {
+        return;
+    }
+    unsafe {
+        if !is_running_somewhere(s.boom_dev) {
+            return; // spurious property change (e.g. our own stop) — stay suspended
+        }
+        // Deterministic latency: restart from exactly the startup cushion.
+        s.ring.reset_to_silence(s.cushion);
+        let a = AudioDeviceStart(s.boom_dev, s.cap_proc);
+        let b = AudioDeviceStart(s.real_dev, s.play_proc);
+        s.io_running = true;
+        remove_running_listener(s.boom_dev);
+        if a != 0 || b != 0 {
+            tracing::warn!("boom: idle-gate resume failed (cap {a}, play {b}) — re-bridging");
+            // Last-ditch: full rebuild so the user is never left silent.
+            stop_ioprocs_only(eng);
+            start_locked(eng);
+        } else {
+            tracing::info!("boom: audio client active — bridge resumed");
+        }
+    }
+    LAST_AUDIBLE_MS.store(now_ms(), Ordering::Relaxed);
+    drop(slot);
+    // Let the fresh bridge settle before the webview's silent context re-adds
+    // its own client (its output-unit start can stall the capture for a beat).
+    std::thread::sleep(std::time::Duration::from_millis(700));
+    emit_frontend("warm-audio-resume");
 }
 
 unsafe fn stop_locked(eng: &mut Engine) {
@@ -1008,15 +1237,23 @@ pub(crate) fn set_active(cfg: &BoomConfig) {
 
     if cfg.enabled && ENGINE_ENABLED {
         SHOULD_RUN.store(true, Ordering::SeqCst);
+        ensure_gate_thread();
         if !unsafe { start_locked(eng) } {
             // Occasional device-not-ready miss right after enabling — retry in the
             // background so the user doesn't have to nudge a slider to kick it off.
             std::thread::spawn(retry_start);
         }
+        // The bridge is (or is about to be) live — the webview may keep its warm
+        // AudioContext running (it protects the ring from mic spin-up stalls).
+        emit_frontend("warm-audio-resume");
     } else {
         SHOULD_RUN.store(false, Ordering::SeqCst);
         // Engine off (or disabled): make sure nothing is touching the audio path.
         unsafe { stop_locked(eng) };
+        // Without boom there is no ring to protect — park the webview's warm
+        // AudioContext too, or ITS silent output unit keeps holding a
+        // PreventUserIdleSystemSleep assertion on the speakers.
+        emit_frontend("warm-audio-suspend");
     }
 }
 

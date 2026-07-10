@@ -14,6 +14,10 @@
 
 let ctx: AudioContext | null = null;
 let silentOut: GainNode | null = null;
+/** Mic sources attached via `attachMic` — consulted by `suspendWarmIfIdle` so
+ * the context is never parked under a live bpm/disco capture. Sources whose
+ * stream tracks have ended (the consumer stopped them) are pruned lazily. */
+let micSources: MediaStreamAudioSourceNode[] = [];
 
 /** The shared context + its silent output node, created lazily and kept warm. */
 function ensure(): { ctx: AudioContext; silentOut: GainNode } {
@@ -66,5 +70,40 @@ export async function attachMic(
   const source = c.createMediaStreamSource(stream);
   source.connect(out); // ties the mic into the (warm) play-and-record session
   await c.resume().catch(() => undefined);
+  micSources.push(source);
   return source;
+}
+
+/** Whether any attached mic stream still has a live track (bpm/disco active).
+ * Programmatic `track.stop()` doesn't fire `ended`, so liveness is polled here
+ * at decision time instead of relying on events. */
+function micActive(): boolean {
+  micSources = micSources.filter((s) =>
+    s.mediaStream.getTracks().some((t) => t.readyState === "live"),
+  );
+  return micSources.length > 0;
+}
+
+/**
+ * Park the warm context (v0.84.240, battery). A running output unit makes
+ * coreaudiod hold a `PreventUserIdleSystemSleep` assertion for the webview —
+ * on its own that stopped the Mac from ever idle-sleeping, and with boom on it
+ * kept boom Audio "running" so boom's idle gate could never suspend either.
+ * Driven by the Rust side's `warm-audio-suspend` event (boom silence gate /
+ * boom disabled). Refuses while a mic is live — boom's probe then fails and
+ * its bridge stays running, which is correct: the user is using audio.
+ */
+export function suspendWarmIfIdle(): void {
+  if (ctx && ctx.state === "running" && !micActive()) {
+    void ctx.suspend().catch(() => undefined);
+  }
+}
+
+/**
+ * (Re)start the warm context — the `warm-audio-resume` handler (boom bridge
+ * resumed / boom enabled). Creates the context if it never existed (boom
+ * enabled after launch, where the gated pre-warm was skipped).
+ */
+export function resumeWarm(): void {
+  prewarmAudio();
 }

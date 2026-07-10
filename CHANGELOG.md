@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.241] — 2026-07-11
+
+### Changed
+
+- **`clean` frees far more space.** The cleaner's allowlist grew from a handful of specific roots to real coverage: at **Standard** it now sweeps the **whole user cache directory** (`~/Library/Caches` on macOS, `~/.cache` on Linux — routinely the largest reclaimable tree on a machine: Homebrew, pip, go-build, Playwright, Electron apps, …), with the browser and own-app roots carved out via new **per-category exclusions** so no file is ever claimed (or counted) twice. New opt-in **Aggressive** categories: **Xcode build caches** (DerivedData + simulator caches) and **Trash** (only items older than the age filter); the developer-cache category additionally covers the unpacked Cargo sources + git checkouts (they dwarf the `.crate` cache), and application logs now include PM2. All safety guarantees are unchanged — hard-coded allowlist, dry-run + confirm, canonicalise/containment + symlink refusal, age filter, and the exclusions are re-checked at execute time per category. The scan and execute IPC are now async, so scanning a multi-gigabyte cache tree never blocks the UI. (Defaults stay conservative: the level remains *Safe* until you raise it in Settings → Cleaning.)
+
 ## [0.84.240] — 2026-07-10
 
 ### Fixed

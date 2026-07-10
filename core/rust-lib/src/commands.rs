@@ -3826,19 +3826,22 @@ pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String>
 
 /// Read-only dry-run scan for the current cleaner config. Returns the plan
 /// (paths + sizes + per-category totals) so the frontend can show a preview.
-/// Deletes nothing.
+/// Deletes nothing. **Async** (→ worker thread): since v0.84.241 the Standard
+/// level scans the whole user cache dir — walking that on the main thread
+/// would freeze the UI for seconds.
 #[tauri::command]
-pub fn cleaner_scan(db: State<'_, DbHandle>) -> Result<cleaner::CleanPlan, String> {
+pub async fn cleaner_scan(db: State<'_, DbHandle>) -> Result<cleaner::CleanPlan, String> {
     let cfg = cleaner::load_config(&db);
     Ok(cleaner::scan(&cfg))
 }
 
 /// Execute a previously-scanned plan. Re-validates every path against the
-/// current config's allowlist (containment + non-symlink) before deleting, so
-/// a stale or tampered plan can't escape the cache roots. Returns counts +
-/// freed bytes + per-path errors (never aborts the batch).
+/// current config's allowlist (containment + non-symlink + per-category
+/// exclusions) before deleting, so a stale or tampered plan can't escape the
+/// cache roots. Returns counts + freed bytes + per-path errors (never aborts
+/// the batch). Async for the same reason as the scan.
 #[tauri::command]
-pub fn cleaner_execute(
+pub async fn cleaner_execute(
     db: State<'_, DbHandle>,
     plan: cleaner::CleanPlan,
 ) -> Result<cleaner::CleanResult, String> {

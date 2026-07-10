@@ -79,6 +79,12 @@ pub struct Category {
     /// Absolute roots. Empty (e.g. a dir that doesn't exist on this machine)
     /// → the category simply contributes nothing.
     pub roots: Vec<PathBuf>,
+    /// Subtrees under `roots` this category does NOT own — used by broad
+    /// categories (e.g. all of `~/Library/Caches`) to carve out the roots that
+    /// belong to more specific categories, so no file is ever claimed (or
+    /// counted) twice. Excluded subtrees are neither recursed nor deleted.
+    #[serde(skip)]
+    pub exclude: Vec<PathBuf>,
     /// Whether it's on by default (the user can still uncheck it).
     pub default_enabled: bool,
 }
@@ -103,6 +109,7 @@ pub fn categories() -> Vec<Category> {
             label: "Inspector Rust cache".into(),
             level: Level::Safe,
             roots: vec![c.join("InspectorRust")],
+            exclude: vec![],
             default_enabled: true,
         });
     }
@@ -112,41 +119,88 @@ pub fn categories() -> Vec<Category> {
         label: "OS temporary files".into(),
         level: Level::Safe,
         roots: vec![tmp],
+        exclude: vec![],
         default_enabled: true,
     });
 
     #[cfg(target_os = "macos")]
     if let Some(h) = home() {
+        let browser_roots = vec![
+            h.join("Library/Caches/com.apple.Safari"),
+            h.join("Library/Caches/Google/Chrome"),
+            h.join("Library/Caches/com.google.Chrome"),
+            h.join("Library/Caches/Firefox"),
+            h.join("Library/Caches/com.microsoft.edgemac"),
+        ];
         out.push(Category {
             key: "browser_cache".into(),
             label: "Browser caches".into(),
             level: Level::Standard,
-            roots: vec![
-                h.join("Library/Caches/com.apple.Safari"),
-                h.join("Library/Caches/Google/Chrome"),
-                h.join("Library/Caches/com.google.Chrome"),
-                h.join("Library/Caches/Firefox"),
-                h.join("Library/Caches/com.microsoft.edgemac"),
-            ],
+            roots: browser_roots.clone(),
+            exclude: vec![],
+            default_enabled: true,
+        });
+        // The big one (v0.84.241): everything else under ~/Library/Caches —
+        // per Apple's guidelines strictly regenerable data, and routinely the
+        // largest reclaimable tree on a Mac (Homebrew, pip, go-build, Yarn,
+        // Playwright, Electron apps, …). The browser + our own roots are
+        // carved out so no file is claimed twice.
+        out.push(Category {
+            key: "other_caches".into(),
+            label: "Other app caches (~/Library/Caches)".into(),
+            level: Level::Standard,
+            roots: vec![h.join("Library/Caches")],
+            exclude: {
+                let mut ex = browser_roots;
+                ex.push(h.join("Library/Caches/InspectorRust"));
+                ex
+            },
             default_enabled: true,
         });
         out.push(Category {
             key: "logs".into(),
             label: "Application logs".into(),
             level: Level::Standard,
-            roots: vec![h.join("Library/Logs")],
+            roots: vec![h.join("Library/Logs"), h.join(".pm2/logs")],
+            exclude: vec![],
             default_enabled: true,
         });
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo registry)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
                 h.join("Library/pnpm/store"),
                 h.join(".gradle/caches"),
                 h.join(".cargo/registry/cache"),
+                // The unpacked crate sources + git checkouts dwarf the .crate
+                // cache itself; cargo re-extracts / re-clones on demand.
+                h.join(".cargo/registry/src"),
+                h.join(".cargo/git"),
             ],
+            exclude: vec![],
+            default_enabled: false,
+        });
+        out.push(Category {
+            key: "xcode_caches".into(),
+            label: "Xcode build caches (DerivedData / simulator caches)".into(),
+            level: Level::Aggressive,
+            roots: vec![
+                h.join("Library/Developer/Xcode/DerivedData"),
+                h.join("Library/Developer/CoreSimulator/Caches"),
+            ],
+            exclude: vec![],
+            default_enabled: false,
+        });
+        // Trash: genuinely user-discarded files, but still user files — strictly
+        // opt-in, and the age filter applies (only items trashed ≥ N days ago).
+        out.push(Category {
+            key: "trash".into(),
+            label: "Trash (items older than the age filter)".into(),
+            level: Level::Aggressive,
+            roots: vec![h.join(".Trash")],
+            exclude: vec![],
             default_enabled: false,
         });
     }
@@ -163,18 +217,22 @@ pub fn categories() -> Vec<Category> {
                 local.join("Microsoft/Edge/User Data/Default/Cache"),
                 local.join("Mozilla/Firefox/Profiles"),
             ],
+            exclude: vec![],
             default_enabled: true,
         });
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo registry)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join("AppData/Roaming/npm-cache/_cacache"),
                 local.join("pnpm/store"),
                 h.join(".gradle/caches"),
                 h.join(".cargo/registry/cache"),
+                h.join(".cargo/registry/src"),
+                h.join(".cargo/git"),
             ],
+            exclude: vec![],
             default_enabled: false,
         });
     }
@@ -182,27 +240,55 @@ pub fn categories() -> Vec<Category> {
     #[cfg(target_os = "linux")]
     if let Some(h) = home() {
         let xdg_cache = dirs::cache_dir().unwrap_or_else(|| h.join(".cache"));
+        let browser_roots = vec![
+            xdg_cache.join("google-chrome"),
+            xdg_cache.join("chromium"),
+            xdg_cache.join("mozilla"),
+        ];
         out.push(Category {
             key: "browser_cache".into(),
             label: "Browser caches".into(),
             level: Level::Standard,
-            roots: vec![
-                xdg_cache.join("google-chrome"),
-                xdg_cache.join("chromium"),
-                xdg_cache.join("mozilla"),
-            ],
+            roots: browser_roots.clone(),
+            exclude: vec![],
+            default_enabled: true,
+        });
+        // Everything else under ~/.cache (XDG: strictly regenerable), minus the
+        // more specific categories' roots.
+        out.push(Category {
+            key: "other_caches".into(),
+            label: "Other app caches (~/.cache)".into(),
+            level: Level::Standard,
+            roots: vec![xdg_cache.clone()],
+            exclude: {
+                let mut ex = browser_roots;
+                ex.push(xdg_cache.join("InspectorRust"));
+                ex.push(xdg_cache.join("pnpm")); // owned by dev_caches
+                ex
+            },
             default_enabled: true,
         });
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo registry)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
                 xdg_cache.join("pnpm"),
                 h.join(".gradle/caches"),
                 h.join(".cargo/registry/cache"),
+                h.join(".cargo/registry/src"),
+                h.join(".cargo/git"),
             ],
+            exclude: vec![],
+            default_enabled: false,
+        });
+        out.push(Category {
+            key: "trash".into(),
+            label: "Trash (items older than the age filter)".into(),
+            level: Level::Aggressive,
+            roots: vec![h.join(".local/share/Trash/files")],
+            exclude: vec![],
             default_enabled: false,
         });
     }
@@ -310,14 +396,24 @@ fn contained_in_any(path: &Path, roots: &[PathBuf]) -> bool {
 
 // ── Pure scan / execute core (explicit roots → unit-testable) ────────────
 
+/// Whether `path` sits at or under any of the `exclude` subtrees. Plain
+/// prefix matching is correct here: both sides come from the same walk /
+/// category construction (no symlinks were followed to reach `path`).
+fn is_excluded(path: &Path, exclude: &[PathBuf]) -> bool {
+    exclude.iter().any(|e| path.starts_with(e))
+}
+
 /// Recursively collect deletable files under `root`. Does **not** follow
 /// symlinks (uses `symlink_metadata`); only regular files older than
 /// `min_age` (by mtime) are included. Each file's path is containment-checked
 /// against `root` so a symlinked subdir can't smuggle outside paths in.
+/// Subtrees under `exclude` are neither recursed nor collected (they belong
+/// to a more specific category).
 fn collect_files(
     root: &Path,
     min_age: Duration,
     now: SystemTime,
+    exclude: &[PathBuf],
     out: &mut Vec<(PathBuf, u64)>,
 ) {
     let Ok(entries) = std::fs::read_dir(root) else {
@@ -325,6 +421,9 @@ fn collect_files(
     };
     for entry in entries.flatten() {
         let path = entry.path();
+        if is_excluded(&path, exclude) {
+            continue; // another category's territory
+        }
         // lstat — never follow symlinks.
         let Ok(meta) = std::fs::symlink_metadata(&path) else {
             continue;
@@ -336,7 +435,7 @@ fn collect_files(
         if meta.is_dir() {
             // Only recurse into real subdirs that are genuinely under root.
             if is_contained(&path, root) {
-                collect_files(&path, min_age, now, out);
+                collect_files(&path, min_age, now, exclude, out);
             }
             continue;
         }
@@ -357,20 +456,19 @@ fn collect_files(
     }
 }
 
-/// Build a plan from explicit `(key, label, roots)` groups. Read-only. The
-/// pure heart of `scan` — tests drive it with temp dirs.
-pub fn scan_roots(
-    groups: &[(String, String, Vec<PathBuf>)],
-    min_age_days: u32,
-    now: SystemTime,
-) -> CleanPlan {
+/// One scan group: `(key, label, roots, exclude)`.
+pub type ScanGroup = (String, String, Vec<PathBuf>, Vec<PathBuf>);
+
+/// Build a plan from explicit scan groups. Read-only. The pure heart of
+/// `scan` — tests drive it with temp dirs.
+pub fn scan_roots(groups: &[ScanGroup], min_age_days: u32, now: SystemTime) -> CleanPlan {
     let min_age = Duration::from_secs(u64::from(min_age_days) * 86_400);
     let mut plan = CleanPlan::default();
-    for (key, label, roots) in groups {
+    for (key, label, roots, exclude) in groups {
         let mut cat_bytes = 0u64;
         for root in roots {
             let mut files = Vec::new();
-            collect_files(root, min_age, now, &mut files);
+            collect_files(root, min_age, now, exclude, &mut files);
             for (path, size) in files {
                 cat_bytes += size;
                 plan.total_bytes += size;
@@ -387,10 +485,16 @@ pub fn scan_roots(
 }
 
 /// Execute a plan: delete each item, but only after **re-validating** that it
-/// is (still) a real file contained in `allowed_roots` and not a symlink. Any
+/// is (still) a real file contained in `allowed_roots`, not a symlink, and not
+/// inside a subtree its OWN category excluded (exclusions are per-category —
+/// a specific category legitimately owns paths a broad one carved out). Any
 /// item that fails re-validation is skipped and recorded in `errors`, never
 /// aborting the batch.
-pub fn execute_plan(plan: &CleanPlan, allowed_roots: &[PathBuf]) -> CleanResult {
+pub fn execute_plan(
+    plan: &CleanPlan,
+    allowed_roots: &[PathBuf],
+    excludes_by_cat: &std::collections::BTreeMap<String, Vec<PathBuf>>,
+) -> CleanResult {
     let mut res = CleanResult::default();
     for item in &plan.items {
         let path = PathBuf::from(&item.path);
@@ -407,7 +511,8 @@ pub fn execute_plan(plan: &CleanPlan, allowed_roots: &[PathBuf]) -> CleanResult 
             res.errors.push(format!("{}: not a regular file (skipped)", item.path));
             continue;
         }
-        if !contained_in_any(&path, allowed_roots) {
+        let own_excludes = excludes_by_cat.get(&item.category).map(Vec::as_slice).unwrap_or(&[]);
+        if !contained_in_any(&path, allowed_roots) || is_excluded(&path, own_excludes) {
             res.errors
                 .push(format!("{}: outside allowlist (skipped)", item.path));
             continue;
@@ -427,19 +532,26 @@ pub fn execute_plan(plan: &CleanPlan, allowed_roots: &[PathBuf]) -> CleanResult 
 
 /// Categories enabled under `cfg` (level + per-category overrides), as
 /// `(key, label, roots)` groups ready for [`scan_roots`].
-fn enabled_groups(cfg: &CleanerConfig) -> Vec<(String, String, Vec<PathBuf>)> {
+fn enabled_groups(cfg: &CleanerConfig) -> Vec<ScanGroup> {
     categories()
         .into_iter()
         .filter(|c| cfg.level.includes(c.level))
         .filter(|c| *cfg.categories.get(&c.key).unwrap_or(&c.default_enabled))
-        .map(|c| (c.key, c.label, c.roots))
+        .map(|c| (c.key, c.label, c.roots, c.exclude))
         .collect()
 }
 
 /// All roots that the current config could touch — the allowlist passed to
 /// `execute_plan` for re-validation.
 fn enabled_roots(cfg: &CleanerConfig) -> Vec<PathBuf> {
-    enabled_groups(cfg).into_iter().flat_map(|(_, _, r)| r).collect()
+    enabled_groups(cfg).into_iter().flat_map(|(_, _, r, _)| r).collect()
+}
+
+/// Per-category exclusions of the enabled categories (execute-time re-check —
+/// per-category, because a specific category legitimately owns paths a broad
+/// one carved out).
+fn enabled_excludes(cfg: &CleanerConfig) -> std::collections::BTreeMap<String, Vec<PathBuf>> {
+    enabled_groups(cfg).into_iter().map(|(k, _, _, e)| (k, e)).collect()
 }
 
 /// Read-only scan for the current config. Safe to call any time.
@@ -450,7 +562,7 @@ pub fn scan(cfg: &CleanerConfig) -> CleanPlan {
 /// Execute a previously-scanned plan, re-validating against the config's
 /// allowlist. The plan should come from `scan(cfg)` with the same `cfg`.
 pub fn execute(cfg: &CleanerConfig, plan: &CleanPlan) -> CleanResult {
-    execute_plan(plan, &enabled_roots(cfg))
+    execute_plan(plan, &enabled_roots(cfg), &enabled_excludes(cfg))
 }
 
 #[cfg(test)]
@@ -518,7 +630,7 @@ mod tests {
         let root = tmp();
         write_old(&root.join("a.log"), b"12345", 30); // 5 bytes
         write_old(&root.join("b.log"), b"678", 30); // 3 bytes
-        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()])];
+        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 2);
         assert_eq!(plan.total_bytes, 8);
@@ -532,7 +644,7 @@ mod tests {
         // 0-day threshold the same files qualify. No mtime backdating needed.
         let root = tmp();
         fs::write(root.join("fresh.log"), b"fresh-now").unwrap();
-        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()])];
+        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()], vec![])];
         assert!(scan_roots(&groups, 365, SystemTime::now()).items.is_empty());
         assert_eq!(scan_roots(&groups, 0, SystemTime::now()).items.len(), 1);
     }
@@ -543,7 +655,7 @@ mod tests {
         let sub = root.join("nested/deep");
         fs::create_dir_all(&sub).unwrap();
         write_old(&sub.join("x.tmp"), b"abcd", 30);
-        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()])];
+        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.total_bytes, 4);
@@ -559,7 +671,7 @@ mod tests {
         fs::write(outside.join("secret.txt"), b"do not touch").unwrap();
         let link = root.join("evil");
         std::os::unix::fs::symlink(&outside, &link).unwrap();
-        let groups = vec![("c".into(), "Cache".into(), vec![root.clone()])];
+        let groups = vec![("c".into(), "Cache".into(), vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         // Nothing collected — the symlink was skipped.
         assert!(plan.items.is_empty(), "must not traverse symlinked dir");
@@ -573,13 +685,13 @@ mod tests {
         write_old(&root.join("b.tmp"), b"4567", 30);
         let keep = root.join("keep.txt");
         write_old(&keep, b"keepme", 30);
-        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()])];
+        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()], vec![])];
         // Scan picks up all three (age 0 threshold).
         let mut plan = scan_roots(&groups, 0, SystemTime::now());
         // Remove "keep.txt" from the plan so execute must not touch it.
         plan.items.retain(|i| !i.path.ends_with("keep.txt"));
         plan.total_bytes = plan.items.iter().map(|i| i.size).sum();
-        let res = execute_plan(&plan, &[root.clone()]);
+        let res = execute_plan(&plan, &[root.clone()], &Default::default());
         assert_eq!(res.deleted, 2);
         assert_eq!(res.freed_bytes, 7);
         assert!(res.errors.is_empty());
@@ -603,7 +715,7 @@ mod tests {
             total_bytes: 9,
             categories: vec![],
         };
-        let res = execute_plan(&plan, &[root.clone()]);
+        let res = execute_plan(&plan, &[root.clone()], &Default::default());
         assert_eq!(res.deleted, 0);
         assert_eq!(res.errors.len(), 1);
         assert!(victim.exists(), "path outside allowlist must NOT be deleted");
@@ -627,7 +739,7 @@ mod tests {
             total_bytes: 0,
             categories: vec![],
         };
-        let res = execute_plan(&plan, &[root.clone()]);
+        let res = execute_plan(&plan, &[root.clone()], &Default::default());
         assert_eq!(res.deleted, 0);
         assert_eq!(res.errors.len(), 1);
         // The symlink wasn't removed and the target is intact.
@@ -636,7 +748,7 @@ mod tests {
 
     #[test]
     fn empty_plan_is_a_noop() {
-        let res = execute_plan(&CleanPlan::default(), &[]);
+        let res = execute_plan(&CleanPlan::default(), &[], &Default::default());
         assert_eq!(res.deleted, 0);
         assert_eq!(res.freed_bytes, 0);
         assert!(res.errors.is_empty());
@@ -675,6 +787,85 @@ mod tests {
         if let Some(dev) = cats.iter().find(|c| c.key == "dev_caches") {
             assert_eq!(dev.level, Level::Aggressive);
             assert!(!dev.default_enabled, "dev caches must be opt-in");
+        }
+    }
+
+    #[test]
+    fn scan_skips_excluded_subtrees() {
+        // A broad category (whole cache dir) must not claim files that live in
+        // the subtree carved out for a more specific category.
+        let root = tmp();
+        let owned = root.join("mine");
+        let carved = root.join("browser");
+        fs::create_dir_all(&owned).unwrap();
+        fs::create_dir_all(&carved).unwrap();
+        write_old(&owned.join("a.tmp"), b"123", 30);
+        write_old(&carved.join("b.tmp"), b"4567", 30);
+        let groups = vec![(
+            "other".to_string(),
+            "Other".to_string(),
+            vec![root.clone()],
+            vec![carved.clone()],
+        )];
+        let plan = scan_roots(&groups, 0, SystemTime::now());
+        assert_eq!(plan.items.len(), 1, "excluded subtree must not be scanned");
+        assert!(plan.items[0].path.contains("mine"));
+        assert_eq!(plan.total_bytes, 3);
+    }
+
+    #[test]
+    fn execute_applies_exclusions_per_category_not_globally() {
+        // The broad category's exclusion must not block the SPECIFIC category
+        // that legitimately owns the carved-out subtree.
+        let root = tmp();
+        let carved = root.join("browser");
+        fs::create_dir_all(&carved).unwrap();
+        write_old(&carved.join("cache.bin"), b"12345", 30);
+        let groups = vec![
+            ("other".to_string(), "Other".to_string(), vec![root.clone()], vec![carved.clone()]),
+            ("browser".to_string(), "Browser".to_string(), vec![carved.clone()], vec![]),
+        ];
+        let plan = scan_roots(&groups, 0, SystemTime::now());
+        assert_eq!(plan.items.len(), 1); // claimed once, by "browser"
+        assert_eq!(plan.items[0].category, "browser");
+        let mut excludes = std::collections::BTreeMap::new();
+        excludes.insert("other".to_string(), vec![carved.clone()]);
+        excludes.insert("browser".to_string(), vec![]);
+        let res = execute_plan(&plan, &[root.clone(), carved.clone()], &excludes);
+        assert_eq!(res.deleted, 1, "the owning category must be allowed to delete");
+        assert!(res.errors.is_empty());
+
+        // But a hand-crafted item claiming the carved subtree under the BROAD
+        // key is rejected by the per-category re-check.
+        write_old(&carved.join("cache2.bin"), b"12345", 30);
+        let bad = CleanPlan {
+            items: vec![CleanItem {
+                path: carved.join("cache2.bin").to_string_lossy().to_string(),
+                size: 5,
+                category: "other".into(),
+            }],
+            total_bytes: 5,
+            categories: vec![],
+        };
+        let res = execute_plan(&bad, &[root.clone(), carved.clone()], &excludes);
+        assert_eq!(res.deleted, 0);
+        assert_eq!(res.errors.len(), 1);
+        assert!(carved.join("cache2.bin").exists());
+    }
+
+    #[test]
+    fn risky_new_categories_are_aggressive_and_opt_in() {
+        let cats = categories();
+        for key in ["trash", "xcode_caches"] {
+            if let Some(c) = cats.iter().find(|c| c.key == key) {
+                assert_eq!(c.level, Level::Aggressive, "{key} must be Aggressive");
+                assert!(!c.default_enabled, "{key} must be opt-in");
+            }
+        }
+        // The broad caches category carves out the specific categories' roots.
+        if let Some(other) = cats.iter().find(|c| c.key == "other_caches") {
+            assert_eq!(other.level, Level::Standard);
+            assert!(!other.exclude.is_empty(), "other_caches must carve out specifics");
         }
     }
 }

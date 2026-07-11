@@ -1,0 +1,110 @@
+Inspector Rust — Feature-Liste (Stand v0.84.245)
+
+== Clipboard ==
+Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
+Pinnen — ★ hält Clips dauerhaft oben, vom Prune ausgenommen
+Clip-Notizen — gelbe Markierung, Notiz am Clip, prune-geschützt
+Suche — Substring über den Verlauf, live beim Tippen
+Smart-Actions — erkannte URL/E-Mail/Telefon/Koordinaten als 1-Klick-Buttons (Öffnen, mailto, tel, Maps, QR)
+Text-Transformationen — Cmd/Ctrl+1–9: Case-Varianten, base64, URL-encode/decode, Vokale entfernen
+Bild-Recolor — einfarbige Logos/Silhouetten umfärben
+Freisteller (Cut-out) — ML-Hintergrundentfernung (U2Netp, offline) per Cmd/Ctrl+B
+Clipboard-Privacy — App-Ausschlussliste (z. B. Passwortmanager) + Auto-Clear nach N Sekunden
+Capture-Pause — Erfassung über Tray anhalten
+
+== Snippets & Text-Expander ==
+Snippets — Kürzel→Text-Vorlagen; 27 AI-Prompts + 255 Material-Farben mitgeliefert
+Expander-Hotkey (Alt+1) — Kürzel vor dem Cursor ersetzen, funktioniert auch im Terminal
+Direkt-Hotkey→Snippet — beliebige Hotkeys fest an einzelne Snippets binden
+Passive Auto-Expansion — aText-Stil: Kürzel expandiert beim Tippen ohne Hotkey (opt-in)
+Platzhalter — {date}, {time}, {datetime}, {clipboard}, {cursor} werden beim Einfügen gerendert
+Feedback-Sounds — mechanischer Klick bei Expansion, Cues für OCR/Screenshot/Recording (abschaltbar)
+
+== Notes ==
+Notizen — dauerhafte Lesezeichen aus Clips, kategorisierbar, nie geprunt
+
+== 2FA / TOTP ==
+2FA-Manager — `2fa`/`otp`: Live-Codes mit Countdown, Add/Edit/Delete, Drag-Sortierung
+Import — Google Authenticator, Aegis, 2FAS, OTPManager, otpauth-URIs (Paste oder Datei-Drop), dedupliziert
+OTP-Autocomplete — `otp <anbieter>` / `2fa <anbieter>`: Enter kopiert den aktuellen Code
+Type-to-Filter — im Overlay einfach lostippen, Enter kopiert den Top-Treffer
+
+== Globale Hotkeys ==
+Popup — Ctrl+Space (+ zweiter Verlaufs-Hotkey Ctrl+Shift+V), beide konfigurierbar
+OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract)
+Screenshot-Region — Ctrl+Shift+S: Bereich → Clipboard + schwebende Vorschau; auch Vollbild/Fenster/Timer (`shot`, `shotfull`, `shotwin`, `shotlast`)
+Screenshot-Editor — Pfeile, Text, Formen, Blur, Redact, Schritt-Badges; Pin-to-Screen-Fenster
+Screen-Recording — Ctrl+Shift+Alt+S: Region → MP4 (H.264) mit System-Audio/Mikro, Pause/Resume, Multi-Monitor
+Eyedropper — Ctrl+Shift+C: Farb-Lupe mit Live-Hex, Ergebnis ins Clipboard
+Finder-Auswahl — Ctrl+Shift+F: markierte Dateien im Popup; Bilder resizen/optimieren/freistellen
+Markdown→PDF — Ctrl+Shift+M oder `md2pdf [pfad]` (GitHub-Styling)
+Audio-Swap — Ctrl+Shift+Alt+M: Tonspur eines Videos ersetzen/mischen (Datei oder YouTube-Quelle)
+Timesheet — Ctrl+Shift+T öffnet den Tab; Ctrl+Shift+Alt+T startet/stoppt Tracking von überall
+Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Kollisionsprüfung
+
+== Suchleisten-Commands ==
+Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a. (Google Translate)
+Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
+Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
+QR-Code — `qr <text>`: Vorschau + PNG ins Clipboard
+Bilder — `rz <B>x<H>` (Resize der Finder-Auswahl), `optim` (PNG/JPEG komprimieren)
+Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker mit nativer Bestätigung
+System — `reboot`, `shutdown`, `lock`, `mute`, Shift+↑/↓ = Lautstärke
+Input-Lock — `freeze`: Tastatur+Maus sperren bis zum Entsperr-Akkord
+Wachhalten — `wakelock on/off` (Alias `caffeine`)
+Datei-Ops — `touch <name> [> inhalt]`, `mkdir <pfad>`, `terminal` (im aktiven Finder-Ordner)
+Netto-Rechner — `bruno <brutto>`: deutscher Brutto→Netto-Rechner (2025)
+Timer/Wecker — `timer <n>[s/min]`, `alarm <HH:MM>` mit Vollbild-Alarm
+Passwörter — `pwgen [länge]`: 4 Modi (alnum/symbols/dict/leet), CSPRNG
+Kalender — `calendar [monat jahr]` / `cal`: Monatsansicht, Wochentag-Recherche, ←→↑↓-Navigation
+Zufall — `rnd [min max]` / `random`: Würfel-Toast
+Vokale — `rmvvls <text>`: Vokale entfernen → Clipboard
+Meme-Picker — `meme [suche]`: GIF/Bild-Bibliothek durchsuchen, animiert kopieren
+Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)
+Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus)
+Aufräumen — `clean`: interaktiver Kategorien-Picker (Caches, Logs, Duplikate, Installer, Docker, Xcode …), s. u.
+BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt
+Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro
+Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
+Opener — `opener`: deutsche Anmachsprüche (versteckt)
+
+== Inline-Panels (rechte Vorschau-Spalte) ==
+Helligkeit — `brightness`/`bri`: Slider pro Monitor; auf XDR-Displays über 100 % (EDR-Boost)
+Audio-Ausgabe — `sound`/`audio`: Ausgabegerät wechseln + System-Lautstärke-Slider
+Philips Hue — `hue`: Lampen steuern (an/aus, Helligkeit, 8 Farben, Tastatur-Navigation), Bridge-Pairing lokal
+System-Stats — `stats`: CPU/RAM/Akku/Watt/Temperaturen/Lüfter/Disk/Netz, Live + Verlauf (1h–7d)
+boom — systemweiter 10-Band-EQ + Lautstärke-Boost + 20 Presets + 5 Effekte (virtueller Audio-Treiber); Idle-Gate lässt den Mac schlafen
+Clean-Picker — Kategorien mit Checkboxen, Größen, größten Dateien; zweistufiges Enter löscht nur die Auswahl
+
+== Aufräumen (clean) im Detail ==
+Kategorien — eigener Cache, OS-Temp, Browser-Caches, komplettes ~/Library/Caches, Logs (inkl. System/PM2/npm/Editor), Editor-Caches (VS Code/Cursor), Dev-Caches (npm/pnpm/Gradle/Maven/Cargo/rustup/Android/NuGet), Xcode (DerivedData + iOS DeviceSupport), Duplikate in Downloads (SHA-256, Ältestes bleibt), alte Installer, Papierkorb, Docker-Build-Cache (via docker builder prune)
+Sicherheit — Allowlist-only, Canonicalize-Check pro Löschung, keine Symlinks, Altersfilter, Dry-Run + explizite Auswahl
+
+== Zeiterfassung (Timesheet, macOS) ==
+Tracking — `track on/off`: event-basiert nach Fenster-Fokus, Idle-Auto-Pause, überlebt Neustarts
+Timesheet-Tab — Tag/Woche, Timeline (Gantt), By-App/Kategorie/Projekt, Bearbeiten/Mergen/Cleanup
+Projekte — Zeiträume per Drag zuweisen, Projekt-Export für Kundenabrechnung
+Claude-Code-Erkennung — Zeit + Tokens pro Projekt
+Browser-Extension — aktiver Tab (Host/Titel) via Loopback-WebSocket, token-authentifiziert
+Privacy — Titel/URLs verschlüsselt at rest, Denylist, Retention, CSV- + HTML-Export
+
+== System-Extras ==
+Fenster-Snapping — Fenster an Bildschirmkante ziehen → Hälften/Maximieren (opt-in, macOS)
+Fenster-Palette — Hover über den grünen Knopf → Presets + Hex-Wabengitter zum Aufziehen (opt-in, macOS)
+Touchpad-Gesten — 3-Finger-Swipe = Lautstärke, 3-Finger-Tap = Mute, Tip-Tap = Tab-Wechsel pro App; Palm-Rejection (opt-in)
+Keep-Alive — App startet bei Login und wird bei Absturz/Quit automatisch neu gestartet (opt-in)
+Autostart — Start bei Login (Tray/Settings)
+Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean) am Cursor-Monitor
+
+== Backup & Einstellungen ==
+Voll-Backup — Export/Import der ganzen App (Verlauf, Snippets, Notes, 2FA, Settings, Timesheet opt-in) als eine Datei
+Backup-Verschlüsselung — optional AES-256-GCM + Argon2id-Passwort
+Themes — Dark/Light/System mit MD3-Expressive-Motion
+Popup-Größe — Small/Medium/Large
+Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts
+
+== Versteckte Spiele (Suchleiste) ==
+`getshaky` — Pong · `rockthebox` — Snake (Wände töten) · `rockthabox` — Snake (Wrap) · `spacer` — Space Invaders · `learningtofly` — Flappy Bird (alle mit Highscore + Spielstand-Resume)
+
+== Plattformen ==
+macOS (primär, voll verifiziert) · Windows · Linux (Ubuntu/Debian; einzelne Features OS-gebunden, Commands sind plattform-gegated)

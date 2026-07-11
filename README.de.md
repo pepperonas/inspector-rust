@@ -33,7 +33,7 @@
   - 🖐️ **Touchpad-Gesten** (opt-in) — **3-Finger-Swipe** hoch/runter für Lautstärke, **3-Finger-Tap** zum Stummschalten, plus **Tip-Tap-Tab-Wechsel** (macOS): einen Finger auflegen, mit einem zweiten rechts/links daneben tippen → nächster/voriger Tab — dabei sendet IR automatisch **den passenden Shortcut jeder App** (Ctrl+Tab für Browser/Terminals/Finder, ⌘⌥→/← für VS Code/Cursor, ⇧⌘]/[ für JetBrains/Xcode — layoutbewusst aufgelöst, z. B. ⌥6 auf Deutsch). Die Per-App-Zuordnung ist eine mitgelieferte Daten-Datei + User-Override-JSON (`tab-shortcuts.json` im App-Datenordner) — jede weitere App ist ein Eintrag, kein Rebuild. **Palm-Rejection** (macOS): ein aufliegender Handballen zählt nie als Gestenfinger (Größen- + Ruhe- + Bewegungs-Guards, libinput-/Karabiner-Stil) — keine versehentlichen Lautstärke-Swipes mehr beim Scrollen. macOS via die private MultitouchSupport-API (schluckt den Swipe, damit das Fenster darunter nicht scrollt); Windows Precision Touchpad; Linux libinput.
   - 🔐 **2FA / TOTP-Manager** — tippe `2fa` *oder* `otp` für den TOTP-Tresor — **einfach lostippen filtert die Liste** (fuzzy, Enter kopiert den Code des Top-Treffers); `otp <issuer>` / `2fa <issuer>` für sofortige OTP-Autovervollständigung mit Live-30-Sekunden-Countdown, Enter kopiert den Token. **Hinzufügen / Bearbeiten / Löschen, Drag-Umsortieren und Dedup beim Import**; importiert Google Authenticator / Aegis / 2FAS / **OTPManager (macOS)** / `otpauth` — einfügen *oder* Export-Datei aufs Overlay ziehen. Secrets verschlüsselt, überqueren nie die IPC-Grenze.
   - 🔊 **Audio-Ausgabe** (`sound` / `audio`) — Inline-Picker zum Umschalten des System-Standard-Ausgabegeräts (macOS · Windows · Linux).
-  - 🧹 **Aufräumen** (`clean`) — Speicherplatz freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannt-sicheren Ordnern. Auf **Standard** wird das komplette Nutzer-Cache-Verzeichnis gefegt (`~/Library/Caches` — oft viele GB); opt-in **Aggressive** ergänzt Dev-Tool-Caches (npm/pnpm/Gradle/Cargo inkl. Sources), Xcode-Build-Caches und alte Papierkorb-Einträge. Enter öffnet einen **interaktiven Kategorien-Picker** (Größen, Dateianzahl, größte Dateien — du wählst genau, was weg soll) — inklusive **Duplikaten in Downloads** (inhalts-gehasht, das älteste Exemplar bleibt immer erhalten) und **alten Installern** (dmg/pkg/iso, vorab abgewählt — Nutzerdateien sind nie Default); strikte Allowlist, Symlinks werden nie verfolgt; Safe / Standard / Aggressive.
+  - 🧹 **Aufräumen** (`clean`) — Speicherplatz freigeben durch Löschen von Cache-/Log-/Temp-Dateien in bekannt-sicheren Ordnern. Auf **Standard** wird das komplette Nutzer-Cache-Verzeichnis gefegt (`~/Library/Caches` — oft viele GB); opt-in **Aggressive** ergänzt Dev-Tool-Caches (npm/pnpm/Gradle/Cargo inkl. Sources), Xcode-Build-Caches und alte Papierkorb-Einträge. Enter öffnet einen **interaktiven Kategorien-Picker** (Größen, Dateianzahl, größte Dateien — du wählst genau, was weg soll) — inklusive **Duplikaten in Downloads** (inhalts-gehasht, das älteste Exemplar bleibt immer erhalten), **alten Installern** (dmg/pkg/iso), **Editor-Caches** (VS Code / Cursor), **Xcode DerivedData + iOS DeviceSupport** und dem **Docker-Build-Cache** (via `docker builder prune`) — riskante Kategorien sind vorab abgewählt, Nutzerdateien nie Default; strikte Allowlist, Symlinks werden nie verfolgt; Safe / Standard / Aggressive.
   - 🎨 **Farbpipette** (`Ctrl+Shift+C`) — eigene Bildschirm-Lupe mit **Live-Hex unter der Vergrößerung** (macOS) / GDI-Overlay (Windows); Hex direkt ins Clipboard.
   - 🖼️ **Bild-Tools** — Recolor (Logo-Tint), ML-**Freisteller** (U²-Net ONNX, 4,5 MB eingebettet), Lanczos3-**Resize** (`rz`) + **Optimieren** (`optim`, oxipng) auf die Finder-Auswahl oder das Clipboard-Bild.
   - 📁 **Finder-Auswahl-Aktionen** (`Ctrl+Shift+F`, macOS) — Batch-Resize / -Optim / -Freisteller / -Öffnen auf alles, was du im Finder ausgewählt hast.
@@ -52,7 +52,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1487 Unit-Tests (670 Rust + 817 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **1490 Unit-Tests (673 Rust + 817 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
@@ -60,8 +60,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~81k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 670 Rust + 817 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-1487%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 673 Rust + 817 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-1490%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -83,7 +83,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-1487%20(670%20Rust%20%2B%20817%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-1490%20(673%20Rust%20%2B%20817%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)

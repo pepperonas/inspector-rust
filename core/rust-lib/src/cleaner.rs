@@ -97,6 +97,32 @@ fn home() -> Option<PathBuf> {
     dirs::home_dir()
 }
 
+/// The regenerable cache subdirs of the Electron-based editors (VS Code /
+/// Cursor / VSCodium) under `base` — the platform's app-data dir
+/// (`~/Library/Application Support` / `%APPDATA%` / `~/.config`), where
+/// Electron caches live (NOT the OS cache dir, so the broad cache category
+/// never sees them). Index/GPU/renderer caches only — settings, extensions
+/// and state are never listed.
+fn editor_cache_roots(base: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    for app in ["Code", "Cursor", "VSCodium"] {
+        for sub in [
+            "Cache",
+            "CachedData",
+            "Code Cache",
+            "GPUCache",
+            "DawnGraphiteCache",
+            "DawnWebGPUCache",
+            "CachedExtensionVSIXs",
+            "Service Worker/CacheStorage",
+            "Service Worker/ScriptCache",
+        ] {
+            out.push(base.join(app).join(sub));
+        }
+    }
+    out
+}
+
 /// The hard-coded category → roots map for this OS. **This is the allowlist.**
 /// Only paths under these roots can ever be deleted. Roots that don't exist on
 /// the current machine are still listed (harmless — scanning a missing root
@@ -161,6 +187,21 @@ pub fn categories() -> Vec<Category> {
         });
     }
 
+    // Docker build cache — command-based, every platform (see KEY_DOCKER).
+    // No file roots: sized via `docker system df`, freed via
+    // `docker builder prune -f`. Contributes nothing when docker is missing
+    // or the daemon isn't running. Pre-deselected in the picker (rebuilds
+    // get slower until the cache re-populates).
+    out.push(Category {
+        key: KEY_DOCKER.into(),
+        label: "Docker build cache (docker builder prune)".into(),
+        level: Level::Standard,
+        roots: vec![],
+        exclude: vec![],
+        exts: vec![],
+        default_enabled: true,
+    });
+
     #[cfg(target_os = "macos")]
     if let Some(h) = home() {
         let browser_roots = vec![
@@ -203,29 +244,55 @@ pub fn categories() -> Vec<Category> {
             level: Level::Standard,
             // /Library/Logs (system-wide app logs) too — root-owned files in
             // there simply fail the per-item delete and are recorded, never
-            // aborting the batch.
+            // aborting the batch. Plus npm's + the Electron editors' log dirs
+            // (they log outside ~/Library/Logs).
             roots: vec![
                 h.join("Library/Logs"),
                 h.join(".pm2/logs"),
                 PathBuf::from("/Library/Logs"),
+                h.join(".npm/_logs"),
+                h.join("Library/Application Support/Code/logs"),
+                h.join("Library/Application Support/Cursor/logs"),
             ],
+            exclude: vec![],
+            exts: vec![],
+            default_enabled: true,
+        });
+        // Electron editors (VS Code / Cursor / VSCodium) cache under
+        // Application Support, NOT ~/Library/Caches — so the broad category
+        // never sees them. Index/GPU/renderer caches only; settings,
+        // extensions and state stay untouched.
+        out.push(Category {
+            key: "editor_caches".into(),
+            label: "Editor caches (VS Code / Cursor)".into(),
+            level: Level::Standard,
+            roots: editor_cache_roots(&h.join("Library/Application Support")),
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
         });
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
                 h.join("Library/pnpm/store"),
                 h.join(".gradle/caches"),
+                // Gradle daemon logs + re-downloadable wrapper distributions.
+                h.join(".gradle/daemon"),
+                h.join(".gradle/wrapper/dists"),
+                // Maven's local repository — re-downloaded on demand.
+                h.join(".m2/repository"),
                 h.join(".cargo/registry/cache"),
                 // The unpacked crate sources + git checkouts dwarf the .crate
                 // cache itself; cargo re-extracts / re-clones on demand.
                 h.join(".cargo/registry/src"),
                 h.join(".cargo/git"),
+                h.join(".rustup/downloads"),
+                h.join(".rustup/tmp"),
+                h.join(".android/cache"),
+                h.join(".android/build-cache"),
             ],
             exclude: vec![],
             exts: vec![],
@@ -233,11 +300,16 @@ pub fn categories() -> Vec<Category> {
         });
         out.push(Category {
             key: "xcode_caches".into(),
-            label: "Xcode build caches (DerivedData / simulator caches)".into(),
+            label: "Xcode caches (DerivedData / device support / simulators)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join("Library/Developer/Xcode/DerivedData"),
                 h.join("Library/Developer/CoreSimulator/Caches"),
+                // Per-iOS-version debug symbols, re-extracted on the next
+                // device connect — routinely 5–20 GB of stale versions.
+                h.join("Library/Developer/Xcode/iOS DeviceSupport"),
+                h.join("Library/Developer/XCTestDevices"),
+                h.join("Library/Developer/XCPGDevices"),
             ],
             exclude: vec![],
             exts: vec![],
@@ -272,17 +344,43 @@ pub fn categories() -> Vec<Category> {
             exts: vec![],
             default_enabled: true,
         });
+        // Electron editors cache under %APPDATA% (Roaming), not the OS cache dir.
+        if let Some(roaming) = dirs::config_dir() {
+            out.push(Category {
+                key: "editor_caches".into(),
+                label: "Editor caches (VS Code / Cursor)".into(),
+                level: Level::Standard,
+                roots: editor_cache_roots(&roaming),
+                exclude: vec![],
+                exts: vec![],
+                default_enabled: true,
+            });
+        }
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo / VS / NuGet)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join("AppData/Roaming/npm-cache/_cacache"),
                 local.join("pnpm/store"),
                 h.join(".gradle/caches"),
+                h.join(".gradle/daemon"),
+                h.join(".gradle/wrapper/dists"),
+                h.join(".m2/repository"),
                 h.join(".cargo/registry/cache"),
                 h.join(".cargo/registry/src"),
                 h.join(".cargo/git"),
+                h.join(".rustup/downloads"),
+                h.join(".rustup/tmp"),
+                h.join(".android/cache"),
+                h.join(".android/build-cache"),
+                // NuGet HTTP + package caches (re-downloaded on demand).
+                // NOTE: %LOCALAPPDATA%\Microsoft\VisualStudio is deliberately
+                // NOT listed — its per-instance dirs mix caches with window
+                // layouts/instance state, and the cache subdirs have
+                // versioned instance names we can't target precisely.
+                local.join("NuGet/v3-cache"),
+                h.join(".nuget/packages"),
             ],
             exclude: vec![],
             exts: vec![],
@@ -323,17 +421,36 @@ pub fn categories() -> Vec<Category> {
             exts: vec![],
             default_enabled: true,
         });
+        // Electron editors cache under ~/.config, not ~/.cache.
+        if let Some(cfg_dir) = dirs::config_dir() {
+            out.push(Category {
+                key: "editor_caches".into(),
+                label: "Editor caches (VS Code / Cursor)".into(),
+                level: Level::Standard,
+                roots: editor_cache_roots(&cfg_dir),
+                exclude: vec![],
+                exts: vec![],
+                default_enabled: true,
+            });
+        }
         out.push(Category {
             key: "dev_caches".into(),
-            label: "Developer tool caches (npm / pnpm / Gradle / Cargo)".into(),
+            label: "Developer tool caches (npm / pnpm / Gradle / Maven / Cargo)".into(),
             level: Level::Aggressive,
             roots: vec![
                 h.join(".npm/_cacache"),
                 xdg_cache.join("pnpm"),
                 h.join(".gradle/caches"),
+                h.join(".gradle/daemon"),
+                h.join(".gradle/wrapper/dists"),
+                h.join(".m2/repository"),
                 h.join(".cargo/registry/cache"),
                 h.join(".cargo/registry/src"),
                 h.join(".cargo/git"),
+                h.join(".rustup/downloads"),
+                h.join(".rustup/tmp"),
+                h.join(".android/cache"),
+                h.join(".android/build-cache"),
             ],
             exclude: vec![],
             exts: vec![],
@@ -490,10 +607,14 @@ fn collect_files(
             continue;
         }
         if meta.is_dir() {
-            // Only recurse into real subdirs that are genuinely under root.
-            if is_contained(&path, root) {
-                collect_files(&path, min_age, now, exclude, out);
-            }
+            // Recurse. No canonicalise here (v0.84.244 perf): `path` is
+            // `parent.join(name)` from read_dir and symlinked dirs were
+            // already skipped via lstat above, so every recursed dir is
+            // physically under `root`. The old per-dir `is_contained` cost
+            // TWO full canonicalise syscall chains per directory — the
+            // dominant scan cost on a 10k-dir cache tree. The security gate
+            // stays at EXECUTE time, which canonicalises every deletion.
+            collect_files(&path, min_age, now, exclude, out);
             continue;
         }
         if meta.is_file() {
@@ -644,6 +765,85 @@ fn enabled_excludes(cfg: &CleanerConfig) -> std::collections::BTreeMap<String, V
 /// come from content hashing, not the generic walker).
 pub const KEY_DUPES: &str = "dupes";
 
+/// The Docker category's key — command-based, not file-based (v0.84.244).
+/// Docker's images/volumes live inside ONE VM disk file; deleting files there
+/// would destroy everything. The only safe reclaim is Docker's own
+/// `docker builder prune` (build cache — exactly what `docker system df`
+/// reports as reclaimable). Scan estimates via `system df`; execute runs the
+/// prune. No file roots → the file allowlist is untouched.
+pub const KEY_DOCKER: &str = "docker";
+
+/// Parse docker's human size strings: "2.5GB", "512.3MB", "1.2kB", "0B".
+/// Decimal units (docker uses SI). Unknown/garbage → 0.
+pub fn parse_docker_size(s: &str) -> u64 {
+    let s = s.trim();
+    let split = s.find(|c: char| c.is_ascii_alphabetic()).unwrap_or(s.len());
+    let (num, unit) = s.split_at(split);
+    let Ok(v) = num.trim().parse::<f64>() else { return 0 };
+    let mult = match unit.trim().to_ascii_uppercase().as_str() {
+        "B" => 1.0,
+        "KB" => 1e3,
+        "MB" => 1e6,
+        "GB" => 1e9,
+        "TB" => 1e12,
+        _ => return 0,
+    };
+    (v * mult).round() as u64
+}
+
+/// Extract the Build-Cache reclaimable bytes from
+/// `docker system df --format '{{.Type}}|{{.Reclaimable}}'` output
+/// (e.g. a `Build Cache|2.5GB` line; a trailing " (59%)" is stripped).
+pub fn parse_docker_df_build_cache(output: &str) -> u64 {
+    for line in output.lines() {
+        let Some((typ, reclaim)) = line.split_once('|') else { continue };
+        if typ.trim().eq_ignore_ascii_case("build cache") {
+            let val = reclaim.split('(').next().unwrap_or(reclaim);
+            return parse_docker_size(val);
+        }
+    }
+    0
+}
+
+/// Extract freed bytes from `docker builder prune -f` output
+/// ("Total reclaimed space: 1.23GB").
+pub fn parse_docker_prune_output(output: &str) -> u64 {
+    for line in output.lines() {
+        if let Some(rest) = line.trim().strip_prefix("Total reclaimed space:") {
+            return parse_docker_size(rest);
+        }
+    }
+    0
+}
+
+/// Reclaimable Docker build-cache bytes, or `None` when docker is missing /
+/// the daemon isn't running (→ the category simply contributes nothing).
+fn docker_build_cache_reclaimable() -> Option<u64> {
+    let out = std::process::Command::new("docker")
+        .args(["system", "df", "--format", "{{.Type}}|{{.Reclaimable}}"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(parse_docker_df_build_cache(&String::from_utf8_lossy(&out.stdout)))
+}
+
+/// Run `docker builder prune -f`; returns freed bytes.
+fn docker_builder_prune() -> Result<u64, String> {
+    let out = std::process::Command::new("docker")
+        .args(["builder", "prune", "-f"])
+        .output()
+        .map_err(|e| format!("docker: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "docker builder prune failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
+    }
+    Ok(parse_docker_prune_output(&String::from_utf8_lossy(&out.stdout)))
+}
+
 /// SHA-256 of a file's content; `None` on any I/O error (an unhashable file
 /// can never be proven duplicate → conservatively skipped).
 fn sha256_file(path: &Path) -> Option<[u8; 32]> {
@@ -651,6 +851,31 @@ fn sha256_file(path: &Path) -> Option<[u8; 32]> {
     let mut f = std::fs::File::open(path).ok()?;
     let mut hasher = Sha256::new();
     std::io::copy(&mut f, &mut hasher).ok()?;
+    Some(hasher.finalize().into())
+}
+
+/// SHA-256 of just the first 64 KiB — the cheap pre-filter (v0.84.244 perf):
+/// same-size files whose prefixes already differ can never be duplicates, so
+/// the expensive full-content hash only runs on prefix collisions. On a
+/// Downloads folder full of large same-size media files this avoids reading
+/// gigabytes.
+const PREFIX_HASH_LEN: usize = 64 * 1024;
+
+fn sha256_prefix(path: &Path) -> Option<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut buf = vec![0u8; PREFIX_HASH_LEN];
+    let mut read = 0;
+    while read < buf.len() {
+        match f.read(&mut buf[read..]) {
+            Ok(0) => break,
+            Ok(n) => read += n,
+            Err(_) => return None,
+        }
+    }
+    let mut hasher = Sha256::new();
+    hasher.update(&buf[..read]);
     Some(hasher.finalize().into())
 }
 
@@ -677,21 +902,40 @@ pub fn duplicate_items(roots: &[PathBuf], exclude: &[PathBuf]) -> Vec<(PathBuf, 
         if candidates.len() < 2 {
             continue;
         }
-        let mut by_hash: BTreeMap<[u8; 32], Vec<(SystemTime, PathBuf)>> = BTreeMap::new();
+        // Stage 1 (cheap): group same-size candidates by a 64-KiB prefix hash.
+        let mut by_prefix: BTreeMap<[u8; 32], Vec<PathBuf>> = BTreeMap::new();
         for path in candidates {
-            let Some(hash) = sha256_file(&path) else { continue };
-            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
-            let Ok(mtime) = meta.modified() else { continue };
-            by_hash.entry(hash).or_default().push((mtime, path));
+            let Some(pre) = sha256_prefix(&path) else { continue };
+            by_prefix.entry(pre).or_default().push(path);
         }
-        for (_, mut group) in by_hash {
-            if group.len() < 2 {
+        // Stage 2 (full content hash) only where prefixes collide. Files that
+        // fit entirely inside the prefix are already fully hashed — skip the
+        // second read.
+        for (_, prefix_group) in by_prefix {
+            if prefix_group.len() < 2 {
                 continue;
             }
-            group.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
-            // group[0] = the oldest copy → the keeper. The rest are deletable.
-            for (_, path) in group.into_iter().skip(1) {
-                out.push((path, size));
+            let mut by_hash: BTreeMap<[u8; 32], Vec<(SystemTime, PathBuf)>> = BTreeMap::new();
+            for path in prefix_group {
+                let hash = if (size as usize) <= PREFIX_HASH_LEN {
+                    sha256_prefix(&path) // == full hash for small files
+                } else {
+                    sha256_file(&path)
+                };
+                let Some(hash) = hash else { continue };
+                let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+                let Ok(mtime) = meta.modified() else { continue };
+                by_hash.entry(hash).or_default().push((mtime, path));
+            }
+            for (_, mut group) in by_hash {
+                if group.len() < 2 {
+                    continue;
+                }
+                group.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+                // group[0] = the oldest copy → the keeper. The rest go.
+                for (_, path) in group.into_iter().skip(1) {
+                    out.push((path, size));
+                }
             }
         }
     }
@@ -720,24 +964,59 @@ fn append_duplicates(plan: &mut CleanPlan, group: &ScanGroup) {
     plan.categories.push((group.key.clone(), group.label.clone(), cat_bytes));
 }
 
-/// Read-only scan for the current config. Safe to call any time. The
-/// duplicate-finder category runs its own content-hash scanner; everything
-/// else goes through the generic walker.
+/// Read-only scan for the current config. Safe to call any time. Two special
+/// categories bypass the generic walker: the duplicate finder (content
+/// hashing) and Docker (a `docker system df` estimate).
 pub fn scan(cfg: &CleanerConfig) -> CleanPlan {
     let groups = enabled_groups(cfg);
     let dupes_group = groups.iter().find(|g| g.key == KEY_DUPES).cloned();
-    let generic: Vec<ScanGroup> = groups.into_iter().filter(|g| g.key != KEY_DUPES).collect();
+    let docker_group = groups.iter().find(|g| g.key == KEY_DOCKER).cloned();
+    let generic: Vec<ScanGroup> = groups
+        .into_iter()
+        .filter(|g| g.key != KEY_DUPES && g.key != KEY_DOCKER)
+        .collect();
     let mut plan = scan_roots(&generic, cfg.min_age_days, SystemTime::now());
     if let Some(g) = dupes_group {
         append_duplicates(&mut plan, &g);
+    }
+    if let Some(g) = docker_group {
+        if let Some(bytes) = docker_build_cache_reclaimable() {
+            if bytes > 0 {
+                plan.items.push(CleanItem {
+                    path: "Docker build cache — freed via `docker builder prune`".into(),
+                    size: bytes,
+                    category: g.key.clone(),
+                });
+                plan.total_bytes += bytes;
+                plan.categories.push((g.key, g.label, bytes));
+            }
+        }
     }
     plan
 }
 
 /// Execute a previously-scanned plan, re-validating against the config's
 /// allowlist. The plan should come from `scan(cfg)` with the same `cfg`.
+/// Docker items are pseudo-items (no file path) — they run the builder prune
+/// instead of the file deleter, and only if the category is enabled in `cfg`.
 pub fn execute(cfg: &CleanerConfig, plan: &CleanPlan) -> CleanResult {
-    execute_plan(plan, &enabled_roots(cfg), &enabled_excludes(cfg))
+    let docker_requested = plan.items.iter().any(|i| i.category == KEY_DOCKER);
+    let file_plan = CleanPlan {
+        items: plan.items.iter().filter(|i| i.category != KEY_DOCKER).cloned().collect(),
+        total_bytes: 0,
+        categories: vec![],
+    };
+    let mut res = execute_plan(&file_plan, &enabled_roots(cfg), &enabled_excludes(cfg));
+    if docker_requested && enabled_groups(cfg).iter().any(|g| g.key == KEY_DOCKER) {
+        match docker_builder_prune() {
+            Ok(freed) => {
+                res.deleted += 1;
+                res.freed_bytes += freed;
+            }
+            Err(e) => res.errors.push(e),
+        }
+    }
+    res
 }
 
 #[cfg(test)]
@@ -1077,6 +1356,41 @@ mod tests {
         let plan = scan_roots(&[g], 0, SystemTime::now());
         assert_eq!(plan.items.len(), 1);
         assert!(plan.items[0].path.to_lowercase().ends_with("setup.dmg"));
+    }
+
+    #[test]
+    fn docker_size_parsing() {
+        assert_eq!(parse_docker_size("0B"), 0);
+        assert_eq!(parse_docker_size("1.5kB"), 1_500);
+        assert_eq!(parse_docker_size("512.3MB"), 512_300_000);
+        assert_eq!(parse_docker_size("2.5GB"), 2_500_000_000);
+        assert_eq!(parse_docker_size(" 1TB "), 1_000_000_000_000);
+        assert_eq!(parse_docker_size("garbage"), 0);
+    }
+
+    #[test]
+    fn docker_df_and_prune_parsing() {
+        let df = "Images|3.2GB (59%)\nContainers|50MB (50%)\nBuild Cache|2.5GB\n";
+        assert_eq!(parse_docker_df_build_cache(df), 2_500_000_000);
+        assert_eq!(parse_docker_df_build_cache("Images|1GB (10%)\n"), 0);
+        // A percent suffix on the build-cache row is stripped too.
+        assert_eq!(parse_docker_df_build_cache("Build Cache|1.5GB (100%)\n"), 1_500_000_000);
+        let prune = "Deleted build cache objects:\nabc123\n\nTotal reclaimed space: 1.23GB\n";
+        assert_eq!(parse_docker_prune_output(prune), 1_230_000_000);
+        assert_eq!(parse_docker_prune_output("nothing relevant"), 0);
+    }
+
+    #[test]
+    fn prefix_collision_with_different_tail_is_not_a_duplicate() {
+        // Identical first 64 KiB, different tails → the full-content hash
+        // must disambiguate after the cheap prefix filter.
+        let root = tmp();
+        let a = vec![0xABu8; PREFIX_HASH_LEN + 10];
+        let mut b = a.clone();
+        b[PREFIX_HASH_LEN + 5] = 0xCD;
+        fs::write(root.join("a.bin"), &a).unwrap();
+        fs::write(root.join("b.bin"), &b).unwrap();
+        assert!(duplicate_items(&[root], &[]).is_empty());
     }
 
     #[test]

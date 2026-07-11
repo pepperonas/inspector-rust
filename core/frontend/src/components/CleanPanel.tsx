@@ -24,9 +24,10 @@ import {
 type Phase = "scanning" | "pick" | "executing" | "error";
 
 /** Categories that appear in the picker but start UNCHECKED — they touch user
- * files (Downloads installers, duplicate downloads, Trash), so deleting them
- * must be an explicit tick, never a default. */
-const PRESELECT_OFF = new Set(["installers", "dupes", "trash"]);
+ * files (Downloads installers, duplicate downloads, Trash) or have a real
+ * re-build cost (Docker build cache), so deleting them must be an explicit
+ * tick, never a default. */
+const PRESELECT_OFF = new Set(["installers", "dupes", "trash", "docker"]);
 
 export function CleanPanel({
   focused,

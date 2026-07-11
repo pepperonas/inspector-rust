@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.244] — 2026-07-11
+
+### Added
+
+- **`clean` covers the developer-tool space hogs.** New **Editor caches** category (Standard, on): VS Code / Cursor / VSCodium keep their index/GPU/renderer caches under the app-data dir — invisible to the broad cache sweep until now; settings, extensions and state are never touched (their logs join the logs category). **Docker build cache** as a command-based category: sized via `docker system df`, freed via `docker builder prune -f` — the only safe way to reclaim Docker space (its images/volumes live inside one VM disk file; file-level deletion would destroy them); contributes nothing when Docker isn't running, and starts **unchecked** in the picker (rebuilds get slower until the cache re-fills). **Xcode** additionally sweeps `iOS DeviceSupport` (per-iOS-version debug symbols, re-extracted on the next device connect — routinely 5–20 GB of stale versions) + test/playground device dirs. **Dev caches** grow by Maven (`~/.m2/repository`), Gradle daemon logs + wrapper distributions, rustup downloads, the Android build cache and (Windows) NuGet. Go's module cache is deliberately excluded (read-only tree, needs `go clean -modcache`), as is `%LOCALAPPDATA%\Microsoft\VisualStudio` (its instance dirs mix caches with window layouts).
+
+### Changed
+
+- **Scanning is much faster.** The directory walk no longer canonicalises two paths per directory (symlinked dirs were already skipped via lstat; the canonicalise+containment security gate stays at execute time, where every single deletion is re-validated) — the scan is now a plain lstat walk, like `find`. The duplicate finder pre-filters same-size candidates with a cheap **64-KiB prefix hash** and only full-hashes prefix collisions — on a Downloads folder full of large same-size media this avoids reading gigabytes.
+
 ## [0.84.243] — 2026-07-11
 
 ### Added

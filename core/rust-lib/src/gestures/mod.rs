@@ -898,6 +898,8 @@ impl PalmAwareRecognizer {
         let mut moved_n = 0usize;
         let (mut dx, mut dy) = (0.0f64, 0.0f64);
         let mut taps = 0usize;
+        let mut latest_down = 0u64;
+        let mut earliest_up = u64::MAX;
         for t in &self.tracks {
             // Skip size-palms and STILL-PRESENT resters (a palm that lifted
             // together with the fingers passes this gate, but its near-zero
@@ -909,11 +911,10 @@ impl PalmAwareRecognizer {
                 moved_n += 1;
                 dx += t.last.0 - t.start.0;
                 dy += t.last.1 - t.start.1;
-            } else {
-                let dur = t.t_last.saturating_sub(t.t_down);
-                if (TAP_MIN_MS..=TAP_MAX_MS).contains(&dur) && t.disp() <= TAP_MAX_MOVE_NORM {
-                    taps += 1;
-                }
+            } else if t.disp() <= TAP_MAX_MOVE_NORM {
+                taps += 1;
+                latest_down = latest_down.max(t.t_down);
+                earliest_up = earliest_up.min(t.t_last);
             }
         }
         if moved_n > 0 {
@@ -921,7 +922,21 @@ impl PalmAwareRecognizer {
             return classify_swipe(dx / n, dy / n, SWIPE_THRESHOLD_NORM)
                 .map(|kind| GestureEvent { kind, fingers: moved_n as u8 });
         }
-        (taps > 0).then_some(GestureEvent { kind: GestureKind::Tap, fingers: taps as u8 })
+        if taps == 0 {
+            return None;
+        }
+        // Tap: judged over the ALL-FINGERS-DOWN overlap window — the same
+        // phase the old centroid recogniser measured (its re-baselined
+        // max-contact span). Per-finger total durations are deliberately NOT
+        // the gate (the v0.84.245 fix): real 3-finger taps land + lift
+        // staggered, so requiring every finger individually inside
+        // [TAP_MIN..TAP_MAX] kept dropping one finger (a one-frame ghost at
+        // the low end, a lazy >250 ms contact at the high end) — the event
+        // then read as a 2-finger tap and the 3-finger mute never fired. A
+        // held chord still can't tap: its overlap window is the full hold.
+        let overlap = earliest_up.saturating_sub(latest_down);
+        ((TAP_MIN_MS..=TAP_MAX_MS).contains(&overlap))
+            .then_some(GestureEvent { kind: GestureKind::Tap, fingers: taps as u8 })
     }
 }
 
@@ -1337,6 +1352,34 @@ mod tests {
         frames.push((950, vec![]));
         let evs = palm_events(&frames);
         assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
+    }
+
+    /// Regression (v0.84.245): real 3-finger taps land + lift STAGGERED — one
+    /// finger's individual contact time easily falls outside [TAP_MIN..TAP_MAX]
+    /// (a lazy 280 ms contact here). The tap must be judged over the
+    /// all-fingers-down overlap window, not per finger — otherwise the event
+    /// reads as a 2-finger tap and the 3-finger mute never fires.
+    #[test]
+    fn palm_rec_staggered_tap_counts_all_three_fingers() {
+        let f1 = rc(1, 0.4, 0.5);
+        let f2 = rc(2, 0.5, 0.5);
+        let f3 = rc(3, 0.6, 0.5);
+        let evs = palm_events(&[
+            (0, vec![f1]),                 // finger 1 lands first…
+            (40, vec![f1, f2, f3]),        // …the rest join (overlap starts)
+            (180, vec![f1, f2, f3]),       // overlap ends here (140 ms)
+            (200, vec![f1]),               // fingers 2+3 lift
+            (280, vec![]),                 // finger 1 lifts last: 280 ms total
+        ]);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }]);
+    }
+
+    /// A held 3-finger chord is NOT a tap — its overlap window is the hold.
+    #[test]
+    fn palm_rec_held_chord_is_not_a_tap() {
+        let f = |t: u64| (t, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]);
+        let evs = palm_events(&[f(0), f(200), f(400), (450, vec![])]);
+        assert!(evs.is_empty(), "a 400 ms chord must not read as a tap: {evs:?}");
     }
 
     #[test]

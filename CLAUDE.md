@@ -651,14 +651,23 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   the palm stays down — the decision triggers when the ACTIVE count hits 0,
   not on all-lift); (3) **per-finger movement at decision time** — only
   contacts that themselves moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe
-  fingers, and only contacts down ≤ `TAP_MAX_MS` as tap fingers, so palm +
-  2-finger scroll/tap yields `fingers == 2`, which `map_action` ignores. The
+  fingers, so palm + 2-finger scroll yields `fingers == 2`, which `map_action`
+  ignores. **Taps are judged over the ALL-FINGERS-DOWN overlap window, NOT per
+  finger (v0.84.245):** v0.84.233 originally required each finger individually
+  inside `[TAP_MIN..TAP_MAX]` — but real 3-finger taps land + lift staggered
+  (a one-frame ghost at the low end, a lazy > 250 ms contact at the high end
+  dropped a finger), so the event read as a 2-finger tap and the **3-finger
+  mute stopped firing**. `decide` now gates on
+  `min(t_last) − max(t_down)` of the tap participants — the same phase the old
+  centroid recogniser measured as its re-baselined max-contact span; a held
+  chord still can't tap (its overlap is the whole hold). The
   **scroll-consume window arms on the active count too** (palm + 2-finger
   scroll no longer swallows the legitimate scroll), and size-palms are skipped
   in the tip-tap contact feed (a resting heel doesn't poison tip-taps). The
   contact-transition debug log now includes per-contact sizes for threshold
-  field-tuning. 8 unit tests (palm+scroll ≠ swipe, size + rest variants,
-  swipe/tap-with-parked-palm still fire, rest-out-then-swipe, arming count).
+  field-tuning. 10 unit tests (palm+scroll ≠ swipe, size + rest variants,
+  swipe/tap-with-parked-palm still fire, staggered-tap counts 3, held chord ≠
+  tap, rest-out-then-swipe, arming count).
 - **macOS (`gestures/macos.rs`):** the private **MultitouchSupport** framework
   (what BTT uses; NSEvent can't deliver global 3-finger gestures). **`dlopen`-ed
   at runtime** so a missing/changed private framework degrades gracefully instead

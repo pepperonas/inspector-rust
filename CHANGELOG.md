@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.245] — 2026-07-11
+
+### Fixed
+
+- **3-finger tap reliably toggles mute again.** The palm-rejection rework (v0.84.233) judged taps **per finger** — each contact had to sit individually inside the 10–250 ms tap window. But real 3-finger taps land and lift staggered: one finger is easily down for only a single frame (too short) or lingers past 250 ms (too long), so the gesture kept counting as a **2-finger** tap and the 3-finger mute silently never fired. Taps are now judged over the **all-fingers-down overlap window** (the same phase the pre-palm-rejection recogniser measured), so staggered landings/lifts count all three fingers; a held chord still can't fake a tap, and all palm-rejection guards stay intact. Two regression tests pin the staggered-tap and held-chord cases.
+
 ## [0.84.244] — 2026-07-11
 
 ### Added

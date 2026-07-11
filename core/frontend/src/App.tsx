@@ -1785,6 +1785,24 @@ function App() {
       arg: string,
       keyword?: string,
     ): Promise<boolean> => {
+      // INVARIANT — inline preview-panel commands must canonicalise the query
+      // to their keyword the moment they open. Every one of these renders in
+      // the preview column and stays open only while the query still parses to
+      // that command (a `!isXCmd` auto-exit effect). Entering the mode from a
+      // *partial* fuzzy suggestion (Enter on the `snitch`/`clean`/… hint while
+      // the field still reads `sni`/`clea`) would otherwise trip that effect
+      // instantly and the panel would flash open-then-closed. Canonicalising
+      // here — ONCE, for the whole family — guarantees consistent behaviour so
+      // a new panel command can't forget it (the bug that hid `snitch`/`clean`
+      // behind a partial suggestion). Keep any typed argument for the commands
+      // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
+      const PANEL_KINDS: CommandKind[] = [
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "calendar", "clean", "snitch",
+      ];
+      if (PANEL_KINDS.includes(commandKind)) {
+        const keepArg = commandKind === "calendar" || commandKind === "snitch";
+        setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
+      }
       if (isTranslateKind(commandKind)) {
         await openUrl(translateUrl(commandKind, arg));
         await hidePopup();
@@ -2085,51 +2103,37 @@ function App() {
         // Render the sliders inline in the right preview column and give the
         // arrow keys to them — the popup stays open. A repeated Enter (handled
         // inside BrightnessPanel) hands the arrows back to the left list.
-        // Canonicalise the query to the full command so entering the mode from
-        // a *partial* suggestion (e.g. Enter on the `brightness` hint while the
-        // field still reads `bright`) doesn't immediately trip the
-        // `!isBrightnessCmd` auto-exit effect.
-        setQuery("brightness");
+        // (Query canonicalisation is centralised at the top of dispatchCommand.)
         setBrightnessMode(true);
         setBrightnessFocus(true);
         return true;
       } else if (commandKind === "sound") {
         // Inline output-device picker in the preview column (like brightness).
-        setQuery("sound");
         setSoundMode(true);
         setSoundFocus(true);
         return true;
       } else if (commandKind === "hue") {
-        // Inline Philips Hue lamp controls in the preview column (like
-        // brightness/sound). Canonicalise the query so a partial-suggestion
-        // Enter doesn't immediately trip the auto-exit effect.
-        setQuery("hue");
+        // Inline Philips Hue lamp controls in the preview column.
         setHueMode(true);
         setHueFocus(true);
         return true;
       } else if (commandKind === "stats") {
         // Inline live system-stats panel in the preview column (read-only).
-        setQuery("stats");
         setStatsMode(true);
         setStatsFocus(true);
         return true;
       } else if (commandKind === "boom") {
         // Inline audio-enhancement controller in the preview column.
-        setQuery("boom");
         setBoomMode(true);
         setBoomFocus(true);
         return true;
       } else if (commandKind === "uptime") {
         // Inline live animated uptime odometer in the preview column.
-        setQuery("uptime");
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
       } else if (commandKind === "calendar") {
-        // Inline month-view calendar in the preview column. Canonicalise the
-        // keyword but KEEP a typed argument (`cal märz 1990`) so the jump
-        // target survives entering the mode from a partial suggestion.
-        setQuery(arg ? `calendar ${arg}` : "calendar");
+        // Inline month-view calendar in the preview column.
         setCalendarMode(true);
         setCalendarFocus(true);
         return true;

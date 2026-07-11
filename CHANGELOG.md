@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.247] — 2026-07-11
+
+### Fixed
+
+- **Preview-panel commands open reliably from a partial suggestion — consistently.** Pressing Enter on a fuzzy suggestion (e.g. `snitch` or `clean` while the field still read `sni`/`clea`) opened the panel and immediately closed it again: the panel stays open only while the query still parses to its command, and those two never canonicalised the typed query the way the other inline panels (brightness/sound/hue/stats/boom/uptime/calendar) already did. That per-command step is now done **once, centrally**, for the whole panel-command family — so every one of them behaves identically (Enter from a partial suggestion opens and stays open) and a future panel command can't reintroduce the bug.
+
 ## [0.84.246] — 2026-07-11
 
 ### Added

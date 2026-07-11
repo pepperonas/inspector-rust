@@ -24,6 +24,7 @@ import { BpmAnalyzer } from "./bpm";
 import { hueListLights, hueSetLight } from "./ipc";
 import { beatColor, floorBrightness, nextIndex, type DiscoMode } from "./disco-math";
 import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
+import { attachMic, warmContext, detachMic } from "./warm-audio";
 
 export type { DiscoMode };
 
@@ -87,9 +88,11 @@ class DiscoEngine {
   private snap: DiscoState = { ...this.state };
   private listeners = new Set<() => void>();
 
-  // Audio graph.
-  private ctx: AudioContext | null = null;
+  // Audio graph. Runs on the SHARED warm AudioContext (warm-audio.ts) — never
+  // a fresh context, or opening the mic reconfigures the CoreAudio device and
+  // stutters other apps' playback (v0.84.253). The context is never closed here.
   private stream: MediaStream | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private detectAnalyser: AnalyserNode | null = null;
   private levelAnalyser: AnalyserNode | null = null;
   private rafId: number | null = null;
@@ -160,14 +163,14 @@ class DiscoEngine {
         audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
       });
       this.stream = stream;
-      // "playback" latency hint → larger output buffer; avoids glitching other
-      // apps' audio while macOS reconfigures the shared device on mic-open.
-      const ctx = new AudioContext({ latencyHint: "playback" });
-      this.ctx = ctx;
+      // Attach to the shared warm play-and-record session (suspend → wire →
+      // resume) instead of a fresh context — see the field comment.
+      const source = await attachMic(stream);
+      this.source = source;
+      const ctx = warmContext();
       this.analyzer = new BpmAnalyzer();
       this.analyzer.setSensitivity(this.state.sensitivity);
 
-      const source = ctx.createMediaStreamSource(stream);
       // Input boost first — everything downstream (detection band + level tap)
       // benefits from the lifted signal.
       const gain = ctx.createGain();
@@ -240,7 +243,7 @@ class DiscoEngine {
         this.rafId = requestAnimationFrame(loop);
       };
 
-      void ctx.resume().catch(() => undefined);
+      // (attachMic already resumed the warm context.)
       this.rafId = requestAnimationFrame(loop);
       this.set({ running: true, error: null });
     } catch {
@@ -250,7 +253,7 @@ class DiscoEngine {
   }
 
   stop(): void {
-    if (!this.state.running && !this.ctx) return;
+    if (!this.state.running && !this.source) return;
     this.teardownAudio();
     this.restoreLamps();
     this.set({ running: false, bpm: 0, level: 0, beat: false });
@@ -266,10 +269,12 @@ class DiscoEngine {
     this.levelAnalyser?.disconnect();
     this.levelAnalyser = null;
     this.displayLevel = 0;
-    this.stream?.getTracks().forEach((t) => t.stop());
+    // Disconnect the mic source + stop tracks, but NEVER close the shared warm
+    // context (BPM / Shazam reuse it — closing it would break them and force a
+    // device reconfiguration on the next mic-open).
+    detachMic(this.source, this.stream);
+    this.source = null;
     this.stream = null;
-    void this.ctx?.close().catch(() => undefined);
-    this.ctx = null;
   }
 
   private restoreLamps() {

@@ -66,12 +66,36 @@ export async function attachMic(
   stream: MediaStream,
 ): Promise<MediaStreamAudioSourceNode> {
   const { ctx: c, silentOut: out } = ensure();
+  // Diagnostics: confirm every mic user shares the ONE warm context (a second
+  // live source here means two callers overlap — expected only briefly). A
+  // fresh context per caller was the stutter cause (v0.84.253).
+  console.debug(
+    `[warm-audio] attachMic — ctx.state=${c.state} rate=${c.sampleRate} liveMics=${micSources.length}`,
+  );
   await c.suspend().catch(() => undefined);
   const source = c.createMediaStreamSource(stream);
   source.connect(out); // ties the mic into the (warm) play-and-record session
   await c.resume().catch(() => undefined);
   micSources.push(source);
   return source;
+}
+
+/**
+ * Detach a mic session opened with `attachMic`: disconnect the source (cuts all
+ * its downstream taps), stop the stream's tracks, and drop it from the live-mic
+ * set. **Never closes the warm context** — it stays warm for the next mic user
+ * (the whole point: one persistent play-and-record session avoids re-triggering
+ * the CoreAudio device reconfiguration that stutters other apps' playback).
+ */
+export function detachMic(source: MediaStreamAudioSourceNode | null, stream: MediaStream | null): void {
+  try {
+    source?.disconnect();
+  } catch {
+    /* already disconnected */
+  }
+  if (source) micSources = micSources.filter((s) => s !== source);
+  stream?.getTracks().forEach((t) => t.stop());
+  console.debug(`[warm-audio] detachMic — remaining liveMics=${micSources.length} (ctx kept warm)`);
 }
 
 /** Whether any attached mic stream still has a live track (bpm/disco active).

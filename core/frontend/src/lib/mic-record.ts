@@ -2,10 +2,17 @@
  * Record a fixed-length mono PCM clip from the microphone and downsample it to
  * 16 kHz `Int16Array` — the input the Shazam signature generator expects
  * (`shazam_recognize`). Raw audio (AGC/NS/echo-cancel off) gives the cleanest
- * fingerprint. Uses a ScriptProcessorNode for contiguous PCM (simplest reliable
- * capture in WKWebView; AudioWorklet would be the modern path but is overkill
- * for a one-shot 10 s grab).
+ * fingerprint. Contiguous PCM comes from a ScriptProcessorNode.
+ *
+ * **Anti-stutter (v0.84.253):** the capture runs on the shared **warm**
+ * AudioContext (`warm-audio.ts`) via `attachMic`, NOT a fresh `new
+ * AudioContext()`. A fresh interactive-latency context on mic-open makes
+ * WebKit/macOS reconfigure the shared CoreAudio device (sample rate / buffer),
+ * which stutters every other app's playback. Reusing the one persistent
+ * play-and-record session — the same one the BPM detector + disco use — keeps
+ * mic-open to a single, mild device event instead of a full reconfiguration.
  */
+import { attachMic, warmContext, detachMic } from "./warm-audio";
 
 /** Linear-resample a Float32 mono buffer from `srcRate` to 16 kHz → Int16. */
 export function downsampleTo16kInt16(input: Float32Array, srcRate: number): Int16Array {
@@ -56,11 +63,11 @@ export async function recordMic16k(
       channelCount: 1,
     },
   });
-  const AC: typeof AudioContext =
-    window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-  const ctx = new AC();
+  // Attach to the shared warm context (suspend → wire → resume, no ducking /
+  // device reconfiguration). NOT a fresh AudioContext — see the file header.
+  const source = await attachMic(stream);
+  const ctx = warmContext();
   const srcRate = ctx.sampleRate;
-  const source = ctx.createMediaStreamSource(stream);
   const processor = ctx.createScriptProcessor(4096, 1, 1);
   const chunks: Float32Array[] = [];
   const target = Math.ceil(srcRate * seconds);
@@ -69,9 +76,7 @@ export async function recordMic16k(
   const cleanup = () => {
     try {
       processor.disconnect();
-      source.disconnect();
-      stream.getTracks().forEach((t) => t.stop());
-      void ctx.close();
+      detachMic(source, stream); // disconnects the source + stops tracks; keeps the warm ctx alive
     } catch {
       /* ignore */
     }

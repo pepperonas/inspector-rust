@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.253] — 2026-07-12
+
+### Fixed
+
+- **Recording with the mic no longer stutters other apps' audio.** Every microphone feature — song recognition (`shazam`), the BPM detector, and the disco light-sync — now shares one persistent audio session instead of spinning up a fresh one each time. Opening a fresh session made macOS reconfigure the shared audio device (sample rate / buffer) on every mic-open, which glitched whatever else was playing; `shazam` was the worst case (a brand-new low-latency context per recording). They all now reuse the single warmed-up session, so starting the mic is one brief, mild event rather than a full device reconfiguration — and the recording/detection quality is unchanged.
+
 ## [0.84.252] — 2026-07-12
 
 ### Added

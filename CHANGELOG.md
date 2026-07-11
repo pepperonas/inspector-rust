@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.243] — 2026-07-11
+
+### Added
+
+- **`clean` finds more: duplicates, old installers, system logs.** Three additions to the picker: **Duplicate files in Downloads** — a content-hash finder (files grouped by size, then SHA-256, so only true byte-identical copies match) that always keeps the **oldest** copy and offers the rest; **Old installers in Downloads** (`dmg` / `pkg` / `iso` / `xip` / `msi` / `AppImage`, respecting the age filter — re-downloadable by definition); and the application-logs category now also sweeps `/Library/Logs` (root-owned files in there simply skip, never aborting). Because these touch files in your Downloads folder, they appear in the picker **pre-deselected** — deleting them is always an explicit tick. Categories can now carry an extension filter (pure, tested), and the duplicate finder is unit-tested (keeps-oldest, ignores unique/zero-byte files, never double-claims a file another category already listed).
+
 ## [0.84.242] — 2026-07-11
 
 ### Added

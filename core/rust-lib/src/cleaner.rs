@@ -85,6 +85,10 @@ pub struct Category {
     /// counted) twice. Excluded subtrees are neither recursed nor deleted.
     #[serde(skip)]
     pub exclude: Vec<PathBuf>,
+    /// Lower-case extension filter (empty = every file) — e.g. the
+    /// old-installers category only touches `dmg`/`pkg`/`iso`/….
+    #[serde(skip)]
+    pub exts: Vec<String>,
     /// Whether it's on by default (the user can still uncheck it).
     pub default_enabled: bool,
 }
@@ -110,6 +114,7 @@ pub fn categories() -> Vec<Category> {
             level: Level::Safe,
             roots: vec![c.join("InspectorRust")],
             exclude: vec![],
+            exts: vec![],
             default_enabled: true,
         });
     }
@@ -120,8 +125,41 @@ pub fn categories() -> Vec<Category> {
         level: Level::Safe,
         roots: vec![tmp],
         exclude: vec![],
+        exts: vec![],
         default_enabled: true,
     });
+
+    // Downloads-based categories (every platform; v0.84.243). These touch USER
+    // files, so the clean picker pre-deselects them (frontend `PRESELECT_OFF`)
+    // — they're offered, never silently included.
+    if let Some(dl) = dirs::download_dir() {
+        // Old installers: re-downloadable by definition; the age filter applies
+        // (only installers untouched for ≥ N days).
+        out.push(Category {
+            key: "installers".into(),
+            label: "Old installers in Downloads (dmg / pkg / iso / …)".into(),
+            level: Level::Standard,
+            roots: vec![dl.clone()],
+            exclude: vec![],
+            exts: ["dmg", "pkg", "mpkg", "iso", "xip", "msi", "appimage"]
+                .iter()
+                .map(|s| s.to_string())
+                .collect(),
+            default_enabled: true,
+        });
+        // Content-identical duplicates — scanned by `append_duplicates`, NOT the
+        // generic walker (the key is special-cased in `scan`); the OLDEST copy
+        // of every duplicate group is always kept.
+        out.push(Category {
+            key: KEY_DUPES.into(),
+            label: "Duplicate files in Downloads (oldest copy kept)".into(),
+            level: Level::Standard,
+            roots: vec![dl],
+            exclude: vec![],
+            exts: vec![],
+            default_enabled: true,
+        });
+    }
 
     #[cfg(target_os = "macos")]
     if let Some(h) = home() {
@@ -138,6 +176,7 @@ pub fn categories() -> Vec<Category> {
             level: Level::Standard,
             roots: browser_roots.clone(),
             exclude: vec![],
+            exts: vec![],
             default_enabled: true,
         });
         // The big one (v0.84.241): everything else under ~/Library/Caches —
@@ -155,14 +194,23 @@ pub fn categories() -> Vec<Category> {
                 ex.push(h.join("Library/Caches/InspectorRust"));
                 ex
             },
+            exts: vec![],
             default_enabled: true,
         });
         out.push(Category {
             key: "logs".into(),
             label: "Application logs".into(),
             level: Level::Standard,
-            roots: vec![h.join("Library/Logs"), h.join(".pm2/logs")],
+            // /Library/Logs (system-wide app logs) too — root-owned files in
+            // there simply fail the per-item delete and are recorded, never
+            // aborting the batch.
+            roots: vec![
+                h.join("Library/Logs"),
+                h.join(".pm2/logs"),
+                PathBuf::from("/Library/Logs"),
+            ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: true,
         });
         out.push(Category {
@@ -180,6 +228,7 @@ pub fn categories() -> Vec<Category> {
                 h.join(".cargo/git"),
             ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
         out.push(Category {
@@ -191,6 +240,7 @@ pub fn categories() -> Vec<Category> {
                 h.join("Library/Developer/CoreSimulator/Caches"),
             ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
         // Trash: genuinely user-discarded files, but still user files — strictly
@@ -201,6 +251,7 @@ pub fn categories() -> Vec<Category> {
             level: Level::Aggressive,
             roots: vec![h.join(".Trash")],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
     }
@@ -218,6 +269,7 @@ pub fn categories() -> Vec<Category> {
                 local.join("Mozilla/Firefox/Profiles"),
             ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: true,
         });
         out.push(Category {
@@ -233,6 +285,7 @@ pub fn categories() -> Vec<Category> {
                 h.join(".cargo/git"),
             ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
     }
@@ -251,6 +304,7 @@ pub fn categories() -> Vec<Category> {
             level: Level::Standard,
             roots: browser_roots.clone(),
             exclude: vec![],
+            exts: vec![],
             default_enabled: true,
         });
         // Everything else under ~/.cache (XDG: strictly regenerable), minus the
@@ -266,6 +320,7 @@ pub fn categories() -> Vec<Category> {
                 ex.push(xdg_cache.join("pnpm")); // owned by dev_caches
                 ex
             },
+            exts: vec![],
             default_enabled: true,
         });
         out.push(Category {
@@ -281,6 +336,7 @@ pub fn categories() -> Vec<Category> {
                 h.join(".cargo/git"),
             ],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
         out.push(Category {
@@ -289,6 +345,7 @@ pub fn categories() -> Vec<Category> {
             level: Level::Aggressive,
             roots: vec![h.join(".local/share/Trash/files")],
             exclude: vec![],
+            exts: vec![],
             default_enabled: false,
         });
     }
@@ -456,19 +513,42 @@ fn collect_files(
     }
 }
 
-/// One scan group: `(key, label, roots, exclude)`.
-pub type ScanGroup = (String, String, Vec<PathBuf>, Vec<PathBuf>);
+/// One scan group — the category fields the scanner needs.
+#[derive(Debug, Clone)]
+pub struct ScanGroup {
+    pub key: String,
+    pub label: String,
+    pub roots: Vec<PathBuf>,
+    pub exclude: Vec<PathBuf>,
+    /// Lower-case extension filter (`["dmg", "pkg"]`); empty = every file.
+    pub exts: Vec<String>,
+}
+
+/// Whether `path`'s extension passes the (possibly empty) filter.
+fn ext_matches(path: &Path, exts: &[String]) -> bool {
+    if exts.is_empty() {
+        return true;
+    }
+    path.extension()
+        .and_then(|e| e.to_str())
+        .map(|e| {
+            let e = e.to_ascii_lowercase();
+            exts.iter().any(|want| *want == e)
+        })
+        .unwrap_or(false)
+}
 
 /// Build a plan from explicit scan groups. Read-only. The pure heart of
 /// `scan` — tests drive it with temp dirs.
 pub fn scan_roots(groups: &[ScanGroup], min_age_days: u32, now: SystemTime) -> CleanPlan {
     let min_age = Duration::from_secs(u64::from(min_age_days) * 86_400);
     let mut plan = CleanPlan::default();
-    for (key, label, roots, exclude) in groups {
+    for ScanGroup { key, label, roots, exclude, exts } in groups {
         let mut cat_bytes = 0u64;
         for root in roots {
             let mut files = Vec::new();
             collect_files(root, min_age, now, exclude, &mut files);
+            files.retain(|(p, _)| ext_matches(p, exts));
             for (path, size) in files {
                 cat_bytes += size;
                 plan.total_bytes += size;
@@ -537,26 +617,121 @@ fn enabled_groups(cfg: &CleanerConfig) -> Vec<ScanGroup> {
         .into_iter()
         .filter(|c| cfg.level.includes(c.level))
         .filter(|c| *cfg.categories.get(&c.key).unwrap_or(&c.default_enabled))
-        .map(|c| (c.key, c.label, c.roots, c.exclude))
+        .map(|c| ScanGroup {
+            key: c.key,
+            label: c.label,
+            roots: c.roots,
+            exclude: c.exclude,
+            exts: c.exts,
+        })
         .collect()
 }
 
 /// All roots that the current config could touch — the allowlist passed to
 /// `execute_plan` for re-validation.
 fn enabled_roots(cfg: &CleanerConfig) -> Vec<PathBuf> {
-    enabled_groups(cfg).into_iter().flat_map(|(_, _, r, _)| r).collect()
+    enabled_groups(cfg).into_iter().flat_map(|g| g.roots).collect()
 }
 
 /// Per-category exclusions of the enabled categories (execute-time re-check —
 /// per-category, because a specific category legitimately owns paths a broad
 /// one carved out).
 fn enabled_excludes(cfg: &CleanerConfig) -> std::collections::BTreeMap<String, Vec<PathBuf>> {
-    enabled_groups(cfg).into_iter().map(|(k, _, _, e)| (k, e)).collect()
+    enabled_groups(cfg).into_iter().map(|g| (g.key, g.exclude)).collect()
 }
 
-/// Read-only scan for the current config. Safe to call any time.
+/// The duplicate-finder category's key — special-cased in `scan` (its items
+/// come from content hashing, not the generic walker).
+pub const KEY_DUPES: &str = "dupes";
+
+/// SHA-256 of a file's content; `None` on any I/O error (an unhashable file
+/// can never be proven duplicate → conservatively skipped).
+fn sha256_file(path: &Path) -> Option<[u8; 32]> {
+    use sha2::{Digest, Sha256};
+    let mut f = std::fs::File::open(path).ok()?;
+    let mut hasher = Sha256::new();
+    std::io::copy(&mut f, &mut hasher).ok()?;
+    Some(hasher.finalize().into())
+}
+
+/// Content-identical duplicates under `roots` (pure over explicit roots →
+/// unit-testable): group by size, then by SHA-256 — only same-size files are
+/// ever hashed. Within a group the **oldest** copy (mtime, then path, for
+/// determinism) is KEPT; the rest are returned as deletable `(path, size)`.
+/// Zero-byte files are ignored (all "identical", none worth deleting), and a
+/// file whose mtime or hash can't be read drops out of its group entirely.
+pub fn duplicate_items(roots: &[PathBuf], exclude: &[PathBuf]) -> Vec<(PathBuf, u64)> {
+    use std::collections::BTreeMap;
+    let mut files = Vec::new();
+    for root in roots {
+        collect_files(root, Duration::ZERO, SystemTime::now(), exclude, &mut files);
+    }
+    let mut by_size: BTreeMap<u64, Vec<PathBuf>> = BTreeMap::new();
+    for (path, size) in files {
+        if size > 0 {
+            by_size.entry(size).or_default().push(path);
+        }
+    }
+    let mut out = Vec::new();
+    for (size, candidates) in by_size {
+        if candidates.len() < 2 {
+            continue;
+        }
+        let mut by_hash: BTreeMap<[u8; 32], Vec<(SystemTime, PathBuf)>> = BTreeMap::new();
+        for path in candidates {
+            let Some(hash) = sha256_file(&path) else { continue };
+            let Ok(meta) = std::fs::symlink_metadata(&path) else { continue };
+            let Ok(mtime) = meta.modified() else { continue };
+            by_hash.entry(hash).or_default().push((mtime, path));
+        }
+        for (_, mut group) in by_hash {
+            if group.len() < 2 {
+                continue;
+            }
+            group.sort_by(|a, b| a.0.cmp(&b.0).then_with(|| a.1.cmp(&b.1)));
+            // group[0] = the oldest copy → the keeper. The rest are deletable.
+            for (_, path) in group.into_iter().skip(1) {
+                out.push((path, size));
+            }
+        }
+    }
+    out
+}
+
+/// Run the duplicate finder for its enabled category and append the results to
+/// the plan — skipping any path another category already claimed (e.g. an old
+/// installer that is also a duplicate must not be planned twice).
+fn append_duplicates(plan: &mut CleanPlan, group: &ScanGroup) {
+    use std::collections::HashSet;
+    let already: HashSet<&str> = plan.items.iter().map(|i| i.path.as_str()).collect();
+    let dupes = duplicate_items(&group.roots, &group.exclude);
+    let mut cat_bytes = 0u64;
+    let mut fresh = Vec::new();
+    for (path, size) in dupes {
+        let p = path.to_string_lossy().to_string();
+        if already.contains(p.as_str()) {
+            continue;
+        }
+        cat_bytes += size;
+        fresh.push(CleanItem { path: p, size, category: group.key.clone() });
+    }
+    plan.total_bytes += cat_bytes;
+    plan.items.extend(fresh);
+    plan.categories.push((group.key.clone(), group.label.clone(), cat_bytes));
+}
+
+/// Read-only scan for the current config. Safe to call any time. The
+/// duplicate-finder category runs its own content-hash scanner; everything
+/// else goes through the generic walker.
 pub fn scan(cfg: &CleanerConfig) -> CleanPlan {
-    scan_roots(&enabled_groups(cfg), cfg.min_age_days, SystemTime::now())
+    let groups = enabled_groups(cfg);
+    let dupes_group = groups.iter().find(|g| g.key == KEY_DUPES).cloned();
+    let generic: Vec<ScanGroup> = groups.into_iter().filter(|g| g.key != KEY_DUPES).collect();
+    let mut plan = scan_roots(&generic, cfg.min_age_days, SystemTime::now());
+    if let Some(g) = dupes_group {
+        append_duplicates(&mut plan, &g);
+    }
+    plan
 }
 
 /// Execute a previously-scanned plan, re-validating against the config's
@@ -570,6 +745,16 @@ mod tests {
     use super::*;
     use std::fs;
     use std::time::Duration;
+
+    fn group(key: &str, roots: Vec<PathBuf>, exclude: Vec<PathBuf>) -> ScanGroup {
+        ScanGroup {
+            key: key.into(),
+            label: key.into(),
+            roots,
+            exclude,
+            exts: vec![],
+        }
+    }
 
     fn tmp() -> PathBuf {
         let base = std::env::temp_dir().join(format!(
@@ -630,7 +815,7 @@ mod tests {
         let root = tmp();
         write_old(&root.join("a.log"), b"12345", 30); // 5 bytes
         write_old(&root.join("b.log"), b"678", 30); // 3 bytes
-        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()], vec![])];
+        let groups = vec![group("logs", vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 2);
         assert_eq!(plan.total_bytes, 8);
@@ -644,7 +829,7 @@ mod tests {
         // 0-day threshold the same files qualify. No mtime backdating needed.
         let root = tmp();
         fs::write(root.join("fresh.log"), b"fresh-now").unwrap();
-        let groups = vec![("logs".into(), "Logs".into(), vec![root.clone()], vec![])];
+        let groups = vec![group("logs", vec![root.clone()], vec![])];
         assert!(scan_roots(&groups, 365, SystemTime::now()).items.is_empty());
         assert_eq!(scan_roots(&groups, 0, SystemTime::now()).items.len(), 1);
     }
@@ -655,7 +840,7 @@ mod tests {
         let sub = root.join("nested/deep");
         fs::create_dir_all(&sub).unwrap();
         write_old(&sub.join("x.tmp"), b"abcd", 30);
-        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()], vec![])];
+        let groups = vec![group("t", vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 1);
         assert_eq!(plan.total_bytes, 4);
@@ -671,7 +856,7 @@ mod tests {
         fs::write(outside.join("secret.txt"), b"do not touch").unwrap();
         let link = root.join("evil");
         std::os::unix::fs::symlink(&outside, &link).unwrap();
-        let groups = vec![("c".into(), "Cache".into(), vec![root.clone()], vec![])];
+        let groups = vec![group("c", vec![root.clone()], vec![])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         // Nothing collected — the symlink was skipped.
         assert!(plan.items.is_empty(), "must not traverse symlinked dir");
@@ -685,7 +870,7 @@ mod tests {
         write_old(&root.join("b.tmp"), b"4567", 30);
         let keep = root.join("keep.txt");
         write_old(&keep, b"keepme", 30);
-        let groups = vec![("t".into(), "Temp".into(), vec![root.clone()], vec![])];
+        let groups = vec![group("t", vec![root.clone()], vec![])];
         // Scan picks up all three (age 0 threshold).
         let mut plan = scan_roots(&groups, 0, SystemTime::now());
         // Remove "keep.txt" from the plan so execute must not touch it.
@@ -801,12 +986,7 @@ mod tests {
         fs::create_dir_all(&carved).unwrap();
         write_old(&owned.join("a.tmp"), b"123", 30);
         write_old(&carved.join("b.tmp"), b"4567", 30);
-        let groups = vec![(
-            "other".to_string(),
-            "Other".to_string(),
-            vec![root.clone()],
-            vec![carved.clone()],
-        )];
+        let groups = vec![group("other", vec![root.clone()], vec![carved.clone()])];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 1, "excluded subtree must not be scanned");
         assert!(plan.items[0].path.contains("mine"));
@@ -822,8 +1002,8 @@ mod tests {
         fs::create_dir_all(&carved).unwrap();
         write_old(&carved.join("cache.bin"), b"12345", 30);
         let groups = vec![
-            ("other".to_string(), "Other".to_string(), vec![root.clone()], vec![carved.clone()]),
-            ("browser".to_string(), "Browser".to_string(), vec![carved.clone()], vec![]),
+            group("other", vec![root.clone()], vec![carved.clone()]),
+            group("browser", vec![carved.clone()], vec![]),
         ];
         let plan = scan_roots(&groups, 0, SystemTime::now());
         assert_eq!(plan.items.len(), 1); // claimed once, by "browser"
@@ -851,6 +1031,52 @@ mod tests {
         assert_eq!(res.deleted, 0);
         assert_eq!(res.errors.len(), 1);
         assert!(carved.join("cache2.bin").exists());
+    }
+
+    fn set_mtime(path: &Path, t: SystemTime) {
+        let f = fs::File::options().write(true).open(path).unwrap();
+        f.set_times(fs::FileTimes::new().set_modified(t)).unwrap();
+    }
+
+    #[test]
+    fn duplicate_finder_keeps_the_oldest_copy() {
+        let root = tmp();
+        let old = root.join("original.bin");
+        let newer = root.join("original (1).bin");
+        let unique = root.join("unique.bin");
+        fs::write(&old, b"same-content").unwrap();
+        fs::write(&newer, b"same-content").unwrap();
+        fs::write(&unique, b"different!!!").unwrap(); // same size, other content
+        let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        set_mtime(&old, t0);
+        set_mtime(&newer, t0 + Duration::from_secs(3600));
+        let dupes = duplicate_items(&[root.clone()], &[]);
+        assert_eq!(dupes.len(), 1, "exactly the newer duplicate is deletable");
+        assert_eq!(dupes[0].0, newer);
+        assert_eq!(dupes[0].1, 12);
+        assert!(old.exists() && unique.exists());
+    }
+
+    #[test]
+    fn duplicate_finder_ignores_unique_and_zero_byte_files() {
+        let root = tmp();
+        fs::write(root.join("a.txt"), b"").unwrap(); // zero-byte "twins"
+        fs::write(root.join("b.txt"), b"").unwrap();
+        fs::write(root.join("c.txt"), b"abc").unwrap(); // same size…
+        fs::write(root.join("d.txt"), b"xyz").unwrap(); // …different content
+        assert!(duplicate_items(&[root], &[]).is_empty());
+    }
+
+    #[test]
+    fn extension_filter_limits_a_group_to_matching_files() {
+        let root = tmp();
+        write_old(&root.join("setup.DMG"), b"12345", 30); // case-insensitive
+        write_old(&root.join("notes.txt"), b"123", 30);
+        let mut g = group("inst", vec![root.clone()], vec![]);
+        g.exts = vec!["dmg".into()];
+        let plan = scan_roots(&[g], 0, SystemTime::now());
+        assert_eq!(plan.items.len(), 1);
+        assert!(plan.items[0].path.to_lowercase().ends_with("setup.dmg"));
     }
 
     #[test]

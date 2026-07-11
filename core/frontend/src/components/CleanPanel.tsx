@@ -23,6 +23,11 @@ import {
 
 type Phase = "scanning" | "pick" | "executing" | "error";
 
+/** Categories that appear in the picker but start UNCHECKED — they touch user
+ * files (Downloads installers, duplicate downloads, Trash), so deleting them
+ * must be an explicit tick, never a default. */
+const PRESELECT_OFF = new Set(["installers", "dupes", "trash"]);
+
 export function CleanPanel({
   focused,
   onInteract,
@@ -51,7 +56,7 @@ export function CleanPanel({
         const sums = categorySummaries(p);
         setPlan(p);
         setSummaries(sums);
-        setSelected(new Set(sums.map((s) => s.key)));
+        setSelected(new Set(sums.map((s) => s.key).filter((k) => !PRESELECT_OFF.has(k))));
         setPhase("pick");
       })
       .catch((e) => {

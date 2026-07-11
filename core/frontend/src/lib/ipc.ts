@@ -858,10 +858,34 @@ export interface ShazamMatch {
   album: string;
   released: string;
   apple_music_url: string;
+  spotify_url: string;
+  youtube_url: string;
 }
-/** Recognize a song from 16 kHz mono PCM (i16). null = no match. */
+export interface ShazamHistoryEntry {
+  id: number;
+  recognized_at: number;
+  title: string;
+  artist: string;
+  cover_url: string;
+  shazam_url: string;
+  spotify_url: string;
+  youtube_url: string;
+  genre: string;
+  album: string;
+  released: string;
+}
+/** Recognize a song from 16 kHz mono PCM (i16). null = no match. Persists to history. */
 export function shazamRecognize(samples: Int16Array): Promise<ShazamMatch | null> {
   return invoke("shazam_recognize", { samples: Array.from(samples) });
+}
+export function shazamHistoryList(limit?: number): Promise<ShazamHistoryEntry[]> {
+  return invoke("shazam_history_list", { limit });
+}
+export function shazamHistoryDelete(id: number): Promise<void> {
+  return invoke("shazam_history_delete", { id });
+}
+export function shazamHistoryClear(): Promise<void> {
+  return invoke("shazam_history_clear");
 }
 export function snitchSetBlocked(blocked: string[]): Promise<void> {
   return invoke("snitch_set_blocked", { blocked });

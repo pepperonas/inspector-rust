@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.251] — 2026-07-11
+
+### Added
+
+- **Shazam: local history + open in Spotify / YouTube.** Every recognized song is now saved to a local history you can browse with the new **Listen ⇄ History** toggle — cover, title, artist and when you heard it, each with one-tap links. And beyond the Shazam link, the result (and every history entry) can now **open the song directly in Spotify or YouTube**. History is stored locally on your machine; re-listening to the same song doesn't create duplicates, and you can delete single entries or clear it all.
+
 ## [0.84.250] — 2026-07-11
 
 ### Added

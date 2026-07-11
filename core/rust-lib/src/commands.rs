@@ -4658,9 +4658,38 @@ pub async fn snitch_disarm() -> Result<(), String> {
 // ── Shazam song recognition (mic → signature → Shazam API) ──────────────────
 
 /// Recognize a song from a 16 kHz mono PCM recording (the frontend records the
-/// mic + downsamples). Generates the Shazam signature + queries the public API.
-/// `Ok(None)` = no match. Async → runs off the main thread (FFT + network).
+/// mic + downsamples). Generates the Shazam signature + queries the public API,
+/// and persists a match to the local history. `Ok(None)` = no match. Async →
+/// runs off the main thread (FFT + network).
 #[tauri::command]
-pub async fn shazam_recognize(samples: Vec<i16>) -> Result<Option<crate::shazam::ShazamMatch>, String> {
-    crate::shazam::recognize(&samples)
+pub async fn shazam_recognize(
+    db: State<'_, DbHandle>,
+    samples: Vec<i16>,
+) -> Result<Option<crate::shazam::ShazamMatch>, String> {
+    let result = crate::shazam::recognize(&samples)?;
+    if let Some(m) = &result {
+        let _ = crate::shazam::history_insert(&db, m); // best-effort persistence
+    }
+    Ok(result)
+}
+
+/// Recent Shazam recognitions (newest first), for the panel's history view.
+#[tauri::command]
+pub async fn shazam_history_list(
+    db: State<'_, DbHandle>,
+    limit: Option<u32>,
+) -> Result<Vec<crate::shazam::ShazamHistoryEntry>, String> {
+    crate::shazam::history_list(&db, limit.unwrap_or(100)).map_err(map_err)
+}
+
+/// Delete one history entry.
+#[tauri::command]
+pub async fn shazam_history_delete(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+    crate::shazam::history_delete(&db, id).map_err(map_err)
+}
+
+/// Clear the whole Shazam history.
+#[tauri::command]
+pub async fn shazam_history_clear(db: State<'_, DbHandle>) -> Result<(), String> {
+    crate::shazam::history_clear(&db).map_err(map_err)
 }

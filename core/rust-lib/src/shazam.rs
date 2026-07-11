@@ -301,6 +301,40 @@ pub struct ShazamMatch {
     pub album: String,
     pub released: String,
     pub apple_music_url: String,
+    /// Deep link to open the song in Spotify (direct from Shazam if present,
+    /// else a search for "title artist").
+    pub spotify_url: String,
+    /// YouTube search for the song ("title artist").
+    pub youtube_url: String,
+}
+
+/// Percent-encode a query for a URL (RFC-3986-ish: keep unreserved, encode the
+/// rest incl. space → %20). Pure.
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() * 3);
+    for b in s.bytes() {
+        match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
+            _ => out.push_str(&format!("%{b:02X}")),
+        }
+    }
+    out
+}
+
+/// Build Spotify + YouTube links for a track. `spotify_direct` is a direct
+/// Spotify URL from the Shazam response if one was found (else empty → search).
+/// Pure + unit-tested.
+pub fn music_links(title: &str, artist: &str, spotify_direct: &str) -> (String, String) {
+    let q = url_encode(&format!("{title} {artist}"));
+    let spotify = if spotify_direct.is_empty() {
+        format!("https://open.spotify.com/search/{q}")
+    } else {
+        spotify_direct.to_string()
+    };
+    let youtube = format!("https://www.youtube.com/results?search_query={q}");
+    (spotify, youtube)
 }
 
 fn uuid_v4_upper() -> String {
@@ -373,6 +407,37 @@ pub fn parse_response(json: &serde_json::Value) -> Option<ShazamMatch> {
             }
         }
     }
+    // A direct Spotify link, if Shazam's hub carries one (providers[type=SPOTIFY]).
+    let mut spotify_direct = String::new();
+    if let Some(providers) = track
+        .get("hub")
+        .and_then(|h| h.get("providers"))
+        .and_then(|p| p.as_array())
+    {
+        for prov in providers {
+            let is_spotify = prov.get("type").and_then(|t| t.as_str()) == Some("SPOTIFY")
+                || prov
+                    .get("caption")
+                    .and_then(|c| c.as_str())
+                    .map(|c| c.eq_ignore_ascii_case("spotify"))
+                    .unwrap_or(false);
+            if !is_spotify {
+                continue;
+            }
+            if let Some(actions) = prov.get("actions").and_then(|a| a.as_array()) {
+                for act in actions {
+                    if let Some(uri) = act.get("uri").and_then(|u| u.as_str()) {
+                        if uri.contains("spotify") {
+                            spotify_direct = uri.to_string();
+                        }
+                    }
+                }
+            }
+        }
+    }
+    let (spotify, youtube) = music_links(&m.title, &m.artist, &spotify_direct);
+    m.spotify_url = spotify;
+    m.youtube_url = youtube;
     Some(m)
 }
 
@@ -419,6 +484,117 @@ pub fn recognize(samples: &[i16]) -> Result<Option<ShazamMatch>, String> {
     let json: serde_json::Value =
         serde_json::from_str(&text).map_err(|e| format!("bad Shazam JSON: {e}"))?;
     Ok(parse_response(&json))
+}
+
+// ── Local recognition history (SQLite) ───────────────────────────────────────
+
+use crate::db::DbHandle;
+
+/// One stored recognition (a `ShazamMatch` + when it was recognized + id).
+#[derive(Debug, Clone, Serialize)]
+pub struct ShazamHistoryEntry {
+    pub id: i64,
+    /// Unix-ms of recognition.
+    pub recognized_at: i64,
+    pub title: String,
+    pub artist: String,
+    pub cover_url: String,
+    pub shazam_url: String,
+    pub spotify_url: String,
+    pub youtube_url: String,
+    pub genre: String,
+    pub album: String,
+    pub released: String,
+}
+
+pub fn init_schema(conn: &rusqlite::Connection) -> rusqlite::Result<()> {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS shazam_history (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recognized_at INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            artist TEXT NOT NULL,
+            cover_url TEXT NOT NULL DEFAULT '',
+            shazam_url TEXT NOT NULL DEFAULT '',
+            spotify_url TEXT NOT NULL DEFAULT '',
+            youtube_url TEXT NOT NULL DEFAULT '',
+            genre TEXT NOT NULL DEFAULT '',
+            album TEXT NOT NULL DEFAULT '',
+            released TEXT NOT NULL DEFAULT ''
+        );
+        CREATE INDEX IF NOT EXISTS idx_shazam_history_time
+            ON shazam_history(recognized_at DESC);",
+    )
+}
+
+fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+/// Insert a match into history (dedup: skip if the same title+artist was the
+/// most recent entry — avoids piling duplicates when you re-listen to the same
+/// song). Returns the row id (or the existing most-recent id).
+pub fn history_insert(db: &DbHandle, m: &ShazamMatch) -> rusqlite::Result<i64> {
+    let conn = db.lock();
+    let last: Option<(i64, String, String)> = conn
+        .query_row(
+            "SELECT id, title, artist FROM shazam_history ORDER BY recognized_at DESC LIMIT 1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .ok();
+    if let Some((id, t, a)) = last {
+        if t == m.title && a == m.artist {
+            return Ok(id);
+        }
+    }
+    conn.execute(
+        "INSERT INTO shazam_history
+            (recognized_at, title, artist, cover_url, shazam_url, spotify_url, youtube_url, genre, album, released)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10)",
+        rusqlite::params![
+            now_ms(), m.title, m.artist, m.cover_url, m.shazam_url,
+            m.spotify_url, m.youtube_url, m.genre, m.album, m.released,
+        ],
+    )?;
+    Ok(conn.last_insert_rowid())
+}
+
+pub fn history_list(db: &DbHandle, limit: u32) -> rusqlite::Result<Vec<ShazamHistoryEntry>> {
+    let conn = db.lock();
+    let mut stmt = conn.prepare(
+        "SELECT id, recognized_at, title, artist, cover_url, shazam_url, spotify_url, youtube_url, genre, album, released
+         FROM shazam_history ORDER BY recognized_at DESC LIMIT ?1",
+    )?;
+    let rows = stmt.query_map([limit], |r| {
+        Ok(ShazamHistoryEntry {
+            id: r.get(0)?,
+            recognized_at: r.get(1)?,
+            title: r.get(2)?,
+            artist: r.get(3)?,
+            cover_url: r.get(4)?,
+            shazam_url: r.get(5)?,
+            spotify_url: r.get(6)?,
+            youtube_url: r.get(7)?,
+            genre: r.get(8)?,
+            album: r.get(9)?,
+            released: r.get(10)?,
+        })
+    })?;
+    rows.collect()
+}
+
+pub fn history_delete(db: &DbHandle, id: i64) -> rusqlite::Result<()> {
+    db.lock().execute("DELETE FROM shazam_history WHERE id = ?1", [id])?;
+    Ok(())
+}
+
+pub fn history_clear(db: &DbHandle) -> rusqlite::Result<()> {
+    db.lock().execute("DELETE FROM shazam_history", [])?;
+    Ok(())
 }
 
 #[cfg(test)]
@@ -494,6 +670,62 @@ mod tests {
         assert_eq!(m.genre, "Rock");
         assert_eq!(m.album, "A Night at the Opera");
         assert_eq!(m.released, "1975");
+        // Search links are always built from title+artist.
+        assert_eq!(
+            m.spotify_url,
+            "https://open.spotify.com/search/Bohemian%20Rhapsody%20Queen"
+        );
+        assert_eq!(
+            m.youtube_url,
+            "https://www.youtube.com/results?search_query=Bohemian%20Rhapsody%20Queen"
+        );
         assert!(parse_response(&serde_json::json!({})).is_none());
+    }
+
+    #[test]
+    fn parse_response_prefers_direct_spotify_link() {
+        let json = serde_json::json!({
+            "track": {
+                "title": "X", "subtitle": "Y",
+                "hub": { "providers": [
+                    { "type": "SPOTIFY", "actions": [
+                        { "type": "uri", "uri": "https://open.spotify.com/track/abc123" }
+                    ]}
+                ]}
+            }
+        });
+        let m = parse_response(&json).unwrap();
+        assert_eq!(m.spotify_url, "https://open.spotify.com/track/abc123");
+        assert_eq!(m.youtube_url, "https://www.youtube.com/results?search_query=X%20Y");
+    }
+
+    #[test]
+    fn music_links_search_fallback_and_encoding() {
+        let (sp, yt) = music_links("Café del Mar", "Energy 52", "");
+        assert_eq!(sp, "https://open.spotify.com/search/Caf%C3%A9%20del%20Mar%20Energy%2052");
+        assert!(yt.starts_with("https://www.youtube.com/results?search_query=Caf%C3%A9"));
+        let (sp2, _) = music_links("A", "B", "spotify:track:xyz");
+        assert_eq!(sp2, "spotify:track:xyz");
+    }
+
+    #[test]
+    fn history_insert_list_dedup_delete_clear() {
+        use parking_lot::Mutex;
+        use std::sync::Arc;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let db: DbHandle = Arc::new(Mutex::new(conn));
+        let m1 = ShazamMatch { title: "Song A".into(), artist: "Artist".into(), ..Default::default() };
+        let m2 = ShazamMatch { title: "Song B".into(), artist: "Artist".into(), ..Default::default() };
+        history_insert(&db, &m1).unwrap();
+        history_insert(&db, &m1).unwrap(); // dedup: same as most-recent → no new row
+        history_insert(&db, &m2).unwrap();
+        let list = history_list(&db, 50).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(list[0].title, "Song B"); // newest first
+        history_delete(&db, list[0].id).unwrap();
+        assert_eq!(history_list(&db, 50).unwrap().len(), 1);
+        history_clear(&db).unwrap();
+        assert!(history_list(&db, 50).unwrap().is_empty());
     }
 }

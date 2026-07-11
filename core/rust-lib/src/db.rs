@@ -61,6 +61,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // System-stats history (time-series for the Stats panel's "history" view).
     crate::stats_history::init_schema(&conn)
         .with_context(|| "failed to create stats_history table")?;
+    // Shazam recognition history (the `shazam` command persists each match).
+    crate::shazam::init_schema(&conn)
+        .with_context(|| "failed to create shazam_history table")?;
     Ok(Arc::new(Mutex::new(conn)))
 }
 

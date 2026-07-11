@@ -15,6 +15,7 @@ import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
+import { CleanPanel } from "./components/CleanPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
@@ -54,7 +55,6 @@ import {
   parseWakelockArg,
   parseTrackArg,
   parseDiscoArg,
-  formatBytes,
   resizePresetSuggestions,
   translateUrl,
   isTranslateKind,
@@ -110,8 +110,6 @@ import {
   mdToPdfRun,
   screenshotCapture,
   screenshotRepeatLast,
-  cleanerScan,
-  cleanerExecute,
   listMemes,
   copyMeme,
   trimOpenOverlay,
@@ -128,6 +126,7 @@ import {
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
+import { confirmDialog } from "./lib/confirm";
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
@@ -190,6 +189,11 @@ function App() {
   // to it (←→ month, ↑↓ year).
   const [calendarMode, setCalendarMode] = useState(false);
   const [calendarFocus, setCalendarFocus] = useState(false);
+  // Clean mode — Enter on `clean` renders the category picker in the right
+  // preview column (scan → checkbox selection → two-stage delete). Enter-only
+  // (not while-typing) because the scan walks the whole cache dir.
+  const [cleanMode, setCleanMode] = useState(false);
+  const [cleanFocus, setCleanFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -599,6 +603,16 @@ function App() {
     }
   }, [isCalendarCmd, calendarMode]);
 
+  // Clean mode auto-exits when the query is no longer the `clean` command
+  // (it is entered via Enter, not while typing — the scan is heavy).
+  const isCleanCmd = parsedCommand?.spec.kind === "clean";
+  useEffect(() => {
+    if (!isCleanCmd && cleanMode) {
+      setCleanMode(false);
+      setCleanFocus(false);
+    }
+  }, [isCleanCmd, cleanMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -788,7 +802,7 @@ function App() {
         break;
       case "clean":
         label = "Clean caches / logs / temp files";
-        hint = "Shows a preview first; deletes only after you confirm";
+        hint = "Enter opens the picker — choose categories, then delete";
         break;
       case "brightness":
         label = "Adjust monitor brightness";
@@ -1869,11 +1883,13 @@ function App() {
         await removeVowelsToClipboard(arg);
         await hidePopup();
       } else if (commandKind === "reboot") {
-        // Destructive: native confirmation before firing osascript.
+        // Destructive: real native confirmation (window.confirm is unreliable
+        // in the webview — it can auto-pass without showing anything).
         if (
-          !window.confirm(
+          !(await confirmDialog(
             "Restart the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
-          )
+            "Restart?",
+          ))
         ) {
           return true;
         }
@@ -1881,9 +1897,10 @@ function App() {
         await hidePopup();
       } else if (commandKind === "shutdown") {
         if (
-          !window.confirm(
+          !(await confirmDialog(
             "Power off the system now?\n\nAll unsaved app data may be lost. macOS will show its own confirmation for apps with unsaved changes.",
-          )
+            "Power off?",
+          ))
         ) {
           return true;
         }
@@ -2116,33 +2133,12 @@ function App() {
         // call hidePopup — that would swallow the toast on macOS).
         await showStatusToast("random", true, String(n), `${r.min}–${r.max}`);
       } else if (commandKind === "clean") {
-        // Always preview first (dry-run scan), confirm, THEN delete.
-        try {
-          const plan = await cleanerScan();
-          if (plan.items.length === 0) {
-            await showStatusToast("clean", true, "Nothing to clean", "All tidy");
-            return true;
-          }
-          const top = plan.categories
-            .filter((c) => c[2] > 0)
-            .map((c) => `• ${c[1]}: ${formatBytes(c[2])}`)
-            .join("\n");
-          const ok = window.confirm(
-            `Delete ${plan.items.length} file(s) and free ${formatBytes(plan.total_bytes)}?\n\n${top}\n\nOnly cache/log/temp files inside known safe folders are touched. This cannot be undone.`,
-          );
-          if (!ok) return true;
-          const res = await cleanerExecute(plan);
-          await showStatusToast(
-            "clean",
-            true,
-            "Cleaned",
-            `${formatBytes(res.freed_bytes)} freed${res.errors.length ? ` · ${res.errors.length} skipped` : ""}`,
-          );
-        } catch (e) {
-          setPasteError("other");
-          console.error("clean failed", e);
-          return true;
-        }
+        // Open the interactive category picker in the preview column (scan →
+        // checkbox selection → two-stage delete). Replaces the old
+        // all-or-nothing window.confirm, which offered no choice (and native
+        // confirm is unreliable in the Tauri webview — the TOTP-delete lesson).
+        setCleanMode(true);
+        setCleanFocus(true);
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
         // kill runs in kill-mode). Let the caller decide what to do.
@@ -2259,7 +2255,7 @@ function App() {
         // they're terminating.
         const { pid, name, force } = target.data;
         const sig = force ? "SIGKILL (force quit)" : "SIGTERM (graceful)";
-        if (!window.confirm(`Kill process?\n\n${name}\nPID ${pid}\nSignal: ${sig}`)) {
+        if (!(await confirmDialog(`${name}\nPID ${pid}\nSignal: ${sig}`, "Kill process?"))) {
           return;
         }
         await killProcess(pid, force);
@@ -2388,7 +2384,8 @@ function App() {
       !statsFocus &&
       !boomFocus &&
       !uptimeFocus &&
-      !calendarFocus,
+      !calendarFocus &&
+      !cleanFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2789,6 +2786,20 @@ function App() {
                       onExit={() => {
                         setCalendarMode(false);
                         setCalendarFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : cleanMode ? (
+                  <div className="md3-pop-in h-full">
+                    <CleanPanel
+                      focused={cleanFocus}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
+                      onExit={() => {
+                        setCleanMode(false);
+                        setCleanFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

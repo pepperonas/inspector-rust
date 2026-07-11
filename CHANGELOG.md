@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.242] — 2026-07-11
+
+### Added
+
+- **`clean` now lets you choose what gets deleted.** Enter on the `clean` command opens an interactive picker in the preview column instead of the old all-or-nothing confirm dialog: every scanned category is a checkbox row with its size and file count, the selected row previews its three largest files, and a live footer shows exactly how many files / how much space the current selection frees. Keyboard-first — ↑/↓ select, Space toggles, A toggles all, Enter twice (arm → confirm) deletes, Esc cancels; everything is also clickable. Only the checked categories are deleted (the backend still re-validates every single path against the allowlist).
+
+### Fixed
+
+- **Destructive commands could fire without their confirmation dialog.** `window.confirm` is unreliable in the Tauri webview — field-verified: triggering `clean` deleted immediately because its confirm **auto-passed without ever rendering a dialog**. The same broken primitive guarded `kill`, `reboot`, `shutdown`, Notes "delete all" and Snippets "restore defaults". All destructive confirmations now go through a real **native dialog** (`confirmDialog` → the dialog plugin's `ask()`, rendered by Rust independent of the webview), fail **closed** on any error, and suppress the popup's hide-on-focus-loss while open. `clean` itself no longer needs a dialog at all (the picker's two-stage Enter is the consent step).
+
 ## [0.84.241] — 2026-07-11
 
 ### Changed

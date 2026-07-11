@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { confirmDialog } from "../lib/confirm";
 import {
   Bookmark,
   FileCode2,
@@ -182,8 +183,9 @@ export function NotesPanel({ notes, categories, onRefresh }: Props) {
 
   const onClearAll = async () => {
     if (notes.length === 0) return;
-    const ok = window.confirm(
+    const ok = await confirmDialog(
       `Delete all ${notes.length} note${notes.length === 1 ? "" : "s"}? This cannot be undone.`,
+      "Delete all notes?",
     );
     if (!ok) return;
     await clearNotes();

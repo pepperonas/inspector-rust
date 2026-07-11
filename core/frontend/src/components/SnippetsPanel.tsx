@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
+import { confirmDialog } from "../lib/confirm";
 import { Plus, RotateCcw, Trash2, Upload, Zap } from "lucide-react";
 import {
   deleteSnippet,
@@ -88,9 +89,10 @@ export function SnippetsPanel({ snippets, onRefresh }: Props) {
 
   const onRestoreDefaults = async () => {
     if (
-      !window.confirm(
+      !(await confirmDialog(
         "Re-import the bundled default AI-prompt templates (~25 prompts).\n\nExisting snippets with the same abbreviation will be overwritten with the latest version. Your other snippets stay untouched.\n\nContinue?",
-      )
+        "Restore defaults?",
+      ))
     ) {
       return;
     }

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.249] — 2026-07-11
+
+### Changed
+
+- **The `snitch map` is now fully zoomable and pannable.** Scroll to zoom toward the cursor, drag to pan, double-click to zoom in, or use the on-map +/−/reset buttons and the keyboard (+/−, arrows, 0). Zoom and pan glide smoothly; the map stays crisp at every level (land dots scale with the zoom, off-screen detail is skipped so it never stutters), city names appear as you zoom in, and hovering a server shows an info-box with its location, provider, app and live throughput right on the map.
+
 ## [0.84.248] — 2026-07-11
 
 ### Changed

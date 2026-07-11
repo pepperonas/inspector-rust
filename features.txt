@@ -1,4 +1,4 @@
-Inspector Rust — Feature-Liste (Stand v0.84.254)
+Inspector Rust — Feature-Liste (Stand v0.84.255)
 
 == Clipboard ==
 Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
@@ -63,7 +63,7 @@ Meme-Picker — `meme [suche]`: GIF/Bild-Bibliothek durchsuchen, animiert kopier
 Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)
 Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus)
 Aufräumen — `clean`: interaktiver Kategorien-Picker (Caches, Logs, Duplikate, Installer, Docker, Xcode …), s. u.
-BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt
+BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start)
 Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro
 Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
 Netzwerk-Monitor — `snitch`: Apps mit Live-Verbindungen, Toggle blockt Internet best-effort via pf-Watcher (macOS, ein Admin-Prompt; kein echter Firewall)

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import { Mic, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { BpmAnalyzer } from "../lib/bpm";
 import { setSuppressHide } from "../lib/ipc";
-import { attachMic, warmContext } from "../lib/warm-audio";
+import { warmContext } from "../lib/warm-audio";
+import { startFedMic } from "../lib/mic-feed";
 import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "../lib/audio-level";
 import {
   clamp01,
@@ -105,8 +106,7 @@ export function BpmDetector({ onExit }: Props) {
 
   // Audio graph + analysis (refs so re-renders don't recreate the AudioContext).
   const audioCtxRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
-  const streamRef = useRef<MediaStream | null>(null);
+  const fedMicRef = useRef<import("../lib/mic-feed").FedMic | null>(null);
   const detectAnalyserRef = useRef<AnalyserNode | null>(null);
   const vizAnalyserRef = useRef<AnalyserNode | null>(null);
   const analyzerRef = useRef<BpmAnalyzer>(new BpmAnalyzer());
@@ -210,16 +210,11 @@ export function BpmDetector({ onExit }: Props) {
       cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
     }
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((t) => t.stop());
-      streamRef.current = null;
-    }
-    // The AudioContext is the *shared warm* context — never close it; just
-    // detach our nodes so it (and its silent output unit) stays warm for next
-    // time. Disconnecting the source drops its links to the filters/analysers
-    // and the silent output.
-    sourceRef.current?.disconnect();
-    sourceRef.current = null;
+    // Stop the native mic stream + tear down the feed source (disconnects it +
+    // its muted pull-path). The AudioContext is the *shared warm* context —
+    // never close it; it (and its silent output unit) stays warm for next time.
+    fedMicRef.current?.stop();
+    fedMicRef.current = null;
     detectAnalyserRef.current?.disconnect();
     vizAnalyserRef.current?.disconnect();
     audioCtxRef.current = null;
@@ -235,28 +230,20 @@ export function BpmDetector({ onExit }: Props) {
 
     (async () => {
       try {
-        // Open the mic, then attach it to the SHARED WARM context (kept open
-        // between uses so the output device is already running — smaller
-        // mic-open glitch). `attachMic` suspends → wires the mic → resumes, so
-        // input+output come up together and macOS doesn't duck other audio.
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: false,
-            noiseSuppression: false,
-            autoGainControl: false,
-          },
-        });
-        if (cancelled) {
-          stream.getTracks().forEach((t) => t.stop());
-          return;
-        }
+        // Capture the mic NATIVELY (Rust/cpal, streamed in) instead of the
+        // webview's getUserMedia — the latter makes macOS reconfigure the
+        // shared audio device on mic-open and briefly pauses other apps'
+        // playback (the same glitch fixed for Shazam). `startFedMic` returns a
+        // ScriptProcessor source fed by the native stream; the entire analysis
+        // graph downstream is UNCHANGED, so detection quality is identical.
         const ctx = warmContext();
-        const source = await attachMic(stream);
+        const fed = await startFedMic(ctx);
+        const source = fed.source;
         if (cancelled) {
-          source.disconnect();
-          stream.getTracks().forEach((t) => t.stop());
+          fed.stop();
           return;
         }
+        fedMicRef.current = fed;
 
         // — detection chain: HP 30 → LP 100 (Q 1.5) → analyser —
         const highpass = ctx.createBiquadFilter();
@@ -281,8 +268,6 @@ export function BpmDetector({ onExit }: Props) {
         source.connect(viz);
 
         audioCtxRef.current = ctx;
-        sourceRef.current = source;
-        streamRef.current = stream;
         detectAnalyserRef.current = detect;
         vizAnalyserRef.current = viz;
         analyzerRef.current.reset();
@@ -473,7 +458,7 @@ export function BpmDetector({ onExit }: Props) {
             <MicOff size={48} className="text-amber-500" />
             <div className="text-[14px] font-medium">No audio input available</div>
             <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-              {errorMessage ?? "getUserMedia denied access."} Grant Inspector Rust
+              {errorMessage ?? "Microphone unavailable."} Grant Inspector Rust
               microphone access in System Settings and press “Retry”.
             </div>
             <button

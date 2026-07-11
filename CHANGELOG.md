@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.255] — 2026-07-12
+
+### Fixed
+
+- **The BPM detector no longer pauses your music when it starts.** Like Shazam, the BPM detector now captures the microphone **natively** (streamed from Rust) instead of opening it through the web view — so starting it no longer makes macOS reconfigure the shared audio device and briefly cut out whatever's playing. The tempo detection and visualizer are byte-for-byte the same graph as before (only the audio source changed), so detection quality is unchanged.
+
 ## [0.84.254] — 2026-07-12
 
 ### Fixed

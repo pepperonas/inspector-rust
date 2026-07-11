@@ -847,6 +847,22 @@ export function snitchActivity(): Promise<NetActivity[]> {
 export function snitchHome(): Promise<GeoLocation | null> {
   return invoke("snitch_home");
 }
+
+// ── Shazam song recognition ─────────────────────────────────────────────────
+export interface ShazamMatch {
+  title: string;
+  artist: string;
+  cover_url: string;
+  shazam_url: string;
+  genre: string;
+  album: string;
+  released: string;
+  apple_music_url: string;
+}
+/** Recognize a song from 16 kHz mono PCM (i16). null = no match. */
+export function shazamRecognize(samples: Int16Array): Promise<ShazamMatch | null> {
+  return invoke("shazam_recognize", { samples: Array.from(samples) });
+}
 export function snitchSetBlocked(blocked: string[]): Promise<void> {
   return invoke("snitch_set_blocked", { blocked });
 }

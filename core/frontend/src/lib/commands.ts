@@ -74,6 +74,7 @@ export type CommandKind =
   | "sound"
   | "stats"
   | "snitch"
+  | "shazam"
   | "boom"
   | "uptime"
   | "track"
@@ -605,6 +606,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Network monitor — block apps' internet (best-effort) · `snitch map` plots live connections on a world map",
     requiresArg: false,
     platform: ["mac"],
+  },
+  {
+    kind: "shazam",
+    keyword: "shazam",
+    syntax: "shazam",
+    description: "Identify the song playing — records ~10 s from the mic and searches Shazam",
+    requiresArg: false,
   },
   {
     kind: "uptime",

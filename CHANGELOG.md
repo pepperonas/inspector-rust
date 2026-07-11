@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.250] — 2026-07-11
+
+### Added
+
+- **`shazam` — identify the song that's playing.** Type `shazam`, press Enter, and it records ~10 seconds from the microphone, fingerprints it, and tells you the track: cover art, title, artist, album, genre, year, and a link to open it in Shazam (plus copy-title and listen-again). It's the full Shazam recognition pipeline built natively into the app — the audio-fingerprint algorithm runs in Rust (no file, no Python, no ffmpeg), verified bit-for-bit against the reference implementation and end-to-end against the real Shazam service. Needs microphone access.
+
 ## [0.84.249] — 2026-07-11
 
 ### Changed

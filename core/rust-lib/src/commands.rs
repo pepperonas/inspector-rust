@@ -4654,3 +4654,13 @@ pub async fn snitch_arm() -> Result<(), String> {
 pub async fn snitch_disarm() -> Result<(), String> {
     crate::snitch::disarm()
 }
+
+// ── Shazam song recognition (mic → signature → Shazam API) ──────────────────
+
+/// Recognize a song from a 16 kHz mono PCM recording (the frontend records the
+/// mic + downsamples). Generates the Shazam signature + queries the public API.
+/// `Ok(None)` = no match. Async → runs off the main thread (FFT + network).
+#[tauri::command]
+pub async fn shazam_recognize(samples: Vec<i16>) -> Result<Option<crate::shazam::ShazamMatch>, String> {
+    crate::shazam::recognize(&samples)
+}

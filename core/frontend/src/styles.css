@@ -932,3 +932,19 @@ code {
   .wp-near { transform: none; }
   .wp-cell path { transition: none; }
 }
+
+/* Shazam listening animation (ShazamPanel) */
+@keyframes shazam-ring {
+  0%   { transform: scale(0.55); opacity: 0.9; }
+  100% { transform: scale(1.25); opacity: 0; }
+}
+.shazam-ring { animation: shazam-ring 1.8s ease-out infinite; }
+@keyframes shazam-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-3px); }
+}
+.shazam-bob { animation: shazam-bob 1s ease-in-out infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .shazam-ring { animation: none; opacity: 0.4; }
+  .shazam-bob { animation: none; }
+}

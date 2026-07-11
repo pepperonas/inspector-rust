@@ -18,6 +18,7 @@ import { CalendarPanel } from "./components/CalendarPanel";
 import { CleanPanel } from "./components/CleanPanel";
 import { SnitchPanel } from "./components/SnitchPanel";
 import { SnitchMapPanel } from "./components/SnitchMapPanel";
+import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
@@ -200,6 +201,9 @@ function App() {
   // opens; the arg picks which view. macOS-only command.
   const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
   const [snitchFocus, setSnitchFocus] = useState(false);
+  // Shazam mode — `shazam` records ~10 s from the mic + identifies the song.
+  const [shazamMode, setShazamMode] = useState(false);
+  const [shazamFocus, setShazamFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -628,6 +632,16 @@ function App() {
     }
   }, [isSnitchCmd, snitchMode]);
 
+  // Shazam mode auto-exits when the query is no longer the `shazam` command
+  // (Enter-activated — it opens the mic, not shown while typing).
+  const isShazamCmd = parsedCommand?.spec.kind === "shazam";
+  useEffect(() => {
+    if (!isShazamCmd && shazamMode) {
+      setShazamMode(false);
+      setShazamFocus(false);
+    }
+  }, [isShazamCmd, shazamMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -827,6 +841,10 @@ function App() {
           : "Toggle apps' internet access (best-effort) · `snitch map` for the map";
         break;
       }
+      case "shazam":
+        label = "Identify the song playing";
+        hint = "Records ~10 s from the mic and searches Shazam";
+        break;
       case "brightness":
         label = "Adjust monitor brightness";
         hint = "Opens a slider per DDC monitor (external displays)";
@@ -1828,7 +1846,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "calendar", "clean", "snitch",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "calendar", "clean", "snitch", "shazam",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg = commandKind === "calendar" || commandKind === "snitch";
@@ -2202,6 +2220,10 @@ function App() {
         const mapMode = /\b(map|conn|show|world)/i.test(arg ?? "");
         setSnitchMode(mapMode ? "map" : "apps");
         setSnitchFocus(true);
+      } else if (commandKind === "shazam") {
+        // Record the mic + identify the song in the preview panel.
+        setShazamMode(true);
+        setShazamFocus(true);
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
         // kill runs in kill-mode). Let the caller decide what to do.
@@ -2449,7 +2471,8 @@ function App() {
       !uptimeFocus &&
       !calendarFocus &&
       !cleanFocus &&
-      !snitchFocus,
+      !snitchFocus &&
+      !shazamFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2889,6 +2912,17 @@ function App() {
                       onExit={() => {
                         setSnitchMode(null);
                         setSnitchFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : shazamMode ? (
+                  <div className="md3-pop-in h-full">
+                    <ShazamPanel
+                      focused={shazamFocus}
+                      onExit={() => {
+                        setShazamMode(false);
+                        setShazamFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

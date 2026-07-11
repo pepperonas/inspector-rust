@@ -29,9 +29,14 @@ parking_lot = { workspace = true }
 base64 = { workspace = true }
 dirs = { workspace = true }
 clipboard-rs = { workspace = true }
-ureq = { workspace = true }
+# `tls` (rustls) enables HTTPS for the Shazam discovery API (shazam.rs); the
+# other ureq callers (hue LAN, ip-api) use plain HTTP and are unaffected.
+ureq = { workspace = true, features = ["tls"] }
 aes-gcm = { workspace = true }
 rand = { workspace = true }
+# Shazam song-recognition signature (shazam.rs): 2048-point FFT per 128-sample
+# hop over the mic recording. Pure-Rust, no C deps.
+rustfft = "6"
 argon2 = { workspace = true }
 keyring = { workspace = true }
 image = { workspace = true }

@@ -23,6 +23,8 @@ mod desktop_shortcuts;
 mod expander;
 mod hotkey;
 mod hue;
+#[cfg(target_os = "macos")]
+mod snitch;
 mod image_ops;
 mod logging;
 mod md_to_pdf;
@@ -639,6 +641,20 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::cleaner_categories,
             commands::get_cleaner_config,
             commands::set_cleaner_config,
+            #[cfg(target_os = "macos")]
+            commands::snitch_list_apps,
+            #[cfg(target_os = "macos")]
+            commands::snitch_connections,
+            #[cfg(target_os = "macos")]
+            commands::snitch_geolocate,
+            #[cfg(target_os = "macos")]
+            commands::snitch_set_blocked,
+            #[cfg(target_os = "macos")]
+            commands::snitch_is_armed,
+            #[cfg(target_os = "macos")]
+            commands::snitch_arm,
+            #[cfg(target_os = "macos")]
+            commands::snitch_disarm,
             commands::list_memes,
             commands::copy_meme,
             commands::get_meme_dir,

@@ -73,6 +73,7 @@ export type CommandKind =
   | "qr"
   | "sound"
   | "stats"
+  | "snitch"
   | "boom"
   | "uptime"
   | "track"
@@ -595,6 +596,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Audio enhancement — system EQ, presets & volume boost",
     requiresArg: false,
     platform: ["mac", "win"],
+  },
+  {
+    kind: "snitch",
+    keyword: "snitch",
+    syntax: "snitch [map]",
+    description:
+      "Network monitor — block apps' internet (best-effort) · `snitch map` plots live connections on a world map",
+    requiresArg: false,
+    platform: ["mac"],
   },
   {
     kind: "uptime",

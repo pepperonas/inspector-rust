@@ -16,6 +16,8 @@ import { StatsPanel } from "./components/StatsPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { CleanPanel } from "./components/CleanPanel";
+import { SnitchPanel } from "./components/SnitchPanel";
+import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
@@ -194,6 +196,10 @@ function App() {
   // (not while-typing) because the scan walks the whole cache dir.
   const [cleanMode, setCleanMode] = useState(false);
   const [cleanFocus, setCleanFocus] = useState(false);
+  // Snitch mode — `snitch` (app blocker) / `snitch map` (world map). Enter
+  // opens; the arg picks which view. macOS-only command.
+  const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
+  const [snitchFocus, setSnitchFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -613,6 +619,15 @@ function App() {
     }
   }, [isCleanCmd, cleanMode]);
 
+  // Snitch mode auto-exits when the query is no longer the `snitch` command.
+  const isSnitchCmd = parsedCommand?.spec.kind === "snitch";
+  useEffect(() => {
+    if (!isSnitchCmd && snitchMode) {
+      setSnitchMode(null);
+      setSnitchFocus(false);
+    }
+  }, [isSnitchCmd, snitchMode]);
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -804,6 +819,14 @@ function App() {
         label = "Clean caches / logs / temp files";
         hint = "Enter opens the picker — choose categories, then delete";
         break;
+      case "snitch": {
+        const mapMode = /\b(map|conn|show|world)/i.test(arg ?? "");
+        label = mapMode ? "Connections world map" : "Network monitor — block apps";
+        hint = mapMode
+          ? "Live outbound connections plotted on a world map"
+          : "Toggle apps' internet access (best-effort) · `snitch map` for the map";
+        break;
+      }
       case "brightness":
         label = "Adjust monitor brightness";
         hint = "Opens a slider per DDC monitor (external displays)";
@@ -2139,6 +2162,11 @@ function App() {
         // confirm is unreliable in the Tauri webview — the TOTP-delete lesson).
         setCleanMode(true);
         setCleanFocus(true);
+      } else if (commandKind === "snitch") {
+        // `snitch` → app blocker; `snitch map`/`connections`/`show` → world map.
+        const mapMode = /\b(map|conn|show|world)/i.test(arg ?? "");
+        setSnitchMode(mapMode ? "map" : "apps");
+        setSnitchFocus(true);
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
         // kill runs in kill-mode). Let the caller decide what to do.
@@ -2385,7 +2413,8 @@ function App() {
       !boomFocus &&
       !uptimeFocus &&
       !calendarFocus &&
-      !cleanFocus,
+      !cleanFocus &&
+      !snitchFocus,
   });
 
   const current = combined[selected] ?? null;
@@ -2800,6 +2829,31 @@ function App() {
                       onExit={() => {
                         setCleanMode(false);
                         setCleanFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : snitchMode === "apps" ? (
+                  <div className="md3-pop-in h-full">
+                    <SnitchPanel
+                      focused={snitchFocus}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
+                      onExit={() => {
+                        setSnitchMode(null);
+                        setSnitchFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : snitchMode === "map" ? (
+                  <div className="md3-pop-in h-full">
+                    <SnitchMapPanel
+                      focused={snitchFocus}
+                      onExit={() => {
+                        setSnitchMode(null);
+                        setSnitchFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

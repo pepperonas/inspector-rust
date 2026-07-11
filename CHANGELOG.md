@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.246] — 2026-07-11
+
+### Added
+
+- **`snitch` — a network monitor with best-effort per-app blocking (macOS).** `snitch` lists every app with live network connections and lets you toggle an app's internet access off; **`snitch map`** plots your live outbound connections on a world map, each dot a server located by country/city/ISP. The world basemap is fully offline (a dotted land map baked into the app); only the server coordinates are looked up online (public IPs only — LAN/loopback addresses are never sent out). **Honesty note:** a *real* per-app firewall like Little Snitch needs a macOS system extension with an Apple entitlement a self-signed app can't have, so blocking here is **best-effort** — a background watcher pushes a blocked app's server IPs into the pf firewall (one admin prompt the first time; the first packets of a brand-new connection can slip through, and blocking a shared server affects every app using it). It's a monitor + speed-bump, clearly labelled as such, not a hard firewall. Turning blocking off restores your firewall exactly as it was.
+
 ## [0.84.245] — 2026-07-11
 
 ### Fixed

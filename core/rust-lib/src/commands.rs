@@ -4583,3 +4583,58 @@ pub fn get_meme_dir(db: State<'_, DbHandle>) -> String {
 pub fn set_meme_dir(db: State<'_, DbHandle>, dir: String) -> Result<(), String> {
     settings::set(&db, meme::KEY_MEME_DIR, dir.trim()).map_err(map_err)
 }
+
+// ── snitch — network monitor + best-effort per-app blocker (macOS) ──────────
+
+/// List apps/processes with live network connections, marking which are in the
+/// blocked set. Drives the `snitch` app-toggle panel.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_list_apps(db: State<'_, DbHandle>) -> Result<Vec<crate::snitch::AppConnections>, String> {
+    let blocked = crate::snitch::load_blocked(&db);
+    let conns = crate::snitch::live_connections();
+    Ok(crate::snitch::apps_from_connections(&conns, &blocked))
+}
+
+/// The raw live connections (for the `snitch map` world-map view).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_connections() -> Result<Vec<crate::snitch::Connection>, String> {
+    Ok(crate::snitch::live_connections())
+}
+
+/// Resolve public IPs → locations (online, batched). Private IPs are skipped.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_geolocate(ips: Vec<String>) -> Result<Vec<crate::snitch::GeoLocation>, String> {
+    Ok(crate::snitch::geolocate(&ips))
+}
+
+/// Set the blocked-app set (persisted + written to the daemon-readable file).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_set_blocked(db: State<'_, DbHandle>, blocked: Vec<String>) -> Result<(), String> {
+    crate::snitch::save_blocked(&db, &blocked);
+    Ok(())
+}
+
+/// Whether the blocker daemon is currently armed (running as root).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_is_armed() -> Result<bool, String> {
+    Ok(crate::snitch::is_armed())
+}
+
+/// Arm the blocker (one admin prompt → launches the root pf watcher).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_arm() -> Result<(), String> {
+    crate::snitch::arm()
+}
+
+/// Disarm the blocker (drops a stop-file; the root daemon self-cleans pf).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_disarm() -> Result<(), String> {
+    crate::snitch::disarm()
+}

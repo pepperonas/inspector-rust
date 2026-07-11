@@ -803,6 +803,53 @@ export function setBoomConfig(config: BoomConfig): Promise<BoomConfig> {
   return invoke("set_boom_config", { config });
 }
 
+// ── snitch — network monitor + best-effort per-app blocker (macOS) ──────────
+export interface SnitchApp {
+  key: string;
+  command: string;
+  pids: number[];
+  connection_count: number;
+  remotes: string[];
+  blocked: boolean;
+}
+export interface SnitchConnection {
+  pid: number;
+  command: string;
+  proto: string;
+  remote_ip: string;
+  remote_port: number;
+  v6: boolean;
+}
+export interface GeoLocation {
+  ip: string;
+  lat: number;
+  lon: number;
+  country: string;
+  city: string;
+  isp: string;
+}
+export function snitchListApps(): Promise<SnitchApp[]> {
+  return invoke("snitch_list_apps");
+}
+export function snitchConnections(): Promise<SnitchConnection[]> {
+  return invoke("snitch_connections");
+}
+export function snitchGeolocate(ips: string[]): Promise<GeoLocation[]> {
+  return invoke("snitch_geolocate", { ips });
+}
+export function snitchSetBlocked(blocked: string[]): Promise<void> {
+  return invoke("snitch_set_blocked", { blocked });
+}
+export function snitchIsArmed(): Promise<boolean> {
+  return invoke("snitch_is_armed");
+}
+export function snitchArm(): Promise<void> {
+  return invoke("snitch_arm");
+}
+export function snitchDisarm(): Promise<void> {
+  return invoke("snitch_disarm");
+}
+
 /** Standard 10-band EQ centre-frequency labels (aligned to BANDS_10 in Rust). */
 export const BOOM_BANDS = [
   "31",

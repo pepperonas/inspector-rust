@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.248] — 2026-07-11
+
+### Changed
+
+- **The `snitch map` connections view is prettier and shows live activity.** Connections that are **actively transferring data right now** light up emerald with a curved arc from your location and animated packets flowing along it, so you can see at a glance where data is going this second (per-process throughput sampled via `nettop`; idle servers stay as calm dim dots). A "home" marker at your own geolocated location anchors the arcs, and the server list sorts active connections first with their live throughput. **Both `snitch` views are now discoverable:** typing `snitch` shows two rows — the app blocker and **`snitch map`** — so you no longer need to know the `map` keyword; pick either and press Enter.
+
 ## [0.84.247] — 2026-07-11
 
 ### Fixed

@@ -1245,6 +1245,35 @@ function App() {
   // toast state, …) don't rebuild the whole list and hand a fresh array
   // reference to HistoryList / the virtualizer every render. Every input below
   // is itself memoised, so this only recomputes when the list truly changes.
+  // `snitch` has two views (app blocker + connections map). Surface the OTHER
+  // one as a visible, selectable sub-row so both are discoverable the moment
+  // you type `snitch` — no need to know the `map` keyword. commandEntry renders
+  // the primary (blocker, or the map when the arg already targets it); this is
+  // its counterpart, spliced right after it. Enter runs it; Tab autocompletes.
+  const snitchSubEntry: ListEntry | null = useMemo(() => {
+    if (!isSnitchCmd) return null;
+    const mapMode = /\b(map|conn|show|world)/i.test(parsedCommand?.arg ?? "");
+    return mapMode
+      ? {
+          kind: "command-suggestion",
+          data: {
+            keyword: "snitch",
+            syntax: "snitch",
+            description: "Block apps' internet access (best-effort)",
+            completion: "snitch",
+          },
+        }
+      : {
+          kind: "command-suggestion",
+          data: {
+            keyword: "snitch map",
+            syntax: "snitch map",
+            description: "Live connections on a world map",
+            completion: "snitch map",
+          },
+        };
+  }, [isSnitchCmd, parsedCommand]);
+
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
@@ -1256,6 +1285,7 @@ function App() {
       // would outrank the `terminal` command and you'd launch the app
       // instead of opening a terminal in the current Finder folder.
       ...(commandEntry ? [commandEntry] : []),
+      ...(snitchSubEntry ? [snitchSubEntry] : []),
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
       ...(openerEntry ? [openerEntry] : []),
@@ -1284,6 +1314,7 @@ function App() {
     isMemeMode,
     memeEntries,
     commandEntry,
+    snitchSubEntry,
     suggestionEntries,
     socialEntry,
     openerEntry,

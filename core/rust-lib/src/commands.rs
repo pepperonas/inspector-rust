@@ -4610,6 +4610,22 @@ pub async fn snitch_geolocate(ips: Vec<String>) -> Result<Vec<crate::snitch::Geo
     Ok(crate::snitch::geolocate(&ips))
 }
 
+/// Per-process live throughput (bytes/s) — the map highlights connections
+/// whose process is actively transferring. Blocks ~1 s (two nettop samples).
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_activity() -> Result<Vec<crate::snitch::NetActivity>, String> {
+    Ok(crate::snitch::activity())
+}
+
+/// Geolocate this machine's own public IP — the map's "home" origin that the
+/// connection arcs radiate from. `None` → the map omits arcs.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn snitch_home() -> Result<Option<crate::snitch::GeoLocation>, String> {
+    Ok(crate::snitch::geolocate_self())
+}
+
 /// Set the blocked-app set (persisted + written to the daemon-readable file).
 #[cfg(target_os = "macos")]
 #[tauri::command]

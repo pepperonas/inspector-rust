@@ -67,7 +67,7 @@ BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter p
 Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro
 Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
 Netzwerk-Monitor — `snitch`: Apps mit Live-Verbindungen, Toggle blockt Internet best-effort via pf-Watcher (macOS, ein Admin-Prompt; kein echter Firewall)
-Verbindungs-Weltkarte — `snitch map`: laufende Outbound-Verbindungen auf Offline-Weltkarte, Serverstandorte online per Geo-IP (nur öffentliche IPs)
+Verbindungs-Weltkarte — `snitch map`: laufende Outbound-Verbindungen auf Offline-Weltkarte mit Standort-Bögen von deinem Standort; aktive Transfers leuchten grün mit fließenden Paketen (Live-Durchsatz via nettop); Serverstandorte online per Geo-IP (nur öffentliche IPs). Beim Tippen von `snitch` sind Blocker + Karte als zwei Zeilen sichtbar
 Opener — `opener`: deutsche Anmachsprüche (versteckt)
 
 == Inline-Panels (rechte Vorschau-Spalte) ==

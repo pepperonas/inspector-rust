@@ -275,6 +275,94 @@ pub fn geolocate(ips: &[String]) -> Vec<GeoLocation> {
     out
 }
 
+// ── Live activity (per-process throughput via nettop) ───────────────────────
+
+/// Bytes/s a process is currently moving (both directions), for highlighting
+/// connections that are actively transferring on the map.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NetActivity {
+    pub pid: i32,
+    pub bytes_per_sec: u64,
+}
+
+/// Parse two `nettop -P -x -n -l 2` samples into a per-PID byte delta (≈ 1 s
+/// interval → bytes/s). Each data row is `<time> <name>.<pid> … <bytes_in>
+/// <bytes_out> …`; the process name can contain spaces, so we locate the token
+/// ending in `.<digits>` that is followed by two all-numeric columns and read
+/// the pid + byte counters from there. First sighting of a pid = baseline,
+/// second = current; delta is saturating (survives a counter reset). Pure.
+pub fn parse_nettop_deltas(output: &str) -> Vec<NetActivity> {
+    use std::collections::BTreeMap;
+    let all_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+    // pid → (baseline_total, Option<current_total>)
+    let mut seen: BTreeMap<i32, (u64, Option<u64>)> = BTreeMap::new();
+    for line in output.lines() {
+        let toks: Vec<&str> = line.split_whitespace().collect();
+        if toks.len() < 4 {
+            continue;
+        }
+        // Find the proc.pid token followed by bytes_in + bytes_out.
+        for i in 1..toks.len().saturating_sub(2) {
+            let t = toks[i];
+            let Some((_, pidstr)) = t.rsplit_once('.') else { continue };
+            if !all_digits(pidstr) || !all_digits(toks[i + 1]) || !all_digits(toks[i + 2]) {
+                continue;
+            }
+            let Ok(pid) = pidstr.parse::<i32>() else { break };
+            let total = toks[i + 1].parse::<u64>().unwrap_or(0)
+                + toks[i + 2].parse::<u64>().unwrap_or(0);
+            // Baseline = first sighting; current = the largest later total.
+            let e = seen.entry(pid).or_insert((total, None));
+            if total > e.0 {
+                e.1 = Some(e.1.map_or(total, |c| c.max(total)));
+            }
+            break;
+        }
+    }
+    seen.into_iter()
+        .filter_map(|(pid, (base, cur))| {
+            let cur = cur?;
+            Some(NetActivity { pid, bytes_per_sec: cur.saturating_sub(base) })
+        })
+        .filter(|a| a.bytes_per_sec > 0)
+        .collect()
+}
+
+/// Run nettop twice (≈1 s) and return per-PID throughput. Blocks ~1 s; call it
+/// off the main thread (the IPC command is async). No root needed.
+pub fn activity() -> Vec<NetActivity> {
+    let out = std::process::Command::new("nettop")
+        .args(["-P", "-x", "-n", "-l", "2"])
+        .output();
+    match out {
+        Ok(o) => parse_nettop_deltas(&String::from_utf8_lossy(&o.stdout)),
+        Err(_) => Vec::new(),
+    }
+}
+
+/// Best-effort geolocation of THIS machine's own public IP (for the map's
+/// "home" origin that connection arcs radiate from). ip-api's `/json` with no
+/// IP locates the caller. `None` on any failure → the map just omits arcs.
+pub fn geolocate_self() -> Option<GeoLocation> {
+    let r = ureq::get("http://ip-api.com/json?fields=status,country,city,lat,lon,isp,query")
+        .timeout(std::time::Duration::from_secs(6))
+        .call()
+        .ok()?;
+    let txt = r.into_string().ok()?;
+    let v: serde_json::Value = serde_json::from_str(&txt).ok()?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("success") {
+        return None;
+    }
+    Some(GeoLocation {
+        ip: v.get("query").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        lat: v.get("lat").and_then(|x| x.as_f64())?,
+        lon: v.get("lon").and_then(|x| x.as_f64())?,
+        country: v.get("country").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        city: v.get("city").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+        isp: v.get("isp").and_then(|x| x.as_str()).unwrap_or("").to_string(),
+    })
+}
+
 // ── Best-effort per-app blocker (pf watcher daemon) ─────────────────────────
 
 /// The embedded root watcher script (see its header for the honest-scope docs).
@@ -369,6 +457,28 @@ pub fn disarm() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn nettop_delta_parsing() {
+        // Two samples ~1 s apart; process names with spaces; a header line.
+        let sample = "\
+time                    interface state bytes_in bytes_out rx_dupe rx_ooo re-tx
+11:15:05.335 Spotify.842                 2773532  75080     418     12545  1428
+11:15:05.335 Google Chrome H.1137        56495424 2555245   24744   3444   177649
+11:15:05.335 idle.999                    1000     2000      0       0      0
+11:15:06.335 Spotify.842                 2774434  75091     418     12545  1428
+11:15:06.335 Google Chrome H.1137        56499424 2555245   24744   3444   177649
+11:15:06.335 idle.999                    1000     2000      0       0      0";
+        let acts = parse_nettop_deltas(sample);
+        // Spotify: (2774434+75091)-(2773532+75080) = 913
+        let sp = acts.iter().find(|a| a.pid == 842).unwrap();
+        assert_eq!(sp.bytes_per_sec, 913);
+        // Chrome: (56499424)-(56495424) = 4000 (bytes_out unchanged)
+        let ch = acts.iter().find(|a| a.pid == 1137).unwrap();
+        assert_eq!(ch.bytes_per_sec, 4000);
+        // idle process had zero delta → filtered out.
+        assert!(acts.iter().all(|a| a.pid != 999));
+    }
 
     #[test]
     fn private_ip_detection() {

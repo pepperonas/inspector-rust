@@ -648,6 +648,10 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::snitch_geolocate,
             #[cfg(target_os = "macos")]
+            commands::snitch_activity,
+            #[cfg(target_os = "macos")]
+            commands::snitch_home,
+            #[cfg(target_os = "macos")]
             commands::snitch_set_blocked,
             #[cfg(target_os = "macos")]
             commands::snitch_is_armed,

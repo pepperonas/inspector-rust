@@ -33,7 +33,7 @@
   - 🖐️ **Touchpad gestures** (opt-in) — **3-finger swipe** up/down for volume, **3-finger tap** to mute, and **tip-tap tab switching** (macOS): rest one finger, tap a second to its right/left → next/previous tab, sending **each app's own shortcut** automatically (Ctrl+Tab for browsers/terminals/Finder, ⌘⌥→/← for VS Code/Cursor, ⇧⌘]/[ for JetBrains/Xcode — resolved for your keyboard layout, e.g. ⌥6 on German). Per-app map ships as a data file + a user-override JSON (`tab-shortcuts.json` in the app data dir) — add any app with one entry, no rebuild. **Palm rejection** (macOS): a hand heel resting on the pad never counts as a gesture finger (size + rest + per-finger-movement guards, libinput/Karabiner-style) — no more accidental volume swipes while scrolling. macOS via the private MultitouchSupport API (consumes the swipe so the app underneath doesn't scroll); Windows Precision Touchpad; Linux libinput.
   - 🔐 **2FA / TOTP manager** — type `2fa` *or* `otp` for the TOTP vault — **just type to filter it** (fuzzy, Enter copies the top match's code); `otp <issuer>` / `2fa <issuer>` for instant OTP autocomplete with a live 30-second countdown, Enter copies the token. **Add / edit / delete, drag-reorder, and dedupe-on-import**; imports Google Authenticator / Aegis / 2FAS / **OTPManager (macOS)** / `otpauth` — paste *or* drag the export file onto the overlay. Secrets encrypted, never cross the IPC boundary.
   - 🔊 **Audio output** (`sound` / `audio`) — inline picker to switch the system default output device (macOS · Windows · Linux).
-  - 🕵️ **Network monitor — `snitch`** (macOS) — lists every app with a live connection and lets you toggle its internet access off (**best-effort**: a background watcher feeds a blocked app's server IPs into the pf firewall — one admin prompt, not a hard firewall; a real per-app filter needs an Apple system-extension entitlement a self-signed app can't have). **`snitch map`** plots your live outbound connections on an offline dotted world map, each server located by country/city/ISP (public IPs only — LAN addresses never leave the machine).
+  - 🕵️ **Network monitor — `snitch`** (macOS) — lists every app with a live connection and lets you toggle its internet access off (**best-effort**: a background watcher feeds a blocked app's server IPs into the pf firewall — one admin prompt, not a hard firewall; a real per-app filter needs an Apple system-extension entitlement a self-signed app can't have). **`snitch map`** plots your live outbound connections on an offline dotted world map — connections **actively transferring right now glow green with packets flowing** along an arc from your location — each server located by country/city/ISP (public IPs only — LAN addresses never leave the machine). Typing `snitch` shows both the blocker and the map as selectable rows.
   - 🧹 **Cleaning** (`clean`) — free disk space by deleting cache/log/temp files inside known-safe folders. At **Standard** this sweeps the whole user cache dir (`~/Library/Caches` — often many GB); opt-in **Aggressive** adds dev-tool caches (npm/pnpm/Gradle/Cargo incl. sources), Xcode build caches and old Trash items. Enter opens an **interactive category picker** (sizes, file counts, largest files — choose exactly what goes) — including **duplicate files in Downloads** (content-hashed, the oldest copy always survives), **old installers** (dmg/pkg/iso), **editor caches** (VS Code / Cursor), **Xcode DerivedData + iOS DeviceSupport** and the **Docker build cache** (via `docker builder prune`) — risky categories are pre-deselected, user files are never a default; strict allowlist, symlinks never followed; Safe / Standard / Aggressive levels.
   - 🎨 **Color picker / eyedropper** (`Ctrl+Shift+C`) — a custom screen loupe with the **live hex shown under the magnifier** (macOS) / GDI overlay (Windows); hex straight to the clipboard.
   - 🖼️ **Image tools** — Recolor (logo tint), ML **cut-out** (U²-Net ONNX, 4.5 MB embedded), Lanczos3 **resize** (`rz`) + **optimise** (`optim`, oxipng) on the Finder selection or the clipboard image.
@@ -53,7 +53,7 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1497 unit tests (680 Rust + 817 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1498 unit tests (681 Rust + 817 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
@@ -62,7 +62,7 @@
     </a>
     &nbsp;
     <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 647 Rust + 797 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-1497%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+      <img src="https://img.shields.io/badge/unit%20tests-1498%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -217,7 +217,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1497%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-1498%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-254-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-67-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-30-blueviolet?style=flat-square)](#)

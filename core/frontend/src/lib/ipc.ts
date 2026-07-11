@@ -837,6 +837,16 @@ export function snitchConnections(): Promise<SnitchConnection[]> {
 export function snitchGeolocate(ips: string[]): Promise<GeoLocation[]> {
   return invoke("snitch_geolocate", { ips });
 }
+export interface NetActivity {
+  pid: number;
+  bytes_per_sec: number;
+}
+export function snitchActivity(): Promise<NetActivity[]> {
+  return invoke("snitch_activity");
+}
+export function snitchHome(): Promise<GeoLocation | null> {
+  return invoke("snitch_home");
+}
 export function snitchSetBlocked(blocked: string[]): Promise<void> {
   return invoke("snitch_set_blocked", { blocked });
 }

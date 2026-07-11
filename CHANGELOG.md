@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.254] — 2026-07-12
+
+### Fixed
+
+- **Song recognition no longer interrupts your music at all.** `shazam` now records the microphone **natively** (in Rust) instead of through the web view. Opening the mic through the web view forced macOS to reconfigure the shared audio device on every recording — which briefly cut out whatever was playing; recording the input device directly leaves playback completely untouched. (The v0.84.253 shared-session change reduced the glitch but couldn't remove it, because the web view's mic-open itself was the trigger.) The listening animation, progress and results are unchanged.
+
 ## [0.84.253] — 2026-07-12
 
 ### Fixed

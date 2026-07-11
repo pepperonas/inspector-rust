@@ -878,6 +878,14 @@ export interface ShazamHistoryEntry {
 export function shazamRecognize(samples: Int16Array): Promise<ShazamMatch | null> {
   return invoke("shazam_recognize", { samples: Array.from(samples) });
 }
+/**
+ * Record `seconds` NATIVELY (cpal, in Rust — bypasses the webview so playback
+ * doesn't stutter), then recognize + persist. Emits `shazam-progress` (0..1)
+ * events while recording. null = no match.
+ */
+export function shazamListen(seconds?: number): Promise<ShazamMatch | null> {
+  return invoke("shazam_listen", { seconds });
+}
 export function shazamHistoryList(limit?: number): Promise<ShazamHistoryEntry[]> {
   return invoke("shazam_history_list", { limit });
 }

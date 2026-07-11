@@ -1,4 +1,4 @@
-Inspector Rust — Feature-Liste (Stand v0.84.252)
+Inspector Rust — Feature-Liste (Stand v0.84.254)
 
 == Clipboard ==
 Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
@@ -68,7 +68,7 @@ Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro
 Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
 Netzwerk-Monitor — `snitch`: Apps mit Live-Verbindungen, Toggle blockt Internet best-effort via pf-Watcher (macOS, ein Admin-Prompt; kein echter Firewall)
 Verbindungs-Weltkarte — `snitch map`: laufende Outbound-Verbindungen auf Offline-Weltkarte mit Standort-Bögen von deinem Standort; aktive Transfers leuchten grün mit fließenden Paketen (Live-Durchsatz via nettop); Serverstandorte online per Geo-IP (nur öffentliche IPs). Voll zoom-/verschiebbar (Scrollen zoomt zum Cursor, Ziehen pant, Doppelklick, +/−/Reset, Tastatur), Hover-Infobox, City-Labels. Beim Tippen von `snitch` sind Blocker + Karte als zwei Zeilen sichtbar
-Song-Erkennung — `shazam`: nimmt ~10 s vom Mikrofon auf, erzeugt einen Shazam-Fingerprint und identifiziert den Song (Cover, Titel, Künstler, Album, Genre, Jahr) mit Buttons zum Öffnen in Shazam, Spotify oder YouTube; jeder Treffer wird lokal in einer History gespeichert (Listen⇄History-Umschalter). `shazam history` öffnet die History direkt. Voll nativ in Rust, keine Datei/Python/ffmpeg
+Song-Erkennung — `shazam`: nimmt ~10 s vom Mikrofon auf, erzeugt einen Shazam-Fingerprint und identifiziert den Song (Cover, Titel, Künstler, Album, Genre, Jahr) mit Buttons zum Öffnen in Shazam, Spotify oder YouTube; jeder Treffer wird lokal in einer History gespeichert (Listen⇄History-Umschalter). `shazam history` öffnet die History direkt. Aufnahme läuft nativ (Rust/cpal, am Webview vorbei → keine Wiedergabe-Aussetzer). Voll nativ in Rust, keine Datei/Python/ffmpeg
 Opener — `opener`: deutsche Anmachsprüche (versteckt)
 
 == Inline-Panels (rechte Vorschau-Spalte) ==

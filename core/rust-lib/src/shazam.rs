@@ -486,6 +486,118 @@ pub fn recognize(samples: &[i16]) -> Result<Option<ShazamMatch>, String> {
     Ok(parse_response(&json))
 }
 
+// ── Native microphone capture (cpal) ─────────────────────────────────────────
+
+/// Linear-resample mono `f32` at `src_rate` → 16 kHz `i16`. Pure + tested.
+pub fn resample_to_16k_i16(input: &[f32], src_rate: u32) -> Vec<i16> {
+    let dst_rate = 16000f64;
+    let to_i16 = |v: f32| -> i16 {
+        let s = v.clamp(-1.0, 1.0) as f64;
+        (if s < 0.0 { s * 32768.0 } else { s * 32767.0 }) as i16
+    };
+    if src_rate == 16000 {
+        return input.iter().map(|&v| to_i16(v)).collect();
+    }
+    let ratio = src_rate as f64 / dst_rate;
+    let out_len = (input.len() as f64 / ratio).floor() as usize;
+    let mut out = Vec::with_capacity(out_len);
+    for i in 0..out_len {
+        let pos = i as f64 * ratio;
+        let i0 = pos.floor() as usize;
+        let i1 = (i0 + 1).min(input.len().saturating_sub(1));
+        let frac = pos - i0 as f64;
+        let v = input[i0] as f64 * (1.0 - frac) + input[i1] as f64 * frac;
+        out.push(to_i16(v as f32));
+    }
+    out
+}
+
+/// Record `seconds` from the default input device **natively** (cpal), average
+/// to mono, resample to 16 kHz `i16`. Bypasses the webview entirely, so mic
+/// capture no longer reconfigures the shared audio device (the "playback
+/// stutters while recording" fix). `on_progress(0..1)` fires ~10×/s. Blocking —
+/// call from a worker thread.
+pub fn record_mic_16k<F: Fn(f32)>(seconds: u32, on_progress: F) -> Result<Vec<i16>, String> {
+    use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
+    use parking_lot::Mutex as PMutex;
+    use std::sync::Arc;
+
+    let host = cpal::default_host();
+    let device = host.default_input_device().ok_or("no microphone found")?;
+    let supported = device
+        .default_input_config()
+        .map_err(|e| format!("mic config error: {e}"))?;
+    let sample_rate = supported.sample_rate().0;
+    let channels = supported.config().channels as usize;
+    let fmt = supported.sample_format();
+    let config: cpal::StreamConfig = supported.into();
+
+    let buf: Arc<PMutex<Vec<f32>>> = Arc::new(PMutex::new(Vec::new()));
+    let err_fn = |e| tracing::warn!("shazam: cpal input stream error: {e}");
+    let ch = channels.max(1);
+
+    // Average interleaved frames of N channels → mono, into the shared buffer.
+    fn push_mono(buf: &PMutex<Vec<f32>>, samples: impl Iterator<Item = f32>, ch: usize) {
+        let mut b = buf.lock();
+        let mut acc = 0.0f32;
+        let mut c = 0usize;
+        for s in samples {
+            acc += s;
+            c += 1;
+            if c == ch {
+                b.push(acc / ch as f32);
+                acc = 0.0;
+                c = 0;
+            }
+        }
+    }
+
+    let b1 = buf.clone();
+    let b2 = buf.clone();
+    let b3 = buf.clone();
+    let stream = match fmt {
+        cpal::SampleFormat::F32 => device.build_input_stream(
+            &config,
+            move |data: &[f32], _: &_| push_mono(&b1, data.iter().copied(), ch),
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::I16 => device.build_input_stream(
+            &config,
+            move |data: &[i16], _: &_| {
+                push_mono(&b2, data.iter().map(|&s| s as f32 / 32768.0), ch)
+            },
+            err_fn,
+            None,
+        ),
+        cpal::SampleFormat::U16 => device.build_input_stream(
+            &config,
+            move |data: &[u16], _: &_| {
+                push_mono(&b3, data.iter().map(|&s| (s as f32 - 32768.0) / 32768.0), ch)
+            },
+            err_fn,
+            None,
+        ),
+        other => return Err(format!("unsupported mic sample format: {other:?}")),
+    }
+    .map_err(|e| format!("mic stream build failed: {e}"))?;
+
+    stream.play().map_err(|e| format!("mic start failed: {e}"))?;
+    let start = std::time::Instant::now();
+    let dur = seconds.max(1) as f32;
+    while start.elapsed().as_secs_f32() < dur {
+        std::thread::sleep(std::time::Duration::from_millis(100));
+        on_progress((start.elapsed().as_secs_f32() / dur).min(1.0));
+    }
+    drop(stream); // stop + release the input device
+
+    let mono = buf.lock().clone();
+    if mono.len() < sample_rate as usize / 2 {
+        return Err("no audio captured from the microphone".into());
+    }
+    Ok(resample_to_16k_i16(&mono, sample_rate))
+}
+
 // ── Local recognition history (SQLite) ───────────────────────────────────────
 
 use crate::db::DbHandle;
@@ -541,7 +653,7 @@ pub fn history_insert(db: &DbHandle, m: &ShazamMatch) -> rusqlite::Result<i64> {
     let conn = db.lock();
     let last: Option<(i64, String, String)> = conn
         .query_row(
-            "SELECT id, title, artist FROM shazam_history ORDER BY recognized_at DESC LIMIT 1",
+            "SELECT id, title, artist FROM shazam_history ORDER BY recognized_at DESC, id DESC LIMIT 1",
             [],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )
@@ -567,7 +679,7 @@ pub fn history_list(db: &DbHandle, limit: u32) -> rusqlite::Result<Vec<ShazamHis
     let conn = db.lock();
     let mut stmt = conn.prepare(
         "SELECT id, recognized_at, title, artist, cover_url, shazam_url, spotify_url, youtube_url, genre, album, released
-         FROM shazam_history ORDER BY recognized_at DESC LIMIT ?1",
+         FROM shazam_history ORDER BY recognized_at DESC, id DESC LIMIT ?1",
     )?;
     let rows = stmt.query_map([limit], |r| {
         Ok(ShazamHistoryEntry {
@@ -706,6 +818,18 @@ mod tests {
         assert!(yt.starts_with("https://www.youtube.com/results?search_query=Caf%C3%A9"));
         let (sp2, _) = music_links("A", "B", "spotify:track:xyz");
         assert_eq!(sp2, "spotify:track:xyz");
+    }
+
+    #[test]
+    fn resample_16k_passthrough_and_ratio() {
+        // Passthrough at 16k: float → i16 (truncating).
+        let out = resample_to_16k_i16(&[0.0, 1.0, -1.0, 0.5], 16000);
+        assert_eq!(out, vec![0, 32767, -32768, 16383]);
+        // 48k → 16k thirds the length.
+        let n48 = vec![0.0f32; 4800];
+        assert_eq!(resample_to_16k_i16(&n48, 48000).len(), 1600);
+        // clamps out-of-range.
+        assert_eq!(resample_to_16k_i16(&[2.0, -2.0], 16000), vec![32767, -32768]);
     }
 
     #[test]

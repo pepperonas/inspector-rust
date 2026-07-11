@@ -37,6 +37,10 @@ rand = { workspace = true }
 # Shazam song-recognition signature (shazam.rs): 2048-point FFT per 128-sample
 # hop over the mic recording. Pure-Rust, no C deps.
 rustfft = "6"
+# Native microphone capture for Shazam (shazam.rs) — records the input device
+# directly via CoreAudio/WASAPI/ALSA, bypassing the webview's getUserMedia,
+# which reconfigures the shared audio device and stutters playback.
+cpal = "0.15"
 argon2 = { workspace = true }
 keyring = { workspace = true }
 image = { workspace = true }

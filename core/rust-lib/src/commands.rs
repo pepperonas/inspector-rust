@@ -4673,6 +4673,33 @@ pub async fn shazam_recognize(
     Ok(result)
 }
 
+/// Record `seconds` from the mic **natively** (cpal, bypassing the webview so
+/// playback doesn't stutter), then recognize + persist. Emits `shazam-progress`
+/// (0..1) ~10×/s during recording. `Ok(None)` = no match. This is the primary
+/// path the panel uses; `shazam_recognize` (samples) stays for compatibility.
+#[tauri::command]
+pub async fn shazam_listen(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    seconds: Option<u32>,
+) -> Result<Option<crate::shazam::ShazamMatch>, String> {
+    let secs = seconds.unwrap_or(10);
+    let app2 = app.clone();
+    // Record on a blocking worker (cpal + ~10 s wait); progress via events.
+    let samples = tauri::async_runtime::spawn_blocking(move || {
+        crate::shazam::record_mic_16k(secs, move |p| {
+            let _ = app2.emit("shazam-progress", p);
+        })
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let result = crate::shazam::recognize(&samples)?;
+    if let Some(m) = &result {
+        let _ = crate::shazam::history_insert(&db, m);
+    }
+    Ok(result)
+}
+
 /// Recent Shazam recognitions (newest first), for the panel's history view.
 #[tauri::command]
 pub async fn shazam_history_list(

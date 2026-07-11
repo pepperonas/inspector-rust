@@ -661,6 +661,7 @@ pub fn run(context: tauri::Context<Wry>) {
             #[cfg(target_os = "macos")]
             commands::snitch_disarm,
             commands::shazam_recognize,
+            commands::shazam_listen,
             commands::shazam_history_list,
             commands::shazam_history_delete,
             commands::shazam_history_clear,

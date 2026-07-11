@@ -19,14 +19,14 @@ import {
   X,
 } from "lucide-react";
 import {
-  shazamRecognize,
+  shazamListen,
   shazamHistoryList,
   shazamHistoryClear,
   shazamHistoryDelete,
   type ShazamMatch,
   type ShazamHistoryEntry,
 } from "../lib/ipc";
-import { recordMic16k } from "../lib/mic-record";
+import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
 type Phase = "listening" | "searching" | "result" | "nomatch" | "error" | "noperm";
@@ -104,13 +104,14 @@ export function ShazamPanel({
     setMatch(null);
     setError("");
     setCopied(false);
-    try {
-      const samples = await recordMic16k(RECORD_SECONDS, (p) => {
-        if (runIdRef.current === myRun) setProgress(p);
-      });
+    // Native recording (Rust/cpal) emits progress events while it records.
+    const unlisten = await listen<number>("shazam-progress", (e) => {
       if (runIdRef.current !== myRun) return;
-      setPhase("searching");
-      const m = await shazamRecognize(samples);
+      setProgress(e.payload);
+      if (e.payload >= 0.999) setPhase("searching");
+    });
+    try {
+      const m = await shazamListen(RECORD_SECONDS);
       if (runIdRef.current !== myRun) return;
       if (m) {
         setMatch(m);
@@ -122,11 +123,14 @@ export function ShazamPanel({
     } catch (e) {
       if (runIdRef.current !== myRun) return;
       const msg = String(e);
-      if (/permission|denied|NotAllowed/i.test(msg)) setPhase("noperm");
-      else {
+      if (/permission|denied|NotAllowed|no audio|no microphone|microphone/i.test(msg)) {
+        setPhase("noperm");
+      } else {
         setError(msg);
         setPhase("error");
       }
+    } finally {
+      unlisten();
     }
   }, [loadHistory]);
 

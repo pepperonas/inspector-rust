@@ -610,8 +610,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "shazam",
     keyword: "shazam",
-    syntax: "shazam",
-    description: "Identify the song playing — records ~10 s from the mic and searches Shazam",
+    syntax: "shazam [history]",
+    description:
+      "Identify the song playing (records ~10 s from the mic) · `shazam history` opens your recognized-songs history",
     requiresArg: false,
   },
   {

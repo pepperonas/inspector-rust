@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.252] — 2026-07-12
+
+### Added
+
+- **`shazam history` command.** Opens the Shazam panel straight into your recognized-songs history (without starting the mic). Typing `shazam` now shows both options — *Identify song* and *shazam history* — as selectable rows, so the history is one keystroke away.
+
 ## [0.84.251] — 2026-07-11
 
 ### Added

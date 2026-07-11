@@ -71,12 +71,15 @@ function LinkChip({
 
 export function ShazamPanel({
   focused,
+  initialView = "recognize",
   onExit,
 }: {
   focused: boolean;
+  /** `history` opens straight into the history list (no mic). Default: recognize. */
+  initialView?: "recognize" | "history";
   onExit: () => void;
 }) {
-  const [view, setView] = useState<"recognize" | "history">("recognize");
+  const [view, setView] = useState<"recognize" | "history">(initialView);
   const [phase, setPhase] = useState<Phase>("listening");
   const [progress, setProgress] = useState(0);
   const [match, setMatch] = useState<ShazamMatch | null>(null);
@@ -129,11 +132,15 @@ export function ShazamPanel({
 
   useEffect(() => {
     void loadHistory();
-    void run();
+    // `shazam history` opens the list without touching the mic; `shazam`
+    // starts listening straight away.
+    if (initialView !== "history") void run();
     return () => {
       runIdRef.current += 1; // invalidate in-flight run on unmount
     };
-  }, [run, loadHistory]);
+    // Run once on mount for the chosen initial view.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const copyTitle = useCallback(async () => {
     if (!match) return;

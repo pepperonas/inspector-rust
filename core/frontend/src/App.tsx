@@ -201,8 +201,9 @@ function App() {
   // opens; the arg picks which view. macOS-only command.
   const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
   const [snitchFocus, setSnitchFocus] = useState(false);
-  // Shazam mode — `shazam` records ~10 s from the mic + identifies the song.
-  const [shazamMode, setShazamMode] = useState(false);
+  // Shazam mode — `shazam` records ~10 s + identifies the song; `shazam
+  // history` opens the recognized-songs history. null = closed.
+  const [shazamMode, setShazamMode] = useState<null | "listen" | "history">(null);
   const [shazamFocus, setShazamFocus] = useState(false);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
@@ -637,7 +638,7 @@ function App() {
   const isShazamCmd = parsedCommand?.spec.kind === "shazam";
   useEffect(() => {
     if (!isShazamCmd && shazamMode) {
-      setShazamMode(false);
+      setShazamMode(null);
       setShazamFocus(false);
     }
   }, [isShazamCmd, shazamMode]);
@@ -841,10 +842,14 @@ function App() {
           : "Toggle apps' internet access (best-effort) · `snitch map` for the map";
         break;
       }
-      case "shazam":
-        label = "Identify the song playing";
-        hint = "Records ~10 s from the mic and searches Shazam";
+      case "shazam": {
+        const histMode = /\b(hist|list)/i.test(arg ?? "");
+        label = histMode ? "Song history" : "Identify the song playing";
+        hint = histMode
+          ? "Your recognized songs — open in Shazam / Spotify / YouTube"
+          : "Records ~10 s from the mic · `shazam history` for past songs";
         break;
+      }
       case "brightness":
         label = "Adjust monitor brightness";
         hint = "Opens a slider per DDC monitor (external displays)";
@@ -1292,6 +1297,33 @@ function App() {
         };
   }, [isSnitchCmd, parsedCommand]);
 
+  // `shazam` has two views (recognize + history). Surface the OTHER as a
+  // visible sub-row so `shazam history` is discoverable without knowing the
+  // keyword (same pattern as snitchSubEntry). Enter runs it; Tab autocompletes.
+  const shazamSubEntry: ListEntry | null = useMemo(() => {
+    if (!isShazamCmd) return null;
+    const histMode = /\b(hist|list)/i.test(parsedCommand?.arg ?? "");
+    return histMode
+      ? {
+          kind: "command-suggestion",
+          data: {
+            keyword: "shazam",
+            syntax: "shazam",
+            description: "Identify the song playing (records from the mic)",
+            completion: "shazam",
+          },
+        }
+      : {
+          kind: "command-suggestion",
+          data: {
+            keyword: "shazam history",
+            syntax: "shazam history",
+            description: "Your recognized-songs history",
+            completion: "shazam history",
+          },
+        };
+  }, [isShazamCmd, parsedCommand]);
+
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
@@ -1304,6 +1336,7 @@ function App() {
       // instead of opening a terminal in the current Finder folder.
       ...(commandEntry ? [commandEntry] : []),
       ...(snitchSubEntry ? [snitchSubEntry] : []),
+      ...(shazamSubEntry ? [shazamSubEntry] : []),
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
       ...(openerEntry ? [openerEntry] : []),
@@ -1333,6 +1366,7 @@ function App() {
     memeEntries,
     commandEntry,
     snitchSubEntry,
+    shazamSubEntry,
     suggestionEntries,
     socialEntry,
     openerEntry,
@@ -1849,7 +1883,8 @@ function App() {
         "brightness", "sound", "hue", "stats", "boom", "uptime", "calendar", "clean", "snitch", "shazam",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
-        const keepArg = commandKind === "calendar" || commandKind === "snitch";
+        const keepArg =
+          commandKind === "calendar" || commandKind === "snitch" || commandKind === "shazam";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -2221,8 +2256,9 @@ function App() {
         setSnitchMode(mapMode ? "map" : "apps");
         setSnitchFocus(true);
       } else if (commandKind === "shazam") {
-        // Record the mic + identify the song in the preview panel.
-        setShazamMode(true);
+        // `shazam` → record + identify; `shazam history` → the history list.
+        const histMode = /\b(hist|list)/i.test(arg ?? "");
+        setShazamMode(histMode ? "history" : "listen");
         setShazamFocus(true);
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
@@ -2920,8 +2956,9 @@ function App() {
                   <div className="md3-pop-in h-full">
                     <ShazamPanel
                       focused={shazamFocus}
+                      initialView={shazamMode === "history" ? "history" : "recognize"}
                       onExit={() => {
-                        setShazamMode(false);
+                        setShazamMode(null);
                         setShazamFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}

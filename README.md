@@ -44,7 +44,7 @@
   - 🔳 **QR code** (`qr <text>`) — live preview in the panel; Enter copies the PNG to the clipboard.
   - 🛠️ **Dev quick-tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (pretty-print clipboard) · `jwt` (decode clipboard) → clipboard.
   - 🌐 **Web-search bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` open a site's search.
-  - 🥁 **BPM detector** (`bpm`) — live microphone beat detection with an animated AAA visualizer.
+  - 🥁 **BPM detector** (`bpm`) — live microphone beat detection with an animated AAA visualizer. Captured natively (in Rust) so starting it never interrupts other apps' playback.
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
   - ⚙️ **Power commands** — the search bar parses dozens of shell-style commands: translate (`tr` / `tren` / `trde` / `trde2it` / …), system (`kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze`), `rnd` / `random` (dice), `timer` / `alarm <HH:MM>`, `touch` / `mkdir` / `terminal` (in the open Finder folder), `rmvvls`, `pwgen`, `meme [query]`, `calendar [month year]` (month-view calendar — which weekday was that date?) — plus every command listed above. Fuzzy-matched, always outranking clips, rendered with a red accent.
   - 📓 **Snippets** (27 bundled AI prompts + 255 Material colours) · **Notes** (persistent bookmarks) · **Backup** (single-file JSON, optionally password-encrypted).

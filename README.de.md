@@ -44,7 +44,7 @@
   - 🔳 **QR-Code** (`qr <text>`) — Live-Vorschau im Panel; Enter kopiert das PNG ins Clipboard.
   - 🛠️ **Dev-Quick-Tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (Clipboard pretty-printen) · `jwt` (Clipboard dekodieren) → Clipboard.
   - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
-  - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer.
+  - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer. Nimmt nativ (in Rust) auf, sodass der Start die Wiedergabe anderer Apps nie unterbricht.
   - 💸 **Bruno (Brutto/Netto)** — deutscher Einkommensteuer-Rechner 2025 als Suchleisten-Command. Smarte Defaults + Pro-User-Override in den Einstellungen.
   - ⚙️ **Power-Commands** — die Suchleiste parst Dutzende Shell-artige Commands: Übersetzen (`tr` / `tren` / `trde` / `trde2it` / …), System (`kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze`), `rnd` / `random` (Würfeln), `timer` / `alarm <HH:MM>`, `touch` / `mkdir` / `terminal` (im offenen Finder-Ordner), `rmvvls`, `pwgen`, `meme [query]`, `calendar [monat jahr]` (Monatsansicht — welcher Wochentag war Datum X?) — plus jedes oben genannte Command. Fuzzy-gematcht, immer über den Clips, mit rotem Akzent gerendert.
   - 📓 **Snippets** (27 mitgelieferte KI-Prompts + 255 Material-Farben) · **Notes** (persistente Bookmarks) · **Backup** (komplette App als eine Datei — inkl. 2FA + alle Settings, Timesheet optional; optional passwort-verschlüsselt, Import mit Inline-Passwortabfrage).

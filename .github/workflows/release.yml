@@ -64,6 +64,9 @@ jobs:
             libxcb-xfixes0-dev \
             libssl-dev \
             libfuse2 \
+            libudev-dev \
+            libinput-dev \
+            libasound2-dev \
             pkg-config
 
       - uses: pnpm/action-setup@v4

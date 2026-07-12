@@ -2413,10 +2413,65 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                       );
                     })}
                 </div>
+                {/* Developer cleanup (v0.84.264): the stale-artifact scanner is
+                    the only part whose search area the user defines. */}
+                <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-3">
+                  <div className="text-[11px] text-[var(--color-muted)]">
+                    Developer — verwaiste Build-Artefakte
+                  </div>
+                  <label className="flex flex-col gap-1 text-[12px]">
+                    <span>
+                      Projekt-Ordner
+                      <span className="block text-[11px] text-[var(--color-muted)]">
+                        Ein Pfad pro Zeile. Hier wird nach `node_modules` / `target` von
+                        Projekten gesucht, die lange nicht angefasst wurden. Leer = keine
+                        Projektsuche.
+                      </span>
+                    </span>
+                    <textarea
+                      rows={3}
+                      defaultValue={cleanCfg.dev_roots.join("\n")}
+                      onBlur={(e) =>
+                        void updateCleaner({
+                          dev_roots: e.target.value
+                            .split("\n")
+                            .map((s) => s.trim())
+                            .filter(Boolean),
+                        })
+                      }
+                      spellCheck={false}
+                      className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[11px]"
+                    />
+                  </label>
+                  <label className="flex items-center justify-between gap-3 text-[12px]">
+                    <span>
+                      Projekt gilt als tot nach
+                      <span className="block text-[11px] text-[var(--color-muted)]">
+                        Tagen ohne Änderung an Manifest, Quellen oder Git-HEAD.
+                      </span>
+                    </span>
+                    <input
+                      type="number"
+                      min={1}
+                      max={3650}
+                      value={cleanCfg.stale_days}
+                      onChange={(e) =>
+                        void updateCleaner({
+                          stale_days: Math.max(1, parseInt(e.target.value, 10) || 1),
+                        })
+                      }
+                      className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-right text-[12px]"
+                    />
+                  </label>
+                </div>
+
                 <p className="text-[11px] text-[var(--color-muted)]">
                   Es werden ausschließlich Dateien innerhalb fest definierter
                   Cache-/Log-/Temp-Ordner gelöscht — niemals Dokumente, Desktop o. Ä.
-                  Symlinks werden nie verfolgt.
+                  Symlinks werden nie verfolgt. Ein `node_modules` / `target` wird nur
+                  angerührt, wenn daneben wirklich eine `package.json` bzw. `Cargo.toml`
+                  liegt. Tools (Docker, Homebrew, pnpm, simctl) werden nur aufgerufen,
+                  wenn installiert — nie mit sudo.
                 </p>
               </div>
             )}

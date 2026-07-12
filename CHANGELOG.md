@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.264] — 2026-07-12
+
+### Added
+
+- **Developer cleanup (macOS).** `clean` now finds what actually eats a developer Mac's disk: **stale `node_modules` and Cargo `target/` dirs** of projects you haven't touched in months (dev roots + threshold configurable in Settings → Cleaning; an artifact is only ever listed when its `package.json` / `Cargo.toml` sits right next to it), **JetBrains leftovers** of uninstalled or superseded IDE versions (the newest version is always kept), **Xcode archives** (opt-in, with a warning — they hold the dSYMs), and three tool-driven categories alongside Docker: `brew cleanup`, `pnpm store prune` and `xcrun simctl delete unavailable` (only if the tool is installed, previewed via its dry-run, never with sudo).
+- **The clean picker shows folders, not categories.** The dry-run scan now renders as one row per **directory** with its aggregated size, largest first, grouped under category headers — each individually tickable (Space on a header toggles the whole group). The file-granular plan stays in the backend, so a 100k-file cache scan no longer travels through the webview and back. Deletion is still strictly file-by-file with the full allowlist re-validation, so nothing that appeared *after* the scan can be swept up.
+
 ## [0.84.263] — 2026-07-12
 
 ### Added

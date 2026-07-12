@@ -3880,29 +3880,51 @@ pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String>
 
 // ── Cleaning workflow (v0.60.0) ────────────────────────────────────────────────
 
-/// Read-only dry-run scan for the current cleaner config. Returns the plan
-/// (paths + sizes + per-category totals) so the frontend can show a preview.
-/// Deletes nothing. **Async** (→ worker thread): since v0.84.241 the Standard
-/// level scans the whole user cache dir — walking that on the main thread
-/// would freeze the UI for seconds.
+/// Read-only dry-run scan for the current cleaner config. Deletes nothing.
+///
+/// The file-granular plan is **kept in the backend** (`PlanStore`, v0.84.264)
+/// and only the *aggregated* view — one row per directory — crosses the IPC
+/// boundary: a DerivedData / cache scan is 100k+ files, which is both useless
+/// to look at and expensive to serialise twice (out and back). `cleaner_execute`
+/// then takes just the ticked directory rows.
+///
+/// **Async** (→ worker thread): the Standard level scans the whole user cache
+/// dir and the dev roots — walking that on the main thread would freeze the UI.
 #[tauri::command]
-pub async fn cleaner_scan(db: State<'_, DbHandle>) -> Result<cleaner::CleanPlan, String> {
+pub async fn cleaner_scan(
+    db: State<'_, DbHandle>,
+    store: State<'_, cleaner::PlanStore>,
+) -> Result<cleaner::CleanPlanView, String> {
     let cfg = cleaner::load_config(&db);
-    Ok(cleaner::scan(&cfg))
+    let plan = cleaner::scan(&cfg);
+    let view = cleaner::aggregate_dirs(&plan, &cleaner::enabled_roots_by_cat(&cfg));
+    *store.0.lock() = Some(plan);
+    Ok(view)
 }
 
-/// Execute a previously-scanned plan. Re-validates every path against the
-/// current config's allowlist (containment + non-symlink + per-category
-/// exclusions) before deleting, so a stale or tampered plan can't escape the
-/// cache roots. Returns counts + freed bytes + per-path errors (never aborts
-/// the batch). Async for the same reason as the scan.
+/// Delete the files under the ticked directory rows of the last scan.
+///
+/// `selected` holds `CleanDir.path` values from `cleaner_scan`'s view. The
+/// stored plan is filtered down to the items under them, and every path is
+/// then **re-validated** against the current config's allowlist (containment +
+/// non-symlink + per-category exclusions) before it is removed — deletion stays
+/// file-by-file, so nothing that appeared *after* the scan is ever caught up in
+/// it. Returns counts + freed bytes + per-path errors (never aborts the batch).
 #[tauri::command]
 pub async fn cleaner_execute(
     db: State<'_, DbHandle>,
-    plan: cleaner::CleanPlan,
+    store: State<'_, cleaner::PlanStore>,
+    selected: Vec<String>,
 ) -> Result<cleaner::CleanResult, String> {
     let cfg = cleaner::load_config(&db);
-    Ok(cleaner::execute(&cfg, &plan))
+    let plan = store
+        .0
+        .lock()
+        .clone()
+        .ok_or_else(|| "no scan to execute — run the scan first".to_string())?;
+    let roots = cleaner::enabled_roots_by_cat(&cfg);
+    let chosen = cleaner::filter_by_selection(&plan, &roots, &selected);
+    Ok(cleaner::execute(&cfg, &chosen))
 }
 
 #[tauri::command]
@@ -3911,10 +3933,12 @@ pub fn get_cleaner_config(db: State<'_, DbHandle>) -> Result<cleaner::CleanerCon
 }
 
 /// The full category catalogue for this OS (key + label + level +
-/// default_enabled) so Settings can render per-category checkboxes.
+/// default_enabled) so Settings can render per-category checkboxes. Takes the
+/// config because the stale-artifact categories' roots are derived from the
+/// user's dev roots.
 #[tauri::command]
-pub fn cleaner_categories() -> Vec<cleaner::Category> {
-    cleaner::categories()
+pub fn cleaner_categories(db: State<'_, DbHandle>) -> Vec<cleaner::Category> {
+    cleaner::categories(&cleaner::load_config(&db))
 }
 
 #[tauri::command]

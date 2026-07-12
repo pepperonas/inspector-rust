@@ -203,6 +203,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(popup_state);
             app.manage(screenshot_preview::PendingScreenshot::default());
             app.manage(wakelock::WakelockState::default());
+            app.manage(cleaner::PlanStore::default());
             app.manage(screen_record::RecordState::default());
             app.manage(color_loupe::LoupeState::default());
             app.manage(alarm::AlarmState::default());

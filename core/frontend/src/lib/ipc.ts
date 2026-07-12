@@ -1437,6 +1437,22 @@ export interface CleanPlan {
   /** [key, label, bytes] per scanned category. */
   categories: [string, string, number][];
 }
+/** One selectable row: a directory the scan's files were rolled up into (or a
+ *  command pseudo-item like the Docker build cache). `path` is the selection
+ *  key handed back to `cleaner_execute`. */
+export interface CleanDir {
+  path: string;
+  size: number;
+  count: number;
+  category: string;
+}
+/** What a scan returns: aggregated rows only. The file-granular plan stays in
+ *  the backend (a cache scan is 100k+ files — see `PlanStore`, v0.84.264). */
+export interface CleanPlanView {
+  dirs: CleanDir[];
+  total_bytes: number;
+  categories: [string, string, number][];
+}
 export interface CleanResult {
   deleted: number;
   freed_bytes: number;
@@ -1447,6 +1463,10 @@ export interface CleanerConfig {
   min_age_days: number;
   /** category key → enabled override. */
   categories: Record<string, boolean>;
+  /** Project folders searched for stale build artifacts (absolute paths). */
+  dev_roots: string[];
+  /** A project counts as stale after this many days untouched. */
+  stale_days: number;
 }
 export interface CleanerCategory {
   key: string;
@@ -1457,12 +1477,13 @@ export interface CleanerCategory {
 }
 
 /** Read-only dry-run: what would be deleted + how much. Deletes nothing. */
-export function cleanerScan(): Promise<CleanPlan> {
+export function cleanerScan(): Promise<CleanPlanView> {
   return invoke("cleaner_scan");
 }
-/** Delete the files in `plan` (re-validated against the allowlist). */
-export function cleanerExecute(plan: CleanPlan): Promise<CleanResult> {
-  return invoke("cleaner_execute", { plan });
+/** Delete the files under the ticked directory rows (`CleanDir.path` values).
+ *  Every path is re-validated against the allowlist in the backend. */
+export function cleanerExecute(selected: string[]): Promise<CleanResult> {
+  return invoke("cleaner_execute", { selected });
 }
 export function getCleanerConfig(): Promise<CleanerConfig> {
   return invoke("get_cleaner_config");

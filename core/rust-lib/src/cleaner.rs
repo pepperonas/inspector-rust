@@ -91,6 +91,13 @@ pub struct Category {
     pub exts: Vec<String>,
     /// Whether it's on by default (the user can still uncheck it).
     pub default_enabled: bool,
+    /// Skip the global age filter for this category. Set by the stale-project
+    /// categories: staleness is already decided per *project* (untouched for N
+    /// days), so re-filtering the artifact's files by their own mtime would be
+    /// wrong — an `npm install` in an otherwise dead project leaves fresh files
+    /// inside a `node_modules` we still want to reclaim.
+    #[serde(skip)]
+    pub ignore_age: bool,
 }
 
 fn home() -> Option<PathBuf> {
@@ -127,7 +134,7 @@ fn editor_cache_roots(base: &Path) -> Vec<PathBuf> {
 /// Only paths under these roots can ever be deleted. Roots that don't exist on
 /// the current machine are still listed (harmless — scanning a missing root
 /// yields nothing).
-pub fn categories() -> Vec<Category> {
+pub fn categories(cfg: &CleanerConfig) -> Vec<Category> {
     let mut out: Vec<Category> = Vec::new();
     let cache = dirs::cache_dir();
     let tmp = std::env::temp_dir();
@@ -142,6 +149,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
     }
     // OS temp (this is std::env::temp_dir — /tmp-equivalent / %TEMP%).
@@ -153,6 +161,7 @@ pub fn categories() -> Vec<Category> {
         exclude: vec![],
         exts: vec![],
         default_enabled: true,
+        ignore_age: false,
     });
 
     // Downloads-based categories (every platform; v0.84.243). These touch USER
@@ -172,6 +181,7 @@ pub fn categories() -> Vec<Category> {
                 .map(|s| s.to_string())
                 .collect(),
             default_enabled: true,
+            ignore_age: false,
         });
         // Content-identical duplicates — scanned by `append_duplicates`, NOT the
         // generic walker (the key is special-cased in `scan`); the OLDEST copy
@@ -184,6 +194,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
     }
 
@@ -200,6 +211,7 @@ pub fn categories() -> Vec<Category> {
         exclude: vec![],
         exts: vec![],
         default_enabled: true,
+        ignore_age: false,
     });
 
     #[cfg(target_os = "macos")]
@@ -219,6 +231,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         // The big one (v0.84.241): everything else under ~/Library/Caches —
         // per Apple's guidelines strictly regenerable data, and routinely the
@@ -237,6 +250,7 @@ pub fn categories() -> Vec<Category> {
             },
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         out.push(Category {
             key: "logs".into(),
@@ -257,6 +271,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         // Electron editors (VS Code / Cursor / VSCodium) cache under
         // Application Support, NOT ~/Library/Caches — so the broad category
@@ -270,6 +285,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         out.push(Category {
             key: "dev_caches".into(),
@@ -291,12 +307,15 @@ pub fn categories() -> Vec<Category> {
                 h.join(".cargo/git"),
                 h.join(".rustup/downloads"),
                 h.join(".rustup/tmp"),
+                // uv keeps its cache in XDG-land, not ~/Library/Caches.
+                h.join(".cache/uv"),
                 h.join(".android/cache"),
                 h.join(".android/build-cache"),
             ],
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
         });
         out.push(Category {
             key: "xcode_caches".into(),
@@ -314,6 +333,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
         });
         // Trash: genuinely user-discarded files, but still user files — strictly
         // opt-in, and the age filter applies (only items trashed ≥ N days ago).
@@ -325,8 +345,111 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
+        });
+
+        // ── Developer targets (v0.84.264) ────────────────────────────────
+        //
+        // Xcode archives hold the dSYMs you need to symbolicate a crash report
+        // from a shipped build — losing them is unrecoverable. Aggressive +
+        // opt-in, and the age filter still applies.
+        out.push(Category {
+            key: "xcode_archives".into(),
+            label: "Xcode archives — CONTAINS dSYMs (can't symbolicate old crashes after this)".into(),
+            level: Level::Aggressive,
+            roots: vec![h.join("Library/Developer/Xcode/Archives")],
+            exclude: vec![],
+            exts: vec![],
+            default_enabled: false,
+            ignore_age: false,
+        });
+        // Support/log dirs of JetBrains IDE versions that are gone (uninstalled
+        // product, or superseded by a newer version dir).
+        let jb = jetbrains_orphan_roots();
+        if !jb.is_empty() {
+            out.push(Category {
+                key: KEY_JETBRAINS.into(),
+                label: "JetBrains leftovers of uninstalled / superseded IDE versions".into(),
+                level: Level::Standard,
+                roots: jb,
+                exclude: vec![],
+                exts: vec![],
+                default_enabled: true,
+                ignore_age: true, // the whole version is dead; per-file mtime is noise
+            });
+        }
+        // Command-based (no file roots → the file allowlist is untouched; the
+        // tool's own reclaim command runs instead).
+        out.push(Category {
+            key: KEY_SIMCTL.into(),
+            label: "Unavailable simulators (xcrun simctl delete unavailable)".into(),
+            level: Level::Aggressive,
+            roots: vec![],
+            exclude: vec![],
+            exts: vec![],
+            default_enabled: false,
+            ignore_age: false,
+        });
+        out.push(Category {
+            key: KEY_BREW.into(),
+            label: "Homebrew: outdated downloads (brew cleanup)".into(),
+            level: Level::Standard,
+            roots: vec![],
+            exclude: vec![],
+            exts: vec![],
+            default_enabled: true,
+            ignore_age: false,
         });
     }
+
+    // ── Stale project artifacts (all platforms; roots come from the config) ──
+    //
+    // These are the only categories whose allowlist is *derived*: the roots are
+    // the concrete `node_modules` / `target` dirs of projects that haven't been
+    // touched in `stale_days`, each of which was verified to sit next to its
+    // manifest. Nothing else under the dev roots is ever reachable.
+    if !cfg.dev_roots.is_empty() {
+        let roots: Vec<PathBuf> = cfg.dev_roots.iter().map(PathBuf::from).collect();
+        let now = SystemTime::now();
+        let node = find_stale_artifacts(&roots, ArtifactKind::Node, now, cfg.stale_days);
+        if !node.is_empty() {
+            out.push(Category {
+                key: KEY_STALE_NODE.into(),
+                label: format!("Stale node_modules (projects untouched {}+ days)", cfg.stale_days),
+                level: Level::Standard,
+                roots: node,
+                exclude: vec![],
+                exts: vec![],
+                default_enabled: true,
+                ignore_age: true, // staleness is decided per project, not per file
+            });
+        }
+        let rust = find_stale_artifacts(&roots, ArtifactKind::Rust, now, cfg.stale_days);
+        if !rust.is_empty() {
+            out.push(Category {
+                key: KEY_STALE_TARGET.into(),
+                label: format!("Stale Rust target/ dirs (projects untouched {}+ days)", cfg.stale_days),
+                level: Level::Standard,
+                roots: rust,
+                exclude: vec![],
+                exts: vec![],
+                default_enabled: true,
+                ignore_age: true,
+            });
+        }
+    }
+    // pnpm's store prune removes only *orphaned* packages — a path delete
+    // would nuke the whole store, so this one is command-based too.
+    out.push(Category {
+        key: KEY_PNPM.into(),
+        label: "pnpm store: orphaned packages (pnpm store prune)".into(),
+        level: Level::Standard,
+        roots: vec![],
+        exclude: vec![],
+        exts: vec![],
+        default_enabled: true,
+        ignore_age: false,
+    });
 
     #[cfg(target_os = "windows")]
     if let Some(h) = home() {
@@ -343,6 +466,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         // Electron editors cache under %APPDATA% (Roaming), not the OS cache dir.
         if let Some(roaming) = dirs::config_dir() {
@@ -354,6 +478,7 @@ pub fn categories() -> Vec<Category> {
                 exclude: vec![],
                 exts: vec![],
                 default_enabled: true,
+                ignore_age: false,
             });
         }
         out.push(Category {
@@ -385,6 +510,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
         });
     }
 
@@ -404,6 +530,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         // Everything else under ~/.cache (XDG: strictly regenerable), minus the
         // more specific categories' roots.
@@ -420,6 +547,7 @@ pub fn categories() -> Vec<Category> {
             },
             exts: vec![],
             default_enabled: true,
+            ignore_age: false,
         });
         // Electron editors cache under ~/.config, not ~/.cache.
         if let Some(cfg_dir) = dirs::config_dir() {
@@ -431,6 +559,7 @@ pub fn categories() -> Vec<Category> {
                 exclude: vec![],
                 exts: vec![],
                 default_enabled: true,
+                ignore_age: false,
             });
         }
         out.push(Category {
@@ -455,6 +584,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
         });
         out.push(Category {
             key: "trash".into(),
@@ -464,6 +594,7 @@ pub fn categories() -> Vec<Category> {
             exclude: vec![],
             exts: vec![],
             default_enabled: false,
+            ignore_age: false,
         });
     }
 
@@ -476,6 +607,20 @@ pub const KEY_LEVEL: &str = "cleaner.level";
 pub const KEY_MIN_AGE: &str = "cleaner.min_age_days";
 /// JSON map of `{ category_key: enabled }` overrides.
 pub const KEY_CATEGORIES: &str = "cleaner.categories";
+/// Newline/comma-separated project folders searched for stale build artifacts.
+pub const KEY_DEV_ROOTS: &str = "cleaner.dev_roots";
+/// How long a project must have been untouched to count as stale (days).
+pub const KEY_STALE_DAYS: &str = "cleaner.stale_days";
+
+/// Where we look for dead projects by default. Non-existent entries are simply
+/// skipped, so shipping a few likely names costs nothing.
+pub fn default_dev_roots() -> Vec<String> {
+    let Some(h) = home() else { return Vec::new() };
+    ["claude", "cursor", "dev"]
+        .iter()
+        .map(|d| h.join(d).to_string_lossy().to_string())
+        .collect()
+}
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CleanerConfig {
@@ -484,6 +629,16 @@ pub struct CleanerConfig {
     /// Per-category enable overrides (key → enabled). Missing key = the
     /// category's own `default_enabled`.
     pub categories: std::collections::BTreeMap<String, bool>,
+    /// Project folders the stale-artifact scanner searches (absolute paths).
+    #[serde(default)]
+    pub dev_roots: Vec<String>,
+    /// Staleness threshold in days for the stale-artifact categories.
+    #[serde(default = "default_stale_days")]
+    pub stale_days: u32,
+}
+
+fn default_stale_days() -> u32 {
+    90
 }
 
 impl Default for CleanerConfig {
@@ -492,8 +647,19 @@ impl Default for CleanerConfig {
             level: Level::Safe,
             min_age_days: 7,
             categories: std::collections::BTreeMap::new(),
+            dev_roots: default_dev_roots(),
+            stale_days: default_stale_days(),
         }
     }
+}
+
+/// Split a stored dev-root list (newline or comma separated) into paths.
+pub fn parse_dev_roots(raw: &str) -> Vec<String> {
+    raw.split(['\n', ','])
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+        .collect()
 }
 
 pub fn load_config(db: &DbHandle) -> CleanerConfig {
@@ -513,10 +679,24 @@ pub fn load_config(db: &DbHandle) -> CleanerConfig {
         .flatten()
         .and_then(|s| serde_json::from_str(&s).ok())
         .unwrap_or_default();
+    // An *unset* dev-root list falls back to the defaults; an explicitly
+    // emptied one stays empty (the user opted out of project scanning).
+    let dev_roots = crate::settings::get(db, KEY_DEV_ROOTS)
+        .ok()
+        .flatten()
+        .map(|s| parse_dev_roots(&s))
+        .unwrap_or(d.dev_roots);
+    let stale_days = crate::settings::get(db, KEY_STALE_DAYS)
+        .ok()
+        .flatten()
+        .and_then(|s| s.parse::<u32>().ok())
+        .unwrap_or(d.stale_days);
     CleanerConfig {
         level,
         min_age_days,
         categories,
+        dev_roots,
+        stale_days,
     }
 }
 
@@ -524,6 +704,8 @@ pub fn save_config(db: &DbHandle, cfg: &CleanerConfig) -> anyhow::Result<()> {
     crate::settings::set(db, KEY_LEVEL, cfg.level.as_str())?;
     crate::settings::set(db, KEY_MIN_AGE, &cfg.min_age_days.to_string())?;
     crate::settings::set(db, KEY_CATEGORIES, &serde_json::to_string(&cfg.categories)?)?;
+    crate::settings::set(db, KEY_DEV_ROOTS, &cfg.dev_roots.join("\n"))?;
+    crate::settings::set(db, KEY_STALE_DAYS, &cfg.stale_days.to_string())?;
     Ok(())
 }
 
@@ -643,6 +825,8 @@ pub struct ScanGroup {
     pub exclude: Vec<PathBuf>,
     /// Lower-case extension filter (`["dmg", "pkg"]`); empty = every file.
     pub exts: Vec<String>,
+    /// Ignore the global age filter (see `Category::ignore_age`).
+    pub ignore_age: bool,
 }
 
 /// Whether `path`'s extension passes the (possibly empty) filter.
@@ -662,9 +846,10 @@ fn ext_matches(path: &Path, exts: &[String]) -> bool {
 /// Build a plan from explicit scan groups. Read-only. The pure heart of
 /// `scan` — tests drive it with temp dirs.
 pub fn scan_roots(groups: &[ScanGroup], min_age_days: u32, now: SystemTime) -> CleanPlan {
-    let min_age = Duration::from_secs(u64::from(min_age_days) * 86_400);
+    let global_min_age = Duration::from_secs(u64::from(min_age_days) * 86_400);
     let mut plan = CleanPlan::default();
-    for ScanGroup { key, label, roots, exclude, exts } in groups {
+    for ScanGroup { key, label, roots, exclude, exts, ignore_age } in groups {
+        let min_age = if *ignore_age { Duration::ZERO } else { global_min_age };
         let mut cat_bytes = 0u64;
         for root in roots {
             let mut files = Vec::new();
@@ -734,7 +919,7 @@ pub fn execute_plan(
 /// Categories enabled under `cfg` (level + per-category overrides), as
 /// `(key, label, roots)` groups ready for [`scan_roots`].
 fn enabled_groups(cfg: &CleanerConfig) -> Vec<ScanGroup> {
-    categories()
+    categories(cfg)
         .into_iter()
         .filter(|c| cfg.level.includes(c.level))
         .filter(|c| *cfg.categories.get(&c.key).unwrap_or(&c.default_enabled))
@@ -744,6 +929,7 @@ fn enabled_groups(cfg: &CleanerConfig) -> Vec<ScanGroup> {
             roots: c.roots,
             exclude: c.exclude,
             exts: c.exts,
+            ignore_age: c.ignore_age,
         })
         .collect()
 }
@@ -759,6 +945,324 @@ fn enabled_roots(cfg: &CleanerConfig) -> Vec<PathBuf> {
 /// one carved out).
 fn enabled_excludes(cfg: &CleanerConfig) -> std::collections::BTreeMap<String, Vec<PathBuf>> {
     enabled_groups(cfg).into_iter().map(|g| (g.key, g.exclude)).collect()
+}
+
+// ── Developer targets (v0.84.264) ────────────────────────────────────────
+//
+// Everything below is macOS-first but path-portable; the categories are only
+// *registered* on the platforms where their roots exist.
+
+/// Stale `node_modules` of projects untouched for `stale_days`.
+pub const KEY_STALE_NODE: &str = "stale_node_modules";
+/// Stale Cargo `target/` dirs of projects untouched for `stale_days`.
+pub const KEY_STALE_TARGET: &str = "stale_rust_target";
+/// JetBrains support/log dirs of IDE versions that are gone.
+pub const KEY_JETBRAINS: &str = "jetbrains_orphans";
+/// `xcrun simctl delete unavailable` (command-based, like Docker).
+pub const KEY_SIMCTL: &str = "simctl_unavailable";
+/// `pnpm store prune` (command-based).
+pub const KEY_PNPM: &str = "pnpm_store";
+/// `brew cleanup` (command-based).
+pub const KEY_BREW: &str = "brew_cleanup";
+
+/// The command-based categories: no file roots, so they never touch the file
+/// allowlist — they run the tool's own reclaim command instead. Each is
+/// previewed with the tool's dry-run and executed only when checked.
+pub fn is_command_category(key: &str) -> bool {
+    matches!(key, KEY_DOCKER | KEY_SIMCTL | KEY_PNPM | KEY_BREW)
+}
+
+/// Which build artifact a project kind leaves behind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ArtifactKind {
+    /// `package.json` → `node_modules`
+    Node,
+    /// `Cargo.toml` → `target`
+    Rust,
+}
+
+impl ArtifactKind {
+    fn manifest(self) -> &'static str {
+        match self {
+            ArtifactKind::Node => "package.json",
+            ArtifactKind::Rust => "Cargo.toml",
+        }
+    }
+    fn artifact(self) -> &'static str {
+        match self {
+            ArtifactKind::Node => "node_modules",
+            ArtifactKind::Rust => "target",
+        }
+    }
+}
+
+/// Directory names we never descend into while looking for projects — build
+/// artifacts (which can be enormous) and VCS internals.
+const WALK_SKIP: [&str; 4] = ["node_modules", "target", ".git", "Pods"];
+/// How deep below a dev root a project may sit.
+const WALK_MAX_DEPTH: u32 = 5;
+
+/// When a project was last worked on: the newest mtime among the signals that
+/// track *human* activity — the manifest, the source dir, the git HEAD, and
+/// the project dir itself. Deliberately NOT the artifact's own mtime (a
+/// background `cargo build` or a dependency install would otherwise keep a
+/// long-dead project looking alive). `None` = can't tell → treated as active
+/// (never stale), the safe default.
+pub fn project_last_active(project: &Path) -> Option<SystemTime> {
+    let mut newest: Option<SystemTime> = None;
+    for rel in [
+        "",
+        "package.json",
+        "Cargo.toml",
+        "src",
+        "lib",
+        ".git/HEAD",
+        "README.md",
+    ] {
+        let p = if rel.is_empty() { project.to_path_buf() } else { project.join(rel) };
+        let Ok(meta) = std::fs::symlink_metadata(&p) else { continue };
+        let Ok(mtime) = meta.modified() else { continue };
+        newest = Some(match newest {
+            Some(cur) if cur >= mtime => cur,
+            _ => mtime,
+        });
+    }
+    newest
+}
+
+/// Pure staleness decision. `None` (unknown last-active) is never stale.
+pub fn is_stale(last_active: Option<SystemTime>, now: SystemTime, stale_days: u32) -> bool {
+    let Some(last) = last_active else { return false };
+    let threshold = Duration::from_secs(u64::from(stale_days) * 86_400);
+    now.duration_since(last).map(|age| age >= threshold).unwrap_or(false)
+}
+
+/// Walk `roots` for projects of `kind` whose artifact dir exists and whose
+/// project has been untouched for `stale_days`; returns the **artifact** dirs
+/// (`…/node_modules`, `…/target`).
+///
+/// Plausibility gate (non-negotiable): the artifact is only ever reported when
+/// its parent actually holds the matching manifest — a bare `node_modules`
+/// without a `package.json` next to it is left alone. Symlinks are never
+/// followed, and the walk never descends into artifacts.
+pub fn find_stale_artifacts(
+    roots: &[PathBuf],
+    kind: ArtifactKind,
+    now: SystemTime,
+    stale_days: u32,
+) -> Vec<PathBuf> {
+    fn walk(
+        dir: &Path,
+        depth: u32,
+        kind: ArtifactKind,
+        now: SystemTime,
+        stale_days: u32,
+        out: &mut Vec<PathBuf>,
+    ) {
+        if depth > WALK_MAX_DEPTH {
+            return;
+        }
+        // A project here? (manifest + artifact side by side)
+        let artifact = dir.join(kind.artifact());
+        if dir.join(kind.manifest()).is_file() {
+            let is_real_dir = std::fs::symlink_metadata(&artifact)
+                .map(|m| m.is_dir() && !m.file_type().is_symlink())
+                .unwrap_or(false);
+            if is_real_dir && is_stale(project_last_active(dir), now, stale_days) {
+                out.push(artifact);
+            }
+        }
+        let Ok(entries) = std::fs::read_dir(dir) else { return };
+        for e in entries.flatten() {
+            let p = e.path();
+            let Ok(meta) = std::fs::symlink_metadata(&p) else { continue };
+            if !meta.is_dir() || meta.file_type().is_symlink() {
+                continue;
+            }
+            let Some(name) = p.file_name().and_then(|n| n.to_str()) else { continue };
+            // Never descend into artifacts / VCS internals / hidden dirs.
+            if WALK_SKIP.contains(&name) || name.starts_with('.') {
+                continue;
+            }
+            walk(&p, depth + 1, kind, now, stale_days, out);
+        }
+    }
+
+    let mut out = Vec::new();
+    for root in roots {
+        if root.is_dir() {
+            walk(root, 0, kind, now, stale_days, &mut out);
+        }
+    }
+    out.sort();
+    out
+}
+
+// ── JetBrains orphans ────────────────────────────────────────────────────
+
+/// Split a JetBrains support-dir name into (product, version):
+/// `"IntelliJIdea2023.1"` → `("IntelliJIdea", "2023.1")`. `None` if it carries
+/// no version (then we never touch it — we can't reason about it).
+pub fn parse_jetbrains_dir(name: &str) -> Option<(String, String)> {
+    let idx = name.find(|c: char| c.is_ascii_digit())?;
+    let (product, version) = name.split_at(idx);
+    if product.is_empty() || version.is_empty() {
+        return None;
+    }
+    Some((product.to_string(), version.to_string()))
+}
+
+/// Compare two JetBrains versions ("2023.1" < "2023.10" < "2024.2") by numeric
+/// segments, so a plain string sort can't mis-rank 2023.10 below 2023.2.
+fn version_key(v: &str) -> Vec<u64> {
+    v.split(['.', '-'])
+        .map(|seg| seg.chars().take_while(|c| c.is_ascii_digit()).collect::<String>())
+        .map(|digits| digits.parse::<u64>().unwrap_or(0))
+        .collect()
+}
+
+/// Normalise a product name for comparison: `"IntelliJ IDEA.app"` and
+/// `"IntelliJIdea"` both collapse to `intellijidea`.
+fn normalise_product(s: &str) -> String {
+    s.trim_end_matches(".app")
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric())
+        .collect::<String>()
+        .to_ascii_lowercase()
+}
+
+/// Which of the JetBrains dirs in `present` belong to no live IDE.
+///
+/// Two independent reasons to call a dir an orphan, and both are strictly
+/// conservative — a version that might still be in use is never listed:
+///   * its product isn't installed at all (no matching app bundle), or
+///   * a **newer** version of the same product exists in `present` (the newest
+///     is the one the installed IDE uses, so it's always kept).
+///
+/// Dirs without a parseable version are never listed.
+pub fn jetbrains_orphans(present: &[String], installed_apps: &[String]) -> Vec<String> {
+    use std::collections::BTreeMap;
+    let installed: Vec<String> = installed_apps.iter().map(|a| normalise_product(a)).collect();
+    let mut by_product: BTreeMap<String, Vec<(Vec<u64>, String)>> = BTreeMap::new();
+    for name in present {
+        let Some((product, version)) = parse_jetbrains_dir(name) else { continue };
+        by_product
+            .entry(normalise_product(&product))
+            .or_default()
+            .push((version_key(&version), name.clone()));
+    }
+    let mut out = Vec::new();
+    for (product, mut versions) in by_product {
+        // An app bundle counts as this product if either name contains the
+        // other once normalised ("IntelliJ IDEA.app" ⊃ "intellijidea";
+        // "PyCharm Community" ⊃ "pycharm").
+        let product_installed = installed
+            .iter()
+            .any(|a| a.contains(&product) || product.contains(a.as_str()));
+        if !product_installed {
+            out.extend(versions.into_iter().map(|(_, name)| name));
+            continue;
+        }
+        versions.sort();
+        versions.pop(); // keep the newest — that's the installed IDE's
+        out.extend(versions.into_iter().map(|(_, name)| name));
+    }
+    out.sort();
+    out
+}
+
+/// The orphaned JetBrains dirs on this machine (support + logs), as roots.
+#[cfg(target_os = "macos")]
+fn jetbrains_orphan_roots() -> Vec<PathBuf> {
+    let Some(h) = home() else { return Vec::new() };
+    let installed = list_dir_names(&PathBuf::from("/Applications"))
+        .into_iter()
+        .chain(list_dir_names(&h.join("Applications")))
+        .collect::<Vec<_>>();
+    let mut out = Vec::new();
+    for base in [
+        h.join("Library/Application Support/JetBrains"),
+        h.join("Library/Logs/JetBrains"),
+    ] {
+        let present = list_dir_names(&base);
+        for name in jetbrains_orphans(&present, &installed) {
+            out.push(base.join(name));
+        }
+    }
+    out
+}
+
+/// Immediate subdirectory names of `dir` (empty if unreadable).
+fn list_dir_names(dir: &Path) -> Vec<String> {
+    let Ok(entries) = std::fs::read_dir(dir) else { return Vec::new() };
+    entries
+        .flatten()
+        .filter(|e| e.path().is_dir())
+        .filter_map(|e| e.file_name().to_str().map(str::to_string))
+        .collect()
+}
+
+// ── Command-based dev tools (preview via dry-run, like Docker) ───────────
+
+/// Is `bin` on PATH? (Command categories contribute nothing when their tool
+/// isn't installed — never an error.)
+fn has_binary(bin: &str) -> bool {
+    std::process::Command::new("which")
+        .arg(bin)
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+/// Parse `brew cleanup --dry-run`'s summary line: "This operation would free
+/// approximately 1.2GB of disk space". Also matches the past-tense line that
+/// the real run prints ("has freed approximately …"). 0 if absent.
+pub fn parse_brew_freeable(output: &str) -> u64 {
+    for line in output.lines() {
+        let l = line.trim();
+        let Some(idx) = l.find("approximately") else { continue };
+        let rest = l[idx + "approximately".len()..].trim();
+        let size: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_alphanumeric() || *c == '.')
+            .collect();
+        let bytes = parse_docker_size(&size); // same SI-suffix grammar
+        if bytes > 0 {
+            return bytes;
+        }
+    }
+    0
+}
+
+/// UDIDs of simulators `xcrun simctl list devices` marks unavailable — the
+/// ones `simctl delete unavailable` would remove. Lines look like
+/// `    iPhone 12 (UDID) (Shutdown) (unavailable, runtime profile not found)`.
+pub fn parse_unavailable_udids(output: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    for line in output.lines() {
+        if !line.contains("(unavailable") {
+            continue;
+        }
+        // The UDID is the first parenthesised group that looks like one.
+        for part in line.split('(') {
+            let cand = part.split(')').next().unwrap_or("").trim();
+            let is_udid = cand.len() == 36
+                && cand.chars().all(|c| c.is_ascii_hexdigit() || c == '-')
+                && cand.matches('-').count() == 4;
+            if is_udid {
+                out.push(cand.to_string());
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Recursive on-disk size of `dir` (lstat, never follows symlinks). 0 if gone.
+fn dir_size(dir: &Path) -> u64 {
+    let mut files = Vec::new();
+    collect_files(dir, Duration::ZERO, SystemTime::now(), &[], &mut files);
+    files.iter().map(|(_, s)| *s).sum()
 }
 
 /// The duplicate-finder category's key — special-cased in `scan` (its items
@@ -964,32 +1468,111 @@ fn append_duplicates(plan: &mut CleanPlan, group: &ScanGroup) {
     plan.categories.push((group.key.clone(), group.label.clone(), cat_bytes));
 }
 
-/// Read-only scan for the current config. Safe to call any time. Two special
-/// categories bypass the generic walker: the duplicate finder (content
-/// hashing) and Docker (a `docker system df` estimate).
+/// Preview a command-based category: `(pseudo-item label, reclaimable bytes)`,
+/// or `None` when the tool is missing / has nothing to reclaim (→ the category
+/// contributes nothing, never an error).
+fn command_preview(key: &str) -> Option<(String, u64)> {
+    match key {
+        KEY_DOCKER => {
+            let bytes = docker_build_cache_reclaimable()?;
+            (bytes > 0).then(|| ("Docker build cache — freed via `docker builder prune`".into(), bytes))
+        }
+        KEY_BREW => {
+            if !has_binary("brew") {
+                return None;
+            }
+            let out = std::process::Command::new("brew")
+                .args(["cleanup", "--dry-run"])
+                .output()
+                .ok()?;
+            let bytes = parse_brew_freeable(&String::from_utf8_lossy(&out.stdout));
+            (bytes > 0).then(|| ("Homebrew outdated downloads — freed via `brew cleanup`".into(), bytes))
+        }
+        KEY_PNPM => {
+            if !has_binary("pnpm") {
+                return None;
+            }
+            // pnpm has no dry-run that reports a size, and the orphaned share of
+            // the store can't be known without pruning — so we show the item
+            // with an unknown size rather than inventing one.
+            Some(("pnpm store: orphaned packages — freed via `pnpm store prune` (size unknown until run)".into(), 0))
+        }
+        KEY_SIMCTL => {
+            if !has_binary("xcrun") {
+                return None;
+            }
+            let out = std::process::Command::new("xcrun")
+                .args(["simctl", "list", "devices"])
+                .output()
+                .ok()?;
+            let udids = parse_unavailable_udids(&String::from_utf8_lossy(&out.stdout));
+            if udids.is_empty() {
+                return None;
+            }
+            // The devices' own directories give an exact size.
+            let base = home()?.join("Library/Developer/CoreSimulator/Devices");
+            let bytes: u64 = udids.iter().map(|u| dir_size(&base.join(u))).sum();
+            Some((
+                format!("{} unavailable simulator(s) — freed via `simctl delete unavailable`", udids.len()),
+                bytes,
+            ))
+        }
+        _ => None,
+    }
+}
+
+/// Run a command category's reclaim command. Returns freed bytes (0 when the
+/// tool doesn't report a size).
+fn command_execute(key: &str) -> Result<u64, String> {
+    let run = |bin: &str, args: &[&str]| -> Result<String, String> {
+        let out = std::process::Command::new(bin)
+            .args(args)
+            .output()
+            .map_err(|e| format!("{bin}: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "{bin} {} failed: {}",
+                args.join(" "),
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).to_string())
+    };
+    match key {
+        KEY_DOCKER => docker_builder_prune(),
+        KEY_BREW => Ok(parse_brew_freeable(&run("brew", &["cleanup"])?)),
+        KEY_PNPM => run("pnpm", &["store", "prune"]).map(|_| 0),
+        KEY_SIMCTL => run("xcrun", &["simctl", "delete", "unavailable"]).map(|_| 0),
+        _ => Err(format!("{key}: not a command category")),
+    }
+}
+
+/// Read-only scan for the current config. Safe to call any time. Two kinds of
+/// category bypass the generic walker: the duplicate finder (content hashing)
+/// and the command-based tools (Docker / brew / pnpm / simctl — previewed via
+/// their dry-run).
 pub fn scan(cfg: &CleanerConfig) -> CleanPlan {
     let groups = enabled_groups(cfg);
     let dupes_group = groups.iter().find(|g| g.key == KEY_DUPES).cloned();
-    let docker_group = groups.iter().find(|g| g.key == KEY_DOCKER).cloned();
+    let command_groups: Vec<ScanGroup> =
+        groups.iter().filter(|g| is_command_category(&g.key)).cloned().collect();
     let generic: Vec<ScanGroup> = groups
         .into_iter()
-        .filter(|g| g.key != KEY_DUPES && g.key != KEY_DOCKER)
+        .filter(|g| g.key != KEY_DUPES && !is_command_category(&g.key))
         .collect();
     let mut plan = scan_roots(&generic, cfg.min_age_days, SystemTime::now());
     if let Some(g) = dupes_group {
         append_duplicates(&mut plan, &g);
     }
-    if let Some(g) = docker_group {
-        if let Some(bytes) = docker_build_cache_reclaimable() {
-            if bytes > 0 {
-                plan.items.push(CleanItem {
-                    path: "Docker build cache — freed via `docker builder prune`".into(),
-                    size: bytes,
-                    category: g.key.clone(),
-                });
-                plan.total_bytes += bytes;
-                plan.categories.push((g.key, g.label, bytes));
-            }
+    for g in command_groups {
+        if let Some((label, bytes)) = command_preview(&g.key) {
+            plan.items.push(CleanItem {
+                path: label,
+                size: bytes,
+                category: g.key.clone(),
+            });
+            plan.total_bytes += bytes;
+            plan.categories.push((g.key, g.label, bytes));
         }
     }
     plan
@@ -997,18 +1580,36 @@ pub fn scan(cfg: &CleanerConfig) -> CleanPlan {
 
 /// Execute a previously-scanned plan, re-validating against the config's
 /// allowlist. The plan should come from `scan(cfg)` with the same `cfg`.
-/// Docker items are pseudo-items (no file path) — they run the builder prune
-/// instead of the file deleter, and only if the category is enabled in `cfg`.
+/// Command items are pseudo-items (their `path` is a label, not a file) — they
+/// run the tool's reclaim command instead of the file deleter, and only if the
+/// category is still enabled in `cfg`.
 pub fn execute(cfg: &CleanerConfig, plan: &CleanPlan) -> CleanResult {
-    let docker_requested = plan.items.iter().any(|i| i.category == KEY_DOCKER);
+    let enabled: Vec<String> = enabled_groups(cfg).into_iter().map(|g| g.key).collect();
+    let mut commands: Vec<String> = plan
+        .items
+        .iter()
+        .filter(|i| is_command_category(&i.category))
+        .map(|i| i.category.clone())
+        .collect();
+    commands.sort();
+    commands.dedup();
+
     let file_plan = CleanPlan {
-        items: plan.items.iter().filter(|i| i.category != KEY_DOCKER).cloned().collect(),
+        items: plan
+            .items
+            .iter()
+            .filter(|i| !is_command_category(&i.category))
+            .cloned()
+            .collect(),
         total_bytes: 0,
         categories: vec![],
     };
     let mut res = execute_plan(&file_plan, &enabled_roots(cfg), &enabled_excludes(cfg));
-    if docker_requested && enabled_groups(cfg).iter().any(|g| g.key == KEY_DOCKER) {
-        match docker_builder_prune() {
+    for key in commands {
+        if !enabled.contains(&key) {
+            continue;
+        }
+        match command_execute(&key) {
             Ok(freed) => {
                 res.deleted += 1;
                 res.freed_bytes += freed;
@@ -1018,6 +1619,120 @@ pub fn execute(cfg: &CleanerConfig, plan: &CleanPlan) -> CleanResult {
     }
     res
 }
+
+// ── Directory aggregation (v0.84.264) ────────────────────────────────────
+//
+// The plan is (and stays) file-granular — that's what makes "execute deletes
+// exactly what was planned, re-validated" true. But a DerivedData scan is
+// 100k+ files, which is useless to look at and expensive to ship over IPC. So
+// the plan stays in the backend (`PlanStore`) and the UI gets this: one row per
+// directory, with the files aggregated into it.
+
+/// One selectable row in the UI: a directory (or a command pseudo-item).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanDir {
+    /// The directory's path — also the selection key sent back to `execute`.
+    pub path: String,
+    pub size: u64,
+    /// How many files of the plan live under it (1 for a command pseudo-item).
+    pub count: u64,
+    pub category: String,
+}
+
+/// What the frontend gets from a scan: aggregated rows, never the raw items.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct CleanPlanView {
+    pub dirs: Vec<CleanDir>,
+    pub total_bytes: u64,
+    /// `(key, label, bytes)` per scanned category.
+    pub categories: Vec<(String, String, u64)>,
+}
+
+/// The directory row an item belongs to: its owning root plus one more path
+/// component (so `~/Library/Caches/foo/bar/baz.bin` rolls up into
+/// `~/Library/Caches/foo`), or the root itself if the file sits directly in it.
+/// A path that matches no root (a command pseudo-item) is its own row.
+pub fn entry_for(item: &CleanItem, roots: &[PathBuf]) -> String {
+    let path = Path::new(&item.path);
+    // Longest matching root wins (roots can nest).
+    let root = roots
+        .iter()
+        .filter(|r| path.starts_with(r))
+        .max_by_key(|r| r.as_os_str().len());
+    let Some(root) = root else {
+        return item.path.clone();
+    };
+    match path.strip_prefix(root).ok().and_then(|rel| rel.components().next()) {
+        Some(first) if path != root.join(first.as_os_str()) => {
+            root.join(first.as_os_str()).to_string_lossy().to_string()
+        }
+        // The file sits directly in the root → the root is the row.
+        _ => root.to_string_lossy().to_string(),
+    }
+}
+
+/// Roll a file-granular plan up into directory rows, largest first. Pure.
+pub fn aggregate_dirs(
+    plan: &CleanPlan,
+    roots_by_cat: &std::collections::BTreeMap<String, Vec<PathBuf>>,
+) -> CleanPlanView {
+    use std::collections::BTreeMap;
+    let mut acc: BTreeMap<(String, String), (u64, u64)> = BTreeMap::new(); // (cat, dir) → (bytes, count)
+    for item in &plan.items {
+        let roots = roots_by_cat.get(&item.category).map(Vec::as_slice).unwrap_or(&[]);
+        let dir = entry_for(item, roots);
+        let e = acc.entry((item.category.clone(), dir)).or_insert((0, 0));
+        e.0 += item.size;
+        e.1 += 1;
+    }
+    let mut dirs: Vec<CleanDir> = acc
+        .into_iter()
+        .map(|((category, path), (size, count))| CleanDir { path, size, count, category })
+        .collect();
+    dirs.sort_by(|a, b| b.size.cmp(&a.size).then_with(|| a.path.cmp(&b.path)));
+    CleanPlanView {
+        dirs,
+        total_bytes: plan.total_bytes,
+        categories: plan.categories.clone(),
+    }
+}
+
+/// Keep only the items whose directory row the user actually ticked. The
+/// backend still re-validates every path at delete time — this is purely
+/// "what did the user consent to".
+pub fn filter_by_selection(
+    plan: &CleanPlan,
+    roots_by_cat: &std::collections::BTreeMap<String, Vec<PathBuf>>,
+    selected: &[String],
+) -> CleanPlan {
+    use std::collections::HashSet;
+    let want: HashSet<&str> = selected.iter().map(String::as_str).collect();
+    let mut out = CleanPlan::default();
+    for item in &plan.items {
+        let roots = roots_by_cat.get(&item.category).map(Vec::as_slice).unwrap_or(&[]);
+        if !want.contains(entry_for(item, roots).as_str()) {
+            continue;
+        }
+        out.total_bytes += item.size;
+        out.items.push(item.clone());
+    }
+    out
+}
+
+/// Per-category roots of the enabled categories — what `aggregate_dirs` /
+/// `filter_by_selection` need to roll paths up.
+pub fn enabled_roots_by_cat(
+    cfg: &CleanerConfig,
+) -> std::collections::BTreeMap<String, Vec<PathBuf>> {
+    enabled_groups(cfg).into_iter().map(|g| (g.key, g.roots)).collect()
+}
+
+/// The scanned plan, held in the backend between `cleaner_scan` and
+/// `cleaner_execute` (Tauri-managed state). Keeping it here — instead of
+/// shipping 100k items to the webview and back — is what makes the
+/// directory-row UI cheap.
+#[derive(Default)]
+pub struct PlanStore(pub parking_lot::Mutex<Option<CleanPlan>>);
 
 #[cfg(test)]
 mod tests {
@@ -1032,6 +1747,7 @@ mod tests {
             roots,
             exclude,
             exts: vec![],
+            ignore_age: false,
         }
     }
 
@@ -1229,6 +1945,8 @@ mod tests {
             level: Level::Aggressive,
             min_age_days: 14,
             categories: Default::default(),
+            dev_roots: vec!["/nonexistent/dev-root".into()],
+            stale_days: 45,
         };
         cfg.categories.insert("dev_caches".into(), true);
         cfg.categories.insert("os_temp".into(), false);
@@ -1246,7 +1964,7 @@ mod tests {
 
     #[test]
     fn categories_are_nonempty_and_aggressive_dev_is_opt_out_by_default() {
-        let cats = categories();
+        let cats = categories(&CleanerConfig::default());
         assert!(!cats.is_empty());
         if let Some(dev) = cats.iter().find(|c| c.key == "dev_caches") {
             assert_eq!(dev.level, Level::Aggressive);
@@ -1395,7 +2113,7 @@ mod tests {
 
     #[test]
     fn risky_new_categories_are_aggressive_and_opt_in() {
-        let cats = categories();
+        let cats = categories(&CleanerConfig::default());
         for key in ["trash", "xcode_caches"] {
             if let Some(c) = cats.iter().find(|c| c.key == key) {
                 assert_eq!(c.level, Level::Aggressive, "{key} must be Aggressive");
@@ -1407,5 +2125,204 @@ mod tests {
             assert_eq!(other.level, Level::Standard);
             assert!(!other.exclude.is_empty(), "other_caches must carve out specifics");
         }
+    }
+
+    // ── Developer targets (v0.84.264) ────────────────────────────────────
+
+    /// Backdate a path's mtime by `days` — via std's `FileTimes` (no extra dep;
+    /// works for directories too, since Unix `futimens` accepts a read-only fd).
+    fn age_by_days(path: &Path, days: u64) {
+        let when = SystemTime::now() - Duration::from_secs(days * 86_400);
+        let f = fs::File::open(path).unwrap();
+        f.set_times(fs::FileTimes::new().set_modified(when)).unwrap();
+    }
+
+    /// A project dir with its manifest + artifact, aged `days` days.
+    fn make_project(base: &Path, name: &str, kind: ArtifactKind, days: u64) -> PathBuf {
+        let proj = base.join(name);
+        fs::create_dir_all(proj.join(kind.artifact())).unwrap();
+        fs::write(proj.join(kind.manifest()), b"{}").unwrap();
+        fs::write(proj.join(kind.artifact()).join("junk.bin"), vec![0u8; 100]).unwrap();
+        // Age every activity signal, incl. the project dir itself.
+        age_by_days(&proj.join(kind.manifest()), days);
+        age_by_days(&proj, days);
+        proj
+    }
+
+    #[test]
+    fn stale_projects_are_found_fresh_ones_are_not() {
+        let base = tmp();
+        make_project(&base, "dead", ArtifactKind::Node, 200);
+        make_project(&base, "alive", ArtifactKind::Node, 3);
+        let found =
+            find_stale_artifacts(std::slice::from_ref(&base), ArtifactKind::Node, SystemTime::now(), 90);
+        assert_eq!(found.len(), 1, "only the dead project's artifact: {found:?}");
+        assert!(found[0].ends_with("dead/node_modules"));
+    }
+
+    #[test]
+    fn node_modules_without_a_manifest_is_never_touched() {
+        // The plausibility gate: a bare node_modules (no package.json beside it)
+        // might be anything — never delete it.
+        let base = tmp();
+        let orphan = base.join("mystery/node_modules");
+        fs::create_dir_all(&orphan).unwrap();
+        fs::write(orphan.join("x.bin"), b"x").unwrap();
+        age_by_days(&base.join("mystery"), 300);
+        let found = find_stale_artifacts(&[base], ArtifactKind::Node, SystemTime::now(), 90);
+        assert!(found.is_empty(), "no manifest → not a project: {found:?}");
+    }
+
+    #[test]
+    fn a_symlinked_artifact_is_never_reported() {
+        let base = tmp();
+        let proj = base.join("linky");
+        fs::create_dir_all(&proj).unwrap();
+        fs::write(proj.join("package.json"), b"{}").unwrap();
+        let real = base.join("elsewhere");
+        fs::create_dir_all(&real).unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(&real, proj.join("node_modules")).unwrap();
+        age_by_days(&proj, 300);
+        let found = find_stale_artifacts(&[base], ArtifactKind::Node, SystemTime::now(), 90);
+        assert!(found.is_empty(), "symlinked artifact must be skipped: {found:?}");
+    }
+
+    #[test]
+    fn recent_source_edits_keep_a_project_alive() {
+        // The manifest is ancient but src/ was touched today → not stale.
+        let base = tmp();
+        let proj = make_project(&base, "worked_on", ArtifactKind::Rust, 300);
+        fs::create_dir_all(proj.join("src")).unwrap(); // fresh mtime
+        let found = find_stale_artifacts(&[base], ArtifactKind::Rust, SystemTime::now(), 90);
+        assert!(found.is_empty(), "a recently-edited project is not stale: {found:?}");
+    }
+
+    #[test]
+    fn is_stale_treats_unknown_activity_as_alive() {
+        assert!(!is_stale(None, SystemTime::now(), 1));
+    }
+
+    #[test]
+    fn stale_scan_ignores_the_age_filter() {
+        // A stale project may still hold brand-new files (a dependency install
+        // that never led anywhere). The per-file age filter must not save them.
+        let base = tmp();
+        make_project(&base, "dead", ArtifactKind::Node, 200);
+        let artifacts = find_stale_artifacts(&[base], ArtifactKind::Node, SystemTime::now(), 90);
+        let g = ScanGroup {
+            key: KEY_STALE_NODE.into(),
+            label: "stale".into(),
+            roots: artifacts,
+            exclude: vec![],
+            exts: vec![],
+            ignore_age: true,
+        };
+        // min_age of 365 days would otherwise exclude the freshly-written junk.
+        let plan = scan_roots(&[g], 365, SystemTime::now());
+        assert_eq!(plan.items.len(), 1, "ignore_age must bypass the age filter");
+    }
+
+    #[test]
+    fn jetbrains_orphans_keep_the_newest_and_drop_uninstalled_products() {
+        let present = vec![
+            "IntelliJIdea2023.1".to_string(),
+            "IntelliJIdea2023.10".to_string(), // newest (numeric compare, not string!)
+            "IntelliJIdea2023.2".to_string(),
+            "PyCharm2022.3".to_string(), // product not installed at all
+            "consentOptions".to_string(), // no version → never touched
+        ];
+        let installed = vec!["IntelliJ IDEA.app".to_string()];
+        let orphans = jetbrains_orphans(&present, &installed);
+        assert_eq!(
+            orphans,
+            vec!["IntelliJIdea2023.1", "IntelliJIdea2023.2", "PyCharm2022.3"],
+            "keep the newest installed version; drop older + uninstalled products"
+        );
+    }
+
+    #[test]
+    fn parse_brew_and_simctl_output() {
+        assert_eq!(
+            parse_brew_freeable("==> This operation would free approximately 1.2GB of disk space."),
+            1_200_000_000
+        );
+        assert_eq!(parse_brew_freeable("nothing to do"), 0);
+
+        let sim = "    iPhone 12 (A1B2C3D4-1111-2222-3333-444455556666) (Shutdown) (unavailable, runtime profile not found)\n\
+                       iPhone 15 (DEADBEEF-0000-1111-2222-333344445555) (Booted)";
+        assert_eq!(
+            parse_unavailable_udids(sim),
+            vec!["A1B2C3D4-1111-2222-3333-444455556666"]
+        );
+    }
+
+    #[test]
+    fn aggregation_rolls_files_up_into_directory_rows() {
+        let root = PathBuf::from("/cache/root");
+        let plan = CleanPlan {
+            items: vec![
+                CleanItem { path: "/cache/root/a/1.bin".into(), size: 10, category: "c".into() },
+                CleanItem { path: "/cache/root/a/deep/2.bin".into(), size: 5, category: "c".into() },
+                CleanItem { path: "/cache/root/b/3.bin".into(), size: 30, category: "c".into() },
+                CleanItem { path: "/cache/root/loose.bin".into(), size: 1, category: "c".into() },
+            ],
+            total_bytes: 46,
+            categories: vec![("c".into(), "C".into(), 46)],
+        };
+        let mut roots = std::collections::BTreeMap::new();
+        roots.insert("c".to_string(), vec![root.clone()]);
+        let view = aggregate_dirs(&plan, &roots);
+        let rows: Vec<(&str, u64, u64)> =
+            view.dirs.iter().map(|d| (d.path.as_str(), d.size, d.count)).collect();
+        assert_eq!(
+            rows,
+            vec![
+                ("/cache/root/b", 30, 1),  // largest first
+                ("/cache/root/a", 15, 2),  // both files rolled up, incl. the deep one
+                ("/cache/root", 1, 1),     // a file directly in the root is its own row
+            ]
+        );
+        assert_eq!(view.total_bytes, 46);
+    }
+
+    #[test]
+    fn selection_filters_the_plan_to_exactly_what_was_ticked() {
+        let root = PathBuf::from("/cache/root");
+        let plan = CleanPlan {
+            items: vec![
+                CleanItem { path: "/cache/root/a/1.bin".into(), size: 10, category: "c".into() },
+                CleanItem { path: "/cache/root/b/2.bin".into(), size: 30, category: "c".into() },
+            ],
+            total_bytes: 40,
+            categories: vec![],
+        };
+        let mut roots = std::collections::BTreeMap::new();
+        roots.insert("c".to_string(), vec![root]);
+        let chosen = filter_by_selection(&plan, &roots, &["/cache/root/a".to_string()]);
+        assert_eq!(chosen.items.len(), 1);
+        assert_eq!(chosen.items[0].path, "/cache/root/a/1.bin");
+        assert_eq!(chosen.total_bytes, 10);
+
+        // Nothing ticked → nothing planned (never "all" by accident).
+        assert!(filter_by_selection(&plan, &roots, &[]).items.is_empty());
+    }
+
+    #[test]
+    fn a_command_pseudo_item_is_its_own_row_and_survives_selection() {
+        let plan = CleanPlan {
+            items: vec![CleanItem {
+                path: "Docker build cache — freed via `docker builder prune`".into(),
+                size: 2_000_000_000,
+                category: KEY_DOCKER.into(),
+            }],
+            total_bytes: 2_000_000_000,
+            categories: vec![],
+        };
+        let roots = std::collections::BTreeMap::new(); // command categories have none
+        let view = aggregate_dirs(&plan, &roots);
+        assert_eq!(view.dirs.len(), 1);
+        let chosen = filter_by_selection(&plan, &roots, &[view.dirs[0].path.clone()]);
+        assert_eq!(chosen.items.len(), 1);
     }
 }

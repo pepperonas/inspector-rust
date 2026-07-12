@@ -78,10 +78,14 @@ Audio-Ausgabe — `sound`/`audio`: Ausgabegerät wechseln + System-Lautstärke-S
 Philips Hue — `hue`: Lampen steuern (an/aus, Helligkeit, 8 Farben, Tastatur-Navigation), Bridge-Pairing lokal
 System-Stats — `stats`: CPU/RAM/Akku/Watt/Temperaturen/Lüfter/Disk/Netz, Live + Verlauf (1h–7d)
 boom — systemweiter 10-Band-EQ + Lautstärke-Boost + 20 Presets + 5 Effekte (virtueller Audio-Treiber); Idle-Gate lässt den Mac schlafen
-Clean-Picker — Kategorien mit Checkboxen, Größen, größten Dateien; zweistufiges Enter löscht nur die Auswahl
+Clean-Picker — Verzeichnis-Zeilen (Größe absteigend) unter Kategorie-Überschriften, einzeln abwählbar; zweistufiges Enter löscht nur die Auswahl
 
 == Aufräumen (clean) im Detail ==
-Kategorien — eigener Cache, OS-Temp, Browser-Caches, komplettes ~/Library/Caches, Logs (inkl. System/PM2/npm/Editor), Editor-Caches (VS Code/Cursor), Dev-Caches (npm/pnpm/Gradle/Maven/Cargo/rustup/Android/NuGet), Xcode (DerivedData + iOS DeviceSupport), Duplikate in Downloads (SHA-256, Ältestes bleibt), alte Installer, Papierkorb, Docker-Build-Cache (via docker builder prune)
+Kategorien — eigener Cache, OS-Temp, Browser-Caches, komplettes ~/Library/Caches, Logs (inkl. System/PM2/npm/Editor), Editor-Caches (VS Code/Cursor), Dev-Caches (npm/pnpm/Gradle/Maven/Cargo/rustup/uv/Android/NuGet), Xcode (DerivedData + iOS DeviceSupport), Duplikate in Downloads (SHA-256, Ältestes bleibt), alte Installer, Papierkorb, Docker-Build-Cache (via docker builder prune)
+Verwaiste Build-Artefakte — stale node_modules / Rust-target aus toten Projekten (Projekt-Ordner + Schwelle in Tagen einstellbar; nur wenn package.json bzw. Cargo.toml daneben liegt)
+JetBrains-Reste — Support-/Log-Ordner deinstallierter oder überholter IDE-Versionen (neueste Version bleibt immer)
+Xcode-Archive — opt-in, mit Warnung: enthalten die dSYMs (danach keine Symbolisierung alter Crash-Reports mehr)
+Tool-Kategorien — brew cleanup, pnpm store prune, xcrun simctl delete unavailable (nur wenn installiert, nie mit sudo; Vorschau per Dry-Run)
 Sicherheit — Allowlist-only, Canonicalize-Check pro Löschung, keine Symlinks, Altersfilter, Dry-Run + explizite Auswahl
 
 == Zeiterfassung (Timesheet, macOS) ==

@@ -103,6 +103,7 @@ Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean) am
 == Backup & Einstellungen ==
 Voll-Backup — Export/Import der ganzen App (Verlauf, Snippets, Notes, 2FA, Settings, Timesheet opt-in) als eine Datei
 Backup-Verschlüsselung — optional AES-256-GCM + Argon2id-Passwort
+Snippet-Roundtrip — Snippets samt Gruppen extern bearbeiten: Backup-JSON trägt die Gruppe als Name; beim Import setzt "category":"" ein Snippet explizit auf ungruppiert, fehlendes/null lässt die Gruppe unangetastet
 Themes — Dark/Light/System mit MD3-Expressive-Motion
 Popup-Größe — Small/Medium/Large
 Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts

@@ -105,17 +105,24 @@ function frontendLoc() {
 
 // ── Test running ─────────────────────────────────────────────────────────────
 
+// Runners colourise even when their output is a pipe (vitest does), and the
+// escape sequences sit *between* the words we match on ("Tests \e[1m\e[32m907
+// passed") — so strip them before any parsing.
+const stripAnsi = (s) => s.replace(/\[[0-9;]*m/g, "");
+
 function run(cmd, args, cwd) {
   try {
-    return execFileSync(cmd, args, {
-      cwd,
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "pipe"],
-      maxBuffer: 64 * 1024 * 1024,
-    });
+    return stripAnsi(
+      execFileSync(cmd, args, {
+        cwd,
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+        maxBuffer: 64 * 1024 * 1024,
+      }),
+    );
   } catch (err) {
     // A non-zero exit still carries the captured output on stdout/stderr.
-    const out = `${err.stdout ?? ""}${err.stderr ?? ""}`;
+    const out = stripAnsi(`${err.stdout ?? ""}${err.stderr ?? ""}`);
     return { failed: true, out };
   }
 }

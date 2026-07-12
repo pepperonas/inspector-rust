@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.262] — 2026-07-12
+
+### Added
+
+- **Snippet groups can be edited by an external tool, losslessly.** The backup import now understands a third grouping state: `"category": ""` on a snippet means *explicitly ungrouped*, while `null`/absent keeps its existing group (unchanged — a group-less re-import must never wipe your grouping). Internally `upsert_by_abbreviation` takes a three-valued `CategoryAssign { Keep, Clear, Set(id) }` instead of an `Option<i64>`. Export still writes `null` for an ungrouped snippet, so this is import-only — but it lets an external snippet editor express every grouping change (including "take this out of its group") through a plain backup file.
+
+### Fixed
+
+- **README badges were silently stale.** `scripts/update-badges.mjs` bailed with "Could not parse vitest output" because vitest colourises even when its output is a pipe, and the escape codes sit between the words the summary regex matches. Runner output is now ANSI-stripped before parsing.
+
 ## [0.84.261] — 2026-07-12
 
 ### Fixed

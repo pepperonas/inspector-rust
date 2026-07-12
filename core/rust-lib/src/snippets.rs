@@ -294,19 +294,60 @@ pub fn delete(db: &DbHandle, id: i64) -> Result<()> {
     Ok(())
 }
 
+/// What an upsert does to the existing row's group. Three-valued on purpose:
+/// a re-import that simply doesn't mention groups must not wipe the user's
+/// grouping (`Keep`), but an editor round-trip has to be able to say
+/// "this snippet is ungrouped now" (`Clear`) — which `Option<i64>` alone
+/// can't express.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CategoryAssign {
+    /// Leave an existing row's group untouched (new rows land ungrouped).
+    Keep,
+    /// Explicitly ungroup the snippet.
+    Clear,
+    /// Put the snippet in this group.
+    Set(i64),
+}
+
+impl CategoryAssign {
+    /// The `category_id` value written on INSERT (and on UPDATE when it applies).
+    pub fn value(self) -> Option<i64> {
+        match self {
+            CategoryAssign::Set(id) => Some(id),
+            CategoryAssign::Keep | CategoryAssign::Clear => None,
+        }
+    }
+
+    /// Whether an UPDATE overwrites the existing group at all.
+    pub fn applies(self) -> bool {
+        !matches!(self, CategoryAssign::Keep)
+    }
+}
+
+impl From<Option<i64>> for CategoryAssign {
+    /// `Some(id)` → `Set`, `None` → `Keep` (the historical `Option` semantics).
+    fn from(v: Option<i64>) -> Self {
+        match v {
+            Some(id) => CategoryAssign::Set(id),
+            None => CategoryAssign::Keep,
+        }
+    }
+}
+
 /// Insert a snippet by abbreviation, or overwrite the existing row with the
-/// same abbreviation. `created_at` is preserved on update. `category_id`:
-/// `Some` sets/overwrites the group; `None` leaves an existing row's group
-/// untouched (so a category-less re-import can't wipe the user's grouping).
+/// same abbreviation. `created_at` is preserved on update. The group is
+/// assigned per [`CategoryAssign`].
 pub fn upsert_by_abbreviation(
     db: &DbHandle,
     abbreviation: &str,
     title: &str,
     body: &str,
-    category_id: Option<i64>,
+    category: CategoryAssign,
 ) -> Result<()> {
     let now = Utc::now().timestamp_millis();
     let enc_body = crate::crypto::encrypt(body);
+    let category_id = category.value();
+    let applies = category.applies();
     let conn = db.lock();
     conn.execute(
         r#"
@@ -315,10 +356,10 @@ pub fn upsert_by_abbreviation(
         ON CONFLICT(abbreviation) DO UPDATE SET
             title       = excluded.title,
             body        = excluded.body,
-            category_id = CASE WHEN ?4 IS NOT NULL THEN ?4 ELSE snippets.category_id END,
+            category_id = CASE WHEN ?6 THEN ?4 ELSE snippets.category_id END,
             updated_at  = excluded.updated_at
         "#,
-        params![abbreviation.trim(), title.trim(), enc_body, category_id, now],
+        params![abbreviation.trim(), title.trim(), enc_body, category_id, now, applies],
     )?;
     Ok(())
 }
@@ -391,7 +432,7 @@ pub fn import_from_json_into(
                 .push(format!("#{idx} ({abbr}): body is empty"));
             continue;
         }
-        match upsert_by_abbreviation(db, abbr, &item.title, body, category_id) {
+        match upsert_by_abbreviation(db, abbr, &item.title, body, category_id.into()) {
             Ok(()) => result.imported += 1,
             Err(e) => {
                 result.skipped += 1;
@@ -653,5 +694,38 @@ mod tests {
         let id = create(&db, "uni", "Unicode", body, None).unwrap();
         let s = get_by_id(&db, id).unwrap().unwrap();
         assert_eq!(s.body, body);
+    }
+
+    #[test]
+    fn upsert_category_keep_clear_set() {
+        let db = test_db();
+        let g = create_category(&db, "AI Prompts").unwrap();
+        let other = create_category(&db, "Colors").unwrap();
+        create(&db, "aiplan", "Plan", "body", Some(g)).unwrap();
+
+        // Keep: a category-less re-import must not wipe the grouping.
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Keep).unwrap();
+        let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
+        assert_eq!(s.category.as_deref(), Some("AI Prompts"));
+        assert_eq!(s.body, "body2", "the rest of the row still updates");
+
+        // Set: move to another group.
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Set(other)).unwrap();
+        let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
+        assert_eq!(s.category.as_deref(), Some("Colors"));
+
+        // Clear: explicitly ungroup.
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Clear).unwrap();
+        let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
+        assert_eq!(s.category, None);
+    }
+
+    #[test]
+    fn upsert_inserts_new_row_ungrouped_for_keep_and_clear() {
+        let db = test_db();
+        upsert_by_abbreviation(&db, "fresh", "F", "b", CategoryAssign::Keep).unwrap();
+        assert_eq!(find_by_exact_abbreviation(&db, "fresh").unwrap().unwrap().category, None);
+        upsert_by_abbreviation(&db, "fresh2", "F", "b", CategoryAssign::Clear).unwrap();
+        assert_eq!(find_by_exact_abbreviation(&db, "fresh2").unwrap().unwrap().category, None);
     }
 }

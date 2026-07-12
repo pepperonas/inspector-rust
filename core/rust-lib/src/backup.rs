@@ -396,13 +396,22 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
                 .push(format!("snippet #{idx}: empty abbreviation"));
             continue;
         }
-        let cat_id = match &s.category {
+        let assign = match &s.category {
+            // A named group: resolve to a local id (created if missing).
             Some(name) if !name.trim().is_empty() => {
-                snippets::category_id_for_name(db, name).unwrap_or(None)
+                match snippets::category_id_for_name(db, name) {
+                    Ok(Some(id)) => snippets::CategoryAssign::Set(id),
+                    // Couldn't resolve → don't touch the existing grouping.
+                    _ => snippets::CategoryAssign::Keep,
+                }
             }
-            _ => None,
+            // Empty string = the explicit "ungroup me" sentinel (an external
+            // editor round-trip needs a way to say this; `null`/absent can't,
+            // because that has to stay "leave the grouping alone").
+            Some(_) => snippets::CategoryAssign::Clear,
+            None => snippets::CategoryAssign::Keep,
         };
-        match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body, cat_id) {
+        match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body, assign) {
             Ok(()) => result.snippets_imported += 1,
             Err(e) => result
                 .errors
@@ -969,6 +978,53 @@ mod tests {
     }
 
     #[test]
+    fn empty_category_string_ungroups_a_snippet() {
+        // The explicit "ungroup me" sentinel an external editor round-trip
+        // needs — `null`/absent must stay "leave the grouping alone".
+        let db = fresh_db();
+        let g = snippets::create_category(&db, "AI Prompts").unwrap();
+        snippets::create(&db, "aiplan", "Plan", "body", Some(g)).unwrap();
+
+        let json = r#"{
+            "version": 2,
+            "exported_at": 1,
+            "snippets": [
+                { "id": 0, "abbreviation": "aiplan", "title": "Plan", "body": "body",
+                  "created_at": 1, "updated_at": 1, "category": "" }
+            ]
+        }"#;
+        import_json(&db, json).unwrap();
+
+        let s = snippets::find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
+        assert_eq!(s.category, None, "empty category string must ungroup");
+        // The group itself survives (only the membership was cleared).
+        assert!(snippets::list_categories(&db).unwrap().iter().any(|c| c.name == "AI Prompts"));
+    }
+
+    #[test]
+    fn missing_category_field_preserves_grouping() {
+        // The counterpart invariant: a snippet re-imported *without* a category
+        // (e.g. from the lean snippet-JSON shape) keeps its existing group.
+        let db = fresh_db();
+        let g = snippets::create_category(&db, "AI Prompts").unwrap();
+        snippets::create(&db, "aiplan", "Plan", "old", Some(g)).unwrap();
+
+        let json = r#"{
+            "version": 2,
+            "exported_at": 1,
+            "snippets": [
+                { "id": 0, "abbreviation": "aiplan", "title": "Plan", "body": "new",
+                  "created_at": 1, "updated_at": 1 }
+            ]
+        }"#;
+        import_json(&db, json).unwrap();
+
+        let s = snippets::find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
+        assert_eq!(s.category.as_deref(), Some("AI Prompts"));
+        assert_eq!(s.body, "new", "the body still updates");
+    }
+
+    #[test]
     fn export_with_all_off_emits_everything_empty() {
         let db = fresh_db();
         seed(&db);
@@ -1313,3 +1369,4 @@ mod tests {
         assert!(import_json_maybe_encrypted(&fresh_db(), &enc, Some("wrong")).is_err());
     }
 }
+

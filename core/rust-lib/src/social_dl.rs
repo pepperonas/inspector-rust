@@ -128,6 +128,21 @@ fn is_bot_block(stderr: &str) -> bool {
         || l.contains("log in to")
 }
 
+/// Signatures of YouTube breakage that a **yt-dlp update** usually fixes
+/// (extraction/format failures) or that are transient rate-limiting — either
+/// way the user's action is "update yt-dlp / wait", so we append a hint. Pure.
+pub fn looks_stale_or_rate_limited(stderr: &str) -> bool {
+    let l = stderr.to_lowercase();
+    // "isn't"/"isn’t" (straight + curly apostrophe both appear in yt-dlp output)
+    l.contains("content isn't available")
+        || l.contains("content isn\u{2019}t available")
+        || l.contains("requested format is not available")
+        || l.contains("nsig extraction failed")
+        || l.contains("signature extraction failed")
+        || l.contains("rate-limited")
+        || l.contains("please report this issue on https://github.com/yt-dlp")
+}
+
 /// Run yt-dlp once. On success returns the produced file path (from
 /// `--print after_move:filepath`); on failure returns the full stderr.
 fn run_ytdlp(yt: &Path, args: &[String]) -> Result<PathBuf, String> {
@@ -177,7 +192,20 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
                  and retry."
             ))
         }
-        Err(stderr) => Err(format!("download failed: {}", stderr.lines().last().unwrap_or("unknown error"))),
+        Err(stderr) => {
+            let last = stderr.lines().last().unwrap_or("unknown error");
+            if looks_stale_or_rate_limited(&stderr) {
+                // The #1 cause of YouTube extraction failures is an outdated
+                // yt-dlp; the runner-up is a temporary rate-limit.
+                Err(format!(
+                    "download failed: {last}\n\nThis usually means yt-dlp is out of date \
+                     (update it: `brew upgrade yt-dlp` or `yt-dlp -U`), or {platform_name} is \
+                     temporarily rate-limiting you (wait a few minutes)."
+                ))
+            } else {
+                Err(format!("download failed: {last}"))
+            }
+        }
     }
 }
 
@@ -265,6 +293,21 @@ mod tests {
         assert!(is_bot_block("Please use --cookies-from-browser"));
         assert!(!is_bot_block("ERROR: Requested format is not available"));
         assert!(!is_bot_block("Video unavailable"));
+    }
+
+    #[test]
+    fn stale_or_rate_limited_detection() {
+        // The exact message from the field report (outdated yt-dlp → YouTube).
+        let real = "ERROR: [youtube] O20XTW3X2-8: This content isn't available, try again \
+                    later.. The current session has been rate-limited by YouTube for up to an hour.";
+        assert!(looks_stale_or_rate_limited(real));
+        assert!(looks_stale_or_rate_limited("ERROR: Requested format is not available"));
+        assert!(looks_stale_or_rate_limited("nsig extraction failed: Some(...)"));
+        // Curly apostrophe variant.
+        assert!(looks_stale_or_rate_limited("This content isn\u{2019}t available, try again later"));
+        // Not every failure — a genuine private/removed video isn't "update yt-dlp".
+        assert!(!looks_stale_or_rate_limited("ERROR: Video unavailable. This video is private"));
+        assert!(!looks_stale_or_rate_limited("ERROR: This video is not available in your country"));
     }
 
     #[test]

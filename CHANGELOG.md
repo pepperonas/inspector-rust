@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.258] — 2026-07-12
+
+### Fixed
+
+- **YouTube downloads: clearer guidance when they fail.** When a YouTube download fails with "content isn't available", "requested format is not available", a signature-extraction error, or a rate-limit — almost always because the installed **yt-dlp is out of date** (YouTube changes frequently), or a temporary rate-limit — the error now says so and tells you to update yt-dlp (`brew upgrade yt-dlp` / `yt-dlp -U`) or wait a few minutes, instead of showing the raw technical message. (If your downloads just started failing: updating yt-dlp is the fix.)
+
 ## [0.84.257] — 2026-07-12
 
 ### Fixed

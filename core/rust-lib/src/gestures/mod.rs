@@ -960,6 +960,12 @@ enum TtState {
     Resting { rest: Contact, since: u64 },
     /// Rest + a second (tap) finger down.
     TapDown { rest: Contact, tap: Contact, tap_start_x: f64, started: u64 },
+    /// The tap finger just lifted (rest still down) — emit is DEFERRED one frame
+    /// to confirm the lift. If the tap finger re-appears next frame it was a
+    /// mid-hold contact flicker (not a real lift) → back to `TapDown`, no emit;
+    /// this stops one physical tap from firing twice (jump-to-the-tab-after-next
+    /// bug, v0.84.257). Only a *confirmed* lift emits.
+    TapReleasing { rest: Contact, tap_start_x: f64, started: u64, lift_t: u64 },
     /// Disqualified (scroll/pinch/3+ fingers) — wait for all-lift.
     Poisoned,
 }
@@ -1050,23 +1056,20 @@ impl TipTapRecognizer {
             TtState::TapDown { rest, tap, tap_start_x, started } => match c.len() {
                 0 => (TtState::Idle, None), // both lifted → a two-finger tap, not tip-tap
                 1 => {
-                    // One finger lifted. If the REST remains → the tap finger
-                    // tapped: emit (direction = where the tap landed vs. rest).
+                    // One finger lifted. If the REST remains → the tap finger is
+                    // releasing: DEFER the emit one frame to confirm the lift
+                    // (a mid-hold flicker re-appears and must not fire a tap).
                     let remaining_is_rest = dist(c[0], rest) <= dist(c[0], tap);
                     if remaining_is_rest {
-                        let dur = t_ms.saturating_sub(started);
-                        let emit = (TIPTAP_TAP_MIN_MS..=TIPTAP_TAP_MAX_MS)
-                            .contains(&dur)
-                            .then_some(if tap_start_x > rest.x {
-                                GestureKind::TipTapRight
-                            } else {
-                                GestureKind::TipTapLeft
-                            });
-                        // Rest stays down → back to Resting. The settle timer
-                        // restarts (no backdating): chained taps at human speed
-                        // (> ~80 ms apart) still work, but a bouncing lift
-                        // contact can't immediately re-arm another tap.
-                        (TtState::Resting { rest: c[0], since: t_ms }, emit)
+                        (
+                            TtState::TapReleasing {
+                                rest: c[0],
+                                tap_start_x,
+                                started,
+                                lift_t: t_ms,
+                            },
+                            None,
+                        )
                     } else {
                         // The rest lifted; the former tap finger becomes a fresh rest.
                         (TtState::Resting { rest: c[0], since: t_ms }, None)
@@ -1092,6 +1095,46 @@ impl TipTapRecognizer {
                 }
                 _ => (TtState::Poisoned, None),
             },
+            TtState::TapReleasing { rest, tap_start_x, started, lift_t } => {
+                // Emit direction, computed once from the tap's landing position.
+                let dir = if tap_start_x > rest.x {
+                    GestureKind::TipTapRight
+                } else {
+                    GestureKind::TipTapLeft
+                };
+                match c.len() {
+                    0 => {
+                        // Both lifted → the tap really happened then the rest lifted.
+                        let dur = lift_t.saturating_sub(started);
+                        let emit = (TIPTAP_TAP_MIN_MS..=TIPTAP_TAP_MAX_MS).contains(&dur).then_some(dir);
+                        (TtState::Idle, emit)
+                    }
+                    1 => {
+                        // Lift CONFIRMED (tap finger stayed gone, only the rest is
+                        // here) → emit now (a real tap), back to Resting.
+                        let dur = lift_t.saturating_sub(started);
+                        let emit = (TIPTAP_TAP_MIN_MS..=TIPTAP_TAP_MAX_MS).contains(&dur).then_some(dir);
+                        (TtState::Resting { rest: c[0], since: t_ms }, emit)
+                    }
+                    2 => {
+                        // The tap finger re-appeared: it was a mid-hold flicker,
+                        // NOT a real lift → resume the same tap (keep `started`),
+                        // no emit. This is the double-fire fix.
+                        let (r, t) = if dist(c[0], rest) <= dist(c[1], rest) {
+                            (c[0], c[1])
+                        } else {
+                            (c[1], c[0])
+                        };
+                        if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
+                            || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
+                        {
+                            return (TtState::Poisoned, None);
+                        }
+                        (TtState::TapDown { rest: r, tap: t, tap_start_x, started }, None)
+                    }
+                    _ => (TtState::Poisoned, None),
+                }
+            }
             TtState::Poisoned => match c.len() {
                 // Recover as soon as at most the resting finger remains — a
                 // rejected tap (moved / overstayed / ghost contact) must NOT
@@ -1467,6 +1510,26 @@ mod tests {
             (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapRight]);
+    }
+
+    #[test]
+    fn tiptap_midhold_flicker_does_not_double_fire() {
+        // The tap contact briefly drops out mid-hold (a MultitouchSupport state
+        // flicker) then returns before the REAL lift. The old code emitted on
+        // the flicker AND the real lift — more than the 200 ms refractory apart
+        // — so the browser jumped TWO tabs. The deferred lift-confirmation fires
+        // exactly ONCE (v0.84.257).
+        let evs = tiptap_events(&[
+            (0, vec![c(0.40)]),
+            (100, vec![c(0.40)]),
+            (150, vec![c(0.40), c(0.55)]), // TapDown
+            (200, vec![c(0.40)]),          // flicker: tap gone for one frame
+            (210, vec![c(0.40), c(0.55)]), // tap back — a flicker, not a lift
+            (420, vec![c(0.40)]),          // the real lift
+            (500, vec![c(0.40)]),          // lift confirmed → single emit
+            (600, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
     }
 
     #[test]

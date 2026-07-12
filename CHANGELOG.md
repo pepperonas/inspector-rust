@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.257] — 2026-07-12
+
+### Fixed
+
+- **Tip-tap tab switching no longer jumps two tabs.** One two-finger tip-tap (rest a finger, tap a second) sometimes switched to the tab *after* the next one — the tap finger's touch contact can flicker away for a single frame mid-tap, and the old recogniser counted that flicker plus the real lift as two taps. The recogniser now waits one frame to confirm the finger really lifted (a flicker that returns is ignored), so one tip-tap fires exactly once.
+
 ## [0.84.256] — 2026-07-12
 
 ### Fixed

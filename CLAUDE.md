@@ -628,7 +628,16 @@ tip-taps when one finger sat higher) but a STRICT **0.18** when either contact
 is in the bottom-edge **thumb zone** (`TIPTAP_THUMB_ZONE_Y` y > 0.80) — the
 thumb-anchored-while-pointing posture that caused runaway tab switching stays
 blocked. Taps chain while the rest finger stays down. Direction = tap-x vs
-rest-x. **Robustness
+rest-x. **Deferred lift-confirmation (v0.84.257 — "one tip-tap jumps two tabs"):**
+the emit is DEFERRED one frame past the tap-finger lift (`TtState::TapReleasing`).
+A real lift stays at ≤1 contact on the next frame → emit once; a mid-hold contact
+**flicker** (the tap finger's contact drops out for a frame then returns — a
+common MultitouchSupport state glitch) re-appears as 2 contacts → back to
+`TapDown` with the SAME `started`, no emit. Previously the flicker emitted AND
+the real lift emitted, > the 200 ms refractory apart, so the browser jumped to
+the tab-after-next. Both the confirmed-lift (→1 contact) and the both-lifted
+(→0 contacts) branches emit; a simultaneous two-finger lift still never emits.
+**Robustness
 (v0.84.208):** tip-tap contacts are filtered to MT finger **state 4 (touching)**
 — a lifting finger lingers in the frame array in the leaving states (5–7),
 which read as still-down contacts (stuck recogniser + phantom taps); a

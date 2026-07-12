@@ -743,14 +743,30 @@ Notes have their own tab; the categories sidebar has **+ New Note** and **Clear 
 
 Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema and merge semantics: [`docs/backup.md`](./docs/backup.md).
 
-### Tests
+### Tests & coverage
+
+Inspector Rust keeps its **pure logic** — parsers, math, state machines, arg-builders, formatters — as free functions and unit-tests them exhaustively (behaviour, edge cases, error paths), while the impure OS/FFI edge (CoreAudio/Vision/CGEvent FFI, Tauri windows, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio) is left to manual/integration testing because it needs a live machine. So the code that *can* carry a deterministic test is well-covered — **frontend `src/lib` ≈ 79 % stmt / 95 % branch**, and the pure Rust cores that sit next to their 0 %-covered FFI shells (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — even though the headline workspace average looks modest.
 
 ```bash
 pnpm test               # frontend unit tests (vitest + happy-dom) — 907 tests
-cargo test --workspace  # Rust unit tests — 606 tests (hue, db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, edr, …)
+cargo test --workspace  # Rust unit tests — 724 tests
 ```
 
-The same commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR.
+Iterate on one module:
+
+```bash
+cargo test -p inspector-rust-core --lib snitch                              # one Rust module
+pnpm --filter inspector-rust-frontend exec vitest run src/lib/worldmask.test.ts   # one frontend file
+```
+
+Coverage reports (tooling: `cargo-llvm-cov` + `@vitest/coverage-v8`):
+
+```bash
+cargo llvm-cov --lib -p inspector-rust-core --summary-only
+cd core/frontend && npx vitest run --coverage --coverage.provider=v8 --coverage.include='src/lib/**'
+```
+
+The test commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR. The headline **lines-of-code + test-count badges are auto-computed** from the real sources/runners — never hand-edited — by `pnpm update-badges` (`scripts/update-badges.mjs`, which also runs automatically as a `posttest` hook and aborts if a suite is red).
 
 ### Static analysis
 

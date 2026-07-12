@@ -179,10 +179,13 @@ function rewriteBadges({ locK, total, rust, fe }) {
           /title="Unit tests — \d+ Rust \+ \d+ frontend, all passing"/g,
           `title="Unit tests — ${rust} Rust + ${fe} frontend, all passing"`,
         )
-        // Prose in the command cheat-sheet: "pnpm test … — N tests" (frontend).
+        // Prose in the Tests section (EN "tests" / DE "Tests"): the frontend
+        // count after "vitest + happy-dom) —" and the Rust count after the
+        // "cargo test --workspace  # …" comment.
+        .replace(/(vitest \+ happy-dom\) — )\d+( [Tt]ests)/g, `$1${fe}$2`)
         .replace(
-          /(vitest \+ happy-dom\) — )\d+( tests)/g,
-          `$1${fe}$2`,
+          /(cargo test --workspace {2}# [^—\n]*— )\d+( [Tt]ests)/g,
+          `$1${rust}$2`,
         ),
     "README.de.md": (s) =>
       s
@@ -200,6 +203,12 @@ function rewriteBadges({ locK, total, rust, fe }) {
         .replace(
           /title="Unit-Tests — \d+ Rust \+ \d+ Frontend, alle grün"/g,
           `title="Unit-Tests — ${rust} Rust + ${fe} Frontend, alle grün"`,
+        )
+        // Tests-section prose (DE "Tests"): frontend + Rust counts.
+        .replace(/(vitest \+ happy-dom\) — )\d+( [Tt]ests)/g, `$1${fe}$2`)
+        .replace(
+          /(cargo test --workspace {2}# [^—\n]*— )\d+( [Tt]ests)/g,
+          `$1${rust}$2`,
         ),
   };
 

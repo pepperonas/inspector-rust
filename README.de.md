@@ -667,14 +667,30 @@ Notes haben ihren eigenen Tab; die Kategorien-Sidebar hat **+ New Note** und **C
 
 Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema und Merge-Semantik: [`docs/backup.md`](./docs/backup.md).
 
-### Tests
+### Tests & Coverage
+
+Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 79 % stmt / 95 % Branch** und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 721 Tests
-cargo test --workspace  # Rust-Unit-Tests — 477 Tests (hue, db, snippets, notes, backup, settings, expander, text_field, seed, hotkey-Parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, …)
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 907 Tests
+cargo test --workspace  # Rust-Unit-Tests — 724 Tests
 ```
 
-Die gleichen Commands laufen in [GitHub-Actions-CI](./.github/workflows/ci.yml) bei jedem Push und PR.
+Ein einzelnes Modul während der Iteration:
+
+```bash
+cargo test -p inspector-rust-core --lib snitch                              # ein Rust-Modul
+pnpm --filter inspector-rust-frontend exec vitest run src/lib/worldmask.test.ts   # eine Frontend-Datei
+```
+
+Coverage-Reports (Tooling: `cargo-llvm-cov` + `@vitest/coverage-v8`):
+
+```bash
+cargo llvm-cov --lib -p inspector-rust-core --summary-only
+cd core/frontend && npx vitest run --coverage --coverage.provider=v8 --coverage.include='src/lib/**'
+```
+
+Die Test-Commands laufen in [GitHub-Actions-CI](./.github/workflows/ci.yml) bei jedem Push und PR. Die **LOC- + Test-Count-Badges werden automatisch** aus den echten Quellen/Runnern berechnet — nie von Hand — via `pnpm update-badges` (`scripts/update-badges.mjs`, läuft auch als `posttest`-Hook; bricht ab, wenn eine Suite rot ist).
 
 ### Statische Analyse
 

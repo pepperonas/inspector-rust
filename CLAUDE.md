@@ -42,13 +42,21 @@ Exact match in the popup search field (case-insensitive, no autocomplete):
 | `learningtofly` | Flappy Bird (`FlappyGame.tsx`, `lib/flappy.ts`) |
 
 # Tests
-pnpm test                                     # frontend vitest (all, single run)
-pnpm --filter inspector-rust-frontend test:watch    # frontend vitest watch mode
+pnpm test                                     # frontend vitest (all, single run) — also fires the posttest badge updater
 cargo test --workspace                        # all Rust unit tests
+pnpm --filter inspector-rust-frontend test:watch                 # frontend vitest watch mode
+cargo test -p inspector-rust-core --lib <module>                 # one Rust module (e.g. `snitch`, `hue`)
+pnpm --filter inspector-rust-frontend exec vitest run src/lib/<f>.test.ts   # one frontend file
+IR_SKIP_BADGES=1 pnpm test                    # skip the posttest badge recompute (fast local loop)
+
+# Coverage (tooling: cargo-llvm-cov + @vitest/coverage-v8, both installed)
+cargo llvm-cov --lib -p inspector-rust-core --summary-only        # Rust per-file coverage
+cd core/frontend && npx vitest run --coverage --coverage.provider=v8 \
+  --coverage.reporter=text --coverage.include='src/lib/**'        # frontend pure-logic coverage
 
 # README badges (LOC + test counts) — recomputed from the real sources/runners,
-# idempotent, aborts if a suite is red. Run after adding/removing tests.
-pnpm update-badges    # or: node scripts/update-badges.mjs (also runs as posttest)
+# idempotent, aborts if a suite is red. Runs automatically as the `posttest` hook.
+pnpm update-badges    # or: node scripts/update-badges.mjs
 
 # Static analysis (clippy + tsc + eslint in one shot)
 pnpm check            # or: bash scripts/check.sh
@@ -84,6 +92,23 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 2. Add a `#[tauri::command]` wrapper in `core/rust-lib/src/commands.rs`.
 3. Register it in the `invoke_handler![]` macro in `core/rust-lib/src/lib.rs`.
 4. Add a typed `invoke("command_name", { ...args })` wrapper in `core/frontend/src/lib/ipc.ts`.
+5. **Unit-test the logic from step 1** (the module's `#[cfg(test)] mod tests`), not the IPC glue — see *Testing & coverage*. If the frontend wrapper transforms the response, cover that in `ipc.test.ts`; a plain pass-through wrapper needs only the existing command-name/arg-shape guard.
+
+### Testing & coverage
+
+**The house style: extract the pure logic, test *that* — never the OS/FFI shell.** Every module keeps its deterministic core (parsers, math, state machines, arg-builders, formatters) as free functions and unit-tests them exhaustively; the impure edge (CoreAudio/Vision/CGEvent FFI, Tauri window builds, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio, the WS bridge) is left untested because it needs a live machine and would be non-deterministic. This is why headline coverage looks low (~51 % Rust line, ~16 % frontend statements) while the code that *can* carry a test is well-covered: **frontend `src/lib` ≈ 79 % stmt / 95 % branch**, and the pure Rust cores that live in `*/mod.rs` alongside 0 %-covered `*/macos.rs` FFI (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %, `gestures/mod.rs` 69 %). Judge a change by the coverage of the module's *pure* surface, not the workspace average.
+
+- **Where tests live.** Rust: a file-final `#[cfg(test)] mod tests { use super::*; … }` per module (the badge LOC counter treats that marker as the end of source, so keep test modules at the bottom). Frontend: a sibling `src/**/<name>.test.ts(x)` using Vitest (`describe`/`it`/`expect`), happy-dom environment.
+- **Test behaviour, not implementation.** No getter tests, no snapshot-as-assertion, no pure mock-verification (the one exception is `lib/ipc.test.ts`, a deliberate 29-test *contract* guard pinning each `invoke` command-name + arg shape — kept, never expanded). Cover edge cases explicitly: empty/null, boundaries, Unicode/Umlaute, and error/fallback paths.
+- **Determinism / offline.** Mock external deps. DB: `rusqlite::Connection::open_in_memory()` (Rust) — no temp files. Time: Rust takes explicit timestamps (`generate_at(secret, t)`); frontend uses `vi.useFakeTimers()` + `vi.setSystemTime()`. Randomness: `vi.spyOn(Math, "random")` / vary by index. DOM-absent branches: `vi.stubGlobal("DOMParser", undefined)`.
+- **Encryption-at-rest invariant (`crypto.rs`).** The global `CIPHER` is **never** initialised in the test process — so `crypto::encrypt`/`decrypt` are plaintext pass-throughs and every DB/snippet/notes/TOTP test reads back what it wrote. **Do not call `crypto::init` (or `CIPHER.set`) from a test**: it would encrypt across the whole shared-process suite and break every plaintext-readback assertion. Test the cipher directly via `Cipher::new(&key)` (bypasses the global), as the existing `crypto` tests do.
+- **A new test that fails = a possible bug.** Do NOT relax the assertion to the observed behaviour. Investigate; if it's a real defect, fix the code (or, if it's inherent, assert only the guaranteed invariant and flag it). This is how the v0.84.261 issuer-only-TOTP-export drift was caught + fixed.
+- **Coverage tooling.** `cargo llvm-cov` (needs `llvm-tools-preview`) for Rust, `@vitest/coverage-v8` for the frontend — commands in the *Commands* block above. Both are installed as dev tooling; neither runs in CI by default.
+- **Keep the badges honest.** After adding/removing tests, the counts auto-update via the `posttest` hook (`scripts/update-badges.mjs`) — see *README badges* below. If you commit test changes, the LOC + test-count badges should move with them.
+
+### README badges — auto-computed (`scripts/update-badges.mjs`, v0.84.260)
+
+The headline **lines-of-code** + **unit-test-count** badges in `README.md` / `README.de.md` are recomputed from the real sources by a Node-ESM script — never hand-edited. LOC counts source only (all workspace Rust minus the file-final `#[cfg(test)]` modules + all frontend `src/**/*.ts(x)` minus `*.test.ts(x)` and the generated `openers-data.ts`; `node_modules`/`target`/`dist` are never scanned). Test counts come from the **actual runner output** — the summed `test result: ok. N passed` of `cargo test --workspace` + the `Tests N passed` of a direct `vitest run` — not by grepping `it(`/`#[test]` (which would miscount skips/todos). It **aborts if either suite is red** (a badge must never advertise a passing suite that isn't) and is **idempotent** (re-running is a no-op). Wired as both `pnpm update-badges` and the `posttest` hook; the runners are invoked **directly** (`cargo test`, `vitest run`), never via `npm test`, so the hook can't recurse. `IR_SKIP_BADGES=1` turns the hook into a fast no-op for a tight local `pnpm test` loop.
 
 ### Adding a new search-bar (custom) command — REQUIRED checklist
 

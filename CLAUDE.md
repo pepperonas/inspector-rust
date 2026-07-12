@@ -48,7 +48,7 @@ cargo test --workspace                        # all Rust unit tests
 
 # README badges (LOC + test counts) — recomputed from the real sources/runners,
 # idempotent, aborts if a suite is red. Run after adding/removing tests.
-pnpm badges           # or: bash scripts/update-badges.sh
+pnpm update-badges    # or: node scripts/update-badges.mjs (also runs as posttest)
 
 # Static analysis (clippy + tsc + eslint in one shot)
 pnpm check            # or: bash scripts/check.sh

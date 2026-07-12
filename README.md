@@ -746,7 +746,7 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 ### Tests
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 786 tests
+pnpm test               # frontend unit tests (vitest + happy-dom) — 907 tests
 cargo test --workspace  # Rust unit tests — 606 tests (hue, db, snippets, notes, backup, settings, expander, text_field, seed, hotkey parser, clipboard_watcher, models, recolor, cutout, cutout_ml, screen_record, audio_swap, media_trim, social_dl, audio, edr, …)
 ```
 

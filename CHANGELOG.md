@@ -4,12 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.261] — 2026-07-12
+
+### Fixed
+
+- **2FA export: issuer-only accounts round-trip exactly.** An entry with an issuer but no account name (e.g. a bare "GitHub") exported to a colon-less `otpauth://` label, which any authenticator re-reads as the *account* per the otpauth convention — so re-importing your own export drifted the empty account to the issuer name (`GitHub` → account "GitHub"). The export now emits a `Issuer:` label (trailing colon) so it splits back to issuer + empty account cleanly. Found by a new round-trip test added during the test-suite hardening.
+
 ## [0.84.260] — 2026-07-12
 
 ### Changed
 
 - **Test-suite hardening.** +116 unit tests across both stacks — Rust 696 → 724 (crypto encrypt-at-rest edges, TOTP import/export batches, snitch IP/parser boundaries, Hue state/parse edges, stats-history downsampling + DB round-trip) and frontend 819 → 907 (world-map mask, relative-time formatting, Space Invaders game logic, text transforms, and targeted branch coverage for calc/convert/colors/bpm/bruno/pwgen/calendar/uptime/smart-actions/stats-chart). Frontend `src/lib` statement coverage 76.2 % → 78.8 % (branch 92.4 % → 95.4 %); Rust region coverage 53.3 % → 54.2 %.
-- **Self-updating README badges.** `pnpm badges` (`scripts/update-badges.sh`) recomputes the lines-of-code and unit-test headline badges in `README.md` + `README.de.md` from the real sources — LOC counted from the workspace source (test modules, `*.test.ts` and generated files excluded), test counts parsed from actual `cargo test` / vitest runs (aborts if a suite is red). Idempotent; the previously hand-maintained numbers had drifted.
+- **Self-updating README badges.** `pnpm update-badges` (`scripts/update-badges.mjs`, also a `posttest` hook) recomputes the lines-of-code and unit-test headline badges in `README.md` + `README.de.md` from the real sources — LOC counted from the workspace source (test modules, `*.test.ts` and generated files excluded), test counts parsed from actual `cargo test` / vitest runs (aborts if a suite is red). Idempotent; the previously hand-maintained numbers had drifted.
 
 ## [0.84.259] — 2026-07-12
 

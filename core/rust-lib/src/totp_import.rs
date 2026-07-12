@@ -477,7 +477,12 @@ pub fn export_otpauth_uris(
         } else if !e.account.is_empty() {
             e.account.clone()
         } else {
-            e.issuer.clone()
+            // Issuer-only entry (empty account): emit `Issuer:` with a trailing
+            // colon rather than a bare `Issuer`. A colon-less label is re-read
+            // as the *account* per the otpauth convention, which would drift the
+            // empty account to the issuer name on re-import; `Issuer:` splits
+            // back to (issuer, "") cleanly and round-trips exactly.
+            format!("{}:", e.issuer)
         };
         let mut q = vec![
             format!("secret={secret}"),
@@ -843,13 +848,12 @@ mod tests {
     }
 
     #[test]
-    fn export_of_issuer_only_entry_preserves_the_issuer() {
-        // KNOWN ASYMMETRY (reported): an issuer-only entry (empty account)
-        // exports to a colon-less label = the issuer, which the otpauth
-        // convention re-reads as the *account* — so the empty account drifts
-        // to the issuer name on re-import. The issuer itself is always
-        // preserved (via the `issuer=` query param). We assert only that
-        // guaranteed invariant here rather than blessing the account drift.
+    fn export_of_issuer_only_entry_round_trips_exactly() {
+        // Regression: an issuer-only entry (empty account) must round-trip to
+        // issuer="Solo", account="" — NOT drift the empty account to the issuer
+        // name. The export emits a `Solo:` label (trailing colon) so the parser
+        // splits it back into (issuer, "") instead of reading the whole label
+        // as the account.
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
         totp_store::init_table(&db).unwrap();
@@ -857,7 +861,8 @@ mod tests {
 
         let uris = export_otpauth_uris(&db).unwrap();
         let b = parse_otpauth_uri(&uris[0]).unwrap();
-        assert_eq!(b.issuer, "Solo", "issuer must survive the round-trip");
+        assert_eq!(b.issuer, "Solo", "issuer survives the round-trip");
+        assert_eq!(b.account, "", "empty account no longer drifts to the issuer");
     }
 
     #[test]

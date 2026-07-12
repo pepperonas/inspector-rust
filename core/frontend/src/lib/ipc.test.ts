@@ -92,7 +92,19 @@ describe("ipc — snippets wrappers", () => {
     expect(mockInvoke).toHaveBeenCalledWith("find_snippets", { query: "sig" });
   });
 
-  it("upsertSnippet passes all four fields", async () => {
+  it("upsertSnippet passes all fields incl. categoryId", async () => {
+    mockInvoke.mockResolvedValue(1);
+    await ipc.upsertSnippet(null, "hi", "Greeting", "Hello there!", 7);
+    expect(mockInvoke).toHaveBeenCalledWith("upsert_snippet", {
+      id: null,
+      abbreviation: "hi",
+      title: "Greeting",
+      body: "Hello there!",
+      categoryId: 7,
+    });
+  });
+
+  it("upsertSnippet defaults categoryId to null", async () => {
     mockInvoke.mockResolvedValue(1);
     await ipc.upsertSnippet(null, "hi", "Greeting", "Hello there!");
     expect(mockInvoke).toHaveBeenCalledWith("upsert_snippet", {
@@ -100,7 +112,22 @@ describe("ipc — snippets wrappers", () => {
       abbreviation: "hi",
       title: "Greeting",
       body: "Hello there!",
+      categoryId: null,
     });
+  });
+
+  it("setSnippetCategory / category CRUD wrappers hit their commands", async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    await ipc.setSnippetCategory(3, 9);
+    expect(mockInvoke).toHaveBeenCalledWith("set_snippet_category", { id: 3, categoryId: 9 });
+    await ipc.createSnippetCategory("Colors");
+    expect(mockInvoke).toHaveBeenCalledWith("create_snippet_category", { name: "Colors" });
+    await ipc.renameSnippetCategory(2, "Prompts");
+    expect(mockInvoke).toHaveBeenCalledWith("rename_snippet_category", { id: 2, name: "Prompts" });
+    await ipc.deleteSnippetCategory(2);
+    expect(mockInvoke).toHaveBeenCalledWith("delete_snippet_category", { id: 2 });
+    await ipc.reorderSnippetCategories([3, 1, 2]);
+    expect(mockInvoke).toHaveBeenCalledWith("reorder_snippet_categories", { ids: [3, 1, 2] });
   });
 
   it("deleteSnippet passes the id", async () => {

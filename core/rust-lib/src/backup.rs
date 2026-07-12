@@ -126,6 +126,11 @@ pub struct Backup {
     pub history: Vec<ClipEntry>,
     #[serde(default)]
     pub snippets: Vec<Snippet>,
+    /// Snippet groups (names + order) so empty groups + ordering survive; each
+    /// snippet references its group by NAME via `Snippet.category`. Additive
+    /// with a serde default → older backups (no groups) still import.
+    #[serde(default)]
+    pub snippet_categories: Vec<SnippetCategoryBackup>,
     #[serde(default)]
     pub notes: Vec<Note>,
     /// TOTP entries with plaintext secrets (v2+).
@@ -138,6 +143,14 @@ pub struct Backup {
     /// "include timesheet" at export time).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timesheet: Option<TimesheetBackup>,
+}
+
+/// A snippet group in the backup — name + order (ids are machine-local).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SnippetCategoryBackup {
+    pub name: String,
+    #[serde(default)]
+    pub sort_order: i64,
 }
 
 #[derive(Debug, Default, Serialize)]
@@ -212,6 +225,14 @@ pub fn export(db: &DbHandle, opts: ExportOptions) -> Result<Backup> {
         },
         snippets: if opts.include_snippets {
             snippets::list_all(db)?
+        } else {
+            Vec::new()
+        },
+        snippet_categories: if opts.include_snippets {
+            snippets::list_categories(db)?
+                .into_iter()
+                .map(|c| SnippetCategoryBackup { name: c.name, sort_order: c.sort_order })
+                .collect()
         } else {
             Vec::new()
         },
@@ -358,8 +379,16 @@ pub fn import_json(db: &DbHandle, json: &str) -> Result<BackupImportResult> {
 fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
     let mut result = BackupImportResult::default();
 
+    // 0) Snippet groups — create every group by name first (preserves empty
+    //    groups + order); each snippet then resolves its group by name.
+    for cat in &backup.snippet_categories {
+        let _ = snippets::create_category(db, &cat.name);
+    }
+
     // 1) Snippets — same upsert path used by snippet import, so behaviour
-    //    is identical to JSON import.
+    //    is identical to JSON import. Each snippet's group (by NAME) is resolved
+    //    to a local id (created if missing); a snippet with no group is left
+    //    ungrouped without clobbering an existing row's group.
     for (idx, s) in backup.snippets.iter().enumerate() {
         if s.abbreviation.trim().is_empty() {
             result
@@ -367,7 +396,13 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
                 .push(format!("snippet #{idx}: empty abbreviation"));
             continue;
         }
-        match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body) {
+        let cat_id = match &s.category {
+            Some(name) if !name.trim().is_empty() => {
+                snippets::category_id_for_name(db, name).unwrap_or(None)
+            }
+            _ => None,
+        };
+        match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body, cat_id) {
             Ok(()) => result.snippets_imported += 1,
             Err(e) => result
                 .errors
@@ -842,7 +877,7 @@ mod tests {
             },
         )
         .unwrap();
-        snippets::create(db, "mfg", "Greeting", "Mit freundlichen Grüßen").unwrap();
+        snippets::create(db, "mfg", "Greeting", "Mit freundlichen Grüßen", None).unwrap();
         notes::create_text(db, "Pinned", "Important", "Inbox").unwrap();
     }
 
@@ -912,6 +947,28 @@ mod tests {
     }
 
     #[test]
+    fn snippet_categories_round_trip_by_name() {
+        // Export from one machine, import into a fresh machine: groups must
+        // survive by NAME and the snippet must land back in its group.
+        let src = fresh_db();
+        let g = snippets::create_category(&src, "AI Prompts").unwrap();
+        snippets::create(&src, "aiplan", "Plan", "body", Some(g)).unwrap();
+        snippets::create(&src, "loose", "L", "x", None).unwrap();
+
+        let opts = ExportOptions { include_snippets: true, ..ExportOptions::default() };
+        let backup = export(&src, opts).unwrap();
+        assert!(backup.snippet_categories.iter().any(|c| c.name == "AI Prompts"));
+        let json = serde_json::to_string(&backup).unwrap();
+
+        let dst = fresh_db();
+        import_json(&dst, &json).unwrap();
+        let all = snippets::list_all(&dst).unwrap();
+        assert_eq!(all.iter().find(|s| s.abbreviation == "aiplan").unwrap().category.as_deref(), Some("AI Prompts"));
+        assert_eq!(all.iter().find(|s| s.abbreviation == "loose").unwrap().category, None);
+        assert!(snippets::list_categories(&dst).unwrap().iter().any(|c| c.name == "AI Prompts"));
+    }
+
+    #[test]
     fn export_with_all_off_emits_everything_empty() {
         let db = fresh_db();
         seed(&db);
@@ -969,6 +1026,7 @@ mod tests {
             exported_at: 0,
             history: vec![],
             snippets: vec![],
+            snippet_categories: vec![],
             notes: vec![Note {
                 id: 0,
                 content_type: ContentType::Text,

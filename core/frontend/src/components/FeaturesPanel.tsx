@@ -179,7 +179,8 @@ export function FeaturesPanel() {
       icon: <Terminal size={14} />,
       blurb: "Type these into the popup's search field.",
       rows: [
-        { name: "AI prompt templates", trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, note: "27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Manage in the Snippets tab." },
+        { name: "AI prompt templates", trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, note: "27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Grouped under \"AI Prompts\" in the Snippets tab." },
+        { name: "Snippet groups", trigger: "Snippets tab", typed: false, note: "Organise snippets into groups — filter the list by group chip, assign a group in the editor, and create/rename/reorder/delete groups via the folder button. Ships pre-grouped (AI Prompts · Colors). Groups are carried in snippet + full-settings backups by name." },
         { name: "Download social media", trigger: "paste a YouTube / Instagram / TikTok / Facebook URL", typed: true, note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Prefers H.264 (QuickTime-playable); retries with browser cookies on YouTube's bot check. Needs yt-dlp." },
         { name: "Trim audio / video", trigger: "trim", typed: true, note: "Pick a local file → set start/end → lossless-fast (keyframe) or frame-accurate cut → saves a -trim copy next to it. Needs ffmpeg." },
         { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },

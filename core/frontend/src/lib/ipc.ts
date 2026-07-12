@@ -481,18 +481,58 @@ export function findSnippets(query: string): Promise<Snippet[]> {
   return invoke("find_snippets", { query });
 }
 
-/** Pass id = null to create, id = number to update. Returns the snippet id. */
+/** Pass id = null to create, id = number to update. Returns the snippet id.
+ *  categoryId = null puts the snippet in no group ("Ungrouped"). */
 export function upsertSnippet(
   id: number | null,
   abbreviation: string,
   title: string,
   body: string,
+  categoryId: number | null = null,
 ): Promise<number> {
-  return invoke("upsert_snippet", { id, abbreviation, title, body });
+  return invoke("upsert_snippet", { id, abbreviation, title, body, categoryId });
 }
 
 export function deleteSnippet(id: number): Promise<void> {
   return invoke("delete_snippet", { id });
+}
+
+// ── Snippet categories (groups) ───────────────────────────────────────────────
+
+export interface SnippetCategory {
+  id: number;
+  name: string;
+  sort_order: number;
+  /** Number of snippets currently in this group. */
+  count: number;
+}
+
+export function listSnippetCategories(): Promise<SnippetCategory[]> {
+  return invoke("list_snippet_categories");
+}
+
+/** Create a group (or return the existing one if the name is taken). Returns its id. */
+export function createSnippetCategory(name: string): Promise<number> {
+  return invoke("create_snippet_category", { name });
+}
+
+export function renameSnippetCategory(id: number, name: string): Promise<void> {
+  return invoke("rename_snippet_category", { id, name });
+}
+
+/** Delete a group. Its snippets are *ungrouped*, never deleted. */
+export function deleteSnippetCategory(id: number): Promise<void> {
+  return invoke("delete_snippet_category", { id });
+}
+
+/** Persist a new group order (array of category ids, top to bottom). */
+export function reorderSnippetCategories(ids: number[]): Promise<void> {
+  return invoke("reorder_snippet_categories", { ids });
+}
+
+/** Assign a snippet to a group (categoryId = null → ungroup). */
+export function setSnippetCategory(id: number, categoryId: number | null): Promise<void> {
+  return invoke("set_snippet_category", { id, categoryId });
 }
 
 export function pasteSnippet(id: number): Promise<void> {

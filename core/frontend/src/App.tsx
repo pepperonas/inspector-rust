@@ -142,7 +142,7 @@ type Tab = "history" | "snippets" | "notes" | "timesheet" | "features" | "settin
 
 function App() {
   const { entries, refresh: refreshHistory } = useClipboardHistory();
-  const { snippets, refresh: refreshSnippets } = useSnippets();
+  const { snippets, categories: snippetCategories, refresh: refreshSnippets } = useSnippets();
   const { notes, categories: noteCategories, refresh: refreshNotes } = useNotes();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -2992,7 +2992,7 @@ function App() {
               </div>
             </div>
           ) : activeTab === "snippets" ? (
-            <SnippetsPanel snippets={snippets} onRefresh={refreshSnippets} />
+            <SnippetsPanel snippets={snippets} categories={snippetCategories} onRefresh={refreshSnippets} />
           ) : activeTab === "notes" ? (
             <NotesPanel
               notes={notes}

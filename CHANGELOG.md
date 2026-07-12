@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.259] — 2026-07-12
+
+### Added
+
+- **Snippet groups.** Organise your snippets into groups. The Snippets tab now has a group-filter chip row (**All** / each group / **Ungrouped**), a **Group** picker in the editor (with an inline "＋ New group…"), and a **Manage groups** panel behind the folder button — create, click-to-rename, reorder with ↑/↓, and delete (deleting a group keeps its snippets — they just become *Ungrouped*, never deleted). The bundled content ships pre-grouped into **AI Prompts** (the 27 AI-prompt templates) and **Colors** (the 255 Material colours); existing installs get this grouping automatically on the next launch (your own manual grouping is respected). Groups are carried in **both** the snippets-only export and the full-settings backup (by name, so they survive moving between machines) — no backup-format change, older backups still import.
+
 ## [0.84.258] — 2026-07-12
 
 ### Fixed

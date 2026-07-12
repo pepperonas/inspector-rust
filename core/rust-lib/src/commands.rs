@@ -1121,11 +1121,12 @@ pub fn upsert_snippet(
     abbreviation: String,
     title: String,
     body: String,
+    category_id: Option<i64>,
 ) -> Result<i64, String> {
     let result = match id {
-        None => snippets::create(&db, &abbreviation, &title, &body).map_err(map_err),
+        None => snippets::create(&db, &abbreviation, &title, &body, category_id).map_err(map_err),
         Some(existing_id) => {
-            snippets::update(&db, existing_id, &abbreviation, &title, &body)
+            snippets::update(&db, existing_id, &abbreviation, &title, &body, category_id)
                 .map_err(map_err)?;
             Ok(existing_id)
         }
@@ -1134,6 +1135,49 @@ pub fn upsert_snippet(
         auto_expand::rebuild_table(&db, &ae);
     }
     result
+}
+
+// ── Snippet groups (categories) ─────────────────────────────────────────────
+
+#[tauri::command]
+pub fn list_snippet_categories(
+    db: State<'_, DbHandle>,
+) -> Result<Vec<snippets::SnippetCategory>, String> {
+    snippets::list_categories(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn create_snippet_category(db: State<'_, DbHandle>, name: String) -> Result<i64, String> {
+    snippets::create_category(&db, &name).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn rename_snippet_category(
+    db: State<'_, DbHandle>,
+    id: i64,
+    name: String,
+) -> Result<(), String> {
+    snippets::rename_category(&db, id, &name).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn delete_snippet_category(db: State<'_, DbHandle>, id: i64) -> Result<(), String> {
+    snippets::delete_category(&db, id).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn reorder_snippet_categories(db: State<'_, DbHandle>, ids: Vec<i64>) -> Result<(), String> {
+    snippets::reorder_categories(&db, &ids).map_err(map_err)
+}
+
+/// Move a snippet to a group (or ungroup it with `category_id = null`).
+#[tauri::command]
+pub fn set_snippet_category(
+    db: State<'_, DbHandle>,
+    id: i64,
+    category_id: Option<i64>,
+) -> Result<(), String> {
+    snippets::set_category(&db, id, category_id).map_err(map_err)
 }
 
 #[tauri::command]

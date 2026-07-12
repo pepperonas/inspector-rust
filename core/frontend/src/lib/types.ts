@@ -27,6 +27,8 @@ export interface Snippet {
   body: string;
   created_at: number;
   updated_at: number;
+  /** Group name this snippet belongs to, or null when ungrouped. */
+  category?: string | null;
 }
 
 export interface CalcEntry {

@@ -37,23 +37,80 @@ pub const KEY_SEEDED: &str = "seed.default_snippets_v1";
 /// launch, without re-running the prompt seed.
 pub const KEY_SEEDED_COLORS: &str = "seed.material_colors_v1";
 
+/// One-time flag: retro-fit the AI-Prompts + Colors GROUPS onto an install that
+/// was seeded before snippet grouping existed (v0.84.259).
+pub const KEY_CATEGORIZED: &str = "seed.categorized_v1";
+
+/// The default group names the bundled packs live in.
+pub const GROUP_AI: &str = "AI Prompts";
+pub const GROUP_COLORS: &str = "Colors";
+
 /// Seed the bundled default snippets if we haven't yet — the curated AI
 /// prompts and the Material-Design colour pack, each behind its own flag so a
-/// new pack reaches existing installs exactly once. Idempotent per pack.
+/// new pack reaches existing installs exactly once. Idempotent per pack. New
+/// installs land each pack in its group; existing installs get grouped by the
+/// one-time `categorize_existing` migration below.
 pub fn maybe_seed_defaults(db: &DbHandle) -> Result<()> {
     if !settings::get_bool(db, KEY_SEEDED, false)? {
-        import_pack(db, "AI prompts", DEFAULT_PROMPTS_JSON);
+        let ai = snippets::create_category(db, GROUP_AI).ok();
+        import_pack_into(db, "AI prompts", DEFAULT_PROMPTS_JSON, ai);
         settings::set(db, KEY_SEEDED, "true")?;
     }
     if !settings::get_bool(db, KEY_SEEDED_COLORS, false)? {
-        import_pack(db, "Material colours", MATERIAL_COLORS_JSON);
+        let col = snippets::create_category(db, GROUP_COLORS).ok();
+        import_pack_into(db, "Material colours", MATERIAL_COLORS_JSON, col);
         settings::set(db, KEY_SEEDED_COLORS, "true")?;
     }
+    categorize_existing(db)?;
     Ok(())
 }
 
-fn import_pack(db: &DbHandle, label: &str, json: &str) {
-    match snippets::import_from_json(db, json) {
+/// Retro-fit groups onto an install seeded before grouping existed: assign the
+/// bundled AI prompts + colours (matched by their exact abbreviations from the
+/// bundled JSON) to the AI Prompts / Colors groups — but only snippets that are
+/// still ungrouped, so a user's manual grouping is never overwritten. Runs once.
+pub fn categorize_existing(db: &DbHandle) -> Result<()> {
+    if settings::get_bool(db, KEY_CATEGORIZED, false).unwrap_or(false) {
+        return Ok(());
+    }
+    let assign = |json: &str, group: &str| -> Result<()> {
+        let abbrs = pack_abbreviations(json);
+        if abbrs.is_empty() {
+            return Ok(());
+        }
+        let Some(cat) = snippets::category_id_for_name(db, group)? else { return Ok(()) };
+        let conn = db.lock();
+        // Only touch still-ungrouped rows (respect the user's manual grouping).
+        let placeholders = std::iter::repeat_n("?", abbrs.len()).collect::<Vec<_>>().join(",");
+        let sql = format!(
+            "UPDATE snippets SET category_id = ? \
+             WHERE category_id IS NULL AND abbreviation IN ({placeholders})"
+        );
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = vec![Box::new(cat)];
+        for a in &abbrs {
+            params.push(Box::new(a.clone()));
+        }
+        let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|b| b.as_ref()).collect();
+        conn.execute(&sql, refs.as_slice())?;
+        Ok(())
+    };
+    assign(DEFAULT_PROMPTS_JSON, GROUP_AI)?;
+    assign(MATERIAL_COLORS_JSON, GROUP_COLORS)?;
+    settings::set(db, KEY_CATEGORIZED, "true")?;
+    Ok(())
+}
+
+/// Extract the `abbreviation` of each entry in a bundled pack JSON. Pure.
+fn pack_abbreviations(json: &str) -> Vec<String> {
+    serde_json::from_str::<Vec<serde_json::Value>>(json)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|e| e.get("abbreviation").and_then(|a| a.as_str()).map(|s| s.to_string()))
+        .collect()
+}
+
+fn import_pack_into(db: &DbHandle, label: &str, json: &str, category_id: Option<i64>) {
+    match snippets::import_from_json_into(db, json, category_id) {
         Ok(r) => {
             tracing::info!(
                 "seeded {label}: {} imported, {} skipped, {} errors",
@@ -75,10 +132,12 @@ fn import_pack(db: &DbHandle, label: &str, json: &str) {
 /// already does upsert-by-abbreviation); user-added snippets with
 /// distinct abbreviations are untouched.
 pub fn restore_defaults(db: &DbHandle) -> Result<ImportResult> {
-    let mut result = snippets::import_from_json(db, DEFAULT_PROMPTS_JSON)?;
+    let ai = snippets::create_category(db, GROUP_AI).ok();
+    let col = snippets::create_category(db, GROUP_COLORS).ok();
+    let mut result = snippets::import_from_json_into(db, DEFAULT_PROMPTS_JSON, ai)?;
     // Also restore the Material-colour pack so one button brings back all
     // bundled defaults.
-    let colors = snippets::import_from_json(db, MATERIAL_COLORS_JSON)?;
+    let colors = snippets::import_from_json_into(db, MATERIAL_COLORS_JSON, col)?;
     result.imported += colors.imported;
     result.skipped += colors.skipped;
     result.errors.extend(colors.errors);
@@ -165,6 +224,47 @@ mod tests {
             count_after_restore
         );
         assert!(result.imported >= 25);
+    }
+
+    #[test]
+    fn seed_groups_ai_and_color_snippets() {
+        let db = test_db();
+        maybe_seed_defaults(&db).unwrap();
+        let all = snippets::list_all(&db).unwrap();
+        // A curated AI prompt lands in the AI group; a colour lands in Colors.
+        let ai = all.iter().find(|s| s.abbreviation.starts_with("ai")).unwrap();
+        assert_eq!(ai.category.as_deref(), Some(GROUP_AI));
+        if let Some(col) = all.iter().find(|s| s.abbreviation == "reda700") {
+            assert_eq!(col.category.as_deref(), Some(GROUP_COLORS));
+        }
+        assert!(snippets::list_categories(&db).unwrap().iter().any(|c| c.name == GROUP_AI));
+    }
+
+    #[test]
+    fn categorize_existing_migrates_ungrouped_but_respects_manual() {
+        let db = test_db();
+        // Simulate a pre-grouping install: import the packs WITHOUT categories.
+        snippets::import_from_json(&db, DEFAULT_PROMPTS_JSON).unwrap();
+        snippets::import_from_json(&db, MATERIAL_COLORS_JSON).unwrap();
+        // User manually grouped one AI prompt into a custom group.
+        let mine = snippets::create_category(&db, "Mine").unwrap();
+        let one = snippets::list_all(&db).unwrap()
+            .into_iter().find(|s| s.abbreviation.starts_with("ai")).unwrap();
+        snippets::set_category(&db, one.id, Some(mine)).unwrap();
+
+        categorize_existing(&db).unwrap();
+
+        let all = snippets::list_all(&db).unwrap();
+        // The manually grouped one is untouched.
+        assert_eq!(all.iter().find(|s| s.id == one.id).unwrap().category.as_deref(), Some("Mine"));
+        // Other AI prompts got the AI group.
+        assert!(all.iter().filter(|s| s.abbreviation.starts_with("ai") && s.id != one.id)
+            .all(|s| s.category.as_deref() == Some(GROUP_AI)));
+
+        // Idempotent — a second run is a no-op (flag set).
+        let before = snippets::list_categories(&db).unwrap().len();
+        categorize_existing(&db).unwrap();
+        assert_eq!(snippets::list_categories(&db).unwrap().len(), before);
     }
 
     #[test]

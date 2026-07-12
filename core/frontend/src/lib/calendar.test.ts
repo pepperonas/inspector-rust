@@ -105,3 +105,16 @@ describe("parseCalendarArg", () => {
     expect(parseCalendarArg("okt", Y)).toEqual({ year: Y, month: 9 });
   });
 });
+
+describe("parseCalendarArg — word-form edge cases", () => {
+  const Y = 2026;
+  it("month name + junk word → null (each part must be a year or month)", () => {
+    expect(parseCalendarArg("märz kartoffel", Y)).toBeNull();
+  });
+  it("more than two words → null", () => {
+    expect(parseCalendarArg("märz 1990 extra", Y)).toBeNull();
+  });
+  it("two bare years → the last one wins, month defaults to January", () => {
+    expect(parseCalendarArg("1990 2000", Y)).toEqual({ year: 2000, month: 0 });
+  });
+});

@@ -195,3 +195,28 @@ describe("readableForeground", () => {
     expect(readableForeground(0, 0, 255)).toBe("#FFFFFF");
   });
 });
+
+describe("rgbToHsl / rgbToHsv — hue sector branches", () => {
+  it("magenta (r-max, g<b) wraps the hue positively → 300°", () => {
+    const { h, s, l } = rgbToHsl(255, 0, 255);
+    expect(h).toBe(300);
+    expect(s).toBe(100);
+    expect(l).toBe(50);
+  });
+
+  it("rgbToHsv on pure green hits the g-max sector", () => {
+    expect(rgbToHsv(0, 255, 0)).toEqual([120, 100, 100]);
+  });
+
+  it("rgbToHsv on pure blue hits the b-max sector", () => {
+    expect(rgbToHsv(0, 0, 255)).toEqual([240, 100, 100]);
+  });
+
+  it("rgbToHsv on magenta wraps negative hue into 0..360", () => {
+    expect(rgbToHsv(255, 0, 255)).toEqual([300, 100, 100]);
+  });
+
+  it("rgbToHsv on black has zero saturation (no division by zero)", () => {
+    expect(rgbToHsv(0, 0, 0)).toEqual([0, 0, 0]);
+  });
+});

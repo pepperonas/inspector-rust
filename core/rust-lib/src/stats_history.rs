@@ -392,6 +392,121 @@ mod tests {
     }
 
     #[test]
+    fn downsample_single_point_echoes_the_row() {
+        let rows = [row(42, 33.0, Some(9.0))];
+        let pts = downsample(&rows, 0, 3600, 240);
+        assert_eq!(pts.len(), 1);
+        assert_eq!(pts[0].ts, 42);
+        assert!((pts[0].cpu - 33.0).abs() < 1e-9);
+        assert_eq!(pts[0].power, Some(9.0));
+        assert_eq!(pts[0].cpu_temp, Some(45.0));
+        assert_eq!(pts[0].battery, Some(80.0));
+    }
+
+    #[test]
+    fn downsample_mixed_nullable_metrics_average_independently() {
+        // Within one bucket: power present in row 1 only, temp in row 2 only,
+        // battery in neither — each nullable metric averages its own present set.
+        let rows = [
+            Row { cpu_temp: None, battery: None, ..row(10, 10.0, Some(6.0)) },
+            Row { cpu_temp: Some(50.0), battery: None, ..row(20, 20.0, None) },
+        ];
+        let pts = downsample(&rows, 0, 100, 1);
+        assert_eq!(pts.len(), 1);
+        assert_eq!(pts[0].power, Some(6.0)); // only row 1 had power
+        assert_eq!(pts[0].cpu_temp, Some(50.0)); // only row 2 had temp
+        assert_eq!(pts[0].battery, None); // nobody had battery
+    }
+
+    #[test]
+    fn downsample_zero_span_range_still_buckets() {
+        // until == since → span clamps to 1; must not panic or divide by zero.
+        let rows = [row(5, 1.0, None), row(6, 2.0, None)];
+        let pts = downsample(&rows, 5, 5, 10);
+        assert!(!pts.is_empty());
+        let total: f64 = pts.iter().map(|p| p.cpu).sum::<f64>();
+        assert!(total > 0.0);
+    }
+
+    fn mem_db() -> DbHandle {
+        let conn = Connection::open_in_memory().expect("in-memory db");
+        init_schema(&conn).expect("schema");
+        std::sync::Arc::new(parking_lot::Mutex::new(conn))
+    }
+
+    fn sample(cpu: f64, power: Option<f64>) -> StatsSample {
+        StatsSample {
+            cpu,
+            mem: 40.0,
+            net_rx: 100.0,
+            net_tx: 50.0,
+            power,
+            cpu_temp: None,
+            battery: None,
+        }
+    }
+
+    #[test]
+    fn db_round_trip_preserves_values_and_nullables() {
+        let db = mem_db();
+        insert(&db, 100, &sample(12.5, Some(7.5)));
+        insert(&db, 200, &sample(25.0, None));
+        let rows = query(&db, 0);
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].ts, 100);
+        assert!((rows[0].cpu - 12.5).abs() < 1e-9);
+        assert_eq!(rows[0].power, Some(7.5));
+        assert_eq!(rows[0].cpu_temp, None);
+        assert_eq!(rows[1].power, None);
+    }
+
+    #[test]
+    fn query_filters_by_since_and_orders_ascending() {
+        let db = mem_db();
+        // Insert out of order; query must return ascending + only ts >= since.
+        insert(&db, 300, &sample(3.0, None));
+        insert(&db, 100, &sample(1.0, None));
+        insert(&db, 200, &sample(2.0, None));
+        let rows = query(&db, 150);
+        assert_eq!(rows.iter().map(|r| r.ts).collect::<Vec<_>>(), vec![200, 300]);
+    }
+
+    #[test]
+    fn prune_deletes_only_rows_older_than_cutoff() {
+        let db = mem_db();
+        insert(&db, 100, &sample(1.0, None));
+        insert(&db, 200, &sample(2.0, None));
+        insert(&db, 300, &sample(3.0, None));
+        prune(&db, 200); // strictly-older-than: ts < 200
+        let rows = query(&db, 0);
+        assert_eq!(rows.iter().map(|r| r.ts).collect::<Vec<_>>(), vec![200, 300]);
+    }
+
+    #[test]
+    fn history_returns_recent_rows_with_metadata() {
+        let db = mem_db();
+        let now = now_secs();
+        insert(&db, now - 10, &sample(10.0, None));
+        insert(&db, now - 5, &sample(20.0, None));
+        insert(&db, now - 7200, &sample(99.0, None)); // outside a 1h range
+        let h = history(&db, 3600);
+        assert_eq!(h.range_secs, 3600);
+        assert_eq!(h.sample_count, 2);
+        assert_eq!(h.interval_secs, SAMPLE_INTERVAL_SECS as i64);
+        assert!(!h.points.is_empty());
+        assert!(h.points.iter().all(|p| p.cpu < 99.0), "old row must be excluded");
+    }
+
+    #[test]
+    fn history_clamps_non_positive_range() {
+        let db = mem_db();
+        let h = history(&db, 0);
+        assert_eq!(h.range_secs, 1);
+        assert!(h.points.is_empty());
+        assert_eq!(h.sample_count, 0);
+    }
+
+    #[test]
     fn downsample_caps_at_max_points_for_dense_data() {
         // 1000 rows over a 1000 s span, max_points 100 → ≤ ~101 buckets.
         let rows: Vec<Row> = (0..1000).map(|k| row(k, k as f64, Some(k as f64))).collect();

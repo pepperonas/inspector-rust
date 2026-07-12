@@ -137,3 +137,85 @@ describe("formatResult", () => {
     expect(formatResult(1e-12)).toMatch(/e/);
   });
 });
+
+describe("tryEvaluate — parse/tokenize error paths", () => {
+  it("returns null for two values with no operator (leftover token)", () => {
+    expect(tryEvaluate("2 3")).toBeNull();
+  });
+
+  it("returns null for an unclosed function call", () => {
+    expect(tryEvaluate("sqrt(4")).toBeNull();
+  });
+
+  it("returns null for an unknown function", () => {
+    expect(tryEvaluate("foo(2)")).toBeNull();
+  });
+
+  it("returns null for an unknown identifier", () => {
+    expect(tryEvaluate("2 + foo")).toBeNull();
+  });
+
+  it("returns null for a malformed number", () => {
+    expect(tryEvaluate("1..2 + 1")).toBeNull();
+  });
+
+  it("returns null for an unexpected character", () => {
+    expect(tryEvaluate("2 + §")).toBeNull();
+  });
+
+  it("returns null for empty parens", () => {
+    expect(tryEvaluate("()")).toBeNull();
+  });
+});
+
+describe("tryEvaluate — forced `=` prefix and unary plus", () => {
+  it("a bare `=` yields nothing", () => {
+    expect(tryEvaluate("=")).toBeNull();
+    expect(tryEvaluate("=   ")).toBeNull();
+  });
+
+  it("`= expr` evaluates the expression", () => {
+    expect(tryEvaluate("= 2+2")?.display).toBe("4");
+  });
+
+  it("unary plus is accepted and is a no-op", () => {
+    expect(tryEvaluate("+5 - 2")?.display).toBe("3");
+  });
+
+  it("scientific-notation literals work in expressions", () => {
+    expect(tryEvaluate("1e3 + 1")?.display).toBe("1001");
+    expect(tryEvaluate("1e+2 * 2")?.display).toBe("200");
+    expect(tryEvaluate("1e-2 * 100")?.display).toBe("1");
+  });
+
+  it("the unicode π constant evaluates like pi", () => {
+    expect(tryEvaluate("2 * π")?.value).toBeCloseTo(2 * Math.PI, 10);
+  });
+});
+
+describe("formatResult — non-finite values", () => {
+  it("passes through Infinity and NaN as strings", () => {
+    expect(formatResult(Infinity)).toBe("Infinity");
+    expect(formatResult(-Infinity)).toBe("-Infinity");
+    expect(formatResult(NaN)).toBe("NaN");
+  });
+});
+
+describe("tryEvaluate — remaining function table entries", () => {
+  it("min / max / pow take multiple args", () => {
+    expect(tryEvaluate("min(2, 3)")?.display).toBe("2");
+    expect(tryEvaluate("max(2, 3)")?.display).toBe("3");
+    expect(tryEvaluate("pow(2, 8)")?.display).toBe("256");
+  });
+
+  it("mod is a floored modulo (sign follows the divisor)", () => {
+    expect(tryEvaluate("mod(10, 3)")?.display).toBe("1");
+    expect(tryEvaluate("mod(-1, 3)")?.display).toBe("2");
+  });
+
+  it("hyperbolic functions evaluate", () => {
+    expect(tryEvaluate("cosh(0)")?.display).toBe("1");
+    expect(tryEvaluate("tanh(0)")?.display).toBe("0");
+    expect(tryEvaluate("sinh(0)")?.display).toBe("0");
+  });
+});

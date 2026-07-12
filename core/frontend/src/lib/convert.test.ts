@@ -45,6 +45,14 @@ describe("tryConvert — temperature", () => {
   it("C → K", () => {
     expect(tryConvert("0 c in k")?.value).toBeCloseTo(273.15, 6);
   });
+  it("K → C", () => {
+    expect(tryConvert("273.15 k in c")?.value).toBeCloseTo(0, 6);
+    expect(tryConvert("373.15 k to c")?.value).toBeCloseTo(100, 6);
+  });
+  it("F → K (cross-unit, both conversion arms)", () => {
+    // 32 °F = 0 °C = 273.15 K
+    expect(tryConvert("32 f in k")?.value).toBeCloseTo(273.15, 6);
+  });
   it("accepts a degree sign", () => {
     expect(tryConvert("100 °c in °f")?.value).toBeCloseTo(212, 6);
   });
@@ -92,5 +100,30 @@ describe("tryConvert — non-matches", () => {
   });
   it("the `expression` echoes the trimmed input for pasteable provenance", () => {
     expect(tryConvert("  5 km in mi ")?.expression).toBe("5 km in mi");
+  });
+});
+
+describe("tryConvert — octal + negative bases", () => {
+  it("oct → dec accepts the 0o prefix", () => {
+    expect(tryConvert("0o17 in dec")?.display).toBe("15");
+  });
+
+  it("dec → oct formats with the 0o prefix", () => {
+    expect(tryConvert("15 in oct")?.display).toBe("0o17");
+  });
+
+  it("negative dec → hex keeps the sign in front of the prefix", () => {
+    expect(tryConvert("-255 in hex")?.display).toBe("-0xff");
+  });
+
+  it("negative dec → bin", () => {
+    expect(tryConvert("-5 in bin")?.display).toBe("-0b101");
+  });
+
+  it("long-form base aliases work (hexadecimal/binary/octal/decimal)", () => {
+    expect(tryConvert("255 in hexadecimal")?.display).toBe("0xff");
+    expect(tryConvert("0xff in decimal")?.display).toBe("255");
+    expect(tryConvert("5 in binary")?.display).toBe("0b101");
+    expect(tryConvert("9 in octal")?.display).toBe("0o11");
   });
 });

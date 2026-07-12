@@ -555,4 +555,64 @@ mdns        123 martin    5u  IPv4 0x00              0t0  TCP *:5353 (LISTEN)";
         assert_eq!(a.pids, vec![1, 2]); // deduped
         assert_eq!(a.remotes.len(), 2); // 1.1.1.1:443 deduped, 8.8.8.8:53
     }
+
+    #[test]
+    fn private_ip_172_range_boundaries() {
+        // 172.16.0.0/12 is the trap: only 172.16–172.31 are private.
+        assert!(is_private_ip("172.16.0.1"), "start of /12 is private");
+        assert!(is_private_ip("172.31.255.255"), "end of /12 is private");
+        assert!(!is_private_ip("172.15.255.255"), "just below → public");
+        assert!(!is_private_ip("172.32.0.0"), "just above → public");
+    }
+
+    #[test]
+    fn private_ip_unspecified_and_v6_loopback() {
+        assert!(is_private_ip("0.0.0.0")); // v4 unspecified
+        assert!(is_private_ip("::1")); // v6 loopback
+        assert!(is_private_ip("::")); // v6 unspecified
+    }
+
+    #[test]
+    fn private_ip_rejects_garbage_and_public_addresses() {
+        assert!(!is_private_ip("not-an-ip"));
+        assert!(!is_private_ip(""));
+        assert!(!is_private_ip("999.999.999.999"));
+        assert!(!is_private_ip("1.1.1.1"));
+    }
+
+    #[test]
+    fn split_host_port_rejects_out_of_range_and_malformed_ports() {
+        assert_eq!(split_host_port("1.2.3.4:70000"), None, "port > 65535");
+        assert_eq!(split_host_port("1.2.3.4:abc"), None, "non-numeric port");
+        assert_eq!(split_host_port("1.2.3.4"), None, "no port at all");
+        assert_eq!(split_host_port(""), None);
+        assert_eq!(split_host_port("[fe80::1]:"), None, "empty port after ]:");
+        assert_eq!(split_host_port("[*]:443"), None, "wildcard bracketed host");
+        // Boundary: the max valid port parses.
+        assert_eq!(split_host_port("1.2.3.4:65535"), Some(("1.2.3.4".into(), 65535, false)));
+    }
+
+    #[test]
+    fn nettop_deltas_saturate_on_a_counter_reset() {
+        // If the second sample's counters are LOWER than the first (process
+        // restarted / counter wrapped), the delta must saturate to 0, never
+        // underflow-panic.
+        let sample = "\
+time interface state bytes_in bytes_out
+11:15:05.335 App.500 5000 5000 0 0
+11:15:06.335 App.500 10 20 0 0";
+        let acts = parse_nettop_deltas(sample);
+        // 10+20 < 5000+5000 → saturating_sub → 0 → filtered out (zero delta).
+        assert!(acts.iter().all(|a| a.pid != 500));
+    }
+
+    #[test]
+    fn nettop_deltas_ignores_a_pid_seen_only_once() {
+        // A pid present in only one sample has no baseline+current pair → no
+        // activity is emitted for it.
+        let sample = "\
+time interface state bytes_in bytes_out
+11:15:05.335 Only.777 100 200 0 0";
+        assert!(parse_nettop_deltas(sample).is_empty());
+    }
 }

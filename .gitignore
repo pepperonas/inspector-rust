@@ -48,3 +48,7 @@ build/
 # Playwright MCP page dumps (transient)
 .playwright-mcp/
 boom-driver/build/
+
+# Test coverage output (vitest --coverage / cargo-llvm-cov)
+coverage/
+**/coverage/

@@ -63,3 +63,11 @@ describe("detectSmartActions", () => {
     expect(kinds("12345")).toEqual(["qr"]); // 5 digits → QR only, no call
   });
 });
+
+describe("detectSmartActions — phone-shaped strings without digits", () => {
+  it("does not offer Call for punctuation that merely matches the phone shape", () => {
+    // Matches PHONE_RE's character class + length but contains zero digits.
+    const actions = detectSmartActions("().-()().-");
+    expect(actions.some((a) => a.kind === "call")).toBe(false);
+  });
+});

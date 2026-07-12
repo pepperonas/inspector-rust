@@ -46,6 +46,10 @@ pnpm test                                     # frontend vitest (all, single run
 pnpm --filter inspector-rust-frontend test:watch    # frontend vitest watch mode
 cargo test --workspace                        # all Rust unit tests
 
+# README badges (LOC + test counts) — recomputed from the real sources/runners,
+# idempotent, aborts if a suite is red. Run after adding/removing tests.
+pnpm badges           # or: bash scripts/update-badges.sh
+
 # Static analysis (clippy + tsc + eslint in one shot)
 pnpm check            # or: bash scripts/check.sh
 

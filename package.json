@@ -1,7 +1,7 @@
 {
   "name": "inspector-rust",
   "private": true,
-  "version": "0.84.259",
+  "version": "0.84.260",
   "description": "Fast, lightweight clipboard history manager + text expander for Windows 11, macOS, and Linux. Built on Tauri 2.",
   "license": "MIT",
   "author": "Martin Pfeffer <martinpaush@gmail.com>",
@@ -27,6 +27,7 @@
     "typecheck": "pnpm --filter inspector-rust-frontend typecheck",
     "format": "pnpm --filter inspector-rust-frontend format",
     "test": "pnpm --filter inspector-rust-frontend test",
+    "badges": "bash scripts/update-badges.sh",
     "check": "bash scripts/check.sh"
   }
 }

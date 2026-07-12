@@ -164,4 +164,106 @@ describe("computeBruno — sanity ranges (Steuerjahr 2025, Klasse I)", () => {
     expect(r.social.total).toBe(0);
     expect(Number.isFinite(r.deductionRate)).toBe(true);
   });
+
+  it("Steuerklasse III (splitting) taxes less than class I on the same gross", () => {
+    // Class 3 applies the splitting tariff (grundtarif(zvE/2) × 2), which is
+    // progressive-favourable → strictly less income tax than class 1.
+    const k1 = computeBruno({ ...DEFAULT_INPUT, taxClass: 1 });
+    const k3 = computeBruno({ ...DEFAULT_INPUT, taxClass: 3 });
+    expect(k3.incomeTax).toBeLessThan(k1.incomeTax);
+    expect(k3.incomeTax).toBeGreaterThan(0);
+  });
+
+  it("Steuerklasse V taxes more than class I (the ×1.15 secondary-earner factor)", () => {
+    const k1 = computeBruno({ ...DEFAULT_INPUT, taxClass: 1 });
+    const k5 = computeBruno({ ...DEFAULT_INPUT, taxClass: 5 });
+    expect(k5.incomeTax).toBeGreaterThan(k1.incomeTax);
+  });
+
+  it("high earners land in the top linear bracket and still net < gross", () => {
+    // 300k gross drives zvE past the 277 825 € kink → the 0.45·z − 19 619.93
+    // top bracket. Just assert monotonic sanity (no formula blow-up).
+    const mid = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 100_000 });
+    const high = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 300_000 });
+    expect(high.incomeTax).toBeGreaterThan(mid.incomeTax);
+    expect(high.netYear).toBeGreaterThan(mid.netYear);
+    expect(high.netYear).toBeLessThan(300_000);
+    // Above the soli glide zone → full 5.5 % solidarity surcharge kicks in.
+    expect(high.soli).toBeGreaterThan(0);
+  });
+});
+
+describe("computeBruno — lower tax brackets (Progressionszonen)", () => {
+  it("20k gross (class I) lands in progression zone 1: small but non-zero income tax", () => {
+    const r = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 20_000 });
+    expect(r.incomeTax).toBeGreaterThan(0);
+    expect(r.incomeTax).toBeLessThan(1_500);
+    expect(r.netYear).toBeGreaterThan(0);
+    expect(r.netYear).toBeLessThan(20_000);
+  });
+
+  it("class VI taxes a low gross from the first euro-ish (tiny 1k allowance only)", () => {
+    // 15k in class VI → zone 1 of the class-6 tariff; class I would pay
+    // almost nothing here (below/near Grundfreibetrag after deductions).
+    const six = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 15_000, taxClass: 6 });
+    const one = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 15_000, taxClass: 1 });
+    expect(six.incomeTax).toBeGreaterThan(one.incomeTax);
+    expect(six.incomeTax).toBeGreaterThan(500);
+  });
+
+  it("class VI mid income (50k) lands in zone 2 and still exceeds class I", () => {
+    const six = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 50_000, taxClass: 6 });
+    const one = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 50_000, taxClass: 1 });
+    expect(six.incomeTax).toBeGreaterThan(one.incomeTax);
+  });
+
+  it("class II (Alleinerziehend) nets more than class I on the same gross", () => {
+    const two = computeBruno({ ...DEFAULT_INPUT, children: 1, taxClass: 2 });
+    const one = computeBruno({ ...DEFAULT_INPUT, children: 1, taxClass: 1 });
+    expect(two.netYear).toBeGreaterThan(one.netYear);
+  });
+});
+
+describe("computeBruno — church-rate fallback", () => {
+  it("an unknown state falls back to the 9 % church rate (same as NW)", () => {
+    const unknown = computeBruno({
+      ...DEFAULT_INPUT,
+      isChurchMember: true,
+      state: "xx" as BrunoInput["state"],
+    });
+    const nw = computeBruno({ ...DEFAULT_INPUT, isChurchMember: true, state: "nw" });
+    expect(unknown.churchTax).toBeCloseTo(nw.churchTax, 6);
+    expect(unknown.churchTax).toBeGreaterThan(0);
+  });
+});
+
+describe("normaliseAmount — separator edge cases", () => {
+  it("multi-group German thousands (`1.234.567`)", () => {
+    expect(normaliseAmount("1.234.567")).toBe(1_234_567);
+  });
+
+  it("multi-group US thousands with decimal (`1,234,567.89`)", () => {
+    expect(normaliseAmount("1,234,567.89")).toBeCloseTo(1_234_567.89, 6);
+  });
+
+  it("single-digit decimal after comma (`4500,5`)", () => {
+    expect(normaliseAmount("4500,5")).toBeCloseTo(4500.5, 6);
+  });
+
+  it("three digits after a single separator read as thousands (`1,234`)", () => {
+    expect(normaliseAmount("1,234")).toBe(1234);
+    expect(normaliseAmount("1.234")).toBe(1234);
+  });
+});
+
+describe("computeBruno — class VI upper brackets", () => {
+  it("class VI 100k hits the 42 % linear bracket", () => {
+    const r = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 100_000, taxClass: 6 });
+    expect(r.incomeTax).toBeCloseTo(0.42 * 100_000 - 11_294.68, 0);
+  });
+
+  it("class VI 300k hits the 45 % top bracket", () => {
+    const r = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 300_000, taxClass: 6 });
+    expect(r.incomeTax).toBeCloseTo(0.45 * 300_000 - 19_619.93, 0);
+  });
 });

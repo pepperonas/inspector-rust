@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { formatBytes, truncateOneLine, relativeTime } from "./format";
+import { formatAbsolute, formatBytes, truncateOneLine, relativeTime } from "./format";
 
 describe("formatBytes", () => {
   it("formats zero bytes", () => {
@@ -102,5 +102,41 @@ describe("relativeTime", () => {
     const result = relativeTime(FIXED_NOW - 10 * 86_400_000);
     expect(result.length).toBeGreaterThan(0);
     expect(result).not.toMatch(/ago$/);
+  });
+
+  it("crosses each threshold at the exact boundary (inclusive lower bucket)", () => {
+    // Boundaries are `<` comparisons, so exactly 60_000 ms falls into the NEXT
+    // bucket. Pin those transitions so a future off-by-one is caught.
+    expect(relativeTime(FIXED_NOW - 59_999)).toBe("just now");
+    expect(relativeTime(FIXED_NOW - 60_000)).toBe("1m ago");
+    expect(relativeTime(FIXED_NOW - 3_600_000)).toBe("1h ago");
+    expect(relativeTime(FIXED_NOW - 86_400_000)).toBe("1d ago");
+    // Exactly one week → falls out of the "d ago" bucket into the date branch.
+    expect(relativeTime(FIXED_NOW - 604_800_000)).not.toMatch(/ago$/);
+  });
+
+  it("does not crash on a future timestamp (negative diff → 'just now')", () => {
+    expect(relativeTime(FIXED_NOW + 5_000)).toBe("just now");
+  });
+});
+
+describe("formatAbsolute", () => {
+  it("renders a non-empty human string containing the year", () => {
+    const s = formatAbsolute(new Date("2026-06-14T09:30:00Z").getTime());
+    expect(s.length).toBeGreaterThan(0);
+    expect(s).toContain("2026");
+  });
+
+  it("produces different strings for timestamps in different years", () => {
+    const a = formatAbsolute(new Date("2020-01-01T00:00:00Z").getTime());
+    const b = formatAbsolute(new Date("2026-01-01T00:00:00Z").getTime());
+    expect(a).not.toBe(b);
+    expect(a).toContain("2020");
+    expect(b).toContain("2026");
+  });
+
+  it("does not throw on the unix epoch (0) or a negative timestamp", () => {
+    expect(() => formatAbsolute(0)).not.toThrow();
+    expect(() => formatAbsolute(-1000)).not.toThrow();
   });
 });

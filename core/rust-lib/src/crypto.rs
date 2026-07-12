@@ -436,4 +436,36 @@ mod tests {
             plain.len() + PREFIX.len(),
         );
     }
+
+    #[test]
+    fn migrate_table_is_a_noop_without_a_key() {
+        // Safety property: on an install where the cipher was never initialised
+        // (CIPHER unset — the state of the whole test process), migrate_table
+        // must leave every row byte-for-byte untouched and report 0 migrations,
+        // rather than corrupt plaintext it can't round-trip. This guards the
+        // `CIPHER.get().is_none()` early return.
+        assert!(
+            CIPHER.get().is_none(),
+            "test process must not have an initialised global cipher",
+        );
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE t (id INTEGER PRIMARY KEY, secret TEXT, other TEXT);
+             INSERT INTO t (id, secret, other) VALUES (1, 'plain-1', 'x'), (2, 'plain-2', NULL);",
+        )
+        .unwrap();
+
+        let migrated = migrate_table(&conn, "t", &["secret", "other"]).unwrap();
+        assert_eq!(migrated, 0, "no key ⇒ nothing migrated");
+
+        // Rows are unchanged (no accidental mutation).
+        let s1: String = conn
+            .query_row("SELECT secret FROM t WHERE id = 1", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(s1, "plain-1");
+        let s2: Option<String> = conn
+            .query_row("SELECT other FROM t WHERE id = 2", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(s2, None);
+    }
 }

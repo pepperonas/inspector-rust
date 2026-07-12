@@ -46,3 +46,10 @@ describe("uptime helpers", () => {
     expect(odometerPowers(1, 6)).toEqual([0, -1, -2, -3, -4, -5, -6]);
   });
 });
+
+describe("odometerValue — negative input", () => {
+  it("wraps a negative modulo into the positive digit range", () => {
+    expect(odometerValue(-1, 0)).toBe(9);
+    expect(odometerValue(-12, 0)).toBe(8); // -12 % 10 = -2 → 8
+  });
+});

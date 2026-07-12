@@ -351,3 +351,89 @@ describe("BpmAnalyzer.estimate — octave snap", () => {
     expect(after).toBeLessThan(140);
   });
 });
+
+describe("BpmAnalyzer.setSensitivity", () => {
+  it("a sensitive analyzer locks onto weak beats a strict one ignores", () => {
+    // Beat energy only ~1.4× the baseline: above the sensitive threshold
+    // (1.05 at s=1) but below the strict one (1.75 at s=0).
+    const run = (sensitivity: number) => {
+      const a = new BpmAnalyzer();
+      a.setSensitivity(sensitivity);
+      const beatIntervalMs = 60000 / 120;
+      let nextBeatAt = 0;
+      for (let t = 0; t < 12_000; t += 10) {
+        const isBeat = t >= nextBeatAt && t < nextBeatAt + 10;
+        if (isBeat) nextBeatAt += beatIntervalMs;
+        a.push(chunk(isBeat ? 0.028 : 0.02), t);
+      }
+      return a.estimate(12_000);
+    };
+    const strict = run(0);
+    const sensitive = run(1);
+    expect(strict.bpm).toBe(0);
+    expect(sensitive.bpm).toBeGreaterThan(110);
+    expect(sensitive.bpm).toBeLessThan(130);
+  });
+});
+
+describe("BpmAnalyzer.estimate — octave snap (both directions)", () => {
+  it("a lock at 170 survives a brief half-time passage (raw ~85 promoted ×2)", () => {
+    const { analyzer } = simulateBeats(170, 12);
+    const locked = analyzer.estimate(12_000).bpm;
+    expect(locked).toBeGreaterThan(165);
+    expect(locked).toBeLessThan(175);
+    // Feed ~6 s of onsets at 85 BPM (706 ms IOI) — long enough for the
+    // IOI median to genuinely flip to the half-time reading, polling
+    // estimate() like the UI does so the display history rolls forward.
+    const ioi = 60000 / 85;
+    let after = locked;
+    for (let t = 12_000 + ioi; t <= 18_000; t += ioi) {
+      analyzer.push(chunk(0.02), t - 50);
+      analyzer.push(chunk(0.6), t);
+      after = analyzer.estimate(t).bpm;
+    }
+    expect(after).toBeGreaterThan(150); // stays in the 170 octave, not 85
+  });
+
+  it("a lock at 85 survives a brief double-time passage (raw ~170 demoted ÷2)", () => {
+    const { analyzer } = simulateBeats(85, 12);
+    const locked = analyzer.estimate(12_000).bpm;
+    expect(locked).toBeGreaterThan(80);
+    expect(locked).toBeLessThan(90);
+    // Feed ~6 s of onsets at 170 BPM (353 ms IOI) — long enough for the
+    // IOI median to genuinely flip to the double-time reading.
+    const ioi = 60000 / 170;
+    let after = locked;
+    for (let t = 12_000 + ioi; t <= 18_000; t += ioi) {
+      analyzer.push(chunk(0.02), t - 50);
+      analyzer.push(chunk(0.6), t);
+      after = analyzer.estimate(t).bpm;
+    }
+    expect(after).toBeLessThan(110); // stays in the 85 octave, not 170
+  });
+});
+
+describe("BpmAnalyzer.estimate — display window rolloff", () => {
+  it("tracks a tempo change once old estimates leave the 4 s averaging window", () => {
+    const a = new BpmAnalyzer();
+    const feed = (bpm: number, fromMs: number, toMs: number) => {
+      const beatIntervalMs = 60000 / bpm;
+      let nextBeatAt = fromMs;
+      for (let t = fromMs; t < toMs; t += 10) {
+        const isBeat = t >= nextBeatAt && t < nextBeatAt + 10;
+        if (isBeat) nextBeatAt += beatIntervalMs;
+        a.push(chunk(isBeat ? 0.5 : 0.02), t);
+        a.estimate(t); // poll like the UI rAF loop does
+      }
+    };
+    feed(120, 0, 10_000);
+    const before = a.estimate(10_000).bpm;
+    expect(before).toBeGreaterThan(115);
+    expect(before).toBeLessThan(125);
+    feed(130, 10_000, 20_000);
+    const after = a.estimate(20_000).bpm;
+    // All 120-era estimates rolled out of the window → mean sits at ~130.
+    expect(after).toBeGreaterThan(126);
+    expect(after).toBeLessThan(135);
+  });
+});

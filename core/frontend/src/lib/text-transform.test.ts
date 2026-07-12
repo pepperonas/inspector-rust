@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { TRANSFORMS, applyTransform } from "./text-transform";
 
 describe("TRANSFORMS catalogue", () => {
@@ -150,5 +150,30 @@ describe("plain-text — strip HTML / decode entities", () => {
     expect(applyTransform("plain-text", "just plain text")).toBe(
       "just plain text",
     );
+  });
+});
+
+describe("plain-text — no-DOM fallback (regex tag-strip)", () => {
+  // In headless / non-DOM contexts DOMParser is absent; the fallback path
+  // drops tags and decodes the common entities by regex. Force that branch.
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("strips tags without a DOMParser", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(applyTransform("plain-text", "<b>hello</b> <i>world</i>")).toBe(
+      "hello world",
+    );
+  });
+
+  it("decodes the handful of named / numeric entities it supports", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(
+      applyTransform("plain-text", "a&nbsp;b AT&amp;T &lt;x&gt; &quot;q&quot; &#39;s&#39;"),
+    ).toBe('a b AT&T <x> "q" \'s\'');
+  });
+
+  it("trims and leaves plain input unchanged in the fallback too", () => {
+    vi.stubGlobal("DOMParser", undefined);
+    expect(applyTransform("plain-text", "  just text  ")).toBe("just text");
   });
 });

@@ -80,3 +80,19 @@ describe("generatePassword", () => {
     expect(caps).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("generatePassword — without Web Crypto (fallback path)", () => {
+  it("still honours length + charset when crypto is unavailable", () => {
+    const original = globalThis.crypto;
+    Object.defineProperty(globalThis, "crypto", { value: undefined, configurable: true });
+    try {
+      const pw = generatePassword("alnum", 16);
+      expect(pw).toHaveLength(16);
+      expect(pw).toMatch(/^[A-Za-z0-9]+$/);
+      const dict = generatePassword("dict", 20);
+      expect(dict).toHaveLength(20);
+    } finally {
+      Object.defineProperty(globalThis, "crypto", { value: original, configurable: true });
+    }
+  });
+});

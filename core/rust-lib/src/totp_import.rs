@@ -758,6 +758,109 @@ mod tests {
     }
 
     #[test]
+    fn otpauth_uri_percent_decodes_issuer_and_account_and_reads_algorithm() {
+        // Spaces + an explicit SHA256 algorithm; issuer carries a space too.
+        let uri = "otpauth://totp/Big%20Corp:jane%20doe?secret=JBSWY3DPEHPK3PXP&issuer=Big%20Corp&algorithm=sha256&digits=8&period=60";
+        let e = parse_otpauth_uri(uri).unwrap();
+        assert_eq!(e.issuer, "Big Corp");
+        assert_eq!(e.account, "jane doe");
+        assert_eq!(e.algorithm, "SHA256"); // upper-cased
+        assert_eq!(e.digits, 8);
+        assert_eq!(e.period, 60);
+    }
+
+    #[test]
+    fn otpauth_uri_bad_digits_period_fall_back_to_defaults() {
+        // Non-numeric digits/period must not error — they fall back to 6/30.
+        let uri = "otpauth://totp/A:b?secret=JBSWY3DPEHPK3PXP&digits=xx&period=";
+        let e = parse_otpauth_uri(uri).unwrap();
+        assert_eq!(e.digits, 6);
+        assert_eq!(e.period, 30);
+    }
+
+    #[test]
+    fn otpauth_uri_rejects_non_otpauth_input() {
+        assert!(parse_otpauth_uri("https://example.com").is_err());
+        assert!(parse_otpauth_uri("otpauth://hotp/A:b?secret=JBSWY3DPEHPK3PXP").is_err());
+    }
+
+    #[test]
+    fn otpmanager_skips_entries_without_a_secret_and_defaults_fields() {
+        let json = r#"[
+          { "Issuer": "Has", "Secret": "JBSWY3DPEHPK3PXP", "Username": "u" },
+          { "Issuer": "NoSecret", "Username": "x" },
+          { "Issuer": "Blank", "Secret": "   ", "Username": "y" }
+        ]"#;
+        let entries = parse_otpmanager_json(json).unwrap();
+        assert_eq!(entries.len(), 1, "entries missing/blank secret are skipped");
+        let e = &entries[0];
+        assert_eq!(e.issuer, "Has");
+        // Missing digits/period/algorithm default to 6/30/SHA1.
+        assert_eq!(e.digits, 6);
+        assert_eq!(e.period, 30);
+        assert_eq!(e.algorithm, "SHA1");
+    }
+
+    #[test]
+    fn json_parsers_error_on_wrong_shape() {
+        assert!(parse_aegis_json("not json at all").is_err());
+        assert!(parse_2fas_json("{").is_err());
+        assert!(parse_otpmanager_json(r#"{"not":"an array"}"#).is_err());
+    }
+
+    #[test]
+    fn plain_text_batch_skips_comment_and_non_uri_lines() {
+        // A plaintext file that does NOT start with otpauth:// takes the
+        // line-by-line path: comment lines (#) and lines that aren't a URI
+        // are skipped; the two valid URIs still import.
+        let input = "# my export\notpauth://totp/A:1?secret=JBSWY3DPEHPK3PXP\nnonsense-not-a-uri\notpauth://totp/B:2?secret=KRSWG4LBORSXG43JNZTQ";
+        let entries = import_auto(input).unwrap();
+        assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].account, "1");
+        assert_eq!(entries[1].account, "2");
+    }
+
+    #[test]
+    fn export_uris_round_trip_a_normal_entry_exactly() {
+        // The exported otpauth:// URIs must re-import to identical entries —
+        // the property that makes the export portable. Uses an in-memory DB;
+        // with no cipher initialised, secret_enc is stored/decrypted as plain.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        totp_store::init_table(&db).unwrap();
+        totp_store::add(&db, "Big Corp", "jane@doe.com", "JBSWY3DPEHPK3PXP", 8, 60, "SHA256")
+            .unwrap();
+
+        let uris = export_otpauth_uris(&db).unwrap();
+        assert_eq!(uris.len(), 1);
+
+        let a = parse_otpauth_uri(&uris[0]).unwrap();
+        assert_eq!(a.issuer, "Big Corp");
+        assert_eq!(a.account, "jane@doe.com");
+        assert_eq!(a.digits, 8);
+        assert_eq!(a.period, 60);
+        assert_eq!(a.algorithm, "SHA256");
+    }
+
+    #[test]
+    fn export_of_issuer_only_entry_preserves_the_issuer() {
+        // KNOWN ASYMMETRY (reported): an issuer-only entry (empty account)
+        // exports to a colon-less label = the issuer, which the otpauth
+        // convention re-reads as the *account* — so the empty account drifts
+        // to the issuer name on re-import. The issuer itself is always
+        // preserved (via the `issuer=` query param). We assert only that
+        // guaranteed invariant here rather than blessing the account drift.
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        totp_store::init_table(&db).unwrap();
+        totp_store::add(&db, "Solo", "", "KRSWG4LBORSXG43JNZTQ", 6, 30, "SHA1").unwrap();
+
+        let uris = export_otpauth_uris(&db).unwrap();
+        let b = parse_otpauth_uri(&uris[0]).unwrap();
+        assert_eq!(b.issuer, "Solo", "issuer must survive the round-trip");
+    }
+
+    #[test]
     fn base32_round_trip() {
         let original = b"hello world";
         let encoded = encode_base32_no_pad(original);

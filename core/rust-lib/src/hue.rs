@@ -420,4 +420,55 @@ mod tests {
         let p = parse_light("9", &plug).unwrap();
         assert!(!p.dimmable && !p.supports_color);
     }
+
+    #[test]
+    fn first_error_returns_the_description_for_non_101_codes() {
+        // A non-101 bridge error surfaces its human description, not the
+        // link-button sentinel.
+        let v = serde_json::json!([{"error": {"type": 7, "description": "invalid value"}}]);
+        assert_eq!(first_error(&v).as_deref(), Some("invalid value"));
+        // Error object without a description → a generic fallback string.
+        let no_desc = serde_json::json!([{"error": {"type": 3}}]);
+        assert_eq!(first_error(&no_desc).as_deref(), Some("unknown hue error"));
+        // Not even an array → None.
+        assert_eq!(first_error(&serde_json::json!({"error": "x"})), None);
+    }
+
+    #[test]
+    fn percent_to_bri_clamps_above_100() {
+        // Values > 100 % are clamped, not overflowed.
+        assert_eq!(percent_to_bri(200), percent_to_bri(100));
+        assert_eq!(percent_to_bri(101), 254);
+    }
+
+    #[test]
+    fn parse_light_dimmable_only_light_is_not_colour() {
+        // A plain white "Dimmable light" exposes bri but no xy/hue → dimmable
+        // true, colour false.
+        let v = serde_json::json!({
+            "name": "Desk", "type": "Dimmable light",
+            "state": { "on": true, "bri": 127, "reachable": true }
+        });
+        let l = parse_light("5", &v).unwrap();
+        assert!(l.dimmable, "has bri → dimmable");
+        assert!(!l.supports_color, "no xy/hue/'color' in type → not colour");
+        assert!((l.brightness as i32 - 50).abs() <= 1);
+    }
+
+    #[test]
+    fn parse_light_without_a_state_object_is_none() {
+        // No `state` key → cannot describe the lamp → None (skipped by the caller).
+        let v = serde_json::json!({ "name": "Ghost", "type": "Extended color light" });
+        assert!(parse_light("1", &v).is_none());
+    }
+
+    #[test]
+    fn parse_light_defaults_name_and_reachable_when_absent() {
+        // Missing name → "Lamp"; missing reachable → assumed reachable (true).
+        let v = serde_json::json!({ "state": { "on": true } });
+        let l = parse_light("2", &v).unwrap();
+        assert_eq!(l.name, "Lamp");
+        assert!(l.reachable);
+        assert_eq!(l.brightness, 100); // no bri → 100 default
+    }
 }

@@ -96,3 +96,11 @@ describe("areaPath", () => {
     expect(d).toContain("L0.00 50.00"); // back to baseline at the left
   });
 });
+
+describe("areaPath — degenerate time extent", () => {
+  it("does not produce NaN when tMin === tMax", () => {
+    const d = areaPath([{ t: 5, v: 1 }], 5, 5, 100, 40, 0, 2);
+    expect(d).not.toContain("NaN");
+    expect(d.endsWith("Z")).toBe(true);
+  });
+});

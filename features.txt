@@ -1,4 +1,4 @@
-Inspector Rust — Feature-Liste (Stand v0.84.255)
+Inspector Rust — Feature-Liste (Stand v0.84.256)
 
 == Clipboard ==
 Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
@@ -64,7 +64,7 @@ Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)
 Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus)
 Aufräumen — `clean`: interaktiver Kategorien-Picker (Caches, Logs, Duplikate, Installer, Docker, Xcode …), s. u.
 BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start)
-Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro
+Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start; teilt sich die Aufnahme mit dem BPM-Detektor)
 Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
 Netzwerk-Monitor — `snitch`: Apps mit Live-Verbindungen, Toggle blockt Internet best-effort via pf-Watcher (macOS, ein Admin-Prompt; kein echter Firewall)
 Verbindungs-Weltkarte — `snitch map`: laufende Outbound-Verbindungen auf Offline-Weltkarte mit Standort-Bögen von deinem Standort; aktive Transfers leuchten grün mit fließenden Paketen (Live-Durchsatz via nettop); Serverstandorte online per Geo-IP (nur öffentliche IPs). Voll zoom-/verschiebbar (Scrollen zoomt zum Cursor, Ziehen pant, Doppelklick, +/−/Reset, Tastatur), Hover-Infobox, City-Labels. Beim Tippen von `snitch` sind Blocker + Karte als zwei Zeilen sichtbar

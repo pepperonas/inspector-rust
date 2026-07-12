@@ -886,12 +886,12 @@ export function shazamRecognize(samples: Int16Array): Promise<ShazamMatch | null
 export function shazamListen(seconds?: number): Promise<ShazamMatch | null> {
   return invoke("shazam_listen", { seconds });
 }
-/** Start/stop native mic streaming for the BPM detector (event `bpm-audio`). */
-export function bpmCaptureStart(): Promise<void> {
-  return invoke("bpm_capture_start");
+/** Start/stop native mic streaming (event `mic-audio`; shared by BPM + disco). */
+export function micCaptureStart(): Promise<void> {
+  return invoke("mic_capture_start");
 }
-export function bpmCaptureStop(): Promise<void> {
-  return invoke("bpm_capture_stop");
+export function micCaptureStop(): Promise<void> {
+  return invoke("mic_capture_stop");
 }
 export function shazamHistoryList(limit?: number): Promise<ShazamHistoryEntry[]> {
   return invoke("shazam_history_list", { limit });

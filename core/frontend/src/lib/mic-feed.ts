@@ -1,16 +1,22 @@
 /**
- * Feed NATIVE-captured mic PCM (streamed from Rust `cpal`, event `bpm-audio`)
+ * Feed NATIVE-captured mic PCM (streamed from Rust `cpal`, event `mic-audio`)
  * into a Web-Audio graph via a ScriptProcessor *source*, so real-time features
- * (BPM detector) get their audio without ever calling `getUserMedia` — which
- * makes WKWebView reconfigure the shared audio device and pause other apps'
- * playback at mic-open (v0.84.255).
+ * (BPM detector + disco) get their audio without ever calling `getUserMedia` —
+ * which makes WKWebView reconfigure the shared audio device and pause other
+ * apps' playback at mic-open (v0.84.255/.256). Ref-counted: BPM + disco can run
+ * at once and share the ONE native capture.
  *
  * The returned `source` is a normal `AudioNode` you connect exactly where the
  * old `MediaStreamAudioSource` went — the whole downstream analysis graph
  * (filters, analysers, BpmAnalyzer, visualizer) is unchanged.
  */
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { bpmCaptureStart, bpmCaptureStop } from "./ipc";
+import { micCaptureStart, micCaptureStop } from "./ipc";
+
+// ONE native mic capture is shared by all consumers (BPM detector + disco).
+// Ref-count so the first consumer starts it and the last one stops it — a
+// consumer stopping while another is still listening must NOT kill the stream.
+let refCount = 0;
 
 interface AudioChunk {
   rate: number;
@@ -58,7 +64,16 @@ export interface FedMic {
  * processor fires; the analysers tap off the source as before.
  */
 export async function startFedMic(ctx: AudioContext): Promise<FedMic> {
-  await bpmCaptureStart();
+  // First consumer starts the native capture; later consumers share it.
+  if (refCount === 0) await micCaptureStart();
+  refCount++;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    refCount = Math.max(0, refCount - 1);
+    if (refCount === 0) void micCaptureStop();
+  };
 
   const cap = Math.max(1, Math.floor(ctx.sampleRate * 1.5)); // ~1.5 s ring
   const ring = new Float32Array(cap);
@@ -94,7 +109,7 @@ export async function startFedMic(ctx: AudioContext): Promise<FedMic> {
     onFirst = res;
   });
 
-  const unlisten: UnlistenFn = await listen<AudioChunk>("bpm-audio", (e) => {
+  const unlisten: UnlistenFn = await listen<AudioChunk>("mic-audio", (e) => {
     if (!gotFirst) {
       gotFirst = true;
       onFirst();
@@ -117,7 +132,7 @@ export async function startFedMic(ctx: AudioContext): Promise<FedMic> {
     } catch {
       /* already gone */
     }
-    void bpmCaptureStop();
+    release(); // ref-counted: stops the native capture only when the last consumer leaves
   };
 
   const timeout = new Promise<never>((_res, rej) =>

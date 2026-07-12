@@ -24,7 +24,8 @@ import { BpmAnalyzer } from "./bpm";
 import { hueListLights, hueSetLight } from "./ipc";
 import { beatColor, floorBrightness, nextIndex, type DiscoMode } from "./disco-math";
 import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
-import { attachMic, warmContext, detachMic } from "./warm-audio";
+import { warmContext } from "./warm-audio";
+import { startFedMic } from "./mic-feed";
 
 export type { DiscoMode };
 
@@ -88,11 +89,11 @@ class DiscoEngine {
   private snap: DiscoState = { ...this.state };
   private listeners = new Set<() => void>();
 
-  // Audio graph. Runs on the SHARED warm AudioContext (warm-audio.ts) — never
-  // a fresh context, or opening the mic reconfigures the CoreAudio device and
-  // stutters other apps' playback (v0.84.253). The context is never closed here.
-  private stream: MediaStream | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
+  // Audio graph. Mic is captured NATIVELY (Rust/cpal) and fed into the shared
+  // warm AudioContext via `startFedMic` — no webview getUserMedia, so starting
+  // disco never reconfigures the CoreAudio device / pauses playback (v0.84.256,
+  // same fix as BPM/Shazam). The context is never closed here.
+  private fed: import("./mic-feed").FedMic | null = null;
   private detectAnalyser: AnalyserNode | null = null;
   private levelAnalyser: AnalyserNode | null = null;
   private rafId: number | null = null;
@@ -159,15 +160,11 @@ class DiscoEngine {
     this.prevId = null;
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
-      });
-      this.stream = stream;
-      // Attach to the shared warm play-and-record session (suspend → wire →
-      // resume) instead of a fresh context — see the field comment.
-      const source = await attachMic(stream);
-      this.source = source;
       const ctx = warmContext();
+      // Native mic capture (Rust/cpal, streamed in) — no webview getUserMedia.
+      const fed = await startFedMic(ctx);
+      this.fed = fed;
+      const source = fed.source;
       this.analyzer = new BpmAnalyzer();
       this.analyzer.setSensitivity(this.state.sensitivity);
 
@@ -194,17 +191,14 @@ class DiscoEngine {
       // filter, so the meter swings with the whole mix, not just the kick.
       const levelAnalyser = ctx.createAnalyser();
       levelAnalyser.fftSize = 1024;
-      // Keep a silent output unit running (anti-stutter; same as BPM detector).
-      const silent = ctx.createGain();
-      silent.gain.value = 0;
 
+      // The fed source (ScriptProcessor from startFedMic) already has its own
+      // muted → destination pull path, so no extra silent node is needed here.
       source.connect(gain);
       gain.connect(hp);
       hp.connect(lp);
       lp.connect(detectAnalyser);
       gain.connect(levelAnalyser);
-      source.connect(silent);
-      silent.connect(ctx.destination);
       this.detectAnalyser = detectAnalyser;
       this.levelAnalyser = levelAnalyser;
 
@@ -243,7 +237,6 @@ class DiscoEngine {
         this.rafId = requestAnimationFrame(loop);
       };
 
-      // (attachMic already resumed the warm context.)
       this.rafId = requestAnimationFrame(loop);
       this.set({ running: true, error: null });
     } catch {
@@ -253,7 +246,7 @@ class DiscoEngine {
   }
 
   stop(): void {
-    if (!this.state.running && !this.source) return;
+    if (!this.state.running && !this.fed) return;
     this.teardownAudio();
     this.restoreLamps();
     this.set({ running: false, bpm: 0, level: 0, beat: false });
@@ -269,12 +262,10 @@ class DiscoEngine {
     this.levelAnalyser?.disconnect();
     this.levelAnalyser = null;
     this.displayLevel = 0;
-    // Disconnect the mic source + stop tracks, but NEVER close the shared warm
-    // context (BPM / Shazam reuse it — closing it would break them and force a
-    // device reconfiguration on the next mic-open).
-    detachMic(this.source, this.stream);
-    this.source = null;
-    this.stream = null;
+    // Stop the native mic feed (ref-counted — the shared capture keeps running
+    // if the BPM detector is also using it; the warm context is never closed).
+    this.fed?.stop();
+    this.fed = null;
   }
 
   private restoreLamps() {

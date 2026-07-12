@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.256] — 2026-07-12
+
+### Fixed
+
+- **Disco no longer pauses your music when it starts either.** Like the BPM detector and Shazam, the disco light-sync now captures the microphone **natively** (streamed from Rust) instead of through the web view, so turning it on no longer briefly cuts out whatever's playing. BPM and disco share one native capture (ref-counted), so running both at once works and neither stops the other's audio.
+
 ## [0.84.255] — 2026-07-12
 
 ### Fixed

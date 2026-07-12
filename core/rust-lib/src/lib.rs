@@ -206,7 +206,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(screen_record::RecordState::default());
             app.manage(color_loupe::LoupeState::default());
             app.manage(alarm::AlarmState::default());
-            app.manage(commands::BpmMicState::default());
+            app.manage(commands::MicCaptureState::default());
             app.manage(tracking::TrackerState::default());
             // Restore the last tracking state: if a session was still active
             // when the app last closed (crash / quit / update), resume it so
@@ -662,8 +662,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::snitch_arm,
             #[cfg(target_os = "macos")]
             commands::snitch_disarm,
-            commands::bpm_capture_start,
-            commands::bpm_capture_stop,
+            commands::mic_capture_start,
+            commands::mic_capture_stop,
             commands::shazam_recognize,
             commands::shazam_listen,
             commands::shazam_history_list,

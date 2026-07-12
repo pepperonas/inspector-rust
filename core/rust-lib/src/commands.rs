@@ -4673,29 +4673,31 @@ pub async fn shazam_recognize(
     Ok(result)
 }
 
-// ── BPM live mic capture (native cpal streaming) ────────────────────────────
+// ── Live mic capture (native cpal streaming) ────────────────────────────────
 
-/// Holds the running BPM mic stream so `bpm_capture_stop` can end it. The cpal
+/// Holds the running mic stream so `mic_capture_stop` can end it. The cpal
 /// stream lives on the capture worker thread; this only holds the stop handle.
+/// Shared by the BPM detector + disco (the frontend ref-counts start/stop, so
+/// there's ever only ONE native capture broadcasting the `mic-audio` event).
 #[derive(Default)]
-pub struct BpmMicState(pub parking_lot::Mutex<Option<crate::mic_capture::MicStream>>);
+pub struct MicCaptureState(pub parking_lot::Mutex<Option<crate::mic_capture::MicStream>>);
 
-/// Start streaming the mic to the frontend (event `bpm-audio`) for the BPM
-/// detector — native capture, no webview `getUserMedia` glitch. Idempotent.
+/// Start streaming the mic to the frontend (event `mic-audio`) — native
+/// capture, no webview `getUserMedia` device-reconfiguration glitch.
 #[tauri::command]
-pub fn bpm_capture_start(app: AppHandle, state: State<'_, BpmMicState>) {
+pub fn mic_capture_start(app: AppHandle, state: State<'_, MicCaptureState>) {
     let mut g = state.0.lock();
     // Replace any existing stream (e.g. a Retry re-mount) so we never end up
     // with a dead/torn-down capture the frontend is still waiting on.
     if let Some(old) = g.take() {
         old.stop();
     }
-    *g = Some(crate::mic_capture::start(app, "bpm-audio"));
+    *g = Some(crate::mic_capture::start(app, "mic-audio"));
 }
 
-/// Stop the BPM mic stream (releases the input device).
+/// Stop the mic stream (releases the input device).
 #[tauri::command]
-pub fn bpm_capture_stop(state: State<'_, BpmMicState>) {
+pub fn mic_capture_stop(state: State<'_, MicCaptureState>) {
     if let Some(s) = state.0.lock().take() {
         s.stop();
     }

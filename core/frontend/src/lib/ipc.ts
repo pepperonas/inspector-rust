@@ -550,9 +550,19 @@ export function importSnippets(json: string): Promise<ImportResult> {
   return invoke("import_snippets", { json });
 }
 
-/** Read a JSON file from the given path and import its snippets. */
+/** Read a JSON file from the given path and import its snippets. Accepts a full
+ *  IR backup (only its snippets + groups are applied), a snippets-only backup,
+ *  or the lean `[{abbreviation,title,body}]` shape. Used by the file picker AND
+ *  the Snippets-tab drag-and-drop. */
 export function importSnippetsFromFile(path: string): Promise<ImportResult> {
   return invoke("import_snippets_from_file", { path });
+}
+
+/** Write all snippets + their groups to `path` as a snippets-only backup
+ *  document — the exchange format for editing them in another app. Returns the
+ *  number of snippets written. */
+export function exportSnippetsToFile(path: string): Promise<number> {
+  return invoke("export_snippets_to_file", { path });
 }
 
 /** Re-import the bundled default AI-prompt snippets. Existing snippets

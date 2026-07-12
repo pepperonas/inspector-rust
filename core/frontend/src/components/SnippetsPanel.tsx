@@ -1,10 +1,13 @@
-import { useMemo, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { useEffect, useMemo, useState } from "react";
+// `save` is aliased — the panel already has a local `save()` for the editor.
+import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { confirmDialog } from "../lib/confirm";
 import {
   ArrowDown,
   ArrowUp,
   Check,
+  Download,
   FolderCog,
   Plus,
   RotateCcw,
@@ -17,6 +20,7 @@ import {
   createSnippetCategory,
   deleteSnippet,
   deleteSnippetCategory,
+  exportSnippetsToFile,
   importSnippetsFromFile,
   renameSnippetCategory,
   reorderSnippetCategories,
@@ -56,11 +60,14 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
   // Inline "create group" input shown inside the edit form's group picker.
   const [newGroupName, setNewGroupName] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<
-    | { kind: "ok"; result: ImportResult }
+    // `exported` re-uses the same banner for the export confirmation
+    // (`result.imported` then carries the number of snippets written).
+    | { kind: "ok"; result: ImportResult; exported?: boolean }
     | { kind: "err"; message: string }
     | null
   >(null);
   const [importing, setImporting] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
 
   // Map category id → name for showing a chip on each snippet row.
@@ -162,9 +169,22 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
     }
   };
 
-  const onPickFile = async () => {
+  /** Shared by the file picker and the drop target. */
+  const importPath = async (path: string) => {
     setImportStatus(null);
     setImporting(true);
+    try {
+      const result = await importSnippetsFromFile(path);
+      setImportStatus({ kind: "ok", result });
+      await onRefresh();
+    } catch (err) {
+      setImportStatus({ kind: "err", message: String(err) });
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  const onPickFile = async () => {
     await setSuppressHide(true).catch(() => {});
     try {
       const selected = await open({
@@ -174,19 +194,85 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
         title: "Select snippets JSON file",
       });
       if (!selected) return;
-      const result = await importSnippetsFromFile(selected);
-      setImportStatus({ kind: "ok", result });
-      await onRefresh();
+      await importPath(selected);
     } catch (err) {
       setImportStatus({ kind: "err", message: String(err) });
     } finally {
       await setSuppressHide(false).catch(() => {});
-      setImporting(false);
     }
   };
 
+  const onExport = async () => {
+    setImportStatus(null);
+    await setSuppressHide(true).catch(() => {});
+    try {
+      const target = await saveDialog({
+        title: "Export snippets",
+        defaultPath: `ir-snippets-${new Date().toISOString().slice(0, 10)}.json`,
+        filters: [{ name: "JSON", extensions: ["json"] }],
+      });
+      if (!target) return;
+      const count = await exportSnippetsToFile(target);
+      setImportStatus({
+        kind: "ok",
+        result: { imported: count, skipped: 0, errors: [] },
+        exported: true,
+      });
+    } catch (err) {
+      setImportStatus({ kind: "err", message: String(err) });
+    } finally {
+      await setSuppressHide(false).catch(() => {});
+    }
+  };
+
+  // Drag-and-drop import: drop a snippets/backup JSON anywhere on the tab.
+  // The popup hides on focus-loss, and dragging from Finder steals focus — so
+  // pin it open for the whole drag (same reason TotpOverlay does).
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void getCurrentWebviewWindow()
+      .onDragDropEvent((event) => {
+        const p = event.payload;
+        if (p.type === "enter" || p.type === "over") {
+          void setSuppressHide(true).catch(() => {});
+          setDragOver(true);
+        } else if (p.type === "leave") {
+          setDragOver(false);
+          void setSuppressHide(false).catch(() => {});
+        } else if (p.type === "drop") {
+          setDragOver(false);
+          void setSuppressHide(false).catch(() => {});
+          const path = p.paths[0];
+          if (path) void importPath(path);
+        }
+      })
+      .then((un) => {
+        if (cancelled) un();
+        else unlisten = un;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+      unlisten?.();
+      void setSuppressHide(false).catch(() => {});
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   return (
-    <div className="flex min-h-0 flex-1">
+    <div className="relative flex min-h-0 flex-1">
+      {dragOver && (
+        <div className="md3-overlay-in absolute inset-0 z-20 flex items-center justify-center bg-[var(--color-bg)]/85">
+          <div className="md3-pop-in flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-[var(--color-accent)] px-8 py-6">
+            <Upload size={22} className="text-[var(--color-accent)]" />
+            <div className="text-[13px] font-semibold text-[var(--color-fg)]">Drop to import snippets</div>
+            <div className="text-[11px] text-[var(--color-muted)]">
+              Snippet JSON or an Inspector Rust backup — groups included
+            </div>
+          </div>
+        </div>
+      )}
       {/* Left: group filter + snippet list */}
       <div className="flex w-2/5 flex-col border-r border-[var(--color-border)]">
         <div className="flex h-10 items-center justify-between border-b border-[var(--color-border)] px-2">
@@ -243,6 +329,15 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                 <Upload size={14} />
               </button>
               <button
+                onClick={() => void onExport()}
+                disabled={importing}
+                title="Export all snippets + groups to a JSON file — edit them elsewhere and drop the file back in"
+                className="flex h-7 w-7 items-center justify-center rounded text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)] disabled:opacity-50"
+                aria-label="Export snippets"
+              >
+                <Download size={14} />
+              </button>
+              <button
                 onClick={() => setConfirmingRestore(true)}
                 disabled={importing}
                 title="Restore default snippets — re-imports the bundled AI-prompt templates. Existing snippets sharing an abbreviation will be overwritten; your other snippets are untouched."
@@ -284,7 +379,11 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
               (importStatus.kind === "ok" ? "text-[var(--color-muted)]" : "text-red-400")
             }
           >
-            {importStatus.kind === "ok" ? (
+            {importStatus.kind === "ok" && importStatus.exported ? (
+              <>
+                Exported <b>{importStatus.result.imported}</b> snippets (with their groups)
+              </>
+            ) : importStatus.kind === "ok" ? (
               <>
                 Imported <b>{importStatus.result.imported}</b>
                 {importStatus.result.skipped > 0 && (

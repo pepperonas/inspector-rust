@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.263] — 2026-07-12
+
+### Added
+
+- **Export your snippets, drop them back in.** The Snippets tab gained an **export** button (all snippets + their groups → one JSON file) and a **drag-and-drop import**: drop a JSON file anywhere on the tab and it's imported, with a "Drop to import" overlay while you drag. The importer is format-agnostic — a snippet file, an exported snippets file, or a *full* app backup (from which it imports **only** the snippets + groups, never history/notes/2FA/settings). Together with the ungroup sentinel below, this makes snippets round-trip losslessly through an external editor.
+
 ## [0.84.262] — 2026-07-12
 
 ### Added

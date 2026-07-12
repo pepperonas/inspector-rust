@@ -500,6 +500,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::paste_note_formatted,
             commands::import_snippets,
             commands::import_snippets_from_file,
+            commands::export_snippets_to_file,
             commands::restore_default_prompts,
             commands::set_suppress_hide,
             commands::list_notes,

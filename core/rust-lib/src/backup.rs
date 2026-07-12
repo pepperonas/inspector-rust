@@ -376,24 +376,25 @@ pub fn import_json(db: &DbHandle, json: &str) -> Result<BackupImportResult> {
     apply(db, backup)
 }
 
-fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
-    let mut result = BackupImportResult::default();
+/// Apply just the snippet sections (groups first, then snippets) of a backup.
+/// Shared by the full import and the snippets-only import so both resolve
+/// groups identically. Returns `(imported, errors)`.
+fn apply_snippets(db: &DbHandle, backup: &Backup) -> (usize, Vec<String>) {
+    let mut imported = 0usize;
+    let mut errors = Vec::new();
 
-    // 0) Snippet groups — create every group by name first (preserves empty
-    //    groups + order); each snippet then resolves its group by name.
+    // Groups first — create every one by name (preserves EMPTY groups + order);
+    // each snippet then resolves its group by name.
     for cat in &backup.snippet_categories {
         let _ = snippets::create_category(db, &cat.name);
     }
 
-    // 1) Snippets — same upsert path used by snippet import, so behaviour
-    //    is identical to JSON import. Each snippet's group (by NAME) is resolved
-    //    to a local id (created if missing); a snippet with no group is left
-    //    ungrouped without clobbering an existing row's group.
+    // Snippets — same upsert path used by the lean snippet import, so behaviour
+    // is identical. Each snippet's group (by NAME) is resolved to a local id
+    // (created if missing).
     for (idx, s) in backup.snippets.iter().enumerate() {
         if s.abbreviation.trim().is_empty() {
-            result
-                .errors
-                .push(format!("snippet #{idx}: empty abbreviation"));
+            errors.push(format!("snippet #{idx}: empty abbreviation"));
             continue;
         }
         let assign = match &s.category {
@@ -412,12 +413,79 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
             None => snippets::CategoryAssign::Keep,
         };
         match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body, assign) {
-            Ok(()) => result.snippets_imported += 1,
-            Err(e) => result
-                .errors
-                .push(format!("snippet #{idx} ({}): {e}", s.abbreviation)),
+            Ok(()) => imported += 1,
+            Err(e) => errors.push(format!("snippet #{idx} ({}): {e}", s.abbreviation)),
         }
     }
+    (imported, errors)
+}
+
+/// Export **only** snippets + their groups as a backup document. The other
+/// sections are written empty, which the importer treats as "don't touch" —
+/// so the file is a safe, self-contained snippet exchange format (this is what
+/// an external snippet editor round-trips through).
+pub fn export_snippets_json(db: &DbHandle) -> Result<String> {
+    let opts = ExportOptions {
+        include_history: false,
+        include_snippets: true,
+        include_notes: false,
+        include_totp: false,
+        include_settings: false,
+        include_timesheet: false,
+    };
+    export_json(db, opts)
+}
+
+/// Import snippets from **any** snippet-bearing JSON we understand, importing
+/// *nothing else*: a full IR backup (only its snippets + groups are applied —
+/// history/notes/2FA/settings in the file are ignored), a snippets-only backup,
+/// or the lean `[{abbreviation, title?, body}]` / `{"snippets": [...]}` shape
+/// (which carries no groups). Encrypted backups are rejected with a clear
+/// message — this path is for exchanging snippets, not restoring an app.
+///
+/// This is what the Snippets tab's file-picker and its drag-and-drop use, so a
+/// dropped file "just works" regardless of which of the two formats it is.
+pub fn import_snippets_json(db: &DbHandle, json: &str) -> Result<snippets::ImportResult> {
+    if is_encrypted(json) {
+        return Err(anyhow!(
+            "this backup is password-encrypted — import it under Settings → Backup & restore, \
+             or re-export it unencrypted"
+        ));
+    }
+    // A backup document is the only shape with a `version` field; the lean
+    // snippet shapes are a bare array or a `{snippets: […]}` object.
+    let is_backup = serde_json::from_str::<serde_json::Value>(json)
+        .ok()
+        .and_then(|v| v.get("version").cloned())
+        .is_some();
+    if !is_backup {
+        return snippets::import_from_json(db, json);
+    }
+
+    let backup: Backup =
+        serde_json::from_str(json).map_err(|e| anyhow!("invalid backup JSON: {e}"))?;
+    if backup.version > CURRENT_VERSION {
+        return Err(anyhow!(
+            "backup version {} is newer than this app supports ({CURRENT_VERSION})",
+            backup.version
+        ));
+    }
+    let total = backup.snippets.len();
+    let (imported, errors) = apply_snippets(db, &backup);
+    Ok(snippets::ImportResult {
+        imported,
+        skipped: total.saturating_sub(imported),
+        errors,
+    })
+}
+
+fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
+    let mut result = BackupImportResult::default();
+
+    // 0+1) Snippet groups + snippets.
+    let (imported, errors) = apply_snippets(db, &backup);
+    result.snippets_imported = imported;
+    result.errors.extend(errors);
 
     // 2) History — re-use the existing dedup-by-hash upsert. Duplicates
     //    just bump `last_used_at`; new rows respect the 1 000-entry cap.
@@ -1022,6 +1090,69 @@ mod tests {
         let s = snippets::find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
         assert_eq!(s.category.as_deref(), Some("AI Prompts"));
         assert_eq!(s.body, "new", "the body still updates");
+    }
+
+    #[test]
+    fn snippets_only_export_import_round_trips_groups() {
+        // The snippet exchange format: export → import into a fresh DB.
+        let src = fresh_db();
+        let g = snippets::create_category(&src, "AI Prompts").unwrap();
+        snippets::create_category(&src, "Scratch").unwrap(); // deliberately empty
+        snippets::create(&src, "aiplan", "Plan", "body", Some(g)).unwrap();
+        snippets::create(&src, "loose", "L", "x", None).unwrap();
+
+        let json = export_snippets_json(&src).unwrap();
+
+        let dst = fresh_db();
+        let r = import_snippets_json(&dst, &json).unwrap();
+        assert_eq!(r.imported, 2);
+        assert!(r.errors.is_empty());
+        let all = snippets::list_all(&dst).unwrap();
+        assert_eq!(
+            all.iter().find(|s| s.abbreviation == "aiplan").unwrap().category.as_deref(),
+            Some("AI Prompts")
+        );
+        let cats = snippets::list_categories(&dst).unwrap();
+        assert!(cats.iter().any(|c| c.name == "Scratch" && c.count == 0), "empty group survives");
+    }
+
+    #[test]
+    fn snippet_import_of_a_full_backup_touches_only_snippets() {
+        // Dropping a FULL app backup on the Snippets tab must import its
+        // snippets — and nothing else (no history, no notes, no settings).
+        let src = fresh_db();
+        seed(&src); // 1 clip + 1 snippet + 1 note
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+
+        let dst = fresh_db();
+        let r = import_snippets_json(&dst, &json).unwrap();
+        assert_eq!(r.imported, 1, "the snippet is imported");
+        assert!(db::list(&dst, 100, 0).unwrap().is_empty(), "history untouched");
+        assert!(notes::list_all(&dst).unwrap().is_empty(), "notes untouched");
+    }
+
+    #[test]
+    fn snippet_import_accepts_the_lean_array_shape() {
+        let db = fresh_db();
+        let r = import_snippets_json(
+            &db,
+            r#"[{"abbreviation":"hi","title":"Hi","body":"Hallo"}]"#,
+        )
+        .unwrap();
+        assert_eq!(r.imported, 1);
+        assert_eq!(
+            snippets::find_by_exact_abbreviation(&db, "hi").unwrap().unwrap().body,
+            "Hallo"
+        );
+    }
+
+    #[test]
+    fn snippet_import_rejects_an_encrypted_backup() {
+        let db = fresh_db();
+        seed(&db);
+        let enc = export_json_maybe_encrypted(&db, ExportOptions::all(), Some("pw")).unwrap();
+        let err = import_snippets_json(&db, &enc).unwrap_err().to_string();
+        assert!(err.contains("encrypted"), "{err}");
     }
 
     #[test]

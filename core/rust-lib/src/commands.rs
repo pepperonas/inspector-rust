@@ -1225,13 +1225,15 @@ pub fn import_snippets(
     ae: State<'_, auto_expand::AutoExpandState>,
     json: String,
 ) -> Result<ImportResult, String> {
-    let r = snippets::import_from_json(&db, &json).map_err(map_err)?;
+    let r = backup::import_snippets_json(&db, &json).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
     Ok(r)
 }
 
-/// Read a JSON file from disk and import its snippets. Path is supplied by
-/// the frontend after the user picked a file via the native dialog plugin.
+/// Read a JSON file from disk and import its snippets. The path comes from the
+/// native file dialog *or* from a drag-and-drop onto the Snippets tab. Accepts
+/// every snippet-bearing shape we export (full backup / snippets-only backup /
+/// lean snippet array) and imports ONLY the snippets + their groups.
 #[tauri::command]
 pub fn import_snippets_from_file(
     db: State<'_, DbHandle>,
@@ -1240,9 +1242,19 @@ pub fn import_snippets_from_file(
 ) -> Result<ImportResult, String> {
     let json = std::fs::read_to_string(&path)
         .map_err(|e| format!("read {path}: {e}"))?;
-    let r = snippets::import_from_json(&db, &json).map_err(map_err)?;
+    let r = backup::import_snippets_json(&db, &json).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
     Ok(r)
+}
+
+/// Export all snippets + their groups to `path` as a snippets-only backup
+/// document (the exchange format an external snippet editor round-trips
+/// through). Returns the number of snippets written.
+#[tauri::command]
+pub fn export_snippets_to_file(db: State<'_, DbHandle>, path: String) -> Result<usize, String> {
+    let json = backup::export_snippets_json(&db).map_err(map_err)?;
+    std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
+    snippets::list_all(&db).map(|v| v.len()).map_err(map_err)
 }
 
 /// Re-import the bundled default AI-prompt snippets. Existing rows

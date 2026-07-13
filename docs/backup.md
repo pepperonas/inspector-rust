@@ -39,25 +39,35 @@ Per-row failures are collected — they don't abort the whole import.
 
 ```json
 {
-  "version": 1,
+  "version": 2,
   "exported_at": 1714032615000,
-  "history":  [ /* ClipEntry[] */ ],
-  "snippets": [ /* Snippet[]   */ ],
-  "notes":    [ /* Note[]      */ ]
+  "history":            [ /* ClipEntry[]           */ ],
+  "snippets":           [ /* Snippet[]             */ ],
+  "snippet_categories": [ /* SnippetCategory[]     */ ],
+  "notes":              [ /* Note[]                */ ],
+  "totp_entries":       [ /* TotpBackupEntry[]     */ ],
+  "settings":           { /* key → value           */ },
+  "timesheet":            /* TimesheetBackup, opt-in */
 }
 ```
 
 ### Top-level fields
 
-| Field          | Type     | Notes                                                                    |
-|----------------|----------|--------------------------------------------------------------------------|
-| `version`      | `u32`    | Currently `1`. Bumped whenever the on-disk shape changes incompatibly.   |
-| `exported_at`  | `i64`    | Unix milliseconds — purely informational.                                |
-| `history`      | array    | Full clipboard history (not paginated). `ClipEntry` rows.                |
-| `snippets`     | array    | All snippets. `Snippet` rows.                                            |
-| `notes`        | array    | All notes. `Note` rows.                                                  |
+| Field                | Type     | Notes                                                                    |
+|----------------------|----------|--------------------------------------------------------------------------|
+| `version`            | `u32`    | `2`, or `3` when the file carries the opt-in `timesheet` section. Bumped whenever the on-disk shape changes incompatibly. |
+| `exported_at`        | `i64`    | Unix milliseconds — purely informational.                                |
+| `history`            | array    | Full clipboard history (not paginated). `ClipEntry` rows.                |
+| `snippets`           | array    | All snippets. `Snippet` rows — each carrying its group by **name** in `category`. |
+| `snippet_categories` | array    | Snippet groups: `{ name, sort_order }`. Ids are machine-local, so groups travel by name; listing them here is what makes **empty** groups and the ordering survive. |
+| `notes`              | array    | All notes. `Note` rows.                                                  |
+| `totp_entries`       | array    | 2FA accounts, with the base32 secret in **plaintext** (decrypted at export, re-encrypted with the target machine's key on import — that's what makes the file portable). |
+| `settings`           | object   | App settings as key/value pairs.                                          |
+| `timesheet`          | object   | Time-tracking data. **Opt-in** — absent unless you ticked it, and its presence is what bumps `version` to 3. |
 
-> **Not included** (per-machine settings stay local): the `settings` table — text-expander hotkey + enabled flag, the v0.13.0+ direct hotkey→snippet slots (`expander.direct_slots`), the `paste.plain_text_only` toggle, the `seed.default_snippets_v1` flag. After importing a backup on a new machine, re-configure your hotkeys in **Settings → Text expander** + **Settings → Startup** if you use them.
+Every section has a serde default, so a file may omit any of them — that's what makes a **snippets-only** export (see [`docs/snippets-import.md`](./snippets-import.md)) a valid backup document: the empty sections simply mean "don't touch".
+
+> **The `settings` table IS included** since v2 (it was excluded in v1) — text-expander hotkey + enabled flag, the direct hotkey→snippet slots (`expander.direct_slots`), the `paste.plain_text_only` toggle, the seed flags, and so on. Importing a backup therefore carries your hotkeys over to the new machine; settings are upserted by key, so a value you already set locally is overwritten by the file's.
 
 ### Per-row shapes
 
@@ -75,9 +85,10 @@ interface ClipEntry {
 
 interface Snippet {
   id: number;
-  abbreviation: string;
+  abbreviation: string;   // the natural key — snippets upsert by this
   title: string;
   body: string;
+  category: string | null; // group NAME ("" = explicitly ungroup, null = leave as-is)
   created_at: number;
   updated_at: number;
 }
@@ -106,6 +117,16 @@ Import is a **merge**, not a replace. Each table has its own dedup strategy:
 Same path used by the JSON snippet importer ([`docs/snippets-import.md`](./snippets-import.md)). If a snippet with the same `abbreviation` already exists, Inspector Rust overwrites its `title`/`body` and bumps `updated_at`. The original `created_at` is preserved.
 
 → Re-importing the same backup is **idempotent** for snippets.
+
+**Groups.** Every group in `snippet_categories` is (re)created by name first, then each snippet resolves its `category` name to a local id. The assignment is three-valued:
+
+| `Snippet.category` | Meaning on import |
+|---|---|
+| `"AI Prompts"` | Put the snippet in that group (created if it doesn't exist) |
+| `""` (empty string) | **Explicitly ungroup** it (v0.84.262 — the signal an external editor needs) |
+| `null` / absent | Leave an existing snippet's group **untouched** |
+
+The last rule is the important one: a backup written by an older build (no groups at all) must never wipe the grouping on the machine it's restored to. Export always writes `null` for an ungrouped snippet — `""` is import-only.
 
 ### History — upsert by SHA-256 hash
 

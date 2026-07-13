@@ -1,13 +1,13 @@
-# Snippet import (JSON)
+# Snippet import / export (JSON)
 
-Inspector Rust can bulk-import snippets from a JSON file. This is the fastest way to seed the app with your existing templates, share snippet libraries between machines, or back up your collection.
+Inspector Rust can bulk-import and export snippets as JSON — to seed the app with your existing templates, share libraries between machines, or **edit your snippets in another app and bring them back without losing their grouping**.
 
 ## How to import
 
-1. Open the popup with `Ctrl+Space`.
-2. Click the **Snippets** tab in the upper-right of the header.
-3. Click **Import** (top-right of the snippet list).
-4. The native file picker opens (NSOpenPanel on macOS, OpenFileDialog on Windows). Select a `.json` file.
+Either way works; both accept every shape documented below and import **only** snippets + their groups.
+
+- **Drag & drop** (v0.84.263): drop a `.json` file anywhere on the **Snippets** tab. A "Drop to import" overlay appears while you drag; the result line shows up when it lands. (The popup stays open for the duration of the drag — dragging in from Finder would otherwise steal focus and dismiss it.)
+- **File picker:** Snippets tab → the **⬆** button in the toolbar → select a `.json` file (NSOpenPanel on macOS, OpenFileDialog on Windows).
 
 Result is shown as a one-line status:
 
@@ -20,7 +20,7 @@ The full list refreshes automatically.
 
 ## File format
 
-Two top-level shapes are accepted:
+Three top-level shapes are accepted. The **backup envelope** is the only one that carries groups — it's what the export button writes and what an external editor should round-trip through. The other two are the lean, hand-written shapes.
 
 ### Bare array
 
@@ -49,7 +49,49 @@ Two top-level shapes are accepted:
 }
 ```
 
-The wrapped form is preferred when you want to extend the schema later (e.g., add a top-level `version`, `metadata`, etc.) without breaking the parser.
+The wrapped form is preferred when you want to extend the schema later (e.g., add a top-level `version`, `metadata`, etc.) without breaking the parser. **Neither lean shape carries groups** — snippets imported from them land ungrouped (an existing snippet keeps whatever group it already had).
+
+### Backup envelope — the shape with groups (v0.84.259+)
+
+This is what **Export** writes and what the importer prefers. It's a normal backup document with only the snippet sections filled; the empty sections mean "don't touch" on import, so the file is a safe snippets-only exchange format.
+
+```json
+{
+  "version": 2,
+  "exported_at": 1752300000000,
+  "snippet_categories": [
+    { "name": "AI Prompts", "sort_order": 1 },
+    { "name": "Colors", "sort_order": 2 }
+  ],
+  "snippets": [
+    {
+      "id": 1,
+      "abbreviation": "aiplan",
+      "title": "Implementation plan",
+      "body": "…",
+      "created_at": 1750000000000,
+      "updated_at": 1750000000000,
+      "category": "AI Prompts"
+    }
+  ],
+  "history": [], "notes": [], "totp_entries": [], "settings": {}
+}
+```
+
+Rules that make this round-trip losslessly:
+
+- **Groups travel by NAME**, not by id (ids are machine-local). A group that doesn't exist on the target is created; `snippet_categories` also carries **empty** groups and the ordering, so those survive too.
+- **Group assignment is three-valued** (v0.84.262):
+
+  | `category` | Meaning on import |
+  |---|---|
+  | `"AI Prompts"` | Put the snippet in that group (created if missing) |
+  | `""` (empty string) | **Explicitly ungroup** the snippet |
+  | `null` / absent | Leave an existing snippet's group **untouched** |
+
+  The `null`-means-leave-alone rule is what stops a group-less re-import (a lean file, a hand-written array) from wiping your grouping — and it's exactly why the empty string exists as the opposite signal. Export always writes `null` for an ungrouped snippet; `""` is an import-only affordance for external editors.
+- **Dropping a *full* app backup** on the Snippets tab imports only its snippets + groups. History, notes, 2FA and settings in the file are ignored — you can't restore an app by accident here (use Settings → Backup & restore for that).
+- **Encrypted backups are rejected** with a pointer to Settings → Backup & restore.
 
 ## Field reference
 
@@ -95,33 +137,31 @@ To merge several example files into one import, see [`docs/examples/snippets/REA
 - **Keep one file per theme** rather than one mega-file — easier to share, edit, and re-import selectively.
 - **Don't hard-code dynamic data** (timestamps, current commit SHA, etc.). Inspector Rust doesn't templatize; what's in the body is what gets pasted. Use placeholders like `<DATE>` and edit after pasting.
 
-## Export
+## Export (v0.84.263)
 
-### Built-in (recommended): Settings → Backup & restore
+Snippets tab → the **⬇** button in the toolbar → pick a path. It writes **all** snippets *with their groups* (empty groups included) as the backup envelope shown above, defaulting to `ir-snippets-<YYYY-MM-DD>.json`.
 
-Since v0.2.12 the Settings tab's *Backup & restore* section can write a JSON file containing only your snippets. Untick *Clipboard history* and *Notes*, click **Export…**, pick a path. The resulting file matches the full-backup schema (`{ version, exported_at, history: [], snippets: [...], notes: [] }`); the snippet importer below also accepts the bare-array and `{ snippets: [...] }` shapes for hand-curated files.
+That file is the exchange format: edit it elsewhere, then drop it back on the Snippets tab. Round-tripping it into another Inspector Rust install works the same way (drop it, or Settings → Backup & restore → Import).
 
-To round-trip into another Inspector Rust install: paste the file via **Settings → Backup & restore → Import…**. Snippets are upserted by `abbreviation`; the empty `history` and `notes` arrays are no-ops on the destination side.
+**Import is a merge, never a replace.** Snippets are upserted by `abbreviation`, so:
+
+- A snippet you **deleted** in the external editor still exists here — the file simply doesn't mention it. Delete it in the app.
+- **Renaming an abbreviation** creates a *new* snippet on import; the old one stays. The abbreviation is the identity.
 
 Full backup-format reference: [`docs/backup.md`](./backup.md).
 
 ### SQLite + jq (legacy, hand-curated)
 
-If you want a snippets-only file without the wrapping `{ version, …, history, notes }` envelope, query the database directly:
+Only useful for a groups-less dump — the export button above is strictly better. Note this reads the DB directly, so it only works when [encryption at rest](./encryption.md) hasn't kicked in for `body` (i.e. legacy plaintext rows):
 
 ```bash
 # macOS
 sqlite3 "$HOME/Library/Application Support/InspectorRust/history.db" \
   "SELECT json_group_array(json_object('abbreviation', abbreviation, 'title', title, 'body', body)) FROM snippets;" \
   | jq . > my-snippets.json
-
-# Windows (PowerShell)
-sqlite3 "$env:APPDATA\InspectorRust\history.db" `
-  "SELECT json_group_array(json_object('abbreviation', abbreviation, 'title', title, 'body', body)) FROM snippets;" `
-  | ConvertFrom-Json | ConvertTo-Json -Depth 5 > my-snippets.json
 ```
 
-The output is the bare-array form documented above and directly re-importable via **Snippets → Import**.
+The output is the bare-array form documented above and directly re-importable — **without** group assignments.
 
 ## IPC surface (for integrators)
 
@@ -138,7 +178,10 @@ interface ImportResult {
 | Command                                | Use when                                                      |
 |----------------------------------------|---------------------------------------------------------------|
 | `import_snippets(json: String)`        | You already have the JSON in memory (e.g., from a Tauri event, paste, or in-memory generation). |
-| `import_snippets_from_file(path: String)` | You have a filesystem path (typical case after `dialog.open()`). Rust reads the file with `std::fs::read_to_string` then runs the same parser. |
+| `import_snippets_from_file(path: String)` | You have a filesystem path — after `dialog.open()` **or** from a drag-and-drop payload. Rust reads the file, then runs the same parser. |
+| `export_snippets_to_file(path: String)` | Write all snippets + groups as the backup envelope. Returns the number of snippets written. |
+
+Both import commands route through `backup::import_snippets_json`, which dispatches on the file's shape (backup envelope → snippets + groups only; lean array / wrapped → `snippets::import_from_json`) — so the picker, the drop target and a programmatic call all behave identically.
 
 Frontend wrapper used by the Snippets tab:
 
@@ -157,11 +200,13 @@ if (selected) {
 }
 ```
 
-Backend implementation: [`core/rust-lib/src/snippets.rs::import_from_json`](../core/rust-lib/src/snippets.rs) and [`core/rust-lib/src/commands.rs::import_snippets_from_file`](../core/rust-lib/src/commands.rs).
+Backend implementation: [`snippets.rs::import_from_json`](../core/rust-lib/src/snippets.rs) (lean shapes) and [`backup.rs::import_snippets_json` / `export_snippets_json`](../core/rust-lib/src/backup.rs) (the envelope + the dispatch), wired up in [`commands.rs`](../core/rust-lib/src/commands.rs).
 
 ## Testing
 
-Six unit tests cover the import path (run with `cargo test --workspace`):
+Run with `cargo test --workspace`.
+
+The lean-shape parser (`snippets.rs`):
 
 | Test                                          | Asserts                                                   |
 |-----------------------------------------------|-----------------------------------------------------------|
@@ -171,3 +216,17 @@ Six unit tests cover the import path (run with `cargo test --workspace`):
 | `import_overwrites_existing_abbreviation`     | Re-import upserts in place — no duplicate row             |
 | `import_invalid_json_returns_err`             | Malformed JSON returns an `Err`, no DB writes             |
 | `import_trims_abbreviation_whitespace`        | Whitespace trimming on `abbreviation`                     |
+| `upsert_category_keep_clear_set`              | The three-valued group assignment (keep / clear / set)    |
+| `category_less_reimport_preserves_grouping`   | A group-less re-import doesn't wipe existing grouping     |
+
+The envelope + exchange path (`backup.rs`):
+
+| Test                                             | Asserts                                                        |
+|--------------------------------------------------|----------------------------------------------------------------|
+| `snippets_only_export_import_round_trips_groups`  | Export → import into a fresh DB: groups by name, empty group survives |
+| `snippet_categories_round_trip_by_name`           | Same, through the full backup                                   |
+| `empty_category_string_ungroups_a_snippet`        | `"category": ""` → explicitly ungrouped                         |
+| `missing_category_field_preserves_grouping`       | `null` / absent → existing group untouched                      |
+| `snippet_import_of_a_full_backup_touches_only_snippets` | Dropping a full backup imports no history / notes         |
+| `snippet_import_accepts_the_lean_array_shape`     | The dispatch falls back to the lean parser                      |
+| `snippet_import_rejects_an_encrypted_backup`      | Encrypted file → clear error, no writes                         |

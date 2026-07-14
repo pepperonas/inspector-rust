@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.265] — 2026-07-14
+
+### Added
+
+- **Edit a snippet straight from the search results.** Type an abbreviation (`aisetup`), and the preview now has an **✏️ Edit** button — or press **Cmd/Ctrl+E** — which turns the preview into the full editor (abbreviation, title, group, body), exactly the one from the Snippets tab. Save with **Cmd/Ctrl+Enter**: the editor closes, your search is still there, and Enter pastes the edited version immediately. No tab switch, no retyping the query.
+
 ## [0.84.264] — 2026-07-12
 
 ### Added

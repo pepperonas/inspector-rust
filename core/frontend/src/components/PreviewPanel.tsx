@@ -3,8 +3,10 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
 import {
   Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
-  Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
+  Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
+import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
+import type { SnippetCategory } from "../lib/ipc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ClipEntry, ListEntry } from "../lib/types";
@@ -56,6 +58,18 @@ interface Props {
   onSocialModeChange?: (m: "video" | "audio") => void;
   /** Bumped by the global Enter key to trigger a download of `socialMode`. */
   socialRunSignal?: number;
+  /** Snippet groups — needed by the inline snippet editor's group picker. */
+  snippetCategories?: SnippetCategory[];
+  /** True while the selected snippet is being edited in place (v0.84.265):
+   *  the preview renders the editor instead of the read-only body. App.tsx owns
+   *  the flag because it must also disable the global list navigation. */
+  snippetEditing?: boolean;
+  /** The ✏️ button was clicked — App.tsx opens the editor (same as Cmd+E). */
+  onSnippetEdit?: () => void;
+  /** Saved — App.tsx refreshes the snippet list and closes the editor. */
+  onSnippetSaved?: () => void | Promise<void>;
+  /** Esc / Cancel in the editor. */
+  onSnippetEditCancel?: () => void;
 }
 
 /** One label/value line in the Bruno (net-pay) breakdown. Module-level so its
@@ -99,6 +113,11 @@ export function PreviewPanel({
   socialMode,
   onSocialModeChange,
   socialRunSignal,
+  snippetCategories = [],
+  snippetEditing = false,
+  onSnippetEdit,
+  onSnippetSaved,
+  onSnippetEditCancel,
 }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -257,9 +276,38 @@ export function PreviewPanel({
     );
   }
 
-  // ── Snippet preview ────────────────────────────────────────────────────────
+  // ── Snippet preview (+ inline editor, v0.84.265) ───────────────────────────
   if (entry.kind === "snippet") {
-    const { abbreviation, title, body } = entry.data;
+    const { id, abbreviation, title, body, category } = entry.data;
+
+    // Editing in place: the prompt you just searched for is the one you want to
+    // fix, so ✏️ / Cmd+E swaps this pane for the real editor — no tab switch,
+    // the search stays, and Enter pastes the edited version right after saving.
+    if (snippetEditing) {
+      const draft: SnippetDraft = {
+        id,
+        abbreviation,
+        title,
+        body,
+        categoryId: category
+          ? snippetCategories.find((c) => c.name === category)?.id ?? null
+          : null,
+      };
+      return (
+        <div className="flex h-full flex-col p-4">
+          <SnippetEditor
+            key={id}
+            initial={draft}
+            categories={snippetCategories}
+            // The body is what you came to change — start there.
+            autoFocus="body"
+            onSaved={() => onSnippetSaved?.()}
+            onCancel={() => onSnippetEditCancel?.()}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="flex h-full flex-col p-4">
         <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -267,14 +315,29 @@ export function PreviewPanel({
           <span>snippet</span>
           <span>·</span>
           <span>{formatBytes(body.length)}</span>
+          {category && (
+            <>
+              <span>·</span>
+              <span>{category}</span>
+            </>
+          )}
         </div>
-        <div className="mb-3 flex items-baseline gap-3">
+        <div className="mb-3 flex items-center gap-3">
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 font-[var(--font-mono)] text-[13px] font-semibold">
             {abbreviation}
           </kbd>
           {title && (
-            <span className="text-[13px] text-[var(--color-muted)]">{title}</span>
+            <span className="truncate text-[13px] text-[var(--color-muted)]">{title}</span>
           )}
+          <button
+            onClick={() => onSnippetEdit?.()}
+            title="Edit this snippet (⌘/Ctrl+E)"
+            aria-label="Edit snippet"
+            className="md3-press ml-auto flex shrink-0 items-center gap-1 rounded border border-[var(--color-border)] px-2 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+          >
+            <Pencil size={12} />
+            Edit
+          </button>
         </div>
         <pre className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
           {body}

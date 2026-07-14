@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react";
-// `save` is aliased — the panel already has a local `save()` for the editor.
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { confirmDialog } from "../lib/confirm";
@@ -26,11 +25,11 @@ import {
   reorderSnippetCategories,
   restoreDefaultPrompts,
   setSuppressHide,
-  upsertSnippet,
   type ImportResult,
   type SnippetCategory,
 } from "../lib/ipc";
 import type { Snippet } from "../lib/types";
+import { SnippetEditor } from "./SnippetEditor";
 
 interface Props {
   snippets: Snippet[];
@@ -53,12 +52,8 @@ const EMPTY_FORM: FormState = { id: null, abbreviation: "", title: "", body: "",
 
 export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
   const [form, setForm] = useState<FormState | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>(null);
   const [managing, setManaging] = useState(false);
-  // Inline "create group" input shown inside the edit form's group picker.
-  const [newGroupName, setNewGroupName] = useState<string | null>(null);
   const [importStatus, setImportStatus] = useState<
     // `exported` re-uses the same banner for the export confirmation
     // (`result.imported` then carries the number of snippets written).
@@ -93,8 +88,6 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
     // Pre-fill the group from the current filter for a fast "add to this group".
     const preset = typeof filter === "number" && filter > 0 ? filter : null;
     setForm({ ...EMPTY_FORM, categoryId: preset });
-    setNewGroupName(null);
-    setError(null);
   };
 
   const openEdit = (s: Snippet) => {
@@ -102,44 +95,9 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
       ? categories.find((c) => c.name === s.category)?.id ?? null
       : null;
     setForm({ id: s.id, abbreviation: s.abbreviation, title: s.title, body: s.body, categoryId: cid });
-    setNewGroupName(null);
-    setError(null);
   };
 
-  const cancel = () => {
-    setForm(null);
-    setNewGroupName(null);
-    setError(null);
-  };
-
-  const save = async () => {
-    if (!form) return;
-    if (!form.abbreviation.trim()) {
-      setError("Abbreviation is required.");
-      return;
-    }
-    if (!form.body.trim()) {
-      setError("Body text is required.");
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      let categoryId = form.categoryId;
-      // Pending "new group" typed but not yet created → create it now.
-      if (newGroupName !== null && newGroupName.trim()) {
-        categoryId = await createSnippetCategory(newGroupName.trim());
-      }
-      await upsertSnippet(form.id, form.abbreviation, form.title, form.body, categoryId);
-      await onRefresh();
-      setForm(null);
-      setNewGroupName(null);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
+  const cancel = () => setForm(null);
 
   const remove = async (id: number) => {
     await deleteSnippet(id);
@@ -485,130 +443,17 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
             </span>
           </div>
         ) : (
-          <div className="flex h-full flex-col gap-3">
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-              {form.id === null ? "New Snippet" : "Edit Snippet"}
-            </div>
-
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] text-[var(--color-muted)]">Abbreviation *</span>
-              <input
-                autoFocus
-                value={form.abbreviation}
-                onChange={(e) => setForm({ ...form, abbreviation: e.target.value })}
-                placeholder="e.g. mfg"
-                className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-[var(--font-mono)] text-[13px] outline-none focus:border-[var(--color-accent)]"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") void save();
-                  if (e.key === "Escape") cancel();
-                }}
-              />
-            </label>
-
-            <div className="flex gap-2">
-              <label className="flex flex-1 flex-col gap-1">
-                <span className="text-[11px] text-[var(--color-muted)]">Title (optional)</span>
-                <input
-                  value={form.title}
-                  onChange={(e) => setForm({ ...form, title: e.target.value })}
-                  placeholder="e.g. Signing off"
-                  className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
-                  onKeyDown={(e) => {
-                    if (e.key === "Escape") cancel();
-                  }}
-                />
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="text-[11px] text-[var(--color-muted)]">Group</span>
-                {newGroupName !== null ? (
-                  <div className="flex items-center gap-1">
-                    <input
-                      autoFocus
-                      value={newGroupName}
-                      onChange={(e) => setNewGroupName(e.target.value)}
-                      placeholder="New group name"
-                      className="w-32 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
-                      onKeyDown={(e) => {
-                        if (e.key === "Escape") setNewGroupName(null);
-                      }}
-                    />
-                    <button
-                      onClick={() => setNewGroupName(null)}
-                      title="Cancel new group"
-                      className="rounded p-1 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-                    >
-                      <X size={13} />
-                    </button>
-                  </div>
-                ) : (
-                  <select
-                    value={form.categoryId ?? ""}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      if (v === "__new__") {
-                        setNewGroupName("");
-                      } else {
-                        setForm({ ...form, categoryId: v === "" ? null : Number(v) });
-                      }
-                    }}
-                    className="w-40 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[13px] outline-none focus:border-[var(--color-accent)]"
-                  >
-                    <option value="">No group</option>
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                    <option value="__new__">＋ New group…</option>
-                  </select>
-                )}
-              </label>
-            </div>
-
-            <label className="flex min-h-0 flex-1 flex-col gap-1">
-              <span className="text-[11px] text-[var(--color-muted)]">Body *</span>
-              <textarea
-                value={form.body}
-                onChange={(e) => setForm({ ...form, body: e.target.value })}
-                placeholder="Template text that gets pasted…"
-                className="flex-1 resize-none rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 font-[var(--font-mono)] text-[12px] leading-5 outline-none focus:border-[var(--color-accent)]"
-                onKeyDown={(e) => {
-                  if (e.key === "Escape") cancel();
-                }}
-              />
-              <span className="text-[10px] leading-snug text-[var(--color-muted)]">
-                Placeholders (expanded on paste):{" "}
-                <code className="text-[var(--color-fg)]">{"{date}"}</code>{" "}
-                <code className="text-[var(--color-fg)]">{"{time}"}</code>{" "}
-                <code className="text-[var(--color-fg)]">{"{datetime}"}</code>{" "}
-                <code className="text-[var(--color-fg)]">{"{clipboard}"}</code>{" "}
-                <code className="text-[var(--color-fg)]">{"{cursor}"}</code>
-                {" — "}custom format e.g.{" "}
-                <code className="text-[var(--color-fg)]">{"{date:%d.%m.%Y}"}</code>;{" "}
-                <code className="text-[var(--color-fg)]">{"{{"}</code>/
-                <code className="text-[var(--color-fg)]">{"}}"}</code> for literal braces.
-              </span>
-            </label>
-
-            {error && <div className="text-[11px] text-red-400">{error}</div>}
-
-            <div className="flex justify-end gap-2">
-              <button
-                onClick={cancel}
-                className="rounded px-3 py-1 text-[12px] text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => void save()}
-                disabled={saving}
-                className="rounded bg-[var(--color-accent)] px-3 py-1 text-[12px] text-[var(--color-accent-fg)] hover:opacity-90 disabled:opacity-50"
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-            </div>
-          </div>
+          <SnippetEditor
+            // Remount on a different snippet so the draft state resets.
+            key={form.id ?? "new"}
+            initial={form}
+            categories={categories}
+            onSaved={async () => {
+              await onRefresh();
+              setForm(null);
+            }}
+            onCancel={cancel}
+          />
         )}
       </div>
     </div>

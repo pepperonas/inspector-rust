@@ -14,6 +14,7 @@ Capture-Pause — Erfassung über Tray anhalten
 
 == Snippets & Text-Expander ==
 Snippets — Kürzel→Text-Vorlagen; 27 AI-Prompts + 255 Material-Farben mitgeliefert
+Snippet direkt aus der Suche bearbeiten — ✏️ in der Vorschau oder Cmd/Ctrl+E auf der Snippet-Zeile; speichern mit Cmd/Ctrl+Enter, danach fügt Enter sofort die neue Fassung ein
 Snippet-Gruppen — Snippets in Gruppen ordnen (Filter-Chips, Gruppen anlegen/umbenennen/sortieren/löschen); vorgruppiert (AI Prompts · Colors); Gruppen sind im Backup enthalten
 Expander-Hotkey (Alt+1) — Kürzel vor dem Cursor ersetzen, funktioniert auch im Terminal
 Direkt-Hotkey→Snippet — beliebige Hotkeys fest an einzelne Snippets binden

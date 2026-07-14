@@ -294,6 +294,13 @@ function App() {
   // True while the password field has focus — disables the global keyboard
   // nav so typing edits the password instead of moving the selection.
   const [pwgenEditing, setPwgenEditing] = useState(false);
+  // Editing the selected snippet inline in the preview column (v0.84.265).
+  // Holds the snippet id so a selection change can't leave a stale editor open.
+  const [snippetEditingId, setSnippetEditingId] = useState<number | null>(null);
+  // Bumped after an inline snippet edit — the snippet-match effect below keys on
+  // `query`, which does NOT change when you save, so without this the preview
+  // would keep showing the pre-edit body.
+  const [snippetRev, setSnippetRev] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
@@ -1577,11 +1584,33 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, [query]);
+  }, [query, snippetRev]);
 
   useEffect(() => {
     setSelected(0);
   }, [query, entries.length]);
+
+  // Selecting a different row (or typing) closes the inline editor. Without
+  // this, clicking another row while editing would hide the editor but leave
+  // `snippetEditingId` set — and the list navigation gate would stay closed.
+  useEffect(() => {
+    setSnippetEditingId(null);
+  }, [selected, query]);
+
+  // Cmd/Ctrl+E on a selected snippet row → edit it inline in the preview.
+  useEffect(() => {
+    if (activeTab !== "history" || snippetEditingId !== null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "e" || !(e.metaKey || e.ctrlKey)) return;
+      const target = combined[selected];
+      if (target?.kind !== "snippet") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSnippetEditingId(target.data.id);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [activeTab, snippetEditingId, combined, selected]);
 
   // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
   // these use `useTauriEvent` instead of the inline let-then-async
@@ -1765,6 +1794,7 @@ function App() {
     setQuery("");
     setSelected(0);
     setPwgenEditing(false);
+    setSnippetEditingId(null);
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
     // popup, and the next open must start on the normal history view.
     setTotpMode(false);
@@ -2499,6 +2529,9 @@ function App() {
       !bpmMode &&
       !totpMode &&
       !pwgenEditing &&
+      // The inline snippet editor owns the keyboard while it's open — otherwise
+      // Enter would paste the snippet instead of saving the edit.
+      snippetEditingId === null &&
       !brightnessFocus &&
       !soundFocus &&
       !hueFocus &&
@@ -2987,6 +3020,25 @@ function App() {
                     socialMode={socialMode}
                     onSocialModeChange={setSocialMode}
                     socialRunSignal={socialRunSignal}
+                    snippetCategories={snippetCategories}
+                    snippetEditing={
+                      current?.kind === "snippet" && snippetEditingId === current.data.id
+                    }
+                    onSnippetEdit={() => {
+                      if (current?.kind === "snippet") setSnippetEditingId(current.data.id);
+                    }}
+                    onSnippetSaved={async () => {
+                      await refreshSnippets();
+                      setSnippetRev((r) => r + 1); // re-run the snippet search
+                      setSnippetEditingId(null);
+                      // Hand the keyboard back to the list so Enter pastes the
+                      // edited version straight away — the query is untouched.
+                      searchRef.current?.focus();
+                    }}
+                    onSnippetEditCancel={() => {
+                      setSnippetEditingId(null);
+                      searchRef.current?.focus();
+                    }}
                   />
                 )}
               </div>

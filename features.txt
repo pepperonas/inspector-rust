@@ -111,6 +111,7 @@ Backup-Verschlüsselung — optional AES-256-GCM + Argon2id-Passwort
 Snippet-Export — alle Snippets + Gruppen als JSON-Datei sichern (Snippets-Tab ⬇), um sie in einer anderen App zu bearbeiten
 Snippet-Import per Drag & Drop — JSON-Datei auf den Snippets-Tab ziehen; erkennt Snippet-Datei wie auch Voll-Backup (importiert daraus NUR Snippets + Gruppen)
 Snippet-Roundtrip — Backup-JSON trägt die Gruppe als Name; beim Import setzt "category":"" ein Snippet explizit auf ungruppiert, fehlendes/null lässt die Gruppe unangetastet
+Snippet-Versionierung — jedes Snippet hat eine Versionsnummer (vN, cue-kompatibel); zählt nur bei Inhaltsänderung (Kürzel/Titel/Body) hoch, Gruppen-Änderungen nie; Merge per max() beim Import
 Themes — Dark/Light/System mit MD3-Expressive-Motion
 Popup-Größe — Small/Medium/Large
 Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts

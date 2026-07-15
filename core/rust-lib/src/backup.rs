@@ -412,7 +412,14 @@ fn apply_snippets(db: &DbHandle, backup: &Backup) -> (usize, Vec<String>) {
             Some(_) => snippets::CategoryAssign::Clear,
             None => snippets::CategoryAssign::Keep,
         };
-        match snippets::upsert_by_abbreviation(db, &s.abbreviation, &s.title, &s.body, assign) {
+        match snippets::upsert_by_abbreviation(
+            db,
+            &s.abbreviation,
+            &s.title,
+            &s.body,
+            assign,
+            s.version,
+        ) {
             Ok(()) => imported += 1,
             Err(e) => errors.push(format!("snippet #{idx} ({}): {e}", s.abbreviation)),
         }
@@ -1114,6 +1121,67 @@ mod tests {
         );
         let cats = snippets::list_categories(&dst).unwrap();
         assert!(cats.iter().any(|c| c.name == "Scratch" && c.count == 0), "empty group survives");
+    }
+
+    #[test]
+    fn snippet_versions_survive_the_roundtrip_and_reimport_is_a_noop() {
+        // Build a snippet at v3, export, import into a fresh DB, and check the
+        // version came across; a second import of the same file changes nothing.
+        let src = fresh_db();
+        let id = snippets::create(&src, "aiplan", "Plan", "body", None).unwrap();
+        snippets::update(&src, id, "aiplan", "Plan", "body v2", None).unwrap(); // v2
+        snippets::update(&src, id, "aiplan", "Plan v3", "body v2", None).unwrap(); // v3
+        assert_eq!(snippets::find_by_exact_abbreviation(&src, "aiplan").unwrap().unwrap().version, 3);
+
+        let json = export_snippets_json(&src).unwrap();
+        assert!(json.contains("\"version\": 3"), "export must carry the snippet version");
+
+        let dst = fresh_db();
+        import_snippets_json(&dst, &json).unwrap();
+        assert_eq!(snippets::find_by_exact_abbreviation(&dst, "aiplan").unwrap().unwrap().version, 3);
+
+        // Re-import the same file → identical content, incoming == local → no bump.
+        import_snippets_json(&dst, &json).unwrap();
+        assert_eq!(snippets::find_by_exact_abbreviation(&dst, "aiplan").unwrap().unwrap().version, 3);
+    }
+
+    #[test]
+    fn backup_without_version_field_imports_as_v1() {
+        // An old export (no `version` on the snippet) must load as v1.
+        let db = fresh_db();
+        let json = r#"{
+            "version": 2,
+            "exported_at": 1,
+            "snippets": [
+                { "id": 0, "abbreviation": "aa", "title": "T", "body": "b",
+                  "created_at": 1, "updated_at": 1 }
+            ]
+        }"#;
+        import_snippets_json(&db, json).unwrap();
+        assert_eq!(snippets::find_by_exact_abbreviation(&db, "aa").unwrap().unwrap().version, 1);
+    }
+
+    #[test]
+    fn backup_merge_takes_the_higher_version_and_bumps_on_content_change() {
+        let db = fresh_db();
+        // Local snippet at v2.
+        let id = snippets::create(&db, "aa", "T", "b", None).unwrap();
+        snippets::update(&db, id, "aa", "T", "b2", None).unwrap();
+        assert_eq!(snippets::find_by_exact_abbreviation(&db, "aa").unwrap().unwrap().version, 2);
+
+        // Import identical content with a HIGHER incoming version → incoming wins.
+        let higher = r#"{"version":2,"exported_at":1,"snippets":[
+            {"id":0,"abbreviation":"aa","title":"T","body":"b2","created_at":1,"updated_at":1,"version":7}]}"#;
+        import_snippets_json(&db, higher).unwrap();
+        assert_eq!(snippets::find_by_exact_abbreviation(&db, "aa").unwrap().unwrap().version, 7);
+
+        // Import DIFFERENT content with a LOWER incoming version → local + 1.
+        let lower_diff = r#"{"version":2,"exported_at":1,"snippets":[
+            {"id":0,"abbreviation":"aa","title":"T","body":"b3","created_at":1,"updated_at":1,"version":1}]}"#;
+        import_snippets_json(&db, lower_diff).unwrap();
+        let s = snippets::find_by_exact_abbreviation(&db, "aa").unwrap().unwrap();
+        assert_eq!(s.version, 8);
+        assert_eq!(s.body, "b3", "the newer content is taken");
     }
 
     #[test]

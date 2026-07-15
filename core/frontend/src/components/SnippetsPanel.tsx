@@ -43,6 +43,7 @@ interface FormState {
   title: string;
   body: string;
   categoryId: number | null;
+  version?: number;
 }
 
 /** null = "All", -1 = "Ungrouped", positive = a specific group id. */
@@ -94,7 +95,7 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
     const cid = s.category
       ? categories.find((c) => c.name === s.category)?.id ?? null
       : null;
-    setForm({ id: s.id, abbreviation: s.abbreviation, title: s.title, body: s.body, categoryId: cid });
+    setForm({ id: s.id, abbreviation: s.abbreviation, title: s.title, body: s.body, categoryId: cid, version: s.version });
   };
 
   const cancel = () => setForm(null);
@@ -410,6 +411,16 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
                     {s.category}
                   </span>
                 )}
+                {/* Version badge (cue-compatible content revision). */}
+                <span
+                  className={
+                    "mt-0.5 shrink-0 font-[var(--font-mono)] text-[9px] tabular-nums " +
+                    (isActive ? "text-white/60" : "text-[var(--color-muted)]/70")
+                  }
+                  title={`Version ${s.version ?? 1}`}
+                >
+                  v{s.version ?? 1}
+                </span>
                 <button
                   onClick={(e) => {
                     e.stopPropagation();

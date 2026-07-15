@@ -29,6 +29,9 @@ export interface Snippet {
   updated_at: number;
   /** Group name this snippet belongs to, or null when ungrouped. */
   category?: string | null;
+  /** Content-revision counter (cue-compatible). Bumps only on a content change
+   *  (abbreviation/title/body), never on group edits. Missing → 1. */
+  version?: number;
 }
 
 export interface CalcEntry {

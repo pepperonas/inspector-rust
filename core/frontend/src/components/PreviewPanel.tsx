@@ -278,7 +278,7 @@ export function PreviewPanel({
 
   // ── Snippet preview (+ inline editor, v0.84.265) ───────────────────────────
   if (entry.kind === "snippet") {
-    const { id, abbreviation, title, body, category } = entry.data;
+    const { id, abbreviation, title, body, category, version } = entry.data;
 
     // Editing in place: the prompt you just searched for is the one you want to
     // fix, so ✏️ / Cmd+E swaps this pane for the real editor — no tab switch,
@@ -292,6 +292,7 @@ export function PreviewPanel({
         categoryId: category
           ? snippetCategories.find((c) => c.name === category)?.id ?? null
           : null,
+        version,
       };
       return (
         <div className="flex h-full flex-col p-4">
@@ -321,6 +322,10 @@ export function PreviewPanel({
               <span>{category}</span>
             </>
           )}
+          <span>·</span>
+          <span className="font-[var(--font-mono)]" title={`Content revision ${version ?? 1}`}>
+            v{version ?? 1}
+          </span>
         </div>
         <div className="mb-3 flex items-center gap-3">
           <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-0.5 font-[var(--font-mono)] text-[13px] font-semibold">

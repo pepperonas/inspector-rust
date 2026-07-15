@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.267] — 2026-07-15
+
+### Added
+
+- **Snippet versioning (protocol-compatible with cue).** Every snippet now carries a version number, shown as a `vN` badge on the Snippets tab, in the editor, and in the search preview. It starts at 1 and bumps only when the *content* changes (abbreviation, title or body) — assigning or renaming a group never touches it, and a save that changed nothing doesn't bump. The number travels through the backup file and merges with cue's exact `max()` rule, so a snippet's version survives a cue ⇄ Inspector Rust round-trip and re-importing the same file changes nothing. Existing snippets migrate to v1 automatically.
+
 ## [0.84.266] — 2026-07-15
 
 ### Changed

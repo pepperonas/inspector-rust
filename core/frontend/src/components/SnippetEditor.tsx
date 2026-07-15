@@ -27,6 +27,9 @@ export interface SnippetDraft {
   title: string;
   body: string;
   categoryId: number | null;
+  /** Current content revision (cue-compatible); shown in the header. Undefined
+   *  for a new snippet. */
+  version?: number;
 }
 
 export const EMPTY_DRAFT: SnippetDraft = {
@@ -99,8 +102,16 @@ export function SnippetEditor({
 
   return (
     <div className="flex h-full flex-col gap-3" onKeyDown={onFormKeyDown}>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
-        {form.id === null ? "New Snippet" : "Edit Snippet"}
+      <div className="flex items-baseline gap-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+        <span>{form.id === null ? "New Snippet" : "Edit Snippet"}</span>
+        {form.id !== null && (
+          <span
+            className="font-[var(--font-mono)] normal-case tracking-normal text-[var(--color-muted)]/70"
+            title={`Content revision ${form.version ?? 1} — bumps only when abbreviation, title or body change`}
+          >
+            v{form.version ?? 1}
+          </span>
+        )}
       </div>
 
       <label className="flex flex-col gap-1">

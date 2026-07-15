@@ -5,6 +5,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::db::DbHandle;
 
+fn default_version() -> i64 {
+    1
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Snippet {
     pub id: i64,
@@ -18,6 +22,27 @@ pub struct Snippet {
     /// so it stays portable across machines through backup/export.
     #[serde(default)]
     pub category: Option<String>,
+    /// Content-revision counter (v0.84.267, **protocol-compatible with cue**).
+    /// Starts at 1; bumps by 1 only on a *content* change (abbreviation, title
+    /// or body), never on an organisational change (group assign/reorder/rename/
+    /// delete). Additive + `#[serde(default = 1)]` so backups without the field
+    /// (older IR, older cue) load as v1.
+    #[serde(default = "default_version")]
+    pub version: i64,
+}
+
+/// cue-compatible version merge. `incoming` is the version in the imported
+/// file (< 1 / missing → treated as 1); `local` is the current row's version
+/// (`None` = the snippet doesn't exist locally yet). `content_differs` = the
+/// incoming title/body differ from the local ones. Both sides converge to the
+/// same number after a round-trip, and re-importing the same file is a no-op.
+pub fn merge_version(incoming: i64, local: Option<i64>, content_differs: bool) -> i64 {
+    let incoming = incoming.max(1);
+    match local {
+        None => incoming, // new snippet → max(incoming, 1)
+        Some(local) if content_differs => incoming.max(local + 1),
+        Some(local) => incoming.max(local),
+    }
 }
 
 /// A snippet group. `id` is stable within a DB; `name` is what travels through
@@ -51,7 +76,8 @@ pub fn init_table(db: &DbHandle) -> Result<()> {
             title        TEXT    NOT NULL DEFAULT '',
             body         TEXT    NOT NULL,
             created_at   INTEGER NOT NULL,
-            updated_at   INTEGER NOT NULL
+            updated_at   INTEGER NOT NULL,
+            version      INTEGER NOT NULL DEFAULT 1
         );
         CREATE INDEX IF NOT EXISTS idx_snippets_abbr ON snippets(abbreviation);
         CREATE TABLE IF NOT EXISTS snippet_categories (
@@ -61,13 +87,20 @@ pub fn init_table(db: &DbHandle) -> Result<()> {
         );
         "#,
     )?;
-    // Lazy migration: add the grouping column to pre-existing snippet tables.
+    // Lazy migrations for pre-existing snippet tables (idempotent — a second
+    // run errors harmlessly because the column already exists). `DEFAULT 1`
+    // back-fills every existing row to version 1.
     let _ = conn.execute("ALTER TABLE snippets ADD COLUMN category_id INTEGER", []);
+    let _ = conn.execute(
+        "ALTER TABLE snippets ADD COLUMN version INTEGER NOT NULL DEFAULT 1",
+        [],
+    );
     Ok(())
 }
 
 // ── SELECT with the joined category name ─────────────────────────────────────
-const SNIPPET_COLS: &str = "s.id, s.abbreviation, s.title, s.body, s.created_at, s.updated_at, c.name";
+const SNIPPET_COLS: &str =
+    "s.id, s.abbreviation, s.title, s.body, s.created_at, s.updated_at, c.name, s.version";
 const SNIPPET_FROM: &str =
     "FROM snippets s LEFT JOIN snippet_categories c ON c.id = s.category_id";
 
@@ -176,12 +209,33 @@ pub fn update(
     category_id: Option<i64>,
 ) -> Result<()> {
     let now = Utc::now().timestamp_millis();
+    let (abbr, title) = (abbreviation.trim(), title.trim());
     let enc_body = crate::crypto::encrypt(body);
     let conn = db.lock();
+    // Bump the version only on a *content* change (abbreviation / title / body).
+    // A group-only edit — or a save that changed nothing — leaves it untouched.
+    let current: Option<(String, String, String)> = conn
+        .query_row(
+            "SELECT abbreviation, title, body FROM snippets WHERE id = ?1",
+            params![id],
+            |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, String>(1)?,
+                    crate::crypto::decrypt(&r.get::<_, String>(2)?),
+                ))
+            },
+        )
+        .optional()?;
+    let content_changed = match &current {
+        Some((a, t, b)) => a != abbr || t != title || b != body,
+        None => true, // row vanished under us — treat as a write
+    };
+    let bump = if content_changed { 1 } else { 0 };
     conn.execute(
         "UPDATE snippets SET abbreviation = ?1, title = ?2, body = ?3, category_id = ?4, \
-         updated_at = ?5 WHERE id = ?6",
-        params![abbreviation.trim(), title.trim(), enc_body, category_id, now, id],
+         updated_at = ?5, version = version + ?7 WHERE id = ?6",
+        params![abbr, title, enc_body, category_id, now, id, bump],
     )?;
     Ok(())
 }
@@ -343,23 +397,51 @@ pub fn upsert_by_abbreviation(
     title: &str,
     body: &str,
     category: CategoryAssign,
+    incoming_version: i64,
 ) -> Result<()> {
     let now = Utc::now().timestamp_millis();
+    let (abbr, title) = (abbreviation.trim(), title.trim());
     let enc_body = crate::crypto::encrypt(body);
     let category_id = category.value();
     let applies = category.applies();
     let conn = db.lock();
+
+    // Read the local row (if any) to run the cue-compatible version merge:
+    // content differs → max(incoming, local+1); identical → max(incoming, local);
+    // new → max(incoming, 1). Read the decrypted body so the comparison is over
+    // plaintext (title is already stored trimmed + plaintext).
+    let local: Option<(i64, String, String)> = conn
+        .query_row(
+            "SELECT version, title, body FROM snippets WHERE abbreviation = ?1",
+            params![abbr],
+            |r| {
+                Ok((
+                    r.get::<_, i64>(0)?,
+                    r.get::<_, String>(1)?,
+                    crate::crypto::decrypt(&r.get::<_, String>(2)?),
+                ))
+            },
+        )
+        .optional()?;
+
+    let content_differs = local
+        .as_ref()
+        .map(|(_, lt, lb)| lt != title || lb != body)
+        .unwrap_or(true);
+    let new_version = merge_version(incoming_version, local.as_ref().map(|(v, _, _)| *v), content_differs);
+
     conn.execute(
         r#"
-        INSERT INTO snippets (abbreviation, title, body, category_id, created_at, updated_at)
-        VALUES (?1, ?2, ?3, ?4, ?5, ?5)
+        INSERT INTO snippets (abbreviation, title, body, category_id, created_at, updated_at, version)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?7)
         ON CONFLICT(abbreviation) DO UPDATE SET
             title       = excluded.title,
             body        = excluded.body,
             category_id = CASE WHEN ?6 THEN ?4 ELSE snippets.category_id END,
-            updated_at  = excluded.updated_at
+            updated_at  = excluded.updated_at,
+            version     = ?7
         "#,
-        params![abbreviation.trim(), title.trim(), enc_body, category_id, now, applies],
+        params![abbr, title, enc_body, category_id, now, applies, new_version],
     )?;
     Ok(())
 }
@@ -432,7 +514,9 @@ pub fn import_from_json_into(
                 .push(format!("#{idx} ({abbr}): body is empty"));
             continue;
         }
-        match upsert_by_abbreviation(db, abbr, &item.title, body, category_id.into()) {
+        // The lean snippet shape carries no version → 1 (the merge treats it as
+        // "content wins if changed" without inflating the number).
+        match upsert_by_abbreviation(db, abbr, &item.title, body, category_id.into(), 1) {
             Ok(()) => result.imported += 1,
             Err(e) => {
                 result.skipped += 1;
@@ -453,6 +537,7 @@ fn row_to_snippet(row: &rusqlite::Row<'_>) -> rusqlite::Result<Snippet> {
         created_at: row.get(4)?,
         updated_at: row.get(5)?,
         category: row.get(6)?,
+        version: row.get(7)?,
     })
 }
 
@@ -704,18 +789,18 @@ mod tests {
         create(&db, "aiplan", "Plan", "body", Some(g)).unwrap();
 
         // Keep: a category-less re-import must not wipe the grouping.
-        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Keep).unwrap();
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Keep, 1).unwrap();
         let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
         assert_eq!(s.category.as_deref(), Some("AI Prompts"));
         assert_eq!(s.body, "body2", "the rest of the row still updates");
 
         // Set: move to another group.
-        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Set(other)).unwrap();
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Set(other), 1).unwrap();
         let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
         assert_eq!(s.category.as_deref(), Some("Colors"));
 
         // Clear: explicitly ungroup.
-        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Clear).unwrap();
+        upsert_by_abbreviation(&db, "aiplan", "Plan", "body2", CategoryAssign::Clear, 1).unwrap();
         let s = find_by_exact_abbreviation(&db, "aiplan").unwrap().unwrap();
         assert_eq!(s.category, None);
     }
@@ -723,9 +808,111 @@ mod tests {
     #[test]
     fn upsert_inserts_new_row_ungrouped_for_keep_and_clear() {
         let db = test_db();
-        upsert_by_abbreviation(&db, "fresh", "F", "b", CategoryAssign::Keep).unwrap();
+        upsert_by_abbreviation(&db, "fresh", "F", "b", CategoryAssign::Keep, 1).unwrap();
         assert_eq!(find_by_exact_abbreviation(&db, "fresh").unwrap().unwrap().category, None);
-        upsert_by_abbreviation(&db, "fresh2", "F", "b", CategoryAssign::Clear).unwrap();
+        upsert_by_abbreviation(&db, "fresh2", "F", "b", CategoryAssign::Clear, 1).unwrap();
         assert_eq!(find_by_exact_abbreviation(&db, "fresh2").unwrap().unwrap().category, None);
+    }
+
+    // ── Versioning (v0.84.267, cue-compatible) ───────────────────────────────
+
+    fn version_of(db: &DbHandle, abbr: &str) -> i64 {
+        find_by_exact_abbreviation(db, abbr).unwrap().unwrap().version
+    }
+
+    #[test]
+    fn create_starts_at_v1() {
+        let db = test_db();
+        create(&db, "x", "T", "b", None).unwrap();
+        assert_eq!(version_of(&db, "x"), 1);
+    }
+
+    #[test]
+    fn update_bumps_only_on_content_change() {
+        let db = test_db();
+        let g = create_category(&db, "G").unwrap();
+        let g2 = create_category(&db, "G2").unwrap();
+        let id = create(&db, "aa", "Title", "body", None).unwrap();
+        assert_eq!(version_of(&db, "aa"), 1);
+
+        // Body change → v2.
+        update(&db, id, "aa", "Title", "body v2", None).unwrap();
+        assert_eq!(version_of(&db, "aa"), 2);
+        // Title change → v3.
+        update(&db, id, "aa", "Title v3", "body v2", None).unwrap();
+        assert_eq!(version_of(&db, "aa"), 3);
+        // Abbreviation change → v4.
+        update(&db, id, "bb", "Title v3", "body v2", None).unwrap();
+        assert_eq!(version_of(&db, "bb"), 4);
+
+        // Group assignment → NO bump (still v4).
+        update(&db, id, "bb", "Title v3", "body v2", Some(g)).unwrap();
+        assert_eq!(version_of(&db, "bb"), 4);
+        // Group change → NO bump.
+        update(&db, id, "bb", "Title v3", "body v2", Some(g2)).unwrap();
+        assert_eq!(version_of(&db, "bb"), 4);
+        // A genuine no-op save → NO bump.
+        update(&db, id, "bb", "Title v3", "body v2", Some(g2)).unwrap();
+        assert_eq!(version_of(&db, "bb"), 4);
+    }
+
+    #[test]
+    fn merge_version_matrix() {
+        // New snippet → max(incoming, 1).
+        assert_eq!(merge_version(0, None, false), 1);
+        assert_eq!(merge_version(5, None, true), 5);
+        // Content identical → max(incoming, local).
+        assert_eq!(merge_version(1, Some(3), false), 3);
+        assert_eq!(merge_version(9, Some(3), false), 9);
+        // Content differs → max(incoming, local + 1).
+        assert_eq!(merge_version(1, Some(3), true), 4);
+        assert_eq!(merge_version(9, Some(3), true), 9);
+        // Missing/0 incoming → treated as 1.
+        assert_eq!(merge_version(0, Some(1), true), 2);
+    }
+
+    #[test]
+    fn upsert_merge_respects_incoming_version() {
+        let db = test_db();
+        // New with an incoming version → adopts it.
+        upsert_by_abbreviation(&db, "aa", "T", "b", CategoryAssign::Keep, 5).unwrap();
+        assert_eq!(version_of(&db, "aa"), 5);
+        // Re-import identical content, lower incoming → stays 5 (no-op).
+        upsert_by_abbreviation(&db, "aa", "T", "b", CategoryAssign::Keep, 1).unwrap();
+        assert_eq!(version_of(&db, "aa"), 5);
+        // Changed content, lower incoming → local + 1.
+        upsert_by_abbreviation(&db, "aa", "T", "b2", CategoryAssign::Keep, 1).unwrap();
+        assert_eq!(version_of(&db, "aa"), 6);
+        // Changed content, higher incoming → incoming wins.
+        upsert_by_abbreviation(&db, "aa", "T", "b3", CategoryAssign::Keep, 20).unwrap();
+        assert_eq!(version_of(&db, "aa"), 20);
+    }
+
+    #[test]
+    fn migration_adds_version_column_and_backfills_v1() {
+        use parking_lot::Mutex;
+        use rusqlite::Connection;
+        use std::sync::Arc;
+        // A pre-versioning snippets table (no `version` column).
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            r#"CREATE TABLE snippets (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                abbreviation TEXT NOT NULL UNIQUE,
+                title TEXT NOT NULL DEFAULT '',
+                body TEXT NOT NULL,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL
+            );"#,
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO snippets (abbreviation, title, body, created_at, updated_at) VALUES ('old','T','b',0,0)",
+            [],
+        )
+        .unwrap();
+        let db: DbHandle = Arc::new(Mutex::new(conn));
+        init_table(&db).unwrap(); // runs the lazy ALTER
+        assert_eq!(version_of(&db, "old"), 1, "existing rows back-fill to v1");
     }
 }

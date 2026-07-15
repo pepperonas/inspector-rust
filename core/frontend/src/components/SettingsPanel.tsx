@@ -1188,7 +1188,7 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <Section
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
             title="Touchpad gestures"
-            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, tip-tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, 2-finger rest + 3rd-finger tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
           >
             <Row label="Enable gestures">
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -1219,10 +1219,10 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
                     className="accent-[var(--color-accent)]"
                   />
                   <span className="text-[var(--color-muted)]">
-                    Experimental — off by default. Rest one finger, tap a second to its
-                    right → next tab (Ctrl+Tab); left → previous tab (Ctrl+Shift+Tab). If
-                    you rest your thumb on the trackpad while pointing, leave this off (it
-                    can misfire).
+                    Off by default. Rest <b>two</b> fingers on the trackpad and tap a{" "}
+                    <b>third</b> to their right → next tab (Ctrl+Tab); to their left →
+                    previous tab (Ctrl+Shift+Tab). The two-finger rest is a deliberate
+                    posture, so it won't misfire during normal cursor use.
                   </span>
                 </label>
               </Row>

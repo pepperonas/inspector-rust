@@ -289,9 +289,10 @@ extern "C" fn frame_callback(
     }
 
     // Tip-tap runs on per-contact positions (the centroid can't tell which
-    // finger tapped). Same y-flip + TOUCHING filter as above; ≤ 4 contacts is
-    // plenty (the recogniser poisons itself at ≥ 3 anyway). Size-palms are
-    // skipped so a resting palm heel doesn't poison every tip-tap attempt.
+    // finger tapped). Same y-flip + TOUCHING filter as above. It needs exactly 3
+    // contacts (2 rest + 1 tap) and poisons at ≥ 4, so a 4-slot buffer is enough
+    // to both see the tap and detect "too many". Size-palms are skipped so a
+    // resting palm heel doesn't poison every tip-tap attempt.
     let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
     let mut cn = 0usize;
     for f in fingers.iter() {
@@ -316,7 +317,7 @@ extern "C" fn frame_callback(
     if let Some(kind) = tt_kind {
         tracing::debug!("gestures(mac): recognised {kind:?} (tip-tap)");
         if let Some(sink) = SINK.lock().as_ref() {
-            sink(GestureEvent { kind, fingers: 2 });
+            sink(GestureEvent { kind, fingers: 3 });
         }
     }
     0

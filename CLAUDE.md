@@ -626,9 +626,7 @@ Typing **`freeze`** blocks all keyboard/mouse/trackpad input until an unlock cho
 BetterTouchTool-style trackpad gestures feeding the **existing** volume/mute
 pipeline (`system_commands::adjust_system_volume` / `toggle_system_mute`) — **not**
 a new action layer. Bindings: **3-finger swipe up/down → volume ±**, **3-finger
-tap → mute**, and (v0.84.206) **tip-tap → tab switch**: rest one finger, tap a
-second briefly to its **right → next tab** or **left → previous tab** — BTT's
-"TipTap (1 finger fix)". **Per-app shortcut dispatch — DATA-DRIVEN (v0.84.211):** the gesture sends the
+tap → mute**, and (v0.84.206) **tip-tap → tab switch**. **Posture: 2 fingers rest + a 3rd taps (v0.84.266, BTT's "TipTap 2 finger fix").** Rest **two** fingers on the pad and tap a **third** briefly to their **right → next tab** or **left → previous tab**. This replaced the one-finger posture (rest 1, tap a 2nd), which collided with thumb-anchored cursor use no matter how the Δy guards were tuned — the whole `TIPTAP_THUMB_ZONE_*` special-case existed to fight that and is now gone. Two resting fingers is a deliberate posture that simply doesn't occur during normal pointing, so the false-positive problem disappears at the source. **Per-app shortcut dispatch — DATA-DRIVEN (v0.84.211):** the gesture sends the
 FRONTMOST app's own tab-nav chords from **`assets/tab_shortcuts.json`**
 (compile-time `include_str!`, validated by a unit test): bundle-id-prefix
 entries with `{key, mods}` chords — key = `"tab"`/`"left"`/`"right"` (fixed
@@ -653,27 +651,27 @@ edited mid-session) takes a one-time main-thread hop. The emit refractory is
 blocked by the post-emit settle). Unresolvable chords fall back to Ctrl+Tab. The pure,
 unit-tested `TipTapRecognizer` (`gestures/mod.rs`) is fed per-contact positions
 (the centroid stream can't tell which finger tapped) from the same macOS
-MultitouchSupport frame callback; guards: the rest finger must be down alone
-≥ `TIPTAP_REST_MIN_MS` (80 ms) before the tap lands (kills 2-finger
-scroll/click, whose fingers land together), the tap must last 40–300 ms
-(`TIPTAP_TAP_MIN/MAX_MS` — the floor filters MT state flicker), either finger
-moving > 0.05 (norm) poisons the attempt, the tap must land 0.03–0.40 |Δx|
-from the rest (direction certainty / adjacent fingertips), and a
-**posture-aware Δy guard** (v0.84.209/.215/.216): |Δy| ≤ **0.55** mid-pad
-(generous — strongly angled hands register; 0.22 and 0.35 rejected real
-tip-taps when one finger sat higher) but a STRICT **0.18** when either contact
-is in the bottom-edge **thumb zone** (`TIPTAP_THUMB_ZONE_Y` y > 0.80) — the
-thumb-anchored-while-pointing posture that caused runaway tab switching stays
-blocked. Taps chain while the rest finger stays down. Direction = tap-x vs
-rest-x. **Deferred lift-confirmation (v0.84.257 — "one tip-tap jumps two tabs"):**
-the emit is DEFERRED one frame past the tap-finger lift (`TtState::TapReleasing`).
-A real lift stays at ≤1 contact on the next frame → emit once; a mid-hold contact
-**flicker** (the tap finger's contact drops out for a frame then returns — a
-common MultitouchSupport state glitch) re-appears as 2 contacts → back to
-`TapDown` with the SAME `started`, no emit. Previously the flicker emitted AND
-the real lift emitted, > the 200 ms refractory apart, so the browser jumped to
-the tab-after-next. Both the confirmed-lift (→1 contact) and the both-lifted
-(→0 contacts) branches emit; a simultaneous two-finger lift still never emits.
+MultitouchSupport frame callback. **State machine keyed on contact count
+(v0.84.266): 2 = the resting pair, 3 = pair + tap, ≥4 poisons.** `split_rest_tap`
+identifies the tap as the contact **furthest from both** tracked rest positions
+(the newcomer). Guards: the two rest fingers must be settled together ≥
+`TIPTAP_REST_MIN_MS` (80 ms) before the third lands (kills the 3-finger swipe,
+whose fingers land together), the tap must last 40–300 ms
+(`TIPTAP_TAP_MIN/MAX_MS` — the floor filters MT state flicker), a resting finger
+moving > 0.05 (norm) poisons the attempt, and the pure `tiptap_direction` gives
+the L/R (or `None` = reject): the tap must clear the pair's left/right **edge** by
+0.03–0.40 (a tap *between* the two rest fingers is ambiguous → rejected) at |Δy|
+≤ **0.55** from the pair's mean height (generous — angled hands register). The
+thumb-zone special-case is deleted — the two-finger posture doesn't need it.
+Taps chain while the pair stays down. **Deferred lift-confirmation
+(v0.84.257, carried forward): the emit is DEFERRED one frame past the tap-finger
+lift (`TtState::TapReleasing`).** When the tap lifts, contacts drop 3→2; a real
+lift stays at ≤2 on the next frame → emit once; a mid-hold **flicker** (the tap
+contact drops for a frame then returns — a common MultitouchSupport glitch)
+re-appears as 3 contacts → back to `TapDown` with the SAME `started`, no emit.
+This is the fix for the recurring "one tip-tap jumps two tabs". On a 3→2 lift the
+tap must genuinely be the finger that left (both remaining match the rest pair);
+if a *rest* finger lifted instead (tap still down) it's ambiguous → poisoned.
 **Robustness
 (v0.84.208):** tip-tap contacts are filtered to MT finger **state 4 (touching)**
 — a lifting finger lingers in the frame array in the leaving states (5–7),

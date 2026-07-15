@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.266] — 2026-07-15
+
+### Changed
+
+- **Tip-tap tab switching now uses two resting fingers + a third tap.** Rest **two** fingers on the trackpad and tap a **third** to their right (next tab) or left (previous tab) — BetterTouchTool's "TipTap 2 finger fix". The old one-finger version (rest one, tap a second) kept misfiring during thumb-anchored cursor use no matter how the height guards were tuned; two resting fingers is a deliberate posture that doesn't occur by accident, so that whole class of false positives is gone (and the thumb-zone special-case with it).
+
+### Fixed
+
+- **One tip-tap no longer jumps two tabs.** The deferred lift-confirmation is rebuilt around the new posture: a mid-hold contact flicker (the tapping finger's contact vanishing for a frame then returning — a common trackpad-driver glitch) is recognised as a flicker, not a second tap, so a single tap fires exactly once.
+
 ## [0.84.265] — 2026-07-14
 
 ### Added

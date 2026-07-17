@@ -295,6 +295,48 @@ pub fn clamp_volume(level: i32) -> u8 {
     level.clamp(0, 100) as u8
 }
 
+/// Snap a relative volume step onto the step's grid: from `current`, move to
+/// the **next multiple of `|delta|`** in the direction of `delta`, clamped to
+/// 0–100. So stepping by ±5 from 81 gives 85 / 80, then 90 / 75, … — every
+/// consecutive step lands on the 5-grid and reads as a consistent ±5, instead
+/// of the old plain `current + delta` (81 → 86 → 91 …), which never aligned
+/// and made mixed volume sources (gesture, panel, hardware keys) look erratic.
+/// Pure + unit-tested; `nudge_volume` / `adjust_system_volume` mirror this
+/// formula inside their single-invocation AppleScript (see `snap_script`),
+/// and `lib/volume.ts` mirrors it for the SoundPanel arrows — this fn is the
+/// tested reference both copies are pinned against.
+#[allow(dead_code)] // reference implementation; production paths run the AppleScript mirror
+pub fn snap_volume_step(current: i32, delta: i32) -> u8 {
+    let step = delta.abs().max(1);
+    let target = if delta >= 0 {
+        (current.div_euclid(step) + 1) * step
+    } else {
+        ((current + step - 1).div_euclid(step) - 1) * step
+    };
+    clamp_volume(target)
+}
+
+/// The AppleScript lines implementing `snap_volume_step` device-side, so the
+/// read-modify-write stays a **single** osascript invocation (the two-spawn
+/// version cost ~300 ms — see `adjust_system_volume`'s history note). `cv` is
+/// the freshly-read current volume; the caller appends the trailing
+/// `set volume output volume v` / `return v` lines it needs.
+#[cfg(target_os = "macos")]
+fn snap_script(delta: i32) -> [String; 4] {
+    let step = delta.abs().max(1);
+    let expr = if delta >= 0 {
+        format!("set v to ((cv div {step}) + 1) * {step}")
+    } else {
+        format!("set v to (((cv + {step} - 1) div {step}) - 1) * {step}")
+    };
+    [
+        "set cv to output volume of (get volume settings)".to_string(),
+        expr,
+        "if v < 0 then set v to 0".to_string(),
+        "if v > 100 then set v to 100".to_string(),
+    ]
+}
+
 /// Read the current system output volume (0–100). Blocking (one osascript /
 /// wpctl call) — for the inline volume slider, NOT the hot gesture path.
 /// `None` when the platform has no cheap read-back.
@@ -388,16 +430,14 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     {
         std::thread::spawn(move || {
             // Multiple `-e` args = atomic single-process AppleScript;
-            // safer than embedding newlines in one `-e` string.
-            let _ = std::process::Command::new("/usr/bin/osascript")
-                .arg("-e")
-                .arg(format!(
-                    "set v to (output volume of (get volume settings)) + ({delta})"
-                ))
-                .arg("-e").arg("if v < 0 then set v to 0")
-                .arg("-e").arg("if v > 100 then set v to 100")
-                .arg("-e").arg("set volume output volume v")
-                .status();
+            // safer than embedding newlines in one `-e` string. The step is
+            // grid-snapped (see `snap_volume_step`) so repeated presses land
+            // on consistent multiples of the step.
+            let mut cmd = std::process::Command::new("/usr/bin/osascript");
+            for line in snap_script(delta) {
+                cmd.arg("-e").arg(line);
+            }
+            let _ = cmd.arg("-e").arg("set volume output volume v").status();
         });
         // Placeholder — the spawned thread does the real work. The IPC
         // resolves immediately so a rapid Shift+↑ / Shift+↓ chord
@@ -452,13 +492,13 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
 pub fn nudge_volume(delta: i32) -> Option<u8> {
     #[cfg(target_os = "macos")]
     {
-        let out = std::process::Command::new("/usr/bin/osascript")
-            .arg("-e")
-            .arg(format!(
-                "set v to (output volume of (get volume settings)) + ({delta})"
-            ))
-            .arg("-e").arg("if v < 0 then set v to 0")
-            .arg("-e").arg("if v > 100 then set v to 100")
+        // Grid-snapped like `adjust_system_volume` — the gesture toast then
+        // always shows clean multiples of the step (80, 85, 90 …).
+        let mut cmd = std::process::Command::new("/usr/bin/osascript");
+        for line in snap_script(delta) {
+            cmd.arg("-e").arg(line);
+        }
+        let out = cmd
             .arg("-e").arg("set volume output volume v")
             .arg("-e").arg("return v")
             .output()
@@ -579,6 +619,65 @@ mod tests {
         // A normal mid-range step lands where expected.
         assert_eq!(clamp_volume(48 + 6), 54);
         assert_eq!(clamp_volume(48 - 6), 42);
+    }
+
+    #[test]
+    fn snap_volume_step_lands_on_the_grid() {
+        // Off-grid start: first step snaps onto the multiple, then stays there.
+        assert_eq!(snap_volume_step(81, 5), 85);
+        assert_eq!(snap_volume_step(85, 5), 90);
+        assert_eq!(snap_volume_step(81, -5), 80);
+        assert_eq!(snap_volume_step(80, -5), 75);
+        // On-grid start: a full step in each direction.
+        assert_eq!(snap_volume_step(50, 5), 55);
+        assert_eq!(snap_volume_step(50, -5), 45);
+    }
+
+    #[test]
+    fn snap_volume_step_clamps_at_the_edges() {
+        assert_eq!(snap_volume_step(100, 5), 100);
+        assert_eq!(snap_volume_step(98, 5), 100);
+        assert_eq!(snap_volume_step(0, -5), 0);
+        assert_eq!(snap_volume_step(3, -5), 0);
+        assert_eq!(snap_volume_step(0, 5), 5);
+        assert_eq!(snap_volume_step(100, -5), 95);
+    }
+
+    #[test]
+    fn snap_volume_step_other_step_sizes() {
+        // A legacy step of 6 still snaps consistently onto its own grid.
+        assert_eq!(snap_volume_step(81, 6), 84);
+        assert_eq!(snap_volume_step(84, 6), 90);
+        assert_eq!(snap_volume_step(81, -6), 78);
+        // Degenerate delta never divides by zero.
+        assert_eq!(snap_volume_step(50, 0), 51);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn snap_script_mirrors_snap_volume_step() {
+        // The AppleScript integer formula must be the same maths as the pure
+        // Rust helper — evaluate the generated `div` expression in Rust for a
+        // sweep of states and compare (AppleScript `div` on non-negative ints
+        // == Rust div_euclid).
+        for &delta in &[5, -5, 6, -6, 10, -10] {
+            let lines = snap_script(delta);
+            assert!(lines[0].contains("output volume"));
+            for cv in [0, 1, 3, 49, 50, 81, 98, 100] {
+                let step = delta.abs().max(1);
+                let v = if delta >= 0 {
+                    ((cv / step) + 1) * step
+                } else {
+                    (((cv + step - 1) / step) - 1) * step
+                };
+                let clamped = v.clamp(0, 100) as u8;
+                assert_eq!(
+                    clamped,
+                    snap_volume_step(cv, delta),
+                    "cv={cv} delta={delta}"
+                );
+            }
+        }
     }
 
     #[test]

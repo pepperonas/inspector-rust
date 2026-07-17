@@ -2512,11 +2512,11 @@ function App() {
     onEscape: () => {
       void hidePopup();
     },
-    // Shift+↑ / Shift+↓ adjust the system output volume by ±6 points
-    // (≈ macOS's own 1/16 hardware-key step) instead of moving the list
-    // selection. Fire-and-forget — macOS plays its volume feedback.
+    // Shift+↑ / Shift+↓ adjust the system output volume by ±5 points,
+    // grid-snapped backend-side so repeated presses land on clean multiples
+    // of 5. Fire-and-forget — macOS plays its volume feedback.
     onShiftArrow: (direction) => {
-      void adjustVolume(direction === "up" ? 6 : -6).catch((e) =>
+      void adjustVolume(direction === "up" ? 5 : -5).catch((e) =>
         console.error("adjust_volume failed", e),
       );
     },

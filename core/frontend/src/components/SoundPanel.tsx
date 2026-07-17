@@ -7,6 +7,7 @@ import {
   setSystemVolume,
   type AudioDevice,
 } from "../lib/ipc";
+import { snapVolumeStep } from "../lib/volume";
 
 /**
  * In-popup audio **output** panel rendered in the right preview column — same
@@ -87,7 +88,9 @@ export function SoundPanel({
           const delta = e.key === "ArrowRight" ? 5 : -5;
           // Functional update so rapid presses don't read a stale value.
           setVol((v) => {
-            const next = Math.max(0, Math.min(100, (v ?? 50) + delta));
+            // Grid-snapped (81 → 85 → 90 …) so the steps read as a
+            // consistent ±5 — same math as the backend gesture nudge.
+            const next = snapVolumeStep(v ?? 50, delta);
             void setSystemVolume(next)
               .then((applied) => {
                 if (applied != null) setVol(applied);

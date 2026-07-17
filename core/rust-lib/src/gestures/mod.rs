@@ -32,8 +32,11 @@ mod windows;
 
 /// Default finger count the gestures fire on.
 pub const DEFAULT_FINGERS: u8 = 3;
-/// Default volume step per swipe (matches the `Shift+↑/↓` popup step).
-pub const DEFAULT_VOLUME_STEP: i32 = 6;
+/// Default volume step per swipe (matches the `Shift+↑/↓` popup step). Was 6
+/// until v0.84.268 — an odd step that never aligned with the 5-% grid people
+/// expect from a percent readout; `migrate_volume_step_default` bumps stored
+/// un-customised installs.
+pub const DEFAULT_VOLUME_STEP: i32 = 5;
 
 /// A swipe must move at least this fraction of the touchpad (0..1, normalized)
 /// to count — used by the self-built Windows recogniser.
@@ -1203,6 +1206,24 @@ pub fn migrate_tiptap_optin(db: &DbHandle) {
     let _ = crate::settings::set(db, FLAG, "true");
 }
 
+/// One-shot migration (v0.84.268): the volume step's default used to be **6**,
+/// which `set_gesture_config` persisted verbatim — so installs carry a stored
+/// `6` nobody chose (the Settings UI never exposed the field). Reset exactly
+/// that historical default to the new 5; any other stored value is a deliberate
+/// customisation and is left alone.
+pub fn migrate_volume_step_default(db: &DbHandle) {
+    const FLAG: &str = "gestures.volume_step_migrated_v0_84_268";
+    if crate::settings::get_bool(db, FLAG, false).unwrap_or(false) {
+        return;
+    }
+    if let Ok(stored) = crate::settings::get_or(db, KEY_VOLUME_STEP, "") {
+        if stored.trim() == "6" {
+            let _ = crate::settings::set(db, KEY_VOLUME_STEP, &DEFAULT_VOLUME_STEP.to_string());
+        }
+    }
+    let _ = crate::settings::set(db, FLAG, "true");
+}
+
 /// Start/stop the gesture daemon to match the saved config. Called at startup
 /// and after a settings change (idempotent). Mirrors `auto_expand::apply`.
 pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
@@ -1289,6 +1310,38 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn test_db() -> DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn volume_step_migration_resets_only_the_old_default() {
+        // A stored 6 (the pre-v0.84.268 default, persisted by save()) → 5.
+        let db = test_db();
+        crate::settings::set(&db, KEY_VOLUME_STEP, "6").unwrap();
+        migrate_volume_step_default(&db);
+        assert_eq!(GestureConfig::load(&db).volume_step, 5);
+        // One-shot: a later 6 (now a deliberate choice) is left alone.
+        crate::settings::set(&db, KEY_VOLUME_STEP, "6").unwrap();
+        migrate_volume_step_default(&db);
+        assert_eq!(GestureConfig::load(&db).volume_step, 6);
+    }
+
+    #[test]
+    fn volume_step_migration_keeps_custom_values_and_absent_keys() {
+        let db = test_db();
+        crate::settings::set(&db, KEY_VOLUME_STEP, "10").unwrap();
+        migrate_volume_step_default(&db);
+        assert_eq!(GestureConfig::load(&db).volume_step, 10);
+
+        let db2 = test_db();
+        migrate_volume_step_default(&db2); // no stored value → default applies
+        assert_eq!(GestureConfig::load(&db2).volume_step, DEFAULT_VOLUME_STEP);
+    }
 
     fn frames_to_event(frames: &[TouchFrame]) -> Option<GestureEvent> {
         let mut r = Recognizer::new();

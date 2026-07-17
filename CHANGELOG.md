@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.268] — 2026-07-17
+
+### Fixed
+
+- **Volume steps are a consistent 5 % now.** Every relative volume change — 3-finger gesture swipe, Shift+↑/↓ in the popup, the sound panel's ←/→ — snaps to the **next multiple of the step** instead of blindly adding to whatever the current value is: 81 % steps to 85, then 90, 85, 80 … The gesture default step also changes from the odd 6 to **5** (a one-shot migration resets installs that still carry the old default; a deliberately customised step is left alone). Note: the hardware volume *keys* still step in macOS's own 1/16 (6.25 %) — that's OS behaviour.
+- **Music is audible below 50 % again (boom).** While boom is active, the playback bridge's perceptual volume taper was `scalar²` — 50 % = −12 dB, 25 % = −24 dB, which on quiet speakers (HDMI monitors) pushed the whole lower half of the slider below audibility. The taper is now `scalar^1.5` (50 % ≈ −9 dB, 25 % ≈ −18 dB, 10 % ≈ −30 dB): the usable range reaches back down the slider while the bottom still fades toward silence.
+
 ## [0.84.267] — 2026-07-15
 
 ### Added

@@ -51,7 +51,7 @@ Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt`
 QR-Code — `qr <text>`: Vorschau + PNG ins Clipboard
 Bilder — `rz <B>x<H>` (Resize der Finder-Auswahl), `optim` (PNG/JPEG komprimieren)
 Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker mit nativer Bestätigung
-System — `reboot`, `shutdown`, `lock`, `mute`, Shift+↑/↓ = Lautstärke
+System — `reboot`, `shutdown`, `lock`, `mute`, Shift+↑/↓ = Lautstärke (5-%-Raster)
 Input-Lock — `freeze`: Tastatur+Maus sperren bis zum Entsperr-Akkord
 Wachhalten — `wakelock on/off` (Alias `caffeine`)
 Datei-Ops — `touch <name> [> inhalt]`, `mkdir <pfad>`, `terminal` (im aktiven Finder-Ordner)
@@ -100,7 +100,7 @@ Privacy — Titel/URLs verschlüsselt at rest, Denylist, Retention, CSV- + HTML-
 == System-Extras ==
 Fenster-Snapping — Fenster an Bildschirmkante ziehen → Hälften/Maximieren (opt-in, macOS)
 Fenster-Palette — Hover über den grünen Knopf → Presets + Hex-Wabengitter zum Aufziehen (opt-in, macOS)
-Touchpad-Gesten — 3-Finger-Swipe = Lautstärke, 3-Finger-Tap = Mute, Tip-Tap (2 Finger liegen, 3. tippt links/rechts) = Tab-Wechsel pro App; Palm-Rejection (opt-in)
+Touchpad-Gesten — 3-Finger-Swipe = Lautstärke (5-%-Raster), 3-Finger-Tap = Mute, Tip-Tap (2 Finger liegen, 3. tippt links/rechts) = Tab-Wechsel pro App; Palm-Rejection (opt-in)
 Keep-Alive — App startet bei Login und wird bei Absturz/Quit automatisch neu gestartet (opt-in)
 Autostart — Start bei Login (Tray/Settings)
 Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean) am Cursor-Monitor

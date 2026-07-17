@@ -177,15 +177,19 @@ pub fn db_to_linear(db: f32) -> f32 {
 }
 
 /// Perceptual volume taper for the system volume slider while boom is active:
-/// amplitude = scalar² (the classic audio power taper, dB = 40·log₁₀ s —
-/// 60 % ≈ −9 dB, 40 % ≈ −16 dB, 20 % ≈ −28 dB). The boom-Audio driver publishes
-/// the volume control but no longer applies it (its stock curve was linear over
-/// −64..0 dB: 40 % = −38 dB ≈ inaudible, 20 % = −51 dB — the "volume scaling
-/// feels wrong" bug); the playback bridge applies this gain instead.
+/// amplitude = scalar^1.5 (dB = 30·log₁₀ s — 75 % ≈ −3.7 dB, 50 % ≈ −9 dB,
+/// 25 % ≈ −18 dB, 10 % ≈ −30 dB). The boom-Audio driver publishes the volume
+/// control but no longer applies it (its stock curve was linear over −64..0 dB:
+/// 40 % = −38 dB ≈ inaudible — the "volume scaling feels wrong" bug); the
+/// playback bridge applies this gain instead. The exponent was 2 (x², v0.84.213)
+/// until v0.84.268 — measured against real HDMI-monitor speakers that squeezed
+/// all audibility into the top half of the slider (50 % = −12 dB, 25 % = −24 dB
+/// ≈ inaudible on quiet hardware); 1.5 keeps the perceptual spread but moves
+/// the usable range back down the slider.
 #[inline]
 pub fn volume_gain(scalar: f32) -> f32 {
     let s = scalar.clamp(0.0, 1.0);
-    s * s
+    s * s.sqrt()
 }
 
 // ── Idle gate (battery, v0.84.240) ───────────────────────────────────────────
@@ -896,14 +900,20 @@ mod tests {
     fn volume_gain_is_a_perceptual_power_taper() {
         assert_eq!(volume_gain(0.0), 0.0);
         assert_eq!(volume_gain(1.0), 1.0);
-        assert!((volume_gain(0.5) - 0.25).abs() < 1e-6);
+        // x^1.5: 50 % → 0.3536 (−9 dB), not the old x² 0.25 (−12 dB).
+        assert!((volume_gain(0.5) - 0.353_553_4).abs() < 1e-6);
         // Monotonic + clamped.
         assert!(volume_gain(0.6) > volume_gain(0.4));
         assert_eq!(volume_gain(1.5), 1.0);
         assert_eq!(volume_gain(-0.2), 0.0);
-        // Sanity of the dB feel: 40 % ≈ −16 dB (audible), NOT the old −38 dB.
+        // Sanity of the dB feel: 40 % ≈ −12 dB (clearly audible), NOT the old
+        // driver's −38 dB, and louder than the x² taper's −16 dB (which sank
+        // the lower slider half below audibility on quiet speakers).
         let db = 20.0 * volume_gain(0.4).log10();
-        assert!(db > -18.0 && db < -14.0, "40% → {db} dB");
+        assert!(db > -13.0 && db < -11.0, "40% → {db} dB");
+        // 25 % ≈ −18 dB — quiet-but-audible, the whole point of the 1.5 exponent.
+        let db25 = 20.0 * volume_gain(0.25).log10();
+        assert!(db25 > -19.0 && db25 < -17.0, "25% → {db25} dB");
     }
 
     #[test]

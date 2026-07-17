@@ -59,7 +59,13 @@ jobs:
         run: pnpm typecheck
 
       - name: Run tests
-        run: pnpm test
+        # IR_SKIP_BADGES=1 makes the `posttest` hook (update-badges.mjs) a
+        # no-op. Without it, `pnpm test` would run `cargo test --workspace` to
+        # recount Rust tests — which needs the GTK/glib system libs this
+        # frontend-only runner doesn't install (glib-2.0 not found → red CI).
+        # Badges are a local-dev convenience; CI never commits them, and the
+        # Rust job below runs the workspace tests with the deps installed.
+        run: IR_SKIP_BADGES=1 pnpm test
 
       - name: Lint
         run: pnpm lint

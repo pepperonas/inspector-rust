@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.269] — 2026-07-18
+
+### Fixed
+
+- **Volume no longer stalls partway when changing it by gesture / Shift+↑↓.** With boom active the system output is the virtual "boom Audio" device, which reads a *set* volume back with jitter (set 85 → reads 84, and up to ~6 off on its 16-step grid). The v0.84.268 grid-snapping computed the next 5 %-step from that noisy read-back, so it kept landing on the *same* value — the volume got stuck (80 → 85 → 85 → 85), the swipe looked like it did nothing and the on-screen level froze. Stepping is now anchored to the exact value we last commanded (tracked in-process), so it always advances cleanly (80 → 85 → 90 → 95 → 100); a genuine external change (menu-bar slider, hardware keys) beyond a tolerance still resyncs to the device. Affects the touchpad-gesture and popup Shift+↑/↓ paths; the sound-panel slider was already immune (it snaps from its own state).
+
 ## [0.84.268] — 2026-07-17
 
 ### Fixed

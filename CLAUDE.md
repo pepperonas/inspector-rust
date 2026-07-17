@@ -633,7 +633,20 @@ Shift+↑/↓ `adjust_system_volume`, the SoundPanel arrows via the mirrored
 81 → 85 → 90, down 81 → 80 → 75 — via the pure, unit-tested
 `system_commands::snap_volume_step`, whose formula the single-invocation
 AppleScript (`snap_script`) mirrors device-side. `DEFAULT_VOLUME_STEP` is **5**
-(was 6; `migrate_volume_step_default` one-shot-resets a stored un-customised 6). **Posture: 2 fingers rest + a 3rd taps (v0.84.266, BTT's "TipTap 2 finger fix").** Rest **two** fingers on the pad and tap a **third** briefly to their **right → next tab** or **left → previous tab**. This replaced the one-finger posture (rest 1, tap a 2nd), which collided with thumb-anchored cursor use no matter how the Δy guards were tuned — the whole `TIPTAP_THUMB_ZONE_*` special-case existed to fight that and is now gone. Two resting fingers is a deliberate posture that simply doesn't occur during normal pointing, so the false-positive problem disappears at the source. **Per-app shortcut dispatch — DATA-DRIVEN (v0.84.211):** the gesture sends the
+(was 6; `migrate_volume_step_default` one-shot-resets a stored un-customised 6).
+**Jitter-immune base (v0.84.269):** the snap must NOT step from the device
+read-back — a virtual output (boom Audio) reads a *set* volume back with
+jitter/quantisation (set 85 → reads 84; up to ~6 off on its 16-step grid), so
+the "next multiple" kept landing on the same value and the volume **stalled**
+(80→85→85→85, the swipe appeared dead + the HUD froze). `nudge_volume` /
+`adjust_system_volume` now snap from `LAST_COMMANDED_VOLUME` (an in-process
+`AtomicI32`, seeded -1, updated with each applied level) and only resync to the
+device when the live level has drifted beyond `VOLUME_RESYNC_TOLERANCE` (7 %) —
+a real external change. The base selection is the pure, unit-tested
+`snap_from(device, last, delta)`, which `snap_script` mirrors in-AppleScript
+(one osascript spawn: reads `dev`, picks `base`, snaps, sets, returns the
+applied level → stored back into the atomic). The SoundPanel slider was already
+immune (it snaps from its own React state, not the device read-back). **Posture: 2 fingers rest + a 3rd taps (v0.84.266, BTT's "TipTap 2 finger fix").** Rest **two** fingers on the pad and tap a **third** briefly to their **right → next tab** or **left → previous tab**. This replaced the one-finger posture (rest 1, tap a 2nd), which collided with thumb-anchored cursor use no matter how the Δy guards were tuned — the whole `TIPTAP_THUMB_ZONE_*` special-case existed to fight that and is now gone. Two resting fingers is a deliberate posture that simply doesn't occur during normal pointing, so the false-positive problem disappears at the source. **Per-app shortcut dispatch — DATA-DRIVEN (v0.84.211):** the gesture sends the
 FRONTMOST app's own tab-nav chords from **`assets/tab_shortcuts.json`**
 (compile-time `include_str!`, validated by a unit test): bundle-id-prefix
 entries with `{key, mods}` chords — key = `"tab"`/`"left"`/`"right"` (fixed

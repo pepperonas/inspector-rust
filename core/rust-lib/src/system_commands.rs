@@ -26,6 +26,42 @@
 use anyhow::Context;
 use anyhow::{anyhow, Result};
 use serde::Serialize;
+use std::sync::atomic::{AtomicI32, Ordering};
+
+/// The volume level (0–100) we last **commanded**, or -1 = unknown this run.
+///
+/// Grid-snapping (v0.84.268) steps to the next multiple of the step size. It
+/// must snap from a *stable* base — but a virtual output device (boom Audio)
+/// quantises + jitters the read-back: `set 85` reads back as 84 (or, on its
+/// 16-step grid, up to ~6 off). Snapping from that noisy read-back made the
+/// "next multiple" land back on the SAME value, so the volume **stalled** on
+/// certain steps (80→85→85→85 — the gesture appeared to do nothing). We
+/// therefore snap from this exact last-commanded value when the live device
+/// level is still close to it (jitter), and only resync to the device when it
+/// has drifted far (a real external change: menu-bar slider, hardware keys).
+static LAST_COMMANDED_VOLUME: AtomicI32 = AtomicI32::new(-1);
+
+/// How far (percent) the live device level may sit from our last commanded
+/// value and still count as "unchanged, just jittered" → snap from the exact
+/// commanded base. Set above boom Audio's ~6 %/step read-back grid so a settle
+/// mismatch never resyncs, but below a deliberate multi-step external change.
+pub const VOLUME_RESYNC_TOLERANCE: i32 = 7;
+
+/// Pure base-selection for a relative volume step, defeating device read-back
+/// jitter: snap from `last` (our exact last command) when the live `device`
+/// level is within [`VOLUME_RESYNC_TOLERANCE`] of it, else resync to `device`
+/// (an external change happened). `last < 0` = no prior command → use `device`.
+/// Unit-tested; the macOS AppleScript in `snap_script` mirrors this in-script
+/// (which is why this fn itself has no production caller off macOS).
+#[allow(dead_code)] // reference implementation; production path runs the AppleScript mirror
+pub fn snap_from(device: i32, last: i32, delta: i32) -> u8 {
+    let base = if last >= 0 && (device - last).abs() <= VOLUME_RESYNC_TOLERANCE {
+        last
+    } else {
+        device
+    };
+    snap_volume_step(base, delta)
+}
 
 /// View struct the frontend renders in the kill picker.
 /// `memory_mb` is the resident-set size; `pid` + `name` are the user-
@@ -316,21 +352,30 @@ pub fn snap_volume_step(current: i32, delta: i32) -> u8 {
     clamp_volume(target)
 }
 
-/// The AppleScript lines implementing `snap_volume_step` device-side, so the
+/// The AppleScript lines implementing [`snap_from`] device-side, so the whole
 /// read-modify-write stays a **single** osascript invocation (the two-spawn
-/// version cost ~300 ms — see `adjust_system_volume`'s history note). `cv` is
-/// the freshly-read current volume; the caller appends the trailing
-/// `set volume output volume v` / `return v` lines it needs.
+/// version cost ~300 ms — see `adjust_system_volume`'s history note). Reads the
+/// live device level into `dev`, picks the snap base = our exact `last`
+/// commanded value when `dev` is within tolerance of it (defeats boom Audio's
+/// jittery read-back), else `dev`. The caller bakes `last` in, appends the
+/// trailing `set volume output volume v` / `return v`, and stores the returned
+/// `v` back into `LAST_COMMANDED_VOLUME`.
 #[cfg(target_os = "macos")]
-fn snap_script(delta: i32) -> [String; 4] {
+fn snap_script(delta: i32, last: i32) -> [String; 5] {
     let step = delta.abs().max(1);
+    let tol = VOLUME_RESYNC_TOLERANCE;
     let expr = if delta >= 0 {
-        format!("set v to ((cv div {step}) + 1) * {step}")
+        format!("set v to ((base div {step}) + 1) * {step}")
     } else {
-        format!("set v to (((cv + {step} - 1) div {step}) - 1) * {step}")
+        format!("set v to (((base + {step} - 1) div {step}) - 1) * {step}")
     };
     [
-        "set cv to output volume of (get volume settings)".to_string(),
+        "set dev to output volume of (get volume settings)".to_string(),
+        // base := last (exact) when the device is still ~where we left it
+        // (jitter); else dev (a real external change). Mirrors `snap_from`.
+        format!(
+            "if {last} >= 0 and (dev - {last} <= {tol}) and ({last} - dev <= {tol}) then\nset base to {last}\nelse\nset base to dev\nend if"
+        ),
         expr,
         "if v < 0 then set v to 0".to_string(),
         "if v > 100 then set v to 100".to_string(),
@@ -429,15 +474,25 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     #[cfg(target_os = "macos")]
     {
         std::thread::spawn(move || {
-            // Multiple `-e` args = atomic single-process AppleScript;
-            // safer than embedding newlines in one `-e` string. The step is
-            // grid-snapped (see `snap_volume_step`) so repeated presses land
-            // on consistent multiples of the step.
+            // Multiple `-e` args = atomic single-process AppleScript. The step
+            // is grid-snapped from our last-commanded value (see `snap_from`)
+            // so repeated presses land on consistent multiples of the step even
+            // when the device read-back jitters. Capture the output to keep
+            // LAST_COMMANDED_VOLUME in sync (shared with the gesture path).
+            let last = LAST_COMMANDED_VOLUME.load(Ordering::Relaxed);
             let mut cmd = std::process::Command::new("/usr/bin/osascript");
-            for line in snap_script(delta) {
+            for line in snap_script(delta, last) {
                 cmd.arg("-e").arg(line);
             }
-            let _ = cmd.arg("-e").arg("set volume output volume v").status();
+            if let Ok(out) = cmd
+                .arg("-e").arg("set volume output volume v")
+                .arg("-e").arg("return v")
+                .output()
+            {
+                if let Ok(v) = String::from_utf8_lossy(&out.stdout).trim().parse::<i32>() {
+                    LAST_COMMANDED_VOLUME.store(v.clamp(0, 100), Ordering::Relaxed);
+                }
+            }
         });
         // Placeholder — the spawned thread does the real work. The IPC
         // resolves immediately so a rapid Shift+↑ / Shift+↓ chord
@@ -492,10 +547,13 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
 pub fn nudge_volume(delta: i32) -> Option<u8> {
     #[cfg(target_os = "macos")]
     {
-        // Grid-snapped like `adjust_system_volume` — the gesture toast then
-        // always shows clean multiples of the step (80, 85, 90 …).
+        // Grid-snapped from our last-commanded value (see `snap_from`) so the
+        // gesture toast shows clean multiples of the step (80, 85, 90 …) and
+        // never stalls on boom Audio's jittery read-back. Store the applied
+        // level back so the next step (gesture OR popup) snaps from it.
+        let last = LAST_COMMANDED_VOLUME.load(Ordering::Relaxed);
         let mut cmd = std::process::Command::new("/usr/bin/osascript");
-        for line in snap_script(delta) {
+        for line in snap_script(delta, last) {
             cmd.arg("-e").arg(line);
         }
         let out = cmd
@@ -503,11 +561,15 @@ pub fn nudge_volume(delta: i32) -> Option<u8> {
             .arg("-e").arg("return v")
             .output()
             .ok()?;
-        String::from_utf8_lossy(&out.stdout)
+        let level = String::from_utf8_lossy(&out.stdout)
             .trim()
             .parse::<i32>()
             .ok()
-            .map(|v| v.clamp(0, 100) as u8)
+            .map(|v| v.clamp(0, 100));
+        if let Some(v) = level {
+            LAST_COMMANDED_VOLUME.store(v, Ordering::Relaxed);
+        }
+        level.map(|v| v as u8)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -694,47 +756,92 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
     #[test]
-    fn snap_script_reads_then_computes_then_clamps() {
-        // Structural guard on the AppleScript: first line reads the current
-        // volume into `cv`, the step formula embeds the |delta| (sign lives in
-        // the formula shape, not the literal), and both clamp lines follow —
-        // the caller appends the trailing set/return lines itself.
-        let up = snap_script(5);
-        assert!(up[0].starts_with("set cv to output volume"));
-        assert!(up[1].contains("div 5") && up[1].contains("+ 1"), "{}", up[1]);
-        assert_eq!(up[2], "if v < 0 then set v to 0");
-        assert_eq!(up[3], "if v > 100 then set v to 100");
-        let down = snap_script(-5);
-        assert!(down[1].contains("div 5") && down[1].contains("- 1"), "{}", down[1]);
-        // No raw negative literal leaks into the script (|delta| only).
-        assert!(!down[1].contains("-5"), "{}", down[1]);
+    fn snap_from_defeats_readback_jitter() {
+        // The real boom-Audio bug: we commanded 85, the device reads back 84
+        // (or up to ~6 low). Snapping from the raw read-back stalled (84→85);
+        // snapping from our exact `last` advances (85→90). Down-steps likewise.
+        assert_eq!(snap_from(84, 85, 5), 90); // jitter -1 → still snaps from 85
+        assert_eq!(snap_from(81, 85, 5), 90); // jitter -4
+        assert_eq!(snap_from(88, 85, -5), 80); // jitter +3, down
+        // Repeated up-steps never stall even with a persistent −1 read-back.
+        let mut last = 80;
+        for expected in [85, 90, 95, 100, 100] {
+            let device = last - 1; // simulate the device reading back one low
+            let got = i32::from(snap_from(device, last, 5));
+            assert_eq!(got, expected, "stalled: last={last} device={device}");
+            last = got;
+        }
+    }
+
+    #[test]
+    fn snap_from_resyncs_on_a_real_external_change() {
+        // A big external jump (menu-bar slider, hardware key) beyond the
+        // tolerance → snap from the DEVICE, not our stale last-commanded value.
+        assert_eq!(snap_from(20, 85, 5), 25); // device dropped to 20 externally
+        assert_eq!(snap_from(95, 30, -5), 90); // device jumped to 95 externally
+        // Exactly at the tolerance edge stays trusting `last` (→ 85 then up = 90);
+        // just beyond it resyncs to the device (77 → up = 80).
+        assert_eq!(snap_from(85 - VOLUME_RESYNC_TOLERANCE, 85, 5), 90);
+        assert_eq!(snap_from(85 - VOLUME_RESYNC_TOLERANCE - 1, 85, 5), 80);
+    }
+
+    #[test]
+    fn snap_from_no_prior_command_uses_the_device() {
+        // -1 = nothing commanded yet this run → behave like plain snap_volume_step.
+        assert_eq!(snap_from(81, -1, 5), snap_volume_step(81, 5));
+        assert_eq!(snap_from(81, -1, -5), snap_volume_step(81, -5));
     }
 
     #[cfg(target_os = "macos")]
     #[test]
-    fn snap_script_mirrors_snap_volume_step() {
-        // The AppleScript integer formula must be the same maths as the pure
-        // Rust helper — evaluate the generated `div` expression in Rust for a
-        // sweep of states and compare (AppleScript `div` on non-negative ints
-        // == Rust div_euclid).
+    fn snap_script_reads_selects_base_then_clamps() {
+        // Structural guard: reads the device into `dev`, has a base-selection
+        // block that embeds `last` + the tolerance, the step formula embeds the
+        // |delta|, and both clamp lines follow — the caller appends set/return.
+        let up = snap_script(5, 85);
+        assert!(up[0].starts_with("set dev to output volume"));
+        assert!(up[1].contains("85") && up[1].contains(&VOLUME_RESYNC_TOLERANCE.to_string()));
+        assert!(up[1].contains("set base to 85") && up[1].contains("set base to dev"));
+        assert!(up[2].contains("div 5") && up[2].contains("+ 1"), "{}", up[2]);
+        assert_eq!(up[3], "if v < 0 then set v to 0");
+        assert_eq!(up[4], "if v > 100 then set v to 100");
+        let down = snap_script(-5, 40);
+        assert!(down[2].contains("div 5") && down[2].contains("- 1"), "{}", down[2]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn snap_script_mirrors_snap_from() {
+        // The AppleScript must compute exactly `snap_from(device, last, delta)`.
+        // Evaluate the generated integer formula in Rust over a sweep of
+        // (device, last, delta) and compare (AppleScript `div`/comparisons on
+        // non-negative ints == the Rust maths).
         for &delta in &[5, -5, 6, -6, 10, -10] {
-            let lines = snap_script(delta);
-            assert!(lines[0].contains("output volume"));
-            for cv in [0, 1, 3, 49, 50, 81, 98, 100] {
+            for last in [-1, 0, 30, 84, 85, 100] {
+                let lines = snap_script(delta, last);
+                assert!(lines[0].contains("output volume"));
                 let step = delta.abs().max(1);
-                let v = if delta >= 0 {
-                    ((cv / step) + 1) * step
-                } else {
-                    (((cv + step - 1) / step) - 1) * step
-                };
-                let clamped = v.clamp(0, 100) as u8;
-                assert_eq!(
-                    clamped,
-                    snap_volume_step(cv, delta),
-                    "cv={cv} delta={delta}"
-                );
+                let tol = VOLUME_RESYNC_TOLERANCE;
+                for device in [0, 1, 20, 49, 81, 84, 85, 88, 100] {
+                    // Mirror the in-script base selection.
+                    let base = if last >= 0 && (device - last) <= tol && (last - device) <= tol {
+                        last
+                    } else {
+                        device
+                    };
+                    let v = if delta >= 0 {
+                        ((base / step) + 1) * step
+                    } else {
+                        (((base + step - 1) / step) - 1) * step
+                    };
+                    let clamped = v.clamp(0, 100) as u8;
+                    assert_eq!(
+                        clamped,
+                        snap_from(device, last, delta),
+                        "device={device} last={last} delta={delta}"
+                    );
+                }
             }
         }
     }

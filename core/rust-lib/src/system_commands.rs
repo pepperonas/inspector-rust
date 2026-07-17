@@ -653,6 +653,65 @@ mod tests {
         assert_eq!(snap_volume_step(50, 0), 51);
     }
 
+    #[test]
+    fn snap_volume_step_full_sweep_properties() {
+        // Every (current, ±5) pair: the result is on the grid or a clamped
+        // edge, moves in the right direction, and never overshoots one step.
+        for cv in 0..=100 {
+            for delta in [5, -5] {
+                let r = i32::from(snap_volume_step(cv, delta));
+                assert!(
+                    r % 5 == 0 || r == 0 || r == 100,
+                    "off-grid: cv={cv} delta={delta} -> {r}"
+                );
+                if delta > 0 && cv < 100 {
+                    assert!(r > cv, "up didn't move: cv={cv} -> {r}");
+                }
+                if delta < 0 && cv > 0 {
+                    assert!(r < cv, "down didn't move: cv={cv} -> {r}");
+                }
+                assert!((r - cv).abs() <= 5, "overshoot: cv={cv} delta={delta} -> {r}");
+            }
+        }
+    }
+
+    #[test]
+    fn snap_volume_step_terminates_at_the_edges() {
+        // Repeated stepping converges to 100 / 0 and stays pinned there —
+        // guards against an off-by-one that would oscillate at a boundary.
+        for start in [0, 1, 42, 81, 99] {
+            let mut v = start;
+            for _ in 0..21 {
+                v = i32::from(snap_volume_step(v, 5));
+            }
+            assert_eq!(v, 100, "up from {start}");
+            assert_eq!(snap_volume_step(v, 5), 100);
+            for _ in 0..21 {
+                v = i32::from(snap_volume_step(v, -5));
+            }
+            assert_eq!(v, 0, "down from {start}");
+            assert_eq!(snap_volume_step(v, -5), 0);
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn snap_script_reads_then_computes_then_clamps() {
+        // Structural guard on the AppleScript: first line reads the current
+        // volume into `cv`, the step formula embeds the |delta| (sign lives in
+        // the formula shape, not the literal), and both clamp lines follow —
+        // the caller appends the trailing set/return lines itself.
+        let up = snap_script(5);
+        assert!(up[0].starts_with("set cv to output volume"));
+        assert!(up[1].contains("div 5") && up[1].contains("+ 1"), "{}", up[1]);
+        assert_eq!(up[2], "if v < 0 then set v to 0");
+        assert_eq!(up[3], "if v > 100 then set v to 100");
+        let down = snap_script(-5);
+        assert!(down[1].contains("div 5") && down[1].contains("- 1"), "{}", down[1]);
+        // No raw negative literal leaks into the script (|delta| only).
+        assert!(!down[1].contains("-5"), "{}", down[1]);
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn snap_script_mirrors_snap_volume_step() {

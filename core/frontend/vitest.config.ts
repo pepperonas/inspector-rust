@@ -6,5 +6,8 @@ export default defineConfig({
   test: {
     environment: "happy-dom",
     include: ["src/**/*.test.{ts,tsx}"],
+    // Global React-tree cleanup — see src/test-setup.ts for why this must be
+    // central and not left to each file's discipline.
+    setupFiles: ["./src/test-setup.ts"],
   },
 });

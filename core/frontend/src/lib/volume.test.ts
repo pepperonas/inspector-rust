@@ -31,6 +31,34 @@ describe("snapVolumeStep", () => {
     expect(snapVolumeStep(50, 0)).toBe(51);
   });
 
+  it("always lands on the grid or a clamped edge (full 0–100 sweep)", () => {
+    for (let cv = 0; cv <= 100; cv++) {
+      for (const delta of [5, -5]) {
+        const r = snapVolumeStep(cv, delta);
+        const onGrid = r % Math.abs(delta) === 0;
+        expect(onGrid || r === 0 || r === 100).toBe(true);
+        // Direction is respected (unless already pinned at the edge).
+        if (delta > 0 && cv < 100) expect(r).toBeGreaterThan(cv);
+        if (delta < 0 && cv > 0) expect(r).toBeLessThan(cv);
+        // A single step never moves more than a full step width.
+        expect(Math.abs(r - cv)).toBeLessThanOrEqual(Math.abs(delta));
+      }
+    }
+  });
+
+  it("repeated stepping terminates at the edges (no oscillation)", () => {
+    // From any start, at most 21 up-steps reach 100 and stay there.
+    for (const start of [0, 1, 42, 81, 99]) {
+      let v = start;
+      for (let i = 0; i < 21; i++) v = snapVolumeStep(v, 5);
+      expect(v).toBe(100);
+      expect(snapVolumeStep(v, 5)).toBe(100);
+      for (let i = 0; i < 21; i++) v = snapVolumeStep(v, -5);
+      expect(v).toBe(0);
+      expect(snapVolumeStep(v, -5)).toBe(0);
+    }
+  });
+
   it("matches the Rust snap_volume_step formula across a sweep", () => {
     // Same reference table as the Rust unit test — the two implementations
     // must agree so panel arrows and gesture swipes land on the same grid.

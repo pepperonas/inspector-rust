@@ -1343,6 +1343,52 @@ mod tests {
         assert_eq!(GestureConfig::load(&db2).volume_step, DEFAULT_VOLUME_STEP);
     }
 
+    #[test]
+    fn config_load_rejects_invalid_volume_steps() {
+        // The load filter (`0 < v <= 50`) must catch every garbage shape a
+        // hand-edited / corrupted settings row can take — a 0 step would make
+        // the swipe a no-op, a negative one would invert it.
+        for bad in ["0", "-5", "51", "1000", "abc", "", "5.5"] {
+            let db = test_db();
+            crate::settings::set(&db, KEY_VOLUME_STEP, bad).unwrap();
+            assert_eq!(
+                GestureConfig::load(&db).volume_step,
+                DEFAULT_VOLUME_STEP,
+                "stored {bad:?} should fall back to the default"
+            );
+        }
+    }
+
+    #[test]
+    fn config_load_accepts_the_valid_step_range() {
+        for good in [1, 2, 5, 10, 25, 50] {
+            let db = test_db();
+            crate::settings::set(&db, KEY_VOLUME_STEP, &good.to_string()).unwrap();
+            assert_eq!(GestureConfig::load(&db).volume_step, good);
+        }
+    }
+
+    #[test]
+    fn config_save_load_round_trip() {
+        let db = test_db();
+        let cfg = GestureConfig { enabled: true, fingers: DEFAULT_FINGERS, volume_step: 7, tiptap: true };
+        cfg.save(&db).unwrap();
+        let loaded = GestureConfig::load(&db);
+        assert!(loaded.enabled);
+        assert_eq!(loaded.volume_step, 7);
+        assert!(loaded.tiptap);
+    }
+
+    #[test]
+    fn fresh_db_loads_pure_defaults() {
+        let db = test_db();
+        let cfg = GestureConfig::load(&db);
+        assert!(!cfg.enabled, "gestures are opt-in");
+        assert!(!cfg.tiptap, "tip-tap is opt-in");
+        assert_eq!(cfg.volume_step, DEFAULT_VOLUME_STEP);
+        assert_eq!(cfg.fingers, DEFAULT_FINGERS);
+    }
+
     fn frames_to_event(frames: &[TouchFrame]) -> Option<GestureEvent> {
         let mut r = Recognizer::new();
         let mut out = None;

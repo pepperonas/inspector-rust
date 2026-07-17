@@ -188,6 +188,13 @@ pub fn db_to_linear(db: f32) -> f32 {
 /// the usable range back down the slider.
 #[inline]
 pub fn volume_gain(scalar: f32) -> f32 {
+    if !scalar.is_finite() {
+        // A garbage scalar read (device glitch mid-reconfiguration) must never
+        // reach the sample multiply: `NaN.clamp()` stays NaN in Rust, and a
+        // NaN gain would turn the whole output buffer into NaN samples. Fall
+        // back to unity — the same neutral value `VOLUME_GAIN_BITS` starts at.
+        return 1.0;
+    }
     let s = scalar.clamp(0.0, 1.0);
     s * s.sqrt()
 }
@@ -914,6 +921,48 @@ mod tests {
         // 25 % ≈ −18 dB — quiet-but-audible, the whole point of the 1.5 exponent.
         let db25 = 20.0 * volume_gain(0.25).log10();
         assert!(db25 > -19.0 && db25 < -17.0, "25% → {db25} dB");
+    }
+
+    #[test]
+    fn volume_gain_is_strictly_monotonic_and_bounded() {
+        // Sweep the whole slider in 1 % steps: output stays in [0, 1] and every
+        // step is strictly louder than the last (no dead zones, no inversions).
+        let mut prev = volume_gain(0.0);
+        for i in 1..=100 {
+            let g = volume_gain(i as f32 / 100.0);
+            assert!((0.0..=1.0).contains(&g), "{i}% → {g}");
+            assert!(g > prev, "not strictly increasing at {i}%: {prev} → {g}");
+            prev = g;
+        }
+    }
+
+    #[test]
+    fn volume_gain_is_louder_than_the_old_x2_taper_below_max() {
+        // The v0.84.268 point: everywhere strictly between 0 and 100 % the new
+        // x^1.5 curve must sit ABOVE the old x² one (that's what brings the
+        // lower slider half back over the audibility threshold), converging at
+        // the endpoints.
+        for i in 1..100 {
+            let s = i as f32 / 100.0;
+            assert!(
+                volume_gain(s) > s * s,
+                "{i}%: x^1.5 {} !> x² {}",
+                volume_gain(s),
+                s * s
+            );
+        }
+        assert_eq!(volume_gain(0.0), 0.0);
+        assert_eq!(volume_gain(1.0), 1.0);
+    }
+
+    #[test]
+    fn volume_gain_non_finite_scalar_falls_back_to_unity() {
+        // A garbage scalar read (device glitch mid-reconfiguration) must never
+        // reach the sample multiply as NaN (NaN × sample = a buffer of NaN) —
+        // it falls back to unity gain, the same neutral the atomic starts at.
+        assert_eq!(volume_gain(f32::NAN), 1.0);
+        assert_eq!(volume_gain(f32::INFINITY), 1.0);
+        assert_eq!(volume_gain(f32::NEG_INFINITY), 1.0);
     }
 
     #[test]

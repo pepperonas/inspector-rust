@@ -793,6 +793,57 @@ mod tests {
         assert_eq!(snap_from(81, -1, -5), snap_volume_step(81, -5));
     }
 
+    #[test]
+    fn snap_from_down_never_stalls_under_jitter() {
+        // Mirror of the up-direction stall test for DOWN steps: the device now
+        // reads back one HIGH each step; snapping from `last` must keep
+        // decreasing, never repeating a value.
+        let mut last = 80;
+        for expected in [75, 70, 65, 60, 55, 50] {
+            let device = last + 1; // device reads back one high
+            let got = i32::from(snap_from(device, last, -5));
+            assert_eq!(got, expected, "down stalled: last={last} device={device}");
+            last = got;
+        }
+    }
+
+    #[test]
+    fn snap_from_tolerance_is_symmetric() {
+        // Drift within tolerance in EITHER direction trusts `last`; both step
+        // directions behave the same at the boundary.
+        for drift in -VOLUME_RESYNC_TOLERANCE..=VOLUME_RESYNC_TOLERANCE {
+            let device = 50 + drift;
+            assert_eq!(snap_from(device, 50, 5), 55, "up drift={drift}");
+            assert_eq!(snap_from(device, 50, -5), 45, "down drift={drift}");
+        }
+        // Just past tolerance on each side → resync to the device.
+        assert_eq!(snap_from(50 + VOLUME_RESYNC_TOLERANCE + 1, 50, 5), 60); // dev=58 → 60
+        assert_eq!(snap_from(50 - VOLUME_RESYNC_TOLERANCE - 1, 50, -5), 40); // dev=42 → 40
+    }
+
+    #[test]
+    fn snap_from_survives_boom_16step_quantization() {
+        // boom Audio quantises a set volume onto its ~16-step (6.25 %) grid, so
+        // the read-back can sit up to ~3 off the value we set — still well
+        // inside the tolerance, so stepping stays anchored to `last` and a full
+        // up-run reaches 100 strictly increasing (no stall on any step).
+        let quantize = |v: i32| ((v as f64 / 6.25).round() * 6.25).round() as i32;
+        let mut last = 0;
+        let mut prev = -1;
+        for _ in 0..25 {
+            let device = quantize(last).clamp(0, 100);
+            assert!(
+                (device - last).abs() <= VOLUME_RESYNC_TOLERANCE,
+                "quantization {device} drifted past tolerance from {last}"
+            );
+            let got = i32::from(snap_from(device, last, 5));
+            assert!(got > prev || got == 100, "not increasing: {prev} → {got}");
+            prev = got;
+            last = got;
+        }
+        assert_eq!(last, 100, "up-run under quantization must reach 100");
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn snap_script_reads_selects_base_then_clamps() {

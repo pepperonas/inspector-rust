@@ -42,6 +42,8 @@ import {
   fakerGetDefaults,
   secGetDefaults,
   secSetDefaults,
+  secCatalog,
+  secPathExists,
   fakerSetDefaults,
   fakerLocales,
   fakerCatalog,
@@ -3742,6 +3744,9 @@ function SecuritySection() {
   const [defs, setDefs] = useState<SecDefaults | null>(null);
   const [saved, setSaved] = useState<SecDefaults | null>(null);
   const [saving, setSaving] = useState(false);
+  // Common wordlist paths (for the datalist) + whether the configured one exists.
+  const [wordlists, setWordlists] = useState<string[]>([]);
+  const [wlExists, setWlExists] = useState<boolean | null>(null);
 
   useEffect(() => {
     secGetDefaults()
@@ -3750,7 +3755,25 @@ function SecuritySection() {
         setSaved(d);
       })
       .catch(() => undefined);
+    secCatalog()
+      .then((c) => setWordlists(c.common_wordlists))
+      .catch(() => undefined);
   }, []);
+
+  // Debounced existence check for the configured default wordlist.
+  const wl = defs?.wordlist ?? "";
+  useEffect(() => {
+    if (!wl.trim()) {
+      setWlExists(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      secPathExists(wl)
+        .then(setWlExists)
+        .catch(() => setWlExists(null));
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [wl]);
 
   if (!defs) return null;
 
@@ -3812,8 +3835,30 @@ function SecuritySection() {
         />
       </Row>
 
-      <Row label="Default wordlist" help="Used by feroxbuster / John when you don't type one (e.g. /usr/share/seclists/…).">
-        {textInput(defs.wordlist, "/usr/share/wordlists/rockyou.txt", (v) => setDefs({ ...defs, wordlist: v }))}
+      <Row label="Default wordlist" help="Used by feroxbuster / John when you don't type one. Pick a common path or type your own.">
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            list="sec-wordlists"
+            value={defs.wordlist}
+            placeholder="/usr/share/wordlists/rockyou.txt"
+            onChange={(e) => setDefs({ ...defs, wordlist: e.target.value })}
+            className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+          />
+          <datalist id="sec-wordlists">
+            {wordlists.map((w) => (
+              <option key={w} value={w} />
+            ))}
+          </datalist>
+          {wlExists != null && (
+            <span
+              className={"shrink-0 text-[11px] " + (wlExists ? "text-emerald-500" : "text-amber-500")}
+              title={wlExists ? "Path exists" : "Path not found on this machine"}
+            >
+              {wlExists ? "✓ found" : "✗ not found"}
+            </span>
+          )}
+        </div>
       </Row>
 
       <Row label="Default output directory" help="For nmap -oA / feroxbuster -o.">

@@ -707,7 +707,7 @@ function App() {
   );
 
   // Security builders: catalogue (fetched once) + defaults (event-refreshed).
-  const [secCat, setSecCat] = useState<SecCatalog>({ tools: [] });
+  const [secCat, setSecCat] = useState<SecCatalog>({ tools: [], common_wordlists: [], john_formats: [] });
   const [secDefaultsRaw, setSecDefaultsRaw] = useState<SecDefaults | null>(null);
   useEffect(() => {
     void secCatalog().then(setSecCat).catch(() => undefined);

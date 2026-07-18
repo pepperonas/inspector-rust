@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ShieldAlert, Terminal, AlertTriangle, ShieldCheck } from "lucide-react";
 import { parseSecCommand, type SecCatalog, type SecDefaults } from "../lib/sec";
+import { secPathExists } from "../lib/ipc";
 
 const ACK_KEY = "sec-authorization-acknowledged";
 
@@ -47,6 +48,22 @@ export function SecPreview({
   };
 
   const parsed = parseSecCommand(keyword, arg, catalog, defaults);
+
+  // Debounced existence check for the wordlist this command would use.
+  const wl = parsed.kind === "built" ? (parsed.values.wordlist ?? "").trim() : "";
+  const [wlExists, setWlExists] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!wl) {
+      setWlExists(null);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      secPathExists(wl)
+        .then(setWlExists)
+        .catch(() => setWlExists(null));
+    }, 250);
+    return () => window.clearTimeout(t);
+  }, [wl]);
 
   const Header = (
     <>
@@ -110,6 +127,22 @@ export function SecPreview({
       {missing.length > 0 && (
         <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
           Fill in: {missing.map((m) => `‹${m}›`).join(", ")} — Enter still copies the template.
+        </p>
+      )}
+      {wl && wlExists === false && (
+        <p className="mb-2 text-[11px] text-amber-600 dark:text-amber-400">
+          Wordlist not found on this machine: {wl}
+        </p>
+      )}
+      {tool.name === "john" && catalog.john_formats.length > 0 && (
+        <p className="mb-2 text-[11px] text-[var(--color-muted)]">
+          <span className="font-medium">--format</span> ({defaults.john_line}):{" "}
+          {catalog.john_formats
+            .filter((f) => defaults.john_line === "jumbo" || !f.jumbo)
+            .slice(0, 12)
+            .map((f) => f.name)
+            .join(" · ")}
+          {defaults.john_line === "jumbo" ? " · …" : ""}
         </p>
       )}
 

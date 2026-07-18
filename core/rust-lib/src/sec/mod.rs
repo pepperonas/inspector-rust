@@ -83,14 +83,36 @@ pub struct ToolSpec {
     pub notes: &'static [&'static str],
 }
 
+/// A verified John `--format=` name + whether it needs the Jumbo build.
+#[derive(Debug, Clone, Serialize)]
+pub struct JohnFormat {
+    pub name: &'static str,
+    pub jumbo: bool,
+}
+
 /// The whole catalogue, serialised once to the frontend.
 #[derive(Debug, Clone, Serialize)]
 pub struct SecCatalog {
     pub tools: &'static [ToolSpec],
+    /// Common wordlist paths for autocomplete (existence-checked frontend-side).
+    pub common_wordlists: &'static [&'static str],
+    /// Verified John hash-format names (Core/Jumbo tagged).
+    pub john_formats: &'static [JohnFormat],
 }
 
 pub fn catalog() -> SecCatalog {
-    SecCatalog { tools: registry::CATALOG }
+    SecCatalog {
+        tools: registry::CATALOG,
+        common_wordlists: registry::COMMON_WORDLISTS,
+        john_formats: registry::JOHN_FORMATS,
+    }
+}
+
+/// Does a path exist on this machine? For the wordlist existence check /
+/// autocomplete — read-only, no traversal, no follow beyond a plain `exists()`.
+pub fn path_exists(path: &str) -> bool {
+    let p = path.trim();
+    !p.is_empty() && std::path::Path::new(p).exists()
 }
 
 /// Every flag that appears as a `Lit` in a preset, for the consistency test +
@@ -334,6 +356,19 @@ mod tests {
             assert!(json.contains(&format!("\"name\":\"{name}\"")), "missing tool {name}");
         }
         assert!(cat.tools.len() >= 5);
+        // The autocomplete data rides along in the catalogue.
+        assert!(!cat.common_wordlists.is_empty());
+        assert!(cat.john_formats.iter().any(|f| f.name == "nt" && f.jumbo));
+        assert!(cat.john_formats.iter().any(|f| f.name == "bcrypt" && !f.jumbo));
+    }
+
+    #[test]
+    fn path_exists_is_read_only_truth() {
+        // A path that always exists vs one that never does; empty → false.
+        assert!(path_exists("/"));
+        assert!(!path_exists("/no/such/wordlist/ever.txt"));
+        assert!(!path_exists(""));
+        assert!(!path_exists("   "));
     }
 
     #[test]

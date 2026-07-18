@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.272] — 2026-07-18
+
+### Added
+
+- **`sec` — wordlist existence check + curated autocomplete.** The Settings → Security default-wordlist field now autocompletes against common Kali/SecLists paths and shows a live **✓ found / ✗ not found** indicator; the builder preview warns when a command's wordlist isn't present on this machine. **John `--format`** offers the verified format names as a reference in the preview, filtered by your Core/Jumbo line (Core hides the Jumbo-only formats). All read-only (`sec_path_exists`) — no traversal, no network.
+
 ## [0.84.271] — 2026-07-18
 
 ### Added

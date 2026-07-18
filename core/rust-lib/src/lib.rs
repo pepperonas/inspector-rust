@@ -634,6 +634,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::sec_get_defaults,
             commands::sec_set_defaults,
             commands::sec_open_in_terminal,
+            commands::sec_path_exists,
             commands::list_apps,
             commands::refresh_apps,
             commands::launch_app,

@@ -4,8 +4,55 @@
 //! Flags verified against the current official sources (feroxbuster README,
 //! John MODES + `run/*2john`, nmap/sqlmap docs) — not guessed.
 
-use super::{FieldSpec, PresetSpec, Segment, ToolSpec};
+use super::{FieldSpec, JohnFormat, PresetSpec, Segment, ToolSpec};
 use Segment::{Field, Flag, Joined, Lit};
+
+/// Common wordlist paths shipped by Kali / SecLists, offered as autocomplete in
+/// the wordlist field. The frontend checks which actually exist on this box
+/// (`sec_path_exists`) and prefers those.
+pub static COMMON_WORDLISTS: &[&str] = &[
+    "/usr/share/wordlists/rockyou.txt",
+    "/usr/share/seclists/Discovery/Web-Content/directory-list-2.3-medium.txt",
+    "/usr/share/seclists/Discovery/Web-Content/common.txt",
+    "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt",
+    "/usr/share/seclists/Passwords/Leaked-Databases/rockyou.txt",
+    "/usr/share/wordlists/dirb/common.txt",
+    "/usr/share/wordlists/dirbuster/directory-list-2.3-medium.txt",
+];
+
+/// Verified John `--format=` names people actually reach for. `jumbo` marks the
+/// ones only the Jumbo build supports (Core has just a handful of crypt/LM
+/// formats); the frontend hides jumbo names when the Core line is selected.
+pub static JOHN_FORMATS: &[JohnFormat] = &[
+    // Core (available in the stock openwall build)
+    JohnFormat { name: "descrypt", jumbo: false },
+    JohnFormat { name: "md5crypt", jumbo: false },
+    JohnFormat { name: "bcrypt", jumbo: false },
+    JohnFormat { name: "lm", jumbo: false },
+    JohnFormat { name: "bsdicrypt", jumbo: false },
+    // Jumbo
+    JohnFormat { name: "raw-md5", jumbo: true },
+    JohnFormat { name: "raw-sha1", jumbo: true },
+    JohnFormat { name: "raw-sha256", jumbo: true },
+    JohnFormat { name: "raw-sha512", jumbo: true },
+    JohnFormat { name: "sha256crypt", jumbo: true },
+    JohnFormat { name: "sha512crypt", jumbo: true },
+    JohnFormat { name: "nt", jumbo: true },
+    JohnFormat { name: "netntlmv2", jumbo: true },
+    JohnFormat { name: "krb5tgs", jumbo: true },
+    JohnFormat { name: "krb5asrep", jumbo: true },
+    JohnFormat { name: "wpapsk", jumbo: true },
+    JohnFormat { name: "mscash2", jumbo: true },
+    JohnFormat { name: "phpass", jumbo: true },
+    JohnFormat { name: "mysql-sha1", jumbo: true },
+    JohnFormat { name: "zip", jumbo: true },
+    JohnFormat { name: "rar", jumbo: true },
+    JohnFormat { name: "7z", jumbo: true },
+    JohnFormat { name: "pdf", jumbo: true },
+    JohnFormat { name: "ssh", jumbo: true },
+    JohnFormat { name: "gpg", jumbo: true },
+    JohnFormat { name: "keepass", jumbo: true },
+];
 
 // ── nmap ─────────────────────────────────────────────────────────────────────
 

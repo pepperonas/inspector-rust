@@ -312,6 +312,11 @@ export function secOpenInTerminal(command: string, autoEnter: boolean): Promise<
   return invoke("sec_open_in_terminal", { command, autoEnter });
 }
 
+/** Whether a path exists (wordlist existence check). Backend: sec_path_exists. */
+export function secPathExists(path: string): Promise<boolean> {
+  return invoke("sec_path_exists", { path });
+}
+
 // ── App launcher (Spotlight-like, macOS only in v0.37) ────────────────
 
 export interface AppEntry {

@@ -375,7 +375,7 @@ export function PreviewPanel({
         <SecPreview
           keyword={entry.data.rawInput.split(/\s+/)[0] || "sec"}
           arg={entry.data.arg}
-          catalog={secCatalog ?? { tools: [] }}
+          catalog={secCatalog ?? { tools: [], common_wordlists: [], john_formats: [] }}
           defaults={
             secDefaults ?? {
               wordlist: "",

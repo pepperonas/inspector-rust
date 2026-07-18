@@ -137,6 +137,13 @@ Scope note · default wordlist · default output dir · default timing/threads/r
 (off) · save-to-history · sharp-confirm (locked on). Persisted; a
 `sec-defaults-changed` event refreshes the popup without a restart.
 
+**Wordlist autocomplete + existence check.** The default-wordlist field
+autocompletes against common Kali/SecLists paths and shows a live **✓ found /
+✗ not found** indicator (`sec_path_exists`, read-only). The preview warns if a
+command's wordlist isn't present on this machine. **John `--format`** offers the
+verified format names as a reference in the preview, filtered by your Core/Jumbo
+line (Core hides the Jumbo-only formats).
+
 ## Extending the registry — a tool is data, not code
 
 The registry (`core/rust-lib/src/sec/registry.rs`) is the single source of

@@ -851,6 +851,12 @@ pub fn sec_open_in_terminal(command: String, auto_enter: bool) -> Result<(), Str
     crate::sec::open_in_terminal(&command, auto_enter)
 }
 
+/// Whether a path exists (the wordlist existence check / autocomplete filter).
+#[tauri::command]
+pub fn sec_path_exists(path: String) -> bool {
+    crate::sec::path_exists(&path)
+}
+
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the wakelock. Returns the resulting state (`true` = active,

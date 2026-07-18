@@ -108,7 +108,7 @@ const JOHN: ToolSpec = {
   ],
 };
 
-const CAT: SecCatalog = { tools: [NMAP, FEROX, JOHN] };
+const CAT: SecCatalog = { tools: [NMAP, FEROX, JOHN], common_wordlists: [], john_formats: [{ name: "nt", jumbo: true }, { name: "bcrypt", jumbo: false }] };
 
 const DEF: SecDefaults = {
   wordlist: "",

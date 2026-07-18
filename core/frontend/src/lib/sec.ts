@@ -46,8 +46,17 @@ export interface ToolSpec {
   notes: string[];
 }
 
+export interface JohnFormat {
+  name: string;
+  jumbo: boolean;
+}
+
 export interface SecCatalog {
   tools: ToolSpec[];
+  /** Common wordlist paths for autocomplete (existence-checked at use). */
+  common_wordlists: string[];
+  /** Verified John hash-format names (Core/Jumbo tagged). */
+  john_formats: JohnFormat[];
 }
 
 export interface SecDefaults {
@@ -231,6 +240,8 @@ export type SecParse =
       sharp: boolean;
       tags: string[];
       flagHelp: [string, string][];
+      /** Resolved field values (incl. the wordlist, for an existence hint). */
+      values: Record<string, string>;
     }
   | { kind: "suggestion"; message: string }
   /** A bare tool keyword followed by prose that isn't a preset (`nmap output
@@ -345,6 +356,12 @@ export function parseSecCommand(
   }
 
   const built = buildCommand(preset, values, defaults, requiredKeys(tool));
+  // The wordlist actually used (typed, else the Settings default) — for the
+  // preview's existence hint.
+  const resolved = { ...values };
+  if (!resolved.wordlist?.trim() && defaults.wordlist.trim()) {
+    resolved.wordlist = defaults.wordlist.trim();
+  }
   return {
     kind: "built",
     tool,
@@ -354,5 +371,6 @@ export function parseSecCommand(
     sharp: preset.sharp,
     tags: preset.tags,
     flagHelp: presetFlagHelp(tool, preset),
+    values: resolved,
   };
 }

@@ -86,6 +86,11 @@ figlet-rs = "1"
 # (already in the lockfile transitively; pure-Rust miniz_oxide backend, no C).
 flate2 = "1"
 
+[build-dependencies]
+# build.rs gzip-compresses each vendored .flf into OUT_DIR and generates the
+# font-blob table (see figlet/fonts.rs). Pure-Rust miniz_oxide backend.
+flate2 = "1"
+
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }
 tauri-plugin-global-shortcut = { workspace = true }

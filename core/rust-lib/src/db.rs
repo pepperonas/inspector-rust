@@ -1,3 +1,4 @@
+#![allow(clippy::items_after_test_module)]
 use anyhow::{Context, Result};
 use chrono::Utc;
 use parking_lot::Mutex;

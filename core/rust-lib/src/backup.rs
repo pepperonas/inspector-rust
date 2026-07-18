@@ -1,3 +1,4 @@
+#![allow(clippy::doc_overindented_list_items)]
 //! Full-app backup: serialize history + snippets + notes + TOTP entries +
 //! settings to a single JSON document, and merge-restore from the same shape.
 //!

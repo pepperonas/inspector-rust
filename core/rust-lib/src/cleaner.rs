@@ -838,7 +838,7 @@ fn ext_matches(path: &Path, exts: &[String]) -> bool {
         .and_then(|e| e.to_str())
         .map(|e| {
             let e = e.to_ascii_lowercase();
-            exts.iter().any(|want| *want == e)
+            exts.contains(&e)
         })
         .unwrap_or(false)
 }
@@ -1871,7 +1871,7 @@ mod tests {
         // Remove "keep.txt" from the plan so execute must not touch it.
         plan.items.retain(|i| !i.path.ends_with("keep.txt"));
         plan.total_bytes = plan.items.iter().map(|i| i.size).sum();
-        let res = execute_plan(&plan, &[root.clone()], &Default::default());
+        let res = execute_plan(&plan, std::slice::from_ref(&root), &Default::default());
         assert_eq!(res.deleted, 2);
         assert_eq!(res.freed_bytes, 7);
         assert!(res.errors.is_empty());
@@ -1895,7 +1895,7 @@ mod tests {
             total_bytes: 9,
             categories: vec![],
         };
-        let res = execute_plan(&plan, &[root.clone()], &Default::default());
+        let res = execute_plan(&plan, std::slice::from_ref(&root), &Default::default());
         assert_eq!(res.deleted, 0);
         assert_eq!(res.errors.len(), 1);
         assert!(victim.exists(), "path outside allowlist must NOT be deleted");
@@ -1919,7 +1919,7 @@ mod tests {
             total_bytes: 0,
             categories: vec![],
         };
-        let res = execute_plan(&plan, &[root.clone()], &Default::default());
+        let res = execute_plan(&plan, std::slice::from_ref(&root), &Default::default());
         assert_eq!(res.deleted, 0);
         assert_eq!(res.errors.len(), 1);
         // The symlink wasn't removed and the target is intact.
@@ -2047,7 +2047,7 @@ mod tests {
         let t0 = SystemTime::UNIX_EPOCH + Duration::from_secs(1_700_000_000);
         set_mtime(&old, t0);
         set_mtime(&newer, t0 + Duration::from_secs(3600));
-        let dupes = duplicate_items(&[root.clone()], &[]);
+        let dupes = duplicate_items(std::slice::from_ref(&root), &[]);
         assert_eq!(dupes.len(), 1, "exactly the newer duplicate is deletable");
         assert_eq!(dupes[0].0, newer);
         assert_eq!(dupes[0].1, 12);

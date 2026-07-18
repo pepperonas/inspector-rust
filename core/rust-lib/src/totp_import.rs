@@ -1,3 +1,4 @@
+#![allow(clippy::doc_lazy_continuation)]
 //! Import TOTP entries from external authenticator apps.
 //!
 //! ## Supported formats (autodetected)
@@ -48,6 +49,7 @@ pub struct ImportedEntry {
 /// Summary of an import call. `added` lists successful inserts;
 /// `failed` records per-line parse failures so the UI can surface
 /// why one entry didn't make it without aborting the whole batch.
+#[allow(dead_code)]
 #[derive(Debug, Default)]
 pub struct ImportSummary {
     pub added: Vec<ImportedEntry>,
@@ -336,7 +338,7 @@ pub fn parse_aegis_json(json: &str) -> Result<Vec<ImportedEntry>> {
     let entries = parsed.db.context("Aegis JSON missing `db` field")?.entries;
     let mut out = Vec::new();
     for e in entries {
-        if e.type_.to_ascii_lowercase() != "totp" {
+        if !e.type_.eq_ignore_ascii_case("totp") {
             continue;
         }
         let secret = match e.info.secret {
@@ -894,7 +896,7 @@ mod tests {
         sub.push(6);
         sub.extend_from_slice(b"github");
         // field 6 wire 0 (otp_type = 2 = TOTP)
-        sub.push((6 << 3) | 0);
+        sub.push(6 << 3);
         sub.push(2);
 
         let mut full = Vec::new();

@@ -183,7 +183,7 @@ impl AbbrevTable {
                 }
             })
             .collect();
-        entries.sort_by(|a, b| b.chars.len().cmp(&a.chars.len()));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.chars.len()));
         AbbrevTable { entries }
     }
 

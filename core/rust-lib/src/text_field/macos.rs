@@ -39,6 +39,7 @@ extern "C" {
 
     fn CFStringGetLength(s: CFStringRef) -> CFIndex;
 
+    #[allow(clashing_extern_declarations)]
     fn CFStringGetCString(
         s: CFStringRef,
         buffer: *mut i8,
@@ -210,7 +211,7 @@ impl AxFieldAccess {
                 kCFAllocatorDefault,
                 attrs.as_ptr(),
                 2,
-                &kCFTypeArrayCallBacks as *const _ as *const c_void,
+                &kCFTypeArrayCallBacks as *const _,
             );
             if attrs_array.is_null() {
                 CFRelease(focused);

@@ -38,6 +38,7 @@ pub struct Rendered {
 
 /// Cheap pre-check: does `body` contain anything worth rendering? Lets hot
 /// paste paths skip the work (and the caret move) when there's no `{`.
+#[allow(dead_code)]
 pub fn has_placeholders(body: &str) -> bool {
     body.contains('{')
 }

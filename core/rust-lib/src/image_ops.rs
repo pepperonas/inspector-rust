@@ -1,3 +1,4 @@
+#![allow(clippy::doc_lazy_continuation)]
 //! Standalone image operations triggered by the "power command" line
 //! in the popup search bar (`rz <W>x<H>`, `optim`). Distinct from
 //! `recolor.rs` (logo tinting) and `cutout_ml.rs` (ML background

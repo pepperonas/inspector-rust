@@ -94,6 +94,7 @@ mod cg_cursor {
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
+        #[allow(clashing_extern_declarations)]
         fn CFRelease(cf: *mut c_void);
     }
 
@@ -663,6 +664,7 @@ pub fn close_pin(app: AppHandle, label: String) -> Result<(), String> {
 /// Cross-platform "open this file with the OS default app" — used by
 /// the Edit action to hand the PNG to Preview.app / Photos / whatever
 /// the user has registered for `.png`.
+#[allow(dead_code)]
 fn open_with_default(path: &std::path::Path) -> std::io::Result<()> {
     #[cfg(target_os = "macos")]
     {

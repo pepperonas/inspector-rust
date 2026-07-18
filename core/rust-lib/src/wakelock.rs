@@ -430,6 +430,7 @@ mod macos {
     }
     #[link(name = "CoreFoundation", kind = "framework")]
     extern "C" {
+        #[allow(clashing_extern_declarations)]
         fn CFRelease(cf: *mut c_void);
     }
 
@@ -672,7 +673,7 @@ mod tests {
         assert!(!should_reap_caffeinate(
             "caffeinate",
             Some(1),
-            &vec!["/usr/bin/caffeinate".into(), "-d".into()]
+            &["/usr/bin/caffeinate".into(), "-d".into()]
         ));
         assert!(!should_reap_caffeinate("caffeinate", None, &disu));
     }

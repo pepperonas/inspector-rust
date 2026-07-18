@@ -365,7 +365,7 @@ fn active_tab_name_from_title(title: &str) -> Option<String> {
                 || after_trimmed == "Datei-Explorer"
             {
                 // Pick the rightmost separator (largest idx).
-                if best_split.map_or(true, |prev| idx > prev) {
+                if best_split.is_none_or(|prev| idx > prev) {
                     best_split = Some(idx);
                 }
             }

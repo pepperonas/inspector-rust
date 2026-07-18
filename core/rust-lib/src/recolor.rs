@@ -73,7 +73,7 @@ pub fn max_chromaticity_sample(png_bytes: &[u8], samples: u32) -> Result<f32> {
     let stride = (total / samples.max(1)).max(1);
     let mut max_chroma: f32 = 0.0;
     for (i, px) in rgba.pixels().enumerate() {
-        if (i as u32) % stride != 0 {
+        if !(i as u32).is_multiple_of(stride) {
             continue;
         }
         let [r, g, b, a] = px.0;

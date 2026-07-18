@@ -72,7 +72,7 @@ fn encode_signature(sig: &Signature) -> Vec<u8> {
         contents.extend_from_slice(&(peaks_buf.len() as u32).to_le_bytes());
         contents.extend_from_slice(&peaks_buf);
         let pad = (4 - (peaks_buf.len() % 4)) % 4;
-        contents.extend(std::iter::repeat(0u8).take(pad));
+        contents.extend(std::iter::repeat_n(0u8, pad));
     }
 
     // Header (48 bytes) — see RawSignatureHeader in the reference.

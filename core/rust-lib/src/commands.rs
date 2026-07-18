@@ -1508,6 +1508,7 @@ pub fn paste_note_formatted(
 /// history when sharing snippets with a colleague. Defaults to *all true*
 /// if invoked without the flags (legacy callers). If `password` is
 /// provided, the backup is encrypted with AES-256-GCM + Argon2id.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn export_backup(
     db: State<'_, DbHandle>,
@@ -1533,6 +1534,7 @@ pub fn export_backup(
 /// Convenience: build the backup JSON and write it directly to `path`.
 /// Returns the number of bytes written. Same selective semantics as
 /// `export_backup`.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub fn save_backup_to_file(
     db: State<'_, DbHandle>,
@@ -3958,6 +3960,7 @@ fn write_cutout(image_bytes: &[u8], name_hint: Option<&str>) -> Result<String, S
 
 // ── Linux desktop shortcuts (GNOME/Cinnamon gsettings) ───────────────────────
 
+#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 pub struct LinuxShortcutBindingInput {
     pub id: String,

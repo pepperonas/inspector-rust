@@ -79,6 +79,7 @@ impl IconCache {
         self.map.get(key)
     }
 
+    #[allow(clippy::map_entry)]
     pub fn insert(&mut self, key: String, value: String) {
         if self.map.contains_key(&key) {
             // Refresh existing entry — overwrite value (in case a

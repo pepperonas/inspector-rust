@@ -2,8 +2,10 @@
 //! receive key events (common on GNOME + Wayland). Bind these flags in
 //! Settings → Keyboard → Custom Shortcuts, e.g. `inspector-rust --toggle-popup`.
 
+#[allow(unused_imports)]
 use tauri::{AppHandle, Manager};
 
+#[allow(unused_imports)]
 use crate::{commands, db::DbHandle, hotkey};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -12,6 +14,7 @@ pub enum CliAction {
     Ocr,
     Screenshot,
     PickColor,
+    #[allow(dead_code)]
     /// Re-scan gsettings conflicts and reinstall desktop shortcuts (Linux).
     SetupShortcuts,
 }

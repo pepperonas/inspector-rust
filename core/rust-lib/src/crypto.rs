@@ -91,7 +91,7 @@ impl Cipher {
             return Ok(value.to_string());
         }
         let combined = B64
-            .decode(value[PREFIX.len()..].as_bytes())
+            .decode(&value.as_bytes()[PREFIX.len()..])
             .context("invalid base64 in encrypted value")?;
         if combined.len() < NONCE_LEN {
             return Err(anyhow!("encrypted value too short"));

@@ -257,13 +257,13 @@ pub fn run(context: tauri::Context<Wry>) {
             // the 700×500 it ships with). Resize is queued on the main
             // thread; the window is hidden at this point, so the next
             // show_and_position recentres it with the new dimensions.
-            commands::apply_window_size(&app.handle(), &db_handle);
+            commands::apply_window_size(app.handle(), &db_handle);
 
             // Seed the in-process feedback-sound toggle from settings (default
             // on) so the hot path never has to read the DB.
             sound::set_enabled(settings::get_bool(&db_handle, "sound.enabled", true).unwrap_or(true));
 
-            if let Err(e) = hotkey::register(&app.handle()) {
+            if let Err(e) = hotkey::register(app.handle()) {
                 tracing::warn!(
                     "global shortcut registration failed: {e:#} — use tray menu or CLI flags (linux/README.md)"
                 );
@@ -278,7 +278,7 @@ pub fn run(context: tauri::Context<Wry>) {
             {
                 let stored = hotkey::migrate_legacy_popup_default(&db_handle);
                 let popup_state = app.state::<hotkey::PopupShortcutState>();
-                if let Err(e) = hotkey::register_popup(&app.handle(), &popup_state, &stored) {
+                if let Err(e) = hotkey::register_popup(app.handle(), &popup_state, &stored) {
                     tracing::warn!(
                         "popup hotkey {stored:?} register failed: {e:#} — \
                          falling back to default {default}",
@@ -286,7 +286,7 @@ pub fn run(context: tauri::Context<Wry>) {
                     );
                     // Best-effort fallback so the user can still open the popup.
                     let _ = hotkey::register_popup(
-                        &app.handle(),
+                        app.handle(),
                         &popup_state,
                         hotkey::DEFAULT_POPUP_HOTKEY,
                     );
@@ -299,7 +299,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 )
                 .unwrap_or_else(|_| hotkey::DEFAULT_HISTORY_HOTKEY.to_string());
                 if let Err(e) =
-                    hotkey::register_history_hotkey(&app.handle(), &popup_state, &hist)
+                    hotkey::register_history_hotkey(app.handle(), &popup_state, &hist)
                 {
                     tracing::warn!("clipboard-history hotkey {hist:?} register failed: {e:#}");
                 }
@@ -316,7 +316,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 let state = app
                     .state::<hotkey::ExpanderShortcutState>();
                 if let Err(e) = hotkey::register_expander(
-                    &app.handle(),
+                    app.handle(),
                     &state,
                     &hotkey_str,
                     enabled,
@@ -339,7 +339,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 match expander::get_direct_slots(&db_handle) {
                     Ok(slots) if !slots.is_empty() => {
                         if let Err(e) =
-                            hotkey::register_direct_slots(&app.handle(), &state, &slots)
+                            hotkey::register_direct_slots(app.handle(), &state, &slots)
                         {
                             tracing::warn!("direct-slot register failed at startup: {e:#}");
                         }
@@ -355,7 +355,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // otherwise it waits until the user enables it from Settings).
             {
                 let ae_state = app.state::<auto_expand::AutoExpandState>();
-                auto_expand::apply(&app.handle(), &db_handle, &ae_state);
+                auto_expand::apply(app.handle(), &db_handle, &ae_state);
             }
 
             // Touchpad gestures (opt-in; off by default). Starts the OS capture
@@ -400,7 +400,7 @@ pub fn run(context: tauri::Context<Wry>) {
                 self_written,
             );
 
-            build_tray(&app.handle())?;
+            build_tray(app.handle())?;
 
             #[cfg(target_os = "linux")]
             {
@@ -412,7 +412,7 @@ pub fn run(context: tauri::Context<Wry>) {
 
             if let Some(action) = cli_dispatch::parse_args(std::env::args()) {
                 tracing::info!("CLI action (startup): {action:?}");
-                cli_dispatch::dispatch(&app.handle(), action);
+                cli_dispatch::dispatch(app.handle(), action);
             }
 
             // Hide from macOS Dock — Inspector Rust is a tray-only background app.
@@ -459,6 +459,7 @@ pub fn run(context: tauri::Context<Wry>) {
                             // hide, gated by the modal-suppress flag + post-show
                             // grace window.
                             #[cfg(not(target_os = "windows"))]
+                            #[allow(clippy::collapsible_match)]
                             if !suppress_hide.load(Ordering::Relaxed)
                                 && !hotkey::within_show_grace()
                             {

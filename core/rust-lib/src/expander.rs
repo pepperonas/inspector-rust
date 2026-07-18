@@ -273,7 +273,6 @@ fn is_terminal_frontmost() -> bool {
 #[cfg(target_os = "macos")]
 pub fn request_accessibility_grant() -> bool {
     use macos_ax::*;
-    use std::ffi::c_void;
 
     unsafe {
         let key = kAXTrustedCheckOptionPrompt;
@@ -283,8 +282,8 @@ pub fn request_accessibility_grant() -> bool {
             &key as *const _,
             &value as *const _,
             1,
-            &kCFTypeDictionaryKeyCallBacks as *const _ as *const c_void,
-            &kCFTypeDictionaryValueCallBacks as *const _ as *const c_void,
+            &kCFTypeDictionaryKeyCallBacks as *const _,
+            &kCFTypeDictionaryValueCallBacks as *const _,
         );
         let trusted = AXIsProcessTrustedWithOptions(dict);
         CFRelease(dict);
@@ -420,6 +419,7 @@ pub enum BlockReason {
 impl BlockReason {
     /// String sentinel for the IPC error / diagnose surface. Stable;
     /// changing one of these is a breaking-API change for the frontend.
+    #[allow(dead_code)]
     pub fn to_sentinel(self) -> &'static str {
         match self {
             BlockReason::NoAccessibility => ERR_NO_ACCESSIBILITY,
@@ -1033,7 +1033,7 @@ trait WatcherClone {
 }
 impl WatcherClone for Option<&crate::clipboard_watcher::WatcherState> {
     fn cloned_handle(self) -> Option<crate::clipboard_watcher::WatcherState> {
-        self.map(|w| w.clone())
+        self.cloned()
     }
 }
 
@@ -1377,7 +1377,7 @@ mod tests {
             settings::get_or(&db, KEY_HOTKEY, DEFAULT_HOTKEY).unwrap(),
             DEFAULT_HOTKEY
         );
-        assert!(settings::get_bool(&db, KEY_ENABLED, false).unwrap() == false);
+        assert!(!settings::get_bool(&db, KEY_ENABLED, false).unwrap());
 
         settings::set(&db, KEY_HOTKEY, "Ctrl+Shift+E").unwrap();
         settings::set(&db, KEY_ENABLED, "true").unwrap();

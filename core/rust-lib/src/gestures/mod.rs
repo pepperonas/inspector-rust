@@ -1574,6 +1574,7 @@ mod tests {
 
     // ── Tip-tap ──────────────────────────────────────────────────────────
 
+    #[allow(dead_code)]
     fn c(x: f64) -> Contact {
         Contact { x, y: 0.5 }
     }

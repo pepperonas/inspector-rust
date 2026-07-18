@@ -21,4 +21,7 @@ pnpm typecheck
 echo "▶ pnpm lint"
 pnpm lint
 
+echo "▶ gen-docs --check (README command matrix in sync with the CommandDoc registry)"
+node scripts/gen-docs.mjs --check
+
 echo "✓ all checks passed"

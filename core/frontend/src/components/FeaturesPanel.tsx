@@ -4,13 +4,13 @@ import {
   getAutoExpandConfig,
   getDirectSlots,
   getExpanderConfig,
-  getInputLockChord,
   getPopupHotkey,
   getHistoryHotkey,
   type AutoExpandConfig,
   type DirectSlot,
 } from "../lib/ipc";
 import { IS_MAC, formatHotkey } from "../lib/platform";
+import { COMMAND_DOCS } from "../lib/commandDocs";
 
 /**
  * Features tab — a read-only, tabular catalogue of everything the app can
@@ -53,7 +53,6 @@ export function FeaturesPanel() {
     hotkey: "Alt+Digit1",
   });
   const [slots, setSlots] = useState<DirectSlot[]>([]);
-  const [chord, setChord] = useState<string[]>(["i", "r"]);
   const [autoExpand, setAutoExpand] = useState<AutoExpandConfig | null>(null);
   const [query, setQuery] = useState("");
 
@@ -61,11 +60,10 @@ export function FeaturesPanel() {
     let alive = true;
     void (async () => {
       try {
-        const [p, e, s, c, ae, h] = await Promise.all([
+        const [p, e, s, ae, h] = await Promise.all([
           getPopupHotkey(),
           getExpanderConfig(),
           getDirectSlots(),
-          getInputLockChord(),
           getAutoExpandConfig(),
           getHistoryHotkey(),
         ]);
@@ -74,7 +72,6 @@ export function FeaturesPanel() {
         setHistoryHotkey(h);
         setExpander({ enabled: e.enabled, hotkey: e.hotkey });
         setSlots(s);
-        setChord(c);
         setAutoExpand(ae);
       } catch {
         /* leave defaults — backend unreachable (e.g. browser-only test). */
@@ -84,6 +81,17 @@ export function FeaturesPanel() {
       alive = false;
     };
   }, []);
+
+  // Every registered power command, straight from the canonical CommandDoc
+  // registry — so this catalogue can never drift from what actually exists
+  // (the same source generates the README command matrix). Deep detail lives in
+  // the inline `?` help; here we show the grammar + one-line tagline.
+  const commandDocRows: Row[] = COMMAND_DOCS.map((d) => ({
+    name: d.command,
+    trigger: d.synopsis,
+    typed: true,
+    note: d.aliases.length > 0 ? `${d.tagline} (alias: ${d.aliases.join(", ")})` : d.tagline,
+  }));
 
   const sections: Section[] = [
     {
@@ -177,54 +185,22 @@ export function FeaturesPanel() {
     {
       title: "Search-bar commands",
       icon: <Terminal size={14} />,
-      blurb: "Type these into the popup's search field.",
+      blurb: "Type these into the popup's search field. Add ? to any command (or type ? alone) for full inline help — arguments, examples, tips.",
       rows: [
+        // Non-command features (calculator / converters / clip detection) —
+        // these aren't power commands, so they're not in the CommandDoc registry.
         { name: "AI prompt templates", trigger: "ai… (aiplan · aireview · aifrontend · aibanana · …)", typed: true, note: "27 curated prompt snippets — type the abbreviation to expand a ready-to-use AI prompt; Enter pastes. New: aifrontend (AAA Material 3 frontend) · aibanana (Nano-Banana OG thumbnail). Grouped under \"AI Prompts\" in the Snippets tab." },
         { name: "Snippet groups", trigger: "Snippets tab", typed: false, note: "Organise snippets into groups — filter the list by group chip, assign a group in the editor, and create/rename/reorder/delete groups via the folder button. Ships pre-grouped (AI Prompts · Colors). Groups are carried in snippet + full-settings backups by name." },
         { name: "Download social media", trigger: "paste a YouTube / Instagram / TikTok / Facebook URL", typed: true, note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Prefers H.264 (QuickTime-playable); retries with browser cookies on YouTube's bot check. Needs yt-dlp." },
-        { name: "Trim audio / video", trigger: "trim", typed: true, note: "Pick a local file → set start/end → lossless-fast (keyframe) or frame-accurate cut → saves a -trim copy next to it. Needs ffmpeg." },
         { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },
         { name: "Unit / base / time converter", trigger: "5 km in mi · 0xff in dec · 1700000000 as date", typed: true, note: "Conversions right in the search box (length/mass/data/temp · number base · epoch→date)." },
         { name: "Colour converter", trigger: "#hex · rgb(…) · hsl(…)", typed: true, note: "Parse any colour format; Enter pastes the canonical hex." },
-        { name: "Translate", trigger: "tr / tren / trde <text>", typed: true, note: "Google Translate. Also DE↔IT/ES/PL: trde2it · trit2de · trde2sp · trsp2de · trde2pl · trpl2de." },
-        { name: "Web search", trigger: "g · ddg · gh · yt · npm · crates · so · mdn · wiki <query>", typed: true, note: "Open a site's search in your browser." },
-        { name: "Dev tools", trigger: "uuid [n] · slug <t> · hash <t> · json · jwt", typed: true, note: "Generate UUIDs · slugify · SHA-256 · pretty-print clipboard JSON · decode clipboard JWT → clipboard." },
-        { name: "Fake test data", trigger: "faker [gen] [n] [@locale] [--json|csv|sql|ts]", typed: true, note: "Realistic fake data (70+ generators, 14 locales). Bare `faker` lists generators with live samples; `faker person 50 --csv @de` → 50 German records as CSV in the clipboard. `faker int 1..100`, `faker uuid`, composites (person/user/address_full/…), `faker tpl \"{name} <{email}>\"`, `--seed=` reproducible, ⌘/Ctrl+R rerolls. Also `{faker:first_name}` in snippets. Configure defaults in Settings → Faker." },
-        { name: "Security command builders", trigger: "sec / nmap / sqlmap / ferox / john [preset] [target]", typed: true, note: "Guided pentest-command builders — pick a preset, fill the target, and Inspector Rust assembles the correct (sh/bash-quoted) command line with a plain-English flag cheat-sheet. `nmap service 10.0.0.5` → `nmap -sV -sC 10.0.0.5`. Enter copies it; ⌘/Ctrl+Enter opens your terminal with it inserted (macOS, opt-in, un-submitted by default). Sharp presets confirm first. Inspector Rust NEVER runs the tools itself — no scan, no subprocess, no network. Authorized targets only. Settings → Security." },
-        { name: "QR code", trigger: "qr <text>", typed: true, note: "Live preview in the panel; Enter copies the PNG to the clipboard." },
-        { name: "Resize clipboard image", trigger: "rz <W>x<H>", typed: true, note: "Lanczos resize of the image on the clipboard." },
-        { name: "Optimise PNG", trigger: "optim", typed: true, note: "Lossless oxipng of the clipboard PNG → Downloads." },
-        { name: "Remove vowels", trigger: "rmvvls <text>", typed: true },
-        { name: "Kill process", trigger: "kill [-9] [name | pid]", typed: true, note: "Live picker by name or PID (kill 1234); Enter kills (confirm first)." },
-        { name: "Reboot / Shut down / Lock", trigger: "reboot · shutdown · lock", typed: true, note: "macOS · Windows · Linux. reboot/shutdown confirm first; lock is instant." },
-        { name: "Mute system", trigger: "mute", typed: true },
-        { name: "Input lock", trigger: "freeze", typed: true, note: `Blocks all input until the unlock chord (${chord.map((k) => k.toUpperCase()).join(" + ") || "i + r"}). ⌥⌘Esc always frees.` },
-        { name: "Keep awake", trigger: "wakelock on / off", typed: true, note: "Alias: caffeine on/off. Pauses sleep + screen lock; a status toast confirms." },
-        { name: "Create file / folder", trigger: "touch <name> / mkdir <name>", typed: true, note: "In the frontmost Finder window's folder (needs Automation → Finder)." },
-        { name: "Open terminal here", trigger: "terminal", typed: true, note: "iTerm2 / Terminal at the frontmost Finder folder." },
-        { name: "Net-pay calculator", trigger: "bruno <€>", typed: true, note: "German brutto→netto (Steuerjahr 2025)." },
-        { name: "Timer", trigger: "timer <n>[s|min]", typed: true, note: "Notification + sound on expiry; status toast on set." },
-        { name: "Alarm", trigger: "alarm <HH:MM>", typed: true, note: "Fires at a clock time (next occurrence), e.g. 3:00 / 15:15." },
-        { name: "Markdown → PDF", trigger: "md2pdf [path]", typed: true, note: "Same as ⌃⇧M — selection or a path. PDF lands next to the source." },
-        { name: "Screenshot (modes)", trigger: "shot [n] · shotfull · shotwin · shotlast", typed: true, note: "Region (opt. self-timer n) · full screen · active window · repeat last → same floating preview." },
-        { name: "Clean caches/logs", trigger: "clean", typed: true, note: "Enter opens a category picker (sizes + largest files); Space toggles, Enter twice deletes the selection. Level/categories in Settings. Allowlist-only, no symlinks." },
-        { name: "Monitor brightness", trigger: "brightness · bri", typed: true, note: "Enter → sliders in the preview; ↑↓ pick monitor, ←→ adjust, Enter back to list. Built-in + external. Software dimming on macOS/Windows, DDC on Linux." },
-        { name: "Audio output device", trigger: "sound", typed: true, note: "Enter → device list in the preview; ↑↓ select, Enter switches the system output. macOS + Windows." },
-        { name: "Philips Hue lamps", trigger: "hue", typed: true, note: "Enter → lamp controls in the preview: all-lamps switch + brightness, plus per-lamp on/off, brightness (←→), and 8 colour swatches (1–8) on colour bulbs. Plus a Beat-sync section — listens to the mic and pulses the lamps to the beat (rainbow/pulse/strobe, round-robin chase). First run: discover or enter the bridge IP, press its link button, Connect. Local LAN only." },
-        { name: "System stats", trigger: "stats", typed: true, note: "Enter → live CPU / memory / disks / network / temperatures / fans / battery & power-draw readouts in the preview (polled). Esc closes. Sensors are best-effort per OS." },
-        { name: "Network monitor (snitch)", trigger: "snitch", typed: true, note: "macOS. Enter → lists apps with live connections; toggle blocks an app's internet (best-effort: a pf watcher pushes its remote IPs into a block table — needs admin once, first packets of new connections may leak; NOT a real firewall). snitch map plots live outbound connections on an offline world map (server locations resolved online via ip-api, public IPs only). Esc closes." },
-        { name: "Song recognition (shazam)", trigger: "shazam", typed: true, note: "Enter → records ~10 s from the mic, generates a Shazam audio-fingerprint and identifies the song: cover, title, artist, album, genre, year + buttons to open it in Shazam, Spotify or YouTube. Every match is saved to a local history — open it with the Listen ⇄ History toggle or the shazam history command. R = listen again, Esc closes. Needs microphone access." },
-        { name: "Uptime", trigger: "uptime", typed: true, note: "Enter → live system uptime in the preview, animated to the microsecond on a continuous odometer. Esc closes." },
-        { name: "Calendar", trigger: "calendar [month year]", typed: true, note: "Month-view calendar in the preview — see which weekday any date was. Enter → ←/→ month, ↑/↓ year, T = today, click a day for its full date + distance from today. Jump directly: calendar märz 1990 · cal 3.2024 · cal 2024-03. Alias: cal." },
-        { name: "boom (audio enhancement)", trigger: "boom", typed: true, note: "macOS & Windows. Enter → system-wide EQ (10-band), genre/device presets, enhancement effects & volume boost in the preview. macOS routes audio through the bundled boom Audio driver (one-click install, macOS 14.2+); Windows applies via Equalizer APO (install once). Esc closes." },
-        { name: "Time tracking", trigger: "track on · track off · track", typed: true, note: "macOS. `track on` starts an opt-in tracking session (records app usage by focus; idle auto-pauses), `track off` ends it; bare `track` opens the Timesheet tab (day navigation + charts + editable events + CSV/HTML export). Window titles + URLs encrypted at rest. Settings → Timesheet for idle/retention/denylist/Claude + the loopback browser-extension token." },
-        { name: "Random number", trigger: "rnd · random [max] [min max]", typed: true, note: "Rolls a number (default 1–6; `rnd 100` = 1–100, `rnd 5 500` = 5–500), shown big on screen." },
-        { name: "Password generator", trigger: "pwgen [N]", typed: true, note: "Bare pwgen = default length; pwgen 16 sets it. Modes in the preview." },
+        // Every power command, from the canonical registry (see commandDocRows).
+        ...commandDocRows,
+        // Hidden triggers — intentionally NOT in the registry/autocomplete.
         { name: "2FA manager", trigger: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export. Just type to filter the list; Enter copies the top match's code." },
         { name: "TOTP code", trigger: "otp <issuer> · 2fa <issuer>", typed: true, note: "e.g. otp ama or 2fa hosti → live code for the matching provider, Enter copies it." },
         { name: "BPM detector", trigger: "bpm", typed: true, note: "Press Enter — taps your mic, shows live BPM. Enter again pins it (click-outside won't close; visualizer turns red)." },
-        { name: "Disco (beat-sync lamps)", trigger: "disco 1 / 0", typed: true, note: "Toggle the mic→Hue beat-sync (disco 1 = on, 0 = off, bare = toggle). Keeps running after the popup closes; same engine as the hue panel's Beat-sync." },
-        { name: "Meme picker", trigger: "meme [query]", typed: true, note: "Fuzzy-browse your meme folder; animated preview; Enter copies to the clipboard." },
         { name: "App launcher", trigger: "<app name>", typed: true, note: "Type an app's name → Enter launches it." },
       ],
     },

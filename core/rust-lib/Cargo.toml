@@ -67,6 +67,16 @@ totp-rs = "5.7"
 # (external displays) and TwinkleTray use. External/secondary monitors
 # for now; internal laptop panels (DisplayServices/WMI) are a follow-up.
 ddc-hi = "0.4"
+# Realistic fake-data generation for the `faker` search-bar command + the
+# `{faker:…}` snippet-expander placeholder (v0.84.270). `fake` 5.1 needs
+# rand ^0.10, while the rest of the workspace (crypto/backup/pwgen) is on
+# rand 0.8 — so rand 0.10 is pulled in under the alias `rand010`, scoped to
+# the faker module only, rather than migrating the whole workspace's RNG.
+# `chrono` feature = date/time fakers (chrono is already a workspace dep).
+# Trivial generators (uuid v4, semver, hex, iban mod-97, …) are hand-rolled
+# on the seeded RNG to avoid pulling uuid/semver/time crates.
+fake = { version = "5.1", features = ["chrono"] }
+rand010 = { package = "rand", version = "0.10" }
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

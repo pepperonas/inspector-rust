@@ -21,6 +21,7 @@ mod db;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
 mod expander;
+mod faker;
 mod hotkey;
 mod hue;
 #[cfg(target_os = "macos")]
@@ -366,6 +367,9 @@ pub fn run(context: tauri::Context<Wry>) {
                 gestures::spawn_wake_watchdog(app.handle());
             }
 
+            // Seed the faker expander's default locale from settings.
+            faker::init_process_default(&db_handle);
+
             // Window snapping (opt-in; off by default). macOS-only monitor.
             {
                 let ws = app.state::<window_snap::WindowSnapState>();
@@ -619,6 +623,12 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::wakelock_get,
             commands::bruno_get_defaults,
             commands::bruno_set_defaults,
+            commands::faker_catalog,
+            commands::faker_generate,
+            commands::faker_locales,
+            commands::faker_get_defaults,
+            commands::faker_set_defaults,
+            commands::faker_paste,
             commands::list_apps,
             commands::refresh_apps,
             commands::launch_app,

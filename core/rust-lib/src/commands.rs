@@ -741,6 +741,82 @@ pub fn bruno_set_defaults(
     Ok(())
 }
 
+// ── Faker (fake-data generator) ───────────────────────────────────────
+
+/// The generator catalogue with a live sample per row (fetched once at mount).
+/// Samples use the persisted default locale.
+#[tauri::command]
+pub fn faker_catalog(db: State<'_, DbHandle>) -> Result<Vec<crate::faker::CatalogEntry>, String> {
+    let default = crate::faker::get_defaults(&db).map_err(map_err)?.locale();
+    Ok(crate::faker::catalog(default))
+}
+
+/// Generate all requested values in one call (deterministic for a given seed).
+#[tauri::command]
+pub fn faker_generate(
+    db: State<'_, DbHandle>,
+    req: crate::faker::GenRequest,
+) -> Result<crate::faker::GenResult, String> {
+    let default = crate::faker::get_defaults(&db).map_err(map_err)?.locale();
+    crate::faker::generate(&req, default)
+}
+
+/// The selectable locales (code + label) for the Settings default picker.
+#[tauri::command]
+pub fn faker_locales() -> Vec<crate::faker::LocaleOption> {
+    crate::faker::locales()
+}
+
+#[tauri::command]
+pub fn faker_get_defaults(db: State<'_, DbHandle>) -> Result<crate::faker::FakerDefaults, String> {
+    crate::faker::get_defaults(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn faker_set_defaults(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    defaults: crate::faker::FakerDefaults,
+) -> Result<(), String> {
+    crate::faker::set_defaults(&db, &defaults).map_err(map_err)?;
+    let _ = app.emit("faker-defaults-changed", ());
+    Ok(())
+}
+
+/// Paste generated text into the previously-focused app. When `save_history`
+/// (the Faker setting), the text is also stored as a history clip; otherwise
+/// it's a pure paste (self-write-marked so the watcher never captures it) —
+/// so bulk test data doesn't flood the 1 000-entry history unless the user
+/// opts in. Same paste primitive as every other power command.
+#[tauri::command]
+pub fn faker_paste(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    watcher: State<'_, WatcherState>,
+    text: String,
+    save_history: bool,
+) -> Result<(), String> {
+    require_accessibility()?;
+    hotkey::hide_popup(&app);
+    if save_history {
+        let preview: String = text.chars().take(200).collect();
+        let _ = db::upsert_clip(
+            &db,
+            &crate::models::NewClip {
+                content_type: crate::models::ContentType::Text,
+                content_text: preview,
+                content_data: text.clone(),
+                byte_size: text.len() as i64,
+            },
+        );
+        let _ = app.emit("clipboard-changed", ());
+    }
+    // Mark self-write so the clipboard watcher doesn't add a second (untrimmed)
+    // entry on top of the one we just stored (or none, when history is off).
+    watcher.mark_self_write(crate::models::ContentType::Text, &text);
+    paste::paste_text(&text).map_err(map_err)
+}
+
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the wakelock. Returns the resulting state (`true` = active,

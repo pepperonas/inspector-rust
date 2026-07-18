@@ -55,4 +55,34 @@ describe("themeLabel", () => {
     expect(themeLabel("dark")).toBe("Dark");
     expect(themeLabel("system")).toBe("System");
   });
+
+  it("labels are display-only — feeding one back as a preference falls to system", () => {
+    // Guards against persisting the UI label instead of the raw preference.
+    expect(normaliseTheme(themeLabel("dark"))).toBe("system");
+    expect(normaliseTheme(themeLabel("light"))).toBe("system");
+  });
+});
+
+describe("normaliseTheme — strictness", () => {
+  it("does not trim whitespace (strict whitelist, mirrors the Rust side)", () => {
+    expect(normaliseTheme(" dark")).toBe("system");
+    expect(normaliseTheme("dark ")).toBe("system");
+    expect(normaliseTheme("\tlight")).toBe("system");
+  });
+});
+
+describe("normaliseTheme + applyTheme — end to end", () => {
+  it("any persisted value yields a valid data-theme attribute", () => {
+    for (const raw of ["dark", "light", "system", "midnight", "", null, undefined]) {
+      applyTheme(normaliseTheme(raw));
+      const attr = document.documentElement.getAttribute("data-theme");
+      expect(["dark", "light", "system"]).toContain(attr);
+    }
+  });
+
+  it("overrides an attribute written by anything else", () => {
+    document.documentElement.setAttribute("data-theme", "corrupted");
+    applyTheme("light");
+    expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
 });

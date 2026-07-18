@@ -102,4 +102,87 @@ describe("prettyPath", () => {
     expect(prettyPath("/opt/other", "/Users/x")).toBe("/opt/other");
     expect(prettyPath("/Users/x/a")).toBe("/Users/x/a");
   });
+
+  it("only collapses at a path-segment boundary (sibling users stay intact)", () => {
+    // `/Users/martina` must NOT render as `~a` under home `/Users/martin`.
+    expect(prettyPath("/Users/martina/foo", "/Users/martin")).toBe("/Users/martina/foo");
+    expect(prettyPath("/Users/martin/foo", "/Users/martin")).toBe("~/foo");
+  });
+
+  it("home itself renders as ~", () => {
+    expect(prettyPath("/Users/x", "/Users/x")).toBe("~");
+  });
+
+  it("a root home never collapses everything", () => {
+    expect(prettyPath("/anything/here", "/")).toBe("/anything/here");
+  });
+
+  it("handles Windows-style separators at the boundary", () => {
+    expect(prettyPath("C:\\Users\\x\\cache", "C:\\Users\\x")).toBe("~\\cache");
+    expect(prettyPath("C:\\Users\\xy\\cache", "C:\\Users\\x")).toBe("C:\\Users\\xy\\cache");
+  });
+});
+
+describe("basename — more shapes", () => {
+  it("relative-looking labels are returned unchanged (pseudo-item guard)", () => {
+    expect(basename("foo/bar.txt")).toBe("foo/bar.txt");
+    expect(basename("just a sentence")).toBe("just a sentence");
+  });
+
+  it("handles drive-letter forward-slash and single-segment paths", () => {
+    expect(basename("C:/tmp/x.log")).toBe("x.log");
+    expect(basename("/single")).toBe("single");
+  });
+
+  it("never returns an empty string", () => {
+    for (const p of ["/", "/a/b/", "C:\\", "/a/b/c.txt", "label only"]) {
+      expect(basename(p).length).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe("buildRows / summaries — orphan-free invariants", () => {
+  it("breaks size ties by path (deterministic ordering)", () => {
+    const tied: CleanPlanView = {
+      dirs: [
+        { path: "/c/bbb", size: 10, count: 1, category: "c" },
+        { path: "/c/aaa", size: 10, count: 1, category: "c" },
+      ],
+      total_bytes: 20,
+      categories: [["c", "C", 20]],
+    };
+    const rows = buildRows(tied);
+    expect(rows.map((r) => (r.kind === "dir" ? r.dir.path : "#"))).toEqual([
+      "#",
+      "/c/aaa",
+      "/c/bbb",
+    ]);
+  });
+
+  it("selecting every directory reproduces the scan totals", () => {
+    const all = new Set(view.dirs.map((d) => d.path));
+    const t = selectionTotals(view.dirs, all);
+    expect(t.bytes).toBe(view.dirs.reduce((a, d) => a + d.size, 0));
+    expect(t.files).toBe(view.dirs.reduce((a, d) => a + d.count, 0));
+  });
+
+  it("every dir row in buildRows sits under its own category header", () => {
+    let current = "";
+    for (const r of buildRows(view)) {
+      if (r.kind === "header") current = r.key;
+      else expect(r.dir.category).toBe(current);
+    }
+  });
+
+  it("a category with bytes but no dirs never renders a header", () => {
+    const v: CleanPlanView = {
+      dirs: [{ path: "/x", size: 5, count: 1, category: "real" }],
+      total_bytes: 5,
+      categories: [
+        ["real", "Real", 5],
+        ["ghost", "Ghost", 999],
+      ],
+    };
+    expect(buildRows(v).flatMap((r) => (r.kind === "header" ? [r.key] : []))).toEqual(["real"]);
+  });
 });

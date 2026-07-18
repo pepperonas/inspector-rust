@@ -223,4 +223,87 @@ mod tests {
         assert!(is_enabled());
         set_enabled(prev);
     }
+
+    const ALL_SOUNDS: [Sound; 6] = [
+        Sound::Expand,
+        Sound::Ocr,
+        Sound::Screenshot,
+        Sound::RecordStart,
+        Sound::RecordStop,
+        Sound::Copy,
+    ];
+
+    #[test]
+    fn riff_size_field_matches_payload() {
+        // A truncated / corrupted asset would make the CLI players fail
+        // silently at runtime — pin the RIFF chunk-size invariant here.
+        for sound in ALL_SOUNDS {
+            let bytes = sound.bytes();
+            let declared =
+                u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
+            assert_eq!(
+                declared,
+                bytes.len() - 8,
+                "{sound:?}: RIFF size field disagrees with file length"
+            );
+        }
+    }
+
+    #[test]
+    fn wavs_carry_fmt_and_data_chunks() {
+        for sound in ALL_SOUNDS {
+            let bytes = sound.bytes();
+            let has = |tag: &[u8]| bytes.windows(4).any(|w| w == tag);
+            assert!(has(b"fmt "), "{sound:?}: missing fmt chunk");
+            assert!(has(b"data"), "{sound:?}: missing data chunk");
+        }
+    }
+
+    #[test]
+    fn every_cue_has_distinct_audio_content() {
+        // A copy-paste slip mapping two cues onto the same asset would make
+        // e.g. record-start and record-stop indistinguishable by ear.
+        for (i, a) in ALL_SOUNDS.iter().enumerate() {
+            for b in &ALL_SOUNDS[i + 1..] {
+                assert_ne!(a.bytes(), b.bytes(), "{a:?} and {b:?} share the same WAV");
+            }
+        }
+    }
+
+    #[test]
+    fn wav_data_chunks_are_nonempty_pcm_payloads() {
+        // A zero-length data chunk would "play" as silence — the cue silently
+        // stops giving feedback. Parse the declared data-chunk size directly.
+        for sound in ALL_SOUNDS {
+            let bytes = sound.bytes();
+            let pos = bytes
+                .windows(4)
+                .position(|w| w == b"data")
+                .unwrap_or_else(|| panic!("{sound:?}: no data chunk"));
+            let size = u32::from_le_bytes([
+                bytes[pos + 4],
+                bytes[pos + 5],
+                bytes[pos + 6],
+                bytes[pos + 7],
+            ]) as usize;
+            assert!(size > 0, "{sound:?}: empty data chunk");
+            assert!(
+                pos + 8 + size <= bytes.len(),
+                "{sound:?}: data chunk claims {size} B past the end of the file"
+            );
+        }
+    }
+
+    #[test]
+    fn cue_filenames_are_wav_and_path_safe() {
+        for sound in ALL_SOUNDS {
+            let name = sound.file_name();
+            assert!(name.ends_with(".wav"), "{sound:?}: player is picked for WAV");
+            // Materialised straight into the cache dir — no separators allowed.
+            assert!(
+                !name.contains('/') && !name.contains('\\') && !name.contains(".."),
+                "{sound:?}: filename must be a plain leaf name"
+            );
+        }
+    }
 }

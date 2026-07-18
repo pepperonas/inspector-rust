@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   loadHighScore,
   saveHighScore,
@@ -74,5 +74,85 @@ describe("suspended run", () => {
   it("treats corrupt JSON as no saved run", () => {
     localStorage.setItem("inspector-rust.game.pong.state", "{not json");
     expect(loadSavedGame("pong")).toBeNull();
+  });
+
+  it("keeps suspended runs separate per game", () => {
+    saveGame("pong", { wins: 2 });
+    expect(loadSavedGame("space")).toBeNull();
+    expect(loadSavedGame("pong")).toEqual({ wins: 2 });
+  });
+
+  it("round-trips Unicode content in the state", () => {
+    const state = { player: "Grüße 🚀", note: "üöä" };
+    saveGame("space", state);
+    expect(loadSavedGame("space")).toEqual(state);
+  });
+
+  it("clearing a missing run is a no-op", () => {
+    expect(() => clearSavedGame("never-saved")).not.toThrow();
+    expect(loadSavedGame("never-saved")).toBeNull();
+  });
+});
+
+describe("high score — hostile stored values", () => {
+  it("degrades NaN / Infinity saves to 0 on load", () => {
+    saveHighScore("pong", NaN); // stores "NaN"
+    expect(loadHighScore("pong")).toBe(0);
+    saveHighScore("pong", Infinity); // stores "Infinity" → parseInt NaN
+    expect(loadHighScore("pong")).toBe(0);
+  });
+
+  it("treats zero and negative stored strings as no high score", () => {
+    localStorage.setItem("inspector-rust.game.pong.best", "0");
+    expect(loadHighScore("pong")).toBe(0);
+    localStorage.setItem("inspector-rust.game.pong.best", "-3");
+    expect(loadHighScore("pong")).toBe(0);
+  });
+
+  it("parses a decimal stored string by truncation", () => {
+    localStorage.setItem("inspector-rust.game.pong.best", "12.9");
+    expect(loadHighScore("pong")).toBe(12);
+  });
+
+  it("commitHighScore never stores below 0", () => {
+    expect(commitHighScore("pong", -5)).toBe(0);
+    expect(loadHighScore("pong")).toBe(0);
+  });
+});
+
+describe("throwing localStorage degrades to 'no saved data'", () => {
+  const throwing = {
+    getItem: () => {
+      throw new Error("storage disabled");
+    },
+    setItem: () => {
+      throw new Error("quota exceeded");
+    },
+    removeItem: () => {
+      throw new Error("storage disabled");
+    },
+  } as unknown as Storage;
+
+  beforeEach(() => {
+    vi.stubGlobal("localStorage", throwing);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("loads report empty instead of crashing", () => {
+    expect(loadHighScore("pong")).toBe(0);
+    expect(loadSavedGame("pong")).toBeNull();
+  });
+
+  it("saves and clears are silent no-ops", () => {
+    expect(() => saveHighScore("pong", 10)).not.toThrow();
+    expect(() => saveGame("pong", { a: 1 })).not.toThrow();
+    expect(() => clearSavedGame("pong")).not.toThrow();
+  });
+
+  it("commitHighScore still returns the in-memory best", () => {
+    // Nothing persists, but the game can keep showing the session best.
+    expect(commitHighScore("pong", 17)).toBe(17);
   });
 });

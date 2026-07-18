@@ -124,4 +124,37 @@ mod tests {
             "watchdog should have killed osascript within ~250 ms but took {elapsed:?}"
         );
     }
+
+    #[test]
+    fn unicode_stdout_survives_the_capture() {
+        // Finder selections / app names routinely carry Umlaute — the captured
+        // stdout must round-trip as UTF-8, not get mangled by the pipe read.
+        let r = run_osascript(r#"return "Grüße-äöü""#, Duration::from_secs(2));
+        match r {
+            OsaResult::Done(out) => {
+                assert!(out.status.success());
+                let s = String::from_utf8_lossy(&out.stdout);
+                assert!(s.contains("Grüße-äöü"), "got: {s:?}");
+            }
+            OsaResult::TimedOut => panic!("should not time out"),
+            OsaResult::SpawnFailed(e) => panic!("spawn failed: {e}"),
+        }
+    }
+
+    #[test]
+    fn failing_script_is_done_not_timeout_with_stderr_captured() {
+        // A script that ERRORS (non-zero exit) still finished within the
+        // timeout — the contract is Done "regardless of exit code", with
+        // stderr captured so callers can log the AppleScript error.
+        let r = run_osascript(r#"error "kaboom-42""#, Duration::from_secs(2));
+        match r {
+            OsaResult::Done(out) => {
+                assert!(!out.status.success(), "error-ing script exits non-zero");
+                let err = String::from_utf8_lossy(&out.stderr);
+                assert!(err.contains("kaboom-42"), "stderr should carry the message: {err}");
+            }
+            OsaResult::TimedOut => panic!("an immediate error must not read as a timeout"),
+            OsaResult::SpawnFailed(e) => panic!("spawn failed: {e}"),
+        }
+    }
 }

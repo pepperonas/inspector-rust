@@ -163,4 +163,49 @@ mod tests {
         assert_eq!(clamp_cells(99), MAX_CELLS);
         assert_eq!(clamp_cells(8), 8);
     }
+
+    fn mem_db() -> DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn config_load_defaults_when_unset() {
+        let db = mem_db();
+        let cfg = WindowPaletteConfig::load(&db);
+        assert!(!cfg.enabled);
+        assert_eq!(cfg.cols, DEFAULT_COLS);
+        assert_eq!(cfg.rows, DEFAULT_ROWS);
+    }
+
+    #[test]
+    fn config_save_load_roundtrip_and_clamps_on_load() {
+        let db = mem_db();
+        // Save an out-of-range density; load clamps it back into [MIN,MAX].
+        WindowPaletteConfig { enabled: true, cols: 99, rows: 1 }.save(&db).unwrap();
+        let cfg = WindowPaletteConfig::load(&db);
+        assert!(cfg.enabled);
+        assert_eq!(cfg.cols, MAX_CELLS); // 99 → 24
+        assert_eq!(cfg.rows, MIN_CELLS); // 1 → 2
+    }
+
+    #[test]
+    fn config_load_falls_back_on_unparseable_stored_value() {
+        let db = mem_db();
+        crate::settings::set(&db, KEY_COLS, "not-a-number").unwrap();
+        let cfg = WindowPaletteConfig::load(&db);
+        assert_eq!(cfg.cols, DEFAULT_COLS);
+    }
+
+    #[test]
+    fn fraction_maps_an_interior_cell() {
+        // A middle column band on the offset visible frame.
+        let r = fraction_to_rect(0.25, 0.0, 0.25, 0.5, VF);
+        assert!((r.x - 360.0).abs() < 1e-9); // 0 + 0.25*1440
+        assert_eq!(r.y, 25.0);
+        assert!((r.w - 360.0).abs() < 1e-9);
+        assert!((r.h - 437.5).abs() < 1e-9);
+    }
 }

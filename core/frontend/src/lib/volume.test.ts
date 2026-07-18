@@ -59,6 +59,22 @@ describe("snapVolumeStep", () => {
     }
   });
 
+  it("clamps out-of-range current values back into 0–100", () => {
+    // A drifted/garbage device read-back must still produce a sane level.
+    expect(snapVolumeStep(-10, 5)).toBe(0); // (-2+1)·5 = -5 → clamp 0
+    expect(snapVolumeStep(-3, -5)).toBe(0);
+    expect(snapVolumeStep(150, -5)).toBe(100);
+    expect(snapVolumeStep(101, 5)).toBe(100);
+  });
+
+  it("supports other grid widths (1 and 10)", () => {
+    expect(snapVolumeStep(50, 1)).toBe(51);
+    expect(snapVolumeStep(50, -1)).toBe(49);
+    expect(snapVolumeStep(95, 10)).toBe(100); // 100 clamps onto the edge
+    expect(snapVolumeStep(95, -10)).toBe(90);
+    expect(snapVolumeStep(4, -10)).toBe(0);
+  });
+
   it("matches the Rust snap_volume_step formula across a sweep", () => {
     // Same reference table as the Rust unit test — the two implementations
     // must agree so panel arrows and gesture swipes land on the same grid.

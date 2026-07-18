@@ -207,6 +207,122 @@ Sink #1
     fn empty_input_yields_no_sinks() {
         assert!(parse_pactl_sinks("").is_empty());
     }
+
+    #[test]
+    fn last_sink_without_trailing_newline_is_flushed() {
+        let sample = "Sink #0\n\tName: sink_a\n\tDescription: A";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("sink_a".to_string(), "A".to_string())]);
+    }
+
+    #[test]
+    fn empty_description_falls_back_to_name() {
+        // `Description:` present but blank must not yield an empty label.
+        let sample = "Sink #0\n\tName: sink_a\n\tDescription:\n";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("sink_a".to_string(), "sink_a".to_string())]);
+    }
+
+    #[test]
+    fn orphan_description_without_name_is_dropped() {
+        // A block carrying only a Description (no Name) can't be switched to —
+        // it must be skipped AND must not leak its description into the next
+        // properly-named sink.
+        let sample = "\
+Sink #0
+	Description: Ghost
+Sink #1
+	Name: real_sink
+";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("real_sink".to_string(), "real_sink".to_string())]);
+    }
+
+    #[test]
+    fn sink_without_name_between_valid_sinks_is_skipped() {
+        let sample = "\
+Sink #0
+	Name: first
+	Description: First
+Sink #1
+	State: RUNNING
+Sink #2
+	Name: third
+	Description: Third
+";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks.len(), 2);
+        assert_eq!(sinks[0].0, "first");
+        assert_eq!(sinks[1].0, "third");
+    }
+
+    #[test]
+    fn description_before_name_still_pairs_within_a_block() {
+        // Defensive: field order within a sink block shouldn't matter.
+        let sample = "Sink #0\n\tDescription: Kopfhörer\n\tName: usb_sink\n";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("usb_sink".to_string(), "Kopfhörer".to_string())]);
+    }
+
+    #[test]
+    fn unicode_descriptions_survive() {
+        let sample = "Sink #0\n\tName: hdmi\n\tDescription: Bildschirm-Lautsprecher (Büro) 🎧\n";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks[0].1, "Bildschirm-Lautsprecher (Büro) 🎧");
+    }
+
+    #[test]
+    fn crlf_line_endings_are_tolerated() {
+        // Output piped through a terminal shim / captured on Windows-y tooling
+        // may carry \r\n — the trailing \r must not stick to name or description.
+        let sample = "Sink #0\r\n\tName: sink_a\r\n\tDescription: Desc A\r\n";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("sink_a".to_string(), "Desc A".to_string())]);
+    }
+
+    #[test]
+    fn listing_order_is_preserved_for_many_sinks() {
+        // The panel renders in listing order (pactl lists the default first on
+        // some setups) — the parser must not reorder.
+        let sample = "\
+Sink #2
+	Name: c_sink
+	Description: C
+Sink #0
+	Name: a_sink
+	Description: A
+Sink #1
+	Name: b_sink
+	Description: B
+";
+        let sinks: Vec<String> = parse_pactl_sinks(sample).into_iter().map(|s| s.0).collect();
+        assert_eq!(sinks, vec!["c_sink", "a_sink", "b_sink"]);
+    }
+
+    #[test]
+    fn property_lines_do_not_leak_into_name_or_description() {
+        // Real pactl blocks carry a Properties section whose entries look like
+        // `device.description = "..."` — none of those may be mistaken for the
+        // top-level Name/Description fields.
+        let sample = "\
+Sink #0
+	Name: real_sink
+	Description: Real Label
+	Properties:
+		device.description = \"Prop Label\"
+		alsa.name = \"prop-name\"
+		node.name = \"prop-node\"
+";
+        let sinks = parse_pactl_sinks(sample);
+        assert_eq!(sinks, vec![("real_sink".to_string(), "Real Label".to_string())]);
+    }
+
+    #[test]
+    fn multi_digit_sink_headers_delimit_blocks() {
+        let sample = "Sink #9\n\tName: nine\nSink #10\n\tName: ten\nSink #123\n\tName: many\n";
+        let sinks: Vec<String> = parse_pactl_sinks(sample).into_iter().map(|s| s.0).collect();
+        assert_eq!(sinks, vec!["nine", "ten", "many"]);
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]

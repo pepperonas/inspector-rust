@@ -425,6 +425,64 @@ mod tests {
     }
 
     #[test]
+    fn handoff_terminal_app_stages_without_submitting() {
+        // Terminal.app (no iTerm), auto_enter=false → opens an empty `do script ""`
+        // then types the command via keystroke, leaving it un-submitted.
+        let s = build_handoff_script("nmap -sV '10.0.0.5'", false, false);
+        assert!(s.contains("do script \"\""), "opens an empty shell: {s}");
+        assert!(s.contains("keystroke"), "types via keystroke: {s}");
+        assert!(!s.contains("do script \"nmap"), "must not run the command");
+    }
+
+    #[test]
+    fn registry_field_keys_are_unique_per_tool() {
+        for tool in registry::CATALOG {
+            let mut seen = std::collections::HashSet::new();
+            for f in tool.fields {
+                assert!(seen.insert(f.key), "{}: duplicate field key {}", tool.name, f.key);
+            }
+        }
+    }
+
+    #[test]
+    fn registry_preset_names_are_unique_per_tool() {
+        for tool in registry::CATALOG {
+            let mut seen = std::collections::HashSet::new();
+            for p in tool.presets {
+                assert!(seen.insert(p.name), "{}: duplicate preset {}", tool.name, p.name);
+            }
+        }
+    }
+
+    #[test]
+    fn get_defaults_sanitises_invalid_stored_values() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&db).unwrap();
+        // Stuff garbage straight into the settings table.
+        crate::settings::set(&db, "sec.john_line", "bogus").unwrap();
+        crate::settings::set(&db, "sec.terminal", "kitty").unwrap();
+        crate::settings::set(&db, "sec.timing", "99").unwrap(); // > single 0-5 digit
+        crate::settings::set(&db, "sec.rate", "9999999").unwrap();
+        let d = get_defaults(&db).unwrap();
+        assert_eq!(d.john_line, "jumbo"); // unknown → jumbo
+        assert_eq!(d.terminal, "iterm"); // unknown → iterm
+        assert_eq!(d.timing, ""); // invalid → no injection
+        assert_eq!(d.rate, 100_000); // clamped to the max
+    }
+
+    #[test]
+    fn set_defaults_persists_a_valid_single_digit_timing() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&db).unwrap();
+        set_defaults(&db, &SecDefaults { timing: "4".into(), rate: 50, ..SecDefaults::default() }).unwrap();
+        let d = get_defaults(&db).unwrap();
+        assert_eq!(d.timing, "4");
+        assert_eq!(d.rate, 50);
+    }
+
+    #[test]
     fn defaults_round_trip() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));

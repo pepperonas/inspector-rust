@@ -704,4 +704,75 @@ mod tests {
         assert_eq!(multiply_factor(above_amount(100)), 1.0);
         assert!((multiply_factor(above_amount(300)) - 7.0).abs() < 1e-6);
     }
+
+    #[test]
+    fn edr_min_headroom_boundary_is_exclusive() {
+        // Exactly at the margin → still SDR-only (the gate is strict `>`).
+        assert_eq!(edr_max_percent(EDR_MIN_HEADROOM), 100);
+        // Just past it → jumps to the usable floor of 110, never 106.
+        assert_eq!(edr_max_percent(1.051), 110);
+        assert_eq!(edr_max_percent(1.09), 110);
+    }
+
+    #[test]
+    fn edr_max_percent_rounds_and_caps_at_the_boundary() {
+        assert_eq!(edr_max_percent(1.499), 150, "149.9 rounds to 150");
+        assert_eq!(edr_max_percent(2.994), 299, "just under the cap stays raw");
+        assert_eq!(edr_max_percent(3.0), EDR_MAX_CAP, "exactly the cap");
+        assert_eq!(edr_max_percent(3.001), EDR_MAX_CAP, "past the cap clamps");
+    }
+
+    #[test]
+    fn edr_max_percent_is_monotonic_non_decreasing() {
+        // A brighter-capable panel must never get a *smaller* slider range.
+        let mut prev = 0u16;
+        for i in 0..=400 {
+            let h = i as f32 / 100.0; // 0.00 .. 4.00
+            let m = edr_max_percent(h);
+            assert!(m >= prev, "edr_max_percent({h}) = {m} < previous {prev}");
+            prev = m;
+        }
+    }
+
+    #[test]
+    fn pathological_headrooms_never_break_the_slider() {
+        // A buggy/absent NSScreen read can surface NaN or ∞ — the slider bound
+        // must stay sane, never panic and never fall below the SDR floor.
+        assert_eq!(edr_max_percent(f32::NAN), 100, "NaN reads as not-capable");
+        assert_eq!(edr_max_percent(f32::INFINITY), EDR_MAX_CAP, "∞ is capped");
+        assert_eq!(edr_max_percent(f32::NEG_INFINITY), 100);
+        assert_eq!(edr_max_percent(-1.0), 100, "negative headroom → SDR only");
+        assert_eq!(edr_max_percent(0.0), 100);
+    }
+
+    #[test]
+    fn multiply_factor_is_nan_safe() {
+        // A NaN `above` (corrupt atomic ÷ conversion) must degrade to identity
+        // (no brightening) rather than poisoning the Metal clear colour.
+        assert_eq!(multiply_factor(f32::NAN), 1.0);
+    }
+
+    #[test]
+    fn above_amount_boundaries_are_exact() {
+        // 0 % and the u16 extremes: no underflow / overflow through the f32 math.
+        assert_eq!(above_amount(0), 0.0);
+        assert_eq!(above_amount(u16::MAX), 2.0, "clamps at the 300 % ceiling");
+        // The slider never exceeds edr_max_percent, so every reachable percent
+        // maps into the closed [0, 2] range.
+        for p in [100u16, 110, 150, 200, 250, 300] {
+            let a = above_amount(p);
+            assert!((0.0..=2.0).contains(&a), "above_amount({p}) = {a} out of range");
+        }
+    }
+
+    #[test]
+    fn above_amount_is_linear_between_bounds() {
+        assert!((above_amount(101) - 0.01).abs() < 1e-6);
+        assert!((above_amount(150) - 0.5).abs() < 1e-6);
+        assert!((above_amount(250) - 1.5).abs() < 1e-6);
+        // The composed factor is continuous at the SDR boundary: 101 % is a
+        // barely-above-1 multiply, not a jump.
+        let f = multiply_factor(above_amount(101));
+        assert!(f > 1.0 && f < 1.05, "101 % → tiny boost, got {f}");
+    }
 }

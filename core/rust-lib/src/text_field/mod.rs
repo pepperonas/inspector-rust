@@ -253,4 +253,48 @@ mod tests {
         assert_eq!(trim_word("mfg\n"), "mfg");
         assert_eq!(trim_word("   "), "");
     }
+
+    #[test]
+    fn word_start_empty_text() {
+        // No text at all — nothing before the cursor, start clamps to 0 == len.
+        assert_eq!(word_start_before_cursor("", 0), 0);
+        assert_eq!(word_start_before_cursor("", 5), 0);
+    }
+
+    #[test]
+    fn word_start_cursor_at_zero_is_zero() {
+        // Cursor at the very start: no word precedes it, start stays at 0.
+        assert_eq!(word_start_before_cursor("abc", 0), 0);
+    }
+
+    #[test]
+    fn word_start_stops_at_tab_and_newline() {
+        // A tab is whitespace → the word bound stops after it.
+        let text = "one\tword";
+        let start = word_start_before_cursor(text, text.chars().count());
+        assert_eq!(&text[start..], "word");
+        // A newline is a boundary too.
+        let text2 = "line\nnext";
+        let start2 = word_start_before_cursor(text2, text2.chars().count());
+        assert_eq!(&text2[start2..], "next");
+    }
+
+    #[test]
+    fn trim_word_strips_crlf_and_mixed_whitespace() {
+        assert_eq!(trim_word("mfg\r\n"), "mfg");
+        assert_eq!(trim_word("\u{00A0}\t hi \n"), "hi");
+    }
+
+    #[test]
+    fn native_path_matches_the_build_platform() {
+        // On macOS the native accessibility path is AX; assert whatever the
+        // current build reports is one of the known variants (no panic / stub leak).
+        let p = native_path();
+        #[cfg(target_os = "macos")]
+        assert_eq!(p, CapturePath::Ax);
+        #[cfg(target_os = "windows")]
+        assert_eq!(p, CapturePath::Uia);
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+        assert_eq!(p, CapturePath::Clipboard);
+    }
 }

@@ -174,6 +174,9 @@ function rewriteBadges({ locK, total, rust, fe }) {
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
         .replace(/badge\/tests-\d+%20passing/g, `badge/tests-${total}%20passing`)
+        // Quality-section per-runner badges (cargo test / vitest counts).
+        .replace(/cargo%20test-\d+%20passing/g, `cargo%20test-${rust}%20passing`)
+        .replace(/badge\/vitest-\d+%20passing/g, `badge/vitest-${fe}%20passing`)
         .replace(
           /unit%20tests-\d+%20\(\d+%20Rust%20%2B%20\d+%20TS\)/g,
           `unit%20tests-${total}%20(${rust}%20Rust%20%2B%20${fe}%20TS)`,
@@ -199,6 +202,9 @@ function rewriteBadges({ locK, total, rust, fe }) {
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
         .replace(/badge\/tests-\d+%20passing/g, `badge/tests-${total}%20passing`)
+        // Quality-section per-runner badges (cargo test / vitest counts).
+        .replace(/cargo%20test-\d+%20passing/g, `cargo%20test-${rust}%20passing`)
+        .replace(/badge\/vitest-\d+%20passing/g, `badge/vitest-${fe}%20passing`)
         .replace(
           /unit%20tests-\d+%20\(\d+%20Rust%20%2B%20\d+%20TS\)/g,
           `unit%20tests-${total}%20(${rust}%20Rust%20%2B%20${fe}%20TS)`,

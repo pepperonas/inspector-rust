@@ -90,6 +90,15 @@ export function basename(path: string): string {
 
 /** Shorten a long absolute path for display: `~/Library/Caches/foo`. */
 export function prettyPath(path: string, home?: string): string {
-  if (home && home.length > 1 && path.startsWith(home)) return `~${path.slice(home.length)}`;
+  // The prefix must end at a path-segment boundary — `/Users/xy/foo` must NOT
+  // collapse under home `/Users/x` (it used to render as `~y/foo`).
+  if (
+    home &&
+    home.length > 1 &&
+    path.startsWith(home) &&
+    (path.length === home.length || path[home.length] === "/" || path[home.length] === "\\")
+  ) {
+    return `~${path.slice(home.length)}`;
+  }
   return path;
 }

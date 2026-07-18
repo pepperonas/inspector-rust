@@ -71,3 +71,77 @@ describe("detectSmartActions — phone-shaped strings without digits", () => {
     expect(actions.some((a) => a.kind === "call")).toBe(false);
   });
 });
+
+describe("detectSmartActions — boundaries + Unicode", () => {
+  it("trims whitespace before detection and in the QR payload", () => {
+    const a = detectSmartActions("   https://example.com   ");
+    expect(a[0]).toMatchObject({ kind: "open-url", href: "https://example.com" });
+    expect(a[1]).toMatchObject({ kind: "qr", href: "https://example.com" });
+  });
+
+  it("QR length boundary is exactly 512 chars", () => {
+    expect(kinds("x".repeat(512))).toEqual(["qr"]);
+    expect(kinds("x".repeat(513))).toEqual([]);
+  });
+
+  it("bare domain with path/query keeps the path in the https URL", () => {
+    expect(detectSmartActions("example.com/path?x=1")[0]).toMatchObject({
+      kind: "open-url",
+      href: "https://example.com/path?x=1",
+    });
+  });
+
+  it("plain http URLs open unchanged (no https upgrade)", () => {
+    expect(detectSmartActions("http://example.com")[0]).toMatchObject({
+      kind: "open-url",
+      href: "http://example.com",
+    });
+  });
+
+  it("phone digit-count boundaries: 7 and 15 call, 6 and 16 don't", () => {
+    expect(kinds("1234567")).toContain("call");
+    expect(kinds("123456789012345")).toContain("call");
+    expect(kinds("123456")).not.toContain("call");
+    expect(kinds("1234567890123456")).not.toContain("call");
+  });
+
+  it("coordinate range boundaries: ±90/±180 valid, beyond invalid", () => {
+    expect(kinds("90, 180")).toContain("maps");
+    expect(kinds("-90, -180")).toContain("maps");
+    expect(kinds("90.0001, 0")).not.toContain("maps");
+    expect(kinds("0, 180.5")).not.toContain("maps");
+  });
+
+  it("compact coordinates without a space still map", () => {
+    expect(detectSmartActions("48.1,11.5")[0]).toMatchObject({ kind: "maps" });
+  });
+
+  it("integer coordinate pairs are treated as coords, never as a phone number", () => {
+    // "123, 456" matches the coord shape (out of range) — the else-if chain
+    // must not fall through to the phone detector.
+    expect(kinds("123, 456")).toEqual(["qr"]);
+  });
+
+  it("an email with Umlauts still composes (no crash, mailto preserved)", () => {
+    const a = detectSmartActions("grüße@example.de");
+    expect(a[0]).toMatchObject({ kind: "email", href: "mailto:grüße@example.de" });
+  });
+
+  it("an IDN bare domain (non-ASCII) degrades to QR only", () => {
+    // The domain matcher is deliberately ASCII-only.
+    expect(kinds("münchen.de")).toEqual(["qr"]);
+  });
+
+  it("a URL with embedded whitespace is not a URL", () => {
+    expect(kinds("https://exa mple.com")).not.toContain("open-url");
+  });
+
+  it("multi-line content gets no actions at all, even when a line is a URL", () => {
+    expect(kinds("https://example.com\nsecond line")).toEqual([]);
+  });
+
+  it("the tel: href keeps the leading + and strips everything non-digit", () => {
+    const a = detectSmartActions("+1 (555) 123-4567");
+    expect(a[0].href).toBe("tel:+15551234567");
+  });
+});

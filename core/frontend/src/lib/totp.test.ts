@@ -78,4 +78,40 @@ describe("matchTotpEntries", () => {
   it("trims surrounding whitespace in the query", () => {
     expect(matchTotpEntries("  amazon  ", all).map((e) => e.id)).toEqual([1]);
   });
+
+  it("returns [] for an empty entry list, regardless of query", () => {
+    expect(matchTotpEntries("", [])).toEqual([]);
+    expect(matchTotpEntries("amazon", [])).toEqual([]);
+  });
+
+  it("equal scores keep the stored order (stable sort)", () => {
+    // Same-length issuers, same prefix query → identical score.
+    const a = entry(10, "Alpha", "x");
+    const b = entry(11, "Amiga", "y");
+    expect(matchTotpEntries("a", [a, b]).map((e) => e.id)).toEqual([10, 11]);
+    expect(matchTotpEntries("a", [b, a]).map((e) => e.id)).toEqual([11, 10]);
+  });
+
+  it("an earlier issuer-infix match outranks a later one", () => {
+    const early = entry(12, "xgit", "a"); // "git" at index 1
+    const late = entry(13, "xxgit", "b"); // "git" at index 2
+    expect(matchTotpEntries("git", [late, early]).map((e) => e.id)).toEqual([12, 13]);
+  });
+
+  it("matches Umlaut issuers case-insensitively", () => {
+    const ueber = entry(14, "Über-Secure", "me");
+    expect(matchTotpEntries("über", [ueber]).map((e) => e.id)).toEqual([14]);
+    expect(matchTotpEntries("ÜBER", [ueber]).map((e) => e.id)).toEqual([14]);
+  });
+
+  it("matching a full issuer+account query set never invents matches", () => {
+    // Query spanning issuer AND account text matches neither field alone.
+    expect(matchTotpEntries("amazon alice", all)).toEqual([]);
+  });
+
+  it("the account is only consulted when the issuer misses entirely", () => {
+    // "ali" hits both Amazon's and Apple's accounts but no issuer → account tier;
+    // both surface (order preserved: equal account-prefix scores).
+    expect(matchTotpEntries("ali", all).map((e) => e.id)).toEqual([1, 2]);
+  });
 });

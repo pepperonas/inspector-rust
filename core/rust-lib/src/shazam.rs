@@ -833,6 +833,129 @@ mod tests {
     }
 
     #[test]
+    fn parse_response_reads_apple_music_from_hub_options() {
+        let json = serde_json::json!({
+            "track": {
+                "title": "T", "subtitle": "A",
+                "hub": { "options": [
+                    { "actions": [
+                        { "type": "applemusicplay", "uri": "https://music.apple.com/song/1" }
+                    ]}
+                ]}
+            }
+        });
+        let m = parse_response(&json).unwrap();
+        assert_eq!(m.apple_music_url, "https://music.apple.com/song/1");
+    }
+
+    #[test]
+    fn parse_response_spotify_via_caption_case_insensitive() {
+        // Provider identified by a "Spotify" caption (not the SPOTIFY type).
+        let json = serde_json::json!({
+            "track": {
+                "title": "T", "subtitle": "A",
+                "hub": { "providers": [
+                    { "caption": "Spotify", "actions": [
+                        { "uri": "https://open.spotify.com/track/z" }
+                    ]}
+                ]}
+            }
+        });
+        let m = parse_response(&json).unwrap();
+        assert_eq!(m.spotify_url, "https://open.spotify.com/track/z");
+    }
+
+    #[test]
+    fn parse_response_empty_title_is_none() {
+        // A track object with an empty title is treated as no match.
+        let json = serde_json::json!({ "track": { "title": "", "subtitle": "A" } });
+        assert!(parse_response(&json).is_none());
+    }
+
+    #[test]
+    fn parse_response_missing_optional_fields_default_to_empty() {
+        // Only title + subtitle present → everything else empty, links still built.
+        let json = serde_json::json!({ "track": { "title": "Solo", "subtitle": "Nobody" } });
+        let m = parse_response(&json).unwrap();
+        assert!(m.cover_url.is_empty());
+        assert!(m.genre.is_empty());
+        assert!(m.album.is_empty());
+        assert!(m.released.is_empty());
+        assert!(m.apple_music_url.is_empty());
+        assert_eq!(m.spotify_url, "https://open.spotify.com/search/Solo%20Nobody");
+    }
+
+    #[test]
+    fn resample_upsamples_and_handles_empty() {
+        // 8k → 16k doubles the length; endpoints preserved, midpoints interpolated.
+        let out = resample_to_16k_i16(&[0.0, 1.0], 8000);
+        assert_eq!(out.len(), 4);
+        assert_eq!(out[0], 0);
+        // empty input → empty (both the passthrough and the ratio path).
+        assert!(resample_to_16k_i16(&[], 16000).is_empty());
+        assert!(resample_to_16k_i16(&[], 44100).is_empty());
+    }
+
+    #[test]
+    fn signature_samplems_uses_sample_count() {
+        // 1.5 s of silence → 1500 ms; the header + envelope are still valid.
+        let (_, ms) = signature_for(&vec![0i16; SAMPLE_RATE as usize * 3 / 2]);
+        assert_eq!(ms, 1500);
+    }
+
+    #[test]
+    fn history_dedup_is_only_against_the_most_recent() {
+        use parking_lot::Mutex;
+        use std::sync::Arc;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let db: DbHandle = Arc::new(Mutex::new(conn));
+        let a = ShazamMatch { title: "A".into(), artist: "x".into(), ..Default::default() };
+        let b = ShazamMatch { title: "B".into(), artist: "x".into(), ..Default::default() };
+        history_insert(&db, &a).unwrap();
+        history_insert(&db, &b).unwrap();
+        // A again — it is NOT the most recent (B is), so it inserts a fresh row.
+        history_insert(&db, &a).unwrap();
+        assert_eq!(history_list(&db, 50).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn history_list_respects_limit_and_roundtrips_all_fields() {
+        use parking_lot::Mutex;
+        use std::sync::Arc;
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let db: DbHandle = Arc::new(Mutex::new(conn));
+        let full = ShazamMatch {
+            title: "T".into(),
+            artist: "A".into(),
+            cover_url: "http://c".into(),
+            shazam_url: "http://s".into(),
+            spotify_url: "http://sp".into(),
+            youtube_url: "http://yt".into(),
+            genre: "Rock".into(),
+            album: "Alb".into(),
+            released: "2001".into(),
+            ..Default::default()
+        };
+        history_insert(&db, &full).unwrap();
+        history_insert(&db, &ShazamMatch { title: "T2".into(), artist: "A".into(), ..Default::default() }).unwrap();
+        // limit 1 → only the newest row.
+        let one = history_list(&db, 1).unwrap();
+        assert_eq!(one.len(), 1);
+        assert_eq!(one[0].title, "T2");
+        // find the fully-populated row and check every column round-tripped.
+        let all = history_list(&db, 50).unwrap();
+        let row = all.iter().find(|e| e.title == "T").unwrap();
+        assert_eq!(row.cover_url, "http://c");
+        assert_eq!(row.spotify_url, "http://sp");
+        assert_eq!(row.youtube_url, "http://yt");
+        assert_eq!(row.genre, "Rock");
+        assert_eq!(row.album, "Alb");
+        assert_eq!(row.released, "2001");
+    }
+
+    #[test]
     fn history_insert_list_dedup_delete_clear() {
         use parking_lot::Mutex;
         use std::sync::Arc;

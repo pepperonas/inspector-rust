@@ -172,4 +172,150 @@ mod tests {
         set_defaults(&db, &bad).unwrap();
         assert_eq!(get_defaults(&db).unwrap().tax_class, 6);
     }
+
+    #[test]
+    fn tax_class_zero_clamps_up_to_1() {
+        let db = mem_db();
+        let bad = BrunoDefaults {
+            tax_class: 0,
+            ..Default::default()
+        };
+        set_defaults(&db, &bad).unwrap();
+        assert_eq!(get_defaults(&db).unwrap().tax_class, 1);
+    }
+
+    #[test]
+    fn health_add_and_children_are_clamped() {
+        let db = mem_db();
+        // Negative Zusatzbeitrag → floor 0; absurd 99 % → ceiling 10.
+        set_defaults(
+            &db,
+            &BrunoDefaults { health_add: -5.0, ..Default::default() },
+        )
+        .unwrap();
+        assert_eq!(get_defaults(&db).unwrap().health_add, 0.0);
+        set_defaults(
+            &db,
+            &BrunoDefaults { health_add: 99.0, children: 999, ..Default::default() },
+        )
+        .unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.health_add, 10.0);
+        assert_eq!(back.children, 20, "children capped at 20");
+    }
+
+    #[test]
+    fn corrupt_stored_values_fall_back_to_defaults() {
+        // Simulate hand-edited / garbage settings rows: every numeric field
+        // must degrade to its default instead of erroring.
+        let db = mem_db();
+        settings::set(&db, KEY_TAX_CLASS, "not-a-number").unwrap();
+        settings::set(&db, KEY_CHILDREN, "-3").unwrap(); // u32 parse fails
+        settings::set(&db, KEY_HEALTH_ADD, "2,45").unwrap(); // German comma
+        settings::set(&db, KEY_CHURCH, "vielleicht").unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.tax_class, 1);
+        assert_eq!(back.children, 0);
+        assert!((back.health_add - 2.45).abs() < 1e-6);
+        assert!(!back.is_church_member, "unparsable bool → default false");
+    }
+
+    #[test]
+    fn every_whitelisted_state_persists_verbatim() {
+        let db = mem_db();
+        for state in [
+            "bw", "by", "be", "bb", "hb", "hh", "he", "mv", "ni", "nw", "rp", "sl",
+            "sn", "st", "sh", "th",
+        ] {
+            set_defaults(
+                &db,
+                &BrunoDefaults { state: state.to_string(), ..Default::default() },
+            )
+            .unwrap();
+            assert_eq!(get_defaults(&db).unwrap().state, state);
+        }
+    }
+
+    #[test]
+    fn uppercase_state_is_not_whitelisted() {
+        // The whitelist compares exact lowercase codes — "BY" is coerced.
+        let db = mem_db();
+        set_defaults(
+            &db,
+            &BrunoDefaults { state: "BY".to_string(), ..Default::default() },
+        )
+        .unwrap();
+        assert_eq!(get_defaults(&db).unwrap().state, "nw");
+    }
+
+    #[test]
+    fn partially_stored_settings_mix_with_defaults() {
+        // Only some keys present (e.g. an older build persisted fewer fields):
+        // stored values win, everything else falls back to the default.
+        let db = mem_db();
+        settings::set(&db, KEY_STATE, "he").unwrap();
+        settings::set(&db, KEY_CHURCH, "true").unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.state, "he");
+        assert!(back.is_church_member);
+        assert_eq!(back.tax_class, 1, "unset field → default");
+        assert_eq!(back.children, 0);
+        assert!((back.health_add - 2.45).abs() < 1e-6);
+    }
+
+    #[test]
+    fn boundary_values_persist_verbatim() {
+        // Values exactly AT the clamp bounds must survive unchanged (the clamp
+        // may only coerce out-of-range input, never legal extremes).
+        let db = mem_db();
+        set_defaults(
+            &db,
+            &BrunoDefaults {
+                tax_class: 6,
+                children: 20,
+                health_add: 10.0,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.tax_class, 6);
+        assert_eq!(back.children, 20);
+        assert_eq!(back.health_add, 10.0);
+        // Zero Zusatzbeitrag is a legal value (private insurance corner case).
+        set_defaults(&db, &BrunoDefaults { health_add: 0.0, ..Default::default() }).unwrap();
+        assert_eq!(get_defaults(&db).unwrap().health_add, 0.0);
+    }
+
+    #[test]
+    fn fractional_health_add_round_trips_through_the_string_store() {
+        // health_add rides through settings as a string — a lossy format!()
+        // would silently drift the contribution rate over save/load cycles.
+        let db = mem_db();
+        for v in [0.1, 1.05, 2.45, 3.333, 9.99] {
+            set_defaults(&db, &BrunoDefaults { health_add: v, ..Default::default() }).unwrap();
+            let back = get_defaults(&db).unwrap().health_add;
+            assert!((back - v).abs() < 1e-9, "health_add {v} came back as {back}");
+        }
+    }
+
+    #[test]
+    fn re_set_overwrites_previous_values() {
+        let db = mem_db();
+        set_defaults(
+            &db,
+            &BrunoDefaults {
+                tax_class: 4,
+                is_church_member: true,
+                children: 3,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        set_defaults(&db, &BrunoDefaults::default()).unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.tax_class, 1);
+        assert!(!back.is_church_member, "church=true must be overwritten by false");
+        assert_eq!(back.children, 0);
+    }
 }

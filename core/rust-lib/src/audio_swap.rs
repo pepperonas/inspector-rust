@@ -404,6 +404,62 @@ mod tests {
     }
 
     #[test]
+    fn is_video_path_covers_all_known_extensions() {
+        for ok in ["a.mkv", "a.avi", "a.webm", "a.m4v", "a.MOV", "a.Mp4"] {
+            assert!(is_video_path(Path::new(ok)), "{ok} should be a video");
+        }
+        for no in ["a.gif", "a.wav", "a.txt", "a"] {
+            assert!(!is_video_path(Path::new(no)), "{no} should not be a video");
+        }
+    }
+
+    #[test]
+    fn output_path_for_handles_missing_stem_and_relative_paths() {
+        // No parent → sibling in the current dir.
+        assert_eq!(output_path_for(Path::new("clip.mp4")), PathBuf::from("clip-audioswap.mp4"));
+        // Dotfile with no stem falls back to a literal "video" stem.
+        assert_eq!(output_path_for(Path::new("/x/.mov")), PathBuf::from("/x/.mov-audioswap.mp4"));
+    }
+
+    #[test]
+    fn unity_overlay_volume_omits_the_volume_filter() {
+        // overlay_volume == 1.0 → no `volume=` node in the inserted chain.
+        let args = build_swap_args("v.mp4", "a.m4a", &spec(SwapMode::Replace), "out.mp4");
+        let graph = &args[args.iter().position(|x| x == "-filter_complex").unwrap() + 1];
+        assert!(!graph.contains("volume="), "graph={graph}");
+    }
+
+    #[test]
+    fn negative_start_clamps_to_no_delay_and_trailing_zeros_trimmed() {
+        let mut s = spec(SwapMode::Replace);
+        s.start_seconds = -3.0; // clamped to 0 → no adelay
+        s.audio_in = 2.500; // fmt trims trailing zeros → "2.5"
+        s.audio_out = Some(10.0); // → "10"
+        let args = build_swap_args("v.mp4", "a.m4a", &s, "out.mp4");
+        let graph = &args[args.iter().position(|x| x == "-filter_complex").unwrap() + 1];
+        assert!(!graph.contains("adelay"), "negative start → no delay: {graph}");
+        assert!(graph.contains("atrim=start=2.5:end=10"), "graph={graph}");
+    }
+
+    #[test]
+    fn mix_at_unity_maps_original_directly_without_orig_relabel() {
+        // original_volume == 1.0 → uses [0:a] directly, no [orig] label.
+        let args = build_swap_args("v.mp4", "a.m4a", &spec(SwapMode::Mix), "out.mp4");
+        let graph = &args[args.iter().position(|x| x == "-filter_complex").unwrap() + 1];
+        assert!(!graph.contains("[orig]"), "graph={graph}");
+        assert!(graph.contains("[0:a][ins]amix"));
+    }
+
+    #[test]
+    fn common_encode_flags_are_always_appended() {
+        let args = build_swap_args("v.mp4", "a.m4a", &spec(SwapMode::Mix), "out.mp4");
+        assert!(args.windows(2).any(|w| w[0] == "-c:a" && w[1] == "aac"));
+        assert!(args.windows(2).any(|w| w[0] == "-b:a" && w[1] == "192k"));
+        assert!(args.windows(2).any(|w| w[0] == "-movflags" && w[1] == "+faststart"));
+        assert_eq!(args.last().unwrap(), "out.mp4"); // output is the final arg
+    }
+
+    #[test]
     fn download_rejects_non_http_urls() {
         // No subprocess is spawned for a bad scheme (argv-injection guard).
         let dir = std::env::temp_dir();

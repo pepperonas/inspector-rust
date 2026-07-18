@@ -63,4 +63,60 @@ describe("scrambleFrame", () => {
     expect(scrambleFrame("12", LOCK_START - 0.01, () => 0.3)).toBe("33");
     expect(scrambleFrame("12", LOCK_START, () => 0.3)).toBe("13");
   });
+
+  it("empty string stays empty at any progress", () => {
+    expect(scrambleFrame("", 0)).toBe("");
+    expect(scrambleFrame("", 0.5)).toBe("");
+    expect(digitCount("")).toBe(0);
+  });
+
+  it("preserves output length and non-digit positions exactly", () => {
+    const target = "-1,234.56 km/h";
+    for (const p of [0, 0.3, 0.7, 1]) {
+      const out = scrambleFrame(target, p, fixed(0.42));
+      expect(out.length).toBe(target.length);
+      for (let i = 0; i < target.length; i++) {
+        const ch = target[i];
+        if (ch < "0" || ch > "9") expect(out[i]).toBe(ch);
+        else expect(out[i] >= "0" && out[i] <= "9").toBe(true);
+      }
+    }
+  });
+
+  it("locking is monotonic: locked digits never unlock as progress advances", () => {
+    const target = "987654";
+    const wrong = fixed(0.0); // unlocked digits render as 0 (≠ any target digit)
+    let prevLocked = 0;
+    for (let p = 0; p <= 1.001; p += 0.05) {
+      const out = scrambleFrame(target, Math.min(1, p), wrong);
+      // Count the left-to-right digits already showing their final value.
+      let locked = 0;
+      while (locked < target.length && out[locked] === target[locked]) locked++;
+      expect(locked).toBeGreaterThanOrEqual(prevLocked);
+      // The cascade is strictly left→right: after the locked prefix every
+      // remaining digit still shows the scramble value.
+      for (let i = locked; i < target.length; i++) expect(out[i]).toBe("0");
+      prevLocked = locked;
+    }
+    expect(prevLocked).toBe(target.length);
+  });
+
+  it("Unicode passes through untouched — only ASCII digits spin", () => {
+    // Umlauts, emoji (surrogate pairs) and Arabic-Indic digits are non-spinning.
+    expect(scrambleFrame("Grüße 42", 0, fixed(0.7))).toBe("Grüße 77");
+    expect(scrambleFrame("🚀7", 0, fixed(0.2))).toBe("🚀2");
+    expect(scrambleFrame("٣٤", 0.5)).toBe("٣٤"); // U+0663/0664 are not [0-9]
+    expect(digitCount("٣٤")).toBe(0);
+    expect(digitCount("🚀 42")).toBe(2);
+  });
+
+  it("just below progress 1 the rightmost digit still spins", () => {
+    expect(scrambleFrame("1234", 0.999, fixed(0.9))).toBe("1239");
+  });
+
+  it("default rng produces only digits at digit positions", () => {
+    // No injected rng — the Math.random path must still emit valid digits.
+    const out = scrambleFrame("0000000000", 0);
+    expect(out).toMatch(/^[0-9]{10}$/);
+  });
 });

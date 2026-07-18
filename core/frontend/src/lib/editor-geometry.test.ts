@@ -90,4 +90,70 @@ describe("nextStepNumber", () => {
     ];
     expect(nextStepNumber(anns)).toBe(4);
   });
+  it("order of annotations doesn't matter", () => {
+    const anns: Annotation[] = [
+      { type: "step", x: 0, y: 0, number: 5, color: "#f00", size: 16 },
+      { type: "step", x: 0, y: 0, number: 2, color: "#f00", size: 16 },
+    ];
+    expect(nextStepNumber(anns)).toBe(6);
+    expect(nextStepNumber([...anns].reverse())).toBe(6);
+  });
+  it("recovers from zero / negative badge numbers", () => {
+    const anns: Annotation[] = [
+      { type: "step", x: 0, y: 0, number: 0, color: "#f00", size: 16 },
+      { type: "step", x: 0, y: 0, number: -3, color: "#f00", size: 16 },
+    ];
+    expect(nextStepNumber(anns)).toBe(1);
+  });
+});
+
+describe("dragRect — negative-coordinate space", () => {
+  it("normalises drags entirely in negative coordinates", () => {
+    expect(dragRect({ x: -10, y: -5 }, { x: -2, y: -1 })).toEqual({
+      x: -10,
+      y: -5,
+      w: 8,
+      h: 4,
+    });
+  });
+  it("handles a drag crossing the origin", () => {
+    expect(dragRect({ x: 5, y: -3 }, { x: -5, y: 3 })).toEqual({ x: -5, y: -3, w: 10, h: 6 });
+  });
+});
+
+describe("makeDragAnnotation — shape payload details", () => {
+  const a = { x: 0, y: 0 };
+  const b = { x: 30, y: 40 };
+
+  it("an unknown tool yields null (no half-built annotation)", () => {
+    expect(makeDragAnnotation("bogus" as never, a, b, "#fff", 4)).toBeNull();
+  });
+
+  it("blur block size boundary: width 2 stays at the 6px minimum, width 3 exceeds it", () => {
+    expect(makeDragAnnotation("blur", a, b, "#fff", 2)).toMatchObject({ blockSize: 6 });
+    expect(makeDragAnnotation("blur", a, b, "#fff", 3)).toMatchObject({ blockSize: 9 });
+  });
+
+  it("highlight and redact carry no stroke width (fill-only shapes)", () => {
+    const h = makeDragAnnotation("highlight", a, b, "#fff", 4)!;
+    const r = makeDragAnnotation("redact", a, b, "#fff", 4)!;
+    expect("width" in h).toBe(false);
+    expect("width" in r).toBe(false);
+    expect("color" in r).toBe(false); // redact is always opaque black at draw time
+  });
+
+  it("a reversed drag produces the same rect shape for every rect tool", () => {
+    for (const tool of ["rect", "ellipse", "highlight", "blur", "redact"] as const) {
+      const fwd = makeDragAnnotation(tool, a, b, "#fff", 4);
+      const rev = makeDragAnnotation(tool, b, a, "#fff", 4);
+      expect(rev).toEqual(fwd);
+    }
+  });
+
+  it("arrow/line preserve drag direction (reversed drag ≠ same annotation)", () => {
+    const fwd = makeDragAnnotation("arrow", a, b, "#fff", 4);
+    const rev = makeDragAnnotation("arrow", b, a, "#fff", 4);
+    expect(rev).not.toEqual(fwd); // the arrowhead sits at the release point
+    expect(rev).toMatchObject({ x1: 30, y1: 40, x2: 0, y2: 0 });
+  });
 });

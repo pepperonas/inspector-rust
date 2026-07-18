@@ -463,6 +463,61 @@ mod tests {
     }
 
     #[test]
+    fn rgb_to_xy_white_is_near_d65() {
+        // Pure white should map close to the D65 white point (0.3127, 0.3290).
+        let (x, y) = rgb_to_xy(255, 255, 255);
+        assert!((x - 0.3127).abs() < 0.01, "white x={x}");
+        assert!((y - 0.3290).abs() < 0.01, "white y={y}");
+    }
+
+    #[test]
+    fn bri_to_percent_clamps_at_the_top() {
+        // bri 255 (a u8 max, above the nominal 254) still maps to 100, never > 100.
+        assert_eq!(bri_to_percent(255), 100);
+        // Every bri maps into [0,100].
+        for b in 0u8..=255 {
+            let p = bri_to_percent(b);
+            assert!(p <= 100, "bri {b} → {p}");
+        }
+    }
+
+    #[test]
+    fn percent_to_bri_is_monotonic() {
+        // Increasing brightness % never decreases the mapped bri.
+        let mut prev = 0u8;
+        for p in 0u8..=100 {
+            let bri = percent_to_bri(p);
+            assert!(bri >= prev, "bri dropped at {p}% ({prev} → {bri})");
+            prev = bri;
+        }
+    }
+
+    #[test]
+    fn state_body_on_without_brightness_or_with_bad_hex() {
+        // On, no brightness, no colour → just {on:true}.
+        let plain = build_state_body(true, None, None);
+        assert_eq!(plain.get("on").unwrap(), &serde_json::Value::Bool(true));
+        assert!(plain.get("bri").is_none());
+        assert!(plain.get("xy").is_none());
+        // On with an unparseable hex → no xy (hex_to_rgb returns None).
+        let bad = build_state_body(true, None, Some("#zzz"));
+        assert!(bad.get("xy").is_none());
+    }
+
+    #[test]
+    fn parse_light_unreachable_and_hue_only_is_colour() {
+        // reachable=false surfaces; a bulb exposing `hue` (but no xy) is colour.
+        let v = serde_json::json!({
+            "name": "Nook", "type": "Color light",
+            "state": { "on": true, "bri": 100, "hue": 12000, "reachable": false }
+        });
+        let l = parse_light("7", &v).unwrap();
+        assert!(!l.reachable);
+        assert!(l.supports_color, "hue field → colour-capable");
+        assert!(l.dimmable);
+    }
+
+    #[test]
     fn parse_light_defaults_name_and_reachable_when_absent() {
         // Missing name → "Lamp"; missing reachable → assumed reachable (true).
         let v = serde_json::json!({ "state": { "on": true } });

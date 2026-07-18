@@ -365,7 +365,12 @@ fn donut_path(cx: f64, cy: f64, r_out: f64, r_in: f64, a0: f64, a1: f64) -> Stri
     let (ox1, oy1) = polar(r_out, a1 + eps);
     let (ix1, iy1) = polar(r_in, a1 + eps);
     let (ix0, iy0) = polar(r_in, a0);
-    let large = if sweep % 360.0 > 180.0 { 1 } else { 0 };
+    // Must be `> 180`, NOT `% 360 > 180`: a full circle (sweep 360, the
+    // single-category donut) needs the large-arc flag SET — its eps-shortened
+    // 359.999° arc spans nearly the whole ring; `360 % 360 → 0` cleared it and
+    // the ring rendered as an invisible sliver. (Same fix as the frontend
+    // `donutSegmentPath` in lib/timesheet.ts.)
+    let large = if sweep > 180.0 { 1 } else { 0 };
     format!(
         "M {ox0:.2} {oy0:.2} A {r_out} {r_out} 0 {large} 1 {ox1:.2} {oy1:.2} L {ix1:.2} {iy1:.2} A {r_in} {r_in} 0 {large} 0 {ix0:.2} {iy0:.2} Z"
     )
@@ -790,5 +795,23 @@ mod tests {
         assert!(out.contains("github.com"));
         assert!(out.contains("main.rs"));
         assert!(!out.contains("http://")); // still self-contained
+    }
+
+    /// Regression: a FULL-CIRCLE donut segment (one single category = sweep
+    /// 360°) must carry the SVG large-arc flag — `sweep % 360 > 180` computed
+    /// `0` for it and the ring rendered as an invisible sliver. (Same bug
+    /// existed in the frontend `donutSegmentPath`; both fixed together.)
+    #[test]
+    fn donut_full_circle_sets_the_large_arc_flag() {
+        let full = donut_path(80.0, 80.0, 70.0, 44.0, 0.0, 360.0);
+        // Both arc commands ("A rx ry rot LARGE sweep x y") must have large=1.
+        assert!(full.contains("A 70 70 0 1 1"), "outer arc must be large: {full}");
+        assert!(full.contains("A 44 44 0 1 0"), "inner arc must be large: {full}");
+        // A minor segment keeps large=0…
+        let minor = donut_path(80.0, 80.0, 70.0, 44.0, 0.0, 90.0);
+        assert!(minor.contains("A 70 70 0 0 1"), "minor arc must be small: {minor}");
+        // …and a major (>180°) one sets it.
+        let major = donut_path(80.0, 80.0, 70.0, 44.0, 0.0, 270.0);
+        assert!(major.contains("A 70 70 0 1 1"), "major arc must be large: {major}");
     }
 }

@@ -219,6 +219,53 @@ mod tests {
     }
 
     #[test]
+    fn rejects_undecodable_bytes() {
+        // Garbage that no decoder recognises → an error, not a panic.
+        assert!(cut_out_background(b"not an image at all").is_err());
+        assert!(cut_out_background(&[]).is_err());
+    }
+
+    #[test]
+    fn feathers_the_band_between_inner_and_outer() {
+        // Background gray; a centre region offset by 40 per channel → dist_sq =
+        // 3*40*40 = 4800, which is > outer (2500) → fully opaque. So to land IN
+        // the feather band we need a smaller offset. 20/channel → 3*400 = 1200,
+        // between inner(900) and outer(2500) → partial alpha (0 < a < 255).
+        let img: ImageBuffer<Rgba<u8>, Vec<u8>> = ImageBuffer::from_fn(64, 64, |x, y| {
+            let in_subject = x > 20 && x < 44 && y > 20 && y < 44;
+            if in_subject {
+                Rgba([120, 120, 120, 255]) // 20 above the (100,100,100) bg per channel
+            } else {
+                Rgba([100, 100, 100, 255])
+            }
+        });
+        let mut png = Vec::new();
+        img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
+        let res = cut_out_background(&png).unwrap();
+        assert_eq!(res.background, (100, 100, 100));
+        let out = image::load_from_memory(&res.png).unwrap().to_rgba8();
+        // Background corner → transparent.
+        assert_eq!(out.get_pixel(2, 2).0[3], 0);
+        // Subject centre → feathered (strictly between transparent and opaque).
+        let a = out.get_pixel(32, 32).0[3];
+        assert!(a > 0 && a < 255, "feathered alpha expected, got {a}");
+    }
+
+    #[test]
+    fn handles_tiny_image_below_corner_side() {
+        // A 4×4 image is smaller than CORNER_SIDE (8) — the sampler clamps and
+        // still produces a background estimate without panicking.
+        let png = solid_png(4, 4, [200, 50, 50, 255]);
+        let res = cut_out_background(&png).unwrap();
+        assert_eq!(res.background, (200, 50, 50));
+        let out = image::load_from_memory(&res.png).unwrap().to_rgba8();
+        // Uniform → fully knocked out.
+        for p in out.pixels() {
+            assert_eq!(p.0[3], 0);
+        }
+    }
+
+    #[test]
     fn ignores_already_transparent_corners() {
         // PNG with alpha=0 corners shouldn't bias the background sampler
         // toward pure black.

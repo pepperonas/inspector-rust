@@ -758,6 +758,91 @@ mod tests {
         cleanup(&s);
     }
 
+    #[test]
+    fn disable_when_already_off_is_a_noop_reporting_false() {
+        // Fresh state starts off; disabling again must not spawn/kill anything
+        // and must report the (unchanged) off state.
+        let s = WakelockState::default();
+        assert!(!set_enabled(&s, false));
+        assert!(!is_enabled(&s));
+        #[cfg(target_os = "macos")]
+        assert!(s.caffeinate.lock().is_none());
+        #[cfg(not(target_os = "macos"))]
+        assert!(s.stop.lock().is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn disable_kills_and_clears_the_caffeinate_child() {
+        let s = WakelockState::default();
+        set_enabled(&s, true);
+        assert!(s.caffeinate.lock().is_some());
+        assert!(!set_enabled(&s, false));
+        // The child handle is taken + reaped — nothing left to leak.
+        assert!(s.caffeinate.lock().is_none());
+        assert!(!is_enabled(&s));
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    #[test]
+    fn disable_signals_stop_and_clears_worker_handles() {
+        let s = WakelockState::default();
+        set_enabled(&s, true);
+        let stop = { s.stop.lock().as_ref().cloned() }.expect("worker armed");
+        assert!(!set_enabled(&s, false));
+        // The taken stop flag was signalled so the worker exits on its next tick.
+        assert!(stop.load(Ordering::SeqCst));
+        assert!(s.stop.lock().is_none());
+        assert!(s.handle.lock().is_none());
+    }
+
+    #[test]
+    fn rapid_toggle_cycles_end_in_a_clean_off_state() {
+        // off→on→off repeated: each cycle must fully own its side effects (a
+        // resurrected stale worker/child was the pre-CAS bug class).
+        let s = WakelockState::default();
+        for _ in 0..3 {
+            assert!(set_enabled(&s, true));
+            assert!(!set_enabled(&s, false));
+        }
+        assert!(!is_enabled(&s));
+        #[cfg(target_os = "macos")]
+        assert!(s.caffeinate.lock().is_none());
+        #[cfg(not(target_os = "macos"))]
+        assert!(s.stop.lock().is_none());
+    }
+
+    #[test]
+    fn should_reap_requires_the_full_flag_signature() {
+        // Empty argv (kernel denied cmdline read) → never reap.
+        assert!(!should_reap_caffeinate("caffeinate", Some(1), &[]));
+        // -disu embedded in a combined token doesn't count — exact arg match.
+        assert!(!should_reap_caffeinate(
+            "caffeinate",
+            Some(1),
+            &["/usr/bin/caffeinate".into(), "-disuw".into()]
+        ));
+        // Flag order doesn't matter: -w anywhere in argv protects the process.
+        assert!(!should_reap_caffeinate(
+            "caffeinate",
+            Some(1),
+            &["/usr/bin/caffeinate".into(), "-w".into(), "77".into(), "-disu".into()]
+        ));
+    }
+
+    #[test]
+    fn should_reap_matches_the_process_name_exactly() {
+        let disu: Vec<String> = vec!["/usr/bin/caffeinate".into(), "-disu".into()];
+        // The predicate keys on the bare process NAME — a path-form or
+        // differently-cased name must never match (conservative by design:
+        // we'd rather leave an orphan than kill an unrelated tool).
+        assert!(!should_reap_caffeinate("/usr/bin/caffeinate", Some(1), &disu));
+        assert!(!should_reap_caffeinate("Caffeinate", Some(1), &disu));
+        assert!(!should_reap_caffeinate("", Some(1), &disu));
+        // Parent pid 0 (kernel) is not launchd — leave it alone.
+        assert!(!should_reap_caffeinate("caffeinate", Some(0), &disu));
+    }
+
     /// macOS variant of the concurrent-CAS test: 16 racing threads
     /// must end with exactly **one** `caffeinate` child running, not
     /// 16 orphans.

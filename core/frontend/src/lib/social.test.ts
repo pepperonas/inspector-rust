@@ -36,4 +36,46 @@ describe("detectSocial", () => {
     expect(platformLabel("tiktok")).toBe("TikTok");
     expect(platformLabel("facebook")).toBe("Facebook");
   });
+
+  it("classifies the FIRST URL in the text (documented contract)", () => {
+    // A non-social URL first means no download suggestion, even if a social
+    // link follows — the detector inspects only the first match.
+    expect(detectSocial("see https://example.com and https://youtu.be/x")).toBeNull();
+    const t = detectSocial("https://youtu.be/a then https://www.tiktok.com/@u/video/1");
+    expect(t?.platform).toBe("youtube");
+    expect(t?.url).toBe("https://youtu.be/a");
+  });
+
+  it("terminates the URL at whitespace, quotes and angle brackets", () => {
+    expect(detectSocial('<https://youtu.be/abc>')?.url).toBe("https://youtu.be/abc");
+    expect(detectSocial('link: "https://youtu.be/abc" ok')?.url).toBe("https://youtu.be/abc");
+    expect(detectSocial("'https://www.tiktok.com/@u/video/1'")?.url).toBe(
+      "https://www.tiktok.com/@u/video/1",
+    );
+    expect(detectSocial("https://youtu.be/abc\nnext line")?.url).toBe("https://youtu.be/abc");
+  });
+
+  it("is case-insensitive on scheme + host but preserves the original URL", () => {
+    const t = detectSocial("HTTPS://WWW.YOUTUBE.COM/watch?v=AbC");
+    expect(t?.platform).toBe("youtube");
+    expect(t?.url).toBe("HTTPS://WWW.YOUTUBE.COM/watch?v=AbC");
+  });
+
+  it("accepts plain http and the fb.com / facebook.com hosts", () => {
+    expect(detectSocial("http://youtube.com/watch?v=x")?.platform).toBe("youtube");
+    expect(detectSocial("https://fb.com/watch/123")?.platform).toBe("facebook");
+    expect(detectSocial("https://www.facebook.com/watch?v=1")?.platform).toBe("facebook");
+  });
+
+  it("returns null for empty / scheme-less input", () => {
+    expect(detectSocial("")).toBeNull();
+    expect(detectSocial("ftp://youtube.com/x")).toBeNull();
+    expect(detectSocial("www.youtube.com/watch?v=x")).toBeNull();
+  });
+
+  it("finds the URL amid Umlaut text", () => {
+    const t = detectSocial("Schau das an: https://youtu.be/xyz — großartig!");
+    expect(t?.platform).toBe("youtube");
+    expect(t?.url).toBe("https://youtu.be/xyz");
+  });
 });

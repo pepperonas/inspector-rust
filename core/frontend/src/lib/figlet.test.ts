@@ -114,3 +114,88 @@ describe("optsFromDefaults", () => {
     });
   });
 });
+
+describe("parseFigletCommand — flag/font edge cases", () => {
+  it("last @font wins when several are given", () => {
+    const p = parseFigletCommand("@slant hi @doh");
+    expect(p.fontQuery).toBe("doh");
+    expect(p.text).toBe("hi");
+  });
+  it("a lone @ is literal text, not an empty font query", () => {
+    const p = parseFigletCommand("a @ b");
+    expect(p.fontQuery).toBeNull();
+    expect(p.text).toBe("a @ b");
+  });
+  it("later conflicting flags override earlier ones", () => {
+    expect(parseFigletCommand("x --center --right").opts.align).toBe("right");
+    expect(parseFigletCommand("x --box --no-box").opts.boxed).toBe(false);
+    expect(parseFigletCommand("x --no-trim --trim").opts.trim).toBe(true);
+  });
+  it("--width without a value or non-numeric is ignored", () => {
+    expect(parseFigletCommand("x --width").opts.width).toBeUndefined();
+    expect(parseFigletCommand("x --width=abc").opts.width).toBeUndefined();
+  });
+  it("--width=0 disables wrapping (0 is a valid value)", () => {
+    expect(parseFigletCommand("x --width=0").opts.width).toBe(0);
+  });
+  it("--comment without =value is ignored (empty is not a style)", () => {
+    expect(parseFigletCommand("x --comment").opts.comment).toBeUndefined();
+  });
+  it("every valid comment style parses", () => {
+    for (const c of ["none", "slashes", "hash", "block", "html"] as const) {
+      expect(parseFigletCommand(`x --comment=${c}`).opts.comment).toBe(c);
+    }
+  });
+  it("umlauts and emoji stay verbatim in the banner text", () => {
+    expect(parseFigletCommand("Grüße 🎉 @slant").text).toBe("Grüße 🎉");
+  });
+  it("whitespace-only arg behaves like empty", () => {
+    const p = parseFigletCommand("   ");
+    expect(p.text).toBe("");
+    expect(p.fontQuery).toBeNull();
+    expect(p.opts).toEqual({});
+  });
+  it("a single-dash token is literal text (flags need --)", () => {
+    expect(parseFigletCommand("-center hi").text).toBe("-center hi");
+  });
+});
+
+describe("fuzzyFont — ranking details", () => {
+  it("prefers the shorter name on equal-quality prefix matches", () => {
+    const fonts: FigletFontMeta[] = [
+      { name: "small", category: "x", popular: false, pinned: false },
+      { name: "smallcaps", category: "x", popular: false, pinned: false },
+    ];
+    expect(fuzzyFont("sma", fonts)).toBe("small");
+  });
+  it("is case-insensitive on the query", () => {
+    expect(fuzzyFont("SLANT", FONTS)).toBe("slant");
+  });
+  it("whitespace-padded query still resolves", () => {
+    expect(fuzzyFont("  slant  ", FONTS)).toBe("slant");
+  });
+  it("empty catalogue → null", () => {
+    expect(fuzzyFont("slant", [])).toBeNull();
+  });
+});
+
+describe("galleryFonts — ordering details", () => {
+  it("empty-string query behaves like no query (default ranking)", () => {
+    expect(galleryFonts("", FONTS).map((f) => f.name)).toEqual(
+      galleryFonts(null, FONTS).map((f) => f.name),
+    );
+  });
+  it("does not mutate the input array", () => {
+    const copy = [...FONTS];
+    galleryFonts(null, FONTS);
+    expect(FONTS).toEqual(copy);
+  });
+  it("query matching nothing → empty list, not the full catalogue", () => {
+    expect(galleryFonts("zzzz", FONTS)).toEqual([]);
+  });
+  it("ties within a rank break alphabetically", () => {
+    const names = galleryFonts(null, FONTS).map((f) => f.name);
+    const popular = names.slice(0, 6); // all popular fonts, none pinned
+    expect(popular).toEqual([...popular].sort((a, b) => a.localeCompare(b)));
+  });
+});

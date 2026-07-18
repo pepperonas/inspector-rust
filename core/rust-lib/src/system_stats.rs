@@ -725,6 +725,45 @@ mod summarize_tests {
     fn empty_input_yields_empty() {
         assert!(summarize_temps(&[]).is_empty());
     }
+
+    #[test]
+    fn all_four_buckets_are_ordered_cpu_gpu_battery_ssd() {
+        let raw = vec![
+            t("nvme temp", 40.0),        // SSD
+            t("battery", 30.0),          // Battery
+            t("GPU die", 55.0),          // GPU
+            t("Core 0", 50.0),           // CPU
+        ];
+        let out = summarize_temps(&raw);
+        let labels: Vec<&str> = out.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, vec!["CPU", "GPU", "Battery", "SSD"]);
+    }
+
+    #[test]
+    fn gpu_and_tg0_labels_bucket_as_gpu() {
+        let raw = vec![t("TG0D", 60.0), t("gpu proximity", 62.0)];
+        let out = summarize_temps(&raw);
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].label, "GPU");
+        assert_eq!(out[0].celsius, 61.0); // mean(60,62)
+    }
+
+    #[test]
+    fn classification_is_case_insensitive() {
+        // Uppercase labels still classify (the matcher lowercases first).
+        let raw = vec![t("TDIE 0", 44.0), t("NAND FLASH", 38.0)];
+        let out = summarize_temps(&raw);
+        let labels: Vec<&str> = out.iter().map(|o| o.label.as_str()).collect();
+        assert_eq!(labels, vec!["CPU", "SSD"]);
+    }
+
+    #[test]
+    fn averages_round_to_one_decimal() {
+        // mean(45.0, 46.0, 46.0) = 45.6667 → rounded to 45.7.
+        let raw = vec![t("cpu a", 45.0), t("cpu b", 46.0), t("cpu c", 46.0)];
+        let out = summarize_temps(&raw);
+        assert_eq!(out[0].celsius, 45.7);
+    }
 }
 
 #[cfg(test)]
@@ -804,5 +843,31 @@ mod smc_tests {
     fn decode_ui_ints_big_endian() {
         assert_eq!(decode(u32::from_be_bytes(*b"ui8 "), &[42]), Some(42.0));
         assert_eq!(decode(u32::from_be_bytes(*b"ui16"), &[0x01, 0x00]), Some(256.0));
+    }
+
+    #[test]
+    fn decode_fp1f_fixed_point() {
+        // fp1f: ((b0<<8)|b1) >> 1, / 16384. 0x4000 >> 1 = 0x2000 = 8192 → 0.5.
+        assert_eq!(decode(u32::from_be_bytes(*b"fp1f"), &[0x40, 0x00]), Some(0.5));
+    }
+
+    #[test]
+    fn decode_ui32_big_endian() {
+        assert_eq!(decode(u32::from_be_bytes(*b"ui32"), &[0, 0, 0x01, 0x00]), Some(256.0));
+    }
+
+    #[test]
+    fn decode_sp78_negative_temperature() {
+        // sp78: i16 big-endian / 256. 0xFF00 = -256 → -1.0 °C.
+        assert_eq!(decode(u32::from_be_bytes(*b"sp78"), &[0xFF, 0x00]), Some(-1.0));
+    }
+
+    #[test]
+    fn decode_returns_none_on_insufficient_bytes() {
+        // Each format guards on a minimum length — a short buffer → None, no panic.
+        assert_eq!(decode(u32::from_be_bytes(*b"flt "), &[1, 2, 3]), None);
+        assert_eq!(decode(u32::from_be_bytes(*b"sp78"), &[1]), None);
+        assert_eq!(decode(u32::from_be_bytes(*b"ui16"), &[1]), None);
+        assert_eq!(decode(u32::from_be_bytes(*b"ui8 "), &[]), None);
     }
 }

@@ -56,7 +56,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **2121 Unit-Tests (845 Rust + 1276 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **2406 Unit-Tests (968 Rust + 1438 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
@@ -64,8 +64,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~84k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 845 Rust + 1276 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-2121%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 968 Rust + 1438 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-2406%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -87,7 +87,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-2121%20(845%20Rust%20%2B%201276%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-2406%20(968%20Rust%20%2B%201438%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -126,8 +126,8 @@
   <!-- ── Quality ─────────────────────────────────────────────── -->
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
-  [![cargo test](https://img.shields.io/badge/cargo%20test-594%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-785%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![cargo test](https://img.shields.io/badge/cargo%20test-968%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-1438%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -160,11 +160,11 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-2121%20passing-success?style=flat-square)](#)
-  [![IPC commands](https://img.shields.io/badge/IPC%20commands-197-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Tests](https://img.shields.io/badge/tests-2406%20passing-success?style=flat-square)](#)
+  [![IPC commands](https://img.shields.io/badge/IPC%20commands-284-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Tauri events](https://img.shields.io/badge/events-26-blueviolet?style=flat-square)](#)
-  [![Rust modules](https://img.shields.io/badge/Rust%20modules-57-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Tauri events](https://img.shields.io/badge/events-33-blueviolet?style=flat-square)](#)
+  [![Rust modules](https://img.shields.io/badge/Rust%20modules-71-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
   [![Media](https://img.shields.io/badge/media-record%20·%20download%20·%20trim%20·%20swap-CE422B?style=flat-square)](#)
   [![Motion](https://img.shields.io/badge/motion-Material%203%20Expressive-blueviolet?style=flat-square)](#)
@@ -175,6 +175,77 @@
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
   [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
+
+  <!-- ── Features ────────────────────────────────────────────── -->
+  [![Clipboard history](https://img.shields.io/badge/clipboard-history%20%2B%20pins-1f6feb?style=flat-square)](#)
+  [![Power commands](https://img.shields.io/badge/search--bar-power%20commands-e11d48?style=flat-square)](#)
+  [![Text expander](https://img.shields.io/badge/snippets-text%20expander-1f6feb?style=flat-square)](#)
+  [![Screen OCR](https://img.shields.io/badge/OCR-screen%20region-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![Screen recording](https://img.shields.io/badge/screen-record%20%2B%20trim-e11d48?style=flat-square)](#)
+  [![System EQ](https://img.shields.io/badge/boom-system%20audio%20EQ-1DB954?style=flat-square)](#)
+  [![2FA / TOTP](https://img.shields.io/badge/2FA-TOTP%20RFC%206238-darkgreen?style=flat-square)](#)
+  [![Eyedropper](https://img.shields.io/badge/color-eyedropper%20%2B%20loupe-blueviolet?style=flat-square)](#)
+  [![Markdown → PDF](https://img.shields.io/badge/Markdown-%E2%86%92%20PDF-purple?style=flat-square&logo=markdown&logoColor=white)](#)
+  [![Time tracking](https://img.shields.io/badge/timesheet-time%20tracking-1f6feb?style=flat-square)](#)
+  [![Hidden games](https://img.shields.io/badge/easter%20eggs-5%20games-ff69b4?style=flat-square)](#)
+  [![Material 3](https://img.shields.io/badge/Material%203-Expressive-757575?style=flat-square&logo=materialdesign&logoColor=white)](https://m3.material.io)
+  [![EDR brightness](https://img.shields.io/badge/brightness-EDR%2FXDR%20boost-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
+  [![Philips Hue](https://img.shields.io/badge/Philips%20Hue-LAN%20control-00A1E9?style=flat-square&logo=philipshue&logoColor=white)](#)
+  [![Trackpad gestures](https://img.shields.io/badge/trackpad-gestures-blueviolet?style=flat-square)](#)
+  [![Window snapping](https://img.shields.io/badge/windows-snap%20%2B%20palette-1f6feb?style=flat-square)](#)
+  [![Keep-alive](https://img.shields.io/badge/keep--alive-auto%20relaunch-2ea043?style=flat-square)](#)
+  [![System stats](https://img.shields.io/badge/stats-live%20dashboard-1f6feb?style=flat-square)](#)
+  [![Live uptime](https://img.shields.io/badge/uptime-live%20readout-1f6feb?style=flat-square)](#)
+  [![QR codes](https://img.shields.io/badge/QR-generate%20%2B%20copy-000000?style=flat-square&logo=qrcode&logoColor=white)](#)
+  [![BPM detector](https://img.shields.io/badge/BPM-mic%20detector-ff69b4?style=flat-square)](#)
+  [![Net-pay calc](https://img.shields.io/badge/bruno-net--pay%20calc-1f6feb?style=flat-square)](#)
+  [![Password gen](https://img.shields.io/badge/pwgen-CSPRNG-darkgreen?style=flat-square)](#)
+  [![Cache cleaner](https://img.shields.io/badge/clean-cache%20sweep-1f6feb?style=flat-square)](#)
+  [![Audio output](https://img.shields.io/badge/sound-output%20switch-1DB954?style=flat-square)](#)
+  [![Image tools](https://img.shields.io/badge/images-resize%20%2F%20optim%20%2F%20cutout-e11d48?style=flat-square)](#)
+  [![App launcher](https://img.shields.io/badge/launcher-fuzzy%20apps-1f6feb?style=flat-square)](#)
+  [![Input lock](https://img.shields.io/badge/freeze-input%20lock-e11d48?style=flat-square)](#)
+  [![Wake-lock](https://img.shields.io/badge/caffeine-keep%20awake-blueviolet?style=flat-square)](#)
+  [![Timers](https://img.shields.io/badge/timer-%2F%20alarm-1f6feb?style=flat-square)](#)
+  [![Translate](https://img.shields.io/badge/translate-EN·DE·IT·ES·PL-1f6feb?style=flat-square)](#)
+  [![ASCII banners](https://img.shields.io/badge/figlet-ASCII%20banners%20·%20550%20fonts-e11d48?style=flat-square)](./docs/figlet.md)
+  [![Song recognition](https://img.shields.io/badge/shazam-song%20recognition-1DB954?style=flat-square)](#)
+  [![Network monitor](https://img.shields.io/badge/snitch-per--app%20net%20monitor-e11d48?style=flat-square)](#)
+  [![Connections map](https://img.shields.io/badge/snitch%20map-world%20map%20%2B%20live%20arcs-2ea043?style=flat-square)](#)
+  [![Fake test data](https://img.shields.io/badge/faker-70%2B%20generators%20·%2014%20locales-blueviolet?style=flat-square)](./docs/faker.md)
+  [![Security builders](https://img.shields.io/badge/sec-nmap%20·%20sqlmap%20·%20ferox%20·%20john-darkgreen?style=flat-square)](./docs/security-builder.md)
+  [![Inline help](https://img.shields.io/badge/%3F-inline%20command%20help-e11d48?style=flat-square)](./docs/inline-help.md)
+  [![Calendar](https://img.shields.io/badge/calendar-month%20view%20%2B%20weekday%20lookup-1f6feb?style=flat-square)](#)
+  [![Social download](https://img.shields.io/badge/download-YouTube%20·%20Insta%20·%20TikTok%20·%20FB-FF0000?style=flat-square&logo=youtube&logoColor=white)](#)
+  [![Audio swap](https://img.shields.io/badge/audio%20swap-replace%20%2F%20mix%20video%20audio-e11d48?style=flat-square)](#)
+  [![Media trim](https://img.shields.io/badge/trim-lossless%20%2F%20frame--accurate-e11d48?style=flat-square)](#)
+  [![Meme picker](https://img.shields.io/badge/meme-GIF%20library%20picker-ff69b4?style=flat-square)](#)
+  [![Smart actions](https://img.shields.io/badge/smart%20actions-URL%20·%20mail%20·%20tel%20·%20maps%20·%20QR-1f6feb?style=flat-square)](#)
+  [![Inline calculator](https://img.shields.io/badge/calc-inline%20%2B%20slot--machine%20reveal-e11d48?style=flat-square)](#)
+  [![Unit converter](https://img.shields.io/badge/convert-units%20·%20bases%20·%20epoch-1f6feb?style=flat-square)](#)
+  [![Color converter](https://img.shields.io/badge/colors-hex%20%E2%86%94%20rgb%20%E2%86%94%20hsl-blueviolet?style=flat-square)](./docs/colors.md)
+  [![Dev tools](https://img.shields.io/badge/dev-uuid%20·%20slug%20·%20hash%20·%20json%20·%20jwt-1f6feb?style=flat-square)](#)
+  [![Web bangs](https://img.shields.io/badge/bangs-g%20·%20gh%20·%20yt%20·%20npm%20·%20so%20·%20mdn-1f6feb?style=flat-square)](#)
+  [![Finder actions](https://img.shields.io/badge/Finder-selection%20actions-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![Text transforms](https://img.shields.io/badge/text-case%20·%20base64%20·%20url%20·%20slug-1f6feb?style=flat-square)](#)
+  [![Snippet groups](https://img.shields.io/badge/snippets-groups%20%2B%20versioning-1f6feb?style=flat-square)](./docs/snippets-import.md)
+  [![Auto-expansion](https://img.shields.io/badge/auto--expand-aText--style-1f6feb?style=flat-square)](./docs/text-expander.md)
+  [![Notes](https://img.shields.io/badge/notes-persistent%20bookmarks-1f6feb?style=flat-square)](./docs/notes.md)
+  [![Encrypted backup](https://img.shields.io/badge/backup-Argon2id%20%2B%20AES--256-darkgreen?style=flat-square)](./docs/backup.md)
+  [![Clipboard privacy](https://img.shields.io/badge/privacy-app%20exclude%20%2B%20auto--clear-darkgreen?style=flat-square)](#)
+  [![Kill picker](https://img.shields.io/badge/kill-live%20process%20picker-red?style=flat-square)](#)
+  [![Screenshot editor](https://img.shields.io/badge/screenshots-annotate%20%2B%20pin-e11d48?style=flat-square)](#)
+  [![Disco beat-sync](https://img.shields.io/badge/disco-beat--sync%20lights-ff69b4?style=flat-square)](#)
+  [![Tip-tap tabs](https://img.shields.io/badge/tip--tap-per--app%20tab%20switch-blueviolet?style=flat-square)](#)
+  [![Rebindable hotkeys](https://img.shields.io/badge/hotkeys-all%20rebindable-blueviolet?style=flat-square)](#)
+  [![Status toasts](https://img.shields.io/badge/toasts-cursor--monitor%20HUD-1f6feb?style=flat-square)](#)
+  [![Dice](https://img.shields.io/badge/rnd-CSPRNG%20dice-ff69b4?style=flat-square)](#)
+  [![Multi-monitor](https://img.shields.io/badge/multi--monitor-cursor--aware-blueviolet?style=flat-square)](#)
+  [![Themes](https://img.shields.io/badge/theme-dark%20·%20light%20·%20system-757575?style=flat-square)](#)
+  [![Sound cues](https://img.shields.io/badge/sounds-tactile%20cues-1f6feb?style=flat-square)](#)
+  [![TOTP import](https://img.shields.io/badge/2FA%20import-GAuth%20·%20Aegis%20·%202FAS%20·%20OTPManager-darkgreen?style=flat-square)](#)
+  [![Song history](https://img.shields.io/badge/shazam-local%20history-1DB954?style=flat-square)](#)
+  [![Popup sizes](https://img.shields.io/badge/popup-S%20·%20M%20·%20L-blueviolet?style=flat-square)](#)
 
   <!-- ── Standards / conventions ─────────────────────────────── -->
   [![SemVer](https://img.shields.io/badge/semver-2.0-blue?style=flat-square)](https://semver.org)
@@ -707,8 +778,8 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 79 % stmt / 95 % Branch** und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 1276 Tests
-cargo test --workspace  # Rust-Unit-Tests — 845 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 1438 Tests
+cargo test --workspace  # Rust-Unit-Tests — 968 Tests
 ```
 
 Ein einzelnes Modul während der Iteration:

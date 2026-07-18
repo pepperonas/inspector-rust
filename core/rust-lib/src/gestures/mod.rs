@@ -968,9 +968,13 @@ impl PalmAwareRecognizer {
 
         // Active (present, non-palm, non-resting) finger count. Any keeps the
         // settle timer from advancing; a parked palm never does. `active_fingers`
-        // (scroll-consume arming) reads this.
+        // (scroll-consume arming) reads this. A LIFT also counts as pad activity
+        // — the settle window must run from the lift frame, not from the last
+        // frame the finger was still touching (with sparse/erratic frame
+        // delivery those can be far apart, and the tick would finalise early,
+        // breaking the sequential-sub-touch coalescing).
         self.prev_active = self.tracks.iter().filter(|t| t.active(t_ms)).count();
-        if self.prev_active > 0 {
+        if self.prev_active > 0 || lifted {
             self.last_contact_ms = t_ms;
         }
 
@@ -1832,6 +1836,89 @@ mod tests {
         let mut r2 = PalmAwareRecognizer::new();
         r2.feed(0, &[rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]);
         assert_eq!(r2.active_fingers(), 3);
+    }
+
+    #[test]
+    fn four_finger_tap_reads_four_and_still_mutes() {
+        // map_action fires on fingers >= cfg (a sloppy 4th finger must not
+        // silently disable mute).
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.3, 0.5), rc(2, 0.4, 0.5), rc(3, 0.5, 0.5), rc(4, 0.6, 0.5)]),
+            (80, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::Tap, fingers: 4 }]);
+        let cfg = GestureConfig { enabled: true, ..Default::default() };
+        assert_eq!(map_action(&evs[0], &cfg), Some(GestureAction::MuteToggle));
+    }
+
+    #[test]
+    fn one_finger_dragging_far_is_neither_tap_nor_swipe() {
+        // A single finger travelling far: swipe needs ≥2 coherent movers, and
+        // its drift exceeds the tap tolerance → the gesture is silently dropped
+        // (normal pointer/drag use must never emit anything).
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.5, 0.8)]),
+            (60, vec![rc(1, 0.5, 0.5)]),
+            (120, vec![rc(1, 0.5, 0.2)]),
+            (150, vec![]),
+        ]);
+        assert_eq!(evs, vec![]);
+    }
+
+    #[test]
+    fn carried_tap_emits_from_feed_when_the_tick_missed_its_slot() {
+        // Belt-and-braces path: the cluster has settled but the async ticker
+        // hasn't fired — a NEW contact id arriving via feed must finalise the
+        // old cluster (returning its tap) instead of merging into it.
+        let mut r = PalmAwareRecognizer::new();
+        r.feed(0, &[rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]);
+        r.feed(80, &[]); // tap lifts → cluster opens
+        // No tick. A fresh gesture starts well past the settle window:
+        let carried = r.feed(80 + TAP_SETTLE_MS + 50, &[rc(9, 0.2, 0.2)]);
+        assert_eq!(carried, Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 }));
+        // The old tracks are gone — the new touch settles as its own 1-finger tap.
+        r.feed(300, &[]);
+        let next = r.tick(300 + TAP_SETTLE_MS + 10);
+        assert_eq!(next, Some(GestureEvent { kind: GestureKind::Tap, fingers: 1 }));
+    }
+
+    #[test]
+    fn tick_respects_the_settle_window_and_fires_exactly_once() {
+        let mut r = PalmAwareRecognizer::new();
+        r.feed(0, &[rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]);
+        r.feed(80, &[]);
+        // Inside the settle window → not yet.
+        assert_eq!(r.tick(80 + TAP_SETTLE_MS - 1), None);
+        // Past it → the coalesced tap, exactly once.
+        assert_eq!(
+            r.tick(80 + TAP_SETTLE_MS),
+            Some(GestureEvent { kind: GestureKind::Tap, fingers: 3 })
+        );
+        assert_eq!(r.tick(80 + TAP_SETTLE_MS + 200), None);
+    }
+
+    #[test]
+    fn swipe_emits_on_lift_not_while_fingers_are_still_down() {
+        let mut r = PalmAwareRecognizer::new();
+        assert_eq!(r.feed(0, &[rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]), None);
+        // Fingers have moved well past the threshold but are still touching.
+        assert_eq!(r.feed(100, &[rc(1, 0.4, 0.4), rc(2, 0.5, 0.4), rc(3, 0.6, 0.4)]), None);
+        // Only the lift frame emits.
+        assert_eq!(
+            r.feed(150, &[]),
+            Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 })
+        );
+    }
+
+    #[test]
+    fn swipe_down_with_resting_palm_reads_three_fingers() {
+        // Mirror of the SwipeUp+palm case for the down direction (volume down).
+        let palm = rc(9, 0.08, 0.9);
+        let mut frames: Vec<(u64, Vec<RawContact>)> =
+            vec![(0, vec![palm]), (800, vec![palm])];
+        frames.extend(swipe_frames(1000, 0.3, 0.8, &[palm]));
+        let evs = palm_events(&frames);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeDown, fingers: 3 }]);
     }
 
     // ── Tip-tap ──────────────────────────────────────────────────────────

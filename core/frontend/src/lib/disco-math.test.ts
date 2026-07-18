@@ -47,3 +47,45 @@ describe("floorBrightness", () => {
     expect(floorBrightness("pulse", 22, 1)).toBe(22);
   });
 });
+
+describe("nextIndex — round-robin fairness", () => {
+  it("visits every lamp exactly once per lap", () => {
+    const n = 5;
+    const seen: number[] = [];
+    let i = 0;
+    for (let k = 0; k < n; k++) {
+      seen.push(i);
+      i = nextIndex(i, n);
+    }
+    expect([...seen].sort()).toEqual([0, 1, 2, 3, 4]);
+    expect(i).toBe(0); // a full lap returns to the start
+  });
+
+  it("recovers an out-of-range index (lamp list shrank)", () => {
+    expect(nextIndex(7, 3)).toBe(2); // 8 % 3
+    expect(nextIndex(2, 1)).toBe(0);
+  });
+});
+
+describe("beatColor — palette-index safety", () => {
+  it("wraps a stale out-of-range palette index instead of reading undefined", () => {
+    // A theme switch can shrink the palette while palIndex is still large.
+    expect(beatColor("rainbow", "#fff", 5, PAL)).toEqual({ hex: "#c", nextPal: 0 });
+    expect(beatColor("rainbow", "#fff", 300, PAL).hex).toBe("#a"); // 300 % 3 = 0
+  });
+
+  it("a single-entry palette always yields that colour", () => {
+    const one = ["#solo"] as const;
+    for (let i = 0; i < 4; i++) {
+      expect(beatColor("rainbow", "#fff", i, one)).toEqual({ hex: "#solo", nextPal: 0 });
+    }
+  });
+
+  it("mode switch mid-run keeps the palette position for the return to rainbow", () => {
+    // rainbow → pulse (holds index) → rainbow resumes where it left off.
+    const r1 = beatColor("rainbow", "#fff", 0, PAL); // → #a, nextPal 1
+    const held = beatColor("pulse", "#fff", r1.nextPal, PAL);
+    expect(held.nextPal).toBe(1);
+    expect(beatColor("rainbow", "#fff", held.nextPal, PAL).hex).toBe("#b");
+  });
+});

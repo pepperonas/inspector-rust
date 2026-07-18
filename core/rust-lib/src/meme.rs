@@ -243,4 +243,130 @@ mod tests {
         assert!(!has_meme_ext(Path::new("x.txt")));
         assert!(!has_meme_ext(Path::new("x")));
     }
+
+    #[test]
+    fn has_meme_ext_covers_apng_and_bmp_but_not_lookalikes() {
+        assert!(has_meme_ext(Path::new("x.apng")));
+        assert!(has_meme_ext(Path::new("x.bmp")));
+        // Similar-but-unsupported formats stay out.
+        assert!(!has_meme_ext(Path::new("x.svg")));
+        assert!(!has_meme_ext(Path::new("x.gifv")));
+        assert!(!has_meme_ext(Path::new("x.gif.txt")), "only the final ext counts");
+    }
+
+    #[test]
+    fn category_is_the_immediate_parent_not_the_full_relative_path() {
+        let root = tmp();
+        fs::create_dir_all(root.join("a/b")).unwrap();
+        fs::write(root.join("a/b/deep.gif"), b"x").unwrap();
+        let memes = scan(&root);
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].category, "b", "not \"a/b\" and not \"a\"");
+        assert_eq!(memes[0].name, "deep");
+    }
+
+    #[test]
+    fn unicode_names_and_categories_survive() {
+        let root = tmp();
+        fs::create_dir_all(root.join("Tiere & Co")).unwrap();
+        fs::write(root.join("Tiere & Co/Grüße 🎉.gif"), b"x").unwrap();
+        let memes = scan(&root);
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].name, "Grüße 🎉");
+        assert_eq!(memes[0].category, "Tiere & Co");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_are_not_followed() {
+        let root = tmp();
+        let outside = tmp();
+        fs::write(outside.join("real.gif"), b"x").unwrap();
+        // A symlinked file AND a symlinked directory — neither may be scanned
+        // (a link cycle or an escape out of the library must be impossible).
+        std::os::unix::fs::symlink(outside.join("real.gif"), root.join("link.gif")).unwrap();
+        std::os::unix::fs::symlink(&outside, root.join("linkdir")).unwrap();
+        assert!(scan(&root).is_empty());
+    }
+
+    #[test]
+    fn hidden_directories_are_skipped_entirely() {
+        let root = tmp();
+        fs::create_dir_all(root.join(".git")).unwrap();
+        fs::write(root.join(".git/icon.png"), b"x").unwrap();
+        fs::write(root.join("ok.png"), b"x").unwrap();
+        let memes = scan(&root);
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].name, "ok");
+    }
+
+    fn mem_db() -> DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let h = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        crate::settings::init_table(&h).unwrap();
+        h
+    }
+
+    #[test]
+    fn meme_dir_setting_overrides_blank_falls_back_and_trims() {
+        let db = mem_db();
+        // No setting → default.
+        assert_eq!(meme_dir(&db), default_meme_dir());
+        // Explicit dir wins.
+        crate::settings::set(&db, KEY_MEME_DIR, "/custom/memes").unwrap();
+        assert_eq!(meme_dir(&db), PathBuf::from("/custom/memes"));
+        // Surrounding whitespace is trimmed (a pasted path with a stray space).
+        crate::settings::set(&db, KEY_MEME_DIR, "  /other/dir  ").unwrap();
+        assert_eq!(meme_dir(&db), PathBuf::from("/other/dir"));
+        // Blank / whitespace-only collapses back to the default.
+        crate::settings::set(&db, KEY_MEME_DIR, "   ").unwrap();
+        assert_eq!(meme_dir(&db), default_meme_dir());
+    }
+
+    #[test]
+    fn root_pointing_at_a_file_yields_empty_not_error() {
+        // A user pasting a FILE path into Settings → Meme library must not
+        // crash the scan — read_dir fails, the list is simply empty.
+        let root = tmp();
+        let file = root.join("not-a-dir.gif");
+        fs::write(&file, b"x").unwrap();
+        assert!(scan(&file).is_empty());
+    }
+
+    #[test]
+    fn names_sort_alphabetically_within_a_category() {
+        let root = tmp();
+        fs::create_dir_all(root.join("cats")).unwrap();
+        fs::write(root.join("cats/zebra.gif"), b"x").unwrap();
+        fs::write(root.join("cats/apple.gif"), b"x").unwrap();
+        fs::write(root.join("cats/mango.gif"), b"x").unwrap();
+        let names: Vec<_> = scan(&root).into_iter().map(|m| m.name).collect();
+        assert_eq!(names, vec!["apple", "mango", "zebra"]);
+    }
+
+    #[test]
+    fn multi_dot_filenames_keep_everything_before_the_final_ext_as_name() {
+        let root = tmp();
+        fs::write(root.join("v2.final.REALLY-final.gif"), b"x").unwrap();
+        let memes = scan(&root);
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].name, "v2.final.REALLY-final");
+    }
+
+    #[test]
+    fn empty_subdirectories_contribute_nothing() {
+        let root = tmp();
+        fs::create_dir_all(root.join("empty/also-empty")).unwrap();
+        fs::write(root.join("ok.gif"), b"x").unwrap();
+        let memes = scan(&root);
+        assert_eq!(memes.len(), 1);
+        assert_eq!(memes[0].name, "ok");
+    }
+
+    #[test]
+    fn copy_to_clipboard_missing_file_errors_before_touching_the_clipboard() {
+        let missing = tmp().join("nope.gif");
+        let err = copy_to_clipboard(&missing.to_string_lossy()).unwrap_err();
+        assert!(err.contains("meme not found"), "got: {err}");
+    }
 }

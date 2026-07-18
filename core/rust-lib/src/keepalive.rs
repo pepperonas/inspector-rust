@@ -353,4 +353,82 @@ mod tests {
         assert!(t.contains("OnUnitActiveSec=60"));
         assert!(t.contains("WantedBy=timers.target"));
     }
+
+    #[test]
+    fn systemd_timer_fires_at_login_and_survives_downtime() {
+        let t = systemd_timer();
+        assert!(t.contains("OnStartupSec=20"), "must fire shortly after login");
+        assert!(t.contains("Persistent=true"), "missed runs fire on next boot");
+    }
+
+    #[test]
+    fn xml_escape_covers_all_three_metachars_without_double_escaping() {
+        assert_eq!(xml_escape("a&b<c>d"), "a&amp;b&lt;c&gt;d");
+        // A path that already looks like an entity is escaped exactly once
+        // (the & first, then < / > — never re-escaping the produced &amp;).
+        assert_eq!(xml_escape("&lt;"), "&amp;lt;");
+        // Plain paths pass through untouched.
+        assert_eq!(xml_escape("/Applications/App.app"), "/Applications/App.app");
+    }
+
+    #[test]
+    fn plist_wraps_exe_in_a_program_arguments_string() {
+        let p = macos_plist("/opt/my app/bin", 30);
+        // The exe must be an actual <string> element, not loose text.
+        assert!(p.contains("<string>/opt/my app/bin</string>"));
+        assert!(p.contains("</plist>"), "document is closed");
+        assert!(p.contains("</dict>"));
+    }
+
+    #[test]
+    fn plist_honours_the_interval_parameter() {
+        let p = macos_plist("/usr/bin/app", 60);
+        assert!(p.contains("<integer>60</integer>"));
+        assert!(!p.contains("<integer>30</integer>"));
+    }
+
+    #[test]
+    fn systemd_service_escapes_single_quotes_in_the_path() {
+        // A `'` in the exe path would otherwise terminate the sh -c quoting.
+        let s = systemd_service("/opt/o'brien/app");
+        assert!(s.contains(r"o'\''brien"), "POSIX close-escape-reopen expected: {s}");
+        // The escaped form still reconstructs the original path for sh.
+        assert!(!s.contains("/opt/o'brien/app"), "raw unescaped quote must not survive");
+    }
+
+    #[test]
+    fn plist_escapes_angle_brackets_so_the_xml_stays_well_formed() {
+        // `<`/`>` in a path would otherwise open/close bogus XML elements and
+        // make launchd reject the whole agent.
+        let p = macos_plist("/tmp/a<b>c/app", 30);
+        assert!(p.contains("<string>/tmp/a&lt;b&gt;c/app</string>"));
+        assert!(!p.contains("<string>/tmp/a<b>c/app</string>"));
+    }
+
+    #[test]
+    fn plist_and_units_handle_unicode_paths() {
+        // A Umlaut home dir (`/Users/Jürgen/…`) must pass through both builders
+        // untouched — no escaping applies to non-ASCII.
+        let p = macos_plist("/Users/Jürgen/Programme/app", 30);
+        assert!(p.contains("<string>/Users/Jürgen/Programme/app</string>"));
+        let s = systemd_service("/home/jürgen/bin/app");
+        assert!(s.contains("/home/jürgen/bin/app"));
+    }
+
+    #[test]
+    fn content_builders_are_deterministic() {
+        // The install path compares/overwrites files — identical inputs must
+        // produce byte-identical content (idempotent reinstall, no churn).
+        assert_eq!(macos_plist("/usr/bin/app", 30), macos_plist("/usr/bin/app", 30));
+        assert_eq!(systemd_service("/usr/bin/app"), systemd_service("/usr/bin/app"));
+        assert_eq!(systemd_timer(), systemd_timer());
+    }
+
+    #[test]
+    fn systemd_service_launches_detached_inside_sh() {
+        let s = systemd_service("/usr/bin/inspector-rust");
+        // Backgrounded (&) inside sh -c with output discarded, so the oneshot
+        // unit returns immediately while the app keeps running.
+        assert!(s.contains(r#"ExecStart=/bin/sh -c '"/usr/bin/inspector-rust" >/dev/null 2>&1 &'"#));
+    }
 }

@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.7] — 2026-07-18
+
+### Fixed
+
+- **Gesture tap settle window now runs from the LIFT frame.** `PalmAwareRecognizer` recorded pad activity only on frames with actively-touching fingers, so the tap-settle countdown started at the last *touching* frame rather than the lift — with sparse/erratic frame delivery (exactly this trackpad's failure mode) the settle ticker could finalise a cluster early and split one light multi-finger tap into several. A lift now counts as pad activity; caught by a new unit test asserting the window boundary to the millisecond.
+- **`clean` panel path display: home-prefix collapse respected path-segment boundaries.** `prettyPath` shortened any path merely *string-prefixed* by the home dir — `/Users/xy/foo` under home `/Users/x` rendered as `~y/foo`. The prefix must now end at a path separator.
+- **Timesheet category donut: a single-category day rendered as an invisible sliver — in BOTH renderers.** `donutSegmentPath` (frontend) and its Rust mirror `tracking/export.rs::donut_path` (the HTML export's "By app" donut) computed the SVG large-arc flag as `sweep % 360 > 180`, so a full-circle segment (sweep 360 → `% 360` = 0) cleared the flag and the ring collapsed. A full circle now keeps the large-arc flag set; regression tests on both sides.
+
+### Changed
+
+- **Test suite massively expanded: 2 121 → 2 406 unit tests** (+285; Rust 845 → 968, frontend 1 276 → 1 438) across gestures (cluster/settle model edges), figlet/calendar parsers, shazam, system-stats, audio-swap, hue, image-ops, sec, text-field, window-palette, cutout, bruno, edr, audio, media-trim, keepalive, sound, wakelock, meme, osascript-util, tracking-export, and 16 frontend pure-logic modules. Four of the new tests exposed the real defects fixed above.
+- **README badge wall now describes every feature** — ~38 new per-feature badges (figlet · shazam · snitch + map · faker · sec · inline help · social download · audio swap · trim · meme · smart actions · calc/convert · dev tools · web bangs · Finder actions · text transforms · snippet groups · auto-expansion · notes · encrypted backup · clipboard privacy · kill picker · screenshot editor · disco · tip-tap · rebindable hotkeys · toasts · dice · multi-monitor · themes · sound cues · 2FA import · shazam history · popup sizes …); the full 69-badge feature block is now also in the German README (it had none). Stale numeric badges corrected (284 IPC commands, 33 events, 71 Rust modules) and `update-badges.mjs` now auto-refreshes the per-runner quality badges (`cargo test-N` / `vitest-N`) so they can never go stale again.
+
 ## [0.85.6] — 2026-07-18
 
 ### Fixed

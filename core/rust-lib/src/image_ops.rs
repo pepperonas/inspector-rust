@@ -393,6 +393,66 @@ mod tests {
     }
 
     #[test]
+    fn resize_file_writes_sibling_with_target_dimensions_png() {
+        let dir = scratch_dir("rz-png");
+        let src = dir.join("pic.png");
+        std::fs::write(&src, make_png(120, 90)).unwrap();
+        let r = resize_file_to_neighbor(&src, 40, 30).unwrap();
+        assert!(r.path.ends_with("pic-40x30.png"));
+        // The output really decodes at the requested size.
+        let out = image::ImageReader::open(&r.path).unwrap().decode().unwrap();
+        assert_eq!((out.width(), out.height()), (40, 30));
+        assert_eq!((r.width, r.height), (40, 30));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resize_file_preserves_jpeg_format() {
+        let dir = scratch_dir("rz-jpg");
+        let src = dir.join("photo.jpg");
+        std::fs::write(&src, make_jpeg(100, 100, 90)).unwrap();
+        let r = resize_file_to_neighbor(&src, 50, 50).unwrap();
+        assert!(r.path.ends_with("photo-50x50.jpg"));
+        // Sibling is a valid JPEG (format preserved from the source extension).
+        let fmt = image::ImageReader::open(&r.path)
+            .unwrap()
+            .with_guessed_format()
+            .unwrap()
+            .format();
+        assert_eq!(fmt, Some(ImageFormat::Jpeg));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resize_file_rejects_missing_extension() {
+        let dir = scratch_dir("rz-noext");
+        let src = dir.join("noext");
+        std::fs::write(&src, make_png(20, 20)).unwrap();
+        assert!(resize_file_to_neighbor(&src, 10, 10).is_err(), "no extension → refuse");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn resize_file_validates_dimensions_before_touching_disk() {
+        let src = std::path::Path::new("/no/such/file.png");
+        // Zero + oversized are rejected before the file is ever opened.
+        assert!(resize_file_to_neighbor(src, 0, 100).is_err());
+        assert!(resize_file_to_neighbor(src, 5000, 5000).is_err());
+    }
+
+    #[test]
+    fn optimize_file_jpeg_never_grows() {
+        // A heavily-compressed source: re-encoding at q85 could be larger, but the
+        // optimiser keeps the original bytes in that case — the sibling is never bigger.
+        let dir = scratch_dir("jpg-small");
+        let src = dir.join("tiny.jpg");
+        std::fs::write(&src, make_jpeg(32, 32, 20)).unwrap();
+        let r = optimize_file_to_neighbor(&src).unwrap();
+        assert!(r.after_bytes <= r.before_bytes, "after {} > before {}", r.after_bytes, r.before_bytes);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
     fn resize_validates_dimensions_are_positive() {
         // We can't easily put an image on the clipboard from a unit test —
         // but we *can* assert the pre-check fires before we even try.

@@ -67,4 +67,66 @@ describe("matchMemes", () => {
     matchMemes("cat", lib);
     expect(lib).toEqual(copy);
   });
+
+  it("ranking survives the cap: the best matches are kept, not the first", () => {
+    // A late-in-the-library prefix match must beat early subsequence matches
+    // even with limit 1.
+    const many = [m("xaxbxc"), m("xxabc"), m("abc-classic")]; // subsequence, infix, prefix
+    expect(matchMemes("abc", many, 1).map((x) => x.name)).toEqual(["abc-classic"]);
+  });
+
+  it("breaks score ties alphabetically by name (deterministic order)", () => {
+    const res = matchMemes("x", [m("xb"), m("xa")]).map((e) => e.name);
+    expect(res).toEqual(["xa", "xb"]);
+  });
+
+  it("empty-query cap applies too", () => {
+    const many = Array.from({ length: 100 }, (_, i) => m(`m${i}`));
+    expect(matchMemes("", many, 10).length).toBe(10);
+  });
+});
+
+describe("memeScore — more ranking details", () => {
+  it("is case-insensitive including Umlauts", () => {
+    expect(memeScore("ÜBER", m("über-cat"))).not.toBeNull();
+    expect(matchMemes("über", [m("ÜBER-CAT")]).length).toBe(1);
+  });
+
+  it("trims surrounding whitespace in the query", () => {
+    expect(memeScore("  facepalm  ", m("facepalm"))).toBe(memeScore("facepalm", m("facepalm")));
+  });
+
+  it("an exact name match outranks an exact category match on another meme", () => {
+    const byName = memeScore("cat", m("cat", "misc"))!;
+    const byCat = memeScore("cat", m("doge", "cat"))!;
+    expect(byName).toBeGreaterThan(byCat);
+  });
+
+  it("when both name and category match, the score never drops below the category tier", () => {
+    // Name subsequence (weak) + category exact (strong) → the category score wins.
+    const both = memeScore("cat", m("c-a-t-collage", "cat"))!;
+    const catOnly = memeScore("cat", m("zzz", "cat"))!;
+    expect(both).toBeGreaterThanOrEqual(catOnly);
+  });
+
+  it("an earlier infix match scores above a later one", () => {
+    const early = memeScore("cat", m("acat"))!; // index 1
+    const late = memeScore("cat", m("aacat"))!; // index 2
+    expect(early).toBeGreaterThan(late);
+  });
+
+  it("a shorter prefix-matched name outranks a longer one", () => {
+    const short = memeScore("cat", m("cats"))!;
+    const long = memeScore("cat", m("cat-compilation-2024"))!;
+    expect(short).toBeGreaterThan(long);
+  });
+
+  it("category subsequence works for 3+ char queries", () => {
+    expect(memeScore("rcn", m("zzz", "reactions"))).not.toBeNull();
+    expect(memeScore("rc", m("zzz", "reactions"))).toBeNull(); // 2 chars → no subsequence tier
+  });
+
+  it("a top-level file (empty category) never matches via category", () => {
+    expect(memeScore("cats", m("doge", ""))).toBeNull();
+  });
 });

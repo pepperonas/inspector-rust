@@ -181,7 +181,11 @@ export function donutSegmentPath(
   const [ox1, oy1] = polar(cx, cy, rOuter, endDeg + eps);
   const [ix1, iy1] = polar(cx, cy, rInner, endDeg + eps);
   const [ix0, iy0] = polar(cx, cy, rInner, startDeg);
-  const largeArc = sweep % 360 > 180 ? 1 : 0;
+  // NOTE: must be `> 180`, not `% 360 > 180` — a full circle (sweep 360, the
+  // single-category donut) needs the large-arc flag SET (its eps-shortened
+  // 359.999° arc spans nearly the whole ring); `360 % 360 → 0` cleared it and
+  // the ring rendered as an invisible sliver.
+  const largeArc = sweep > 180 ? 1 : 0;
   return [
     `M ${ox0.toFixed(2)} ${oy0.toFixed(2)}`,
     `A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${ox1.toFixed(2)} ${oy1.toFixed(2)}`,

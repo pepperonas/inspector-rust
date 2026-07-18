@@ -174,4 +174,100 @@ mod tests {
         assert_eq!(output_path_for(Path::new("/v/My Clip.mkv"), false, true), PathBuf::from("/v/My Clip-trim.mp4"));
         assert_eq!(output_path_for(Path::new("/a/song.wav"), false, false), PathBuf::from("/a/song-trim.m4a"));
     }
+
+    #[test]
+    fn output_path_without_extension_defaults_to_mp4() {
+        // Lossless "keep the container" on an extension-less input still needs
+        // a valid ext for ffmpeg's muxer choice.
+        assert_eq!(
+            output_path_for(Path::new("/v/rawclip"), true, true),
+            PathBuf::from("/v/rawclip-trim.mp4")
+        );
+    }
+
+    #[test]
+    fn output_path_preserves_unicode_stem() {
+        assert_eq!(
+            output_path_for(Path::new("/v/Grüße Video.mov"), true, true),
+            PathBuf::from("/v/Grüße Video-trim.mov")
+        );
+    }
+
+    #[test]
+    fn negative_times_clamp_to_zero() {
+        // A slider glitch / bad IPC arg must never produce a negative seek —
+        // ffmpeg would interpret "-3" as an option.
+        let j = build_trim_args("/v/c.mp4", -3.0, -1.0, true, true, "/v/o.mp4").join(" ");
+        assert!(j.contains("-ss 0 -to 0"), "got: {j}");
+    }
+
+    #[test]
+    fn fmt_strips_trailing_zeros_and_keeps_millis() {
+        assert_eq!(fmt(0.0), "0");
+        assert_eq!(fmt(2.0), "2");
+        assert_eq!(fmt(1.5), "1.5");
+        assert_eq!(fmt(2.125), "2.125");
+        assert_eq!(fmt(0.001), "0.001");
+        // Sub-millisecond input rounds to millisecond precision.
+        assert_eq!(fmt(1.23456), "1.235");
+        // Rounds down to a clean integer when the fraction vanishes.
+        assert_eq!(fmt(9.9999), "10");
+    }
+
+    #[test]
+    fn paths_with_spaces_stay_single_argv_elements() {
+        // The args are handed to Command::args element-wise — a path with
+        // spaces must be ONE element, never pre-split (join(" ") in the other
+        // tests is only a readability aid).
+        let args = build_trim_args(
+            "/v/My Holiday Clip.mp4", 1.0, 2.0, true, true, "/v/My Holiday Clip-trim.mp4",
+        );
+        assert!(args.contains(&"/v/My Holiday Clip.mp4".to_string()));
+        assert_eq!(args.last().unwrap(), "/v/My Holiday Clip-trim.mp4");
+    }
+
+    #[test]
+    fn lossless_output_keeps_extension_case_verbatim() {
+        // "Keep the container" means keeping the ext exactly as the user has it
+        // (macOS filesystems are case-preserving) — no silent lowercase.
+        assert_eq!(
+            output_path_for(Path::new("/v/clip.MOV"), true, true),
+            PathBuf::from("/v/clip-trim.MOV")
+        );
+    }
+
+    #[test]
+    fn dotfiles_and_stemless_paths_still_yield_a_sane_output_name() {
+        // A dotfile keeps its full (dot-)name as the stem…
+        assert_eq!(
+            output_path_for(Path::new("/v/.hidden"), false, true),
+            PathBuf::from("/v/.hidden-trim.mp4")
+        );
+        // …and a path with no file name at all falls back to the "clip" stem
+        // instead of producing an empty "-trim.mp4".
+        let out = output_path_for(Path::new("/"), false, true);
+        assert_eq!(out.file_name().unwrap().to_string_lossy(), "clip-trim.mp4");
+    }
+
+    #[test]
+    fn lossless_seek_precedes_the_input_flag_in_argv_order() {
+        // The fast-seek contract is positional: -ss/-to BEFORE -i. Assert on
+        // actual argv indices, not substring order in a joined string.
+        let a = build_trim_args("/v/c.mp4", 3.0, 9.0, true, true, "/v/o.mp4");
+        let idx = |s: &str| a.iter().position(|x| x == s).unwrap_or_else(|| panic!("{s} missing"));
+        assert!(idx("-ss") < idx("-i"), "lossless: input-side seek");
+        let b = build_trim_args("/v/c.mp4", 3.0, 9.0, false, true, "/v/o.mp4");
+        let idxb = |s: &str| b.iter().position(|x| x == s).unwrap_or_else(|| panic!("{s} missing"));
+        assert!(idxb("-i") < idxb("-ss"), "accurate: output-side seek");
+    }
+
+    #[test]
+    fn accurate_mode_ends_with_output_and_no_stream_copy() {
+        let a = build_trim_args("/v/clip.mp4", 2.0, 8.0, false, true, "/v/clip-trim.mp4");
+        assert_eq!(a.last().unwrap(), "/v/clip-trim.mp4");
+        let j = a.join(" ");
+        assert!(!j.contains("-c copy"), "re-encode mode must not stream-copy");
+        assert!(j.contains("-preset veryfast"));
+        assert!(j.contains("-pix_fmt yuv420p"));
+    }
 }

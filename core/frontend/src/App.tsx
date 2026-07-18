@@ -21,6 +21,14 @@ import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import CommandHelp from "./components/CommandHelp";
+import {
+  parseFigletCommand,
+  galleryFonts,
+  optsFromDefaults,
+  type FigletFontMeta,
+  type FigletDefaults,
+  type FigletOpts,
+} from "./lib/figlet";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -91,6 +99,10 @@ import {
   pasteEntryFormatted,
   pasteSnippet,
   pasteText,
+  figletFonts,
+  figletGallery,
+  figletRender,
+  figletGetDefaults,
   removeVowelsToClipboard,
   resizeClipboardImage,
   saveClipAsNote,
@@ -162,6 +174,13 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
 
 type Tab = "history" | "snippets" | "notes" | "timesheet" | "features" | "settings";
+
+/** Max font rows rendered in the figlet gallery at once (the long tail is
+ *  reached by the `@font` fuzzy filter — search is the primary nav). */
+const FIGLET_MAX_ROWS = 140;
+/** Above this text length the gallery shows name-only rows (skips per-font
+ *  sample rendering); the big preview still renders the selected font. */
+const FIGLET_SAMPLE_TEXT_CAP = 28;
 
 function App() {
   const { entries, refresh: refreshHistory } = useClipboardHistory();
@@ -579,6 +598,103 @@ function App() {
       (m): ListEntry => ({ kind: "meme", data: m }),
     );
   }, [isMemeMode, memeArg, memeLibrary]);
+
+  // ── Figlet-mode: whole-list font gallery (like meme/kill) ────────────
+  // The left list becomes font rows (each a live sample of the text); the big
+  // banner of the selected font renders in the preview. Enter copies it.
+  const isFigletMode = parsedCommand?.spec.kind === "figlet";
+  const figletArg = isFigletMode ? parsedCommand!.arg : "";
+  const figletParsed = useMemo(() => parseFigletCommand(figletArg), [figletArg]);
+
+  const [figletFontList, setFigletFontList] = useState<FigletFontMeta[]>([]);
+  const [figletDefaults, setFigletDefaults] = useState<FigletDefaults | null>(null);
+  // Load the catalogue + defaults on first entry into figlet mode; refresh on
+  // the defaults-changed event (Settings → Figlet).
+  useEffect(() => {
+    if (!isFigletMode || figletFontList.length > 0) return;
+    void figletFonts().then(setFigletFontList).catch(() => undefined);
+    void figletGetDefaults().then(setFigletDefaults).catch(() => undefined);
+  }, [isFigletMode, figletFontList.length]);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen("figlet-defaults-changed", () => {
+      void figletFonts().then(setFigletFontList).catch(() => undefined);
+      void figletGetDefaults().then(setFigletDefaults).catch(() => undefined);
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+
+  // Effective render opts = defaults ← command --flags ← chip overrides.
+  const [figletOptsOverride, setFigletOptsOverride] = useState<Partial<FigletOpts>>({});
+  const figletOpts: FigletOpts = useMemo(() => {
+    const base: FigletOpts = figletDefaults
+      ? optsFromDefaults(figletDefaults)
+      : { width: 80, align: "left", trim: true, comment: "none", boxed: false };
+    return { ...base, ...figletParsed.opts, ...figletOptsOverride };
+  }, [figletDefaults, figletParsed.opts, figletOptsOverride]);
+  useEffect(() => {
+    if (!isFigletMode) setFigletOptsOverride({});
+  }, [isFigletMode]);
+
+  // Ordered gallery: pinned→popular→rest (or fuzzy matches for a @font query);
+  // the default font floats to the top when there's no query. Capped for perf.
+  const figletOrderedFonts = useMemo(() => {
+    const ordered = galleryFonts(figletParsed.fontQuery, figletFontList);
+    if (!figletParsed.fontQuery && figletDefaults) {
+      const i = ordered.findIndex((f) => f.name === figletDefaults.font);
+      if (i > 0) {
+        const [d] = ordered.splice(i, 1);
+        ordered.unshift(d);
+      }
+    }
+    return ordered.slice(0, FIGLET_MAX_ROWS);
+  }, [figletParsed.fontQuery, figletFontList, figletDefaults]);
+
+  // Batched, debounced gallery samples for the visible fonts (cached per text).
+  // Long text → name-only rows (the big preview still renders the selection).
+  const [figletSamples, setFigletSamples] = useState<Map<string, string>>(new Map());
+  useEffect(() => {
+    if (!isFigletMode) return;
+    const text = figletParsed.text;
+    if (!text.trim() || text.length > FIGLET_SAMPLE_TEXT_CAP) {
+      setFigletSamples(new Map());
+      return;
+    }
+    const names = figletOrderedFonts.map((f) => f.name);
+    if (names.length === 0) return;
+    let alive = true;
+    const t = window.setTimeout(() => {
+      figletGallery(text, names, 3, 44)
+        .then((samples) => {
+          if (!alive) return;
+          const m = new Map<string, string>();
+          for (const s of samples) m.set(s.font, s.sample);
+          setFigletSamples(m);
+        })
+        .catch(() => undefined);
+    }, 120);
+    return () => {
+      alive = false;
+      window.clearTimeout(t);
+    };
+  }, [isFigletMode, figletParsed.text, figletOrderedFonts]);
+
+  const figletEntries: ListEntry[] = useMemo(() => {
+    if (!isFigletMode) return [];
+    return figletOrderedFonts.map(
+      (f): ListEntry => ({
+        kind: "figlet-font",
+        data: { ...f, sample: figletSamples.get(f.name) ?? "" },
+      }),
+    );
+  }, [isFigletMode, figletOrderedFonts, figletSamples]);
 
   // Leave brightness mode automatically once the query is no longer the
   // `brightness` command (e.g. the user cleared / retyped the search field).
@@ -1536,6 +1652,7 @@ function App() {
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
+    if (isFigletMode) return figletEntries;
     return [
       // Custom commands have the HIGHEST priority. A complete command
       // (commandEntry) takes the top slot, and partial command *suggestions*
@@ -1575,6 +1692,8 @@ function App() {
     killTargetEntries,
     isMemeMode,
     memeEntries,
+    isFigletMode,
+    figletEntries,
     commandEntry,
     snitchSubEntry,
     shazamSubEntry,
@@ -1771,6 +1890,41 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSuggestion, gameMode]);
+
+  // Tab / → on a selected figlet-font row fills `@font` into the search bar
+  // (rz-preset semantics) so the user can keep tweaking the text before Enter.
+  const selectedFigletFont =
+    isFigletMode && combined[selected]?.kind === "figlet-font" ? combined[selected] : null;
+  useEffect(() => {
+    if (!selectedFigletFont || gameMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab" && e.key !== "ArrowRight") return;
+      if (e.shiftKey || e.metaKey || e.ctrlKey || e.altKey) return;
+      const input = searchRef.current;
+      if (!input) return;
+      if (e.key === "ArrowRight") {
+        const atEnd =
+          input.selectionStart === input.value.length &&
+          input.selectionEnd === input.value.length;
+        if (!atEnd) return;
+      }
+      if (selectedFigletFont.kind !== "figlet-font") return;
+      const keyword = parsedCommand?.spec.keyword ?? "figlet";
+      const completion = [keyword, figletParsed.text, `@${selectedFigletFont.data.name}`]
+        .filter(Boolean)
+        .join(" ");
+      if (completion === input.value) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setQuery(completion);
+      requestAnimationFrame(() => {
+        searchRef.current?.focus();
+        searchRef.current?.setSelectionRange(completion.length, completion.length);
+      });
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedFigletFont, gameMode, parsedCommand, figletParsed.text]);
 
   // Find matching snippets whenever query changes. The cancelled guard keeps
   // an out-of-order older response from clobbering a newer query's result.
@@ -2720,6 +2874,18 @@ function App() {
           return;
         }
         await hidePopup();
+      } else if (target.kind === "figlet-font") {
+        // Render the selected font's FULL banner (with the current chip opts)
+        // and paste it — exactly the rendered monospace text, incl. newlines.
+        try {
+          const banner = await figletRender(figletParsed.text, target.data.name, figletOpts);
+          if (!banner.text.trim()) return; // nothing to paste (empty/all-unsupported)
+          await pasteGenerated(banner.text, figletDefaults?.save_history ?? true);
+        } catch (e) {
+          setPasteError("other");
+          console.error("figlet_render/paste failed", e);
+        }
+        return;
       } else if (target.kind === "social") {
         // Download the Tab-selected mode (video by default; YouTube also offers
         // audio — Tab flips it). Routed through the preview bar via a run signal
@@ -3325,6 +3491,11 @@ function App() {
                     fakerReroll={fakerReroll}
                     secCatalog={secCat}
                     secDefaults={secDef}
+                    figletText={figletParsed.text}
+                    figletOpts={figletOpts}
+                    onFigletOptsChange={(patch) =>
+                      setFigletOptsOverride((prev) => ({ ...prev, ...patch }))
+                    }
                     snippetCategories={snippetCategories}
                     snippetEditing={
                       current?.kind === "snippet" && snippetEditingId === current.data.id

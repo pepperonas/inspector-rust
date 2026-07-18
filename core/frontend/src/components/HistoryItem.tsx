@@ -47,6 +47,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
       : <Files size={size} className={cls} />;
   }
   if (entry.kind === "meme") return <Laugh size={size} className={cls} />;
+  if (entry.kind === "figlet-font") return <Type size={size} className={cls} />;
   if (entry.kind === "social") return <Download size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
@@ -97,6 +98,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isTotp = entry.kind === "totp";
   const isKillTarget = entry.kind === "kill-target";
   const isMeme = entry.kind === "meme";
+  const isFiglet = entry.kind === "figlet-font";
   const isSocial = entry.kind === "social";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
@@ -141,7 +143,7 @@ export const HistoryItem = memo(function HistoryItem({
         ? entry.data.name
         : isSocial && entry.kind === "social"
           ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile || isFiglet
             ? ""
             : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -621,6 +623,28 @@ export const HistoryItem = memo(function HistoryItem({
                 </>
               )}
             </span>
+          </span>
+        ) : isFiglet && entry.kind === "figlet-font" ? (
+          // Font name + category, then a compact monospace sample of the text
+          // in this font (empty until the batched sample fetch fills it).
+          <span className="flex min-w-0 flex-col">
+            <span className="flex items-baseline gap-1.5">
+              <span className="truncate font-semibold">{entry.data.name}</span>
+              <span className={selected ? "text-white/60" : "text-[var(--color-muted)]"}>
+                {entry.data.category}
+              </span>
+              {entry.data.pinned && <span title="Pinned">★</span>}
+            </span>
+            {entry.data.sample && (
+              <pre
+                className={
+                  "mt-0.5 overflow-hidden whitespace-pre font-[var(--font-mono)] text-[8px] leading-[1.05] " +
+                  (selected ? "text-white/80" : "text-[var(--color-muted)]")
+                }
+              >
+                {entry.data.sample}
+              </pre>
+            )}
           </span>
         ) : (
           label

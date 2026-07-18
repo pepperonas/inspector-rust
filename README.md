@@ -396,6 +396,7 @@ alone for the whole index.
 | `json` | v0.76.0 | Pretty-print the clipboard JSON → clipboard. |
 | `jwt` | v0.76.0 | Decode the clipboard JWT (header + payload) → clipboard. |
 | `qr` | v0.76.0 | Generate a QR code — preview live, Enter copies the PNG. |
+| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-art banners — live preview, browse hundreds of fonts, Enter copies. |
 | `kill` | v0.19.0 | Live process picker — filter by name/PID, confirm, terminate. |
 | `reboot` | v0.19.0 | Reboot the machine (with confirmation). |
 | `shutdown` | v0.19.0 | Shut the machine down (with confirmation). |

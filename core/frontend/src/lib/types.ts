@@ -193,7 +193,21 @@ export type ListEntry =
   | { kind: "totp-manage"; data: { label: string } }
   | { kind: "totp"; data: TotpListView }
   | { kind: "meme"; data: MemeEntry }
+  | { kind: "figlet-font"; data: FigletFontView }
   | { kind: "social"; data: SocialTarget };
+
+/** One font row in the `figlet` gallery: the font's metadata + a compact
+ *  live sample of the user's text in that font (empty until fetched). The big
+ *  monospace banner renders in the preview when this row is selected; Enter
+ *  copies that full banner. */
+export interface FigletFontView {
+  name: string;
+  category: string;
+  popular: boolean;
+  pinned: boolean;
+  /** Compact multi-line sample of the current text (may be "" until loaded). */
+  sample: string;
+}
 
 /** Single TOTP autocomplete row — shows issuer + account + live
  *  6-digit code with countdown. Activate (Enter) → code is copied to

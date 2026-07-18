@@ -81,7 +81,8 @@ export type CommandKind =
   | "trim"
   | "calendar"
   | "faker"
-  | "sec";
+  | "sec"
+  | "figlet";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -690,6 +691,30 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description:
       "Beat-sync Hue lamps to the mic — disco 1 = on, disco 0 = off (bare = toggle). Keeps running after the popup closes",
     requiresArg: false,
+  },
+  {
+    kind: "figlet",
+    keyword: "figlet",
+    syntax: "figlet <text> [@font] [--width=n] [--center|--right]",
+    description:
+      "ASCII-art banners — type text to see it live, browse hundreds of fonts (each previews your text), Enter copies the selected one. e.g. figlet Hi @slant",
+    requiresArg: false,
+  },
+  {
+    kind: "figlet",
+    keyword: "banner",
+    syntax: "banner <text> [@font]",
+    description: "Alias for figlet",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "figlet",
+    keyword: "ascii",
+    syntax: "ascii <text> [@font]",
+    description: "Alias for figlet",
+    requiresArg: false,
+    hidden: true,
   },
   ...SEARCH_BANG_COMMANDS,
 ];

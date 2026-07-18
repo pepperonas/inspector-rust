@@ -325,6 +325,7 @@ Englisch.)
 | `json` | v0.76.0 | Clipboard-JSON formatieren → Clipboard. |
 | `jwt` | v0.76.0 | Clipboard-JWT dekodieren (Header + Payload) → Clipboard. |
 | `qr` | v0.76.0 | QR-Code erzeugen — Live-Vorschau, Enter kopiert das PNG. |
+| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-Art-Banner — Live-Vorschau, Hunderte Fonts durchblättern, Enter kopiert. |
 | `kill` | v0.19.0 | Live-Prozess-Picker — nach Name/PID filtern, bestätigen, beenden. |
 | `reboot` | v0.19.0 | Rechner neu starten (mit Bestätigung). |
 | `shutdown` | v0.19.0 | Rechner herunterfahren (mit Bestätigung). |

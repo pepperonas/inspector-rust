@@ -8,6 +8,8 @@ import {
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
 import { FakerPreview } from "./FakerPreview";
 import { SecPreview } from "./SecPreview";
+import { FigletPreview } from "./FigletPreview";
+import type { FigletOpts } from "../lib/figlet";
 import type { CatalogEntry, FakerDefaults } from "../lib/faker";
 import type { SecCatalog, SecDefaults } from "../lib/sec";
 import type { SnippetCategory } from "../lib/ipc";
@@ -82,6 +84,11 @@ interface Props {
   onSnippetSaved?: () => void | Promise<void>;
   /** Esc / Cancel in the editor. */
   onSnippetEditCancel?: () => void;
+  /** Figlet command: the parsed banner text + current render opts + a setter
+   *  for the option chips (App.tsx owns the state so Enter copies with them). */
+  figletText?: string;
+  figletOpts?: FigletOpts;
+  onFigletOptsChange?: (patch: Partial<FigletOpts>) => void;
 }
 
 /** One label/value line in the Bruno (net-pay) breakdown. Module-level so its
@@ -135,6 +142,9 @@ export function PreviewPanel({
   onSnippetEdit,
   onSnippetSaved,
   onSnippetEditCancel,
+  figletText = "",
+  figletOpts,
+  onFigletOptsChange,
 }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -365,6 +375,19 @@ export function PreviewPanel({
           {body}
         </pre>
       </div>
+    );
+  }
+
+  // ── Figlet gallery: the selected font's big banner ────────────────────────
+  if (entry.kind === "figlet-font") {
+    return (
+      <FigletPreview
+        text={figletText}
+        font={entry.data.name}
+        category={entry.data.category}
+        opts={figletOpts ?? { width: 80, align: "left", trim: true, comment: "none", boxed: false }}
+        onOptsChange={onFigletOptsChange ?? (() => undefined)}
+      />
     );
   }
 

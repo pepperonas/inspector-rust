@@ -180,7 +180,9 @@ export function HistoryList({
                                               ? `meme-${entry.data.path}`
                                               : entry.kind === "social"
                                                 ? `social`
-                                                : `c-${entry.data.id}`;
+                                                : entry.kind === "figlet-font"
+                                                  ? `fig-${entry.data.name}`
+                                                  : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

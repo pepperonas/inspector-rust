@@ -367,6 +367,42 @@ export const COMMAND_DOCS: CommandDoc[] = [
     caveats: ["Very long inputs make dense codes that scan poorly."],
     related: ["uuid"],
   },
+  {
+    command: "figlet",
+    aliases: ["banner", "ascii"],
+    category: CAT_TEXT,
+    version_added: "0.85.0",
+    tagline: "ASCII-art banners — live preview, browse hundreds of fonts, Enter copies.",
+    tagline_de: "ASCII-Art-Banner — Live-Vorschau, Hunderte Fonts durchblättern, Enter kopiert.",
+    synopsis: "figlet <text> [@font] [--width=n] [--center|--right]   ·   banner · ascii",
+    description:
+      "Turns text into a FIGlet ASCII-art banner. As you type, the selected font's banner renders live in the preview (monospace); the left list is a gallery where every row previews YOUR text in that font — arrow through it, or fuzzy-filter with `@name`. Enter copies the selected font's full banner to the clipboard (exactly the rendered text, newlines and all). Hundreds of fonts are bundled and inflated lazily. Option chips (align / width / trim / comment-wrap / box border) apply without re-typing. Unrenderable characters are reported, never silently dropped.",
+    arguments: [
+      { name: "text", required: false, description: "The banner text. Bare `figlet` opens the gallery with a placeholder.", default: "(gallery)" },
+    ],
+    flags: [
+      { flag: "@<font>", value_type: "name", description: "Jump to / fuzzy-filter a font (e.g. `@slant`, `@sla`).", default: "Settings default font" },
+      { flag: "--width", value_type: "n", description: "Wrap width in columns (0 = no wrap).", default: "Settings default (80)" },
+      { flag: "--center / --right / --left", value_type: undefined, description: "Alignment.", default: "left" },
+      { flag: "--box", value_type: undefined, description: "Draw a box-drawing border around the banner.", default: "off" },
+      { flag: "--comment", value_type: "slashes|hash|block|html", description: "Wrap the banner as a source comment.", default: "none" },
+    ],
+    examples: [
+      { input: "figlet Hello", result: "A live banner in the default font + the font gallery." },
+      { input: "figlet Deploy @slant", result: "Jumps straight to the 'slant' font." },
+      { input: "figlet TODO @doom --box --comment=slashes", result: "A boxed, //-commented banner header for source." },
+    ],
+    tips: [
+      "Tab fills the selected font as `@font` into the search bar so you can keep tweaking; Enter copies.",
+      "With hundreds of fonts, `@name` fuzzy-search is the fastest way to find one.",
+    ],
+    caveats: [
+      "Most FIGlet fonts are ASCII-only — accented/emoji characters are skipped with a visible hint (German umlauts do work).",
+      "Very wide banners scroll horizontally in the preview rather than wrapping (use --width to wrap on word boundaries).",
+    ],
+    related: ["qr"],
+    see_also: "docs/figlet.md",
+  },
 
   // ── System ────────────────────────────────────────────────────────────
   {

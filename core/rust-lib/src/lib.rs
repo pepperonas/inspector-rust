@@ -22,6 +22,7 @@ mod db;
 mod desktop_shortcuts;
 mod expander;
 mod faker;
+mod figlet;
 mod hotkey;
 mod hue;
 #[cfg(target_os = "macos")]

@@ -77,6 +77,14 @@ ddc-hi = "0.4"
 # on the seeded RNG to avoid pulling uuid/semver/time crates.
 fake = { version = "5.1", features = ["chrono"] }
 rand010 = { package = "rand", version = "0.10" }
+# FIGlet ASCII-art rendering for the `figlet` search-bar command (v0.85.0).
+# Pure Rust, MIT, tested against real figlet/toilet fixtures; parses fonts from
+# in-memory strings (`FIGfont::from_content`) so the bundled font set can be
+# lazily inflated from embedded deflate blobs (see build.rs / figlet/fonts.rs).
+figlet-rs = "1"
+# Deflate/gzip for the compressed, lazily-decompressed FIGlet font bundle
+# (already in the lockfile transitively; pure-Rust miniz_oxide backend, no C).
+flate2 = "1"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = { workspace = true }

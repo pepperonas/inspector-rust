@@ -129,8 +129,10 @@ impl Default for SecDefaults {
         SecDefaults {
             wordlist: String::new(),
             output_dir: String::new(),
-            timing: "4".into(),
-            threads: 50,
+            // Empty = don't silently inject -T/-t/--rate-limit into every
+            // command; the user opts in via Settings if they want a default.
+            timing: String::new(),
+            threads: 0,
             rate: 0,
             john_line: "jumbo".into(),
             terminal: "iterm".into(),
@@ -163,12 +165,17 @@ pub fn get_defaults(db: &crate::db::DbHandle) -> anyhow::Result<SecDefaults> {
         output_dir: crate::settings::get_or(db, KEY_OUTPUT_DIR, &d.output_dir)?,
         timing: {
             let t = crate::settings::get_or(db, KEY_TIMING, &d.timing)?;
-            if t.len() == 1 && t.chars().all(|c| ('0'..='5').contains(&c)) { t } else { d.timing }
+            // "" = no default; otherwise a single 0–5 digit.
+            if t.is_empty() || (t.len() == 1 && t.chars().all(|c| ('0'..='5').contains(&c))) {
+                t
+            } else {
+                d.timing
+            }
         },
         threads: crate::settings::get_or(db, KEY_THREADS, &d.threads.to_string())?
             .parse()
             .unwrap_or(d.threads)
-            .clamp(1, 500),
+            .min(500),
         rate: crate::settings::get_or(db, KEY_RATE, &d.rate.to_string())?
             .parse()
             .unwrap_or(d.rate)
@@ -184,13 +191,15 @@ pub fn get_defaults(db: &crate::db::DbHandle) -> anyhow::Result<SecDefaults> {
 pub fn set_defaults(db: &crate::db::DbHandle, d: &SecDefaults) -> anyhow::Result<()> {
     crate::settings::set(db, KEY_WORDLIST, &d.wordlist)?;
     crate::settings::set(db, KEY_OUTPUT_DIR, &d.output_dir)?;
-    let timing = if d.timing.len() == 1 && d.timing.chars().all(|c| ('0'..='5').contains(&c)) {
+    let timing = if d.timing.is_empty()
+        || (d.timing.len() == 1 && d.timing.chars().all(|c| ('0'..='5').contains(&c)))
+    {
         d.timing.clone()
     } else {
-        "4".into()
+        String::new()
     };
     crate::settings::set(db, KEY_TIMING, &timing)?;
-    crate::settings::set(db, KEY_THREADS, &d.threads.clamp(1, 500).to_string())?;
+    crate::settings::set(db, KEY_THREADS, &d.threads.min(500).to_string())?;
     crate::settings::set(db, KEY_RATE, &d.rate.min(100_000).to_string())?;
     crate::settings::set(db, KEY_JOHN_LINE, if d.john_line == "core" { "core" } else { "jumbo" })?;
     crate::settings::set(db, KEY_TERMINAL, if d.terminal == "terminal" { "terminal" } else { "iterm" })?;
@@ -217,9 +226,19 @@ pub fn set_defaults(db: &crate::db::DbHandle, d: &SecDefaults) -> anyhow::Result
 /// callers fall back to clipboard elsewhere.
 #[cfg(target_os = "macos")]
 pub fn open_in_terminal(command: &str, auto_enter: bool) -> Result<(), String> {
-    use crate::finder_selection::{iterm_installed, osa_escape};
-    let esc = osa_escape(command);
-    let script = if iterm_installed() {
+    let script = build_handoff_script(command, auto_enter, crate::finder_selection::iterm_installed());
+    run_osascript(&script)
+}
+
+/// Build the osascript for the hand-off (pure — no process, unit-testable).
+/// `command` is already shell-quoted by the frontend builder; here it is only
+/// escaped for the AppleScript string literal. `auto_enter=false` types the
+/// command via System Events `keystroke` WITHOUT a newline (staged, not run);
+/// `auto_enter=true` runs it via iTerm `write text` / Terminal `do script`.
+#[cfg(any(target_os = "macos", test))]
+pub fn build_handoff_script(command: &str, auto_enter: bool, iterm: bool) -> String {
+    let esc = crate::finder_selection::osa_escape(command);
+    if iterm {
         if auto_enter {
             format!(
                 "tell application \"iTerm\"\n\
@@ -229,8 +248,6 @@ pub fn open_in_terminal(command: &str, auto_enter: bool) -> Result<(), String> {
                  end tell"
             )
         } else {
-            // Open a window (empty command → just a shell), then type the
-            // command without a newline so it's staged, not run.
             format!(
                 "tell application \"iTerm\"\n\
                      activate\n\
@@ -243,14 +260,12 @@ pub fn open_in_terminal(command: &str, auto_enter: bool) -> Result<(), String> {
     } else if auto_enter {
         format!("tell application \"Terminal\"\n\tactivate\n\tdo script \"{esc}\"\nend tell")
     } else {
-        // Terminal.app: open an empty window, then type without submitting.
         format!(
             "tell application \"Terminal\"\n\tactivate\n\tdo script \"\"\nend tell\n\
              delay 0.3\n\
              tell application \"System Events\" to keystroke \"{esc}\""
         )
-    };
-    run_osascript(&script)
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -347,6 +362,34 @@ mod tests {
     }
 
     #[test]
+    fn handoff_script_stages_without_submitting_by_default() {
+        // A pre-quoted command (built by the frontend). auto_enter=false must
+        // NOT run it: no `write text`/`do script` of the command — it's typed
+        // via keystroke and left un-submitted.
+        let cmd = "nmap -sV -sC '10.0.0.5'";
+        let staged = build_handoff_script(cmd, false, true);
+        assert!(staged.contains("keystroke"), "must type via keystroke");
+        assert!(!staged.contains("write text \"nmap"), "must not run the command");
+        // auto_enter=true runs it.
+        let run = build_handoff_script(cmd, true, true);
+        assert!(run.contains("write text \"nmap -sV -sC '10.0.0.5'\""));
+        // Terminal.app fallback (no iTerm).
+        let term = build_handoff_script(cmd, true, false);
+        assert!(term.contains("do script \"nmap"));
+    }
+
+    #[test]
+    fn handoff_escapes_the_applescript_literal() {
+        // A quote/backslash in the (already shell-quoted) command must be
+        // escaped for the AppleScript string, never break the script.
+        let cmd = r#"echo "a\b" 'c'"#;
+        let s = build_handoff_script(cmd, true, true);
+        assert!(s.contains(r#"\"a\\b\""#), "quotes/backslashes escaped: {s}");
+        // The osascript string literal stays balanced (even number of unescaped ").
+        assert!(s.matches("keystroke").count() == 0);
+    }
+
+    #[test]
     fn defaults_round_trip() {
         let conn = rusqlite::Connection::open_in_memory().unwrap();
         let db = std::sync::Arc::new(parking_lot::Mutex::new(conn));
@@ -369,8 +412,8 @@ mod tests {
         let d2 = get_defaults(&db).unwrap();
         assert_eq!(d2.john_line, "core");
         assert!(d2.auto_enter);
-        assert_eq!(d2.threads, 500); // clamped
-        assert_eq!(d2.timing, "4"); // invalid "9" → default
+        assert_eq!(d2.threads, 500); // clamped to max
+        assert_eq!(d2.timing, ""); // invalid "9" → empty (no injection)
         assert_eq!(d2.terminal, "terminal");
     }
 }

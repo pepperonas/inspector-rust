@@ -80,7 +80,8 @@ export type CommandKind =
   | "track"
   | "trim"
   | "calendar"
-  | "faker";
+  | "faker"
+  | "sec";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -399,6 +400,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     hidden: true,
   },
+  // ── Security command builders (sec) ─────────────────────────────────
+  {
+    kind: "sec",
+    keyword: "sec",
+    syntax: "sec [nmap|sqlmap|ferox|john] [preset] [target]",
+    description:
+      "Guided pentest-command builders — nmap · sqlmap · feroxbuster · John. Pick a preset, fill the target; Inspector Rust builds the correct (sh/bash-quoted) command line with a flag cheat-sheet. Enter copies it; ⌘/Ctrl+Enter opens your terminal with it inserted (macOS). It never scans itself. Authorized targets only.",
+    requiresArg: false,
+  },
+  // Direct tool keywords (muscle-memory). Hidden so they don't clutter
+  // autocomplete, but typing them still opens the builder.
+  { kind: "sec", keyword: "nmap", syntax: "nmap [preset] [target]", description: "nmap command builder.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "sqlmap", syntax: "sqlmap [preset] [url]", description: "sqlmap command builder.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "feroxbuster", syntax: "feroxbuster [preset] [url]", description: "feroxbuster command builder.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "ferox", syntax: "ferox [preset] [url]", description: "feroxbuster command builder.", requiresArg: false, hidden: true },
+  { kind: "sec", keyword: "john", syntax: "john [preset] [hashfile]", description: "John the Ripper command builder.", requiresArg: false, hidden: true },
   // ── File/folder creation in the front file-manager window's dir ──
   //    (Finder on macOS, Explorer on Windows)
   {

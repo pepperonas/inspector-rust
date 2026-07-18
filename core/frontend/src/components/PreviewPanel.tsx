@@ -7,7 +7,9 @@ import {
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
 import { FakerPreview } from "./FakerPreview";
+import { SecPreview } from "./SecPreview";
 import type { CatalogEntry, FakerDefaults } from "../lib/faker";
+import type { SecCatalog, SecDefaults } from "../lib/sec";
 import type { SnippetCategory } from "../lib/ipc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
@@ -65,6 +67,9 @@ interface Props {
   fakerCatalog?: CatalogEntry[];
   fakerDefaults?: FakerDefaults;
   fakerReroll?: number;
+  /** Security-builder catalogue + defaults (for the `sec` command preview). */
+  secCatalog?: SecCatalog;
+  secDefaults?: SecDefaults;
   /** Snippet groups — needed by the inline snippet editor's group picker. */
   snippetCategories?: SnippetCategory[];
   /** True while the selected snippet is being edited in place (v0.84.265):
@@ -123,6 +128,8 @@ export function PreviewPanel({
   fakerCatalog = [],
   fakerDefaults,
   fakerReroll = 0,
+  secCatalog,
+  secDefaults,
   snippetCategories = [],
   snippetEditing = false,
   onSnippetEdit,
@@ -363,6 +370,29 @@ export function PreviewPanel({
 
   // ── Command preview (power-command palette) ───────────────────────────────
   if (entry.kind === "command") {
+    if (entry.data.commandKind === "sec") {
+      return (
+        <SecPreview
+          keyword={entry.data.rawInput.split(/\s+/)[0] || "sec"}
+          arg={entry.data.arg}
+          catalog={secCatalog ?? { tools: [] }}
+          defaults={
+            secDefaults ?? {
+              wordlist: "",
+              output_dir: "",
+              timing: "",
+              threads: 0,
+              rate: 0,
+              john_line: "jumbo",
+              terminal: "iterm",
+              auto_enter: false,
+              scope_note: "",
+              save_history: true,
+            }
+          }
+        />
+      );
+    }
     if (entry.data.commandKind === "faker") {
       return (
         <FakerPreview

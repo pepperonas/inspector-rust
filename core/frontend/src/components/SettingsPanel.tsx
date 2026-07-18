@@ -29,6 +29,7 @@ import {
   Volume2,
   Wand2,
   Dices,
+  ShieldAlert,
   Zap,
 } from "lucide-react";
 import { AboutContent } from "./AboutContent";
@@ -39,6 +40,8 @@ import {
   forceResetAndRequestGrant,
   brunoGetDefaults,
   fakerGetDefaults,
+  secGetDefaults,
+  secSetDefaults,
   fakerSetDefaults,
   fakerLocales,
   fakerCatalog,
@@ -121,6 +124,7 @@ import {
   type ExpanderConfig,
 } from "../lib/ipc";
 import type { FakerDefaults } from "../lib/faker";
+import type { SecDefaults } from "../lib/sec";
 import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
 import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
@@ -2502,6 +2506,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <FakerSection />
         </div>
 
+        {/* Security builders — pentest command builders */}
+        <div className="mt-6">
+          <SecuritySection />
+        </div>
+
         {/* Meme library directory */}
         {MEME_ENABLED && (
           <div className="mt-6">
@@ -3718,6 +3727,141 @@ function FakerSection() {
           (dirty && !saving
             ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
             : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
+        }
+      >
+        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+      </button>
+    </Section>
+  );
+}
+
+// ── Security builders — pentest command builders ───────────────────────
+// Persisted defaults for the `sec` cluster. auto_enter defaults OFF; sharp
+// presets always confirm (not toggleable). Mirrors FakerSection.
+function SecuritySection() {
+  const [defs, setDefs] = useState<SecDefaults | null>(null);
+  const [saved, setSaved] = useState<SecDefaults | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    secGetDefaults()
+      .then((d) => {
+        setDefs(d);
+        setSaved(d);
+      })
+      .catch(() => undefined);
+  }, []);
+
+  if (!defs) return null;
+
+  const dirty = saved !== null && JSON.stringify(saved) !== JSON.stringify(defs);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await secSetDefaults(defs);
+      setSaved(defs);
+    } catch (e) {
+      console.error("save sec defaults", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const seg = <T extends string>(cur: T, options: [T, string][], onPick: (v: T) => void) => (
+    <div className="flex gap-1">
+      {options.map(([v, label]) => (
+        <button
+          key={v}
+          onClick={() => onPick(v)}
+          className={
+            "rounded px-2.5 py-1 text-[12px] font-medium " +
+            (cur === v
+              ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+              : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+
+  const textInput = (val: string, ph: string, onChange: (v: string) => void) => (
+    <input
+      type="text"
+      value={val}
+      placeholder={ph}
+      onChange={(e) => onChange(e.target.value)}
+      className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+    />
+  );
+
+  return (
+    <Section
+      icon={<ShieldAlert size={16} className="text-[var(--color-accent)]" />}
+      title="Security builders"
+      subtitle="Defaults for the sec / nmap / sqlmap / ferox / john command builders. Authorized targets only — Inspector Rust builds commands, it never scans."
+    >
+      <Row label="Scope / authorization note" help="Shown in the preview header — your reminder of the engagement you're authorized for.">
+        <textarea
+          value={defs.scope_note}
+          placeholder="e.g. Authorized for acme.example, 2026-07-18…24"
+          onChange={(e) => setDefs({ ...defs, scope_note: e.target.value })}
+          rows={2}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+      </Row>
+
+      <Row label="Default wordlist" help="Used by feroxbuster / John when you don't type one (e.g. /usr/share/seclists/…).">
+        {textInput(defs.wordlist, "/usr/share/wordlists/rockyou.txt", (v) => setDefs({ ...defs, wordlist: v }))}
+      </Row>
+
+      <Row label="Default output directory" help="For nmap -oA / feroxbuster -o.">
+        {textInput(defs.output_dir, "~/scans", (v) => setDefs({ ...defs, output_dir: v }))}
+      </Row>
+
+      <Row label="Default timing / threads / rate" help="Left empty = not injected. Timing 0–5 (nmap -T), threads (ferox -t), rate (ferox --rate-limit).">
+        <div className="flex gap-2">
+          <input type="text" value={defs.timing} placeholder="-T" onChange={(e) => setDefs({ ...defs, timing: e.target.value })} className="w-16 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" />
+          <input type="number" min={0} max={500} value={defs.threads} onChange={(e) => setDefs({ ...defs, threads: Math.max(0, Math.min(500, parseInt(e.target.value, 10) || 0)) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder="threads" />
+          <input type="number" min={0} value={defs.rate} onChange={(e) => setDefs({ ...defs, rate: Math.max(0, parseInt(e.target.value, 10) || 0) })} className="w-20 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]" placeholder="rate" />
+        </div>
+      </Row>
+
+      <Row label="John line" help="Jumbo (Kali default) offers mask + the *2john helpers; Core hides them.">
+        {seg(defs.john_line, [["jumbo", "Jumbo"], ["core", "Core"]], (v) => setDefs({ ...defs, john_line: v }))}
+      </Row>
+
+      <Row label="Terminal (hand-off)" help="Which terminal ⌘⏎ opens (macOS). iTerm2 falls back to Terminal.app.">
+        {seg(defs.terminal, [["iterm", "iTerm2"], ["terminal", "Terminal.app"]], (v) => setDefs({ ...defs, terminal: v }))}
+      </Row>
+
+      <Row label="Terminal behaviour">
+        <div className="space-y-1.5">
+          <label className="flex items-center gap-2 text-[13px]">
+            <input type="checkbox" checked={defs.auto_enter} onChange={(e) => setDefs({ ...defs, auto_enter: e.target.checked })} />
+            Auto-press Enter after inserting (default off — you submit it yourself)
+          </label>
+          <label className="flex items-center gap-2 text-[13px] text-[var(--color-muted)]">
+            <input type="checkbox" checked disabled />
+            Always confirm sharp presets (full-tcp / dump / -T5 / incremental) — locked on
+          </label>
+        </div>
+      </Row>
+
+      <Row label="Save commands to history">
+        <label className="flex items-center gap-2 text-[13px]">
+          <input type="checkbox" checked={defs.save_history} onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })} />
+          Store built commands in clipboard history
+        </label>
+      </Row>
+
+      <button
+        onClick={save}
+        disabled={!dirty || saving}
+        className={
+          "mt-2 rounded px-3 py-1.5 text-[13px] font-medium " +
+          (dirty && !saving ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]" : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
         }
       >
         {saving ? "Saving…" : dirty ? "Save" : "Saved"}

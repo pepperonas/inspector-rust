@@ -789,7 +789,7 @@ pub fn faker_set_defaults(
 /// so bulk test data doesn't flood the 1 000-entry history unless the user
 /// opts in. Same paste primitive as every other power command.
 #[tauri::command]
-pub fn faker_paste(
+pub fn paste_generated(
     app: AppHandle,
     db: State<'_, DbHandle>,
     watcher: State<'_, WatcherState>,

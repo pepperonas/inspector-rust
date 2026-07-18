@@ -285,9 +285,31 @@ export function fakerSetDefaults(defaults: FakerDefaults): Promise<void> {
 }
 
 /** Paste generated text into the focused app; optionally store in history.
- *  Backend: faker_paste. */
-export function fakerPaste(text: string, saveHistory: boolean): Promise<void> {
-  return invoke("faker_paste", { text, saveHistory });
+ *  Backend: paste_generated. */
+export function pasteGenerated(text: string, saveHistory: boolean): Promise<void> {
+  return invoke("paste_generated", { text, saveHistory });
+}
+
+// ── Security command builders (sec, v0.84.271) ────────────────────────
+import type { SecCatalog, SecDefaults } from "./sec";
+
+/** The pentest-tool catalogue (presets + flag help). Backend: sec_catalog. */
+export function secCatalog(): Promise<SecCatalog> {
+  return invoke("sec_catalog");
+}
+
+export function secGetDefaults(): Promise<SecDefaults> {
+  return invoke("sec_get_defaults");
+}
+
+export function secSetDefaults(defaults: SecDefaults): Promise<void> {
+  return invoke("sec_set_defaults", { defaults });
+}
+
+/** Open the user's terminal with `command` inserted (macOS; no tool subprocess).
+ *  Backend: sec_open_in_terminal. `autoEnter=false` leaves it un-submitted. */
+export function secOpenInTerminal(command: string, autoEnter: boolean): Promise<void> {
+  return invoke("sec_open_in_terminal", { command, autoEnter });
 }
 
 // ── App launcher (Spotlight-like, macOS only in v0.37) ────────────────

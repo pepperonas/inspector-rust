@@ -125,7 +125,10 @@ import {
   fakerCatalog,
   fakerGenerate,
   fakerGetDefaults,
-  fakerPaste,
+  pasteGenerated,
+  secCatalog,
+  secGetDefaults,
+  secOpenInTerminal,
   startTimer,
   listTimers,
   getThemePreference,
@@ -140,6 +143,13 @@ import {
   type CatalogEntry,
   type FakerDefaults,
 } from "./lib/faker";
+import {
+  parseSecCommand,
+  visiblePresets,
+  matchPresets,
+  type SecCatalog,
+  type SecDefaults,
+} from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
@@ -696,6 +706,42 @@ function App() {
     [fakerDefaults],
   );
 
+  // Security builders: catalogue (fetched once) + defaults (event-refreshed).
+  const [secCat, setSecCat] = useState<SecCatalog>({ tools: [] });
+  const [secDefaultsRaw, setSecDefaultsRaw] = useState<SecDefaults | null>(null);
+  useEffect(() => {
+    void secCatalog().then(setSecCat).catch(() => undefined);
+    void secGetDefaults().then(setSecDefaultsRaw).catch(() => undefined);
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen("sec-defaults-changed", () => {
+      void secGetDefaults().then(setSecDefaultsRaw).catch(() => undefined);
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+  const secDef: SecDefaults = useMemo(
+    () =>
+      secDefaultsRaw ?? {
+        wordlist: "",
+        output_dir: "",
+        timing: "",
+        threads: 0,
+        rate: 0,
+        john_line: "jumbo",
+        terminal: "iterm",
+        auto_enter: false,
+        scope_note: "",
+        save_history: true,
+      },
+    [secDefaultsRaw],
+  );
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -764,6 +810,18 @@ function App() {
             ? `Template · ${s.n}×`
             : `${s.n} × ${s.generator} · ${s.format}`;
         hint = "Preview on the right · Enter → clipboard + paste · ⌘/Ctrl+R rerolls";
+        break;
+      }
+      case "sec": {
+        // A complete tool+preset → runnable command row (+ SecPreview). Bare
+        // `sec`/`nmap`, a preset list, or non-command prose yield no row (the
+        // preset suggestions / history cover those).
+        const parsed = parseSecCommand(spec.keyword, arg, secCat, secDef);
+        if (parsed.kind !== "built") return null;
+        label = parsed.command;
+        hint = parsed.sharp
+          ? "⏎ Copy · ⌘⏎ Run in terminal (confirms — sharp preset)"
+          : "⏎ Copy · ⌘⏎ Run in terminal";
         break;
       }
       case "resize": {
@@ -1016,7 +1074,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -1121,6 +1179,46 @@ function App() {
       }),
     );
   }, [parsedCommand, fakerCat, fakerDef]);
+
+  // Security-builder rows: the 4-tool overview (bare `sec`) or a tool's preset
+  // list (`nmap`, `sec nmap`, partial preset). Command-suggestion rows — Tab/→
+  // fills, Enter opens. Suppressed once a full command is built (SecPreview
+  // takes over), or when the parse is a non-command (`nmap output parsen`).
+  const secPresetEntries: ListEntry[] = useMemo(() => {
+    if (!parsedCommand || parsedCommand.spec.kind !== "sec") return [];
+    const parsed = parseSecCommand(parsedCommand.spec.keyword, parsedCommand.arg, secCat, secDef);
+    if (parsed.kind === "built" || parsed.kind === "not-command") return [];
+    if (parsed.kind === "tool-overview") {
+      return secCat.tools
+        .filter((t) => t.name !== "gobuster") // gobuster is the extensibility proof, not a headline tool
+        .map(
+          (t): ListEntry => ({
+            kind: "command-suggestion",
+            data: {
+              keyword: t.name,
+              syntax: t.name,
+              description: `${t.presets.filter((p) => p.category !== "prepare").length} presets — ${t.binary}`,
+              completion: `sec ${t.name} `,
+            },
+          }),
+        );
+    }
+    if (parsed.kind === "preset-list") {
+      const presets = matchPresets(parsed.query, visiblePresets(parsed.tool, secDef, parsed.prepare));
+      return presets.map(
+        (p): ListEntry => ({
+          kind: "command-suggestion",
+          data: {
+            keyword: `${parsed.tool.name} ${p.name}`,
+            syntax: `${parsed.tool.name} ${p.name}${p.sharp ? " ⚠" : ""}`,
+            description: p.purpose,
+            completion: `${parsed.tool.name} ${p.name} `,
+          },
+        }),
+      );
+    }
+    return [];
+  }, [parsedCommand, secCat, secDef]);
 
   // In finder-mode (Ctrl+Shift+F just fired), the file list takes the
   // top of the result list. A complete `rz <W>x<H>` command still
@@ -1454,6 +1552,7 @@ function App() {
       ...totpAutocompleteEntries,
       ...resizePresetEntries,
       ...fakerCatalogEntries,
+      ...secPresetEntries,
       ...(appEntry ? [appEntry] : []),
       ...finderFileEntries,
       ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
@@ -1481,6 +1580,7 @@ function App() {
     totpAutocompleteEntries,
     resizePresetEntries,
     fakerCatalogEntries,
+    secPresetEntries,
     finderFileEntries,
     calcResult,
     convertResult,
@@ -1724,6 +1824,46 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [activeTab, combined, selected]);
+
+  // Cmd/Ctrl+Enter on a `sec` command row → terminal hand-off (opt-in). Sharp
+  // presets confirm first (always, regardless of auto-enter). Inspector Rust
+  // opens the terminal with the command inserted — it runs no tool itself.
+  useEffect(() => {
+    if (activeTab !== "history") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
+      const target = combined[selected];
+      if (target?.kind !== "command" || target.data.commandKind !== "sec") return;
+      e.preventDefault();
+      e.stopPropagation();
+      const parsed = parseSecCommand(
+        target.data.rawInput.split(/\s+/)[0] || "sec",
+        target.data.arg,
+        secCat,
+        secDef,
+      );
+      if (parsed.kind !== "built") return;
+      void (async () => {
+        if (parsed.sharp) {
+          const ok = await confirmDialog(
+            `Run this ${parsed.tool.name} command in your terminal?\n\n${parsed.command}\n\nThis is a sharp preset (${parsed.tags.join(", ")}). Only against authorized targets.`,
+            "Run in terminal?",
+          );
+          if (!ok) return;
+        }
+        try {
+          await secOpenInTerminal(parsed.command, secDef.auto_enter);
+          await hidePopup();
+        } catch (err) {
+          // macOS-only; elsewhere the command is already copyable via Enter.
+          setPasteError("other");
+          console.error("sec hand-off failed", err);
+        }
+      })();
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [activeTab, combined, selected, secCat, secDef, hidePopup]);
 
   // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
   // these use `useTauriEvent` instead of the inline let-then-async
@@ -2082,10 +2222,23 @@ function App() {
         try {
           const result = await fakerGenerate(parsed.spec);
           const text = formatValues(result, parsed.spec.format);
-          await fakerPaste(text, fakerDef.save_history);
+          await pasteGenerated(text, fakerDef.save_history);
         } catch (e) {
           setPasteError("other");
           console.error("faker failed", e);
+          return true;
+        }
+      } else if (commandKind === "sec") {
+        // Enter = copy the built command + paste into the focused app (the
+        // overriding-safe default — never runs anything). Only a fully-built
+        // command runs; overview/preset-list/prose yields false → fill input.
+        const parsed = parseSecCommand(keyword ?? "sec", arg, secCat, secDef);
+        if (parsed.kind !== "built") return false;
+        try {
+          await pasteGenerated(parsed.command, secDef.save_history);
+        } catch (e) {
+          setPasteError("other");
+          console.error("sec copy failed", e);
           return true;
         }
       } else if (commandKind === "qr") {
@@ -3151,6 +3304,8 @@ function App() {
                     fakerCatalog={fakerCat}
                     fakerDefaults={fakerDef}
                     fakerReroll={fakerReroll}
+                    secCatalog={secCat}
+                    secDefaults={secDef}
                     snippetCategories={snippetCategories}
                     snippetEditing={
                       current?.kind === "snippet" && snippetEditingId === current.data.id

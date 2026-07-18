@@ -629,7 +629,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::faker_locales,
             commands::faker_get_defaults,
             commands::faker_set_defaults,
-            commands::faker_paste,
+            commands::paste_generated,
             commands::sec_catalog,
             commands::sec_get_defaults,
             commands::sec_set_defaults,

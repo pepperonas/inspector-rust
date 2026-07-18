@@ -1,0 +1,90 @@
+import { describe, it, expect } from "vitest";
+import { parseHelpQuery, isHelpQuery } from "./commandHelp";
+
+function doc(query: string): string | null {
+  const t = parseHelpQuery(query);
+  if (!t) return null;
+  return t.kind === "index" ? "@index" : t.doc.command;
+}
+
+describe("parseHelpQuery — index", () => {
+  it("`?` alone opens the index", () => {
+    expect(doc("?")).toBe("@index");
+    expect(doc("  ?  ")).toBe("@index");
+  });
+  it("`??` is not the index", () => {
+    expect(doc("??")).toBeNull();
+  });
+});
+
+describe("parseHelpQuery — exact command + `?`", () => {
+  it("resolves a command directly (no space and one space)", () => {
+    expect(doc("kill?")).toBe("kill");
+    expect(doc("kill ?")).toBe("kill");
+    expect(doc("faker ?")).toBe("faker");
+    expect(doc("qr?")).toBe("qr");
+  });
+  it("is case-insensitive", () => {
+    expect(doc("KILL?")).toBe("kill");
+    expect(doc("Faker ?")).toBe("faker");
+  });
+  it("resolves hidden aliases too", () => {
+    expect(doc("cal?")).toBe("calendar");
+    expect(doc("nmap?")).toBe("sec");
+    expect(doc("caffeine?")).toBe("wakelock");
+    expect(doc("shotfull?")).toBe("shot");
+  });
+});
+
+describe("parseHelpQuery — partial prefix + `?`", () => {
+  it("resolves to the top autocomplete match's doc", () => {
+    expect(doc("sni?")).toBe("snitch");
+    expect(doc("bright?")).toBe("brightness");
+    expect(doc("wake?")).toBe("wakelock");
+  });
+  it("returns null for a token with no command match", () => {
+    expect(doc("zzzzz?")).toBeNull();
+    expect(doc("qwxyz ?")).toBeNull();
+  });
+});
+
+describe("parseHelpQuery — `?` as a literal (no trigger)", () => {
+  it("does not trigger inside a quoted template argument", () => {
+    expect(doc('faker tpl "warum? {name}"')).toBeNull();
+    expect(doc('faker tpl "{name}?"')).toBeNull();
+  });
+  it("does not trigger in a glob/regex", () => {
+    expect(doc("a?b")).toBeNull();
+    expect(doc("file?.txt")).toBeNull();
+  });
+  it("does not trigger inside or at the end of a URL", () => {
+    expect(doc("https://x.com/?id=1")).toBeNull();
+    expect(doc("https://x.com/?")).toBeNull(); // token has :/. → not command-shaped
+  });
+  it("does not trigger after an argument", () => {
+    expect(doc("bruno hallo?")).toBeNull();
+    expect(doc("tr guten morgen?")).toBeNull();
+    expect(doc("faker tpl?")).toBeNull(); // arg present → literal
+    expect(doc("faker tpl ?")).toBeNull(); // two tokens before ? → literal
+  });
+  it("does not trigger for multi-word queries", () => {
+    expect(doc("hello world?")).toBeNull();
+    expect(doc("what is this?")).toBeNull();
+  });
+  it("returns null for a plain query with no `?`", () => {
+    expect(doc("kill")).toBeNull();
+    expect(doc("")).toBeNull();
+    expect(doc("faker person 50")).toBeNull();
+  });
+});
+
+describe("isHelpQuery", () => {
+  it("mirrors parseHelpQuery's boolean", () => {
+    expect(isHelpQuery("?")).toBe(true);
+    expect(isHelpQuery("kill?")).toBe(true);
+    expect(isHelpQuery("sni?")).toBe(true);
+    expect(isHelpQuery("bruno hallo?")).toBe(false);
+    expect(isHelpQuery("a?b")).toBe(false);
+    expect(isHelpQuery("kill")).toBe(false);
+  });
+});

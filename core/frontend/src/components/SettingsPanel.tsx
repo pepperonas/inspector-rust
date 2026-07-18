@@ -30,6 +30,7 @@ import {
   Wand2,
   Dices,
   ShieldAlert,
+  Type,
   Zap,
 } from "lucide-react";
 import { AboutContent } from "./AboutContent";
@@ -47,6 +48,9 @@ import {
   fakerSetDefaults,
   fakerLocales,
   fakerCatalog,
+  figletGetDefaults,
+  figletSetDefaults,
+  figletFonts,
   type FakerLocaleOption,
   brunoSetDefaults,
   getMemeDir,
@@ -126,6 +130,7 @@ import {
   type ExpanderConfig,
 } from "../lib/ipc";
 import type { FakerDefaults } from "../lib/faker";
+import type { FigletDefaults, FigletAlign, FigletComment, FigletFontMeta } from "../lib/figlet";
 import type { SecDefaults } from "../lib/sec";
 import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
 import { MEME_ENABLED } from "../lib/meme";
@@ -2513,6 +2518,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <SecuritySection />
         </div>
 
+        {/* Figlet — ASCII-art banner defaults */}
+        <div className="mt-6">
+          <FigletSection />
+        </div>
+
         {/* Meme library directory */}
         {MEME_ENABLED && (
           <div className="mt-6">
@@ -3718,6 +3728,198 @@ function FakerSection() {
             onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })}
           />
           Store faker output in clipboard history
+        </label>
+      </Row>
+
+      <button
+        onClick={save}
+        disabled={!dirty || saving}
+        className={
+          "mt-2 rounded px-3 py-1.5 text-[13px] font-medium " +
+          (dirty && !saving
+            ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+            : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
+        }
+      >
+        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+      </button>
+    </Section>
+  );
+}
+
+// ── Figlet — ASCII-art banner defaults ─────────────────────────────────
+// Mirrors FakerSection; the figlet-defaults-changed event (fired by
+// figletSetDefaults) makes the running popup re-read without a restart.
+function FigletSection() {
+  const [defs, setDefs] = useState<FigletDefaults | null>(null);
+  const [saved, setSaved] = useState<FigletDefaults | null>(null);
+  const [fonts, setFonts] = useState<FigletFontMeta[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    figletGetDefaults()
+      .then((d) => {
+        setDefs(d);
+        setSaved(d);
+      })
+      .catch(() => undefined);
+    figletFonts().then(setFonts).catch(() => undefined);
+  }, []);
+
+  if (!defs) return null;
+
+  const dirty =
+    saved !== null &&
+    (saved.font !== defs.font ||
+      saved.width !== defs.width ||
+      saved.align !== defs.align ||
+      saved.trim !== defs.trim ||
+      saved.comment !== defs.comment ||
+      saved.boxed !== defs.boxed ||
+      saved.save_history !== defs.save_history ||
+      saved.pinned.join(",") !== defs.pinned.join(","));
+
+  const fontNames = new Set(fonts.map((f) => f.name));
+  const save = async () => {
+    setSaving(true);
+    try {
+      await figletSetDefaults(defs);
+      setSaved(defs);
+    } catch (e) {
+      console.error("save figlet defaults", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const ALIGNS: FigletAlign[] = ["left", "center", "right"];
+  const COMMENTS: { v: FigletComment; label: string }[] = [
+    { v: "none", label: "plain" },
+    { v: "slashes", label: "//" },
+    { v: "hash", label: "#" },
+    { v: "block", label: "/* */" },
+    { v: "html", label: "<!--" },
+  ];
+
+  return (
+    <Section
+      icon={<Type size={16} className="text-[var(--color-accent)]" />}
+      title="Figlet — ASCII-art banner defaults"
+      subtitle="Applied to every `figlet` command; the option chips still override per banner."
+    >
+      <Row label="Default font" help="The font a bare `figlet <text>` starts with (browse/override with @font).">
+        <input
+          list="figlet-font-list"
+          value={defs.font}
+          onChange={(e) => setDefs({ ...defs, font: e.target.value })}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+        <datalist id="figlet-font-list">
+          {fonts.map((f) => (
+            <option key={f.name} value={f.name} />
+          ))}
+        </datalist>
+      </Row>
+
+      <Row label="Default width" help="Wrap width in columns (0 = no wrapping).">
+        <input
+          type="number"
+          min={0}
+          max={400}
+          value={defs.width}
+          onChange={(e) =>
+            setDefs({ ...defs, width: Math.max(0, Math.min(400, parseInt(e.target.value, 10) || 0)) })
+          }
+          className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+      </Row>
+
+      <Row label="Default alignment">
+        <div className="flex flex-wrap gap-1">
+          {ALIGNS.map((a) => (
+            <button
+              key={a}
+              onClick={() => setDefs({ ...defs, align: a })}
+              className={
+                "rounded px-2.5 py-1 text-[12px] font-medium capitalize " +
+                (defs.align === a
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+              }
+            >
+              {a}
+            </button>
+          ))}
+        </div>
+      </Row>
+
+      <Row label="Default comment wrap" help="Wrap the banner as a source comment by default (for banner headers in code).">
+        <div className="flex flex-wrap gap-1">
+          {COMMENTS.map((c) => (
+            <button
+              key={c.v}
+              onClick={() => setDefs({ ...defs, comment: c.v })}
+              className={
+                "rounded px-2.5 py-1 text-[12px] font-medium " +
+                (defs.comment === c.v
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+              }
+            >
+              {c.label}
+            </button>
+          ))}
+        </div>
+      </Row>
+
+      <Row label="Trim trailing whitespace" help="Remove trailing spaces from each line (clean paste into code). Internal alignment is preserved.">
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={defs.trim}
+            onChange={(e) => setDefs({ ...defs, trim: e.target.checked })}
+          />
+          Trim each line
+        </label>
+      </Row>
+
+      <Row label="Box border by default">
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={defs.boxed}
+            onChange={(e) => setDefs({ ...defs, boxed: e.target.checked })}
+          />
+          Draw a box around the banner
+        </label>
+      </Row>
+
+      <Row label="Pinned fonts" help="Comma-separated font names to float to the top of the gallery (e.g. standard, slant, doom).">
+        <input
+          type="text"
+          value={defs.pinned.join(", ")}
+          onChange={(e) =>
+            setDefs({
+              ...defs,
+              pinned: e.target.value
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter((s) => s && fontNames.has(s)),
+            })
+          }
+          placeholder="standard, slant, doom"
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+      </Row>
+
+      <Row label="Save results to history" help="When on, a copied banner is also stored as a clipboard-history entry.">
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={defs.save_history}
+            onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })}
+          />
+          Store figlet banners in clipboard history
         </label>
       </Row>
 

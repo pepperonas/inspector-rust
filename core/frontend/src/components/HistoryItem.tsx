@@ -626,6 +626,16 @@ export const HistoryItem = memo(function HistoryItem({
           label
         )}
       </span>
+      {(isCommand || isSuggestion) && selected && (
+        // Discoverability: a selected command row hints that `?` opens its
+        // full inline help. Subtle, right-aligned, keyboard-cap styled.
+        <span
+          className="ml-auto shrink-0 rounded border border-white/30 px-1 py-px text-[9px] font-semibold text-white/80"
+          aria-label="Press ? for help"
+        >
+          ? help
+        </span>
+      )}
       {styledFormat && (
         <span
           title={`Styled ${styledFormat} content`}

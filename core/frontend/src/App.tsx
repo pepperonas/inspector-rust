@@ -20,6 +20,7 @@ import { SnitchPanel } from "./components/SnitchPanel";
 import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
+import CommandHelp from "./components/CommandHelp";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -67,6 +68,7 @@ import {
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
+import { parseHelpQuery, type HelpTarget } from "./lib/commandHelp";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { qrPngBase64 } from "./lib/qr";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
@@ -464,6 +466,13 @@ function App() {
     () => commandSuggestions(query).filter((c) => isCommandAvailable(c)),
     [query],
   );
+
+  // ── Inline help (`?`): render command docs in the preview column ──────
+  // A trailing `?` on a command/prefix (or `?` alone) asks for help; the
+  // parser rejects a literal `?` (quotes/globs/URLs/args). When active, the
+  // preview shows <CommandHelp> (highest precedence) and the left list is
+  // blanked for the whole-index case so the docs stand alone.
+  const helpTarget: HelpTarget | null = useMemo(() => parseHelpQuery(query), [query]);
 
   // ── Kill-mode: live process picker ──────────────────────────────────
   // When the parsed command is `kill`, we override the whole combined
@@ -3128,7 +3137,7 @@ function App() {
             <div className="flex min-h-0 flex-1">
               <div className="w-2/5 border-r border-[var(--color-border)]">
                 <HistoryList
-                  entries={combined}
+                  entries={helpTarget?.kind === "index" ? [] : combined}
                   selectedIndex={selected}
                   onSelect={setSelected}
                   onActivate={activate}
@@ -3139,7 +3148,17 @@ function App() {
                 />
               </div>
               <div className="w-3/5 min-w-0">
-                {brightnessMode ? (
+                {helpTarget ? (
+                  <div className="md3-pop-in h-full">
+                    <CommandHelp
+                      target={helpTarget}
+                      onNavigate={(q) => {
+                        setQuery(q);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : brightnessMode ? (
                   <div className="md3-pop-in h-full">
                     <BrightnessPanel
                       focused={brightnessFocus}

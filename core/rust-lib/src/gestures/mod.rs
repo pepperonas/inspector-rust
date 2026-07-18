@@ -105,6 +105,14 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// belt-and-braces, so it's kept short — 200 ms still allows ~5 deliberate
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
+/// Refractory between two 3-finger-**tap** (mute) emits in [`PalmAwareRecognizer`].
+/// A physical tap's contacts can flicker across the touch threshold on a slow
+/// lift (touching → leaving → touching → gone within a few frames), yielding two
+/// `active → 0` transitions and toggling mute **twice** ("unmutes then instantly
+/// re-mutes"). A tap this soon after the last is that flicker, not an intentional
+/// second tap — nobody toggles mute several times a second. Applies to Tap only,
+/// so volume swipes stay fully responsive.
+pub const TAP_EMIT_GAP_MS: u64 = 400;
 /// The tap must land at a roughly similar HEIGHT as the resting pair
 /// (|Δy| to their mean, 0..1). Generous — strongly angled hands are fine.
 pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
@@ -846,6 +854,9 @@ impl PTrack {
 pub struct PalmAwareRecognizer {
     tracks: Vec<PTrack>,
     prev_active: usize,
+    /// Timestamp of the last emitted Tap — refractory guard against a
+    /// flickering-lift double-toggle of mute (see [`TAP_EMIT_GAP_MS`]).
+    last_tap_emit: Option<u64>,
 }
 
 impl PalmAwareRecognizer {
@@ -886,12 +897,21 @@ impl PalmAwareRecognizer {
             }
         }
         let active = self.tracks.iter().filter(|t| t.active(t_ms)).count();
-        let ev = if self.prev_active > 0 && active == 0 { self.decide(t_ms) } else { None };
+        let mut ev = if self.prev_active > 0 && active == 0 { self.decide(t_ms) } else { None };
         self.prev_active = active;
         if active == 0 {
             // Gesture over (or none in progress): drop lifted tracks — the
             // decision above already consumed them. Parked palms stay tracked.
             self.tracks.retain(|t| t.present);
+        }
+        // Collapse a flickering-lift double-tap so mute toggles once, not twice.
+        // Only Tap is rate-limited — swipes stay fully responsive for volume.
+        if matches!(ev, Some(GestureEvent { kind: GestureKind::Tap, .. })) {
+            if self.last_tap_emit.is_some_and(|last| t_ms.saturating_sub(last) < TAP_EMIT_GAP_MS) {
+                ev = None;
+            } else {
+                self.last_tap_emit = Some(t_ms);
+            }
         }
         ev
     }
@@ -1554,6 +1574,49 @@ mod tests {
         let f = |t: u64| (t, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]);
         let evs = palm_events(&[f(0), f(200), f(400), (450, vec![])]);
         assert!(evs.is_empty(), "a 400 ms chord must not read as a tap: {evs:?}");
+    }
+
+    /// A single physical tap whose contacts FLICKER on lift (touching → gone →
+    /// touching → gone within a few frames) must fire the mute toggle ONCE, not
+    /// twice — the reported "unmutes then instantly re-mutes" bug.
+    #[test]
+    fn palm_rec_flickering_lift_taps_once_not_twice() {
+        let all = || vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)];
+        let evs = palm_events(&[
+            (0, all()),
+            (100, all()),
+            (150, vec![]),  // lift → Tap #1
+            (170, all()),   // flicker: contacts re-register …
+            (185, all()),   // … for > TAP_MIN_MS (a valid second tap on its own)
+            (200, vec![]),  // lift again → suppressed by the refractory
+        ]);
+        assert_eq!(
+            evs,
+            vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }],
+            "a flickering lift must toggle mute exactly once",
+        );
+    }
+
+    /// Two GENUINE taps far enough apart still both fire (the refractory only
+    /// collapses the fast flicker, not intentional taps).
+    #[test]
+    fn palm_rec_two_genuine_taps_both_fire() {
+        let all = || vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)];
+        let evs = palm_events(&[
+            (0, all()),
+            (100, all()),
+            (150, vec![]), // Tap #1
+            (600, all()),
+            (700, all()),
+            (750, vec![]), // Tap #2 — > TAP_EMIT_GAP_MS after #1
+        ]);
+        assert_eq!(
+            evs,
+            vec![
+                GestureEvent { kind: GestureKind::Tap, fingers: 3 },
+                GestureEvent { kind: GestureKind::Tap, fingers: 3 },
+            ],
+        );
     }
 
     #[test]

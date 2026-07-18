@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.1] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap (mute) toggled twice.** A single physical 3-finger tap could toggle system mute *twice* — the music unmuted and then instantly re-muted. On a slow/flickering lift, the trackpad's touch contacts cross the touch threshold more than once (touching → leaving → touching → gone within a few frames), so the palm-aware recogniser saw two `active → 0` transitions and emitted two `Tap` events. It now applies a Tap-only emit refractory (`TAP_EMIT_GAP_MS`, 400 ms) — the same guard the tip-tap recogniser already had — so a flickering lift toggles mute exactly once; volume swipes are unaffected (they're never rate-limited). Two regression tests cover the flicker (one emit) and two genuine taps far apart (both emit).
+
 ## [0.85.0] — 2026-07-18
 
 ### Added

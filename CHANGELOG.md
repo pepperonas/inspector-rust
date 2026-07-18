@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.3] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap mute — widened the debounce to the field-observed gap.** With INFO logging on the mute dispatch, the double toggle showed up **~1.2 s apart** (11:31:10.151 → 11:31:11.417), so the 0.85.2 debounce window (500 ms) was simply too short and both toggles passed. This is a recogniser *re-emit* (two `active → 0` transitions for one physical tap), not a quick lift-flicker. Widened `MUTE_DEBOUNCE_MS` to **1500 ms** and made the guard an atomic swap (race-proof against a duplicate arriving on a second thread). Added INFO logging of the raw contact-count stream + each recognised event (with the monotonic timestamp) so the underlying re-emit can be pinned and fixed at the recogniser level next (after which the window can shrink again).
+
 ## [0.85.2] — 2026-07-18
 
 ### Fixed

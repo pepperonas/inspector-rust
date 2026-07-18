@@ -225,7 +225,10 @@ extern "C" fn frame_callback(
             .map(|f| format!("{:.2}", f.size))
             .collect::<Vec<_>>()
             .join(" ");
-        tracing::debug!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
+        // TEMP INFO (was debug) to diagnose the 3-finger-tap double mute: shows
+        // the raw touching-contact count stream + sizes so a single physical tap
+        // that reads as two touch cycles is visible. Revert to debug once fixed.
+        tracing::info!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
     }
     // Per-contact feed for the palm-aware recogniser: stable id + position
     // (y flipped so "up" = decreasing y, matching `classify_swipe`) + the
@@ -282,7 +285,13 @@ extern "C" fn frame_callback(
     }
 
     if let Some(ev) = event {
-        tracing::debug!("gestures(mac): recognised {:?} ({} finger(s))", ev.kind, ev.fingers);
+        // TEMP INFO (was debug): the recogniser's emit + the active-finger
+        // transition that produced it, with the monotonic t_ms — so two emits
+        // 1.2 s apart are timestamped at the source.
+        tracing::info!(
+            "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
+            ev.kind, ev.fingers, t_ms, prev_active, active
+        );
         if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
         }

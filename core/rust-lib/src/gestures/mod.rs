@@ -122,9 +122,12 @@ pub const TAP_EMIT_GAP_MS: u64 = 400;
 /// per-instance refractory can miss a duplicate that arrives just outside its
 /// window, so this SOURCE-AGNOSTIC backstop guarantees one physical tap toggles
 /// mute at most once per window. Volume is intentionally NOT debounced (rapid
-/// swipes must all apply). 500 ms is far longer than any lift-flicker yet far
-/// shorter than an intentional re-mute.
-pub const MUTE_DEBOUNCE_MS: u64 = 500;
+/// swipes must all apply). Sized from the field-observed double: the second
+/// toggle landed **~1.2 s** after the first (a recogniser re-emit, not a quick
+/// flicker), so the window must comfortably exceed that — 1500 ms covers it with
+/// margin while still being far shorter than an intentional re-mute (you tap to
+/// mute, then unmute seconds/minutes later).
+pub const MUTE_DEBOUNCE_MS: u64 = 1500;
 /// The tap must land at a roughly similar HEIGHT as the resting pair
 /// (|Δy| to their mean, 0..1). Generous — strongly angled hands are fine.
 pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
@@ -282,17 +285,20 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     // fully collapsed to one. Volume is never debounced here.
     if matches!(action, GestureAction::MuteToggle) {
         static LAST_MUTE_MS: AtomicU64 = AtomicU64::new(0);
+        // Atomic swap (not load-then-store): if two Tap events race in from
+        // separate threads (a leaked duplicate capture callback), exactly one
+        // sees the old timestamp and passes. Anchored to the last ATTEMPT, so a
+        // burst collapses fully.
         let now = now_millis();
-        let last = LAST_MUTE_MS.load(Ordering::Relaxed);
-        if !mute_debounce_allows(now, last, MUTE_DEBOUNCE_MS) {
+        let prev = LAST_MUTE_MS.swap(now, Ordering::SeqCst);
+        if !mute_debounce_allows(now, prev, MUTE_DEBOUNCE_MS) {
             tracing::info!(
                 "gesture: mute toggle ignored — {} ms after the last (debounced)",
-                now.saturating_sub(last)
+                now.saturating_sub(prev)
             );
             return;
         }
-        LAST_MUTE_MS.store(now, Ordering::Relaxed);
-        tracing::info!("gesture: mute toggle");
+        tracing::info!("gesture: mute toggle (accepted)");
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -1309,6 +1315,11 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
         let app_sink = app.clone();
         let sink: GestureSink = Box::new(move |ev| {
             if let Some(action) = map_action(&ev, &cfg) {
+                // Diagnostic: every recogniser emit that maps to an action, at
+                // the single dispatch chokepoint (kind + finger count). Two
+                // lines ~1.2 s apart for one physical tap = the recogniser
+                // re-emitting; correlate with the macOS contact-transition log.
+                tracing::info!("gesture dispatch: {:?} ({} fingers) → {:?}", ev.kind, ev.fingers, action);
                 perform(&app_sink, action, step);
             }
         });
@@ -1681,7 +1692,9 @@ mod tests {
         assert!(!mute_debounce_allows(1_000_000 + w - 1, 1_000_000, w));
         // … but one at/after the window passes.
         assert!(mute_debounce_allows(1_000_000 + w, 1_000_000, w));
-        assert!(mute_debounce_allows(1_000_800, 1_000_000, w));
+        assert!(mute_debounce_allows(1_000_000 + w + 300, 1_000_000, w));
+        // The field-observed 1.2 s double MUST fall inside the window (dropped).
+        assert!(!mute_debounce_allows(1_001_200, 1_000_000, w), "the ~1.2s re-emit must be debounced");
     }
 
     #[test]

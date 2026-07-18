@@ -192,6 +192,12 @@ const GRACE_MS: u64 = 350;
 /// MTDeviceRefs + the loaded API, so `stop()` (other thread) can finalise.
 static MT_API: Mutex<Option<Mt>> = Mutex::new(None);
 static MT_DEVICES: Mutex<Vec<isize>> = Mutex::new(Vec::new());
+/// The running capture thread's join handle, so `stop()` can WAIT for it to
+/// fully exit before a restart. Without this, a sleep/wake rebuild's `apply`
+/// (`stop()` then `start()`) could spawn a new thread while the old run loop was
+/// still draining buffered frames — the stale thread then replayed the same tap
+/// through the shared recogniser ~1 s later, double-toggling mute.
+static CAPTURE_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 
 extern "C" fn frame_callback(
     _device: MTDeviceRef,
@@ -225,10 +231,7 @@ extern "C" fn frame_callback(
             .map(|f| format!("{:.2}", f.size))
             .collect::<Vec<_>>()
             .join(" ");
-        // TEMP INFO (was debug) to diagnose the 3-finger-tap double mute: shows
-        // the raw touching-contact count stream + sizes so a single physical tap
-        // that reads as two touch cycles is visible. Revert to debug once fixed.
-        tracing::info!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
+        tracing::debug!("gestures(mac): contacts {prev} -> {n} (sizes: {sizes})");
     }
     // Per-contact feed for the palm-aware recogniser: stable id + position
     // (y flipped so "up" = decreasing y, matching `classify_swipe`) + the
@@ -285,10 +288,7 @@ extern "C" fn frame_callback(
     }
 
     if let Some(ev) = event {
-        // TEMP INFO (was debug): the recogniser's emit + the active-finger
-        // transition that produced it, with the monotonic t_ms — so two emits
-        // 1.2 s apart are timestamped at the source.
-        tracing::info!(
+        tracing::debug!(
             "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
             ev.kind, ev.fingers, t_ms, prev_active, active
         );
@@ -480,10 +480,11 @@ impl GestureSource for MacGestureSource {
         *TIPTAP_REC.lock() = Some(TipTapRecognizer::new());
         // The run loop must live on its own thread (a sync IPC command thread
         // returns immediately → no run loop → no callbacks).
-        std::thread::Builder::new()
+        let handle = std::thread::Builder::new()
             .name("ir-gestures-mac".into())
             .spawn(capture_thread)
             .map_err(|e| format!("spawn gesture thread: {e}"))?;
+        *CAPTURE_THREAD.lock() = Some(handle);
         Ok(())
     }
 
@@ -502,6 +503,13 @@ impl GestureSource for MacGestureSource {
         let rl = RUN_LOOP.swap(0, Ordering::SeqCst);
         if rl != 0 {
             unsafe { CFRunLoopStop(rl as CFRunLoopRef) };
+        }
+        // Wait for the capture thread to fully exit (CFRunLoopRun returns right
+        // after CFRunLoopStop), so it can't keep delivering/replaying frames
+        // after a restart. Joined on the caller thread (apply/watchdog), which
+        // never holds the capture thread's locks → no deadlock.
+        if let Some(h) = CAPTURE_THREAD.lock().take() {
+            let _ = h.join();
         }
         MT_DEVICES.lock().clear();
         *MT_API.lock() = None;

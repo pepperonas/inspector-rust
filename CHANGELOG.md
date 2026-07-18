@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.4] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap mute — removed the debounce that was eating real taps; fixed the actual leak.** Contact-level logging finally showed the truth: each physical 3-finger tap is a single clean `0→3→0` cycle producing **exactly one** recognised `Tap` — the recogniser was never double-emitting for one tap. The "1.2 s double" I chased was **separate deliberate taps** ~1.2–1.9 s apart (each correctly toggling), and my growing action-layer *debounce* (0.85.2/0.85.3) had become the real bug: a legitimate quick re-tap (a clean tap 1.18 s after the previous) was **swallowed**, so a fast mute→unmute lost its second tap. Removed the action debounce entirely — it can't tell a bounce from an intentional quick re-tap. A genuine same-tap contact bounce is still collapsed at the recogniser by its emit refractory, widened to **600 ms** (safely between a few-frame bounce and the ~1.1 s+ spacing of deliberate taps). Separately fixed the genuine multi-toggle path: `stop()` now **joins the capture thread** so a sleep/wake rebuild can't leave a stale, delayed capture callback replaying the same tap through the shared recogniser a second later. Diagnostic INFO logging trimmed back to a single low-volume "gesture dispatch" line.
+
 ## [0.85.3] — 2026-07-18
 
 ### Fixed

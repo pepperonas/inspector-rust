@@ -288,7 +288,10 @@ extern "C" fn frame_callback(
     }
 
     if let Some(ev) = event {
-        tracing::debug!(
+        // INFO (one line per recogniser emit, incl. events map_action rejects):
+        // lets a mis-classified tap (e.g. a stray SwipeUp with 2 fingers) be seen
+        // in the log without enabling debug. Low volume — only on a real gesture.
+        tracing::info!(
             "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
             ev.kind, ev.fingers, t_ms, prev_active, active
         );

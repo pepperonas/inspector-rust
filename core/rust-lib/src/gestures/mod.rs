@@ -925,48 +925,59 @@ impl PalmAwareRecognizer {
     }
 
     fn decide(&self, now: u64) -> Option<GestureEvent> {
+        // Count EVERY non-palm, non-(present&&resting) contact that took part in
+        // the gesture (`n`), and separately how many of them clearly MOVED
+        // (`moved_n`, ≥ SWIPE_FINGER_MIN_MOVE_NORM). Overlap window is measured
+        // over all participants (staggered land/lift tolerant).
+        let mut n = 0usize;
         let mut moved_n = 0usize;
         let (mut dx, mut dy) = (0.0f64, 0.0f64);
-        let mut taps = 0usize;
         let mut latest_down = 0u64;
         let mut earliest_up = u64::MAX;
         for t in &self.tracks {
             // Skip size-palms and STILL-PRESENT resters (a palm that lifted
-            // together with the fingers passes this gate, but its near-zero
-            // movement / long down-time disqualifies it below anyway).
+            // together with the fingers passes this gate, but — because it
+            // barely moved — it stays out of `moved_n`, so it never inflates a
+            // swipe, and the tap branch below is only reached for a real tap).
             if t.palm || (t.present && t.resting(now)) {
                 continue;
             }
+            n += 1;
+            latest_down = latest_down.max(t.t_down);
+            earliest_up = earliest_up.min(t.t_last);
             if t.disp() >= SWIPE_FINGER_MIN_MOVE_NORM {
                 moved_n += 1;
                 dx += t.last.0 - t.start.0;
                 dy += t.last.1 - t.start.1;
-            } else if t.disp() <= TAP_MAX_MOVE_NORM {
-                taps += 1;
-                latest_down = latest_down.max(t.t_down);
-                earliest_up = earliest_up.min(t.t_last);
             }
         }
-        if moved_n > 0 {
-            let n = moved_n as f64;
-            return classify_swipe(dx / n, dy / n, SWIPE_THRESHOLD_NORM)
-                .map(|kind| GestureEvent { kind, fingers: moved_n as u8 });
-        }
-        if taps == 0 {
+        if n == 0 {
             return None;
         }
-        // Tap: judged over the ALL-FINGERS-DOWN overlap window — the same
-        // phase the old centroid recogniser measured (its re-baselined
-        // max-contact span). Per-finger total durations are deliberately NOT
-        // the gate (the v0.84.245 fix): real 3-finger taps land + lift
-        // staggered, so requiring every finger individually inside
-        // [TAP_MIN..TAP_MAX] kept dropping one finger (a one-frame ghost at
-        // the low end, a lazy >250 ms contact at the high end) — the event
-        // then read as a 2-finger tap and the 3-finger mute never fired. A
-        // held chord still can't tap: its overlap window is the full hold.
+        // SWIPE — only when a MAJORITY of fingers move coherently (≥ 2). This is
+        // the load-bearing fix for the "audio jumps around" report: previously
+        // ANY single finger drifting on lift (`moved_n > 0`) tried to classify a
+        // swipe, so a 3-finger *tap* with one drifting finger either became a
+        // SwipeUp (volume change) or, below the swipe threshold, returned None
+        // and dropped the tap entirely. Requiring ≥ 2 moved fingers means one
+        // stray finger can't hijack a tap. `fingers = moved_n` so a resting palm
+        // that lifts with a 2-finger scroll still reads as 2 (→ ignored), never 3.
+        if moved_n >= 2 {
+            let avg = moved_n as f64;
+            return classify_swipe(dx / avg, dy / avg, SWIPE_THRESHOLD_NORM)
+                .map(|kind| GestureEvent { kind, fingers: moved_n as u8 });
+        }
+        // TAP: a brief touch that wasn't a swipe. Counts ALL `n` non-palm fingers
+        // — a small individual drift (dead-zone or a lone moved finger) no longer
+        // drops the tap or shrinks its finger count, so a 3-finger tap reliably
+        // reads as 3 (→ mute). Judged over the ALL-FINGERS-DOWN overlap window —
+        // the same phase the old centroid recogniser measured. Per-finger total
+        // durations are deliberately NOT the gate (the v0.84.245 fix): real
+        // 3-finger taps land + lift staggered. A held chord still can't tap: its
+        // overlap window is the full hold.
         let overlap = earliest_up.saturating_sub(latest_down);
         ((TAP_MIN_MS..=TAP_MAX_MS).contains(&overlap))
-            .then_some(GestureEvent { kind: GestureKind::Tap, fingers: taps as u8 })
+            .then_some(GestureEvent { kind: GestureKind::Tap, fingers: n as u8 })
     }
 }
 
@@ -1578,6 +1589,27 @@ mod tests {
             (280, vec![]),                 // finger 1 lifts last: 280 ms total
         ]);
         assert_eq!(evs, vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }]);
+    }
+
+    /// The "audio jumps around" fix: a 3-finger tap where ONE finger drifts on
+    /// lift must still be a 3-finger TAP (mute) — not dropped, not a SwipeUp.
+    /// The drift is swept across the whole range that used to break it: the
+    /// dead-zone (0.03–0.06), and above the swipe-finger threshold (≥ 0.06).
+    #[test]
+    fn three_finger_tap_survives_one_drifting_finger() {
+        for drift in [0.04_f64, 0.08, 0.15, 0.30] {
+            // f1 stays, f2 stays, f3 drifts up by `drift` on the way off.
+            let evs = palm_events(&[
+                (0, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]),
+                (60, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5 - drift)]),
+                (100, vec![]),
+            ]);
+            assert_eq!(
+                evs,
+                vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }],
+                "one finger drifting {drift} must stay a 3-finger tap, not a swipe/None",
+            );
+        }
     }
 
     /// A held 3-finger chord is NOT a tap — its overlap window is the hold.

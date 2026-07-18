@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.5] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap "audio jumps around" — the actual root cause: the tap/swipe classifier.** In the recogniser's `decide()`, **any single finger** drifting on lift (`moved_n > 0`) tried to classify a *swipe*. So one physical 3-finger **tap** with one slightly-moving finger would, depending on how far that finger drifted, either become a **SwipeUp → volume change** (≥ 0.12 of the pad) or fall below the swipe threshold and return **None, silently dropping the tap** (0.06–0.12); and a finger drifting into the 0.03–0.06 dead-zone shrank the count to a 2-finger tap (ignored). Same tap, three different outcomes — mute, nothing, or volume — which is exactly why the audio jumped around unpredictably. Rewrote `decide()`: a **swipe now requires ≥ 2 fingers moving coherently** (one stray finger can't hijack a tap; `fingers = moved_n` so a resting palm that lifts with a 2-finger scroll still reads as 2, never 3), and a **tap counts all non-palm fingers** regardless of a small individual drift — so a 3-finger tap reliably reads as 3 → one clean mute. All palm/scroll/swipe-rejection tests still pass; added a sweep test asserting a tap with one finger drifting 0.04/0.08/0.15/0.30 stays a 3-finger tap.
+
 ## [0.85.4] — 2026-07-18
 
 ### Fixed

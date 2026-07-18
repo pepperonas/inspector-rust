@@ -49,6 +49,7 @@ Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Koll
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
 Fake-Testdaten — `faker [gen] [n] [@locale] [--json|csv|sql|ts]`: 70+ Generatoren × 14 Locales, Composites (person/user/address/order), Ranges (`int 1..100`), `--seed=` reproduzierbar, ⌘/Ctrl+R-Reroll, `tpl`-Templates, ehrlicher EN-Fallback; auch `{faker:…}` in Snippets; Settings → Faker
+Security-Command-Builder — `sec`/`nmap`/`sqlmap`/`ferox`/`john [preset] [target]`: geführte Pentest-Command-Builder (nmap/sqlmap/feroxbuster/John), Preset-Katalog + Flag-Erklärungstabelle, shell-sicheres Quoting; Enter kopiert, ⌘/Ctrl+Enter Terminal-Hand-off (macOS, opt-in, standardmäßig nicht abgeschickt); scharfe Presets bestätigen; datengetriebene Registry (Tool = Daten, gobuster als Erweiterungs-Beweis); scannt NIE selbst (kein Subprozess/Netzwerk); Settings → Security; nur autorisierte Ziele
 QR-Code — `qr <text>`: Vorschau + PNG ins Clipboard
 Bilder — `rz <B>x<H>` (Resize der Finder-Auswahl), `optim` (PNG/JPEG komprimieren)
 Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker mit nativer Bestätigung

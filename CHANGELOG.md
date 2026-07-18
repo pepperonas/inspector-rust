@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.271] — 2026-07-18
+
+### Added
+
+- **`sec` — guided pentest-command builders.** Assemble syntactically correct command lines for **nmap · sqlmap · feroxbuster · John the Ripper** from presets, with a plain-English cheat-sheet for every flag. `sec` lists the four tools; `nmap` (or `sec nmap`) lists its presets; `nmap service 10.0.0.5` builds `nmap -sV -sC 10.0.0.5` and explains each flag in the preview. **Enter** copies the command + pastes it (the surprise-free default — it never runs anything); **⌘/Ctrl+Enter** hands it off to your terminal (macOS iTerm2 → Terminal.app) with the command *inserted but not submitted* by default. Argument order is irrelevant, a bare tool keyword followed by prose (`nmap output parsen`) yields to history search, and **every user value is shell-quoted** so a target like `a; rm -rf /` can never break the command. Conservative presets first; sharp ones (nmap full-tcp, sqlmap dump, `-T5`, john incremental) always confirm before the hand-off. `sec john prepare` lists the `*2john` hash-extraction helpers. Settings → Security (scope note, default wordlist/output, timing/threads/rate, John Core/Jumbo line, terminal + auto-enter [off], save-to-history). Authorized targets only.
+
+### Notes
+
+- **ADR — terminal hand-off, not in-app execution.** Inspector Rust **never runs the pentest tools**: no `Command::new("nmap")`, no subprocess with output capture, no sockets, no network origin (grep-verified in the `sec` module). It builds text and, only on the explicit ⌘⏎, hands the command to your terminal via `osascript` — the tool then runs in your own shell, environment, logging and sudo, under your responsibility. This keeps the app a productivity/cheat-sheet tool (and keeps the "no network, no telemetry" product promise intact) rather than an attack automator that encapsulates the tools.
+- **ADR — a tool is data, not code.** The registry (`sec/registry.rs`) is the single source of truth; each tool is one declarative `ToolSpec` (presets → ordered segments + fields + flag explanations + safety tags). Adding metasploit/hydra/nuclei later is one registry entry with no parser/builder/UI change — proven by **gobuster**, which is in the catalogue purely as a ~15-line entry. A consistency test enforces that every preset's fields are defined and every flag it uses is explained (no cheat-sheet gaps). Near-zero binary impact (data + reuse of the existing terminal machinery, no new dependencies).
+
 ## [0.84.270] — 2026-07-18
 
 ### Added

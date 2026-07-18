@@ -758,22 +758,56 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   not on all-lift); (3) **per-finger movement at decision time** — only
   contacts that themselves moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe
   fingers, so palm + 2-finger scroll yields `fingers == 2`, which `map_action`
-  ignores. **Taps are judged over the ALL-FINGERS-DOWN overlap window, NOT per
-  finger (v0.84.245):** v0.84.233 originally required each finger individually
-  inside `[TAP_MIN..TAP_MAX]` — but real 3-finger taps land + lift staggered
-  (a one-frame ghost at the low end, a lazy > 250 ms contact at the high end
-  dropped a finger), so the event read as a 2-finger tap and the **3-finger
-  mute stopped firing**. `decide` now gates on
-  `min(t_last) − max(t_down)` of the tap participants — the same phase the old
-  centroid recogniser measured as its re-baselined max-contact span; a held
-  chord still can't tap (its overlap is the whole hold). The
-  **scroll-consume window arms on the active count too** (palm + 2-finger
-  scroll no longer swallows the legitimate scroll), and size-palms are skipped
-  in the tip-tap contact feed (a resting heel doesn't poison tip-taps). The
-  contact-transition debug log now includes per-contact sizes for threshold
-  field-tuning. 10 unit tests (palm+scroll ≠ swipe, size + rest variants,
-  swipe/tap-with-parked-palm still fire, staggered-tap counts 3, held chord ≠
+  ignores. **Cluster/settle tap model — clean swipe↔tap separation (v0.85.6,
+  replaces the v0.84.245 overlap-window rule):** contact logging proved that a
+  light multi-finger tap is often reported by the trackpad as **SEQUENTIAL
+  single-finger touches** (`0→1→0` per finger, ~25 ms apart), almost never as
+  one simultaneous `0→3→0` — so any per-transition decision (v0.84.233–.245,
+  and every refractory/debounce bolted onto it in v0.85.1–.85.4) either
+  emitted a tap per sub-touch (the "mute double-toggle") or read the tap as
+  1–2 fingers (mute didn't fire). The recogniser now separates the two gesture
+  families structurally: a **SWIPE emits immediately** when a real finger
+  **lifts** (present → absent; a contact merely going *resting* is NOT a lift)
+  with ≥ 2 non-palm fingers having moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM`
+  coherently — volume stays responsive and one stray drifting finger can't
+  hijack a tap into a swipe (the v0.85.5 half of the fix). A **TAP is
+  DEFERRED**: each no-movement lift opens/extends a *cluster* (`cluster_open`),
+  and `PalmAwareRecognizer::tick(now)` — driven on macOS by a dedicated ~40 ms
+  **settle-ticker thread** (`TICK_MS`; frames stop the instant fingers lift,
+  so the frame callback can't finalise) — finalises it **once** after the pad
+  has been quiet for `TAP_SETTLE_MS` (160 ms), counting the **distinct**
+  non-palm contacts of the whole cluster as the finger count. `finalize_tap`
+  gates on cluster duration ≤ `TAP_CLUSTER_MAX_MS` (700 ms), per-finger hold ≤
+  `TAP_HOLD_MAX_MS` (350 ms — a held chord is not a tap) and per-finger
+  movement ≤ `TAP_FINGER_MAX_MOVE_NORM` (0.12, generous vs the old 0.03 —
+  small drift stays a tap). Finalising **retains still-present contacts** so a
+  parked heel's rest-timer survives (resetting it made the heel re-count as an
+  active finger and swallow real swipes), and `feed` finalises a settled
+  cluster inline if a NEW contact id arrives before the ticker fires (stale
+  tracks never merge into a fresh gesture). The ticker is joined in `stop()`
+  like the capture thread (no stale double-dispatch after a sleep/wake
+  rebuild). Trade-off: a tap's action fires ~200 ms after lift (settle +
+  tick) — imperceptible for mute. The **scroll-consume window arms on the
+  active count** (palm + 2-finger scroll doesn't swallow the legitimate
+  scroll), and size-palms are skipped in the tip-tap contact feed. Contact-
+  transition logging (with per-contact sizes for threshold tuning) is DEBUG
+  (`RUST_LOG=inspector_rust_core::gestures=debug`); each recogniser emit +
+  each dispatched action logs one INFO line. 14 unit tests (palm+scroll ≠
+  swipe, size + rest variants, swipe/tap-with-parked-palm still fire,
+  **sequential single touches coalesce into ONE 3-finger tap**, distinct taps
+  after a pause don't coalesce, held chord ≠ tap, one drifting finger stays a
   tap, rest-out-then-swipe, arming count).
+  **⚠️ Field gotcha — external gesture tools double-fire (2026-07-18):** the
+  weeks-long "mute toggles twice" hunt (v0.85.1–.85.6) ended with the discovery
+  that **BetterTouchTool was running with the SAME three bindings** (3-finger
+  tap → Mute, 3-finger swipe → volume) — every tap fired BTT's action *and*
+  ours, so no recogniser fix could ever remove the double. Diagnostic: the
+  `gesture dispatch:` INFO line is ir's single chokepoint — if the log shows
+  ONE dispatch but the effect doubles, the second actor is external (BTT,
+  Karabiner, …). BTT's conflicting triggers on the maintainer's machine were
+  disabled via its scripting API (`update_trigger <uuid> json
+  '{"BTTEnabled":0,"BTTEnabled2":0}'`). When a gesture misbehaves in the
+  field, **check external gesture tools first**.
 - **macOS (`gestures/macos.rs`):** the private **MultitouchSupport** framework
   (what BTT uses; NSEvent can't deliver global 3-finger gestures). **`dlopen`-ed
   at runtime** so a missing/changed private framework degrades gracefully instead

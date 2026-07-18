@@ -559,7 +559,7 @@ pub fn osa_escape(s: &str) -> String {
 }
 
 #[cfg(target_os = "macos")]
-fn iterm_installed() -> bool {
+pub(crate) fn iterm_installed() -> bool {
     if std::path::Path::new("/Applications/iTerm.app").exists() {
         return true;
     }

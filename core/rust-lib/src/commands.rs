@@ -817,6 +817,40 @@ pub fn faker_paste(
     paste::paste_text(&text).map_err(map_err)
 }
 
+// ── Security command builders (sec) ───────────────────────────────────
+
+/// The pentest-tool catalogue (presets + flag explanations + fields) — fetched
+/// once at mount; the command string is built frontend-side.
+#[tauri::command]
+pub fn sec_catalog() -> crate::sec::SecCatalog {
+    crate::sec::catalog()
+}
+
+#[tauri::command]
+pub fn sec_get_defaults(db: State<'_, DbHandle>) -> Result<crate::sec::SecDefaults, String> {
+    crate::sec::get_defaults(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn sec_set_defaults(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    defaults: crate::sec::SecDefaults,
+) -> Result<(), String> {
+    crate::sec::set_defaults(&db, &defaults).map_err(map_err)?;
+    let _ = app.emit("sec-defaults-changed", ());
+    Ok(())
+}
+
+/// Terminal hand-off: open the user's terminal with `command` inserted. Runs
+/// no pentest tool itself — it's `osascript` opening a terminal (macOS). The
+/// caller (frontend) has already shell-quoted `command` and confirmed any sharp
+/// preset. `auto_enter` defaults to false (the user submits it themselves).
+#[tauri::command]
+pub fn sec_open_in_terminal(command: String, auto_enter: bool) -> Result<(), String> {
+    crate::sec::open_in_terminal(&command, auto_enter)
+}
+
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the wakelock. Returns the resulting state (`true` = active,

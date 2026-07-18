@@ -43,6 +43,7 @@ mod input_lock;
 mod region_picker;
 mod screen_picker;
 mod screen_record;
+mod sec;
 mod screen_recording;
 mod frontmost_app;
 mod screenshot_editor;
@@ -629,6 +630,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::faker_get_defaults,
             commands::faker_set_defaults,
             commands::faker_paste,
+            commands::sec_catalog,
+            commands::sec_get_defaults,
+            commands::sec_set_defaults,
+            commands::sec_open_in_terminal,
             commands::list_apps,
             commands::refresh_apps,
             commands::launch_app,

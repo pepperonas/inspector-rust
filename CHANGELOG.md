@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.9] — 2026-07-18
+
+### Added
+
+- **figlet: Cmd/Ctrl+Shift+Enter saves the banner PNG straight to Downloads.** Alongside Shift+Enter (copy the cropped, theme-coloured PNG to the clipboard), ⌘⇧⏎ now writes it directly to `~/Downloads/figlet-<text-slug>-<timestamp>.png` and reveals it in Finder/Explorer — create → file on disk in one keystroke, no clipboard detour. New `figlet_save_png` IPC; `useKeyboardNav`'s Enter handler passes Cmd/Ctrl through to `activate`. The preview-header hint reads **“Enter copies · ⇧⏎ PNG · ⌘⇧⏎ save”**, and the `figlet?` inline help documents both.
+
+### Changed
+
+- **Saved history images get descriptive filenames.** The every-image-clip **Save to Downloads** button (**Cmd/Ctrl+S**) in the preview no longer names everything `inspector-rust-image-<ts>.png`: command-generated images derive their name from the history label — `[figlet · Hello]` → `figlet-hello-<ts>.png`, `[qr · …]` → `qr-…`, `[screenshot · …]` → `screenshot-…` — via the pure, unit-tested `image_basename_from_summary` + `sanitize_file_slug` (multibyte-safe, length-capped); plain `[image W×H]` clips keep the generic name. (The save button + ⌘S shortcut for image clips already existed; this release makes them discoverable in the figlet help and the feature catalogue.)
+
 ## [0.85.8] — 2026-07-18
 
 ### Added

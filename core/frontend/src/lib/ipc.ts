@@ -1435,6 +1435,13 @@ export function figletCopyPng(pngB64: string, label: string): Promise<number> {
   return invoke("figlet_copy_png", { pngB64, label });
 }
 
+/** Save a frontend-rendered figlet-banner PNG straight to
+ *  `~/Downloads/figlet[-<slug>]-<ts>.png` (revealed in the file manager) —
+ *  the figlet Cmd/Ctrl+Shift+Enter path. Returns the written path. */
+export function figletSavePng(pngB64: string, label: string): Promise<string> {
+  return invoke("figlet_save_png", { pngB64, label });
+}
+
 /** Returns max chromaticity (0..1) from a sample of opaque pixels in an
  *  image entry. ~0 means grayscale silhouette → tint will look clean.
  *  ~0.5+ means a saturated photo → tint will look weird. */

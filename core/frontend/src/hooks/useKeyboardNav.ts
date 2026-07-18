@@ -4,11 +4,12 @@ interface Args {
   length: number;
   selected: number;
   setSelected: (i: number) => void;
-  /** Called on Enter / Shift+Enter / Alt+Enter. The booleans tell the
-   *  caller whether Shift / Alt was held — the activate logic uses
-   *  Shift to pick `paste_entry_formatted` over `paste_entry`, and
-   *  Alt to switch the pwgen mode to alphanumeric-only on copy. */
-  onEnter: (shiftKey: boolean, altKey: boolean) => void;
+  /** Called on Enter / Shift+Enter / Alt+Enter / Cmd+Shift+Enter. The
+   *  booleans tell the caller which modifiers were held — the activate
+   *  logic uses Shift to pick `paste_entry_formatted` over `paste_entry`,
+   *  Alt to switch the pwgen mode to alphanumeric-only on copy, and
+   *  Cmd/Ctrl+Shift for figlet's save-PNG-to-Downloads path. */
+  onEnter: (shiftKey: boolean, altKey: boolean, metaKey: boolean) => void;
   onEscape: () => void;
   /** Shift+ArrowUp / Shift+ArrowDown. When provided, holding Shift
    *  while pressing an arrow calls this *instead of* moving the list
@@ -52,7 +53,7 @@ export function useKeyboardNav({
         setSelected(Math.max(selected - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
-        if (length > 0) onEnter(e.shiftKey, e.altKey);
+        if (length > 0) onEnter(e.shiftKey, e.altKey, e.metaKey || e.ctrlKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
         onEscape();

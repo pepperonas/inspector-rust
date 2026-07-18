@@ -105,6 +105,7 @@ import {
   figletRender,
   figletGetDefaults,
   figletCopyPng,
+  figletSavePng,
   removeVowelsToClipboard,
   resizeClipboardImage,
   saveClipAsNote,
@@ -2303,7 +2304,7 @@ function App() {
     return () => window.clearTimeout(id);
   }, [timerFiredLabel]);
 
-  const activate = async (i: number, shiftKey = false, altKey = false) => {
+  const activate = async (i: number, shiftKey = false, altKey = false, metaKey = false) => {
     const target = combined[i];
     if (!target) return;
 
@@ -2880,14 +2881,19 @@ function App() {
         // Render the selected font's FULL banner (with the current chip opts).
         // Enter pastes it as text; SHIFT+Enter copies it as a tightly-cropped,
         // theme-coloured PNG (clipboard + history) — for targets that mangle
-        // monospace (chats, mails with proportional fonts).
+        // monospace; CMD/CTRL+SHIFT+Enter saves that PNG straight to
+        // ~/Downloads (revealed in the file manager).
         try {
           const banner = await figletRender(figletParsed.text, target.data.name, figletOpts);
           if (!banner.text.trim()) return; // nothing to render (empty/all-unsupported)
           if (shiftKey) {
             const png = bannerPngBase64(banner.text, themePngColors());
             if (!png) return;
-            await figletCopyPng(png, figletParsed.text);
+            if (metaKey) {
+              await figletSavePng(png, figletParsed.text);
+            } else {
+              await figletCopyPng(png, figletParsed.text);
+            }
             await hidePopup();
           } else {
             await pasteGenerated(banner.text, figletDefaults?.save_history ?? true);
@@ -2975,7 +2981,7 @@ function App() {
     length: combined.length,
     selected,
     setSelected,
-    onEnter: (shiftKey, altKey) => void activate(selected, shiftKey, altKey),
+    onEnter: (shiftKey, altKey, metaKey) => void activate(selected, shiftKey, altKey, metaKey),
     onEscape: () => {
       void hidePopup();
     },

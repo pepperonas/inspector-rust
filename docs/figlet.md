@@ -39,7 +39,14 @@ is the banner text. An unknown `--token` is kept as literal text (so
   light *and* dark targets), 2× scale for crispness. Lands on the clipboard and
   in history as an image clip (`[figlet · <text>]`) — for chats/mails that
   mangle monospace text. The preview header shows the hint (`Enter copies ·
-  ⇧⏎ PNG`).
+  ⇧⏎ PNG · ⌘⇧⏎ save`).
+- **Cmd/Ctrl+Shift+Enter** — save that PNG **straight to `~/Downloads`**
+  (`figlet-<text-slug>-<timestamp>.png`, revealed in Finder/Explorer) — create
+  → file on disk in one keystroke, no clipboard detour. A figlet PNG already
+  copied into history can also be saved later: every image clip's preview has
+  a **Save to Downloads** button (**Cmd/Ctrl+S**), and command-generated
+  images get descriptive filenames from their history label
+  (`figlet-hello-…png` instead of a generic image name).
 - **Option chips** (in the preview) — align, width, trailing-trim, comment-wrap
   and box border, toggled without re-typing. They also apply to what Enter
   copies (both text and PNG).

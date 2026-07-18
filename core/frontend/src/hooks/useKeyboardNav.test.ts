@@ -5,12 +5,17 @@ import { useKeyboardNav } from "./useKeyboardNav";
 afterEach(cleanup);
 
 /** Dispatch a window keydown the hook will see. */
-function press(key: string, opts: { shiftKey?: boolean; altKey?: boolean } = {}) {
+function press(
+  key: string,
+  opts: { shiftKey?: boolean; altKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {},
+) {
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
       key,
       shiftKey: opts.shiftKey ?? false,
       altKey: opts.altKey ?? false,
+      metaKey: opts.metaKey ?? false,
+      ctrlKey: opts.ctrlKey ?? false,
       bubbles: true,
     }),
   );
@@ -60,16 +65,24 @@ describe("useKeyboardNav — list navigation", () => {
     expect(setSelected).toHaveBeenCalledWith(0);
   });
 
-  it("Enter calls onEnter with (shiftKey, altKey) flags", () => {
+  it("Enter calls onEnter with (shiftKey, altKey, metaKey) flags", () => {
     const { onEnter } = setup();
     press("Enter");
-    expect(onEnter).toHaveBeenCalledWith(false, false);
+    expect(onEnter).toHaveBeenCalledWith(false, false, false);
     press("Enter", { shiftKey: true });
-    expect(onEnter).toHaveBeenCalledWith(true, false);
+    expect(onEnter).toHaveBeenCalledWith(true, false, false);
     press("Enter", { altKey: true });
-    expect(onEnter).toHaveBeenCalledWith(false, true);
+    expect(onEnter).toHaveBeenCalledWith(false, true, false);
     press("Enter", { shiftKey: true, altKey: true });
-    expect(onEnter).toHaveBeenCalledWith(true, true);
+    expect(onEnter).toHaveBeenCalledWith(true, true, false);
+  });
+
+  it("Cmd/Ctrl+Enter reports metaKey (either modifier — figlet save-PNG path)", () => {
+    const { onEnter } = setup();
+    press("Enter", { metaKey: true, shiftKey: true });
+    expect(onEnter).toHaveBeenCalledWith(true, false, true);
+    press("Enter", { ctrlKey: true, shiftKey: true });
+    expect(onEnter).toHaveBeenLastCalledWith(true, false, true);
   });
 
   it("Escape calls onEscape", () => {

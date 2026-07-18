@@ -3910,6 +3910,47 @@ mod png_summary_tests {
     }
 }
 
+#[cfg(test)]
+mod save_image_name_tests {
+    use super::{image_basename_from_summary, sanitize_file_slug};
+
+    #[test]
+    fn slug_collapses_and_trims_non_alnum() {
+        assert_eq!(sanitize_file_slug("Hello World!"), "hello-world");
+        assert_eq!(sanitize_file_slug("  --foo__bar--  "), "foo-bar");
+        assert_eq!(sanitize_file_slug("Grüße 🎉"), "gr-e"); // non-ASCII → separators
+        assert_eq!(sanitize_file_slug(""), "");
+        assert_eq!(sanitize_file_slug("!!!"), "");
+    }
+
+    #[test]
+    fn slug_caps_length() {
+        let long = "a".repeat(100);
+        assert_eq!(sanitize_file_slug(&long).len(), 40);
+    }
+
+    #[test]
+    fn summary_derives_kind_and_label() {
+        assert_eq!(image_basename_from_summary("[figlet · Hello]"), "figlet-hello");
+        assert_eq!(image_basename_from_summary("[qr · 123 B]"), "qr-123-b");
+        assert_eq!(image_basename_from_summary("[screenshot · 4 KB]"), "screenshot-4-kb");
+    }
+
+    #[test]
+    fn plain_or_unparseable_summaries_fall_back() {
+        assert_eq!(image_basename_from_summary("[image 640×480]"), "inspector-rust-image");
+        assert_eq!(image_basename_from_summary("random text"), "inspector-rust-image");
+        assert_eq!(image_basename_from_summary(""), "inspector-rust-image");
+        // `[image · label]` — the generic kind stays generic on purpose.
+        assert_eq!(image_basename_from_summary("[image · x]"), "inspector-rust-image");
+    }
+
+    #[test]
+    fn kind_without_label_is_just_the_kind() {
+        assert_eq!(image_basename_from_summary("[figlet · ]"), "figlet");
+    }
+}
+
 fn write_eyedropper_result(app: &AppHandle, hex: &str) {
     use clipboard_rs::{Clipboard, ClipboardContext};
     if let Some(watcher) = app.try_state::<WatcherState>() {
@@ -3980,18 +4021,74 @@ pub fn cut_out_image_entry(
     write_cutout(&png_bytes, None)
 }
 
+/// Filesystem-safe slug from a free-text label: lowercase, alnum runs kept,
+/// everything else collapsed to single `-`, trimmed, capped at 40 chars.
+/// Empty/degenerate input → `""` (caller falls back to a generic name).
+/// Pure — unit-tested below.
+fn sanitize_file_slug(label: &str) -> String {
+    let mut out = String::new();
+    let mut dash = true; // suppress a leading dash
+    for c in label.chars() {
+        if out.chars().count() >= 40 {
+            break;
+        }
+        if c.is_ascii_alphanumeric() {
+            out.push(c.to_ascii_lowercase());
+            dash = false;
+        } else if !dash {
+            out.push('-');
+            dash = true;
+        }
+    }
+    out.trim_matches('-').to_string()
+}
+
+/// Derive a descriptive Downloads base name from a history row's summary.
+/// Command-generated images carry a `[kind · label]` summary — `[figlet ·
+/// hello]` → `figlet-hello`, `[qr · 123 B]` → `qr-123-b`, `[screenshot ·
+/// 4 KB]` → `screenshot-4-kb`; a plain `[image 640×480]` or anything
+/// unparseable falls back to `inspector-rust-image`. Pure — unit-tested.
+fn image_basename_from_summary(summary: &str) -> String {
+    let s = summary.trim();
+    if let Some(inner) = s.strip_prefix('[').and_then(|r| r.strip_suffix(']')) {
+        if let Some((kind, label)) = inner.split_once('·') {
+            let kind = sanitize_file_slug(kind);
+            let label = sanitize_file_slug(label);
+            if !kind.is_empty() && kind != "image" {
+                return if label.is_empty() { kind } else { format!("{kind}-{label}") };
+            }
+        }
+    }
+    "inspector-rust-image".to_string()
+}
+
+/// Write PNG bytes to `~/Downloads/<base>-<ts>.png` and return the path.
+fn write_png_to_downloads(png_bytes: &[u8], base: &str) -> Result<std::path::PathBuf, String> {
+    use chrono::Local;
+    let dir = dirs::download_dir()
+        .or_else(dirs::home_dir)
+        .ok_or_else(|| "no Downloads or home directory available".to_string())?;
+    std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
+    let stamp = Local::now().format("%Y%m%d-%H%M%S");
+    let filename = format!("{base}-{stamp}.png");
+    let out_path = dir.join(&filename);
+    std::fs::write(&out_path, png_bytes).map_err(|e| format!("write {filename}: {e}"))?;
+    Ok(out_path)
+}
+
 /// Save an image clipboard entry (PNG bytes already in the row) to
-/// `~/Downloads/inspector-rust-image-<ts>.png`. Doesn't transform the image
-/// in any way — it's the "I want this on disk" companion to cutout /
-/// recolor. Particularly useful after a recolor since the new tinted
-/// entry only lives in the SQLite history otherwise.
+/// `~/Downloads/<name>-<ts>.png` — the name is derived from the row's summary
+/// (`[figlet · hello]` → `figlet-hello-…`, plain images →
+/// `inspector-rust-image-…`). Doesn't transform the image in any way — it's
+/// the "I want this on disk" companion to cutout / recolor. Particularly
+/// useful after a recolor since the new tinted entry only lives in the SQLite
+/// history otherwise.
 #[tauri::command]
 pub fn save_image_entry_to_downloads(
     db: State<'_, DbHandle>,
     id: i64,
 ) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
-    use chrono::Local;
 
     let entry = db::get(&db, id)
         .map_err(map_err)?
@@ -4003,15 +4100,26 @@ pub fn save_image_entry_to_downloads(
         .decode(entry.content_data.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
 
-    let dir = dirs::download_dir()
-        .or_else(dirs::home_dir)
-        .ok_or_else(|| "no Downloads or home directory available".to_string())?;
-    std::fs::create_dir_all(&dir).map_err(|e| format!("create downloads dir: {e}"))?;
+    let base = image_basename_from_summary(&entry.content_text);
+    let out_path = write_png_to_downloads(&png_bytes, &base)?;
+    Ok(out_path.to_string_lossy().into_owned())
+}
 
-    let stamp = Local::now().format("%Y%m%d-%H%M%S");
-    let filename = format!("inspector-rust-image-{stamp}.png");
-    let out_path = dir.join(&filename);
-    std::fs::write(&out_path, &png_bytes).map_err(|e| format!("write {filename}: {e}"))?;
+/// Save a frontend-rendered figlet-banner PNG (base64) straight to
+/// `~/Downloads/figlet[-<slug>]-<ts>.png` and reveal it in the file manager —
+/// the figlet Cmd/Ctrl+Shift+Enter path (create → file on disk in one
+/// keystroke, no history detour).
+#[tauri::command]
+pub fn figlet_save_png(png_b64: String, label: String) -> Result<String, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+
+    let bytes = B64
+        .decode(png_b64.as_bytes())
+        .map_err(|e| format!("base64 decode: {e}"))?;
+    let slug = sanitize_file_slug(&label);
+    let base = if slug.is_empty() { "figlet".to_string() } else { format!("figlet-{slug}") };
+    let out_path = write_png_to_downloads(&bytes, &base)?;
+    reveal_in_file_manager(&out_path);
     Ok(out_path.to_string_lossy().into_owned())
 }
 

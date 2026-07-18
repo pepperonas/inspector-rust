@@ -395,6 +395,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "Tab fills the selected font as `@font` into the search bar so you can keep tweaking; Enter copies.",
       "Shift+Enter copies the banner as a PNG image, cropped tight to the glyphs and coloured like the preview — for chats/mails that mangle monospace text.",
+      "Cmd/Ctrl+Shift+Enter saves that PNG straight to ~/Downloads (`figlet-<text>-<ts>.png`) and reveals it — no clipboard detour. Any image already in history can be saved via its Save button / Cmd+S in the preview.",
       "With hundreds of fonts, `@name` fuzzy-search is the fastest way to find one.",
     ],
     caveats: [

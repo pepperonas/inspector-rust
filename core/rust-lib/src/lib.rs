@@ -587,6 +587,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::image_chromaticity,
             commands::qr_copy_png,
             commands::figlet_copy_png,
+            commands::figlet_save_png,
             commands::cut_out_image_entry,
             commands::cut_out_image_file,
             commands::save_image_entry_to_downloads,

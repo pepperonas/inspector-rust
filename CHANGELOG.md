@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.273] — 2026-07-18
+
+### Added
+
+- **Inline help for every search-bar command (`?`).** Append **`?`** to any command (`kill?`, `faker ?`) or type a prefix (`sni?` → snitch) to render full, structured usage in the preview pane — synopsis, every argument and flag explained in plain English, ≥3 worked examples, tips, caveats, aliases, related commands, and a docs pointer. **`?`** on its own opens a browsable command index grouped by category; clicking a command (or a related-command chip) drills straight in without leaving the search. A selected command row shows a small **`? help`** cap so the affordance is discoverable. The trigger is deliberately narrow — a lone `?` after a bare command token — so a literal `?` inside a quoted template (`faker tpl "warum? {name}"`), a glob (`a?b`), a URL (`…?id=1`) or after an argument (`bruno hallo?`) never triggers it.
+
+### Notes
+
+- **ADR — one declarative registry is the source of truth.** Every command's help lives in a single `CommandDoc` (`core/frontend/src/lib/commandDocs.ts`). The same registry **generates** the README command matrix in both languages (`scripts/gen-docs.mjs`, injected between `<!-- COMMANDS:START/END -->` markers; English `tagline`, German `tagline_de`) and drives the Features tab, so the docs, the app catalogue and the inline help can never drift. A `gen-docs --check` gate in `scripts/check.sh` fails CI on drift or a missing `see_also` file, and a completeness test asserts every non-hidden command has a doc with ≥3 examples and a tip/caveat — a new command without help is a red build, not a TODO. No new runtime dependency (the generator transpiles the zero-import registry with the bundled esbuild); binary size unchanged.
+
 ## [0.84.272] — 2026-07-18
 
 ### Added

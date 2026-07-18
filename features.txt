@@ -1,4 +1,4 @@
-Inspector Rust — Feature-Liste (Stand v0.84.256)
+Inspector Rust — Feature-Liste (Stand v0.84.273)
 
 == Clipboard ==
 Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
@@ -45,6 +45,7 @@ Timesheet — Ctrl+Shift+T öffnet den Tab; Ctrl+Shift+Alt+T startet/stoppt Trac
 Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Kollisionsprüfung
 
 == Suchleisten-Commands ==
+Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele, Tipps, Caveats, verwandte Befehle); `?` allein = Befehls-Index nach Kategorie. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
 Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a. (Google Translate)
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)

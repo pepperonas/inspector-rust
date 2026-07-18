@@ -19,16 +19,15 @@
 //! layout helpers. Built-in fonts (`standard`/`slant`/`small`/`big`) let the
 //! engine + tests work before the bundle exists.
 
-// The engine + option types are consumed by the IPC layer in a later commit;
-// until then they're legitimately unused. Removed once `commands.rs` wires them.
-#![allow(dead_code)]
-
 pub mod fonts;
 
 use std::sync::Arc;
 
 use figlet_rs::FIGlet;
 use serde::{Deserialize, Serialize};
+
+use crate::db::DbHandle;
+use crate::settings;
 
 // ── Public option / result types ──────────────────────────────────────────
 
@@ -113,7 +112,9 @@ pub struct FontMeta {
 /// An ASCII-art rendering engine. FIGlet is the first implementation; a second
 /// engine (boxes/cowsay-style) can be added without touching the parser or UI.
 pub trait RenderEngine: Send + Sync {
-    /// Stable engine id (`"figlet"`), reserved for a future `@engine` selector.
+    /// Stable engine id (`"figlet"`), reserved for a future `@engine` selector
+    /// and asserted by the extensibility test — no production caller yet.
+    #[allow(dead_code)]
     fn id(&self) -> &'static str;
     /// The engine's fonts/styles as metadata (no bytes).
     fn fonts(&self) -> Vec<FontMeta>;
@@ -199,6 +200,202 @@ pub fn render_with_font(figfont: &FIGlet, text: &str, opts: &RenderOpts) -> Bann
     }
 
     Banner { text: lines.join("\n"), unsupported, wrapped }
+}
+
+// ── Settings defaults (bruno pattern: one settings row per field) ───────────
+
+const KEY_FONT: &str = "figlet.font";
+const KEY_WIDTH: &str = "figlet.width";
+const KEY_ALIGN: &str = "figlet.align";
+const KEY_TRIM: &str = "figlet.trim";
+const KEY_COMMENT: &str = "figlet.comment";
+const KEY_BOXED: &str = "figlet.boxed";
+const KEY_PINNED: &str = "figlet.pinned";
+const KEY_SAVE_HISTORY: &str = "figlet.save_history";
+
+/// Per-user Figlet defaults, applied to a bare `figlet <text>` invocation and
+/// as the starting point for the preview's option chips. Persisted one row per
+/// field in the `settings` table; edited in Settings → Figlet.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FigletDefaults {
+    pub font: String,
+    pub width: usize,
+    pub align: Align,
+    pub trim: bool,
+    pub comment: CommentStyle,
+    pub boxed: bool,
+    /// Font names pinned to the top of the gallery.
+    pub pinned: Vec<String>,
+    /// Save `figlet` results to clipboard history (consistent with all commands).
+    pub save_history: bool,
+}
+
+impl Default for FigletDefaults {
+    fn default() -> Self {
+        Self {
+            font: "standard".to_string(),
+            width: 80,
+            align: Align::Left,
+            trim: true,
+            comment: CommentStyle::None,
+            boxed: false,
+            pinned: Vec::new(),
+            save_history: true,
+        }
+    }
+}
+
+fn align_from_str(s: &str) -> Align {
+    match s {
+        "center" => Align::Center,
+        "right" => Align::Right,
+        _ => Align::Left,
+    }
+}
+
+fn align_str(a: Align) -> &'static str {
+    match a {
+        Align::Left => "left",
+        Align::Center => "center",
+        Align::Right => "right",
+    }
+}
+
+fn comment_from_str(s: &str) -> CommentStyle {
+    match s {
+        "slashes" => CommentStyle::Slashes,
+        "hash" => CommentStyle::Hash,
+        "block" => CommentStyle::Block,
+        "html" => CommentStyle::Html,
+        _ => CommentStyle::None,
+    }
+}
+
+fn comment_str(c: CommentStyle) -> &'static str {
+    match c {
+        CommentStyle::None => "none",
+        CommentStyle::Slashes => "slashes",
+        CommentStyle::Hash => "hash",
+        CommentStyle::Block => "block",
+        CommentStyle::Html => "html",
+    }
+}
+
+pub fn get_defaults(db: &DbHandle) -> anyhow::Result<FigletDefaults> {
+    let d = FigletDefaults::default();
+    Ok(FigletDefaults {
+        font: settings::get_or(db, KEY_FONT, &d.font).unwrap_or(d.font.clone()),
+        width: settings::get_or(db, KEY_WIDTH, &d.width.to_string())
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(d.width),
+        align: align_from_str(&settings::get_or(db, KEY_ALIGN, align_str(d.align)).unwrap_or_default()),
+        trim: settings::get_bool(db, KEY_TRIM, d.trim).unwrap_or(d.trim),
+        comment: comment_from_str(
+            &settings::get_or(db, KEY_COMMENT, comment_str(d.comment)).unwrap_or_default(),
+        ),
+        boxed: settings::get_bool(db, KEY_BOXED, d.boxed).unwrap_or(d.boxed),
+        pinned: settings::get_or(db, KEY_PINNED, "[]")
+            .ok()
+            .and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default(),
+        save_history: settings::get_bool(db, KEY_SAVE_HISTORY, d.save_history).unwrap_or(d.save_history),
+    })
+}
+
+pub fn set_defaults(db: &DbHandle, defs: &FigletDefaults) -> anyhow::Result<()> {
+    // Only persist a known font name (defensive against a stale/garbage value).
+    let font = if fonts::load(&defs.font).is_some() {
+        defs.font.clone()
+    } else {
+        "standard".to_string()
+    };
+    // Keep only pinned names that actually exist, deduped, capped.
+    let mut pinned: Vec<String> = Vec::new();
+    for name in &defs.pinned {
+        if pinned.len() >= 64 {
+            break;
+        }
+        if fonts::load(name).is_some() && !pinned.contains(name) {
+            pinned.push(name.clone());
+        }
+    }
+    let width = defs.width.clamp(0, 400);
+
+    settings::set(db, KEY_FONT, &font)?;
+    settings::set(db, KEY_WIDTH, &width.to_string())?;
+    settings::set(db, KEY_ALIGN, align_str(defs.align))?;
+    settings::set(db, KEY_TRIM, if defs.trim { "true" } else { "false" })?;
+    settings::set(db, KEY_COMMENT, comment_str(defs.comment))?;
+    settings::set(db, KEY_BOXED, if defs.boxed { "true" } else { "false" })?;
+    settings::set(db, KEY_PINNED, &serde_json::to_string(&pinned)?)?;
+    settings::set(db, KEY_SAVE_HISTORY, if defs.save_history { "true" } else { "false" })?;
+    Ok(())
+}
+
+// ── Convenience API for the IPC layer ───────────────────────────────────────
+
+/// A compact gallery sample: the font name + a truncated banner of the user's
+/// text in that font.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct FigletSample {
+    pub font: String,
+    pub sample: String,
+}
+
+/// Render the big preview / copy payload (delegates to [`FigletEngine`]).
+pub fn render(text: &str, font: &str, opts: &RenderOpts) -> Banner {
+    FigletEngine::new().render(text, font, opts)
+}
+
+/// Font metadata with the user's pinned set applied. Enumerated through the
+/// engine's [`RenderEngine::fonts`] so the trait's font-enumeration surface is
+/// the one production path (a future engine reuses this shape unchanged).
+pub fn fonts_meta(pinned: &[String]) -> Vec<FontMeta> {
+    let pins: std::collections::HashSet<&str> = pinned.iter().map(String::as_str).collect();
+    FigletEngine::new()
+        .fonts()
+        .into_iter()
+        .map(|mut m| {
+            m.pinned = pins.contains(m.name.as_str());
+            m
+        })
+        .collect()
+}
+
+/// Compact samples for a set of fonts (the gallery rows). Each sample ignores
+/// the box/comment chrome (that's for the big preview) and is capped to
+/// `max_lines` × `max_cols` so hundreds of rows stay cheap. `…` marks a cut.
+pub fn gallery(text: &str, font_names: &[String], max_lines: usize, max_cols: usize) -> Vec<FigletSample> {
+    let engine = FigletEngine::new();
+    let sample_opts = RenderOpts { width: 0, align: Align::Left, trim: true, comment: CommentStyle::None, boxed: false };
+    font_names
+        .iter()
+        .map(|font| {
+            let banner = engine.render(text, font, &sample_opts);
+            let sample = truncate_sample(&banner.text, max_lines, max_cols);
+            FigletSample { font: font.clone(), sample }
+        })
+        .collect()
+}
+
+/// Truncate a banner to a compact gallery preview (first `max_lines` lines, each
+/// clipped to `max_cols` columns).
+fn truncate_sample(banner: &str, max_lines: usize, max_cols: usize) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let total = banner.lines().count();
+    for line in banner.lines().take(max_lines) {
+        if display_width(line) > max_cols {
+            let clipped: String = line.chars().take(max_cols.saturating_sub(1)).collect();
+            out.push(format!("{clipped}…"));
+        } else {
+            out.push(line.to_string());
+        }
+    }
+    if total > max_lines {
+        out.push("…".to_string());
+    }
+    out.join("\n")
 }
 
 // ── Pure helpers (engine-agnostic, exhaustively unit-tested) ────────────────
@@ -579,6 +776,95 @@ mod tests {
         fn render(&self, text: &str, _font: &str, _opts: &RenderOpts) -> Banner {
             Banner { text: format!("[{text}]"), unsupported: vec![], wrapped: false }
         }
+    }
+
+    // ── settings defaults + gallery ──────────────────────────────────────
+
+    fn mem_db() -> DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        let h = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        settings::init_table(&h).unwrap();
+        h
+    }
+
+    #[test]
+    fn defaults_round_trip() {
+        let db = mem_db();
+        let custom = FigletDefaults {
+            font: "slant".into(),
+            width: 120,
+            align: Align::Center,
+            trim: false,
+            comment: CommentStyle::Slashes,
+            boxed: true,
+            pinned: vec!["slant".into(), "big".into()],
+            save_history: false,
+        };
+        set_defaults(&db, &custom).unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.font, "slant");
+        assert_eq!(back.width, 120);
+        assert_eq!(back.align, Align::Center);
+        assert!(!back.trim);
+        assert_eq!(back.comment, CommentStyle::Slashes);
+        assert!(back.boxed);
+        assert_eq!(back.pinned, vec!["slant".to_string(), "big".to_string()]);
+        assert!(!back.save_history);
+    }
+
+    #[test]
+    fn defaults_fallback_when_unset() {
+        let d = get_defaults(&mem_db()).unwrap();
+        assert_eq!(d.font, "standard");
+        assert_eq!(d.align, Align::Left);
+        assert!(d.trim);
+        assert!(d.save_history);
+    }
+
+    #[test]
+    fn set_defaults_drops_unknown_font_and_pins() {
+        let db = mem_db();
+        set_defaults(
+            &db,
+            &FigletDefaults {
+                font: "not-a-real-font".into(),
+                pinned: vec!["standard".into(), "also-fake".into(), "standard".into()],
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.font, "standard", "unknown font coerced to standard");
+        assert_eq!(back.pinned, vec!["standard".to_string()], "fake/dupe pins dropped");
+    }
+
+    #[test]
+    fn fonts_meta_applies_pins() {
+        let meta = fonts_meta(&["slant".to_string()]);
+        assert!(meta.iter().find(|m| m.name == "slant").unwrap().pinned);
+        assert!(!meta.iter().find(|m| m.name == "standard").unwrap().pinned);
+    }
+
+    #[test]
+    fn gallery_returns_compact_samples() {
+        let samples = gallery("Hi", &["standard".into(), "slant".into()], 3, 40);
+        assert_eq!(samples.len(), 2);
+        for s in &samples {
+            assert!(!s.sample.is_empty());
+            // Capped to ≤ max_lines + a possible ellipsis marker line.
+            assert!(s.sample.lines().count() <= 4);
+            assert!(s.sample.lines().all(|l| l.chars().count() <= 40));
+        }
+    }
+
+    #[test]
+    fn truncate_sample_clips_lines_and_cols() {
+        let banner = "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\ndddddddddd";
+        let s = truncate_sample(banner, 2, 5);
+        let lines: Vec<&str> = s.lines().collect();
+        assert_eq!(lines[0], "aaaa…"); // clipped to 5 cols
+        assert_eq!(lines[1], "bbbb…");
+        assert_eq!(lines[2], "…"); // more-lines marker
     }
 
     #[test]

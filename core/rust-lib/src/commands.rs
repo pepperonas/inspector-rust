@@ -767,6 +767,55 @@ pub fn faker_locales() -> Vec<crate::faker::LocaleOption> {
     crate::faker::locales()
 }
 
+// ── Figlet (ASCII-art banner generator) ───────────────────────────────
+
+/// All font metadata (name/category/popular/pinned) for the gallery — fetched
+/// once at mount. Never the font bytes.
+#[tauri::command]
+pub fn figlet_fonts(db: State<'_, DbHandle>) -> Result<Vec<crate::figlet::FontMeta>, String> {
+    let pinned = crate::figlet::get_defaults(&db).map_err(map_err)?.pinned;
+    Ok(crate::figlet::fonts_meta(&pinned))
+}
+
+/// Render the big preview / copy payload for one font.
+#[tauri::command]
+pub fn figlet_render(
+    text: String,
+    font: String,
+    opts: crate::figlet::RenderOpts,
+) -> crate::figlet::Banner {
+    crate::figlet::render(&text, &font, &opts)
+}
+
+/// Compact samples of the user's text for a window of fonts (the gallery rows).
+#[tauri::command]
+pub fn figlet_gallery(
+    text: String,
+    fonts: Vec<String>,
+    max_lines: usize,
+    max_cols: usize,
+) -> Vec<crate::figlet::FigletSample> {
+    crate::figlet::gallery(&text, &fonts, max_lines.clamp(1, 12), max_cols.clamp(8, 200))
+}
+
+#[tauri::command]
+pub fn figlet_get_defaults(
+    db: State<'_, DbHandle>,
+) -> Result<crate::figlet::FigletDefaults, String> {
+    crate::figlet::get_defaults(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn figlet_set_defaults(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    defaults: crate::figlet::FigletDefaults,
+) -> Result<(), String> {
+    crate::figlet::set_defaults(&db, &defaults).map_err(map_err)?;
+    let _ = app.emit("figlet-defaults-changed", ());
+    Ok(())
+}
+
 #[tauri::command]
 pub fn faker_get_defaults(db: State<'_, DbHandle>) -> Result<crate::faker::FakerDefaults, String> {
     crate::faker::get_defaults(&db).map_err(map_err)

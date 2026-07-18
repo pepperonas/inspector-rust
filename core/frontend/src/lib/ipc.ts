@@ -257,6 +257,43 @@ export function fakerCatalog(): Promise<CatalogEntry[]> {
   return invoke("faker_catalog");
 }
 
+// ── Figlet (ASCII-art banners, v0.85.0) ───────────────────────────────
+import type {
+  FigletBanner,
+  FigletDefaults,
+  FigletFontMeta,
+  FigletOpts,
+  FigletSample,
+} from "./figlet";
+
+/** All font metadata (name/category/popular/pinned). Backend: figlet_fonts. */
+export function figletFonts(): Promise<FigletFontMeta[]> {
+  return invoke("figlet_fonts");
+}
+
+/** Render the big preview / copy payload for one font. Backend: figlet_render. */
+export function figletRender(text: string, font: string, opts: FigletOpts): Promise<FigletBanner> {
+  return invoke("figlet_render", { text, font, opts });
+}
+
+/** Compact samples of `text` for a window of fonts. Backend: figlet_gallery. */
+export function figletGallery(
+  text: string,
+  fonts: string[],
+  maxLines: number,
+  maxCols: number,
+): Promise<FigletSample[]> {
+  return invoke("figlet_gallery", { text, fonts, maxLines, maxCols });
+}
+
+export function figletGetDefaults(): Promise<FigletDefaults> {
+  return invoke("figlet_get_defaults");
+}
+
+export function figletSetDefaults(defaults: FigletDefaults): Promise<void> {
+  return invoke("figlet_set_defaults", { defaults });
+}
+
 /** Generate all requested values in one call. Backend: faker_generate. */
 export function fakerGenerate(spec: FakerSpec): Promise<FakerGenResult> {
   return invoke("faker_generate", {

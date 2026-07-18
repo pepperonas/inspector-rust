@@ -95,7 +95,8 @@ pub fn catalog() -> Vec<FontMeta> {
         .collect()
 }
 
-/// Number of bundled fonts (for diagnostics/tests).
+/// Number of bundled fonts (test diagnostic).
+#[cfg(test)]
 pub fn count() -> usize {
     FONT_BLOBS.len()
 }

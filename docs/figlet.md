@@ -33,9 +33,16 @@ is the banner text. An unknown `--token` is kept as literal text (so
   tweaking before copying.
 - **Enter** — copy the selected font's full banner + paste it where you were
   (and, unless disabled, add it to clipboard history).
+- **Shift+Enter** — copy the banner as a **PNG image** instead: tightly cropped
+  to the glyphs (blank edge lines, the common indent and trailing whitespace
+  are stripped), rendered in the current theme's colours (opaque — readable on
+  light *and* dark targets), 2× scale for crispness. Lands on the clipboard and
+  in history as an image clip (`[figlet · <text>]`) — for chats/mails that
+  mangle monospace text. The preview header shows the hint (`Enter copies ·
+  ⇧⏎ PNG`).
 - **Option chips** (in the preview) — align, width, trailing-trim, comment-wrap
   and box border, toggled without re-typing. They also apply to what Enter
-  copies.
+  copies (both text and PNG).
 
 ## Fonts
 

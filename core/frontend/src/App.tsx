@@ -29,6 +29,7 @@ import {
   type FigletDefaults,
   type FigletOpts,
 } from "./lib/figlet";
+import { bannerPngBase64, themePngColors } from "./lib/figlet-png";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
 import { SettingsPanel } from "./components/SettingsPanel";
@@ -103,6 +104,7 @@ import {
   figletGallery,
   figletRender,
   figletGetDefaults,
+  figletCopyPng,
   removeVowelsToClipboard,
   resizeClipboardImage,
   saveClipAsNote,
@@ -2875,12 +2877,21 @@ function App() {
         }
         await hidePopup();
       } else if (target.kind === "figlet-font") {
-        // Render the selected font's FULL banner (with the current chip opts)
-        // and paste it — exactly the rendered monospace text, incl. newlines.
+        // Render the selected font's FULL banner (with the current chip opts).
+        // Enter pastes it as text; SHIFT+Enter copies it as a tightly-cropped,
+        // theme-coloured PNG (clipboard + history) — for targets that mangle
+        // monospace (chats, mails with proportional fonts).
         try {
           const banner = await figletRender(figletParsed.text, target.data.name, figletOpts);
-          if (!banner.text.trim()) return; // nothing to paste (empty/all-unsupported)
-          await pasteGenerated(banner.text, figletDefaults?.save_history ?? true);
+          if (!banner.text.trim()) return; // nothing to render (empty/all-unsupported)
+          if (shiftKey) {
+            const png = bannerPngBase64(banner.text, themePngColors());
+            if (!png) return;
+            await figletCopyPng(png, figletParsed.text);
+            await hidePopup();
+          } else {
+            await pasteGenerated(banner.text, figletDefaults?.save_history ?? true);
+          }
         } catch (e) {
           setPasteError("other");
           console.error("figlet_render/paste failed", e);

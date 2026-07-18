@@ -2697,37 +2697,32 @@ pub fn recolor_image_entry(
     Ok(new_id)
 }
 
-/// Copy a frontend-rendered PNG (base64) to the clipboard + history. Used by
-/// the `qr` command, which renders the QR to a canvas and hands the PNG here.
-#[tauri::command]
-pub fn qr_copy_png(
-    app: AppHandle,
-    db: State<'_, DbHandle>,
-    watcher: State<'_, WatcherState>,
-    png_b64: String,
-    label: String,
+/// Shared body of the frontend-rendered-PNG copy commands (`qr_copy_png`,
+/// `figlet_copy_png`): decode the canvas base64, write the image to the
+/// clipboard CANONICALLY (re-encoded through clipboard-rs's own encoder — the
+/// exact payload the watcher reads back, so the self-write fuse matches and no
+/// duplicate `[image W×H]` row lands next to the intended one), and persist a
+/// history entry under `[<kind> · label-or-size]`.
+fn copy_png_to_clipboard_and_history(
+    app: &AppHandle,
+    db: &DbHandle,
+    watcher: &WatcherState,
+    png_b64: &str,
+    kind: &str,
+    label: &str,
 ) -> Result<i64, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let bytes = B64
         .decode(png_b64.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
-    // Put the QR image on the clipboard. The canonical b64 it returns is the PNG
-    // re-encoded through clipboard-rs's encoder — exactly what the watcher reads
-    // back — so we arm the fuse + store *that* payload. Otherwise the watcher's
-    // read-back b64 wouldn't match the frontend-canvas b64 and a duplicate
-    // `[image W×H]` entry would land next to the intended `[qr · …]` one.
     let canon_b64 = crate::image_ops::write_clipboard_png_canonical(&bytes).map_err(map_err)?;
     watcher.mark_self_write(crate::models::ContentType::Image, &canon_b64);
 
     let byte_size = (canon_b64.len() * 3 / 4) as i64; // decoded bytes ≈ b64 len × 3/4
-    let summary = if label.trim().is_empty() {
-        format!("[qr · {byte_size} B]")
-    } else {
-        format!("[qr · {}]", label.trim())
-    };
+    let summary = png_history_summary(kind, label, byte_size);
     let new_id = db::upsert_clip(
-        &db,
+        db,
         &crate::models::NewClip {
             content_type: crate::models::ContentType::Image,
             content_text: summary,
@@ -2738,6 +2733,51 @@ pub fn qr_copy_png(
     .map_err(map_err)?;
     let _ = app.emit("clipboard-changed", ());
     Ok(new_id)
+}
+
+/// History row label for a copied PNG: `[qr · hello]`, falling back to the
+/// byte size when no label was given; long labels are truncated (the history
+/// list is a one-liner). Pure — unit-tested below.
+fn png_history_summary(kind: &str, label: &str, byte_size: i64) -> String {
+    const MAX_LABEL: usize = 60;
+    let label = label.trim();
+    if label.is_empty() {
+        return format!("[{kind} · {byte_size} B]");
+    }
+    let shown: String = if label.chars().count() > MAX_LABEL {
+        let cut: String = label.chars().take(MAX_LABEL).collect();
+        format!("{cut}…")
+    } else {
+        label.to_string()
+    };
+    format!("[{kind} · {shown}]")
+}
+
+/// Copy a frontend-rendered PNG (base64) to the clipboard + history. Used by
+/// the `qr` command, which renders the QR to a canvas and hands the PNG here.
+#[tauri::command]
+pub fn qr_copy_png(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    watcher: State<'_, WatcherState>,
+    png_b64: String,
+    label: String,
+) -> Result<i64, String> {
+    copy_png_to_clipboard_and_history(&app, &db, &watcher, &png_b64, "qr", &label)
+}
+
+/// Copy a frontend-rendered figlet-banner PNG (base64) to the clipboard +
+/// history — the `figlet` command's Shift+Enter path (the banner rendered to a
+/// tightly-cropped, theme-coloured image for targets that mangle monospace).
+#[tauri::command]
+pub fn figlet_copy_png(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    watcher: State<'_, WatcherState>,
+    png_b64: String,
+    label: String,
+) -> Result<i64, String> {
+    copy_png_to_clipboard_and_history(&app, &db, &watcher, &png_b64, "figlet", &label)
 }
 
 /// Sample-based "is this image mostly grayscale?" probe. Returned value
@@ -3847,6 +3887,26 @@ mod strip_vowels_tests {
     #[test]
     fn preserves_emoji_and_non_latin_letters() {
         assert_eq!(strip_vowels("hello 🦀 世界"), "hll 🦀 世界");
+    }
+}
+
+#[cfg(test)]
+mod png_summary_tests {
+    use super::png_history_summary;
+
+    #[test]
+    fn labelled_and_unlabelled_forms() {
+        assert_eq!(png_history_summary("qr", "hello", 123), "[qr · hello]");
+        assert_eq!(png_history_summary("figlet", "  ", 456), "[figlet · 456 B]");
+        assert_eq!(png_history_summary("figlet", "", 0), "[figlet · 0 B]");
+    }
+
+    #[test]
+    fn label_is_trimmed_and_long_labels_truncate_on_char_boundaries() {
+        assert_eq!(png_history_summary("figlet", "  hi  ", 1), "[figlet · hi]");
+        let long = "ä".repeat(80); // multibyte — a byte cut would panic/split
+        let s = png_history_summary("figlet", &long, 1);
+        assert_eq!(s, format!("[figlet · {}…]", "ä".repeat(60)));
     }
 }
 

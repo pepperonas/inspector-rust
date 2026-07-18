@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.8] — 2026-07-18
+
+### Added
+
+- **figlet: Shift+Enter copies the banner as a PNG image.** Enter still pastes the banner as text; **Shift+Enter** now renders it to a bitmap **tightly cropped to the glyphs** (blank edge lines, the common leading indent and trailing whitespace stripped — the pure, unit-tested `lib/figlet-png.ts::cropBanner`) and copies it to the clipboard + history (`[figlet · <text>]` image clip) — for chats/mails that mangle monospace text. The image is rendered in the **current theme's colours** (opaque background, 2× scale for crispness), so it looks exactly like the preview and stays readable on light *and* dark targets. Backend: new `figlet_copy_png` IPC sharing a `copy_png_to_clipboard_and_history` helper extracted from `qr_copy_png` (canonical clipboard re-encode + watcher self-write fuse — no duplicate image row); history labels are char-boundary-truncated (pure `png_history_summary`, unit-tested). The preview header hint now reads **“Enter copies · ⇧⏎ PNG”**, and the `figlet?` inline help documents the shortcut.
+
 ## [0.85.7] — 2026-07-18
 
 ### Fixed

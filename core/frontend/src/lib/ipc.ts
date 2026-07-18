@@ -1428,6 +1428,13 @@ export function qrCopyPng(pngB64: string, label: string): Promise<number> {
   return invoke("qr_copy_png", { pngB64, label });
 }
 
+/** Copy a frontend-rendered figlet-banner PNG (base64, no data: prefix) to
+ *  the clipboard + history — the figlet Shift+Enter path. Returns the new
+ *  history row id. */
+export function figletCopyPng(pngB64: string, label: string): Promise<number> {
+  return invoke("figlet_copy_png", { pngB64, label });
+}
+
 /** Returns max chromaticity (0..1) from a sample of opaque pixels in an
  *  image entry. ~0 means grayscale silhouette → tint will look clean.
  *  ~0.5+ means a saturated photo → tint will look weird. */

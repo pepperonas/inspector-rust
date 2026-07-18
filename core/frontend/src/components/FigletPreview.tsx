@@ -80,7 +80,12 @@ export function FigletPreview({
         <Type size={16} className="text-rose-500" />
         <span className="font-semibold text-[var(--color-fg)]">{font}</span>
         {category && <span className="text-[11px] text-[var(--color-muted)]">· {category}</span>}
-        <span className="ml-auto text-[11px] text-[var(--color-muted)]">Enter copies</span>
+        <span
+          className="ml-auto text-[11px] text-[var(--color-muted)]"
+          title="Enter copies the banner as text · Shift+Enter copies it as a cropped PNG image"
+        >
+          Enter copies · ⇧⏎ PNG
+        </span>
       </div>
 
       {/* Option chips */}

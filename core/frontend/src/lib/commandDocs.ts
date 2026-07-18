@@ -376,7 +376,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "ASCII-Art-Banner — Live-Vorschau, Hunderte Fonts durchblättern, Enter kopiert.",
     synopsis: "figlet <text> [@font] [--width=n] [--center|--right]   ·   banner · ascii",
     description:
-      "Turns text into a FIGlet ASCII-art banner. As you type, the selected font's banner renders live in the preview (monospace); the left list is a gallery where every row previews YOUR text in that font — arrow through it, or fuzzy-filter with `@name`. Enter copies the selected font's full banner to the clipboard (exactly the rendered text, newlines and all). Hundreds of fonts are bundled and inflated lazily. Option chips (align / width / trim / comment-wrap / box border) apply without re-typing. Unrenderable characters are reported, never silently dropped.",
+      "Turns text into a FIGlet ASCII-art banner. As you type, the selected font's banner renders live in the preview (monospace); the left list is a gallery where every row previews YOUR text in that font — arrow through it, or fuzzy-filter with `@name`. Enter copies the selected font's full banner to the clipboard (exactly the rendered text, newlines and all); Shift+Enter copies it as a tightly-cropped PNG image instead (theme-coloured, lands in history like any image clip). Hundreds of fonts are bundled and inflated lazily. Option chips (align / width / trim / comment-wrap / box border) apply without re-typing. Unrenderable characters are reported, never silently dropped.",
     arguments: [
       { name: "text", required: false, description: "The banner text. Bare `figlet` opens the gallery with a placeholder.", default: "(gallery)" },
     ],
@@ -394,6 +394,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "Tab fills the selected font as `@font` into the search bar so you can keep tweaking; Enter copies.",
+      "Shift+Enter copies the banner as a PNG image, cropped tight to the glyphs and coloured like the preview — for chats/mails that mangle monospace text.",
       "With hundreds of fonts, `@name` fuzzy-search is the fastest way to find one.",
     ],
     caveats: [

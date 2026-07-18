@@ -79,7 +79,8 @@ export type CommandKind =
   | "uptime"
   | "track"
   | "trim"
-  | "calendar";
+  | "calendar"
+  | "faker";
 
 /** Static metadata for one power command. */
 export interface CommandSpec {
@@ -379,6 +380,24 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     // action (default length) at the top instead of a faint suggestion
     // that lets matching snippets outrank it.
     requiresArg: false,
+  },
+  // ── Fake-data generator ────────────────────────────────────────────
+  {
+    kind: "faker",
+    keyword: "faker",
+    syntax: "faker [gen] [n] [@locale] [--json|csv|sql|ts]",
+    description:
+      "Realistic fake test data. Bare `faker` lists generators with live samples; `faker person 50 --csv @de` fills the clipboard with 50 German person records. `faker tpl \"{name} <{email}>\"` for templates. Cmd/Ctrl+R rerolls.",
+    // Bare `faker` opens the catalogue (no required arg).
+    requiresArg: false,
+  },
+  {
+    kind: "faker",
+    keyword: "fake",
+    syntax: "fake [gen] [n]",
+    description: "Alias for faker.",
+    requiresArg: false,
+    hidden: true,
   },
   // ── File/folder creation in the front file-manager window's dir ──
   //    (Finder on macOS, Explorer on Windows)

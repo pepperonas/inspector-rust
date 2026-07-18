@@ -122,6 +122,10 @@ import {
   trackStop,
   trackStatus,
   brunoGetDefaults,
+  fakerCatalog,
+  fakerGenerate,
+  fakerGetDefaults,
+  fakerPaste,
   startTimer,
   listTimers,
   getThemePreference,
@@ -129,6 +133,13 @@ import {
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
+import {
+  parseFakerCommand,
+  matchCatalog,
+  formatValues,
+  type CatalogEntry,
+  type FakerDefaults,
+} from "./lib/faker";
 import { confirmDialog } from "./lib/confirm";
 import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
@@ -650,6 +661,41 @@ function App() {
     }
   }, [isShazamCmd, shazamMode]);
 
+  // Faker: catalogue (fetched once, cached for pure-TS parsing) + defaults
+  // (re-fetched on the settings-changed event) + a reroll signal (⌘/Ctrl+R).
+  // Declared before `commandEntry` because its faker case reads them.
+  const [fakerCat, setFakerCat] = useState<CatalogEntry[]>([]);
+  const [fakerDefaults, setFakerDefaults] = useState<FakerDefaults | null>(null);
+  const [fakerReroll, setFakerReroll] = useState(0);
+  useEffect(() => {
+    void fakerCatalog().then(setFakerCat).catch(() => undefined);
+    void fakerGetDefaults().then(setFakerDefaults).catch(() => undefined);
+    let cancelled = false;
+    let unlisten: UnlistenFn | undefined;
+    void listen("faker-defaults-changed", () => {
+      void fakerGetDefaults().then(setFakerDefaults).catch(() => undefined);
+      void fakerCatalog().then(setFakerCat).catch(() => undefined);
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
+  const fakerDef: FakerDefaults = useMemo(
+    () =>
+      fakerDefaults ?? {
+        locale: "DE_DE",
+        count: 1,
+        format: "plain",
+        pinned: [],
+        save_history: true,
+      },
+    [fakerDefaults],
+  );
+
   const commandEntry: ListEntry | null = useMemo(() => {
     if (!parsedCommand) return null;
     // kill / meme take over the whole list, not a single command row.
@@ -706,6 +752,20 @@ function App() {
         label = `QR code: "${arg}"`;
         hint = "Preview on the right · Enter copies the PNG to the clipboard";
         break;
+      case "faker": {
+        // A complete generator → runnable command row (+ FakerPreview on the
+        // right). Bare `faker` / a partial / unknown name yields no command row
+        // — the catalogue suggestions (fakerCatalogEntries) cover those.
+        const parsed = parseFakerCommand(arg, fakerCat, fakerDef);
+        if (parsed.kind !== "spec") return null;
+        const s = parsed.spec;
+        label =
+          s.mode === "template"
+            ? `Template · ${s.n}×`
+            : `${s.n} × ${s.generator} · ${s.format}`;
+        hint = "Preview on the right · Enter → clipboard + paste · ⌘/Ctrl+R rerolls";
+        break;
+      }
       case "resize": {
         const dims = parseResizeArg(arg);
         label = dims
@@ -956,7 +1016,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query]);
+  }, [parsedCommand, query, fakerCat, fakerDef]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -1026,6 +1086,38 @@ function App() {
       }),
     );
   }, [query]);
+
+  // Faker catalogue rows (bare `faker` list, or fuzzy matches for a partial /
+  // unknown generator). Rendered as command-suggestion rows (like the resize
+  // presets): each shows the generator + a live sample, Tab/→ fills the name,
+  // Enter runs it. Suppressed once the arg is a complete spec (the command row
+  // + FakerPreview take over then).
+  const fakerCatalogEntries: ListEntry[] = useMemo(() => {
+    if (!parsedCommand || parsedCommand.spec.kind !== "faker") return [];
+    const arg = parsedCommand.arg;
+    const parsed = parseFakerCommand(arg, fakerCat, fakerDef);
+    if (parsed.kind === "spec") return []; // complete → command row handles it
+    // Fuzzy on the first word (the generator candidate); bare → whole catalogue,
+    // pinned generators floated to the top.
+    const first = arg.trim().split(/\s+/)[0] ?? "";
+    const pinned = new Set(fakerDef.pinned);
+    const matches = matchCatalog(first, fakerCat);
+    const ordered = [
+      ...matches.filter((e) => pinned.has(e.name)),
+      ...matches.filter((e) => !pinned.has(e.name)),
+    ];
+    return ordered.slice(0, 40).map(
+      (e): ListEntry => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: e.name,
+          syntax: `${e.name}${e.composite ? " (record)" : ""}`,
+          description: `${e.description} — e.g. ${e.sample}`,
+          completion: `faker ${e.name} `,
+        },
+      }),
+    );
+  }, [parsedCommand, fakerCat, fakerDef]);
 
   // In finder-mode (Ctrl+Shift+F just fired), the file list takes the
   // top of the result list. A complete `rz <W>x<H>` command still
@@ -1358,6 +1450,7 @@ function App() {
       ...(totpManageEntry ? [totpManageEntry] : []),
       ...totpAutocompleteEntries,
       ...resizePresetEntries,
+      ...fakerCatalogEntries,
       ...(appEntry ? [appEntry] : []),
       ...finderFileEntries,
       ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
@@ -1384,6 +1477,7 @@ function App() {
     totpManageEntry,
     totpAutocompleteEntries,
     resizePresetEntries,
+    fakerCatalogEntries,
     finderFileEntries,
     calcResult,
     convertResult,
@@ -1611,6 +1705,22 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [activeTab, snippetEditingId, combined, selected]);
+
+  // Cmd/Ctrl+R while a `faker` command row is selected → reroll (new seed).
+  // Preventing default also stops the webview from reloading.
+  useEffect(() => {
+    if (activeTab !== "history") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "r" || !(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return;
+      const target = combined[selected];
+      if (target?.kind !== "command" || target.data.commandKind !== "faker") return;
+      e.preventDefault();
+      e.stopPropagation();
+      setFakerReroll((n) => n + 1);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [activeTab, combined, selected]);
 
   // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
   // these use `useTauriEvent` instead of the inline let-then-async
@@ -1958,6 +2068,21 @@ function App() {
         } catch (e) {
           setPasteError("other");
           console.error(`${commandKind} failed`, e);
+          return true;
+        }
+      } else if (commandKind === "faker") {
+        // Parse → generate ALL values (full n) → format → paste into the
+        // focused app. Only a complete spec runs; catalogue/partial/unknown
+        // yields false so the caller fills the input instead.
+        const parsed = parseFakerCommand(arg, fakerCat, fakerDef);
+        if (parsed.kind !== "spec") return false;
+        try {
+          const result = await fakerGenerate(parsed.spec);
+          const text = formatValues(result, parsed.spec.format);
+          await fakerPaste(text, fakerDef.save_history);
+        } catch (e) {
+          setPasteError("other");
+          console.error("faker failed", e);
           return true;
         }
       } else if (commandKind === "qr") {
@@ -3020,6 +3145,9 @@ function App() {
                     socialMode={socialMode}
                     onSocialModeChange={setSocialMode}
                     socialRunSignal={socialRunSignal}
+                    fakerCatalog={fakerCat}
+                    fakerDefaults={fakerDef}
+                    fakerReroll={fakerReroll}
                     snippetCategories={snippetCategories}
                     snippetEditing={
                       current?.kind === "snippet" && snippetEditingId === current.data.id

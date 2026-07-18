@@ -239,6 +239,57 @@ export function brunoSetDefaults(defaults: BrunoDefaults): Promise<void> {
   return invoke("bruno_set_defaults", { defaults });
 }
 
+// ── Faker (fake-data generator, v0.84.270) ────────────────────────────
+import type {
+  CatalogEntry,
+  FakerDefaults,
+  FakerGenResult,
+  FakerSpec,
+} from "./faker";
+
+export interface FakerLocaleOption {
+  code: string;
+  label: string;
+}
+
+/** The generator catalogue with a live sample per row. Backend: faker_catalog. */
+export function fakerCatalog(): Promise<CatalogEntry[]> {
+  return invoke("faker_catalog");
+}
+
+/** Generate all requested values in one call. Backend: faker_generate. */
+export function fakerGenerate(spec: FakerSpec): Promise<FakerGenResult> {
+  return invoke("faker_generate", {
+    req: {
+      generator: spec.generator,
+      n: spec.n,
+      locale: spec.locale ?? null,
+      seed: spec.seed ?? null,
+      args: spec.args ?? null,
+      template: spec.template ?? null,
+    },
+  });
+}
+
+/** The selectable locales (code + label). Backend: faker_locales. */
+export function fakerLocales(): Promise<FakerLocaleOption[]> {
+  return invoke("faker_locales");
+}
+
+export function fakerGetDefaults(): Promise<FakerDefaults> {
+  return invoke("faker_get_defaults");
+}
+
+export function fakerSetDefaults(defaults: FakerDefaults): Promise<void> {
+  return invoke("faker_set_defaults", { defaults });
+}
+
+/** Paste generated text into the focused app; optionally store in history.
+ *  Backend: faker_paste. */
+export function fakerPaste(text: string, saveHistory: boolean): Promise<void> {
+  return invoke("faker_paste", { text, saveHistory });
+}
+
 // ── App launcher (Spotlight-like, macOS only in v0.37) ────────────────
 
 export interface AppEntry {

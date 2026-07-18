@@ -189,6 +189,7 @@ export function FeaturesPanel() {
         { name: "Translate", trigger: "tr / tren / trde <text>", typed: true, note: "Google Translate. Also DE↔IT/ES/PL: trde2it · trit2de · trde2sp · trsp2de · trde2pl · trpl2de." },
         { name: "Web search", trigger: "g · ddg · gh · yt · npm · crates · so · mdn · wiki <query>", typed: true, note: "Open a site's search in your browser." },
         { name: "Dev tools", trigger: "uuid [n] · slug <t> · hash <t> · json · jwt", typed: true, note: "Generate UUIDs · slugify · SHA-256 · pretty-print clipboard JSON · decode clipboard JWT → clipboard." },
+        { name: "Fake test data", trigger: "faker [gen] [n] [@locale] [--json|csv|sql|ts]", typed: true, note: "Realistic fake data (70+ generators, 14 locales). Bare `faker` lists generators with live samples; `faker person 50 --csv @de` → 50 German records as CSV in the clipboard. `faker int 1..100`, `faker uuid`, composites (person/user/address_full/…), `faker tpl \"{name} <{email}>\"`, `--seed=` reproducible, ⌘/Ctrl+R rerolls. Also `{faker:first_name}` in snippets. Configure defaults in Settings → Faker." },
         { name: "QR code", trigger: "qr <text>", typed: true, note: "Live preview in the panel; Enter copies the PNG to the clipboard." },
         { name: "Resize clipboard image", trigger: "rz <W>x<H>", typed: true, note: "Lanczos resize of the image on the clipboard." },
         { name: "Optimise PNG", trigger: "optim", typed: true, note: "Lossless oxipng of the clipboard PNG → Downloads." },

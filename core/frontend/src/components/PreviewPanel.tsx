@@ -6,6 +6,8 @@ import {
   Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
+import { FakerPreview } from "./FakerPreview";
+import type { CatalogEntry, FakerDefaults } from "../lib/faker";
 import type { SnippetCategory } from "../lib/ipc";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
@@ -58,6 +60,11 @@ interface Props {
   onSocialModeChange?: (m: "video" | "audio") => void;
   /** Bumped by the global Enter key to trigger a download of `socialMode`. */
   socialRunSignal?: number;
+  /** Faker catalogue + defaults (for the `faker` command preview) + a reroll
+   *  signal bumped by ⌘/Ctrl+R. */
+  fakerCatalog?: CatalogEntry[];
+  fakerDefaults?: FakerDefaults;
+  fakerReroll?: number;
   /** Snippet groups — needed by the inline snippet editor's group picker. */
   snippetCategories?: SnippetCategory[];
   /** True while the selected snippet is being edited in place (v0.84.265):
@@ -113,6 +120,9 @@ export function PreviewPanel({
   socialMode,
   onSocialModeChange,
   socialRunSignal,
+  fakerCatalog = [],
+  fakerDefaults,
+  fakerReroll = 0,
   snippetCategories = [],
   snippetEditing = false,
   onSnippetEdit,
@@ -353,6 +363,24 @@ export function PreviewPanel({
 
   // ── Command preview (power-command palette) ───────────────────────────────
   if (entry.kind === "command") {
+    if (entry.data.commandKind === "faker") {
+      return (
+        <FakerPreview
+          arg={entry.data.arg}
+          catalog={fakerCatalog}
+          defaults={
+            fakerDefaults ?? {
+              locale: "DE_DE",
+              count: 1,
+              format: "plain",
+              pinned: [],
+              save_history: true,
+            }
+          }
+          rerollSignal={fakerReroll}
+        />
+      );
+    }
     const isQr = entry.data.commandKind === "qr" && entry.data.arg.trim().length > 0;
     return (
       <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">

@@ -28,6 +28,7 @@ import {
   Upload,
   Volume2,
   Wand2,
+  Dices,
   Zap,
 } from "lucide-react";
 import { AboutContent } from "./AboutContent";
@@ -37,6 +38,11 @@ import {
   diagnoseExpandAtCursor,
   forceResetAndRequestGrant,
   brunoGetDefaults,
+  fakerGetDefaults,
+  fakerSetDefaults,
+  fakerLocales,
+  fakerCatalog,
+  type FakerLocaleOption,
   brunoSetDefaults,
   getMemeDir,
   setMemeDir,
@@ -114,6 +120,7 @@ import {
   type DirectSlot,
   type ExpanderConfig,
 } from "../lib/ipc";
+import type { FakerDefaults } from "../lib/faker";
 import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
 import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
@@ -2490,6 +2497,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <BrunoSection />
         </div>
 
+        {/* Faker defaults — fake-data generator */}
+        <div className="mt-6">
+          <FakerSection />
+        </div>
+
         {/* Meme library directory */}
         {MEME_ENABLED && (
           <div className="mt-6">
@@ -3565,6 +3577,151 @@ function BrunoSection() {
           </span>
         )}
       </div>
+    </Section>
+  );
+}
+
+// ── Faker defaults — fake-data generator ───────────────────────────────
+// Persisted defaults applied to every `faker` call + `{faker:…}` snippet
+// placeholder. Mirrors BrunoSection; the faker-defaults-changed event (fired
+// by the setter) refreshes the popup without a restart.
+function FakerSection() {
+  const [defs, setDefs] = useState<FakerDefaults | null>(null);
+  const [saved, setSaved] = useState<FakerDefaults | null>(null);
+  const [locales, setLocales] = useState<FakerLocaleOption[]>([]);
+  const [genNames, setGenNames] = useState<string[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    fakerGetDefaults()
+      .then((d) => {
+        setDefs(d);
+        setSaved(d);
+      })
+      .catch(() => undefined);
+    fakerLocales().then(setLocales).catch(() => undefined);
+    fakerCatalog()
+      .then((c) => setGenNames(c.map((e) => e.name)))
+      .catch(() => undefined);
+  }, []);
+
+  if (!defs) return null;
+
+  const dirty =
+    saved !== null &&
+    (saved.locale !== defs.locale ||
+      saved.count !== defs.count ||
+      saved.format !== defs.format ||
+      saved.save_history !== defs.save_history ||
+      saved.pinned.join(",") !== defs.pinned.join(","));
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await fakerSetDefaults(defs);
+      setSaved(defs);
+    } catch (e) {
+      console.error("save faker defaults", e);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const FORMATS: FakerDefaults["format"][] = ["plain", "json", "csv", "sql", "ts"];
+
+  return (
+    <Section
+      icon={<Dices size={16} className="text-[var(--color-accent)]" />}
+      title="Faker — fake-data defaults"
+      subtitle="Applied to every `faker` call and `{faker:…}` snippet placeholder."
+    >
+      <Row label="Default locale" help="Used when a generator isn't given an @locale. Many generators fall back to English where a locale has no data.">
+        <select
+          value={defs.locale}
+          onChange={(e) => setDefs({ ...defs, locale: e.target.value })}
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        >
+          {locales.map((l) => (
+            <option key={l.code} value={l.code}>
+              {l.label} ({l.code})
+            </option>
+          ))}
+        </select>
+      </Row>
+
+      <Row label="Default count" help="How many values `faker <gen>` produces when no count is typed (1–10000).">
+        <input
+          type="number"
+          min={1}
+          max={10000}
+          value={defs.count}
+          onChange={(e) =>
+            setDefs({ ...defs, count: Math.max(1, Math.min(10000, parseInt(e.target.value, 10) || 1)) })
+          }
+          className="w-28 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+      </Row>
+
+      <Row label="Default format">
+        <div className="flex flex-wrap gap-1">
+          {FORMATS.map((f) => (
+            <button
+              key={f}
+              onClick={() => setDefs({ ...defs, format: f })}
+              className={
+                "rounded px-2.5 py-1 text-[12px] font-medium uppercase " +
+                (defs.format === f
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+              }
+            >
+              {f}
+            </button>
+          ))}
+        </div>
+      </Row>
+
+      <Row label="Pinned generators" help="Comma-separated generator names to float to the top of the `faker` catalogue (e.g. person, email, uuid).">
+        <input
+          type="text"
+          value={defs.pinned.join(", ")}
+          onChange={(e) =>
+            setDefs({
+              ...defs,
+              pinned: e.target.value
+                .split(",")
+                .map((s) => s.trim().toLowerCase())
+                .filter((s) => s && genNames.includes(s)),
+            })
+          }
+          placeholder="person, email, uuid"
+          className="w-full rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1.5 text-[13px]"
+        />
+      </Row>
+
+      <Row label="Save results to history" help="When on, generated data is also stored as a clipboard-history entry. Turn off so bulk test data doesn't flood the 1000-entry history.">
+        <label className="flex items-center gap-2 text-[13px]">
+          <input
+            type="checkbox"
+            checked={defs.save_history}
+            onChange={(e) => setDefs({ ...defs, save_history: e.target.checked })}
+          />
+          Store faker output in clipboard history
+        </label>
+      </Row>
+
+      <button
+        onClick={save}
+        disabled={!dirty || saving}
+        className={
+          "mt-2 rounded px-3 py-1.5 text-[13px] font-medium " +
+          (dirty && !saving
+            ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+            : "cursor-default bg-[var(--color-surface)] text-[var(--color-muted)]")
+        }
+      >
+        {saving ? "Saving…" : dirty ? "Save" : "Saved"}
+      </button>
     </Section>
   );
 }

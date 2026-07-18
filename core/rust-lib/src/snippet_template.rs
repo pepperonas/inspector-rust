@@ -56,6 +56,10 @@ pub fn render(body: &str, now: DateTime<Local>, clipboard: Option<&str>) -> Rend
     let mut out = String::with_capacity(body.len());
     // Char-position of the first `{cursor}` within `out` (counted lazily).
     let mut cursor_pos: Option<usize> = None;
+    // Per-render faker state (fresh seed + `#label` cache), created lazily on
+    // the first `{faker:…}` so a template with none pays nothing. The command's
+    // `--seed` never reaches here — this RNG is seeded from OS entropy.
+    let mut faker_ctx: Option<crate::faker::FakerCtx> = None;
     let mut iter = body.chars().peekable();
 
     while let Some(c) = iter.next() {
@@ -85,7 +89,7 @@ pub fn render(body: &str, now: DateTime<Local>, clipboard: Option<&str>) -> Rend
                     out.push_str(&token);
                     continue;
                 }
-                match expand_token(&token, &now, clipboard) {
+                match expand_token(&token, &now, clipboard, &mut faker_ctx) {
                     Token::Text(s) => out.push_str(&s),
                     Token::Cursor => {
                         if cursor_pos.is_none() {
@@ -110,7 +114,12 @@ pub fn render(body: &str, now: DateTime<Local>, clipboard: Option<&str>) -> Rend
     Rendered { text: out, cursor_back }
 }
 
-fn expand_token(token: &str, now: &DateTime<Local>, clipboard: Option<&str>) -> Token {
+fn expand_token(
+    token: &str,
+    now: &DateTime<Local>,
+    clipboard: Option<&str>,
+    faker_ctx: &mut Option<crate::faker::FakerCtx>,
+) -> Token {
     // `name` is the part before an optional `:FMT`. We trim only the name —
     // the format string is taken verbatim (a leading space could be intended).
     let (name, fmt) = match token.split_once(':') {
@@ -129,6 +138,18 @@ fn expand_token(token: &str, now: &DateTime<Local>, clipboard: Option<&str>) -> 
         "datetime" => timed("%Y-%m-%d %H:%M"),
         "clipboard" | "clip" => Token::Text(clipboard.unwrap_or("").to_string()),
         "cursor" => Token::Cursor,
+        // `{faker:<gen>[:args][@locale][#label]}` — fresh per expansion, same
+        // value for the same (spec, #label). Unknown generator → left verbatim.
+        "faker" => {
+            let spec = fmt.unwrap_or("");
+            let ctx = faker_ctx.get_or_insert_with(|| {
+                crate::faker::FakerCtx::new(crate::faker::process_default_locale())
+            });
+            match crate::faker::expand_faker(spec, ctx) {
+                Some(s) => Token::Text(s),
+                None => Token::Verbatim,
+            }
+        }
         _ => Token::Verbatim,
     }
 }
@@ -242,5 +263,54 @@ mod tests {
     fn has_placeholders_detects_braces() {
         assert!(has_placeholders("a {date} b"));
         assert!(!has_placeholders("no braces here"));
+    }
+
+    // ── Faker placeholder integration ────────────────────────────────────────
+
+    #[test]
+    fn faker_placeholder_expands_non_empty() {
+        let out = r("Hallo {faker:first_name},", None);
+        assert!(out.text.starts_with("Hallo "));
+        assert!(out.text.ends_with(","));
+        // Something was substituted (not left literal).
+        assert!(!out.text.contains("{faker"));
+        assert!(out.text.len() > "Hallo ,".len());
+    }
+
+    #[test]
+    fn faker_unknown_generator_stays_literal() {
+        assert_eq!(r("{faker:bogus_gen}", None).text, "{faker:bogus_gen}");
+        // Bare `{faker}` with no spec stays literal too.
+        assert_eq!(r("{faker}", None).text, "{faker}");
+    }
+
+    #[test]
+    fn faker_label_binding_same_value_within_one_expansion() {
+        // Same #label ⇒ identical value in greeting + signature.
+        let out = r("{faker:first_name#k} … {faker:first_name#k}", None);
+        let parts: Vec<&str> = out.text.split(" … ").collect();
+        assert_eq!(parts.len(), 2);
+        assert_eq!(parts[0], parts[1], "same label must repeat the value");
+    }
+
+    #[test]
+    fn faker_escaped_braces_stay_literal() {
+        assert_eq!(r("{{faker:first_name}}", None).text, "{faker:first_name}");
+    }
+
+    #[test]
+    fn faker_cursor_offset_is_correct_after_variable_length_value() {
+        // The cursor is placed AFTER the faker value; cursor_back counts from
+        // the true end of the fully-rendered string (0 here — cursor at end).
+        let out = r("x {faker:uuid}{cursor}", None);
+        assert_eq!(out.cursor_back, 0);
+        // uuid is 36 chars → total length is "x " + 36.
+        assert_eq!(out.text.chars().count(), 2 + 36);
+    }
+
+    #[test]
+    fn faker_is_freshly_seeded_across_renders() {
+        // Two separate renders almost surely produce different uuids.
+        assert_ne!(r("{faker:uuid}", None).text, r("{faker:uuid}", None).text);
     }
 }

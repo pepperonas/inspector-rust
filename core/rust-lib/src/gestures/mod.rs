@@ -113,6 +113,18 @@ pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
 /// second tap — nobody toggles mute several times a second. Applies to Tap only,
 /// so volume swipes stay fully responsive.
 pub const TAP_EMIT_GAP_MS: u64 = 400;
+/// Debounce window for the **mute action**, applied at the dispatch layer
+/// (`perform`) — independent of any recogniser. A single physical 3-finger tap
+/// can still deliver more than one `Tap` event to the sink: a slow lift's
+/// contacts flicker across the touch threshold, and (observed in the logs) a
+/// sleep/wake rebuild can leave a *leaked* second capture callback registered,
+/// so the same frame is delivered twice on separate schedules. The recogniser's
+/// per-instance refractory can miss a duplicate that arrives just outside its
+/// window, so this SOURCE-AGNOSTIC backstop guarantees one physical tap toggles
+/// mute at most once per window. Volume is intentionally NOT debounced (rapid
+/// swipes must all apply). 500 ms is far longer than any lift-flicker yet far
+/// shorter than an intentional re-mute.
+pub const MUTE_DEBOUNCE_MS: u64 = 500;
 /// The tap must land at a roughly similar HEIGHT as the resting pair
 /// (|Δy| to their mean, 0..1). Generous — strongly angled hands are fine.
 pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
@@ -236,6 +248,22 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
 /// capture callback never blocks; the toast is shown on the main thread (window
 /// op). Rapid re-triggers reuse the same toast (it updates in place — see
 /// `StatusToast.tsx`), they don't re-pop.
+/// Process-monotonic millisecond clock for debouncing — immune to wall-clock
+/// jumps (NTP/user changes), anchored on first use. The `+ 1_000_000` base keeps
+/// the very first reading well above any zero-initialised "last" timestamp so
+/// the first action always passes the debounce.
+fn now_millis() -> u64 {
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_millis() as u64 + 1_000_000
+}
+
+/// Whether a mute toggle at `now` clears the debounce `window` since the last
+/// ACCEPTED toggle at `last` (all ms). Pure — unit-tested. `last == 0` (never
+/// toggled) always passes because `now` starts far above 0 (see [`now_millis`]).
+fn mute_debounce_allows(now: u64, last: u64, window: u64) -> bool {
+    now.saturating_sub(last) >= window
+}
+
 fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
     tracing::debug!("gesture action: {action:?} (step {step})");
     // Tab switching: send the frontmost app's OWN tab-nav shortcut (data-driven
@@ -246,6 +274,25 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
         #[cfg(target_os = "macos")]
         dispatch_tab_switch(app, matches!(action, GestureAction::NextTab));
         return;
+    }
+    // Definitive one-tap-one-toggle guard for MUTE (see MUTE_DEBOUNCE_MS): drop
+    // any mute toggle within the window of the last accepted one, regardless of
+    // how many Tap events reached the sink or from which (possibly leaked)
+    // capture callback. Anchored to the last ACCEPTED toggle, so a burst is
+    // fully collapsed to one. Volume is never debounced here.
+    if matches!(action, GestureAction::MuteToggle) {
+        static LAST_MUTE_MS: AtomicU64 = AtomicU64::new(0);
+        let now = now_millis();
+        let last = LAST_MUTE_MS.load(Ordering::Relaxed);
+        if !mute_debounce_allows(now, last, MUTE_DEBOUNCE_MS) {
+            tracing::info!(
+                "gesture: mute toggle ignored — {} ms after the last (debounced)",
+                now.saturating_sub(last)
+            );
+            return;
+        }
+        LAST_MUTE_MS.store(now, Ordering::Relaxed);
+        tracing::info!("gesture: mute toggle");
     }
     let app = app.clone();
     std::thread::spawn(move || {
@@ -1617,6 +1664,24 @@ mod tests {
                 GestureEvent { kind: GestureKind::Tap, fingers: 3 },
             ],
         );
+    }
+
+    /// The action-layer mute debounce is the source-agnostic backstop: two Tap
+    /// events that reach `perform` inside the window toggle mute once; a genuine
+    /// re-mute after the window still fires. (`now` starts far above 0, so the
+    /// first toggle — last == 0 — always passes.)
+    #[test]
+    fn mute_debounce_collapses_within_window_only() {
+        let w = MUTE_DEBOUNCE_MS;
+        // First toggle ever (last == 0) passes.
+        assert!(mute_debounce_allows(1_000_000, 0, w));
+        // A duplicate 50 ms later is dropped …
+        assert!(!mute_debounce_allows(1_000_050, 1_000_000, w));
+        // … as is one right at the edge (< window) …
+        assert!(!mute_debounce_allows(1_000_000 + w - 1, 1_000_000, w));
+        // … but one at/after the window passes.
+        assert!(mute_debounce_allows(1_000_000 + w, 1_000_000, w));
+        assert!(mute_debounce_allows(1_000_800, 1_000_000, w));
     }
 
     #[test]

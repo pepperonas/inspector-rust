@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.2] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap STILL toggled mute twice** (the v0.85.1 fix wasn't enough). The v0.85.1 refractory lived inside the palm-aware recogniser, but the duplicate `Tap` reaches the mute action through a path that guard can't see — a slow lift whose second tap lands just outside the recogniser's window, and/or a *leaked* second touch-capture callback after a sleep/wake rebuild (visible in the logs as a "starting capture" with no preceding "run loop exited"). Added a **source-agnostic debounce at the dispatch layer** (`perform`, `MUTE_DEBOUNCE_MS` = 500 ms): one physical tap toggles mute at most once per window no matter how many `Tap` events arrive or from which capture callback. Volume swipes are never debounced. The mute dispatch now also logs at INFO (`gesture: mute toggle` / `… debounced`) so any residual case is diagnosable from the log.
+
 ## [0.85.1] — 2026-07-18
 
 ### Fixed

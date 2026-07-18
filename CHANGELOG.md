@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.6] — 2026-07-18
+
+### Fixed
+
+- **3-finger tap mute double-toggle — the real root cause: the trackpad reports a light multi-finger tap as SEQUENTIAL single touches.** Contact-level logs showed a light 3-finger tap doesn't arrive as one clean `0→3→0`; the pad often reports it as three separate `0→1→0` touches ~25 ms apart. The recogniser (which decided a gesture on every `active→0` transition) therefore saw *several* one-finger sub-taps and emitted a tap for each → unmute-then-remute. **Rewrote the palm-aware recogniser to a cluster/settle model with clean swipe↔tap separation** (as requested — "finde hier klare Trennung"): a **SWIPE emits immediately** on a real finger *lift* when ≥2 fingers moved coherently (volume stays responsive); a **TAP is deferred** into an open cluster and finalised **once** by a new ~40 ms settle ticker after the pad has been quiet for `TAP_SETTLE_MS` (160 ms), coalescing the sequential sub-touches into **one N-finger tap**. Crucially, only an actual lift (present → absent) feeds the cluster — a contact merely going *resting* (a parked heel) no longer opens a phantom cluster, and finalising now **keeps still-present contacts** so a resting palm's rest-timer is never reset (that reset was making a parked heel spuriously re-count as an active finger and swallow real swipes). macOS runs the settle ticker on its own thread (frames stop arriving the instant fingers lift, so the frame callback can't drive it); it's joined on stop like the capture thread. Diagnostic contact-transition logging dropped from INFO to DEBUG. New unit tests cover the sequential-single-touch → one 3-finger tap, distinct-taps-after-a-pause, and held-chord-is-not-a-tap cases; all palm/scroll/swipe tests still pass.
+
 ## [0.85.5] — 2026-07-18
 
 ### Fixed

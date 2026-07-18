@@ -198,6 +198,41 @@ static MT_DEVICES: Mutex<Vec<isize>> = Mutex::new(Vec::new());
 /// still draining buffered frames — the stale thread then replayed the same tap
 /// through the shared recogniser ~1 s later, double-toggling mute.
 static CAPTURE_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+/// The tap-settle ticker's join handle. A light multi-finger tap arrives as
+/// SEQUENTIAL single-finger touches; the recogniser DEFERS the tap and needs a
+/// periodic `tick` to finalise it once the pad quiets — but frames STOP arriving
+/// the instant the fingers lift, so the frame callback can't drive it. This
+/// thread ticks the recogniser every `TICK_MS` and dispatches any coalesced tap.
+static TICK_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
+/// Tap-settle tick cadence (ms). Must be well under `TAP_SETTLE_MS` (160) so a
+/// settled cluster finalises within ~one cadence of going quiet.
+const TICK_MS: u64 = 40;
+
+/// The recogniser tick loop (own thread). Finalises a deferred tap cluster once
+/// the pad has been quiet past the settle window and dispatches it through the
+/// sink — the piece the frame callback can't do (no frames arrive after lift).
+fn tick_thread() {
+    while RUNNING.load(Ordering::Relaxed) {
+        std::thread::sleep(std::time::Duration::from_millis(TICK_MS));
+        if !RUNNING.load(Ordering::Relaxed) {
+            break;
+        }
+        let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+        let ev = {
+            let mut rec = REC.lock();
+            rec.as_mut().and_then(|r| r.tick(now))
+        };
+        if let Some(ev) = ev {
+            tracing::info!(
+                "gestures(mac): recognised {:?} ({} finger(s)) via settle tick",
+                ev.kind, ev.fingers
+            );
+            if let Some(sink) = SINK.lock().as_ref() {
+                sink(ev);
+            }
+        }
+    }
+}
 
 extern "C" fn frame_callback(
     _device: MTDeviceRef,
@@ -218,14 +253,13 @@ extern "C" fn frame_callback(
     if !FIRST_FRAME_LOGGED.swap(true, Ordering::Relaxed) {
         tracing::info!("gestures(mac): first multitouch frame received ({n} finger(s)) — capture is live");
     }
-    // DIAGNOSTIC: log the finger-count transitions so a real 3-finger swipe's
-    // shape (0→3→…→0) is visible in the log. Only fires on a change, so ~a few
-    // lines per gesture.
+    // Log the finger-count transitions (debug) so a real gesture's shape
+    // (0→3→…→0) is visible when diagnosing. Only fires on a change, so ~a few
+    // lines per gesture. Sizes included for palm-threshold field tuning
+    // (fingertip ~0.5–1.5, palm heel larger — see PALM_SIZE).
     let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
-    if prev != n as i32 {
-        // Sizes included for palm-threshold field tuning (fingertip ~0.5–1.5,
-        // palm heel larger — see PALM_SIZE).
+    if prev != n as i32 && tracing::enabled!(tracing::Level::DEBUG) {
         let sizes = fingers
             .iter()
             .map(|f| format!("{:.2}", f.size))
@@ -235,14 +269,26 @@ extern "C" fn frame_callback(
     }
     // Per-contact feed for the palm-aware recogniser: stable id + position
     // (y flipped so "up" = decreasing y, matching `classify_swipe`) + the
-    // driver's contact `size` (palm rejection). Only TOUCHING contacts count —
-    // a lifting finger lingers in the frame array in the leaving states (5-7).
+    // driver's contact `size` (palm rejection).
+    //
+    // Count a finger as ON THE PAD across the MAKE-TOUCH (3), TOUCHING (4) and
+    // BREAK-TOUCH (5) states — not TOUCHING alone. Field logs showed a light,
+    // quick 3-finger TAP arriving as three SEPARATE 1-finger touches
+    // (0→1→0 × 3, ~25 ms apart): its fingers take turns in state 4 while the
+    // others sit in make/break, so filtering to 4 alone SERIALISED a simultaneous
+    // tap and the 3-finger count (→ mute) was almost never reached — the gesture
+    // then did random things / collided with swipe. Make + break are still
+    // physical contact (size > 0); only HOVER (2) and LINGER/OUT (6/7) — the true
+    // leaving states — stay excluded.
+    const MT_STATE_MAKE: c_int = 3;
     const MT_STATE_TOUCHING: c_int = 4;
+    const MT_STATE_BREAK: c_int = 5;
     let t_ms = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
     let mut raw: [RawContact; 11] = [RawContact { id: 0, x: 0.0, y: 0.0, size: 0.0 }; 11];
     let mut rn = 0usize;
     for f in fingers.iter() {
-        if f.state != MT_STATE_TOUCHING || rn >= raw.len() {
+        let on_pad = matches!(f.state, MT_STATE_MAKE | MT_STATE_TOUCHING | MT_STATE_BREAK);
+        if !on_pad || rn >= raw.len() {
             continue;
         }
         raw[rn] = RawContact {
@@ -488,6 +534,13 @@ impl GestureSource for MacGestureSource {
             .spawn(capture_thread)
             .map_err(|e| format!("spawn gesture thread: {e}"))?;
         *CAPTURE_THREAD.lock() = Some(handle);
+        // The settle ticker finalises deferred taps (sequential single-touch
+        // clusters) — frames stop on lift, so this drives the coalescing.
+        let tick_handle = std::thread::Builder::new()
+            .name("ir-gestures-tick".into())
+            .spawn(tick_thread)
+            .map_err(|e| format!("spawn gesture tick thread: {e}"))?;
+        *TICK_THREAD.lock() = Some(tick_handle);
         Ok(())
     }
 
@@ -512,6 +565,12 @@ impl GestureSource for MacGestureSource {
         // after a restart. Joined on the caller thread (apply/watchdog), which
         // never holds the capture thread's locks → no deadlock.
         if let Some(h) = CAPTURE_THREAD.lock().take() {
+            let _ = h.join();
+        }
+        // Join the settle ticker too (it polls RUNNING every TICK_MS), so a
+        // restart can't leave a stale ticker dispatching through the shared
+        // recogniser.
+        if let Some(h) = TICK_THREAD.lock().take() {
             let _ = h.join();
         }
         MT_DEVICES.lock().clear();

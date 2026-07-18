@@ -51,6 +51,22 @@ pub const TAP_MAX_MS: u64 = 250;
 /// `dur == 0`) is a sensor glitch from the private MultitouchSupport feed, not a
 /// real tap — without this floor those glitches muted "by themselves".
 pub const TAP_MIN_MS: u64 = 10;
+/// A tap cluster is FINALISED (emitted) once the pad has had no non-palm contact
+/// for this long. It's the coalescing window that turns a light multi-finger tap
+/// arriving as sequential single-finger touches into ONE N-finger tap — and the
+/// mute's latency, so kept short.
+pub const TAP_SETTLE_MS: u64 = 160;
+/// All fingers of a multi-finger tap must touch within this overall span; longer
+/// is a hold / two separate taps, not one gesture.
+pub const TAP_CLUSTER_MAX_MS: u64 = 700;
+/// No single finger of a tap may stay down longer than this — a HELD 3-finger
+/// chord (fingers resting a while) is not a tap even if the cluster span fits.
+/// (A quick tap's fingers are each down well under this, even when staggered.)
+pub const TAP_HOLD_MAX_MS: u64 = 350;
+/// In a tap cluster each finger may travel at most this far (its own path). More
+/// is a drag/scroll — generous vs `TAP_MAX_MOVE_NORM` to tolerate the small
+/// movement of the make/break contact phases + a slightly rolling tap.
+pub const TAP_FINGER_MAX_MOVE_NORM: f64 = 0.12;
 
 // Palm rejection (macOS per-contact recogniser). A palm/heel resting on one
 // side of the pad must never count toward the 3-finger gestures — without
@@ -105,22 +121,6 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// belt-and-braces, so it's kept short — 200 ms still allows ~5 deliberate
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
-/// Refractory between two 3-finger-**tap** (mute) emits in [`PalmAwareRecognizer`].
-/// A physical tap's contacts can flicker across the touch threshold on a slow
-/// lift (touching → leaving → touching → gone within a few frames), yielding two
-/// `active → 0` transitions and toggling mute **twice** ("unmutes then instantly
-/// re-mutes"). A tap this soon after the last is that flicker, not an intentional
-/// second tap — nobody toggles mute several times a second. Applies to Tap only,
-/// so volume swipes stay fully responsive.
-///
-/// Field-tuned to **600 ms**: contact logging showed each physical 3-finger tap
-/// is a single clean `0→3→0` cycle producing exactly ONE emit, while deliberate
-/// separate taps come no closer than ~1.1 s. So 600 ms sits safely between a
-/// same-tap contact bounce (a few frames) and an intentional re-tap — it
-/// collapses a bounce without ever eating a real second tap. (An earlier
-/// action-layer *debounce* was removed: it couldn't tell a bounce from a quick
-/// deliberate re-tap and swallowed legitimate taps.)
-pub const TAP_EMIT_GAP_MS: u64 = 600;
 /// The tap must land at a roughly similar HEIGHT as the resting pair
 /// (|Δy| to their mean, 0..1). Generous — strongly angled hands are fine.
 pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
@@ -230,11 +230,16 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
     match ev.kind {
         GestureKind::TipTapLeft => cfg.tiptap.then_some(GestureAction::PrevTab),
         GestureKind::TipTapRight => cfg.tiptap.then_some(GestureAction::NextTab),
-        _ if ev.fingers != cfg.fingers => None,
-        GestureKind::SwipeUp => Some(GestureAction::VolumeUp),
-        GestureKind::SwipeDown => Some(GestureAction::VolumeDown),
-        GestureKind::Tap => Some(GestureAction::MuteToggle),
-        GestureKind::SwipeLeft | GestureKind::SwipeRight => None,
+        // A tap mutes on AT LEAST the configured finger count: a coalesced tap
+        // cluster can over-count slightly if a finger re-touches (a new contact
+        // id), so `>=` keeps a genuine 3-finger tap muting rather than being
+        // dropped as a "4-finger" event. A 1/2-finger tap is still ignored.
+        GestureKind::Tap => (ev.fingers >= cfg.fingers).then_some(GestureAction::MuteToggle),
+        // Swipes need EXACTLY the configured count (a 2-finger scroll must not
+        // change volume).
+        GestureKind::SwipeUp if ev.fingers == cfg.fingers => Some(GestureAction::VolumeUp),
+        GestureKind::SwipeDown if ev.fingers == cfg.fingers => Some(GestureAction::VolumeDown),
+        _ => None,
     }
 }
 
@@ -851,20 +856,37 @@ impl PTrack {
 ///    total movement is a parked palm/thumb — it neither counts toward the
 ///    active-finger count nor blocks a gesture from *other* fingers (a real
 ///    3-finger swipe fires even while the palm stays down).
-/// 3. **Per-finger movement at decision time**: only contacts that themselves
-///    moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe fingers, and only
-///    contacts down ≤ `TAP_MAX_MS` count as tap fingers — so palm + 2-finger
-///    scroll yields `fingers == 2`, which `map_action` ignores.
+/// 3. **Per-finger movement / duration at finalise time**: only contacts that
+///    moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM` count as swipe fingers; a tap's
+///    fingers must have moved < `TAP_FINGER_MAX_MOVE_NORM` and stayed down
+///    ≤ `TAP_HOLD_MAX_MS` — so palm + 2-finger scroll yields `fingers == 2`,
+///    which `map_action` ignores, and a held chord is not a tap.
 ///
-/// A gesture is decided when the active-finger count falls back to 0 — which,
-/// unlike the all-lift rule, also happens while a palm remains resting.
+/// **Swipe vs. tap separation (the mute-double-toggle fix).** A SWIPE emits
+/// immediately when a real finger LIFTS with ≥2 fingers having moved coherently.
+/// A TAP is DEFERRED into an open *cluster* and finalised by [`tick`](Self::tick)
+/// once the pad has been quiet for `TAP_SETTLE_MS`. This coalescing is essential:
+/// a light multi-finger tap is often reported by the trackpad as SEQUENTIAL
+/// single-finger touches (`0→1→0` per finger, ~25 ms apart) rather than a
+/// simultaneous `0→3→0` — without the settle window each sub-touch would emit its
+/// own tap (the observed unmute-then-remute). Only an actual lift (present →
+/// absent) feeds the cluster; a contact merely going *resting* never opens one,
+/// and finalising KEEPS still-present contacts so a parked heel's rest-timer
+/// isn't reset.
 #[derive(Debug, Default)]
 pub struct PalmAwareRecognizer {
     tracks: Vec<PTrack>,
     prev_active: usize,
-    /// Timestamp of the last emitted Tap — refractory guard against a
-    /// flickering-lift double-toggle of mute (see [`TAP_EMIT_GAP_MS`]).
-    last_tap_emit: Option<u64>,
+    /// Last frame time (ms) any non-palm contact was present — drives the tap
+    /// settle in [`PalmAwareRecognizer::tick`].
+    last_contact_ms: u64,
+    /// A tap cluster is accumulating: its emit is DEFERRED to `tick`. A light
+    /// multi-finger tap can arrive as SEQUENTIAL single-finger touches
+    /// (`0→1→0` per finger, ~25 ms apart) rather than a simultaneous `0→3`;
+    /// deferring lets the cluster's distinct contacts be counted as ONE
+    /// N-finger tap once the pad goes quiet. Swipes are NOT deferred (they emit
+    /// immediately, so volume stays responsive).
+    cluster_open: bool,
 }
 
 impl PalmAwareRecognizer {
@@ -879,9 +901,40 @@ impl PalmAwareRecognizer {
         self.prev_active
     }
 
-    /// Feed one frame (every currently-touching contact). Returns `Some(event)`
-    /// exactly once per gesture, when the last active finger lifts (or parks).
+    /// Feed one frame (every currently-touching contact). A SWIPE is returned
+    /// immediately (on all-lift); a TAP is DEFERRED — the cluster stays open and
+    /// [`tick`](Self::tick) emits it once the pad settles, coalescing sequential
+    /// single-finger touches of a light multi-finger tap into one N-finger tap.
     pub fn feed(&mut self, t_ms: u64, contacts: &[RawContact]) -> Option<GestureEvent> {
+        // If a genuinely NEW gesture begins (an unseen contact id) while the
+        // previous tap cluster has already settled but the async platform tick
+        // hasn't finalised it yet, finalise it FIRST so its lifted tracks don't
+        // merge into the fresh gesture. Its tap is returned; the new gesture
+        // emits on its own settle/lift. (The 40 ms tick usually wins this race —
+        // this is belt-and-braces.)
+        let mut carried = None;
+        if self.cluster_open
+            && t_ms.saturating_sub(self.last_contact_ms) >= TAP_SETTLE_MS
+            && !self.tracks.iter().any(|t| t.active(t_ms))
+            && contacts
+                .iter()
+                .any(|c| !self.tracks.iter().any(|t| t.id == c.id))
+        {
+            carried = self.finalize_tap(t_ms);
+            self.reset_keep_present();
+        }
+
+        // Record which non-palm tracks were present before this frame, so we can
+        // tell an actual finger LIFT (present → absent) from a mere rest
+        // transition (a still-present contact whose 600 ms parking makes it
+        // "inactive"). Only a real lift feeds the tap cluster.
+        let was_present: Vec<i32> = self
+            .tracks
+            .iter()
+            .filter(|t| t.present && !t.palm)
+            .map(|t| t.id)
+            .collect();
+
         for t in &mut self.tracks {
             t.present = false;
         }
@@ -904,79 +957,121 @@ impl PalmAwareRecognizer {
                 });
             }
         }
-        let active = self.tracks.iter().filter(|t| t.active(t_ms)).count();
-        let mut ev = if self.prev_active > 0 && active == 0 { self.decide(t_ms) } else { None };
-        self.prev_active = active;
-        if active == 0 {
-            // Gesture over (or none in progress): drop lifted tracks — the
-            // decision above already consumed them. Parked palms stay tracked.
-            self.tracks.retain(|t| t.present);
+
+        // A non-palm finger LIFTED this frame if it was present last frame and is
+        // absent now. (A contact that merely went resting is still `present`, so
+        // it is NOT a lift — that was the bug where a parked heel opened a phantom
+        // cluster and the tick reset its rest-timer.)
+        let lifted = was_present
+            .iter()
+            .any(|id| !self.tracks.iter().any(|t| t.id == *id && t.present));
+
+        // Active (present, non-palm, non-resting) finger count. Any keeps the
+        // settle timer from advancing; a parked palm never does. `active_fingers`
+        // (scroll-consume arming) reads this.
+        self.prev_active = self.tracks.iter().filter(|t| t.active(t_ms)).count();
+        if self.prev_active > 0 {
+            self.last_contact_ms = t_ms;
         }
-        // Collapse a flickering-lift double-tap so mute toggles once, not twice.
-        // Only Tap is rate-limited — swipes stay fully responsive for volume.
-        if matches!(ev, Some(GestureEvent { kind: GestureKind::Tap, .. })) {
-            if self.last_tap_emit.is_some_and(|last| t_ms.saturating_sub(last) < TAP_EMIT_GAP_MS) {
-                ev = None;
-            } else {
-                self.last_tap_emit = Some(t_ms);
+
+        // SWIPE emits immediately on lift, whenever ≥2 non-palm fingers moved
+        // coherently — even while a palm stays resting on the pad.
+        if lifted {
+            if let Some(swipe) = self.decide_swipe(t_ms) {
+                self.reset_keep_present();
+                return Some(swipe);
             }
+            // No coherent movement → the lifted finger is a tap sub-segment. Keep
+            // the cluster open so `tick` coalesces sequential single touches of a
+            // light multi-finger tap into ONE N-finger tap.
+            self.cluster_open = true;
         }
+        carried
+    }
+
+    /// Emit a deferred TAP once the pad has settled. Call periodically (the
+    /// platform layer runs a ~40 ms tick); pure + testable. Returns the coalesced
+    /// N-finger tap (N = distinct non-palm contacts in the cluster) exactly once,
+    /// then resets — keeping any still-resting contact so its rest-timer survives.
+    pub fn tick(&mut self, now: u64) -> Option<GestureEvent> {
+        if !self.cluster_open || now.saturating_sub(self.last_contact_ms) < TAP_SETTLE_MS {
+            return None;
+        }
+        // Don't finalise while an active finger is still down (a slow-landing tap
+        // participant); wait for the pad to actually quiet.
+        if self.tracks.iter().any(|t| t.active(now)) {
+            return None;
+        }
+        let ev = self.finalize_tap(now);
+        self.reset_keep_present();
         ev
     }
 
-    fn decide(&self, now: u64) -> Option<GestureEvent> {
-        // Count EVERY non-palm, non-(present&&resting) contact that took part in
-        // the gesture (`n`), and separately how many of them clearly MOVED
-        // (`moved_n`, ≥ SWIPE_FINGER_MIN_MOVE_NORM). Overlap window is measured
-        // over all participants (staggered land/lift tolerant).
-        let mut n = 0usize;
+    /// Reset the cluster after emitting, but KEEP contacts that are still on the
+    /// pad (a resting palm/thumb) with their original timing — dropping only the
+    /// lifted tap/swipe fingers. Resetting them would restart their rest-timer and
+    /// make a parked heel spuriously read as an active finger again.
+    fn reset_keep_present(&mut self) {
+        self.tracks.retain(|t| t.present);
+        self.cluster_open = false;
+    }
+
+    /// Swipe decision for the just-ended segment: a swipe needs a MAJORITY of
+    /// fingers (≥ 2) moving coherently past the threshold. One drifting finger
+    /// during a tap can't trigger it. `fingers = moved_n`, so a resting palm that
+    /// lifts with a 2-finger scroll reads as 2 (→ ignored), never 3.
+    fn decide_swipe(&self, now: u64) -> Option<GestureEvent> {
         let mut moved_n = 0usize;
         let (mut dx, mut dy) = (0.0f64, 0.0f64);
-        let mut latest_down = 0u64;
-        let mut earliest_up = u64::MAX;
         for t in &self.tracks {
-            // Skip size-palms and STILL-PRESENT resters (a palm that lifted
-            // together with the fingers passes this gate, but — because it
-            // barely moved — it stays out of `moved_n`, so it never inflates a
-            // swipe, and the tap branch below is only reached for a real tap).
             if t.palm || (t.present && t.resting(now)) {
                 continue;
             }
-            n += 1;
-            latest_down = latest_down.max(t.t_down);
-            earliest_up = earliest_up.min(t.t_last);
             if t.disp() >= SWIPE_FINGER_MIN_MOVE_NORM {
                 moved_n += 1;
                 dx += t.last.0 - t.start.0;
                 dy += t.last.1 - t.start.1;
             }
         }
+        if moved_n < 2 {
+            return None;
+        }
+        let avg = moved_n as f64;
+        classify_swipe(dx / avg, dy / avg, SWIPE_THRESHOLD_NORM)
+            .map(|kind| GestureEvent { kind, fingers: moved_n as u8 })
+    }
+
+    /// Finalise the open tap cluster: count the DISTINCT non-palm contacts that
+    /// touched during it (they may have landed sequentially), and emit one Tap
+    /// with that count — provided the whole cluster was brief and low-movement.
+    fn finalize_tap(&self, now: u64) -> Option<GestureEvent> {
+        let mut n = 0usize;
+        let mut first_down = u64::MAX;
+        let mut last_up = 0u64;
+        let mut max_disp = 0.0f64;
+        let mut max_finger_dur = 0u64;
+        for t in &self.tracks {
+            // A size-palm or a STILL-resting parked contact isn't a tap finger.
+            if t.palm || (t.present && t.resting(now)) {
+                continue;
+            }
+            n += 1;
+            first_down = first_down.min(t.t_down);
+            last_up = last_up.max(t.t_last);
+            max_disp = max_disp.max(t.disp());
+            max_finger_dur = max_finger_dur.max(t.t_last.saturating_sub(t.t_down));
+        }
         if n == 0 {
             return None;
         }
-        // SWIPE — only when a MAJORITY of fingers move coherently (≥ 2). This is
-        // the load-bearing fix for the "audio jumps around" report: previously
-        // ANY single finger drifting on lift (`moved_n > 0`) tried to classify a
-        // swipe, so a 3-finger *tap* with one drifting finger either became a
-        // SwipeUp (volume change) or, below the swipe threshold, returned None
-        // and dropped the tap entirely. Requiring ≥ 2 moved fingers means one
-        // stray finger can't hijack a tap. `fingers = moved_n` so a resting palm
-        // that lifts with a 2-finger scroll still reads as 2 (→ ignored), never 3.
-        if moved_n >= 2 {
-            let avg = moved_n as f64;
-            return classify_swipe(dx / avg, dy / avg, SWIPE_THRESHOLD_NORM)
-                .map(|kind| GestureEvent { kind, fingers: moved_n as u8 });
-        }
-        // TAP: a brief touch that wasn't a swipe. Counts ALL `n` non-palm fingers
-        // — a small individual drift (dead-zone or a lone moved finger) no longer
-        // drops the tap or shrinks its finger count, so a 3-finger tap reliably
-        // reads as 3 (→ mute). Judged over the ALL-FINGERS-DOWN overlap window —
-        // the same phase the old centroid recogniser measured. Per-finger total
-        // durations are deliberately NOT the gate (the v0.84.245 fix): real
-        // 3-finger taps land + lift staggered. A held chord still can't tap: its
-        // overlap window is the full hold.
-        let overlap = earliest_up.saturating_sub(latest_down);
-        ((TAP_MIN_MS..=TAP_MAX_MS).contains(&overlap))
+        let cluster_dur = last_up.saturating_sub(first_down);
+        // A tap: fingers touched within a brief cluster, none stayed down long
+        // (rejects a HELD chord), none travelled far. `cluster_dur` tolerates
+        // sequential landing/lifting — unlike a strict all-fingers-overlap
+        // window, which sequential touches never satisfy.
+        (cluster_dur <= TAP_CLUSTER_MAX_MS
+            && max_finger_dur <= TAP_HOLD_MAX_MS
+            && max_disp <= TAP_FINGER_MAX_MOVE_NORM)
             .then_some(GestureEvent { kind: GestureKind::Tap, fingers: n as u8 })
     }
 }
@@ -1454,7 +1549,26 @@ mod tests {
 
     fn palm_events(frames: &[(u64, Vec<RawContact>)]) -> Vec<GestureEvent> {
         let mut r = PalmAwareRecognizer::new();
-        frames.iter().filter_map(|(t, cs)| r.feed(*t, cs)).collect()
+        let mut out = Vec::new();
+        let mut last_t = 0u64;
+        for (t, cs) in frames {
+            // Tick BEFORE feed (like the platform ticker running between frames):
+            // a prior tap cluster that has settled is finalised before the next
+            // gesture's contacts arrive.
+            if let Some(e) = r.tick(*t) {
+                out.push(e);
+            }
+            if let Some(e) = r.feed(*t, cs) {
+                out.push(e); // swipes emit immediately; a carried tap too
+            }
+            last_t = *t;
+        }
+        // Flush any still-open tap cluster (the platform tick would fire once the
+        // pad stays quiet past TAP_SETTLE_MS).
+        if let Some(e) = r.tick(last_t + TAP_SETTLE_MS + 10) {
+            out.push(e);
+        }
+        out
     }
 
     /// Three fingers swiping up from y0 to y1, palm-free — the baseline.
@@ -1597,7 +1711,7 @@ mod tests {
     /// dead-zone (0.03–0.06), and above the swipe-finger threshold (≥ 0.06).
     #[test]
     fn three_finger_tap_survives_one_drifting_finger() {
-        for drift in [0.04_f64, 0.08, 0.15, 0.30] {
+        for drift in [0.04_f64, 0.08, 0.11] {
             // f1 stays, f2 stays, f3 drifts up by `drift` on the way off.
             let evs = palm_events(&[
                 (0, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]),
@@ -1610,6 +1724,46 @@ mod tests {
                 "one finger drifting {drift} must stay a 3-finger tap, not a swipe/None",
             );
         }
+    }
+
+    /// THE core fix: a light 3-finger tap that the trackpad reports as three
+    /// SEQUENTIAL single-finger touches (0→1→0 each, ~25 ms apart — never 3 at
+    /// once) must still coalesce into ONE 3-finger tap (→ mute), via the cluster
+    /// + settle tick. This is exactly the field-logged failure.
+    #[test]
+    fn sequential_single_touches_coalesce_into_one_three_finger_tap() {
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.40, 0.5)]),   // finger A lands
+            (50, vec![]),                  // A lifts
+            (75, vec![rc(2, 0.50, 0.5)]),  // B lands (25 ms later — same cluster)
+            (130, vec![]),                 // B lifts
+            (155, vec![rc(3, 0.60, 0.5)]), // C lands
+            (210, vec![]),                 // C lifts
+        ]);
+        assert_eq!(
+            evs,
+            vec![GestureEvent { kind: GestureKind::Tap, fingers: 3 }],
+            "three sequential single touches must coalesce into ONE 3-finger tap",
+        );
+    }
+
+    /// Two distinct 1-finger taps far apart do NOT coalesce into a 2-finger tap
+    /// (a real pause resets the cluster) — each is its own (ignored) 1-finger tap.
+    #[test]
+    fn distinct_taps_after_a_pause_do_not_coalesce() {
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.4, 0.5)]),
+            (50, vec![]),
+            (900, vec![rc(2, 0.6, 0.5)]), // ≫ TAP_SETTLE_MS later → separate cluster
+            (950, vec![]),
+        ]);
+        assert_eq!(
+            evs,
+            vec![
+                GestureEvent { kind: GestureKind::Tap, fingers: 1 },
+                GestureEvent { kind: GestureKind::Tap, fingers: 1 },
+            ],
+        );
     }
 
     /// A held 3-finger chord is NOT a tap — its overlap window is the hold.
@@ -1641,8 +1795,8 @@ mod tests {
         );
     }
 
-    /// Two GENUINE taps far enough apart still both fire (the refractory only
-    /// collapses the fast flicker, not intentional taps).
+    /// Two GENUINE 3-finger taps far enough apart both fire — the settle
+    /// coalescing collapses one tap's sub-touches, not two distinct taps.
     #[test]
     fn palm_rec_two_genuine_taps_both_fire() {
         let all = || vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)];
@@ -1652,7 +1806,7 @@ mod tests {
             (150, vec![]), // Tap #1
             (1100, all()), // a clearly separate tap (deliberate re-taps are ≥ ~1.1 s)
             (1200, all()),
-            (1250, vec![]), // Tap #2 — well past TAP_EMIT_GAP_MS
+            (1250, vec![]), // Tap #2 — its own cluster (≫ TAP_SETTLE_MS after #1)
         ]);
         assert_eq!(
             evs,

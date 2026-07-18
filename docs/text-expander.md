@@ -153,6 +153,55 @@ The default is **`Alt+Digit1`** (shown as `Alt+1`) — the `1`-row digit key, *n
 
 Inspector Rust is Windows-first; the Wayland gap is intentionally tolerated. If you hit it, run the X11 session of your distro.
 
+## Dynamic placeholders — `{date}` · `{clipboard}` · `{cursor}` · `{faker:…}`
+
+Snippet bodies are stored verbatim and expanded at **paste time** by the pure
+`snippet_template::render`. Tokens:
+
+- `{date}` / `{date:FMT}`, `{time}` / `{time:FMT}`, `{datetime}` — chrono
+  strftime (unknown/malformed format ⇒ emitted verbatim).
+- `{clipboard}` — the clipboard text at paste time.
+- `{cursor}` — removed; the caret is repositioned there **after all other
+  substitutions** (so a variable-length faker value can't misplace it).
+- `{{` / `}}` — literal braces.
+- **`{faker:<gen>[:args][@locale][#label]}`** — a fake-data value (v0.84.270).
+
+### `{faker:…}` — fake data in snippets
+
+The `faker:` namespace is **mandatory** (there is deliberately no bare `{name}`
+— it would collide with future expander tokens). The part after `faker:` is a
+generator spec, identical to the [`faker`](./faker.md) command's template
+placeholders:
+
+```
+Hallo {faker:first_name},
+deine Testkennung: {faker:uuid}
+Rechnung an: {faker:name#k}, {faker:email#k}
+Betrag: {faker:int:1..100} €   ·   Datum: {date:%d.%m.%Y}{cursor}
+```
+
+- **Arguments** work as in `tpl` mode: `{faker:int:1..100}`,
+  `{faker:date:%d.%m.%Y}`, `{faker:words:5}`. Locale override:
+  `{faker:street@de}`.
+- **Instance binding `#label`**: the *same* `(generator, label)` yields the
+  *same* value within one expansion, so `{faker:first_name#k}` in the greeting
+  and signature is the same person. Without a label, each occurrence is rerolled.
+  (Two *different* generators with the same label — `{faker:name#k}` +
+  `{faker:email#k}` — are independent; a label pins a generator's value, it does
+  not synthesise one coherent entity.)
+- **Fresh seed per expansion**: the command's `--seed` never reaches here, so you
+  never type the same "random" name all day.
+- **Unknown generator** stays literal (e.g. `{faker:bogus}` pastes as-is) — never
+  a silent blank or an aborted expansion.
+- The default locale is the **Settings → Faker** default (DE_DE unless changed);
+  it applies here as well as to the command.
+
+This works in **every** expansion path — the search-results paste, the
+abbreviation hotkey (AX in-place, select-then-paste, clipboard fallback), the
+passive auto-expansion, **and the direct hotkey → snippet slots** (which route
+through the same `render`). See the generator catalogue + locale matrix in
+[faker.md](./faker.md).
+
 ## Caveats — what won't work cleanly
 
 The expander is a **trigger-based macro**, not a deeply integrated input-method. There are situations where it falls short:

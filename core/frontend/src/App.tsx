@@ -1106,7 +1106,10 @@ function App() {
       ...matches.filter((e) => pinned.has(e.name)),
       ...matches.filter((e) => !pinned.has(e.name)),
     ];
-    return ordered.slice(0, 40).map(
+    // Show the whole catalogue for bare `faker` (composites live at the end —
+    // the productivity lever — so no low cap that would hide them); the list
+    // narrows as the user types.
+    return ordered.slice(0, 100).map(
       (e): ListEntry => ({
         kind: "command-suggestion",
         data: {

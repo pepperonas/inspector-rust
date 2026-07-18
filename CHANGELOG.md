@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.84.270] — 2026-07-18
+
+### Added
+
+- **`faker` — realistic fake test data in the search bar.** Type `faker` for a catalogue of **70+ generators** (names, emails, addresses, phones, companies, finance, lorem, dates, numbers, UUID/ISBN/…, plus composite **person / user / address / company / order** records), each shown with a live sample. `faker person 50 --csv @de` puts 50 German person records as valid CSV on the clipboard in one Enter; other formats are `--json` / `--sql[=table]` / `--ts` / plain. Argument order is irrelevant (`faker 20 email @de --csv` == `faker email @de 20 --csv`), `1.000` is accepted for `1000`, ranges like `faker int 1..100` work, `--seed=42` is byte-reproducible, and **⌘/Ctrl+R rerolls**. The right pane previews the output with switchable format chips, the locale + seed, and a reroll button; an unknown generator offers a *did-you-mean* suggestion instead of firing. `fake` is an alias. Free-form templates: `faker tpl "{name} <{email}>" 10`.
+- **`{faker:…}` snippet placeholders.** Fake values now expand at paste time inside snippet bodies alongside `{date}` / `{clipboard}` / `{cursor}`: `Hallo {faker:first_name}, Kennung {faker:uuid}`. `#label` binds a value so the same person's name repeats in greeting + signature; each expansion is freshly seeded; unknown generators stay literal. Works in every expansion path including the direct hotkey → snippet slots.
+- **Settings → Faker.** Default locale (only the 14 locales fake actually ships), default count, default format, pinned generators, and a *save results to history* toggle — persisted and applied without a restart.
+
+### Notes
+
+- **ADR — honest locale fallback.** `fake` inherits unspecified data from English via trait defaults, so *every* generator compiles for *every* locale but silently returns English where a locale has no data (verified: German localises names + addresses but **not** phone or company names). Rather than present English data as if it were localised, the registry records each generator's *real* locale support (derived from the fake-rs source, not guessed) and an unsupported request **falls back to EN visibly** — an amber chip in the catalogue row and preview. Default locale is DE_DE.
+- **Binary size.** `fake` requires rand 0.10 while the rest of the workspace is on rand 0.8; rather than migrate the whole crypto/backup RNG stack, rand 0.10 is pulled in isolated (as `rand010`, scoped to the faker module). With the deunicode transliteration table + locale data this adds **~3.6 MiB** to the release binary (47.4 → 51.1 MB).
+
 ## [0.84.269] — 2026-07-18
 
 ### Fixed

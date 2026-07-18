@@ -43,6 +43,7 @@
   - 🚀 **App launcher** (Spotlight-like, macOS) — fuzzy-match an app name, real icon in the row, Enter launches. Activates an already-running instance instead of spawning a duplicate.
   - 🔳 **QR code** (`qr <text>`) — live preview in the panel; Enter copies the PNG to the clipboard.
   - 🛠️ **Dev quick-tools** — `uuid [n]` · `slug` · `hash` (SHA-256) · `json` (pretty-print clipboard) · `jwt` (decode clipboard) → clipboard.
+  - 🎲 **Fake test data — `faker`** *(v0.84.270+)* — 70+ generators (names, emails, addresses, phones, companies, finance, lorem, dates, numbers, UUID/…, plus composite **person / user / address / order** records) in 14 locales. Bare `faker` lists them with live samples; `faker person 50 --csv @de` → 50 German records as CSV in the clipboard, one Enter. `--json` / `--sql` / `--ts`, `faker int 1..100`, `--seed=` reproducible, ⌘/Ctrl+R rerolls, `faker tpl "{name} <{email}>"`. Honest locale fallback (unsupported → EN, shown). Also `{faker:first_name}` in snippets. See [docs/faker.md](./docs/faker.md).
   - 🌐 **Web-search bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` open a site's search.
   - 🥁 **BPM detector** (`bpm`) — live microphone beat detection with an animated AAA visualizer. Captured natively (in Rust) so starting it never interrupts other apps' playback.
   - 💸 **Bruno (Brutto/Netto)** — German income-tax calculator 2025 as a search-bar command. Smart defaults + per-user override in Settings.
@@ -54,16 +55,16 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1695 unit tests (775 Rust + 920 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **1744 unit tests (800 Rust + 944 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
     <a href="https://github.com/pepperonas/inspector-rust" title="Lines of code (Rust + TypeScript source)">
-      <img src="https://img.shields.io/badge/lines%20of%20code-~77k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
+      <img src="https://img.shields.io/badge/lines%20of%20code-~79k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 775 Rust + 920 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-1695%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 800 Rust + 944 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-1744%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -218,9 +219,9 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-1695%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-1744%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-254-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
-  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-67-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
+  [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-68-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-30-blueviolet?style=flat-square)](#)
   [![Rust modules](https://img.shields.io/badge/Rust%20modules-59-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Snippets](https://img.shields.io/badge/AI%20prompts-27%20bundled-blueviolet?style=flat-square)](./docs/ai-prompts.md)
@@ -410,6 +411,7 @@ Literal Control on every OS. Same key on Windows and macOS. The expander hotkey 
 | **Power command — `rz <W>x<H>`** *(v0.18.0+)* | Search bar | Resize clipboard image via Lanczos3 (e.g. `rz 1200x800`) |
 | **Power command — `optim`** *(v0.18.0+)* | Search bar | Optimise clipboard PNG → `~/Downloads/inspector-rust-optim-<ts>.png` (lossless oxipng) |
 | **Power command — `rmvvls <text>`** *(v0.18.0+)* | Search bar | Strip vowels (aeiou + AEIOU + ä/ö/ü) → clipboard |
+| **Power command — `faker [gen] [n]`** *(v0.84.270+)* | Search bar | Realistic fake test data — 70+ generators × 14 locales, `--json`/`--csv`/`--sql`/`--ts`, composites, ranges, `--seed=`, ⌘/Ctrl+R reroll, `tpl` templates. Honest EN fallback. Also `{faker:…}` in snippets. |
 | **System command — `kill [-9] [pattern]`** *(v0.19.0+)* | Search bar — live process picker | Filter running processes, Enter → confirm → SIGTERM (or SIGKILL with `-9`) |
 | **System command — `reboot`** *(v0.19.0+; Linux/Windows v0.84.0)* | Search bar | Restart the system — confirms first, no sudo (macOS Apple Events · Windows `shutdown /r` · Linux `systemctl reboot`) |
 | **System command — `shutdown`** *(v0.19.0+; Linux/Windows v0.84.0)* | Search bar | Power off the system — confirms first, no sudo (macOS · Windows `shutdown /s` · Linux `systemctl poweroff`) |
@@ -748,8 +750,8 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 Inspector Rust keeps its **pure logic** — parsers, math, state machines, arg-builders, formatters — as free functions and unit-tests them exhaustively (behaviour, edge cases, error paths), while the impure OS/FFI edge (CoreAudio/Vision/CGEvent FFI, Tauri windows, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio) is left to manual/integration testing because it needs a live machine. So the code that *can* carry a deterministic test is well-covered — **frontend `src/lib` ≈ 79 % stmt / 95 % branch**, and the pure Rust cores that sit next to their 0 %-covered FFI shells (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — even though the headline workspace average looks modest.
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 920 tests
-cargo test --workspace  # Rust unit tests — 775 tests
+pnpm test               # frontend unit tests (vitest + happy-dom) — 944 tests
+cargo test --workspace  # Rust unit tests — 800 tests
 ```
 
 Iterate on one module:

@@ -48,6 +48,7 @@ Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Koll
 Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a. (Google Translate)
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
+Fake-Testdaten — `faker [gen] [n] [@locale] [--json|csv|sql|ts]`: 70+ Generatoren × 14 Locales, Composites (person/user/address/order), Ranges (`int 1..100`), `--seed=` reproduzierbar, ⌘/Ctrl+R-Reroll, `tpl`-Templates, ehrlicher EN-Fallback; auch `{faker:…}` in Snippets; Settings → Faker
 QR-Code — `qr <text>`: Vorschau + PNG ins Clipboard
 Bilder — `rz <B>x<H>` (Resize der Finder-Auswahl), `optim` (PNG/JPEG komprimieren)
 Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker mit nativer Bestätigung

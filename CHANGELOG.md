@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.0] — 2026-07-18
+
+### Added
+
+- **`figlet` — ASCII-art banners in the search bar** (aliases `banner`, `ascii`). Type text and the selected font's banner renders **live** in the preview (monospace); the left list becomes a **font gallery** where every row previews *your* text in that font. **↑/↓** browse fonts (the big preview updates live), **`@name`** fuzzy-filters the hundreds of bundled fonts, **Tab** fills the selected font as `@font` to keep tweaking, and **Enter copies** the selected font's full banner — exactly the rendered monospace text, newlines and all — then pastes it where you were. Option **chips** (align · width · trailing-trim · comment-wrap `//`/`#`/`/* */`/`<!-- -->` · box border) apply without re-typing and combine (box first, then comment) for banner headers straight in source. Unrenderable characters are **reported** ("N characters not available"), never silently dropped; German umlauts render. `figlet Hi @slant` jumps straight to a font; `--width` wraps on word boundaries (each wrapped row stays a full, smushing-intact render). Settings → Figlet persists the default font/width/alignment/comment/trim/box, pinned fonts, and save-to-history. Full reference: [docs/figlet.md](docs/figlet.md).
+
+### Notes
+
+- **ADR — crate + full font bundle, compressed & lazy.** Rendering is the pure-Rust **`figlet-rs`** crate (MIT; parses fonts from in-memory strings, respects each font's smushing/kerning). The full **~550-font** set is vendored from **pyfiglet** (MIT) and embedded **gzip-compressed** (build.rs), inflated **lazily on first use** and `Arc`-cached — so the binary carries **~2.3 MB** (not the 5.7 MB raw) and nothing decompresses at startup. Per-font attribution + the redistribution posture are harvested into [THIRDPARTY-FONTS](THIRDPARTY-FONTS); a header-hostile-clause scan excludes non-redistributable fonts (0 found). Latin-1 fonts are transcoded to UTF-8 and a malformed code-tag tail (which figlet-rs's strict parser rejects on ~11 fonts incl. `standard`) is dropped at vendor time — the required 95 ASCII + 7 German glyphs survive. Every one of the 550 fonts is asserted to inflate+parse+render in tests.
+- **ADR — `RenderEngine` trait for future ASCII styles.** The engine sits behind a small `RenderEngine` trait (render + font enumeration); FIGlet is the first implementation. A future `boxes`/`cowsay`-style engine plugs in behind the same trait — reachable via a reserved `@engine` selector — without touching the parser, gallery, or the (pure, unit-tested) layout/dev-extras pipeline. A `DummyEngine` test proves the extension point needs no parser/UI change.
+- **Binary size.** figlet-rs + flate2 + the compressed font bundle add **~2.3 MB** (release build measured separately). New minor because it's a substantial user-facing feature; no breaking changes.
+
 ## [0.84.273] — 2026-07-18
 
 ### Added

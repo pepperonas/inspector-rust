@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.88.2] — 2026-07-19
+
+### Fixed
+
+- **CLI `--toggle-popup` crashed the app on macOS (SIGTRAP in AppKit).** The second-instance callback delivers CLI actions on a tokio worker thread, and `toggle_popup` → `show_and_position` does native `NSWindow setFrame` calls — main-thread-only on macOS. Two field crashes on 2026-07-19 (`EXC_BREAKPOINT` in `NSWMWindowCoordinator`, faulting thread `tokio-rt-worker`) pinpointed it. The TogglePopup arm of `cli_dispatch::dispatch` now hops to the main thread via `run_on_main_thread` (the tray call site is already on it — the hop is a direct call there). The OCR/screenshot/eyedropper arms already ran on their own worker threads by design and are unchanged.
+
+## [0.88.1] — 2026-07-19
+
+### Fixed
+
+- **Esc-close → immediate reopen no longer closes the fresh popup.** `hidePopup` awaits the 130 ms exit animation before the hide IPC, so Esc key-repeat or a fast close+reopen left *stale hides in flight* that landed after the re-show and killed the new popup instantly. Now: only one hide runs at a time (in-flight guard), every `window-shown` bumps a show generation that invalidates in-flight hides (the straggler drops its IPC), the animation await is capped at 200 ms, and both Esc handlers ignore `e.repeat`.
+- **Esc closes the overlay even without focus** (macOS). With "click outside closes the popup" disabled, the unfocused webview receives no key events — Esc could never reach it. New `esc_watch` module: a **listen-only** CGEventTap (never consumes the keypress — the focused app still gets its Esc) armed only while the popup is visible + unfocused + close-on-blur off; disarmed on focus-regain and on every hide. Uses the Accessibility grant the expander already holds; without it the tap degrades silently (the hotkey still closes the popup).
+
 ## [0.88.0] — 2026-07-19
 
 ### Added

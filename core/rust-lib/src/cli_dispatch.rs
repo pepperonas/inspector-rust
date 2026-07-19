@@ -75,8 +75,20 @@ pub fn print_help() {
 pub fn dispatch(app: &AppHandle, action: CliAction) {
     match action {
         CliAction::TogglePopup => {
-            if let Err(e) = hotkey::toggle_popup(app) {
-                tracing::warn!("--toggle-popup: {e:#}");
+            // The single-instance callback delivers this on a tokio worker
+            // thread, but `toggle_popup` positions the popup natively
+            // (`NSWindow setFrame`) — main-thread-only on macOS; off-main it
+            // SIGTRAPs inside AppKit (two field crashes on 2026-07-19). Hop
+            // to the main thread from every call site (the tray handler is
+            // already on it, where the hop is a direct call).
+            let app = app.clone();
+            let result = app.clone().run_on_main_thread(move || {
+                if let Err(e) = hotkey::toggle_popup(&app) {
+                    tracing::warn!("--toggle-popup: {e:#}");
+                }
+            });
+            if let Err(e) = result {
+                tracing::warn!("--toggle-popup: main-thread dispatch failed: {e}");
             }
         }
         CliAction::Ocr => {

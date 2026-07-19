@@ -3148,6 +3148,38 @@ function App() {
       !shazamFocus,
   });
 
+  // Global Esc fallback (v0.87.6): Esc must close the popup on EVERY tab.
+  // The list-nav handler above only runs on the History tab, so Settings /
+  // Snippets / Notes / Timesheet / Features had NO Esc path at all. This
+  // listener runs in the BUBBLE phase and only when no specialised handler
+  // consumed the event (games, inline panels, overlays and the list nav all
+  // preventDefault their Esc — their back/exit semantics stay untouched).
+  // A focused form field (not the main search box) blurs first — the "back"
+  // step — so the second Esc closes the popup.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (
+        el &&
+        el !== searchRef.current &&
+        (el.tagName === "INPUT" ||
+          el.tagName === "TEXTAREA" ||
+          el.tagName === "SELECT" ||
+          el.isContentEditable)
+      ) {
+        e.preventDefault();
+        el.blur();
+        return;
+      }
+      e.preventDefault();
+      void hidePopup();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hidePopup]);
+
+
   const current = combined[selected] ?? null;
 
   // Game mode — a hidden easter egg fully takes over the app-shell. The

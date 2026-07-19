@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.6] — 2026-07-19
+
+### Fixed
+
+- **Esc now closes the popup on EVERY tab.** The Esc handler lived in the History-tab list navigation only, so Settings, Snippets, Notes, Timesheet and Features had no Esc path at all (field report: "in Settings, Esc doesn't close the overlay"). A new global bubble-phase fallback closes the popup whenever no specialised handler consumed the Esc — the existing back/exit semantics (inline panels, games, TOTP/BPM overlays, lyrics view) are untouched, so a view that uses Esc as "back" still takes two presses. A focused form field (e.g. a Settings input) blurs on the first Esc and the second closes.
+- **Text expander verified working, no code change.** Field report checked: 289 snippets intact, zero sync tombstones, the expander modules unchanged for months, and a live end-to-end test (synthetic keystrokes + Alt+1) expanded correctly. The logged failures were "no abbreviation matched" — the abbreviation wasn't in the keystroke buffer at hotkey time (typed before an app restart armed the monitor, or the terminal special case). If it reproduces, please note the app + mode (passive vs. hotkey).
+
 ## [0.87.5] — 2026-07-19
 
 ### Fixed

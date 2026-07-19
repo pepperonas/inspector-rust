@@ -599,6 +599,16 @@ export function setSuppressHide(suppress: boolean): Promise<void> {
   return invoke("set_suppress_hide", { suppress });
 }
 
+/** Persisted: does clicking outside the popup close it? Default true. */
+export function getPopupCloseOnBlur(): Promise<boolean> {
+  return invoke("get_popup_close_on_blur");
+}
+
+/** Set + persist the click-outside behaviour (live effect, no restart). */
+export function setPopupCloseOnBlur(close: boolean): Promise<void> {
+  return invoke("set_popup_close_on_blur", { close });
+}
+
 // ── Snippets ─────────────────────────────────────────────────────────────────
 
 export function listSnippets(): Promise<Snippet[]> {

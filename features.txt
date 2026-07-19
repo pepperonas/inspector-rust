@@ -119,6 +119,7 @@ Snippet-Import per Drag & Drop — JSON-Datei auf den Snippets-Tab ziehen; erken
 Snippet-Roundtrip — Backup-JSON trägt die Gruppe als Name; beim Import setzt "category":"" ein Snippet explizit auf ungruppiert, fehlendes/null lässt die Gruppe unangetastet
 Cloud-Sync mit cue — bidirektionaler Snippet-Sync mit cue.celox.io (Settings → Cloud-Sync): Token aus cue, alle 60 s + nach jeder Änderung; Live-Status-Chips mit Haken (Server erreichbar ✓ · Token gültig ✓ · letzter Sync ✓), Verbindungstest-Button, Status aktualisiert sich per Event nach jedem Sync-Zyklus
 Snippet-Versionierung — jedes Snippet hat eine Versionsnummer (vN, cue-kompatibel); zählt nur bei Inhaltsänderung (Kürzel/Titel/Body) hoch, Gruppen-Änderungen nie; Merge per max() beim Import
+Popup-Verhalten — Toggle ganz oben in den Settings: „Click outside closes the popup" — aus = Overlay bleibt bei Klick außerhalb offen (Schließen per Esc — ein offenes Inline-Panel schluckt das erste Esc als Zurück, dann 2× — oder Popup-Hotkey); wirkt sofort, persistiert
 Themes — Dark/Light/System mit MD3-Expressive-Motion
 Popup-Größe — Small/Medium/Large
 Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts

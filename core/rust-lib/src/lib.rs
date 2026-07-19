@@ -196,6 +196,12 @@ pub fn run(context: tauri::Context<Wry>) {
 
             let ui_state = UiState::default();
             let suppress_hide = ui_state.suppress_hide.clone();
+            let close_on_blur = ui_state.close_on_blur.clone();
+            // Seed the persisted click-outside preference (default: close).
+            close_on_blur.store(
+                settings::get_bool(&db_handle, "popup.close_on_blur", true).unwrap_or(true),
+                Ordering::SeqCst,
+            );
 
             let expander_state = hotkey::ExpanderShortcutState::default();
             let popup_state = hotkey::PopupShortcutState::default();
@@ -449,6 +455,13 @@ pub fn run(context: tauri::Context<Wry>) {
                             // foreground past the settle and proceeds. A
                             // Focused(false) before the first Focused(true) is the
                             // SetForegroundWindow-failed show-race → ignored.
+                            // User preference (Settings → Popup behavior):
+                            // click-outside must NOT close → skip every
+                            // auto-hide path; Esc / the toggle hotkey remain
+                            // the only ways to dismiss.
+                            if !close_on_blur.load(Ordering::Relaxed) {
+                                return;
+                            }
                             #[cfg(target_os = "windows")]
                             {
                                 // `suppress_hide` is used on the macOS/Linux arm
@@ -516,6 +529,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::export_snippets_to_file,
             commands::restore_default_prompts,
             commands::set_suppress_hide,
+            commands::get_popup_close_on_blur,
+            commands::set_popup_close_on_blur,
             commands::list_notes,
             commands::list_note_categories,
             commands::save_clip_as_note,

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.4] — 2026-07-19
+
+### Added
+
+- **Settings → Popup behavior (topmost section): “Click outside closes the popup” toggle.** Off → the main overlay stays open when focus moves elsewhere (the `Focused(false)` auto-hide is skipped on every platform path); it then closes via **Esc** — with the existing semantics that an open inline panel (brightness, stats, clean, …) consumes the first Esc as “back”, so it can take two — or via the popup hotkey. On (default) = the historical behaviour. Persisted (`popup.close_on_blur`), applies live without restart; deep-linkable via `settings overlay`.
+
 ## [0.87.3] — 2026-07-19
 
 ### Changed

@@ -28,6 +28,7 @@ import {
   LayoutGrid,
   Upload,
   Volume2,
+  MousePointerClick,
   Wand2,
   Dices,
   ShieldAlert,
@@ -132,6 +133,8 @@ import {
 } from "../lib/ipc";
 import {
   getSyncConfig,
+  getPopupCloseOnBlur,
+  setPopupCloseOnBlur,
   syncTestConnection,
   getSyncStatus,
   setSyncConfig,
@@ -1198,6 +1201,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       )}
 
       <div className="w-full">
+        {/* Popup behavior — the very first thing: how the overlay dismisses. */}
+        <div className="mb-6">
+          <PopupBehaviorSection />
+        </div>
+
         {/* Sound — master toggle for UI feedback cues. At the top so it's
             easy to silence the app. */}
         <div className="mb-6">
@@ -3016,6 +3024,54 @@ function CategoryRulesList() {
         </div>
       ))}
     </div>
+  );
+}
+
+/** Popup behavior — top of the panel: does clicking outside close the
+ *  overlay? (Persisted `popup.close_on_blur`, live effect via UiState.) */
+function PopupBehaviorSection() {
+  const [closeOnBlur, setCloseOnBlurState] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    void getPopupCloseOnBlur().then(setCloseOnBlurState).catch(() => {});
+  }, []);
+
+  const toggle = async (next: boolean) => {
+    setCloseOnBlurState(next); // optimistic — the IPC persists + applies live
+    try {
+      await setPopupCloseOnBlur(next);
+    } catch {
+      setCloseOnBlurState(!next);
+    }
+  };
+
+  if (closeOnBlur === null) return null;
+
+  return (
+    <Section
+      icon={<MousePointerClick size={16} className="text-[var(--color-accent)]" />}
+      id="behavior"
+      title="Popup behavior"
+      subtitle="How the main overlay dismisses."
+    >
+      <label className="flex cursor-pointer items-start gap-2 text-[12px]">
+        <input
+          type="checkbox"
+          checked={closeOnBlur}
+          onChange={(e) => void toggle(e.target.checked)}
+          className="mt-0.5 accent-[var(--color-accent)]"
+        />
+        <span>
+          <span className="font-medium">Click outside closes the popup</span>
+          <span className="mt-0.5 block text-[var(--color-muted)]">
+            Off → the overlay stays open when focus moves elsewhere; close it with{" "}
+            <kbd className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">Esc</kbd>{" "}
+            (an open inline panel consumes the first Esc as “back” — press it twice) or the
+            popup hotkey. Applies immediately, no restart.
+          </span>
+        </span>
+      </label>
+    </Section>
   );
 }
 

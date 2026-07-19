@@ -19,6 +19,7 @@ export interface SettingsSection {
 }
 
 export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
+  { id: "behavior", label: "Popup behavior", names: ["behavior", "overlay", "click outside", "verhalten", "schließen", "blur"] },
   { id: "sounds", label: "Sounds", names: ["sounds", "sound", "audio cues", "töne"] },
   { id: "popup-hotkey", label: "Popup hotkey", names: ["popup", "hotkey", "popup hotkey"] },
   { id: "global-shortcuts", label: "Global shortcuts", names: ["shortcuts", "global shortcuts", "hotkeys", "tastatur", "keyboard"] },

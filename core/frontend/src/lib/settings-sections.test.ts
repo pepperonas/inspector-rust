@@ -33,6 +33,7 @@ describe("matchSettingsSection", () => {
   });
 
   it("exact names resolve", () => {
+    expect(matchSettingsSection("overlay")?.id).toBe("behavior");
     expect(matchSettingsSection("cue")?.id).toBe("cloud-sync");
     expect(matchSettingsSection("bruno")?.id).toBe("bruno");
     expect(matchSettingsSection("backup")?.id).toBe("backup");

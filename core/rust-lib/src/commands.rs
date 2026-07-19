@@ -1262,6 +1262,26 @@ pub fn set_suppress_hide(state: State<'_, UiState>, suppress: bool) -> Result<()
     Ok(())
 }
 
+/// Persisted user preference: does clicking outside the popup close it?
+/// (Settings → Popup behavior; default true = historical behaviour.)
+#[tauri::command]
+pub fn get_popup_close_on_blur(db: State<'_, DbHandle>) -> Result<bool, String> {
+    crate::settings::get_bool(&db, "popup.close_on_blur", true).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn set_popup_close_on_blur(
+    db: State<'_, DbHandle>,
+    state: State<'_, UiState>,
+    close: bool,
+) -> Result<(), String> {
+    crate::settings::set(&db, "popup.close_on_blur", if close { "true" } else { "false" })
+        .map_err(map_err)?;
+    // Live effect — the window-event handler reads this atomic.
+    state.close_on_blur.store(close, Ordering::SeqCst);
+    Ok(())
+}
+
 // ── Snippets ─────────────────────────────────────────────────────────────────
 
 #[tauri::command]

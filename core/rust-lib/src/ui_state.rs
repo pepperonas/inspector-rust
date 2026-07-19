@@ -2,13 +2,25 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 /// UI-side flags shared between Tauri commands and the popup window-event
-/// handler. Currently only carries `suppress_hide`, which the frontend toggles
-/// while a modal child window (e.g., the native file-open dialog) owns focus,
-/// so the popup's "hide on blur" behaviour doesn't tear the popup down while
-/// the user is still picking a file.
-#[derive(Default)]
+/// handler. `suppress_hide` is TRANSIENT: the frontend toggles it while a
+/// modal child window (e.g., the native file-open dialog) owns focus, so the
+/// popup's "hide on blur" behaviour doesn't tear the popup down while the
+/// user is still picking a file. `close_on_blur` is the PERSISTED user
+/// preference (Settings → Popup behavior, key `popup.close_on_blur`,
+/// default true): `false` keeps the popup open on click-outside — only Esc /
+/// the toggle hotkey close it.
 pub struct UiState {
     pub suppress_hide: Arc<AtomicBool>,
+    pub close_on_blur: Arc<AtomicBool>,
+}
+
+impl Default for UiState {
+    fn default() -> Self {
+        Self {
+            suppress_hide: Arc::new(AtomicBool::new(false)),
+            close_on_blur: Arc::new(AtomicBool::new(true)),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -20,6 +32,15 @@ mod tests {
     fn default_is_not_suppressing_hide() {
         let s = UiState::default();
         assert!(!s.suppress_hide.load(Ordering::Relaxed));
+    }
+
+    #[test]
+    fn default_closes_on_blur_and_the_flag_round_trips() {
+        // The historical behaviour (click-outside hides) must stay the default.
+        let s = UiState::default();
+        assert!(s.close_on_blur.load(Ordering::Relaxed));
+        s.close_on_blur.store(false, Ordering::Relaxed);
+        assert!(!s.close_on_blur.load(Ordering::Relaxed));
     }
 
     #[test]

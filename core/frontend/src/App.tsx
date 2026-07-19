@@ -168,7 +168,7 @@ import {
   type SecDefaults,
 } from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
-import { computeBruno, formatBrunoBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { matchTotpEntries } from "./lib/totp";
@@ -1391,7 +1391,63 @@ function App() {
       children: 0,
       is_church_member: false,
       health_add: 2.45,
+      kv_type: "gkv",
+      pkv_monthly: 600,
+      kv_sick_pay: false,
+      business_type: "freiberufler",
+      hebesatz: 400,
+      self_married: false,
     };
+    if (parsed.self) {
+      // Selbständigen-Rechnung (`f`-Suffix): eigener Rechenkern; die
+      // employee-förmigen Kopf-Felder spiegeln die Kernzahlen, damit
+      // Zeilen-Rendering + Enter-Paste unverändert funktionieren.
+      const sr = computeBrunoSelf({
+        yearlyProfit: parsed.yearlyGross,
+        state: d.state as GermanState,
+        children: d.children,
+        isChurchMember: d.is_church_member,
+        healthAdd: d.health_add,
+        kvType: d.kv_type === "pkv" ? "pkv" : "gkv",
+        pkvMonthly: d.pkv_monthly,
+        kvSickPay: d.kv_sick_pay,
+        businessType: d.business_type === "gewerbe" ? "gewerbe" : "freiberufler",
+        hebesatz: d.hebesatz,
+        married: d.self_married,
+      });
+      return {
+        kind: "bruno",
+        data: {
+          yearlyGross: sr.yearlyProfit,
+          period: parsed.period,
+          netYear: sr.netYear,
+          netMonth: sr.netMonth,
+          totalDeductions: sr.totalDeductions,
+          deductionRate: sr.deductionRate,
+          marginalRate: sr.marginalRate,
+          social: { health: sr.health, care: sr.care, pension: 0, unemployment: 0 },
+          incomeTax: sr.incomeTax,
+          soli: sr.soli,
+          churchTax: sr.churchTax,
+          taxClass: d.tax_class,
+          state: d.state,
+          children: d.children,
+          isChurchMember: d.is_church_member,
+          self: {
+            ...sr,
+            businessType: d.business_type === "gewerbe" ? "gewerbe" : "freiberufler",
+            hebesatz: d.hebesatz,
+            kvType: d.kv_type === "pkv" ? "pkv" : "gkv",
+            kvSickPay: d.kv_sick_pay,
+            children: d.children,
+            isChurchMember: d.is_church_member,
+            married: d.self_married,
+            state: d.state,
+            expenses: parsed.expenses,
+          },
+        },
+      };
+    }
     const result = computeBruno({
       yearlyGross: parsed.yearlyGross,
       taxClass: Math.min(6, Math.max(1, d.tax_class)) as 1 | 2 | 3 | 4 | 5 | 6,
@@ -2812,7 +2868,10 @@ function App() {
         // plain text to the clipboard — for mails/notes.
         if (shiftKey) {
           const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
-          await writeText(formatBrunoBreakdown(target.data));
+          const text = target.data.self
+            ? formatBrunoSelfBreakdown(target.data.self)
+            : formatBrunoBreakdown(target.data);
+          await writeText(text);
           await hidePopup();
           return;
         }

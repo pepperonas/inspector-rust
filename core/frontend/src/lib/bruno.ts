@@ -219,11 +219,17 @@ export function computeBruno(input: BrunoInput): BrunoResult {
 // ── Parser ─────────────────────────────────────────────────────────
 
 export interface BrunoCommand {
-  /** Yearly gross in EUR. Monthly input is normalised here. */
+  /** Yearly gross (employee) or yearly PROFIT (self-employed, `f` suffix),
+   *  in EUR. Monthly input and `income - expenses` are normalised here. */
   yearlyGross: number;
   /** What the user typed: `m` = monatlich, `j`/`y` = jährlich,
    *  `null` = no suffix → defaults to yearly. */
   period: "monthly" | "yearly";
+  /** `f` suffix → freelancer / self-employed calculation. */
+  self: boolean;
+  /** The Betriebsausgaben when the `income - expenses` form was used
+   *  (already subtracted from `yearlyGross`; kept for the preview line). */
+  expenses?: number;
 }
 
 /**
@@ -240,16 +246,31 @@ export interface BrunoCommand {
  */
 export function parseBrunoCommand(query: string): BrunoCommand | null {
   const trimmed = query.trimStart();
-  // Accept `bruno`, optional space, then the amount + optional period suffix.
-  // The amount is captured loosely; we re-parse with normaliseAmount below.
-  const m = trimmed.match(/^bruno\b\s*([\d.,]+)\s*([mjy])?\s*$/i);
+  // Accept `bruno`, optional space, then the amount (optionally minus
+  // expenses: `90000-15000`), an optional period suffix and an optional `f`
+  // (freelancer/self-employed). The amounts are captured loosely; we re-parse
+  // with normaliseAmount below. Backward-compatible: every pre-existing form
+  // parses exactly as before (`self: false`, no expenses).
+  const m = trimmed.match(/^bruno\b\s*([\d.,]+)(?:\s*-\s*([\d.,]+))?\s*([mjy])?\s*(f)?\s*$/i);
   if (!m) return null;
   const amount = normaliseAmount(m[1]);
   if (amount === null || amount <= 0) return null;
-  const periodChar = (m[2] ?? "j").toLowerCase();
+  const self = (m[4] ?? "").toLowerCase() === "f";
+  // The `income - expenses` form is only meaningful for the self-employed
+  // calculation (Einnahmen − Betriebsausgaben). Reject it for employees.
+  let expenses: number | undefined;
+  if (m[2] !== undefined) {
+    if (!self) return null;
+    const e = normaliseAmount(m[2]);
+    if (e === null || e < 0) return null;
+    expenses = e;
+  }
+  const periodChar = (m[3] ?? "j").toLowerCase();
   const period = periodChar === "m" ? "monthly" : "yearly";
-  const yearlyGross = period === "monthly" ? amount * 12 : amount;
-  return { yearlyGross, period };
+  const base = expenses !== undefined ? amount - expenses : amount;
+  if (base <= 0) return null;
+  const yearlyGross = period === "monthly" ? base * 12 : base;
+  return { yearlyGross, period, self, expenses };
 }
 
 /**
@@ -407,5 +428,256 @@ export function formatBrunoBreakdown(d: BrunoBreakdownView): string {
     ...lines,
     "",
     "Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.",
+  ].join("\n");
+}
+
+// ── Selbständigen-Kalkulation (Suffix `f`, v0.86.0) ──────────────────────────
+
+/** Zusatz-Konstanten Selbständige, Steuerjahr 2025. */
+export const TCF = {
+  /** GKV freiwillig: allgemeiner Satz (mit Krankengeldanspruch, § 241 SGB V). */
+  gkvRateWithSickPay: 14.6 / 100,
+  /** GKV freiwillig: ermäßigter Satz (ohne Krankengeld, § 243 SGB V). */
+  gkvRateReduced: 14.0 / 100,
+  /**
+   * Mindestbemessungsgrundlage für hauptberuflich Selbständige 2025:
+   * 1/3 der monatlichen Bezugsgröße (3.745 €) = 1.248,33 €/Monat.
+   * Beiträge werden mindestens auf dieser Basis erhoben, auch bei
+   * geringerem Gewinn.
+   */
+  gkvMinBaseYearly: (3745 / 3) * 12,
+  /** PV voller Satz mit Kind (3,6 %); kinderlos + 0,6 % Zuschlag (§ 55 SGB XI). */
+  careSelfWithKids: 3.6 / 100,
+  careSelfChildless: 4.2 / 100,
+  /** PV-Abschlag je Kind ab dem 2. bis 5. Kind (0,25 %-Punkte). */
+  careSelfReductionPerKid: 0.25 / 100,
+  careSelfFloor: 2.6 / 100,
+
+  /** Gewerbesteuer: Freibetrag für Personenunternehmen (§ 11 GewStG). */
+  gewerbeFreibetrag: 24500,
+  /** Gewerbesteuer-Messzahl (§ 11 GewStG). */
+  gewerbeMesszahl: 3.5 / 100,
+  /** § 35 EStG: Anrechnungsfaktor auf den Messbetrag (seit 2020: 4,0). */
+  gewerbeAnrechnungsFaktor: 4.0,
+} as const;
+
+export type BrunoKvType = "gkv" | "pkv";
+export type BrunoBusinessType = "freiberufler" | "gewerbe";
+
+export interface BrunoSelfInput {
+  /** Jahresgewinn (Einnahmen − Betriebsausgaben) in Euro. */
+  yearlyProfit: number;
+  state: GermanState;
+  children: number;
+  isChurchMember: boolean;
+  /** GKV-Zusatzbeitrag in Prozent (nur bei kvType = gkv relevant). */
+  healthAdd: number;
+  /** Gesetzlich (freiwillig, berechnet) oder privat (fester Beitrag). */
+  kvType: BrunoKvType;
+  /** PKV-Monatsbeitrag in Euro (inkl. privater Pflegepflicht). */
+  pkvMonthly: number;
+  /** GKV mit Krankengeldanspruch (14,6 %) statt ermäßigt (14,0 %). */
+  kvSickPay: boolean;
+  /** Freiberufler (§ 18 EStG, keine GewSt) oder Gewerbebetrieb (§ 15). */
+  businessType: BrunoBusinessType;
+  /** Gewerbesteuer-Hebesatz der Gemeinde in Prozent (z. B. 400). */
+  hebesatz: number;
+  /** Zusammenveranlagung → Splittingtarif statt Grundtarif. */
+  married: boolean;
+}
+
+export interface BrunoSelfResult {
+  yearlyProfit: number;
+  netYear: number;
+  netMonth: number;
+  /** KV-Beitrag pro Jahr (GKV berechnet oder PKV-Fixbetrag × 12). */
+  health: number;
+  /** PV-Beitrag pro Jahr (bei PKV: 0 — im PKV-Beitrag enthalten). */
+  care: number;
+  /** Gewerbesteuer pro Jahr (0 bei Freiberuflern). */
+  gewerbesteuer: number;
+  /** § 35-EStG-Anrechnung, die die ESt bereits gemindert hat. */
+  gewerbeAnrechnung: number;
+  /** Einkommensteuer pro Jahr — NACH § 35-Anrechnung. */
+  incomeTax: number;
+  soli: number;
+  churchTax: number;
+  totalDeductions: number;
+  deductionRate: number;
+  marginalRate: number;
+}
+
+/**
+ * Selbständigen-Hauptberechnung (vereinfacht, Steuerjahr 2025). Reine
+ * Funktion. Modell: freiwillige GKV (voller Satz + Zusatzbeitrag auf den
+ * Gewinn, geklammert zwischen Mindestbemessungsgrundlage und
+ * Beitragsbemessungsgrenze) ODER PKV als Fixbetrag; PV voller Satz (bei PKV
+ * im Beitrag enthalten); keine RV-/AV-Pflicht; ESt nach § 32a (Grund- oder
+ * Splittingtarif); Gewerbesteuer nur bei Gewerbebetrieb, mit
+ * § 35-Anrechnung. KV/PV-Basisbeiträge werden vereinfacht voll als
+ * Vorsorgeaufwand abgezogen. USt ist durchlaufender Posten (kein Einfluss
+ * aufs Netto) — § 19 Kleinunternehmer nur als Hinweis. Keine Steuerberatung.
+ */
+export function computeBrunoSelf(input: BrunoSelfInput): BrunoSelfResult {
+  const {
+    yearlyProfit, state, children, isChurchMember, healthAdd,
+    kvType, pkvMonthly, kvSickPay, businessType, hebesatz, married,
+  } = input;
+
+  // ── KV/PV ──
+  let health: number;
+  let care: number;
+  if (kvType === "pkv") {
+    health = Math.max(0, pkvMonthly) * 12;
+    care = 0; // private Pflegepflichtversicherung steckt im PKV-Beitrag
+  } else {
+    const base = Math.min(
+      Math.max(yearlyProfit, TCF.gkvMinBaseYearly),
+      TC.healthCap,
+    );
+    const gkvRate = (kvSickPay ? TCF.gkvRateWithSickPay : TCF.gkvRateReduced) + healthAdd / 100;
+    health = base * gkvRate;
+    let careRate = TCF.careSelfChildless;
+    if (children > 0) {
+      const reduction = Math.min(children - 1, 4) * TCF.careSelfReductionPerKid;
+      careRate = Math.max(TCF.careSelfWithKids - reduction, TCF.careSelfFloor);
+    }
+    care = base * careRate;
+  }
+
+  // ── Gewerbesteuer (mindert den Gewinn seit 2008 NICHT mehr) ──
+  let gewerbesteuer = 0;
+  let messbetrag = 0;
+  if (businessType === "gewerbe") {
+    // Gewerbeertrag wird auf volle 100 € abgerundet (§ 11 Abs. 1 GewStG).
+    const ertrag = Math.floor(Math.max(0, yearlyProfit - TCF.gewerbeFreibetrag) / 100) * 100;
+    messbetrag = ertrag * TCF.gewerbeMesszahl;
+    gewerbesteuer = (messbetrag * Math.max(0, hebesatz)) / 100;
+  }
+
+  // ── Einkommensteuer ──
+  const deductions = health + care + TC.sonderausgaben + children * TC.childAllowance;
+  const zvE = Math.max(0, yearlyProfit - deductions);
+  const tariff = (z: number) => (married ? 2 * grundtarif(z / 2) : grundtarif(z));
+  const rawTax = tariff(zvE);
+  // § 35 EStG: pauschale Anrechnung der GewSt auf die ESt — gedeckelt auf die
+  // tatsächliche GewSt und die tarifliche ESt (vereinfacht: gesamte ESt).
+  const gewerbeAnrechnung =
+    businessType === "gewerbe"
+      ? Math.min(TCF.gewerbeAnrechnungsFaktor * messbetrag, gewerbesteuer, rawTax)
+      : 0;
+  const incomeTax = Math.max(0, rawTax - gewerbeAnrechnung);
+  const soli = solidarityTax(incomeTax);
+  const church = churchTax(incomeTax, state, isChurchMember);
+
+  const totalDeductions = health + care + gewerbesteuer + incomeTax + soli + church;
+  const netYear = yearlyProfit - totalDeductions;
+  const netMonth = netYear / 12;
+  const deductionRate = yearlyProfit > 0 ? totalDeductions / yearlyProfit : 0;
+  const marginalRate = Math.min(0.45, (tariff(zvE + 100) - rawTax) / 100);
+
+  return {
+    yearlyProfit,
+    netYear,
+    netMonth,
+    health,
+    care,
+    gewerbesteuer,
+    gewerbeAnrechnung,
+    incomeTax,
+    soli,
+    churchTax: church,
+    totalDeductions,
+    deductionRate,
+    marginalRate,
+  };
+}
+
+/** Die Annahmen-Slice der Selbständigen-Aufstellung (Preview + Copy teilen sie). */
+export function brunoSelfAssumptions(d: {
+  businessType: BrunoBusinessType;
+  hebesatz: number;
+  kvType: BrunoKvType;
+  kvSickPay: boolean;
+  children: number;
+  isChurchMember: boolean;
+  married: boolean;
+  state: string;
+}): string {
+  const form =
+    d.businessType === "gewerbe"
+      ? `Gewerbebetrieb · Hebesatz ${d.hebesatz} %`
+      : "Freiberufler (keine GewSt)";
+  const kv =
+    d.kvType === "pkv"
+      ? "PKV (Fixbeitrag)"
+      : `GKV freiwillig${d.kvSickPay ? " mit Krankengeld" : " ermäßigt"}`;
+  const kids = d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`;
+  const church = d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer";
+  const veranlagung = d.married ? "Splittingtarif" : "Grundtarif";
+  const state = STATE_LABELS[d.state] ?? d.state.toUpperCase();
+  return `${form} · ${kv} · ${veranlagung} · ${state} · ${kids} · ${church}`;
+}
+
+/** Selbständigen-Pendant zu `formatBrunoBreakdown` (Shift+Enter-Copy). */
+export interface BrunoSelfBreakdownView extends BrunoSelfResult {
+  businessType: BrunoBusinessType;
+  hebesatz: number;
+  kvType: BrunoKvType;
+  kvSickPay: boolean;
+  children: number;
+  isChurchMember: boolean;
+  married: boolean;
+  state: string;
+  expenses?: number;
+}
+
+export function formatBrunoSelfBreakdown(d: BrunoSelfBreakdownView): string {
+  const eur = new Intl.NumberFormat("de-DE", {
+    style: "currency", currency: "EUR", maximumFractionDigits: 0,
+  });
+  const eurExact = new Intl.NumberFormat("de-DE", {
+    style: "currency", currency: "EUR", maximumFractionDigits: 2,
+  });
+  const pct = new Intl.NumberFormat("de-DE", {
+    style: "percent", maximumFractionDigits: 1,
+  });
+
+  const rows: Array<[string, string]> = [];
+  if (d.expenses !== undefined) {
+    rows.push(["Einnahmen / Jahr", eur.format(d.yearlyProfit + d.expenses)]);
+    rows.push(["Betriebsausgaben", "− " + eur.format(d.expenses)]);
+  }
+  rows.push(
+    ["Gewinn / Jahr", eur.format(d.yearlyProfit)],
+    ["Gewinn / Monat", eur.format(d.yearlyProfit / 12)],
+    ["Krankenversicherung", "− " + eurExact.format(d.health)],
+  );
+  if (d.care > 0) rows.push(["Pflegeversicherung", "− " + eurExact.format(d.care)]);
+  if (d.gewerbesteuer > 0) {
+    rows.push(["Gewerbesteuer", "− " + eurExact.format(d.gewerbesteuer)]);
+    rows.push(["§ 35-Anrechnung auf ESt", "+ " + eurExact.format(d.gewerbeAnrechnung)]);
+  }
+  rows.push(["Einkommensteuer", "− " + eurExact.format(d.incomeTax)]);
+  if (d.soli > 0) rows.push(["Solidaritätszuschlag", "− " + eurExact.format(d.soli)]);
+  if (d.churchTax > 0) rows.push(["Kirchensteuer", "− " + eurExact.format(d.churchTax)]);
+  rows.push(
+    ["Summe Abgaben", eur.format(d.totalDeductions)],
+    ["Abgabenquote", pct.format(d.deductionRate)],
+    ["Grenzsteuersatz", pct.format(d.marginalRate)],
+    ["Netto / Monat", eurExact.format(d.netMonth)],
+    ["Netto / Jahr", eurExact.format(d.netYear)],
+  );
+
+  const keyWidth = Math.max(...rows.map(([k]) => k.length));
+  const lines = rows.map(([k, v]) => `${k.padEnd(keyWidth)}  ${v}`);
+
+  return [
+    "Gewinn → Netto (selbständig) · Steuerjahr 2025 (vereinfacht)",
+    brunoSelfAssumptions(d),
+    "",
+    ...lines,
+    "",
+    "Ohne RV/AV (keine Pflicht); USt ist durchlaufender Posten (§ 19 Kleinunternehmer: keine USt). Vereinfacht — keine Steuerberatung.",
   ].join("\n");
 }

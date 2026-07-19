@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.86.0] — 2026-07-19
+
+### Added
+
+- **bruno: Freelancer-/Unternehmer-Kalkulation (`f`-Suffix).** `bruno 80000f` rechnet den Jahres**gewinn** eines Selbständigen aufs Netto — auch `bruno 7000mf` (Monatsgewinn) und `bruno 90000-15000f` (Einnahmen − Betriebsausgaben). Modell (Steuerjahr 2025, vereinfacht): **freiwillige GKV** (14,0 % ermäßigt / 14,6 % mit Krankengeldanspruch + Zusatzbeitrag, auf den Gewinn zwischen Mindestbemessungsgrundlage und Beitragsbemessungsgrenze) **oder PKV-Fixbeitrag**; **volle Pflegeversicherung** (4,2 % kinderlos / 3,6 % mit Kind, Abschläge Kind 2–5); **keine RV/AV-Pflicht**; ESt nach **Grund- oder Splittingtarif**; **Gewerbesteuer** für Gewerbebetriebe (Freibetrag 24.500 €, Messzahl 3,5 % × Gemeinde-Hebesatz) inkl. **§ 35-EStG-Anrechnung** — Freiberufler bleiben GewSt-frei. USt ist durchlaufender Posten (§ 19-Hinweis). Die Vorschau zeigt die volle Selbständigen-Aufstellung mit Annahmen-Zeile (Rechtsform · KV · Tarif · Hebesatz); Enter fügt das perioden-passende Netto ein, **Shift+Enter kopiert die komplette Aufstellung** — beides wie im Angestellten-Modus. Neue Einstellungen unter **Settings → Bruno → „Selbständig“**: Rechtsform (Freiberufler/Gewerbe), GewSt-Hebesatz, GKV/PKV, Krankengeldanspruch, PKV-Beitrag, Zusammenveranlagung. Alle bisherigen `bruno`-Eingaben verhalten sich unverändert. +30 Tests (Parser-Formen, GKV-Klammern, PKV, PV-Staffel, GewSt/§35-Deckel, Splitting, Null-Gewinn, Formatter); Rust-Defaults um 6 Felder erweitert (Whitelist + Clamps, Alt-Installationen fallen sauber auf Defaults zurück). Keine neuen Dependencies. Wie immer: vereinfacht, keine Steuerberatung.
+
 ## [0.85.12] — 2026-07-19
 
 ### Added

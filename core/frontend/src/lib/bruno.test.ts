@@ -334,3 +334,227 @@ describe("formatBrunoBreakdown", () => {
     expect(new Set(starts).size).toBe(1);
   });
 });
+
+// ── Selbständigen-Kalkulation (Suffix `f`) ──────────────────────────────────
+
+import { computeBrunoSelf, formatBrunoSelfBreakdown, TCF, type BrunoSelfInput } from "./bruno";
+
+const SELF_BASE: BrunoSelfInput = {
+  yearlyProfit: 80000,
+  state: "nw",
+  children: 0,
+  isChurchMember: false,
+  healthAdd: 2.45,
+  kvType: "gkv",
+  pkvMonthly: 0,
+  kvSickPay: false,
+  businessType: "freiberufler",
+  hebesatz: 400,
+  married: false,
+};
+
+describe("parseBrunoCommand — self-employed forms", () => {
+  it("`f` suffix flags the self-employed calculation", () => {
+    expect(parseBrunoCommand("bruno 80000f")).toMatchObject({
+      yearlyGross: 80000, period: "yearly", self: true,
+    });
+    expect(parseBrunoCommand("bruno 80000 f")).toMatchObject({ self: true });
+  });
+
+  it("combines with the period suffix (`7000mf` = monthly profit)", () => {
+    expect(parseBrunoCommand("bruno 7000mf")).toMatchObject({
+      yearlyGross: 84000, period: "monthly", self: true,
+    });
+  });
+
+  it("income − expenses form computes the profit", () => {
+    expect(parseBrunoCommand("bruno 90000-15000f")).toMatchObject({
+      yearlyGross: 75000, self: true, expenses: 15000,
+    });
+    expect(parseBrunoCommand("bruno 90.000 - 15.000 f")).toMatchObject({
+      yearlyGross: 75000, expenses: 15000,
+    });
+  });
+
+  it("expenses form without `f` is rejected (employee has no Betriebsausgaben)", () => {
+    expect(parseBrunoCommand("bruno 90000-15000")).toBeNull();
+  });
+
+  it("expenses ≥ income → null (no profit to tax)", () => {
+    expect(parseBrunoCommand("bruno 50000-50000f")).toBeNull();
+    expect(parseBrunoCommand("bruno 50000-60000f")).toBeNull();
+  });
+
+  it("stays fully backward compatible for employee forms", () => {
+    expect(parseBrunoCommand("bruno 60000")).toMatchObject({
+      yearlyGross: 60000, period: "yearly", self: false,
+    });
+    expect(parseBrunoCommand("bruno 5000m")).toMatchObject({
+      yearlyGross: 60000, period: "monthly", self: false,
+    });
+  });
+});
+
+describe("computeBrunoSelf — GKV", () => {
+  it("charges the reduced GKV rate + Zusatzbeitrag on the profit", () => {
+    const r = computeBrunoSelf(SELF_BASE);
+    // 66.150-cap NOT hit (80k > cap → base = cap): 66150 × (14.0+2.45)%
+    expect(r.health).toBeCloseTo(66150 * 0.1645, 0);
+    // PV kinderlos voller Satz 4,2 % auf die gedeckelte Basis.
+    expect(r.care).toBeCloseTo(66150 * 0.042, 0);
+  });
+
+  it("sick-pay option raises the rate to 14.6 %", () => {
+    const withSick = computeBrunoSelf({ ...SELF_BASE, kvSickPay: true });
+    const without = computeBrunoSelf(SELF_BASE);
+    expect(withSick.health).toBeGreaterThan(without.health);
+    expect(withSick.health - without.health).toBeCloseTo(66150 * 0.006, 0);
+  });
+
+  it("a tiny profit is charged on the Mindestbemessungsgrundlage", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, yearlyProfit: 6000 });
+    expect(r.health).toBeCloseTo(TCF.gkvMinBaseYearly * 0.1645, 0);
+    // Mindest-KV kann das Netto unter den Gewinn drücken — aber nie auf > Gewinn stehen bleiben.
+    expect(r.netYear).toBeLessThan(6000);
+  });
+
+  it("children lower the PV rate (full self-employed scale, floored)", () => {
+    const one = computeBrunoSelf({ ...SELF_BASE, children: 1 });
+    expect(one.care).toBeCloseTo(66150 * 0.036, 0);
+    const three = computeBrunoSelf({ ...SELF_BASE, children: 3 });
+    expect(three.care).toBeCloseTo(66150 * (0.036 - 2 * 0.0025), 0);
+    const seven = computeBrunoSelf({ ...SELF_BASE, children: 7 });
+    expect(seven.care).toBeCloseTo(66150 * 0.026, 0); // floor 2,6 %
+  });
+});
+
+describe("computeBrunoSelf — PKV", () => {
+  it("uses the fixed premium ×12 and no separate care row", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, kvType: "pkv", pkvMonthly: 650 });
+    expect(r.health).toBe(650 * 12);
+    expect(r.care).toBe(0);
+  });
+
+  it("negative premium input is clamped to 0", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, kvType: "pkv", pkvMonthly: -10 });
+    expect(r.health).toBe(0);
+  });
+});
+
+describe("computeBrunoSelf — Gewerbesteuer + § 35", () => {
+  it("Freiberufler pay no Gewerbesteuer", () => {
+    const r = computeBrunoSelf(SELF_BASE);
+    expect(r.gewerbesteuer).toBe(0);
+    expect(r.gewerbeAnrechnung).toBe(0);
+  });
+
+  it("Gewerbe: Freibetrag 24.500, Messzahl 3,5 %, Hebesatz", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, businessType: "gewerbe", hebesatz: 400 });
+    // (80000 − 24500 → 55500, auf 100 abgerundet) × 3,5 % × 400 %
+    expect(r.gewerbesteuer).toBeCloseTo(55500 * 0.035 * 4, 0);
+  });
+
+  it("profit below the Freibetrag → no Gewerbesteuer", () => {
+    const r = computeBrunoSelf({
+      ...SELF_BASE, businessType: "gewerbe", yearlyProfit: 24000,
+    });
+    expect(r.gewerbesteuer).toBe(0);
+  });
+
+  it("§ 35 credit: at Hebesatz 400 % the credit equals the full GewSt", () => {
+    // Anrechnung = min(4,0 × Messbetrag, GewSt, ESt); bei Hebesatz 400 ist
+    // 4,0 × Messbetrag == GewSt → volle Anrechnung (ESt ist hier größer).
+    const r = computeBrunoSelf({ ...SELF_BASE, businessType: "gewerbe", hebesatz: 400 });
+    expect(r.gewerbeAnrechnung).toBeCloseTo(r.gewerbesteuer, 2);
+  });
+
+  it("§ 35 credit is capped at 4×Messbetrag for high Hebesätze", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, businessType: "gewerbe", hebesatz: 500 });
+    expect(r.gewerbeAnrechnung).toBeLessThan(r.gewerbesteuer);
+    expect(r.gewerbeAnrechnung).toBeCloseTo((r.gewerbesteuer / 5) * 4, 0);
+  });
+
+  it("§ 35 credit never exceeds the income tax", () => {
+    const r = computeBrunoSelf({
+      ...SELF_BASE, businessType: "gewerbe", yearlyProfit: 30000, hebesatz: 900,
+    });
+    expect(r.incomeTax).toBeGreaterThanOrEqual(0);
+    expect(r.gewerbeAnrechnung).toBeLessThanOrEqual(r.gewerbesteuer);
+  });
+});
+
+describe("computeBrunoSelf — tariff + edges", () => {
+  it("Splitting (married) yields less tax than Grundtarif at the same profit", () => {
+    const single = computeBrunoSelf(SELF_BASE);
+    const married = computeBrunoSelf({ ...SELF_BASE, married: true });
+    expect(married.incomeTax).toBeLessThan(single.incomeTax);
+    expect(married.netYear).toBeGreaterThan(single.netYear);
+  });
+
+  it("church members pay Kirchensteuer on the (post-§35) income tax", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, isChurchMember: true });
+    expect(r.churchTax).toBeCloseTo(r.incomeTax * 0.09, 2);
+    const by = computeBrunoSelf({ ...SELF_BASE, isChurchMember: true, state: "by" });
+    expect(by.churchTax).toBeCloseTo(by.incomeTax * 0.08, 2);
+  });
+
+  it("zero profit: no tax, but Mindest-KV still applies (negative net)", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, yearlyProfit: 0 });
+    expect(r.incomeTax).toBe(0);
+    expect(r.health).toBeGreaterThan(0);
+    expect(r.netYear).toBeLessThan(0);
+    expect(r.deductionRate).toBe(0); // guard: no divide-by-zero
+  });
+
+  it("marginal rate is capped at 45 %", () => {
+    const r = computeBrunoSelf({ ...SELF_BASE, yearlyProfit: 500000 });
+    expect(r.marginalRate).toBeLessThanOrEqual(0.45);
+  });
+});
+
+describe("formatBrunoSelfBreakdown", () => {
+  const view = {
+    ...computeBrunoSelf({ ...SELF_BASE, businessType: "gewerbe" as const }),
+    businessType: "gewerbe" as const,
+    hebesatz: 400,
+    kvType: "gkv" as const,
+    kvSickPay: false,
+    children: 0,
+    isChurchMember: false,
+    married: false,
+    state: "nw",
+    expenses: 15000,
+  };
+
+  it("shows income − expenses when the expenses form was used", () => {
+    const out = formatBrunoSelfBreakdown(view);
+    expect(out).toContain("Einnahmen / Jahr");
+    expect(out).toContain("Betriebsausgaben");
+    expect(out).toContain("Gewinn / Jahr");
+  });
+
+  it("names the Rechtsform + Hebesatz + KV in the assumptions line", () => {
+    const out = formatBrunoSelfBreakdown(view);
+    expect(out).toContain("Gewerbebetrieb · Hebesatz 400 %");
+    expect(out).toContain("GKV freiwillig ermäßigt");
+    expect(out).toContain("Grundtarif");
+  });
+
+  it("Gewerbesteuer row + § 35 credit only for Gewerbe", () => {
+    const out = formatBrunoSelfBreakdown(view);
+    expect(out).toContain("Gewerbesteuer");
+    expect(out).toContain("§ 35-Anrechnung");
+    const frei = formatBrunoSelfBreakdown({
+      ...view,
+      ...computeBrunoSelf(SELF_BASE),
+      businessType: "freiberufler" as const,
+      expenses: undefined,
+    });
+    expect(frei).not.toContain("Gewerbesteuer");
+    expect(frei).toContain("Freiberufler (keine GewSt)");
+  });
+
+  it("carries the RV/AV + USt/§19 disclaimer", () => {
+    expect(formatBrunoSelfBreakdown(view)).toContain("§ 19 Kleinunternehmer");
+  });
+});

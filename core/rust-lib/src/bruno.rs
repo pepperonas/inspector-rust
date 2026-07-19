@@ -25,6 +25,13 @@ const KEY_STATE: &str = "bruno.state";
 const KEY_CHILDREN: &str = "bruno.children";
 const KEY_CHURCH: &str = "bruno.church_member";
 const KEY_HEALTH_ADD: &str = "bruno.health_add";
+// Selbständigen-Defaults (Suffix `f`, v0.86.0):
+const KEY_KV_TYPE: &str = "bruno.kv_type";
+const KEY_PKV_MONTHLY: &str = "bruno.pkv_monthly";
+const KEY_KV_SICK_PAY: &str = "bruno.kv_sick_pay";
+const KEY_BUSINESS_TYPE: &str = "bruno.business_type";
+const KEY_HEBESATZ: &str = "bruno.hebesatz";
+const KEY_SELF_MARRIED: &str = "bruno.self_married";
 
 /// Per-user defaults applied to a bare `bruno <€>` invocation. Picked
 /// to match the most common German worker: single, child-free, NRW
@@ -47,6 +54,20 @@ pub struct BrunoDefaults {
     /// Krankenkasse-Zusatzbeitrag in **percent** (e.g. `2.45` = 2.45 %).
     /// Avg. statutory 2025 is ~2.5 %; TK specifically is 2.45 %.
     pub health_add: f64,
+
+    // ── Selbständigen-Defaults (nur fürs `f`-Suffix relevant) ──
+    /// `"gkv"` (freiwillig gesetzlich, berechnet) or `"pkv"` (fixed premium).
+    pub kv_type: String,
+    /// PKV-Monatsbeitrag in Euro (incl. private Pflegepflicht).
+    pub pkv_monthly: f64,
+    /// GKV mit Krankengeldanspruch (14.6 %) statt ermäßigt (14.0 %).
+    pub kv_sick_pay: bool,
+    /// `"freiberufler"` (keine GewSt) or `"gewerbe"`.
+    pub business_type: String,
+    /// Gewerbesteuer-Hebesatz der Gemeinde in Prozent (e.g. 400).
+    pub hebesatz: u32,
+    /// Zusammenveranlagung → Splittingtarif.
+    pub self_married: bool,
 }
 
 impl Default for BrunoDefaults {
@@ -57,6 +78,12 @@ impl Default for BrunoDefaults {
             children: 0,
             is_church_member: false,
             health_add: 2.45,
+            kv_type: "gkv".to_string(),
+            pkv_monthly: 600.0,
+            kv_sick_pay: false,
+            business_type: "freiberufler".to_string(),
+            hebesatz: 400,
+            self_married: false,
         }
     }
 }
@@ -80,6 +107,22 @@ pub fn get_defaults(db: &DbHandle) -> Result<BrunoDefaults> {
             .ok()
             .and_then(|s| s.parse().ok())
             .unwrap_or(def.health_add),
+        kv_type: settings::get_or(db, KEY_KV_TYPE, &def.kv_type)
+            .unwrap_or(def.kv_type.clone()),
+        pkv_monthly: settings::get_or(db, KEY_PKV_MONTHLY, &def.pkv_monthly.to_string())
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(def.pkv_monthly),
+        kv_sick_pay: settings::get_bool(db, KEY_KV_SICK_PAY, def.kv_sick_pay)
+            .unwrap_or(def.kv_sick_pay),
+        business_type: settings::get_or(db, KEY_BUSINESS_TYPE, &def.business_type)
+            .unwrap_or(def.business_type.clone()),
+        hebesatz: settings::get_or(db, KEY_HEBESATZ, &def.hebesatz.to_string())
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(def.hebesatz),
+        self_married: settings::get_bool(db, KEY_SELF_MARRIED, def.self_married)
+            .unwrap_or(def.self_married),
     })
 }
 
@@ -101,11 +144,28 @@ pub fn set_defaults(db: &DbHandle, defs: &BrunoDefaults) -> Result<()> {
     let health_add = defs.health_add.clamp(0.0, 10.0);
     let children = defs.children.min(20);
 
+    // Selbständigen-Felder — enum-artige Strings whitelisten, Zahlen klemmen.
+    let kv_type = if defs.kv_type == "pkv" { "pkv" } else { "gkv" };
+    let business_type = if defs.business_type == "gewerbe" {
+        "gewerbe"
+    } else {
+        "freiberufler"
+    };
+    // PKV-Beitrag 0..5000 €/Monat; Hebesatz 0..1200 % (höchster real ~900).
+    let pkv_monthly = defs.pkv_monthly.clamp(0.0, 5000.0);
+    let hebesatz = defs.hebesatz.min(1200);
+
     settings::set(db, KEY_TAX_CLASS, &tax_class.to_string())?;
     settings::set(db, KEY_STATE, &state)?;
     settings::set(db, KEY_CHILDREN, &children.to_string())?;
     settings::set(db, KEY_CHURCH, if defs.is_church_member { "true" } else { "false" })?;
     settings::set(db, KEY_HEALTH_ADD, &health_add.to_string())?;
+    settings::set(db, KEY_KV_TYPE, kv_type)?;
+    settings::set(db, KEY_PKV_MONTHLY, &pkv_monthly.to_string())?;
+    settings::set(db, KEY_KV_SICK_PAY, if defs.kv_sick_pay { "true" } else { "false" })?;
+    settings::set(db, KEY_BUSINESS_TYPE, business_type)?;
+    settings::set(db, KEY_HEBESATZ, &hebesatz.to_string())?;
+    settings::set(db, KEY_SELF_MARRIED, if defs.self_married { "true" } else { "false" })?;
     Ok(())
 }
 
@@ -130,6 +190,7 @@ mod tests {
             children: 2,
             is_church_member: true,
             health_add: 2.7,
+            ..Default::default()
         };
         set_defaults(&db, &custom).unwrap();
         let back = get_defaults(&db).unwrap();
@@ -297,6 +358,65 @@ mod tests {
             let back = get_defaults(&db).unwrap().health_add;
             assert!((back - v).abs() < 1e-9, "health_add {v} came back as {back}");
         }
+    }
+
+    #[test]
+    fn self_employed_fields_round_trip() {
+        let db = mem_db();
+        let custom = BrunoDefaults {
+            kv_type: "pkv".to_string(),
+            pkv_monthly: 723.5,
+            kv_sick_pay: true,
+            business_type: "gewerbe".to_string(),
+            hebesatz: 490,
+            self_married: true,
+            ..Default::default()
+        };
+        set_defaults(&db, &custom).unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.kv_type, "pkv");
+        assert!((back.pkv_monthly - 723.5).abs() < 1e-9);
+        assert!(back.kv_sick_pay);
+        assert_eq!(back.business_type, "gewerbe");
+        assert_eq!(back.hebesatz, 490);
+        assert!(back.self_married);
+    }
+
+    #[test]
+    fn self_employed_enums_are_whitelisted_and_numbers_clamped() {
+        let db = mem_db();
+        set_defaults(
+            &db,
+            &BrunoDefaults {
+                kv_type: "krankenkasse-xyz".to_string(),
+                business_type: "konzern".to_string(),
+                pkv_monthly: -50.0,
+                hebesatz: 99999,
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.kv_type, "gkv", "unknown kv_type coerced");
+        assert_eq!(back.business_type, "freiberufler", "unknown business_type coerced");
+        assert_eq!(back.pkv_monthly, 0.0, "negative premium floored");
+        assert_eq!(back.hebesatz, 1200, "absurd Hebesatz capped");
+    }
+
+    #[test]
+    fn old_installs_without_self_fields_get_the_defaults() {
+        // A DB written by a pre-v0.86 build has only the employee keys —
+        // the self-employed fields must fall back cleanly.
+        let db = mem_db();
+        settings::set(&db, KEY_TAX_CLASS, "3").unwrap();
+        let back = get_defaults(&db).unwrap();
+        assert_eq!(back.tax_class, 3);
+        assert_eq!(back.kv_type, "gkv");
+        assert_eq!(back.business_type, "freiberufler");
+        assert_eq!(back.hebesatz, 400);
+        assert!((back.pkv_monthly - 600.0).abs() < 1e-9);
+        assert!(!back.kv_sick_pay);
+        assert!(!back.self_married);
     }
 
     #[test]

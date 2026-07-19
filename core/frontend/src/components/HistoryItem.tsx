@@ -528,7 +528,8 @@ export const HistoryItem = memo(function HistoryItem({
                   style: "percent",
                   maximumFractionDigits: 1,
                 });
-                return `Brutto ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)}`;
+                const kind = entry.data.self ? "Gewinn (selbständig)" : "Brutto";
+                return `${kind} ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)}`;
               })()}
             </span>
           </span>

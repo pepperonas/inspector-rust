@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
-import { STATE_LABELS } from "../lib/bruno";
+import { STATE_LABELS, brunoSelfAssumptions } from "../lib/bruno";
 import {
   Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
   Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
@@ -524,6 +524,74 @@ export function PreviewPanel({
             ⏎ Enter pastes into the focused app &nbsp;·&nbsp; ← → cycles to the
             previous / next opener
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "bruno" && entry.data.self) {
+    // Selbständigen-Variante (`f`-Suffix) — eigene Aufstellung.
+    const d = entry.data.self;
+    const eur = new Intl.NumberFormat("de-DE", {
+      style: "currency", currency: "EUR", maximumFractionDigits: 0,
+    });
+    const eurExact = new Intl.NumberFormat("de-DE", {
+      style: "currency", currency: "EUR", maximumFractionDigits: 2,
+    });
+    const pct = new Intl.NumberFormat("de-DE", {
+      style: "percent", maximumFractionDigits: 1,
+    });
+    return (
+      <div className="flex h-full flex-col gap-3 overflow-auto p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Gewinn → Netto (selbständig) · Steuerjahr 2025 (vereinfacht)
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="mb-2 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+            Annahmen
+          </div>
+          <div className="text-[12px] leading-tight text-[var(--color-fg)]">
+            {brunoSelfAssumptions(d)}
+          </div>
+          <div className="mt-1 text-[11px] text-[var(--color-muted)]">
+            Über Settings → Bruno anpassen.
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          {d.expenses !== undefined && (
+            <>
+              <BrunoRow k="Einnahmen / Jahr" v={eur.format(d.yearlyProfit + d.expenses)} />
+              <BrunoRow k="Betriebsausgaben" v={"− " + eur.format(d.expenses)} />
+            </>
+          )}
+          <BrunoRow k="Gewinn / Jahr" v={eur.format(d.yearlyProfit)} />
+          <BrunoRow k="Gewinn / Monat" v={eur.format(d.yearlyProfit / 12)} />
+          <BrunoRow k="Krankenversicherung" v={"− " + eurExact.format(d.health)} />
+          {d.care > 0 && <BrunoRow k="Pflegeversicherung" v={"− " + eurExact.format(d.care)} />}
+          {d.gewerbesteuer > 0 && (
+            <>
+              <BrunoRow k="Gewerbesteuer" v={"− " + eurExact.format(d.gewerbesteuer)} />
+              <BrunoRow k="§ 35-Anrechnung auf ESt" v={"+ " + eurExact.format(d.gewerbeAnrechnung)} />
+            </>
+          )}
+          <BrunoRow k="Einkommensteuer" v={"− " + eurExact.format(d.incomeTax)} />
+          {d.soli > 0 && <BrunoRow k="Solidaritätszuschlag" v={"− " + eurExact.format(d.soli)} />}
+          {d.churchTax > 0 && <BrunoRow k="Kirchensteuer" v={"− " + eurExact.format(d.churchTax)} />}
+          <BrunoRow k="Summe Abgaben" v={eur.format(d.totalDeductions)} />
+          <BrunoRow k="Abgabenquote" v={pct.format(d.deductionRate)} />
+          <BrunoRow k="Grenzsteuersatz" v={pct.format(d.marginalRate)} />
+        </div>
+
+        <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+          <BrunoRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent animate />
+          <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
+        </div>
+
+        <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          ⏎ Enter kopiert {entry.data.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
+          {" "}· ⇧⏎ kopiert die komplette Aufstellung ·{" "}
+          ⚠ Ohne RV/AV (keine Pflicht) · USt ist durchlaufender Posten (§ 19 Kleinunternehmer: keine USt) · Vereinfacht, keine Steuerberatung.
         </div>
       </div>
     );

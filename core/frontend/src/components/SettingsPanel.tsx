@@ -3483,7 +3483,13 @@ function BrunoSection() {
       saved.state !== defs.state ||
       saved.children !== defs.children ||
       saved.is_church_member !== defs.is_church_member ||
-      Math.abs(saved.health_add - defs.health_add) > 1e-6);
+      Math.abs(saved.health_add - defs.health_add) > 1e-6 ||
+      saved.kv_type !== defs.kv_type ||
+      Math.abs(saved.pkv_monthly - defs.pkv_monthly) > 1e-6 ||
+      saved.kv_sick_pay !== defs.kv_sick_pay ||
+      saved.business_type !== defs.business_type ||
+      saved.hebesatz !== defs.hebesatz ||
+      saved.self_married !== defs.self_married);
 
   const save = async () => {
     if (!defs) return;
@@ -3582,6 +3588,114 @@ function BrunoSection() {
           }
           className="w-24 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] tabular-nums"
         />
+      </Row>
+
+      <div className="mt-4 mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+        Selbständig — Suffix <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">f</code> (z.&nbsp;B. <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">bruno 80000f</code>)
+      </div>
+
+      <Row
+        label="Rechtsform"
+        help="Freiberufler (§ 18 EStG) zahlen keine Gewerbesteuer; Gewerbebetriebe (§ 15) mit Freibetrag 24.500 € + § 35-Anrechnung."
+      >
+        <div className="flex gap-1">
+          {(["freiberufler", "gewerbe"] as const).map((b) => (
+            <button
+              key={b}
+              onClick={() => setDefs({ ...defs, business_type: b })}
+              className={
+                "h-7 rounded px-3 text-[12px] font-medium " +
+                (defs.business_type === b
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "border border-[var(--color-border)] hover:bg-[var(--color-surface)]")
+              }
+            >
+              {b === "freiberufler" ? "Freiberufler" : "Gewerbe"}
+            </button>
+          ))}
+        </div>
+      </Row>
+
+      {defs.business_type === "gewerbe" && (
+        <Row
+          label="GewSt-Hebesatz (%)"
+          help="Hebesatz deiner Gemeinde (z. B. Berlin 410, München 490, Bundesschnitt ≈ 400)."
+        >
+          <input
+            type="number"
+            min={0}
+            max={1200}
+            step={5}
+            value={defs.hebesatz}
+            onChange={(e) =>
+              setDefs({ ...defs, hebesatz: Math.max(0, parseInt(e.target.value, 10) || 0) })
+            }
+            className="w-24 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] tabular-nums"
+          />
+        </Row>
+      )}
+
+      <Row
+        label="Krankenversicherung"
+        help="GKV freiwillig wird auf den Gewinn berechnet (Mindest-/Höchstbemessungsgrenze); PKV als fester Monatsbeitrag inkl. privater Pflegepflicht."
+      >
+        <div className="flex gap-1">
+          {(["gkv", "pkv"] as const).map((k) => (
+            <button
+              key={k}
+              onClick={() => setDefs({ ...defs, kv_type: k })}
+              className={
+                "h-7 rounded px-3 text-[12px] font-medium " +
+                (defs.kv_type === k
+                  ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                  : "border border-[var(--color-border)] hover:bg-[var(--color-surface)]")
+              }
+            >
+              {k === "gkv" ? "GKV (freiwillig)" : "PKV (Fixbeitrag)"}
+            </button>
+          ))}
+        </div>
+      </Row>
+
+      {defs.kv_type === "gkv" ? (
+        <Row
+          label="Krankengeldanspruch"
+          help="Mit Krankengeld: allgemeiner Satz 14,6 %; ohne: ermäßigt 14,0 % (+ Zusatzbeitrag von oben)."
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              checked={defs.kv_sick_pay}
+              onChange={(e) => setDefs({ ...defs, kv_sick_pay: e.target.checked })}
+            />
+            <span>Mit Krankengeldanspruch (14,6 % statt 14,0 %)</span>
+          </label>
+        </Row>
+      ) : (
+        <Row label="PKV-Beitrag (€/Monat)" help="Voller Monatsbeitrag inkl. privater Pflegepflichtversicherung.">
+          <input
+            type="number"
+            min={0}
+            max={5000}
+            step={10}
+            value={defs.pkv_monthly}
+            onChange={(e) =>
+              setDefs({ ...defs, pkv_monthly: Math.max(0, parseFloat(e.target.value) || 0) })
+            }
+            className="w-24 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px] tabular-nums"
+          />
+        </Row>
+      )}
+
+      <Row label="Zusammenveranlagung" help="Verheiratet + gemeinsame Veranlagung → Splittingtarif statt Grundtarif.">
+        <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+          <input
+            type="checkbox"
+            checked={defs.self_married}
+            onChange={(e) => setDefs({ ...defs, self_married: e.target.checked })}
+          />
+          <span>Splittingtarif anwenden</span>
+        </label>
       </Row>
 
       <div className="mt-2 flex items-center gap-2">

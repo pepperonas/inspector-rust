@@ -165,6 +165,11 @@ export interface BrunoEntryView {
   state: string;
   children: number;
   isChurchMember: boolean;
+  /** Set when the `f` suffix selected the SELF-EMPLOYED calculation —
+   *  carries the full freelancer breakdown; the employee-shaped fields
+   *  above then mirror its headline numbers (net, rates) so row
+   *  rendering + Enter-paste work unchanged. */
+  self?: import("./bruno").BrunoSelfBreakdownView;
 }
 
 /** One file from the current Finder selection (Ctrl+Shift+F path). */

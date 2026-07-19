@@ -229,6 +229,19 @@ export interface BrunoDefaults {
   is_church_member: boolean;
   /** Krankenkasse-Zusatzbeitrag in **percent** (e.g. 2.45 for TK 2025). */
   health_add: number;
+  // ── Selbständigen-Defaults (nur fürs `f`-Suffix, v0.86.0) ──
+  /** "gkv" (freiwillig, berechnet) | "pkv" (fester Beitrag). */
+  kv_type: string;
+  /** PKV-Monatsbeitrag in Euro (inkl. privater Pflegepflicht). */
+  pkv_monthly: number;
+  /** GKV mit Krankengeldanspruch (14,6 %) statt ermäßigt (14,0 %). */
+  kv_sick_pay: boolean;
+  /** "freiberufler" (keine GewSt) | "gewerbe". */
+  business_type: string;
+  /** Gewerbesteuer-Hebesatz in Prozent (z. B. 400). */
+  hebesatz: number;
+  /** Zusammenveranlagung → Splittingtarif. */
+  self_married: boolean;
 }
 
 export function brunoGetDefaults(): Promise<BrunoDefaults> {

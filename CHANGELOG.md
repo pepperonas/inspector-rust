@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.12] — 2026-07-19
+
+### Added
+
+- **Real app screenshots in the README** (`docs/screenshots/` — history popup, figlet gallery, stats dashboard, inline calculator, bruno breakdown, `?` command index), captured from v0.85.11 against a **dummy clipboard history** (the real history DB was parked and restored — no private data on screen). New **Screenshots** and **Configuration** sections in both READMEs; footer now credits `© 2026 Martin Pfeffer | celox.io`.
+
+### Changed
+
+- **Repo cleanup:** removed 43 committed stray images from the repo root (screenshots of unrelated smart-home projects + old design mocks, all unreferenced).
+- **Honest coverage figures refreshed (measured 2026-07-19):** frontend `src/lib` 83 % stmt / 95 % branch (was cited as 79 %), Rust workspace 57 % line, whole frontend 20 % stmt — updated in README/CLAUDE.md where cited.
+- **Tests: 2 431 → 2 441** — `confirmDialog`'s fail-closed contract (mocked plugin: verdict pass-through, fail-closed on error, suppress-hide always released), `themePngColors` (CSS-var read, fallback palette, transparent flag) and `bannerPngBase64` guard paths.
+
 ## [0.85.11] — 2026-07-19
 
 ### Added

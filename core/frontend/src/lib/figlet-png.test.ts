@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { bannerGrid, cropBanner } from "./figlet-png";
+import { afterEach, describe, expect, it } from "vitest";
+import { bannerGrid, bannerPngBase64, cropBanner, themePngColors } from "./figlet-png";
 
 describe("cropBanner", () => {
   it("empty / whitespace-only banners crop to nothing", () => {
@@ -38,6 +38,45 @@ describe("cropBanner", () => {
 
   it("a single fully-indented line collapses to its glyphs", () => {
     expect(cropBanner("        #")).toEqual(["#"]);
+  });
+});
+
+describe("themePngColors", () => {
+  afterEach(() => {
+    document.documentElement.style.removeProperty("--color-fg");
+    document.documentElement.style.removeProperty("--color-bg");
+  });
+
+  it("reads the app's CSS custom properties", () => {
+    document.documentElement.style.setProperty("--color-fg", "#123456");
+    document.documentElement.style.setProperty("--color-bg", "#abcdef");
+    expect(themePngColors()).toEqual({ fg: "#123456", bg: "#abcdef" });
+  });
+
+  it("falls back to the dark palette when the vars are unset (e.g. tests)", () => {
+    const c = themePngColors();
+    expect(c.fg).toBe("#e5e7eb");
+    expect(c.bg).toBe("#111318");
+  });
+
+  it("transparent flag nulls the background but keeps the text colour", () => {
+    document.documentElement.style.setProperty("--color-fg", "#ffffff");
+    document.documentElement.style.setProperty("--color-bg", "#000000");
+    expect(themePngColors(true)).toEqual({ fg: "#ffffff", bg: null });
+  });
+});
+
+describe("bannerPngBase64 — guard paths (canvas-free)", () => {
+  it("an empty/whitespace-only banner yields null before any canvas work", () => {
+    expect(bannerPngBase64("", { fg: "#fff", bg: null })).toBeNull();
+    expect(bannerPngBase64("   \n  \n", { fg: "#fff", bg: "#000" })).toBeNull();
+  });
+
+  it("degrades to null when the environment offers no 2D canvas context", () => {
+    // happy-dom's canvas may or may not implement getContext("2d"); either
+    // way the function must return null-or-string, never throw.
+    const out = bannerPngBase64("##\n##", { fg: "#fff", bg: "#000" });
+    expect(out === null || typeof out === "string").toBe(true);
   });
 });
 

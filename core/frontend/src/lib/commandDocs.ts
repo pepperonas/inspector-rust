@@ -408,6 +408,32 @@ export const COMMAND_DOCS: CommandDoc[] = [
 
   // ── System ────────────────────────────────────────────────────────────
   {
+    command: "settings",
+    aliases: ["config"],
+    category: CAT_SYS,
+    version_added: "0.87.1",
+    tagline: "Open the Settings tab — optionally jump straight to a section.",
+    tagline_de: "Öffnet den Settings-Tab — optional direkt zu einer Sektion springen.",
+    synopsis: "settings [section]   ·   config [section]",
+    description:
+      "Opens Inspector Rust's Settings tab from the search bar. With an argument it deep-links to a section: the name is fuzzy-matched (exact > prefix > subsequence) against German AND English section names — `settings cue`, `settings sync`, `settings hotkeys`, `settings gesten` all work. The target section scrolls into view and flashes a highlight ring so you see exactly where you landed.",
+    arguments: [
+      { name: "section", required: false, description: "Section to jump to (fuzzy; DE/EN names) — e.g. cue · bruno · hotkeys · backup · gestures · timesheet.", default: "top of the Settings tab" },
+    ],
+    flags: [],
+    examples: [
+      { input: "settings", result: "Opens the Settings tab." },
+      { input: "settings cue", result: "Jumps to Cloud-Sync (cue) — token, connection checkmarks, sync now." },
+      { input: "settings hotkeys", result: "Jumps to Global shortcuts (rebindable action hotkeys)." },
+    ],
+    tips: [
+      "German names work too: `settings gesten`, `settings zeiterfassung`, `settings aufräumen`.",
+      "`config` is a drop-in alias if that's your muscle memory.",
+    ],
+    caveats: [],
+    related: ["kill"],
+  },
+  {
     command: "kill",
     aliases: [],
     category: CAT_SYS,

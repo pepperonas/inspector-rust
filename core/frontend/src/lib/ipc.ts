@@ -892,6 +892,21 @@ export function syncNow(): Promise<void> {
   return invoke("sync_now");
 }
 
+/** Result of the live connection probe (Settings → Cloud-Sync checkmarks). */
+export interface SyncProbe {
+  /** The server answered HTTP at all. */
+  reachable: boolean;
+  /** The token was accepted (only meaningful when `reachable`). */
+  authorized: boolean;
+  /** Failure detail; "" when everything is fine. */
+  message: string;
+}
+
+/** Probe the configured cue server + token — async, runs off the main thread. */
+export function syncTestConnection(): Promise<SyncProbe> {
+  return invoke("sync_test_connection");
+}
+
 /** Touchpad-gesture config (BetterTouchTool-style; opt-in, off by default).
  *  3-finger swipe up/down → volume, 3-finger tap → mute. */
 export interface GestureConfig {

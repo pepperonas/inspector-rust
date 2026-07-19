@@ -132,10 +132,12 @@ import {
 } from "../lib/ipc";
 import {
   getSyncConfig,
+  syncTestConnection,
   getSyncStatus,
   setSyncConfig,
   syncNow,
   type SyncConfig,
+  type SyncProbe,
   type SyncStatus,
 } from "../lib/ipc";
 import type { FakerDefaults } from "../lib/faker";
@@ -171,9 +173,24 @@ function prettyHotkey(code: string): string {
 interface Props {
   /** Notes-tab refresh — used to reflect imported notes immediately. */
   onBackupImported?: () => Promise<void> | void;
+  /** `settings <section>` deep-link: scroll to + highlight this section. */
+  jumpTo?: { id: string; nonce: number } | null;
 }
 
-export function SettingsPanel({ onBackupImported }: Props = {}) {
+export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
+  // `settings <section>` deep-link: scroll the target section into view and
+  // flash a highlight ring. Re-triggers on every jump via the nonce.
+  useEffect(() => {
+    if (!jumpTo) return;
+    const el = document.getElementById(`settings-${jumpTo.id}`);
+    if (!el) return;
+    const reduced = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    el.scrollIntoView({ behavior: reduced ? "auto" : "smooth", block: "start" });
+    el.classList.add("settings-jump-highlight");
+    const t = window.setTimeout(() => el.classList.remove("settings-jump-highlight"), 1800);
+    return () => window.clearTimeout(t);
+  }, [jumpTo]);
+
   const [cfg, setCfg] = useState<ExpanderConfig | null>(null);
   const [hotkey, setHotkey] = useState<string>(DEFAULT_HOTKEY);
   const [enabled, setEnabled] = useState(false);
@@ -1186,7 +1203,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mb-6">
           <Section
             icon={<Volume2 size={16} className="text-[var(--color-accent)]" />}
-            title="Sounds"
+            id="sounds"
+      title="Sounds"
             subtitle="Play short feedback cues for actions: snippet expansion, OCR recognised, screenshot captured, recording start/stop, and copy to clipboard."
           >
             <Row label="Feedback sounds">
@@ -1214,7 +1232,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mb-6">
           <Section
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
-            title="Touchpad gestures"
+            id="gestures"
+      title="Touchpad gestures"
             subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, 2-finger rest + 3rd-finger tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
           >
             <Row label="Enable gestures">
@@ -1262,7 +1281,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           <div className="mb-6">
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
-              title="Window snapping"
+              id="window"
+      title="Window snapping"
               subtitle="Drag a window to a screen edge to snap it: top → maximize, left/right → half. A preview shows the target zone; release to snap. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
             >
               <Row label="Enable snapping">
@@ -1353,7 +1373,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mb-6">
           <Section
             icon={<AlarmClock size={16} className="text-[var(--color-accent)]" />}
-            title="Timer alarm"
+            id="timer-alarm"
+      title="Timer alarm"
             subtitle="How a finished timer / countdown / alarm alerts you."
           >
             <Row label="Style">
@@ -1404,7 +1425,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
-            title="Global shortcuts"
+            id="global-shortcuts"
+      title="Global shortcuts"
             subtitle="Rebind the global action hotkeys. Press a combo to set it (Backspace clears, Esc cancels); a conflict with any other binding is rejected. Note for Windows: Ctrl+Shift+T is the browser's 'reopen closed tab' — rebind Timesheet here to avoid the clash."
           >
             <GlobalShortcutsSection />
@@ -1415,7 +1437,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Wand2 size={16} className="text-[var(--color-accent)]" />}
-            title="Text expander"
+            id="expander"
+      title="Text expander"
             subtitle="Type a snippet abbreviation in any text field, then press your hotkey to replace it with the snippet body. Like aText / TextExpander."
           >
             {/* Granted state — shown inline since it's not actionable.
@@ -1683,7 +1706,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-8">
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
-            title="Clipboard privacy"
+            id="clipboard-privacy"
+      title="Clipboard privacy"
             subtitle="Keep secrets out of the clipboard history, and auto-wipe sensitive copies."
           >
             {privacy === null ? (
@@ -2032,7 +2056,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<SunMoon size={16} className="text-[var(--color-accent)]" />}
-            title="Appearance"
+            id="appearance"
+      title="Appearance"
             subtitle="Choose a colour theme. System follows your OS light/dark setting; Light and Dark override it."
           >
             <Row label="Theme">
@@ -2128,7 +2153,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Power size={16} className="text-[var(--color-accent)]" />}
-            title="Startup"
+            id="startup"
+      title="Startup"
             subtitle={
               IS_MAC
                 ? "Have Inspector Rust launch automatically when you log in. Uses a LaunchAgent (~/Library/LaunchAgents/InspectorRust.plist) — no Dock icon, opens hidden in the tray."
@@ -2249,7 +2275,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
-            title="Input lock"
+            id="input-lock"
+      title="Input lock"
             subtitle="Type `freeze` in the popup to block all keyboard + mouse input — release with the configured chord."
           >
             <Row
@@ -2344,7 +2371,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Trash2 size={16} className="text-[var(--color-accent)]" />}
-            title="Cleaning"
+            id="cleaning"
+      title="Cleaning"
             subtitle="Delete cache / log / temp files inside known-safe folders. Type `clean` in the search bar — it always shows a preview and deletes only after you confirm."
           >
             {cleanCfg === null ? (
@@ -2548,7 +2576,8 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
         <div className="mt-6">
           <Section
             icon={<Archive size={16} className="text-[var(--color-accent)]" />}
-            title="Backup & restore"
+            id="backup"
+      title="Backup & restore"
             subtitle="Export the whole app — clipboard history, snippets, notes, 2FA accounts and every setting — to a single file, optionally password-encrypted (AES-256-GCM, Argon2id). Import merges: snippets upsert by abbreviation, history dedupes by hash, settings overwrite by key, 2FA/timesheet dedupe; notes append."
           >
             <Row label="What's included">
@@ -2856,6 +2885,7 @@ function TimesheetSection() {
   return (
     <Section
       icon={<Clock size={16} className="text-[var(--color-accent)]" />}
+      id="timesheet"
       title="Timesheet"
       subtitle="Opt-in time tracking (track on/off). Records app usage by focus; idle auto-pauses; window titles + URLs are encrypted at rest. Nothing leaves your machine (the browser extension uses a loopback socket only)."
     >
@@ -2995,14 +3025,38 @@ function CloudSyncSection() {
   const [status, setStatus] = useState<SyncStatus | null>(null);
   const [showToken, setShowToken] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  // Live probe result (server reachable / token valid) — null = not yet
+  // probed, "probing" while the async check runs.
+  const [probe, setProbe] = useState<SyncProbe | null>(null);
+  const [probing, setProbing] = useState(false);
 
   const refreshStatus = () => {
     void getSyncStatus().then(setStatus).catch(() => {});
   };
+  const runProbe = () => {
+    setProbing(true);
+    syncTestConnection()
+      .then(setProbe)
+      .catch(() => setProbe(null))
+      .finally(() => setProbing(false));
+  };
   useEffect(() => {
-    void getSyncConfig().then(setCfgState).catch(() => {});
+    void getSyncConfig().then((c) => {
+      setCfgState(c);
+      // Auto-probe on open when sync is configured — the checkmarks show the
+      // live truth without the user having to press anything.
+      if (c.enabled && c.token.trim() !== "") runProbe();
+    }).catch(() => {});
     refreshStatus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // The worker emits after EVERY cycle (success or failure) → chips update
+    // live instead of blind-polling.
+    let unlisten: UnlistenFn | undefined;
+    void listen("sync-status-changed", () => {
+      refreshStatus();
+      setSyncing(false);
+    }).then((u) => (unlisten = u));
+    return () => unlisten?.();
+     
   }, []);
 
   const save = async (patch: Partial<SyncConfig>) => {
@@ -3010,7 +3064,11 @@ function CloudSyncSection() {
     const next = { ...cfg, ...patch };
     setCfgState(next);
     try {
-      setCfgState(await setSyncConfig(next));
+      const applied = await setSyncConfig(next);
+      setCfgState(applied);
+      // URL/token changed → the old probe verdict is stale; re-check.
+      if (applied.enabled && applied.token.trim() !== "") runProbe();
+      else setProbe(null);
     } catch {
       /* keep the optimistic state; the next load reconciles */
     }
@@ -3021,13 +3079,11 @@ function CloudSyncSection() {
     try {
       await syncNow();
     } catch {
-      /* ignore — status line reports errors */
-    }
-    // The worker debounces ~1.5 s; poll the status shortly after.
-    window.setTimeout(() => {
-      refreshStatus();
       setSyncing(false);
-    }, 4000);
+    }
+    // Completion arrives via the sync-status-changed event; this timeout is
+    // only the safety net if the worker never answers.
+    window.setTimeout(() => setSyncing(false), 20000);
   };
 
   const lastLabel =
@@ -3038,6 +3094,7 @@ function CloudSyncSection() {
   return (
     <Section
       icon={<Cloud size={16} className="text-[var(--color-accent)]" />}
+      id="cloud-sync"
       title="Cloud-Sync (cue)"
       subtitle="Synchronisiert Snippets automatisch mit cue (cue.celox.io) — in beide Richtungen, inkl. Löschungen. Welche Gruppen mitmachen, wird in cue am ☁️-Symbol im Gruppen-Header umgeschaltet; bei Konflikten gewinnt die höhere Version (bei Gleichstand cue)."
     >
@@ -3090,6 +3147,44 @@ function CloudSyncSection() {
             </div>
           </Row>
 
+          {/* Live status chips: server reachable · token valid · last sync. */}
+          <div className="flex flex-wrap items-center gap-2">
+            <SyncChip
+              state={probing ? "busy" : probe === null ? "idle" : probe.reachable ? "ok" : "fail"}
+              okLabel="Server erreichbar"
+              failLabel="Server nicht erreichbar"
+              idleLabel="Server: nicht geprüft"
+            />
+            <SyncChip
+              state={
+                probing
+                  ? "busy"
+                  : probe === null || !probe.reachable
+                    ? "idle"
+                    : probe.authorized
+                      ? "ok"
+                      : "fail"
+              }
+              okLabel="Token gültig"
+              failLabel="Token ungültig"
+              idleLabel="Token: nicht geprüft"
+            />
+            <SyncChip
+              state={
+                syncing
+                  ? "busy"
+                  : status === null || status.last_ms === 0
+                    ? "idle"
+                    : status.last_error === ""
+                      ? "ok"
+                      : "fail"
+              }
+              okLabel={`Letzter Sync ${lastLabel}`}
+              failLabel="Letzter Sync fehlgeschlagen"
+              idleLabel="Noch nie synchronisiert"
+            />
+          </div>
+
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -3099,10 +3194,21 @@ function CloudSyncSection() {
             >
               {syncing ? "Synchronisiere…" : "Jetzt synchronisieren"}
             </button>
-            <span className="text-[11px] text-[var(--color-muted)]">
-              Zuletzt: {lastLabel}
-            </span>
+            <button
+              type="button"
+              disabled={probing || cfg.url.trim() === ""}
+              onClick={runProbe}
+              className="rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium enabled:hover:border-[var(--color-accent)] disabled:opacity-50"
+            >
+              {probing ? "Prüfe…" : "Verbindung testen"}
+            </button>
           </div>
+          {probe !== null && probe.message !== "" && !probing && (
+            <div className="flex items-center gap-2 rounded border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-[12px]">
+              <AlertTriangle size={14} className="shrink-0 text-amber-500" />
+              <span>{probe.message}</span>
+            </div>
+          )}
           {status && status.last_error !== "" && (
             <div className="flex items-center gap-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px]">
               <AlertTriangle size={14} className="shrink-0 text-red-500" />
@@ -3115,20 +3221,63 @@ function CloudSyncSection() {
   );
 }
 
+/** One ✓/✗/…-chip for the Cloud-Sync status row. `idle` = grey (not yet
+ *  checked), `busy` = pulsing while a probe/sync runs. */
+function SyncChip({
+  state,
+  okLabel,
+  failLabel,
+  idleLabel,
+}: {
+  state: "ok" | "fail" | "idle" | "busy";
+  okLabel: string;
+  failLabel: string;
+  idleLabel: string;
+}) {
+  const styles: Record<typeof state, string> = {
+    ok: "border-emerald-500/40 bg-emerald-500/10 text-emerald-500",
+    fail: "border-red-500/40 bg-red-500/10 text-red-500",
+    idle: "border-[var(--color-border)] text-[var(--color-muted)]",
+    busy: "border-[var(--color-border)] text-[var(--color-muted)] animate-pulse",
+  };
+  const label =
+    state === "ok" ? okLabel : state === "fail" ? failLabel : state === "busy" ? "Prüfe…" : idleLabel;
+  return (
+    <span
+      className={
+        "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] font-medium " +
+        styles[state]
+      }
+    >
+      {state === "ok" ? (
+        <CheckCircle2 size={13} className="shrink-0" />
+      ) : state === "fail" ? (
+        <AlertTriangle size={13} className="shrink-0" />
+      ) : (
+        <span className="inline-block h-2 w-2 shrink-0 rounded-full bg-current opacity-60" />
+      )}
+      {label}
+    </span>
+  );
+}
+
 function Section({
 
   icon,
   title,
   subtitle,
+  id,
   children,
 }: {
   icon: React.ReactNode;
   title: string;
   subtitle?: string;
+  /** Deep-link anchor for the `settings <section>` command (settings-<id>). */
+  id?: string;
   children: React.ReactNode;
 }) {
   return (
-    <div>
+    <div id={id ? `settings-${id}` : undefined} className="scroll-mt-3 rounded-lg">
       <div className="mb-1 flex items-center gap-2">
         {icon}
         <h2 className="text-[14px] font-semibold">{title}</h2>
@@ -3381,6 +3530,7 @@ function PopupHotkeySection() {
   return (
     <Section
       icon={<Keyboard size={16} className="text-[var(--color-accent)]" />}
+      id="popup-hotkey"
       title="Popup hotkey"
       subtitle="The global shortcut that opens the search popup. Change it if the default collides with another app you use."
     >
@@ -3648,6 +3798,7 @@ function BrunoSection() {
   return (
     <Section
       icon={<Euro size={16} className="text-[var(--color-accent)]" />}
+      id="bruno"
       title="Bruno — Brutto/Netto-Defaults"
       subtitle="Die Werte werden auf jeden `bruno <€>`-Aufruf angewandt. Steuerjahr 2025 (vereinfacht; keine Steuerberatung)."
     >
@@ -3908,6 +4059,7 @@ function FakerSection() {
   return (
     <Section
       icon={<Dices size={16} className="text-[var(--color-accent)]" />}
+      id="faker"
       title="Faker — fake-data defaults"
       subtitle="Applied to every `faker` call and `{faker:…}` snippet placeholder."
     >
@@ -4059,6 +4211,7 @@ function FigletSection() {
   return (
     <Section
       icon={<Type size={16} className="text-[var(--color-accent)]" />}
+      id="figlet"
       title="Figlet — ASCII-art banner defaults"
       subtitle="Applied to every `figlet` command; the option chips still override per banner."
     >
@@ -4279,6 +4432,7 @@ function SecuritySection() {
   return (
     <Section
       icon={<ShieldAlert size={16} className="text-[var(--color-accent)]" />}
+      id="security"
       title="Security builders"
       subtitle="Defaults for the sec / nmap / sqlmap / ferox / john command builders. Authorized targets only — Inspector Rust builds commands, it never scans."
     >
@@ -4435,6 +4589,7 @@ function MemeSection() {
   return (
     <Section
       icon={<Smile size={16} className="text-[var(--color-accent)]" />}
+      id="meme"
       title="Meme library"
       subtitle="The folder the `meme [query]` picker scans (recursively) for GIFs/images. On Windows with Google Drive in streaming mode the library is under a drive letter, e.g. G:\\My Drive\\media\\memes — set it here."
     >

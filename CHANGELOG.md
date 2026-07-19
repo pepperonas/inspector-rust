@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.1] — 2026-07-19
+
+### Added
+
+- **`settings` command — open the Settings tab by typing** (alias `config`). Bare `settings` opens the tab; with an argument it **deep-links to a section**, fuzzy-matched against German AND English names — `settings cue`, `settings sync`, `settings hotkeys`, `settings gesten`, `settings aufräumen` all resolve. The target section scrolls into view and flashes a brief accent highlight ring (`prefers-reduced-motion`-safe). 20 sections are anchored (`settings-<id>`) via a pure, unit-tested registry (`lib/settings-sections.ts`); `settings?` inline help documents it.
+- **Cloud-Sync (cue) settings are now interactive — live ✓/✗ status chips.** Three chips show the real state at a glance: **Server erreichbar** · **Token gültig** · **Letzter Sync** (with timestamp). A new async `sync_test_connection` IPC probes the pull endpoint and classifies the outcome (2xx = ok · 401/403 = token rejected · other = reachable-but-broken · network error = unreachable — pure, unit-tested `classify_probe`); the probe runs automatically when the section opens and after every URL/token change, plus a manual **“Verbindung testen”** button. The sync worker now emits `sync-status-changed` after **every** cycle (success or failure), so the chips and the “last sync” line update live — the old blind 4-second poll after “Jetzt synchronisieren” is gone.
+
 ## [0.87.0] — 2026-07-19
 
 ### Added

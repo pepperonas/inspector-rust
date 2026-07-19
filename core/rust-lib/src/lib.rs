@@ -536,6 +536,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_sync_config,
             commands::get_sync_status,
             commands::sync_now,
+            commands::sync_test_connection,
             commands::get_gesture_config,
             commands::set_gesture_config,
             commands::get_keepalive_enabled,

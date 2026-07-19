@@ -1471,6 +1471,16 @@ pub fn sync_now() -> Result<(), String> {
     Ok(())
 }
 
+/// Live connection probe for the Settings-UI checkmarks — async so the
+/// blocking HTTP call runs on the command thread pool, never the main thread.
+#[tauri::command]
+pub async fn sync_test_connection(
+    db: State<'_, DbHandle>,
+) -> Result<crate::sync::SyncProbe, String> {
+    let cfg = crate::sync::get_config(&db).map_err(map_err)?;
+    Ok(crate::sync::test_connection(&cfg))
+}
+
 // ── Notes ────────────────────────────────────────────────────────────────────
 
 #[tauri::command]

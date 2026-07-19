@@ -169,6 +169,7 @@ import {
 } from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
 import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { matchSettingsSection } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { matchTotpEntries } from "./lib/totp";
@@ -192,6 +193,9 @@ function App() {
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
   const [activeTab, setActiveTab] = useState<Tab>("history");
+  // `settings <section>` deep-link: SettingsPanel scrolls to this id +
+  // briefly highlights the section. The nonce retriggers on repeat jumps.
+  const [settingsJump, setSettingsJump] = useState<{ id: string; nonce: number } | null>(null);
   // Hidden game easter eggs — when non-null, the whole popup is replaced
   // by the matching game. `"pong"` ← typing `getshaky`; the two snake
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
@@ -1147,6 +1151,14 @@ function App() {
         hint = m
           ? "Records app usage by focus; idle auto-pauses · encrypted at rest"
           : "e.g. track on · track off";
+        break;
+      }
+      case "settings": {
+        const section = matchSettingsSection(arg);
+        label = section ? `Open Settings → ${section.label}` : "Open Settings";
+        hint = section
+          ? "Jumps straight to the section"
+          : "Optional: section name — e.g. settings cue · settings hotkeys · settings bruno";
         break;
       }
       case "trim":
@@ -2672,6 +2684,14 @@ function App() {
           console.error("track command failed", e);
         }
         return true;
+      } else if (commandKind === "settings") {
+        // Open the Settings tab; an argument deep-links to a section
+        // (fuzzy: `settings cue`, `settings hotkeys`, `settings gesten`).
+        const section = matchSettingsSection(arg);
+        setQuery("");
+        setSettingsJump(section ? { id: section.id, nonce: Date.now() } : null);
+        setActiveTab("settings");
+        return true;
       } else if (commandKind === "timer") {
         const t = parseTimerArg(arg);
         if (!t) {
@@ -3633,6 +3653,7 @@ function App() {
             <FeaturesPanel />
           ) : (
             <SettingsPanel
+              jumpTo={settingsJump}
               onBackupImported={async () => {
                 // After a Backup → Import, refresh every list that might
                 // have new rows. History reloads itself via the

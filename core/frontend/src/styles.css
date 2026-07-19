@@ -948,3 +948,10 @@ code {
   .shazam-ring { animation: none; opacity: 0.4; }
   .shazam-bob { animation: none; }
 }
+
+/* `settings <section>` deep-link: brief highlight ring on the target section.
+   Paint-only (box-shadow fade) — safe under prefers-reduced-motion. */
+.settings-jump-highlight {
+  box-shadow: 0 0 0 2px var(--color-accent), 0 0 18px 2px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  transition: box-shadow 0.9s ease 0.6s;
+}

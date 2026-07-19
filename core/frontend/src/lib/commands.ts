@@ -80,6 +80,7 @@ export type CommandKind =
   | "track"
   | "trim"
   | "calendar"
+  | "settings"
   | "faker"
   | "sec"
   | "figlet";
@@ -672,6 +673,21 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "cal",
     syntax: "cal [month year]",
     description: "Alias for calendar",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "settings",
+    keyword: "settings",
+    syntax: "settings [section]",
+    description: "Open the Settings tab (optionally jump to a section)",
+    requiresArg: false,
+  },
+  {
+    kind: "settings",
+    keyword: "config",
+    syntax: "config [section]",
+    description: "Alias for settings",
     requiresArg: false,
     hidden: true,
   },

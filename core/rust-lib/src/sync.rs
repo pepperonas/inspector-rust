@@ -90,6 +90,67 @@ pub fn get_status(db: &DbHandle) -> anyhow::Result<SyncStatus> {
     })
 }
 
+// ── Connection test (Settings-UI checkmarks) ─────────────────────────────────
+
+/// Result of a live connection probe — drives the ✓/✗ chips in Settings →
+/// Cloud-Sync. `reachable` = the server answered HTTP at all; `authorized` =
+/// the token was accepted (only meaningful when `reachable`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SyncProbe {
+    pub reachable: bool,
+    pub authorized: bool,
+    /// Human-readable detail for the failure chip ("" when all good).
+    pub message: String,
+}
+
+/// Classify a probe outcome from the HTTP status (or `None` = network error).
+/// Pure — unit-tested. 2xx → ok; 401/403 → server fine, token rejected;
+/// other statuses → reachable but broken (surfaced verbatim).
+pub fn classify_probe(status: Option<u16>, network_error: &str) -> SyncProbe {
+    match status {
+        None => SyncProbe {
+            reachable: false,
+            authorized: false,
+            message: if network_error.is_empty() {
+                "Server nicht erreichbar".to_string()
+            } else {
+                format!("Server nicht erreichbar: {network_error}")
+            },
+        },
+        Some(s) if (200..300).contains(&s) => SyncProbe {
+            reachable: true,
+            authorized: true,
+            message: String::new(),
+        },
+        Some(401) | Some(403) => SyncProbe {
+            reachable: true,
+            authorized: false,
+            message: "Token ungültig oder abgelaufen".to_string(),
+        },
+        Some(s) => SyncProbe {
+            reachable: true,
+            authorized: false,
+            message: format!("Server antwortet mit HTTP {s}"),
+        },
+    }
+}
+
+/// Live probe against the pull endpoint with the configured token. Blocking
+/// (ureq) — call it from an async command / worker thread, never the main
+/// thread. An empty token probes reachability only (expects 401 → reachable).
+pub fn test_connection(cfg: &SyncConfig) -> SyncProbe {
+    let url = format!("{}/api/sync/snippets", cfg.url.trim_end_matches('/'));
+    let req = ureq::get(&url)
+        .set("Authorization", &format!("Bearer {}", cfg.token.trim()))
+        .timeout(HTTP_TIMEOUT);
+    match req.call() {
+        Ok(resp) => classify_probe(Some(resp.status()), ""),
+        // ureq returns HTTP-error statuses as Err(Status) — still "reachable".
+        Err(ureq::Error::Status(code, _)) => classify_probe(Some(code), ""),
+        Err(e) => classify_probe(None, &e.to_string()),
+    }
+}
+
 // ── Wire format (matches cue's /api/sync/snippets) ───────────────────────────
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -360,6 +421,9 @@ pub fn start(app: AppHandle, db: DbHandle) {
                     let _ = settings::set(&db, KEY_LAST_ERROR, &err);
                 }
             }
+            // Tell the Settings UI a cycle finished (success or failure) so the
+            // status chips refresh live instead of blind-polling.
+            let _ = app.emit("sync-status-changed", ());
         })
         .ok();
 }
@@ -377,6 +441,32 @@ mod tests {
         snippets::init_table(&db).expect("snippets schema");
         settings::init_table(&db).expect("settings schema");
         db
+    }
+
+    #[test]
+    fn classify_probe_maps_the_outcome_matrix() {
+        // 2xx → fully ok, no message.
+        assert_eq!(
+            classify_probe(Some(200), ""),
+            SyncProbe { reachable: true, authorized: true, message: String::new() }
+        );
+        assert!(classify_probe(Some(204), "").authorized);
+        // 401/403 → server fine, token rejected.
+        for s in [401u16, 403] {
+            let p = classify_probe(Some(s), "");
+            assert!(p.reachable && !p.authorized, "status {s}");
+            assert!(p.message.contains("Token"), "status {s}: {}", p.message);
+        }
+        // Other HTTP errors → reachable, surfaced verbatim.
+        let p = classify_probe(Some(500), "");
+        assert!(p.reachable && !p.authorized);
+        assert!(p.message.contains("500"));
+        // Network error → unreachable, detail carried through.
+        let p = classify_probe(None, "dns lookup failed");
+        assert!(!p.reachable && !p.authorized);
+        assert!(p.message.contains("dns lookup failed"));
+        // Network error without detail still explains itself.
+        assert!(!classify_probe(None, "").message.is_empty());
     }
 
     fn wire(abbr: &str, body: &str, category: &str, version: i64) -> WireSnippet {

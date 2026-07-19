@@ -843,7 +843,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "shazam history", result: "Your past recognitions with links + per-row delete." },
       { input: "shazam", result: "R re-records, Esc exits." },
     ],
-    tips: ["Cover art loads directly; Spotify/YouTube links open in the browser."],
+    tips: [
+      "R re-records, L opens the LYRICS of the match (in-app via lrclib.net, browser-search fallback), Enter copies “Title – Artist”.",
+      "The platform buttons are brand icons now — Shazam (blue), Spotify (green), YouTube (red) — hover for the tooltip.",
+      "`shazam history` opens your recognized-songs list directly — with a search field over title · artist · album · genre.",
+    ],
     caveats: ["Needs a microphone + network (the recognition query). No match → a clear 'no match' state."],
     related: [],
   },

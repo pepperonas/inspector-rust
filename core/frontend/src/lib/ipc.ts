@@ -1123,6 +1123,12 @@ export function micCaptureStop(): Promise<void> {
 export function shazamHistoryList(limit?: number): Promise<ShazamHistoryEntry[]> {
   return invoke("shazam_history_list", { limit });
 }
+
+/** Lyrics for a recognized track (lrclib.net, anonymous — only artist + title
+ *  are sent). `null` = the catalogue has no lyrics for this track. */
+export function shazamLyrics(artist: string, title: string): Promise<string | null> {
+  return invoke("shazam_lyrics", { artist, title });
+}
 export function shazamHistoryDelete(id: number): Promise<void> {
   return invoke("shazam_history_delete", { id });
 }

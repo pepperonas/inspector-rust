@@ -5211,3 +5211,11 @@ pub async fn shazam_history_delete(db: State<'_, DbHandle>, id: i64) -> Result<(
 pub async fn shazam_history_clear(db: State<'_, DbHandle>) -> Result<(), String> {
     crate::shazam::history_clear(&db).map_err(map_err)
 }
+
+/// Fetch lyrics for a recognized track (lrclib.net, anonymous). Async — the
+/// blocking HTTP call runs on the command thread pool. `Ok(None)` = the
+/// catalogue has no lyrics for this track.
+#[tauri::command]
+pub async fn shazam_lyrics(artist: String, title: String) -> Result<Option<String>, String> {
+    crate::shazam::fetch_lyrics(&artist, &title)
+}

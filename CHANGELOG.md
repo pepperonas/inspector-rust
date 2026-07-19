@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.3] — 2026-07-19
+
+### Changed
+
+- **shazam: brand icons, in-app lyrics, searchable history.** The labelled platform buttons are now **brand-icon buttons** (Shazam blue · Spotify green · YouTube red, inline Simple-Icons SVGs with tooltips) — on the result card as round buttons, in the history rows as compact icon chips. New **Lyrics** button (and `L` shortcut, plus a per-history-row chip): fetches the song text **in-app** from lrclib.net (keyless, anonymous — only artist + title are sent; prefers plain lyrics, strips LRC timestamps from synced ones — pure, unit-tested parser) with a browser-search fallback when the catalogue has no entry; Esc goes back to where you came from. The **history is searchable** — a search field filters live over title · artist · album · genre (all terms must match, pure unit-tested filter), the count shows `x of y`, and the load limit rose from 100 to 500. New async `shazam_lyrics` IPC. +8 tests.
+
 ## [0.87.2] — 2026-07-19
 
 ### Changed

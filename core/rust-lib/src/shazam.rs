@@ -704,6 +704,67 @@ pub fn history_delete(db: &DbHandle, id: i64) -> rusqlite::Result<()> {
     Ok(())
 }
 
+// ── Lyrics (lrclib.net — free, keyless) ──────────────────────────────────────
+
+/// Strip LRC timestamps (`[mm:ss.xx]`, possibly several per line) from synced
+/// lyrics so they read as plain text. Pure — unit-tested.
+pub fn strip_synced_timestamps(synced: &str) -> String {
+    let mut out = String::with_capacity(synced.len());
+    for line in synced.lines() {
+        let mut rest = line;
+        // Consume every leading `[…]` tag (timestamps or metadata).
+        loop {
+            let t = rest.trim_start();
+            if let Some(end) = t.strip_prefix('[').and_then(|r| r.find(']')) {
+                rest = &t[end + 2..];
+            } else {
+                break;
+            }
+        }
+        out.push_str(rest.trim_start());
+        out.push('\n');
+    }
+    out.trim_end().to_string()
+}
+
+/// Parse lrclib's `/api/get` response body: prefer `plainLyrics`, fall back to
+/// `syncedLyrics` (timestamps stripped). `None` when the track has neither
+/// (instrumental) or the JSON is malformed. Pure — unit-tested.
+pub fn parse_lrclib_response(body: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let plain = v.get("plainLyrics").and_then(|x| x.as_str()).unwrap_or("");
+    if !plain.trim().is_empty() {
+        return Some(plain.trim().to_string());
+    }
+    let synced = v.get("syncedLyrics").and_then(|x| x.as_str()).unwrap_or("");
+    if !synced.trim().is_empty() {
+        let stripped = strip_synced_timestamps(synced);
+        if !stripped.trim().is_empty() {
+            return Some(stripped);
+        }
+    }
+    None
+}
+
+/// Fetch lyrics for a recognized track from lrclib.net (anonymous, no key —
+/// only artist + title leave the machine). Blocking (ureq) — call from an
+/// async command. `Ok(None)` = the catalogue has no lyrics for this track.
+pub fn fetch_lyrics(artist: &str, title: &str) -> Result<Option<String>, String> {
+    let resp = ureq::get("https://lrclib.net/api/get")
+        .query("artist_name", artist.trim())
+        .query("track_name", title.trim())
+        .timeout(std::time::Duration::from_secs(10))
+        .call();
+    match resp {
+        Ok(r) => {
+            let body = r.into_string().map_err(|e| format!("lyrics read: {e}"))?;
+            Ok(parse_lrclib_response(&body))
+        }
+        Err(ureq::Error::Status(404, _)) => Ok(None),
+        Err(e) => Err(format!("Songtext-Abruf fehlgeschlagen: {e}")),
+    }
+}
+
 pub fn history_clear(db: &DbHandle) -> rusqlite::Result<()> {
     db.lock().execute("DELETE FROM shazam_history", [])?;
     Ok(())
@@ -974,5 +1035,30 @@ mod tests {
         assert_eq!(history_list(&db, 50).unwrap().len(), 1);
         history_clear(&db).unwrap();
         assert!(history_list(&db, 50).unwrap().is_empty());
+    }
+
+    #[test]
+    fn strip_synced_timestamps_removes_leading_tags() {
+        let synced = "[00:12.34] Hello darkness\n[00:15.00][00:15.10] my old friend\n[la:bel] tagged";
+        assert_eq!(
+            strip_synced_timestamps(synced),
+            "Hello darkness\nmy old friend\ntagged"
+        );
+    }
+
+    #[test]
+    fn parse_lrclib_prefers_plain_and_falls_back_to_synced() {
+        let both = r#"{"plainLyrics":"Plain text","syncedLyrics":"[00:01.00] Synced"}"#;
+        assert_eq!(parse_lrclib_response(both).as_deref(), Some("Plain text"));
+        let synced_only = r#"{"plainLyrics":"","syncedLyrics":"[00:01.00] Only synced"}"#;
+        assert_eq!(parse_lrclib_response(synced_only).as_deref(), Some("Only synced"));
+    }
+
+    #[test]
+    fn parse_lrclib_handles_instrumental_and_garbage() {
+        assert_eq!(parse_lrclib_response(r#"{"plainLyrics":"","syncedLyrics":""}"#), None);
+        assert_eq!(parse_lrclib_response(r#"{"instrumental":true}"#), None);
+        assert_eq!(parse_lrclib_response("not json"), None);
+        assert_eq!(parse_lrclib_response(r#"{"plainLyrics":null}"#), None);
     }
 }

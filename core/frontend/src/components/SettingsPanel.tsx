@@ -1200,7 +1200,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         </div>
       )}
 
-      <div className="w-full">
+      <div className="md3-settings-cascade w-full">
         {/* Popup behavior — the very first thing: how the overlay dismisses. */}
         <div className="mb-6">
           <PopupBehaviorSection />

@@ -17,7 +17,7 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
       // tab-strip width if more tabs get added.
       <div
         className={
-          "flex h-14 items-center gap-3 border-b pl-4 pr-[260px] transition-colors duration-200 " +
+          "md3-focus-halo flex h-14 items-center gap-3 border-b pl-4 pr-[260px] transition-colors duration-200 " +
           // Calculator/converter active → highlight the input like a command
           // (reddish accent + bar tint), so it's visually obvious you're computing.
           (calcMode ? "border-rose-500/60 bg-rose-500/5" : "border-[var(--color-border)]")

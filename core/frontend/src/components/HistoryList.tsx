@@ -127,11 +127,12 @@ export function HistoryList({
 
       {entries.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-muted)]">
-          No matches
+          <span className="md3-empty-float">No matches</span>
         </div>
       ) : (
         <div ref={parentRef} className="flex-1 overflow-auto">
           <div
+            data-vlist
             style={{
               height: virtualizer.getTotalSize(),
               width: "100%",

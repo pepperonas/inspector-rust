@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.88.0] — 2026-07-19
+
+### Added
+
+- **App-wide motion pass — eight MD3-Expressive animation additions**, all `prefers-reduced-motion`-safe and compositor-friendly: a **sliding pill indicator** glides under the active header tab (shared element, measured, emphasized curve) instead of a hard background swap; the visible list rows **cascade in on every popup open** (opacity-only stagger — virtualizer-safe, never per keystroke); the **preview crossfades** on selection change (without remounting — image previews don't refetch); **Settings sections cascade up** when the tab opens; the **search field glows** softly on focus; **empty states float** gently (History "No matches", Shazam history); **"Copied!"/"Saved" confirmations pop** with a mini spring. The stats dashboard stays animation-free by design (documented perf constraint); games/visualizers keep their own aesthetics.
+
 ## [0.87.6] — 2026-07-19
 
 ### Fixed

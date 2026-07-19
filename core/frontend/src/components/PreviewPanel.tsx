@@ -1512,7 +1512,7 @@ function CutoutButton({ source }: { source: CutoutSource }) {
         ⌘B
       </kbd>
       {savedTo && (
-        <span className="ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
+        <span className="md3-success-pop ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
           <Check size={11} />
           Saved <span className="font-[var(--font-mono)]">{filename}</span>
         </span>
@@ -1594,7 +1594,7 @@ function SaveImageButton({ entryId }: { entryId: number }) {
         ⌘S
       </kbd>
       {savedTo && (
-        <span className="ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
+        <span className="md3-success-pop ml-auto flex items-center gap-1 truncate text-[11px] text-emerald-400" title={savedTo}>
           <Check size={11} />
           Saved <span className="font-[var(--font-mono)]">{filename}</span>
         </span>

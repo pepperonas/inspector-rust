@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
@@ -198,6 +198,11 @@ function App() {
   // `settings <section>` deep-link: SettingsPanel scrolls to this id +
   // briefly highlights the section. The nonce retriggers on repeat jumps.
   const [settingsJump, setSettingsJump] = useState<{ id: string; nonce: number } | null>(null);
+  /** True briefly after each popup open — drives the list-entrance cascade. */
+  const [listEntrance, setListEntrance] = useState(true);
+  /** Preview crossfade (v0.88.0): restart the enter animation on selection
+   *  change WITHOUT remounting the panel (a remount would refetch images). */
+  const previewFadeRef = useRef<HTMLDivElement | null>(null);
   // Hidden game easter eggs — when non-null, the whole popup is replaced
   // by the matching game. `"pong"` ← typing `getshaky`; the two snake
   // modes ← `rockthebox` (walls kill) / `rockthabox` (wrap-around).
@@ -2123,6 +2128,11 @@ function App() {
     setActiveTab("history");
     setQuery("");
     setSelected(0);
+    // Staggered list entrance (v0.88.0): cascade the visible rows in on each
+    // popup OPEN (never per keystroke). The class is removed after the
+    // animation so later virtualizer updates render instantly.
+    setListEntrance(true);
+    window.setTimeout(() => setListEntrance(false), 650);
     // Reconcile the footer keep-awake LED to the true state on every open.
     // `wakelock on` / `caffeine on` hide the popup before the footer can
     // observe the `wakelock-changed` event, so re-fetch here — guarantees
@@ -2397,6 +2407,17 @@ function App() {
     const id = window.setTimeout(() => setTimerFiredLabel(null), 4000);
     return () => window.clearTimeout(id);
   }, [timerFiredLabel]);
+
+  // Preview crossfade restart — keyed on the selected entry identity.
+  const previewCrossfadeKey =
+    combined[selected] !== undefined ? `${combined[selected].kind}-${selected}` : "";
+  useEffect(() => {
+    const el = previewFadeRef.current;
+    if (!el) return;
+    el.classList.remove("md3-preview-in");
+    void el.offsetWidth; // reflow → the re-add restarts the animation
+    el.classList.add("md3-preview-in");
+  }, [previewCrossfadeKey]);
 
   const activate = async (i: number, shiftKey = false, altKey = false, metaKey = false) => {
     const target = combined[i];
@@ -3430,50 +3451,14 @@ function App() {
               </span>
             </div>
           )}
-          <div className="absolute right-3 top-1/2 flex -translate-y-1/2 gap-1">
-            <TabButton
-              active={activeTab === "history"}
-              onClick={() => setActiveTab("history")}
-            >
-              History
-            </TabButton>
-            <TabButton
-              active={activeTab === "snippets"}
-              onClick={() => {
-                setActiveTab("snippets");
-                void refreshSnippets();
-              }}
-            >
-              Snippets
-            </TabButton>
-            <TabButton
-              active={activeTab === "notes"}
-              onClick={() => {
-                setActiveTab("notes");
-                void refreshNotes();
-              }}
-            >
-              Notes
-            </TabButton>
-            <TabButton
-              active={activeTab === "timesheet"}
-              onClick={() => setActiveTab("timesheet")}
-            >
-              Timesheet
-            </TabButton>
-            <TabButton
-              active={activeTab === "features"}
-              onClick={() => setActiveTab("features")}
-            >
-              Features
-            </TabButton>
-            <TabButton
-              active={activeTab === "settings"}
-              onClick={() => setActiveTab("settings")}
-            >
-              Settings
-            </TabButton>
-          </div>
+          <TabBar
+            active={activeTab}
+            onSelect={(tab) => {
+              setActiveTab(tab);
+              if (tab === "snippets") void refreshSnippets();
+              if (tab === "notes") void refreshNotes();
+            }}
+          />
         </div>
 
         {/* Content — keyed on the active tab so it replays the MD3
@@ -3481,7 +3466,12 @@ function App() {
         <div key={activeTab} className="md3-tab-enter flex min-h-0 flex-1 flex-col">
           {activeTab === "history" ? (
             <div className="flex min-h-0 flex-1">
-              <div className="w-2/5 border-r border-[var(--color-border)]">
+              <div
+                className={
+                  "w-2/5 border-r border-[var(--color-border)]" +
+                  (listEntrance ? " md3-list-enter" : "")
+                }
+              >
                 <HistoryList
                   entries={combined}
                   selectedIndex={selected}
@@ -3655,6 +3645,7 @@ function App() {
                     />
                   </div>
                 ) : (
+                  <div ref={previewFadeRef} className="h-full min-h-0">
                   <PreviewPanel
                     entry={current}
                     pwgenMode={pwgenMode}
@@ -3707,6 +3698,7 @@ function App() {
                       searchRef.current?.focus();
                     }}
                   />
+                  </div>
                 )}
               </div>
             </div>
@@ -3758,30 +3750,65 @@ function App() {
   );
 }
 
-function TabButton({
+const TAB_ITEMS = [
+  ["history", "History"],
+  ["snippets", "Snippets"],
+  ["notes", "Notes"],
+  ["timesheet", "Timesheet"],
+  ["features", "Features"],
+  ["settings", "Settings"],
+] as const;
+
+type TabId = (typeof TAB_ITEMS)[number][0];
+
+/** Header tab bar with a SLIDING pill indicator (v0.88.0): the accent pill is
+ *  one shared element that glides under the active tab (measured left/width,
+ *  transform+width transition on the MD3 emphasized curve) instead of each
+ *  button repainting its own background. Buttons keep the tactile press. */
+function TabBar({
   active,
-  onClick,
-  children,
+  onSelect,
 }: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
+  active: TabId;
+  onSelect: (tab: TabId) => void;
 }) {
+  const btnRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
+
+  useLayoutEffect(() => {
+    const el = btnRefs.current[active];
+    if (!el) return;
+    setPill({ x: el.offsetLeft, w: el.offsetWidth });
+  }, [active]);
+
   return (
-    <button
-      onClick={onClick}
-      className={
-        // `transition` (all props) + an expressive overshoot easing: the active
-        // tab rests slightly enlarged and pops in with a tiny bounce; any tab
-        // scales down under the press (active:scale-90).
-        "rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition duration-200 ease-[cubic-bezier(0.34,1.56,0.64,1)] active:scale-90 " +
-        (active
-          ? "scale-[1.04] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-          : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]")
-      }
-    >
-      {children}
-    </button>
+    <div className="absolute right-3 top-1/2 flex -translate-y-1/2 gap-1">
+      {/* The gliding indicator — behind the labels. */}
+      {pill && (
+        <span
+          aria-hidden
+          className="absolute top-0 left-0 h-full rounded bg-[var(--color-accent)] transition-[transform,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
+          style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
+        />
+      )}
+      {TAB_ITEMS.map(([id, label]) => (
+        <button
+          key={id}
+          ref={(el) => {
+            btnRefs.current[id] = el;
+          }}
+          onClick={() => onSelect(id)}
+          className={
+            "relative z-10 rounded px-2 py-1 text-[11px] font-medium whitespace-nowrap transition-colors duration-200 active:scale-90 " +
+            (active === id
+              ? "text-[var(--color-accent-fg)]"
+              : "text-[var(--color-muted)] hover:bg-[var(--color-surface)] hover:text-[var(--color-fg)]")
+          }
+        >
+          {label}
+        </button>
+      ))}
+    </div>
   );
 }
 

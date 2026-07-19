@@ -121,7 +121,7 @@ Cloud-Sync mit cue — bidirektionaler Snippet-Sync mit cue.celox.io (Settings �
 Snippet-Versionierung — jedes Snippet hat eine Versionsnummer (vN, cue-kompatibel); zählt nur bei Inhaltsänderung (Kürzel/Titel/Body) hoch, Gruppen-Änderungen nie; Merge per max() beim Import
 Zuletzt-gewählt überlebt Neustarts — boom merkt sich das letzte Ausgabegerät (UID) und re-targetet es nach unsauberem Exit statt auf die MacBook-Speaker zu fallen; Helligkeits-/EDR-Level werden pro Display persistiert und beim App-Start wieder angewandt
 Popup-Verhalten — Toggle ganz oben in den Settings: „Click outside closes the popup" — aus = Overlay bleibt bei Klick außerhalb offen (Schließen per Esc — ein offenes Inline-Panel schluckt das erste Esc als Zurück, dann 2× — oder Popup-Hotkey); wirkt sofort, persistiert
-Themes — Dark/Light/System mit MD3-Expressive-Motion
+Themes — Dark/Light/System mit MD3-Expressive-Motion (u. a. gleitender Tab-Indikator, gestaffelte Listen-/Settings-Entrances, Preview-Crossfade, Fokus-Halo, atmende Empty-States, Success-Pops — alle reduced-motion-sicher)
 Popup-Größe — Small/Medium/Large
 Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts
 

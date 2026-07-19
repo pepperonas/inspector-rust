@@ -955,3 +955,111 @@ code {
   box-shadow: 0 0 0 2px var(--color-accent), 0 0 18px 2px color-mix(in srgb, var(--color-accent) 45%, transparent);
   transition: box-shadow 0.9s ease 0.6s;
 }
+
+/* ── v0.88.0 — app-wide motion additions (MD3 Expressive) ─────────────────── */
+
+/* 2 — staggered list entrance, replayed on each popup OPEN (not per
+   keystroke). Virtualizer constraint: the row root's transform belongs to
+   the virtualizer (translateY positioning) — so the cascade is OPACITY-ONLY
+   on the rows, staggered over the first dozen visible rows. */
+@keyframes md3-row-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.md3-list-enter [data-vlist] > * {
+  animation: md3-row-in 260ms var(--md3-standard, ease-out) backwards;
+}
+.md3-list-enter [data-vlist] > *:nth-child(1)  { animation-delay: 0ms; }
+.md3-list-enter [data-vlist] > *:nth-child(2)  { animation-delay: 22ms; }
+.md3-list-enter [data-vlist] > *:nth-child(3)  { animation-delay: 44ms; }
+.md3-list-enter [data-vlist] > *:nth-child(4)  { animation-delay: 66ms; }
+.md3-list-enter [data-vlist] > *:nth-child(5)  { animation-delay: 88ms; }
+.md3-list-enter [data-vlist] > *:nth-child(6)  { animation-delay: 110ms; }
+.md3-list-enter [data-vlist] > *:nth-child(7)  { animation-delay: 132ms; }
+.md3-list-enter [data-vlist] > *:nth-child(8)  { animation-delay: 154ms; }
+.md3-list-enter [data-vlist] > *:nth-child(9)  { animation-delay: 176ms; }
+.md3-list-enter [data-vlist] > *:nth-child(10) { animation-delay: 198ms; }
+.md3-list-enter [data-vlist] > *:nth-child(n+11) { animation-delay: 210ms; }
+
+/* 3 — preview crossfade on selection change (restarted via class toggle in
+   App.tsx so the panel never remounts — remounting would refetch images). */
+@keyframes md3-preview-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.md3-preview-in {
+  animation: md3-preview-in 150ms var(--md3-emphasized-decelerate, ease-out) backwards;
+}
+
+/* 4 — Settings sections cascade up when the tab opens. Pure CSS stagger over
+   the section wrapper children, capped after ten. */
+@keyframes md3-section-in {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+.md3-settings-cascade > * {
+  animation: md3-section-in 280ms var(--md3-emphasized-decelerate, ease-out) backwards;
+}
+.md3-settings-cascade > *:nth-child(1)  { animation-delay: 0ms; }
+.md3-settings-cascade > *:nth-child(2)  { animation-delay: 35ms; }
+.md3-settings-cascade > *:nth-child(3)  { animation-delay: 70ms; }
+.md3-settings-cascade > *:nth-child(4)  { animation-delay: 105ms; }
+.md3-settings-cascade > *:nth-child(5)  { animation-delay: 140ms; }
+.md3-settings-cascade > *:nth-child(6)  { animation-delay: 175ms; }
+.md3-settings-cascade > *:nth-child(7)  { animation-delay: 210ms; }
+.md3-settings-cascade > *:nth-child(8)  { animation-delay: 245ms; }
+.md3-settings-cascade > *:nth-child(9)  { animation-delay: 280ms; }
+.md3-settings-cascade > *:nth-child(n+10) { animation-delay: 300ms; }
+
+/* 5 — search-field focus halo: a soft accent glow eases in on focus. */
+.md3-focus-halo {
+  transition: box-shadow 220ms var(--md3-standard, ease-out);
+}
+.md3-focus-halo:focus-within {
+  box-shadow:
+    0 0 0 1.5px color-mix(in srgb, var(--color-accent) 55%, transparent),
+    0 0 16px 1px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+/* 6 — empty-state icons/text float gently (calm, 3.4 s loop). */
+@keyframes md3-float {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-4px); }
+}
+.md3-empty-float {
+  animation: md3-float 3.4s ease-in-out infinite;
+}
+
+/* 7 — success confirmations ("Copied!", "Saved") pop with a mini spring. */
+@keyframes md3-success-pop {
+  0% { transform: scale(0.82); opacity: 0.3; }
+  60% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+.md3-success-pop {
+  display: inline-flex;
+  animation: md3-success-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+}
+
+/* 8 — unified footer LED pulse (wakelock + REC share one pulse language). */
+@keyframes md3-led-pulse {
+  0%, 100% { opacity: 1; box-shadow: 0 0 6px 1px currentColor; }
+  50% { opacity: 0.55; box-shadow: 0 0 2px 0 currentColor; }
+}
+.md3-led-pulse {
+  animation: md3-led-pulse 1.8s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .md3-list-enter [data-vlist] > *,
+  .md3-preview-in,
+  .md3-settings-cascade > *,
+  .md3-empty-float,
+  .md3-success-pop,
+  .md3-led-pulse {
+    animation: none !important;
+  }
+  .md3-focus-halo {
+    transition: none;
+  }
+}

@@ -423,7 +423,7 @@ export function ShazamPanel({
               onClick={() => void copyTitle()}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
             >
-              <Copy size={13} /> {copied ? "Copied!" : "Copy"}
+              <Copy size={13} /> {copied ? <span className="md3-success-pop">Copied!</span> : "Copy"}
             </button>
             <button
               type="button"
@@ -614,7 +614,7 @@ export function ShazamPanel({
               </div>
             ))}
             {history.length === 0 && (
-              <div className="pt-8 text-center text-[var(--color-muted)]">
+              <div className="md3-empty-float pt-8 text-center text-[var(--color-muted)]">
                 No songs recognized yet.
               </div>
             )}

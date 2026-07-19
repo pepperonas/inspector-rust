@@ -1744,6 +1744,9 @@ pub fn show_popup(app: &AppHandle) -> Result<()> {
 }
 
 pub fn hide_popup(app: &AppHandle) {
+    // Any hide disarms the unfocused-Esc watcher (it's per-visibility-window).
+    #[cfg(target_os = "macos")]
+    crate::esc_watch::disarm();
     if let Some(w) = app.get_webview_window(POPUP_LABEL) {
         let _ = w.hide();
     }

@@ -56,7 +56,7 @@ export function useKeyboardNav({
         if (length > 0) onEnter(e.shiftKey, e.altKey, e.metaKey || e.ctrlKey);
       } else if (e.key === "Escape") {
         e.preventDefault();
-        onEscape();
+        if (!e.repeat) onEscape(); // key-repeat must not queue extra hides
       }
     },
     [length, selected, setSelected, onEnter, onEscape, onShiftArrow, enabled],

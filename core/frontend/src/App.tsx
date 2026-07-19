@@ -366,9 +366,29 @@ function App() {
   // no WAAPI, `playExit` resolves instantly, so there's no added dismiss
   // latency. (The Rust focus-loss path hides without this on purpose — clicking
   // away should be immediate.) All `hidePopup()` callers route through here.
+  // Hide-race hardening (v0.88.1): Esc key-repeat / fast close-reopen used to
+  // leave STALE hide calls in flight — each awaits the 130 ms exit animation
+  // before the IPC, so a straggler could fire AFTER the popup was re-shown and
+  // close the fresh popup instantly. Guards: one hide in flight at a time, and
+  // a show-generation check after the animation — re-shown meanwhile → the
+  // stale hide is dropped. The animation await is capped at 200 ms so a hung
+  // `finished` promise can never block hiding.
+  const showGenRef = useRef(0);
+  const hidingRef = useRef(false);
   const hidePopup = useCallback(async () => {
-    await playExit(shellRef.current);
-    await hidePopupRaw();
+    if (hidingRef.current) return;
+    hidingRef.current = true;
+    const gen = showGenRef.current;
+    try {
+      await Promise.race([
+        playExit(shellRef.current),
+        new Promise((r) => window.setTimeout(r, 200)),
+      ]);
+      if (showGenRef.current !== gen) return; // re-shown → stale hide, drop it
+      await hidePopupRaw();
+    } finally {
+      hidingRef.current = false;
+    }
   }, []);
 
   // Pulled once from tauri.conf.json via the core:app permission set.
@@ -2125,6 +2145,7 @@ function App() {
   // resolves race that would otherwise leak listeners across the
   // app's lifetime.
   useTauriEvent("window-shown", () => {
+    showGenRef.current += 1; // invalidate any in-flight hide (see hidePopup)
     setActiveTab("history");
     setQuery("");
     setSelected(0);
@@ -3179,7 +3200,7 @@ function App() {
   // step — so the second Esc closes the popup.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== "Escape" || e.defaultPrevented || e.isComposing) return;
+      if (e.key !== "Escape" || e.repeat || e.defaultPrevented || e.isComposing) return;
       const el = document.activeElement as HTMLElement | null;
       if (
         el &&

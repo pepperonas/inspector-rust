@@ -42,6 +42,8 @@ mod totp_store;
 mod paste;
 mod recolor;
 mod input_lock;
+#[cfg(target_os = "macos")]
+mod esc_watch;
 mod region_picker;
 mod screen_picker;
 mod screen_record;
@@ -436,9 +438,15 @@ pub fn run(context: tauri::Context<Wry>) {
 
             if let Some(window) = app.get_webview_window(hotkey::POPUP_LABEL) {
                 let app_handle = app.handle().clone();
+                #[cfg(target_os = "macos")]
+                let win_for_events = window.clone();
                 window.on_window_event(move |ev| {
                     match ev {
                         WindowEvent::Focused(true) => {
+                            // Focus regained → the unfocused-Esc watcher is
+                            // no longer needed.
+                            #[cfg(target_os = "macos")]
+                            esc_watch::disarm();
                             // Record that the popup genuinely received focus.
                             // The auto-hide guard uses this to distinguish a
                             // real click-away (Focused(false) after Focused(true))
@@ -464,6 +472,14 @@ pub fn run(context: tauri::Context<Wry>) {
                             // auto-hide path; Esc / the toggle hotkey remain
                             // the only ways to dismiss.
                             if !close_on_blur.load(Ordering::Relaxed) {
+                                // The popup stays open while unfocused — the
+                                // webview gets no key events now, so a
+                                // listen-only global tap watches for Esc
+                                // (macOS; consumes nothing).
+                                #[cfg(target_os = "macos")]
+                                if win_for_events.is_visible().unwrap_or(false) {
+                                    esc_watch::arm(&app_handle);
+                                }
                                 return;
                             }
                             #[cfg(target_os = "windows")]

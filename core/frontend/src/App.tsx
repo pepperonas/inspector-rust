@@ -2127,6 +2127,17 @@ function App() {
     [refreshSnippets],
   );
 
+  // Cloud sync applied remote snippet changes in the background: reload the
+  // list and bump the search-preview revision so open previews re-read.
+  useTauriEvent(
+    "snippets-synced",
+    () => {
+      void refreshSnippets();
+      setSnippetRev((r) => r + 1);
+    },
+    [refreshSnippets],
+  );
+
   // Handle tray "Manage Notes": switch to notes tab.
   useTauriEvent(
     "open-notes-tab",

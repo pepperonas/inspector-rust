@@ -5,6 +5,7 @@ import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialo
 import {
   AlertTriangle,
   Archive,
+  Cloud,
   Camera,
   Clock,
   Lock,
@@ -128,6 +129,14 @@ import {
   type DiagnoseResult,
   type DirectSlot,
   type ExpanderConfig,
+} from "../lib/ipc";
+import {
+  getSyncConfig,
+  getSyncStatus,
+  setSyncConfig,
+  syncNow,
+  type SyncConfig,
+  type SyncStatus,
 } from "../lib/ipc";
 import type { FakerDefaults } from "../lib/faker";
 import type { FigletDefaults, FigletAlign, FigletComment, FigletFontMeta } from "../lib/figlet";
@@ -2530,6 +2539,11 @@ export function SettingsPanel({ onBackupImported }: Props = {}) {
           </div>
         )}
 
+        {/* Cloud sync with cue (snippets) */}
+        <div className="mt-6">
+          <CloudSyncSection />
+        </div>
+
         {/* Backup & restore section */}
         <div className="mt-6">
           <Section
@@ -2975,7 +2989,134 @@ function CategoryRulesList() {
   );
 }
 
+/** Cloud-Sync (cue): bidirectional snippet sync with the cue web app. */
+function CloudSyncSection() {
+  const [cfg, setCfgState] = useState<SyncConfig | null>(null);
+  const [status, setStatus] = useState<SyncStatus | null>(null);
+  const [showToken, setShowToken] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+
+  const refreshStatus = () => {
+    void getSyncStatus().then(setStatus).catch(() => {});
+  };
+  useEffect(() => {
+    void getSyncConfig().then(setCfgState).catch(() => {});
+    refreshStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const save = async (patch: Partial<SyncConfig>) => {
+    if (!cfg) return;
+    const next = { ...cfg, ...patch };
+    setCfgState(next);
+    try {
+      setCfgState(await setSyncConfig(next));
+    } catch {
+      /* keep the optimistic state; the next load reconciles */
+    }
+  };
+
+  const runNow = async () => {
+    setSyncing(true);
+    try {
+      await syncNow();
+    } catch {
+      /* ignore — status line reports errors */
+    }
+    // The worker debounces ~1.5 s; poll the status shortly after.
+    window.setTimeout(() => {
+      refreshStatus();
+      setSyncing(false);
+    }, 4000);
+  };
+
+  const lastLabel =
+    status && status.last_ms > 0
+      ? new Date(status.last_ms).toLocaleString()
+      : "noch nie";
+
+  return (
+    <Section
+      icon={<Cloud size={16} className="text-[var(--color-accent)]" />}
+      title="Cloud-Sync (cue)"
+      subtitle="Synchronisiert Snippets automatisch mit cue (cue.celox.io) — in beide Richtungen, inkl. Löschungen. Welche Gruppen mitmachen, wird in cue am ☁️-Symbol im Gruppen-Header umgeschaltet; bei Konflikten gewinnt die höhere Version (bei Gleichstand cue)."
+    >
+      {cfg === null ? (
+        <p className="text-[12px] text-[var(--color-muted)]">Lade…</p>
+      ) : (
+        <div className="flex flex-col gap-3">
+          <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+            <input
+              type="checkbox"
+              checked={cfg.enabled}
+              onChange={(e) => void save({ enabled: e.target.checked })}
+              className="accent-[var(--color-accent)]"
+            />
+            <span className="font-medium">Sync aktivieren</span>
+            <span className="text-[var(--color-muted)]">— alle 60 s und nach jeder Snippet-Änderung</span>
+          </label>
+
+          <Row label="Server-URL">
+            <input
+              type="text"
+              value={cfg.url}
+              placeholder="https://cue.celox.io"
+              onChange={(e) => setCfgState({ ...cfg, url: e.target.value })}
+              onBlur={(e) => void save({ url: e.target.value })}
+              className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1.5 text-[12px] outline-none focus:border-[var(--color-accent)]"
+            />
+          </Row>
+
+          <Row
+            label="Sync-Token"
+            help="In cue unter Settings → Snippet-Sync (Inspector Rust) generieren und hier einfügen."
+          >
+            <div className="flex items-center gap-2">
+              <input
+                type={showToken ? "text" : "password"}
+                value={cfg.token}
+                placeholder="Token aus cue"
+                onChange={(e) => setCfgState({ ...cfg, token: e.target.value })}
+                onBlur={(e) => void save({ token: e.target.value })}
+                className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1.5 font-mono text-[11px] outline-none focus:border-[var(--color-accent)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowToken((v) => !v)}
+                className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1.5 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+              >
+                {showToken ? "Verbergen" : "Anzeigen"}
+              </button>
+            </div>
+          </Row>
+
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              disabled={!cfg.enabled || cfg.token.trim() === "" || syncing}
+              onClick={() => void runNow()}
+              className="rounded border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium enabled:hover:border-[var(--color-accent)] disabled:opacity-50"
+            >
+              {syncing ? "Synchronisiere…" : "Jetzt synchronisieren"}
+            </button>
+            <span className="text-[11px] text-[var(--color-muted)]">
+              Zuletzt: {lastLabel}
+            </span>
+          </div>
+          {status && status.last_error !== "" && (
+            <div className="flex items-center gap-2 rounded border border-red-500/40 bg-red-500/10 px-3 py-2 text-[12px]">
+              <AlertTriangle size={14} className="shrink-0 text-red-500" />
+              <span>{status.last_error}</span>
+            </div>
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 function Section({
+
   icon,
   title,
   subtitle,

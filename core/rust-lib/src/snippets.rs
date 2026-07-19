@@ -1,6 +1,6 @@
 use anyhow::{anyhow, Result};
 use chrono::Utc;
-use rusqlite::{params, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::db::DbHandle;
@@ -84,6 +84,11 @@ pub fn init_table(db: &DbHandle) -> Result<()> {
             id         INTEGER PRIMARY KEY AUTOINCREMENT,
             name       TEXT    NOT NULL UNIQUE,
             sort_order INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE TABLE IF NOT EXISTS snippet_tombstones (
+            abbreviation TEXT    PRIMARY KEY,
+            version      INTEGER NOT NULL,
+            deleted_at   INTEGER NOT NULL
         );
         "#,
     )?;
@@ -182,6 +187,108 @@ pub fn find_by_query(db: &DbHandle, query: &str) -> Result<Vec<Snippet>> {
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
 }
 
+
+// ── Tombstones (deletion sync with cue) ──────────────────────────────────────
+//
+// A deleted (or renamed-away) abbreviation leaves a tombstone carrying the
+// version the snippet had when it died. The cloud sync ([`crate::sync`]) uses
+// them to propagate deletions instead of resurrecting the snippet; a
+// recreation must start ABOVE the tombstone's version or the next sync cycle
+// would delete it again. All helpers take `&Connection` — the callers already
+// hold the DB lock (parking_lot Mutex is not reentrant).
+
+pub(crate) fn record_tombstone_conn(
+    conn: &Connection,
+    abbreviation: &str,
+    version: i64,
+) -> rusqlite::Result<()> {
+    let now = Utc::now().timestamp_millis();
+    // deleted_at only refreshes when the version increases — re-received
+    // tombstones from the peer must not keep the row alive forever.
+    conn.execute(
+        "INSERT INTO snippet_tombstones (abbreviation, version, deleted_at) \
+         VALUES (?1, ?2, ?3) \
+         ON CONFLICT(abbreviation) DO UPDATE SET \
+             deleted_at = CASE WHEN excluded.version > snippet_tombstones.version \
+                               THEN excluded.deleted_at ELSE snippet_tombstones.deleted_at END, \
+             version    = MAX(snippet_tombstones.version, excluded.version)",
+        params![abbreviation, version, now],
+    )?;
+    Ok(())
+}
+
+pub(crate) fn tombstone_version_conn(
+    conn: &Connection,
+    abbreviation: &str,
+) -> rusqlite::Result<Option<i64>> {
+    conn.query_row(
+        "SELECT version FROM snippet_tombstones WHERE abbreviation = ?1",
+        params![abbreviation],
+        |r| r.get(0),
+    )
+    .optional()
+}
+
+pub(crate) fn clear_tombstone_conn(conn: &Connection, abbreviation: &str) -> rusqlite::Result<()> {
+    conn.execute(
+        "DELETE FROM snippet_tombstones WHERE abbreviation = ?1",
+        params![abbreviation],
+    )?;
+    Ok(())
+}
+
+/// Version for a snippet (re)created over a tombstone: `max(version, ts + 1)`.
+/// Clears the tombstone (the abbreviation is alive again).
+pub(crate) fn resurrect_floor_conn(
+    conn: &Connection,
+    abbreviation: &str,
+    version: i64,
+) -> rusqlite::Result<i64> {
+    match tombstone_version_conn(conn, abbreviation)? {
+        Some(ts) => {
+            clear_tombstone_conn(conn, abbreviation)?;
+            Ok(version.max(ts + 1))
+        }
+        None => Ok(version),
+    }
+}
+
+/// All tombstones as `(abbreviation, version, deleted_at_ms)` — the sync push.
+pub fn list_tombstones(db: &DbHandle) -> Result<Vec<(String, i64, i64)>> {
+    let conn = db.lock();
+    let mut stmt =
+        conn.prepare("SELECT abbreviation, version, deleted_at FROM snippet_tombstones")?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
+    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+}
+
+/// DbHandle wrappers for the sync engine.
+pub fn record_tombstone(db: &DbHandle, abbreviation: &str, version: i64) -> Result<()> {
+    let conn = db.lock();
+    record_tombstone_conn(&conn, abbreviation, version).map_err(Into::into)
+}
+
+pub fn tombstone_version(db: &DbHandle, abbreviation: &str) -> Result<Option<i64>> {
+    let conn = db.lock();
+    tombstone_version_conn(&conn, abbreviation).map_err(Into::into)
+}
+
+pub fn clear_tombstone(db: &DbHandle, abbreviation: &str) -> Result<()> {
+    let conn = db.lock();
+    clear_tombstone_conn(&conn, abbreviation).map_err(Into::into)
+}
+
+/// Drop tombstones older than `max_age_ms` (sync housekeeping).
+pub fn prune_tombstones(db: &DbHandle, max_age_ms: i64) -> Result<()> {
+    let cutoff = Utc::now().timestamp_millis() - max_age_ms;
+    let conn = db.lock();
+    conn.execute(
+        "DELETE FROM snippet_tombstones WHERE deleted_at < ?1",
+        params![cutoff],
+    )?;
+    Ok(())
+}
+
 pub fn create(
     db: &DbHandle,
     abbreviation: &str,
@@ -192,10 +299,12 @@ pub fn create(
     let now = Utc::now().timestamp_millis();
     let enc_body = crate::crypto::encrypt(body);
     let conn = db.lock();
+    // Recreating over a tombstone must land above it or sync re-deletes it.
+    let version = resurrect_floor_conn(&conn, abbreviation.trim(), 1)?;
     conn.execute(
-        "INSERT INTO snippets (abbreviation, title, body, category_id, created_at, updated_at) \
-         VALUES (?1, ?2, ?3, ?4, ?5, ?5)",
-        params![abbreviation.trim(), title.trim(), enc_body, category_id, now],
+        "INSERT INTO snippets (abbreviation, title, body, category_id, created_at, updated_at, version) \
+         VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
+        params![abbreviation.trim(), title.trim(), enc_body, category_id, now, version],
     )?;
     Ok(conn.last_insert_rowid())
 }
@@ -231,12 +340,37 @@ pub fn update(
         Some((a, t, b)) => a != abbr || t != title || b != body,
         None => true, // row vanished under us — treat as a write
     };
+    // A rename is delete(old)+create(new) from the cloud sync's perspective:
+    // tombstone the old key (at its pre-bump version) so the peer drops its
+    // orphan copy, and land above any tombstone on the NEW key.
+    if let Some((old_abbr, _, _)) = &current {
+        if old_abbr != abbr {
+            let old_version: i64 = conn
+                .query_row(
+                    "SELECT version FROM snippets WHERE id = ?1",
+                    params![id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(1);
+            record_tombstone_conn(&conn, old_abbr, old_version)?;
+        }
+    }
     let bump = if content_changed { 1 } else { 0 };
     conn.execute(
         "UPDATE snippets SET abbreviation = ?1, title = ?2, body = ?3, category_id = ?4, \
          updated_at = ?5, version = version + ?7 WHERE id = ?6",
         params![abbr, title, enc_body, category_id, now, id, bump],
     )?;
+    let bumped: i64 = conn
+        .query_row("SELECT version FROM snippets WHERE id = ?1", params![id], |r| r.get(0))
+        .unwrap_or(1);
+    let floored = resurrect_floor_conn(&conn, abbr, bumped)?;
+    if floored != bumped {
+        conn.execute(
+            "UPDATE snippets SET version = ?1 WHERE id = ?2",
+            params![floored, id],
+        )?;
+    }
     Ok(())
 }
 
@@ -344,6 +478,18 @@ pub fn category_id_for_name(db: &DbHandle, name: &str) -> Result<Option<i64>> {
 
 pub fn delete(db: &DbHandle, id: i64) -> Result<()> {
     let conn = db.lock();
+    // Tombstone the abbreviation so the deletion propagates via cloud sync
+    // instead of the peer resurrecting the snippet on the next cycle.
+    let row: Option<(String, i64)> = conn
+        .query_row(
+            "SELECT abbreviation, version FROM snippets WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .optional()?;
+    if let Some((abbr, version)) = row {
+        record_tombstone_conn(&conn, &abbr, version)?;
+    }
     conn.execute("DELETE FROM snippets WHERE id = ?1", params![id])?;
     Ok(())
 }
@@ -428,7 +574,10 @@ pub fn upsert_by_abbreviation(
         .as_ref()
         .map(|(_, lt, lb)| lt != title || lb != body)
         .unwrap_or(true);
-    let new_version = merge_version(incoming_version, local.as_ref().map(|(v, _, _)| *v), content_differs);
+    let merged = merge_version(incoming_version, local.as_ref().map(|(v, _, _)| *v), content_differs);
+    // An upsert brings the abbreviation (back) to life — land above any
+    // tombstone so a re-import of a deleted snippet survives the next sync.
+    let new_version = resurrect_floor_conn(&conn, abbr, merged)?;
 
     conn.execute(
         r#"

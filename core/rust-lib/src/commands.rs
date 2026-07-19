@@ -1298,6 +1298,7 @@ pub fn upsert_snippet(
     };
     if result.is_ok() {
         auto_expand::rebuild_table(&db, &ae);
+    crate::sync::request_sync();
     }
     result
 }
@@ -1353,6 +1354,7 @@ pub fn delete_snippet(
 ) -> Result<(), String> {
     snippets::delete(&db, id).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
+    crate::sync::request_sync();
     Ok(())
 }
 
@@ -1392,6 +1394,7 @@ pub fn import_snippets(
 ) -> Result<ImportResult, String> {
     let r = backup::import_snippets_json(&db, &json).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
+    crate::sync::request_sync();
     Ok(r)
 }
 
@@ -1409,6 +1412,7 @@ pub fn import_snippets_from_file(
         .map_err(|e| format!("read {path}: {e}"))?;
     let r = backup::import_snippets_json(&db, &json).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
+    crate::sync::request_sync();
     Ok(r)
 }
 
@@ -1433,7 +1437,38 @@ pub fn restore_default_prompts(
 ) -> Result<ImportResult, String> {
     let r = seed::restore_defaults(&db).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
+    crate::sync::request_sync();
     Ok(r)
+}
+
+// ── Cloud sync with cue ──────────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn get_sync_config(db: State<'_, DbHandle>) -> Result<crate::sync::SyncConfig, String> {
+    crate::sync::get_config(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn set_sync_config(
+    db: State<'_, DbHandle>,
+    config: crate::sync::SyncConfig,
+) -> Result<crate::sync::SyncConfig, String> {
+    crate::sync::set_config(&db, &config).map_err(map_err)?;
+    if config.enabled {
+        crate::sync::request_sync();
+    }
+    crate::sync::get_config(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn get_sync_status(db: State<'_, DbHandle>) -> Result<crate::sync::SyncStatus, String> {
+    crate::sync::get_status(&db).map_err(map_err)
+}
+
+#[tauri::command]
+pub fn sync_now() -> Result<(), String> {
+    crate::sync::request_sync();
+    Ok(())
 }
 
 // ── Notes ────────────────────────────────────────────────────────────────────

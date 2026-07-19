@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.0] — 2026-07-19
+
+### Added
+
+- **Cloud-Sync mit cue (`sync.rs`) — automatischer bidirektionaler Snippet-Sync.** Ein Hintergrund-Worker pollt cue (`cue.celox.io`, konfigurierbar) alle 60 s **und** unmittelbar nach jeder Snippet-Änderung (debounced): Pull → deterministischer Merge → Push. Merge-Regel (identisch auf beiden Seiten, baut auf `merge_version` v0.84.267 auf): höhere Version gewinnt den Inhalt; gleiche Version + gleicher Inhalt = No-op; gleiche Version + anderer Inhalt → cue gewinnt; die **Gruppenzuordnung folgt immer cue** (dort lebt auch die Scope-Konfiguration — welche Gruppen synchronisieren, wird in cue am ☁️-Symbol im Gruppen-Header umgeschaltet, IR speichert keinen Scope). **Löschungen wandern als Tombstones** (`snippet_tombstones`, 90-Tage-TTL): Löschen **und Umbenennen** hinterlassen `{abbreviation, version}`; die Gegenseite löscht nur, wenn ihre Kopie nicht neuer ist (eine spätere Bearbeitung schlägt das Löschen), und eine Neuanlage über einem Tombstone startet bei `version + 1` — sonst würde der nächste Zyklus sie wieder löschen (`resurrect_floor` in create/update/upsert). Nach angewendeten Remote-Änderungen wird die Auto-Expansion-Tabelle neu aufgebaut und die UI per `snippets-synced`-Event aktualisiert. **Settings → „Cloud-Sync (cue)"**: Aktivieren, Server-URL, Sync-Token (in cue unter Settings → Snippet-Sync generieren), „Jetzt synchronisieren" + Status/Fehlerzeile. 13 neue Unit-Tests (Merge-Matrix, Tombstone-Regeln, Scope-Filter, Zwei-Zyklen-Konvergenz, Config-Roundtrip) + ein ignorierter Live-E2E-Test gegen ein lokal laufendes cue (`CUE_SYNC_URL`/`CUE_SYNC_TOKEN`) — real verifiziert: Zyklus 1 konvergiert beide Seiten, Zyklus 2 ist ein No-op. Kein neues Dependency (ureq/TLS vorhanden).
+
 ## [0.86.0] — 2026-07-19
 
 ### Added

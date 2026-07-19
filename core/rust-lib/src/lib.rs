@@ -27,6 +27,7 @@ mod hotkey;
 mod hue;
 #[cfg(target_os = "macos")]
 mod snitch;
+mod sync;
 mod shazam;
 mod mic_capture;
 mod image_ops;
@@ -382,6 +383,9 @@ pub fn run(context: tauri::Context<Wry>) {
             // the Stats panel can show a "last hours / days" view.
             stats_history::start_collector(db_handle.clone());
 
+            // Cloud sync with cue (snippets, opt-in via Settings).
+            sync::start(app.handle().clone(), db_handle.clone());
+
             // Window palette (opt-in; off by default). macOS-only hover monitor.
             {
                 let wp = app.state::<window_palette::WindowPaletteState>();
@@ -528,6 +532,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_expander_config,
             commands::get_auto_expand_config,
             commands::set_auto_expand_config,
+            commands::get_sync_config,
+            commands::set_sync_config,
+            commands::get_sync_status,
+            commands::sync_now,
             commands::get_gesture_config,
             commands::set_gesture_config,
             commands::get_keepalive_enabled,

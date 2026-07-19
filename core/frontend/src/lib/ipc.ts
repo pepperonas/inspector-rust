@@ -858,6 +858,40 @@ export function getAutoExpandConfig(): Promise<AutoExpandConfig> {
   return invoke("get_auto_expand_config");
 }
 
+// ── Cloud sync with cue (cue.celox.io) ───────────────────────────────────────
+
+export interface SyncConfig {
+  /** Master on/off for the background sync worker. */
+  enabled: boolean;
+  /** cue base URL (default https://cue.celox.io). */
+  url: string;
+  /** Per-user sync token, generated in cue → Settings → Snippet-Sync. */
+  token: string;
+}
+
+export interface SyncStatus {
+  /** Last successful cycle (ms epoch), 0 = never. */
+  last_ms: number;
+  /** Empty when the last cycle succeeded. */
+  last_error: string;
+}
+
+export function getSyncConfig(): Promise<SyncConfig> {
+  return invoke("get_sync_config");
+}
+
+export function setSyncConfig(config: SyncConfig): Promise<SyncConfig> {
+  return invoke("set_sync_config", { config });
+}
+
+export function getSyncStatus(): Promise<SyncStatus> {
+  return invoke("get_sync_status");
+}
+
+export function syncNow(): Promise<void> {
+  return invoke("sync_now");
+}
+
 /** Touchpad-gesture config (BetterTouchTool-style; opt-in, off by default).
  *  3-finger swipe up/down → volume, 3-finger tap → mute. */
 export interface GestureConfig {

@@ -392,6 +392,10 @@ pub fn run(context: tauri::Context<Wry>) {
             // Cloud sync with cue (snippets, opt-in via Settings).
             sync::start(app.handle().clone(), db_handle.clone());
 
+            // Re-apply the last-chosen brightness/EDR levels (gamma dies with
+            // the process; without this every restart resets to 100 %).
+            brightness::restore_saved(app.handle(), &db_handle);
+
             // Window palette (opt-in; off by default). macOS-only hover monitor.
             {
                 let wp = app.state::<window_palette::WindowPaletteState>();

@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.5] — 2026-07-19
+
+### Fixed
+
+- **Restart no longer loses the chosen audio output (boom).** After an unclean exit (the install script's `killall`, a crash, a keepalive relaunch) the system default stays stuck on "boom Audio"; the next start detected that and fell back to the **built-in speakers** — dropping e.g. a selected Bluetooth box. boom now **persists the last real output device's UID** (`boom.last_output_uid`) on every bridge (re)start and re-targets that device first when the default is stale; the built-in fallback only applies when the remembered device isn't present (e.g. BT not yet connected — in that case it behaves like before).
+- **Brightness/EDR levels survive restarts too.** Gamma dimming dies with the process and the EDR overlay is an app window, so every restart silently reset all displays to 100 %. The full slider value (EDR boosts > 100 included) is now persisted per display (stable CG-display-UUID keys, settings map `brightness.levels`) on every change and **re-applied at startup** (worker, ~1.5 s after launch so displays are enumerated); 100 % entries are pruned from the map. Levels of currently-disconnected displays are kept for their next connect.
+
 ## [0.87.4] — 2026-07-19
 
 ### Added

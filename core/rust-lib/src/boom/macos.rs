@@ -534,6 +534,45 @@ unsafe fn device_name(dev: AudioObjectID) -> String {
     }
 }
 
+/// A device's stable UID (survives restarts, unlike `AudioObjectID`).
+unsafe fn device_uid(dev: AudioObjectID) -> String {
+    match string_prop(dev, PROP_DEVICE_UID) {
+        Some(cf) => {
+            let s = cfstring_to_string(cf).unwrap_or_default();
+            CFRelease(cf);
+            s
+        }
+        None => String::new(),
+    }
+}
+
+/// Settings key: the UID of the real output device the bridge last targeted.
+/// After an UNCLEAN exit the system default is stale-stuck on boom Audio and
+/// carries no information about the user's device — this key does. It makes
+/// "restart lands on the MacBook speakers instead of the BT box" impossible
+/// whenever the remembered device is still present.
+const KEY_LAST_OUTPUT_UID: &str = "boom.last_output_uid";
+
+fn persist_last_output_uid(uid: &str) {
+    if uid.is_empty() {
+        return;
+    }
+    let Some(app) = APP_HANDLE.get() else { return };
+    use tauri::Manager as _;
+    if let Some(db) = app.try_state::<crate::db::DbHandle>() {
+        let _ = crate::settings::set(&db, KEY_LAST_OUTPUT_UID, uid);
+    }
+}
+
+fn saved_last_output_uid() -> String {
+    let Some(app) = APP_HANDLE.get() else { return String::new() };
+    use tauri::Manager as _;
+    match app.try_state::<crate::db::DbHandle>() {
+        Some(db) => crate::settings::get_or(&db, KEY_LAST_OUTPUT_UID, "").unwrap_or_default(),
+        None => String::new(),
+    }
+}
+
 const PROP_STREAMS: u32 = fourcc(b"stm#"); // kAudioDevicePropertyStreams
 const SCOPE_OUTPUT: u32 = fourcc(b"outp"); // kAudioObjectPropertyScopeOutput
 const PROP_TRANSPORT: u32 = fourcc(b"tran"); // kAudioDevicePropertyTransportType
@@ -772,9 +811,24 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     if real_dev == 0 || real_dev == boom_dev {
         // Default is boom Audio (stale from a prior unclean exit) → bridge to a
         // real output instead, so we never play to our own silent device.
-        real_dev = pick_real_output(boom_dev);
-        if real_dev != 0 {
-            tracing::info!("boom: default was stale boom Audio; using real output {real_dev}");
+        // Prefer the REMEMBERED device (the one the user last listened on —
+        // e.g. a BT speaker), fall back to built-in only when it's gone.
+        let saved_uid = saved_last_output_uid();
+        if !saved_uid.is_empty() {
+            let remembered = find_device_by_uid(&saved_uid);
+            if remembered != 0 && remembered != boom_dev && device_has_output(remembered) {
+                real_dev = remembered;
+                tracing::info!(
+                    "boom: default was stale boom Audio; restoring remembered output '{}'",
+                    device_name(remembered)
+                );
+            }
+        }
+        if real_dev == 0 || real_dev == boom_dev {
+            real_dev = pick_real_output(boom_dev);
+            if real_dev != 0 {
+                tracing::info!("boom: default was stale boom Audio; using real output {real_dev}");
+            }
         }
     }
     if real_dev == 0 || real_dev == boom_dev {
@@ -849,8 +903,10 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     }
 
     // Route the default output to boom Audio so apps render into it; we bridge
-    // its loopback → real device. Saved + restored on stop / quit.
+    // its loopback → real device. Saved + restored on stop / quit; the UID is
+    // ALSO persisted so a restart after an unclean exit re-targets this device.
     SAVED_DEFAULT_OUTPUT.store(real_dev, Ordering::SeqCst);
+    persist_last_output_uid(&device_uid(real_dev));
     set_default_output(boom_dev);
 
     eng.session = Some(Session {

@@ -4368,15 +4368,23 @@ pub fn get_monitor_brightness(id: u32) -> Result<u8, String> {
 /// Set monitor `id` to `percent` (0–100). The frontend debounces during a
 /// slider drag so we don't flood the (sometimes slow) DDC bus.
 #[tauri::command]
-pub fn set_monitor_brightness(id: u32, percent: u8) -> Result<(), String> {
-    crate::brightness::set(id, percent)
+pub fn set_monitor_brightness(
+    db: State<'_, DbHandle>,
+    id: u32,
+    percent: u8,
+) -> Result<(), String> {
+    crate::brightness::set(id, percent)?;
+    // Remember the level so a restart re-applies it (gamma dies with the app).
+    crate::brightness::persist_current(&db, id);
+    Ok(())
 }
 
 /// Drive the EDR boost for monitor `id` to `percent` (the full slider value;
 /// ≤ 100 / 0 = off). macOS EDR-capable displays only; a no-op elsewhere.
 #[tauri::command]
-pub fn set_edr_level(app: AppHandle, id: u32, percent: u16) {
+pub fn set_edr_level(app: AppHandle, db: State<'_, DbHandle>, id: u32, percent: u16) {
     crate::brightness::set_edr_level(&app, id, percent);
+    crate::brightness::persist_current(&db, id);
 }
 
 /// List the system audio output devices (`sound` command). Marks the default.

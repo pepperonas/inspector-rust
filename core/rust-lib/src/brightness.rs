@@ -131,6 +131,117 @@ pub fn set(id: u32, percent: u8) -> Result<(), String> {
     }
 }
 
+// ── Persisted levels — "start with the last chosen brightness" (v0.87.5) ────
+//
+// Gamma dimming dies with the process (the WindowServer restores the tables on
+// exit) and the EDR overlay is a window of ours — so WITHOUT persistence every
+// restart silently resets all displays to 100 %. The map below stores the full
+// slider value (EDR boosts > 100 included) per stable display key and is
+// re-applied at startup.
+
+const KEY_LEVELS: &str = "brightness.levels";
+
+/// Parse the persisted levels map (JSON object key → percent). Malformed
+/// input yields an empty map (never errors). Pure — unit-tested.
+pub fn parse_levels(json: &str) -> std::collections::BTreeMap<String, u16> {
+    serde_json::from_str::<std::collections::BTreeMap<String, u16>>(json).unwrap_or_default()
+}
+
+/// Serialize the levels map (BTreeMap → deterministic key order). Pure.
+pub fn serialize_levels(map: &std::collections::BTreeMap<String, u16>) -> String {
+    serde_json::to_string(map).unwrap_or_else(|_| "{}".to_string())
+}
+
+/// Stable per-display key for the persisted map (macOS: CG display UUID;
+/// Windows: index-based; DDC: none — hardware brightness persists by itself).
+fn display_key(id: u32) -> Option<String> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_gamma::display_key(id)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        Some(format!("win{id}"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = id;
+        None
+    }
+}
+
+/// The full slider value currently applied to `id` (EDR > 100 when active).
+fn effective_level(id: u32) -> Option<u16> {
+    #[cfg(target_os = "macos")]
+    {
+        macos_gamma::effective_level(id)
+    }
+    #[cfg(target_os = "windows")]
+    {
+        get(id).ok().map(|p| p as u16)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    {
+        let _ = id;
+        None
+    }
+}
+
+/// Persist monitor `id`'s current level into the settings map. Called by the
+/// `set_monitor_brightness` / `set_edr_level` IPCs after each change; 100 %
+/// (the default) removes the entry so the map only carries real dims/boosts.
+pub fn persist_current(db: &crate::db::DbHandle, id: u32) {
+    let (Some(key), Some(level)) = (display_key(id), effective_level(id)) else {
+        return;
+    };
+    let mut map = parse_levels(
+        &crate::settings::get_or(db, KEY_LEVELS, "{}").unwrap_or_else(|_| "{}".into()),
+    );
+    if level == 100 {
+        map.remove(&key);
+    } else {
+        map.insert(key, level);
+    }
+    let _ = crate::settings::set(db, KEY_LEVELS, &serialize_levels(&map));
+}
+
+/// Re-apply the persisted levels at startup (gamma + EDR overlay). Runs on a
+/// worker with a short delay so display enumeration/services are settled;
+/// missing displays are skipped (their entries stay for the next connect).
+pub fn restore_saved(app: &tauri::AppHandle, db: &crate::db::DbHandle) {
+    let app = app.clone();
+    let db = db.clone();
+    std::thread::Builder::new()
+        .name("ir-brightness-restore".into())
+        .spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            let map = parse_levels(
+                &crate::settings::get_or(&db, KEY_LEVELS, "{}").unwrap_or_else(|_| "{}".into()),
+            );
+            if map.is_empty() {
+                return;
+            }
+            let monitors = enumerate();
+            for m in monitors {
+                let Some(key) = display_key(m.id) else { continue };
+                let Some(&level) = map.get(&key) else { continue };
+                if level == 100 {
+                    continue;
+                }
+                let gamma = level.min(100) as u8;
+                if let Err(e) = set(m.id, gamma) {
+                    tracing::warn!("brightness restore: display {key}: {e}");
+                    continue;
+                }
+                if level > 100 {
+                    set_edr_level(&app, m.id, level);
+                }
+                tracing::info!("brightness restore: display {key} → {level}%");
+            }
+        })
+        .ok();
+}
+
 /// Read monitor `id`'s current brightness (0–100).
 pub fn get(id: u32) -> Result<u8, String> {
     #[cfg(target_os = "macos")]
@@ -198,6 +309,61 @@ mod macos_gamma {
             blue_gamma: f32,
         ) -> CGError;
         fn CGDisplayRestoreColorSyncSettings();
+        fn CGDisplayCreateUUIDFromDisplayID(display: CGDirectDisplayID) -> *const std::ffi::c_void;
+    }
+
+    #[link(name = "CoreFoundation", kind = "framework")]
+    extern "C" {
+        fn CFUUIDCreateString(
+            alloc: *const std::ffi::c_void,
+            uuid: *const std::ffi::c_void,
+        ) -> *const std::ffi::c_void;
+        fn CFStringGetCString(
+            s: *const std::ffi::c_void,
+            buf: *mut std::ffi::c_char,
+            size: isize,
+            encoding: u32,
+        ) -> bool;
+        fn CFRelease(cf: *const std::ffi::c_void);
+    }
+
+    /// Stable display identity for the persisted-levels map: the CG display
+    /// UUID (survives restarts/replugs; `CGDirectDisplayID` does not). Falls
+    /// back to `cg<ID>` when the UUID API returns null (mirrored displays).
+    fn uuid_for(cg_id: CGDirectDisplayID) -> String {
+        unsafe {
+            let uuid = CGDisplayCreateUUIDFromDisplayID(cg_id);
+            if uuid.is_null() {
+                return format!("cg{cg_id}");
+            }
+            let cf = CFUUIDCreateString(std::ptr::null(), uuid);
+            CFRelease(uuid);
+            if cf.is_null() {
+                return format!("cg{cg_id}");
+            }
+            let mut buf = [0 as std::ffi::c_char; 64];
+            let ok = CFStringGetCString(cf, buf.as_mut_ptr(), 64, 0x0800_0100 /* UTF-8 */);
+            CFRelease(cf);
+            if ok {
+                std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned()
+            } else {
+                format!("cg{cg_id}")
+            }
+        }
+    }
+
+    pub fn display_key(idx: u32) -> Option<String> {
+        let cg = cache().lock().get(idx as usize).map(|en| en.cg_id);
+        cg.map(uuid_for)
+    }
+
+    /// The full slider value: the EDR boost when active (> 100), else the
+    /// gamma percent — what the persisted-levels map stores.
+    pub fn effective_level(idx: u32) -> Option<u16> {
+        let guard = cache().lock();
+        guard.get(idx as usize).map(|en| {
+            if en.edr > 100 { en.edr } else { en.percent as u16 }
+        })
     }
 
     /// Floor so the screen never dims to fully black (unrecoverable — the
@@ -208,6 +374,9 @@ mod macos_gamma {
         cg_id: CGDirectDisplayID,
         /// Requested percent (what the slider shows); applied value is floored.
         percent: u8,
+        /// Shadow of the EDR boost (> 100 while active, else 0) — bookkeeping
+        /// for the persisted-levels map; the overlay itself lives in `edr.rs`.
+        edr: u16,
     }
 
     fn cache() -> &'static Mutex<Vec<Entry>> {
@@ -239,8 +408,8 @@ mod macos_gamma {
         let mut guard = cache().lock();
         // Preserve previously-applied levels across re-enumeration so re-opening
         // the overlay shows the current dim level, not a reset 100%.
-        let prev: Vec<(CGDirectDisplayID, u8)> =
-            guard.iter().map(|en| (en.cg_id, en.percent)).collect();
+        let prev: Vec<(CGDirectDisplayID, u8, u16)> =
+            guard.iter().map(|en| (en.cg_id, en.percent, en.edr)).collect();
 
         let external_total = ids
             .iter()
@@ -262,11 +431,11 @@ mod macos_gamma {
                     "External Display".to_string()
                 }
             };
-            let percent = prev
+            let (percent, edr) = prev
                 .iter()
-                .find(|(pid, _)| *pid == id)
-                .map(|(_, p)| *p)
-                .unwrap_or(100);
+                .find(|(pid, _, _)| *pid == id)
+                .map(|(_, p, e)| (*p, *e))
+                .unwrap_or((100, 0));
             let headroom = crate::edr::display_headroom(id);
             let edr_max = crate::edr::edr_max_percent(headroom);
             if edr_max > 100 {
@@ -279,7 +448,7 @@ mod macos_gamma {
                 supports_ddc: true,
                 edr_max,
             });
-            entries.push(Entry { cg_id: id, percent });
+            entries.push(Entry { cg_id: id, percent, edr });
         }
         *guard = entries;
         infos
@@ -307,7 +476,16 @@ mod macos_gamma {
     /// Resolve the monitor index to its CoreGraphics id + hand the EDR boost to
     /// the EDR module (the overlay).
     pub fn set_edr_level(app: &tauri::AppHandle, idx: u32, percent: u16) {
-        let cg = cache().lock().get(idx as usize).map(|en| en.cg_id);
+        let cg = {
+            let mut guard = cache().lock();
+            match guard.get_mut(idx as usize) {
+                Some(en) => {
+                    en.edr = if percent > 100 { percent } else { 0 };
+                    Some(en.cg_id)
+                }
+                None => None,
+            }
+        };
         if let Some(cg_id) = cg {
             crate::edr::set_level(app, cg_id, percent);
         }
@@ -753,5 +931,21 @@ mod tests {
             assert!(v >= prev, "index {i}: {v} < {prev}");
             prev = v;
         }
+    }
+
+    #[test]
+    fn levels_map_round_trips_and_survives_garbage() {
+        use std::collections::BTreeMap;
+        let mut m = BTreeMap::new();
+        m.insert("uuid-a".to_string(), 40u16);
+        m.insert("uuid-b".to_string(), 180u16); // EDR boost > 100
+        let json = serialize_levels(&m);
+        assert_eq!(parse_levels(&json), m);
+        // Malformed / empty input degrades to an empty map, never errors.
+        assert!(parse_levels("").is_empty());
+        assert!(parse_levels("not json").is_empty());
+        assert!(parse_levels("[1,2,3]").is_empty());
+        // Deterministic key order (BTreeMap) → stable settings row.
+        assert_eq!(serialize_levels(&m), serialize_levels(&m.clone()));
     }
 }

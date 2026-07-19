@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.11] — 2026-07-19
+
+### Added
+
+- **bruno: Shift+Enter copies the complete breakdown.** Plain Enter keeps pasting the period-matched net amount; **⇧⏎** now copies the FULL net-pay statement — the assumptions line (tax class · Bundesland · children · church) plus every row the preview shows (gross year/month, each social-insurance deduction, income tax, Soli/Kirchensteuer when non-zero, totals, deduction/marginal rates, net month/year) — as **column-aligned plain text** in German number formatting, ready for a mail or note. Pure, unit-tested `formatBrunoBreakdown` (zero-value rows omitted like the preview; `STATE_LABELS` now shared with the preview pane instead of duplicated). The preview hint line and `bruno?` inline help document both keys.
+
 ## [0.85.10] — 2026-07-19
 
 ### Changed

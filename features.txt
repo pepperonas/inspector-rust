@@ -60,7 +60,7 @@ System — `reboot`, `shutdown`, `lock`, `mute`, Shift+↑/↓ = Lautstärke (5-
 Input-Lock — `freeze`: Tastatur+Maus sperren bis zum Entsperr-Akkord
 Wachhalten — `wakelock on/off` (Alias `caffeine`)
 Datei-Ops — `touch <name> [> inhalt]`, `mkdir <pfad>`, `terminal` (im aktiven Finder-Ordner)
-Netto-Rechner — `bruno <brutto>`: deutscher Brutto→Netto-Rechner (2025)
+Netto-Rechner — `bruno <brutto>`: deutscher Brutto→Netto-Rechner (2025); Enter fügt das Netto ein, Shift+Enter kopiert die komplette Aufstellung (Annahmen + alle Abzüge) als Text
 Timer/Wecker — `timer <n>[s/min]`, `alarm <HH:MM>` mit Vollbild-Alarm
 Passwörter — `pwgen [länge]`: 4 Modi (alnum/symbols/dict/leet), CSPRNG
 Kalender — `calendar [monat jahr]` / `cal`: Monatsansicht, Wochentag-Recherche, ←→↑↓-Navigation

@@ -324,3 +324,88 @@ export function normaliseAmount(raw: string): number | null {
   const n = parseInt(parts.join(""), 10);
   return Number.isFinite(n) ? n : null;
 }
+
+// ── Full-breakdown clipboard text (Shift+Enter on the bruno row) ─────────────
+
+/** Bundesland short-code → display name (shared with the preview pane). */
+export const STATE_LABELS: Record<string, string> = {
+  bw: "Baden-Württemberg", by: "Bayern", be: "Berlin", bb: "Brandenburg",
+  hb: "Bremen", hh: "Hamburg", he: "Hessen", mv: "Mecklenburg-Vorp.",
+  ni: "Niedersachsen", nw: "Nordrhein-Westfalen", rp: "Rheinland-Pfalz",
+  sl: "Saarland", sn: "Sachsen", st: "Sachsen-Anhalt",
+  sh: "Schleswig-Holstein", th: "Thüringen",
+};
+
+/** The slice of the bruno list-entry view the breakdown formatter needs
+ *  (structurally identical to `types.ts::BrunoEntryView` — kept here so the
+ *  pure formatter has no import cycle with the UI types). */
+export interface BrunoBreakdownView {
+  yearlyGross: number;
+  netYear: number;
+  netMonth: number;
+  totalDeductions: number;
+  deductionRate: number;
+  marginalRate: number;
+  social: { health: number; care: number; pension: number; unemployment: number };
+  incomeTax: number;
+  soli: number;
+  churchTax: number;
+  taxClass: number;
+  state: string;
+  children: number;
+  isChurchMember: boolean;
+}
+
+/**
+ * Render the COMPLETE net-pay breakdown as plain text — exactly the rows the
+ * preview pane shows (assumptions, gross, every deduction, totals, net), in
+ * German number formatting, aligned for pasting into mails/notes. Zero-value
+ * Soli/Kirchensteuer rows are omitted, like in the preview. Pure + unit-tested.
+ */
+export function formatBrunoBreakdown(d: BrunoBreakdownView): string {
+  const eur = new Intl.NumberFormat("de-DE", {
+    style: "currency", currency: "EUR", maximumFractionDigits: 0,
+  });
+  const eurExact = new Intl.NumberFormat("de-DE", {
+    style: "currency", currency: "EUR", maximumFractionDigits: 2,
+  });
+  const pct = new Intl.NumberFormat("de-DE", {
+    style: "percent", maximumFractionDigits: 1,
+  });
+
+  const rows: Array<[string, string]> = [
+    ["Brutto / Jahr", eur.format(d.yearlyGross)],
+    ["Brutto / Monat", eur.format(d.yearlyGross / 12)],
+    ["Krankenversicherung", "− " + eurExact.format(d.social.health)],
+    ["Pflegeversicherung", "− " + eurExact.format(d.social.care)],
+    ["Rentenversicherung", "− " + eurExact.format(d.social.pension)],
+    ["Arbeitslosenversicherung", "− " + eurExact.format(d.social.unemployment)],
+    ["Einkommensteuer", "− " + eurExact.format(d.incomeTax)],
+  ];
+  if (d.soli > 0) rows.push(["Solidaritätszuschlag", "− " + eurExact.format(d.soli)]);
+  if (d.churchTax > 0) rows.push(["Kirchensteuer", "− " + eurExact.format(d.churchTax)]);
+  rows.push(
+    ["Summe Abgaben", eur.format(d.totalDeductions)],
+    ["Abgabenquote", pct.format(d.deductionRate)],
+    ["Grenzsteuersatz", pct.format(d.marginalRate)],
+    ["Netto / Monat", eurExact.format(d.netMonth)],
+    ["Netto / Jahr", eurExact.format(d.netYear)],
+  );
+
+  const keyWidth = Math.max(...rows.map(([k]) => k.length));
+  const lines = rows.map(([k, v]) => `${k.padEnd(keyWidth)}  ${v}`);
+
+  const kids =
+    d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`;
+  const church = d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer";
+  const state = STATE_LABELS[d.state] ?? d.state.toUpperCase();
+
+  return [
+    "Brutto → Netto · Steuerjahr 2025 (vereinfacht)",
+    `Klasse ${d.taxClass} · ${state} · ${kids} · ${church}`,
+    "",
+    ...lines,
+    "",
+    "Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.",
+  ].join("\n");
+}

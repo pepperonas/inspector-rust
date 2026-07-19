@@ -569,7 +569,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "bruno 60000j", result: "From a yearly gross." },
       { input: "bruno 3.500", result: "Thousands separators tolerated (→ 3500)." },
     ],
-    tips: ["Set tax class / Bundesland / children / church / health surcharge in Settings → Bruno once."],
+    tips: [
+      "Set tax class / Bundesland / children / church / health surcharge in Settings → Bruno once.",
+      "Enter pastes the period-matched net amount; Shift+Enter copies the COMPLETE breakdown (assumptions + every deduction row + net) as aligned plain text — ready for a mail or note.",
+    ],
     caveats: ["A simplified model — not tax advice."],
     related: ["faker"],
   },

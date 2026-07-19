@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   computeBruno,
+  formatBrunoBreakdown,
   isBrunoPrefix,
   normaliseAmount,
   parseBrunoCommand,
@@ -265,5 +266,71 @@ describe("computeBruno — class VI upper brackets", () => {
   it("class VI 300k hits the 45 % top bracket", () => {
     const r = computeBruno({ ...DEFAULT_INPUT, yearlyGross: 300_000, taxClass: 6 });
     expect(r.incomeTax).toBeCloseTo(0.45 * 300_000 - 19_619.93, 0);
+  });
+});
+
+describe("formatBrunoBreakdown", () => {
+  const view = {
+    yearlyGross: 60000,
+    netYear: 38000.5,
+    netMonth: 3166.71,
+    totalDeductions: 21999.5,
+    deductionRate: 0.3667,
+    marginalRate: 0.42,
+    social: { health: 4800.25, care: 1020, pension: 5580, unemployment: 780 },
+    incomeTax: 9000.75,
+    soli: 0,
+    churchTax: 0,
+    taxClass: 1,
+    state: "nw",
+    children: 0,
+    isChurchMember: false,
+  };
+
+  it("contains every row the preview shows, in order", () => {
+    const out = formatBrunoBreakdown(view);
+    const idx = (s: string) => out.indexOf(s);
+    expect(idx("Brutto / Jahr")).toBeGreaterThan(-1);
+    expect(idx("Krankenversicherung")).toBeGreaterThan(idx("Brutto / Monat"));
+    expect(idx("Einkommensteuer")).toBeGreaterThan(idx("Arbeitslosenversicherung"));
+    expect(idx("Netto / Jahr")).toBeGreaterThan(idx("Netto / Monat"));
+    // German currency formatting (de-DE uses . thousands + , decimals).
+    expect(out).toContain("60.000");
+    expect(out).toContain("3.166,71");
+  });
+
+  it("names the assumptions line from the defaults", () => {
+    const out = formatBrunoBreakdown(view);
+    expect(out).toContain("Klasse 1 · Nordrhein-Westfalen · kinderlos · keine Kirchensteuer");
+  });
+
+  it("omits zero Soli/Kirchensteuer rows but shows them when set", () => {
+    const none = formatBrunoBreakdown(view);
+    expect(none).not.toContain("Solidaritätszuschlag");
+    // The deduction ROW is absent (the assumptions line legitimately says
+    // "keine Kirchensteuer", so match the line-anchored row form).
+    expect(none).not.toMatch(/^Kirchensteuer\s+−/m);
+    const withBoth = formatBrunoBreakdown({
+      ...view, soli: 123.45, churchTax: 500, isChurchMember: true,
+    });
+    expect(withBoth).toContain("Solidaritätszuschlag");
+    expect(withBoth).toMatch(/^Kirchensteuer\s+−/m);
+    expect(withBoth).toContain("kirchensteuerpflichtig");
+  });
+
+  it("pluralises children and falls back on unknown states", () => {
+    expect(formatBrunoBreakdown({ ...view, children: 1 })).toContain("1 Kind ·");
+    expect(formatBrunoBreakdown({ ...view, children: 2 })).toContain("2 Kinder");
+    expect(formatBrunoBreakdown({ ...view, state: "xx" })).toContain("XX");
+  });
+
+  it("aligns the value column (keys padded to equal width)", () => {
+    const out = formatBrunoBreakdown(view);
+    const lines = out.split("\n").filter((l) => l.includes("  "));
+    // Every €-row's value starts at the same column.
+    const starts = lines
+      .filter((l) => l.includes("€") || l.includes("%"))
+      .map((l) => l.search(/ {2}[−\d]/));
+    expect(new Set(starts).size).toBe(1);
   });
 });

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
+import { STATE_LABELS } from "../lib/bruno";
 import {
   Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
   Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
@@ -544,13 +545,6 @@ export function PreviewPanel({
       maximumFractionDigits: 1,
     });
     const d = entry.data;
-    const STATE_LABELS: Record<string, string> = {
-      bw: "Baden-Württemberg", by: "Bayern", be: "Berlin", bb: "Brandenburg",
-      hb: "Bremen", hh: "Hamburg", he: "Hessen", mv: "Mecklenburg-Vorp.",
-      ni: "Niedersachsen", nw: "Nordrhein-Westfalen", rp: "Rheinland-Pfalz",
-      sl: "Saarland", sn: "Sachsen", st: "Sachsen-Anhalt",
-      sh: "Schleswig-Holstein", th: "Thüringen",
-    };
     return (
       <div className="flex h-full flex-col gap-3 overflow-auto p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -591,8 +585,8 @@ export function PreviewPanel({
         </div>
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-          ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"} ins Clipboard
-          {" "}·{" "}
+          ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
+          {" "}· ⇧⏎ kopiert die komplette Aufstellung ·{" "}
           ⚠ Vereinfacht: keine Faktorverfahren / Freibeträge / Lohnsteuer-Ermäßigungen.
         </div>
       </div>

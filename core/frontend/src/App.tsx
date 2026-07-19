@@ -168,7 +168,7 @@ import {
   type SecDefaults,
 } from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
-import { computeBruno, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { computeBruno, formatBrunoBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { matchTotpEntries } from "./lib/totp";
@@ -2807,9 +2807,18 @@ function App() {
         await launchApp(target.data.path);
         await hidePopup();
       } else if (target.kind === "bruno") {
-        // Paste the net amount — period-matched. Typing `bruno 5000m`
-        // → user is thinking monthly → paste monthly net. Typing
-        // `bruno 60000` → yearly. German number format (de-DE Intl).
+        // SHIFT+Enter copies the COMPLETE breakdown (assumptions + every
+        // deduction row + net, exactly what the preview shows) as aligned
+        // plain text to the clipboard — for mails/notes.
+        if (shiftKey) {
+          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+          await writeText(formatBrunoBreakdown(target.data));
+          await hidePopup();
+          return;
+        }
+        // Plain Enter: paste the net amount — period-matched. Typing
+        // `bruno 5000m` → user is thinking monthly → paste monthly net.
+        // Typing `bruno 60000` → yearly. German number format (de-DE Intl).
         const v =
           target.data.period === "monthly" ? target.data.netMonth : target.data.netYear;
         const formatted = new Intl.NumberFormat("de-DE", {

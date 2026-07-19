@@ -13,14 +13,19 @@
 // the index sentinel) so the caller is a one-liner.
 
 import { COMMAND_DOCS, lookupDoc, type CommandDoc } from "./commandDocs";
-import { commandSuggestions } from "./commands";
+import { commandSuggestions, fuzzyScore } from "./commands";
 
 export type HelpTarget =
-  | { kind: "index" } // `?` alone → the whole cheat-sheet
+  | { kind: "index"; filter: string } // `?` [+ search term] → the cheat-sheet
   | { kind: "doc"; doc: CommandDoc };
 
 // `?` alone (whitespace-tolerant).
 const INDEX_RE = /^\s*\?\s*$/;
+// `? <term>` — a LEADING `?` followed by a search term filters the index by
+// full-text search over the docs. Unambiguous: no history search or command
+// starts with `?`, and every literal-`?` collision (URLs, globs, templates,
+// trailing-arg forms) has the `?` later in the string.
+const INDEX_SEARCH_RE = /^\s*\?\s+(.+)$/;
 // A single command-shaped token, then optional single-space, then a lone `?`.
 // Command keywords are all lowercase alnum, so this shape rejects URLs (`:/.`),
 // paths, and quoted/templated args — the whole collision class — because none
@@ -37,7 +42,10 @@ const TOKEN_HELP_RE = /^\s*([a-z0-9]+)\s?\?\s*$/i;
  * - everything else        → `null` (literal `?`, or no matching command)
  */
 export function parseHelpQuery(query: string): HelpTarget | null {
-  if (INDEX_RE.test(query)) return { kind: "index" };
+  if (INDEX_RE.test(query)) return { kind: "index", filter: "" };
+
+  const search = INDEX_SEARCH_RE.exec(query);
+  if (search) return { kind: "index", filter: search[1].trim() };
 
   const m = TOKEN_HELP_RE.exec(query);
   if (!m) return null;
@@ -66,4 +74,38 @@ export function isHelpQuery(query: string): boolean {
 /** The full doc list for the `?` index, in registry order. */
 export function allDocs(): readonly CommandDoc[] {
   return COMMAND_DOCS;
+}
+
+/**
+ * Full-text fuzzy search over the docs for `? <term>`. Ranking (best first):
+ * keyword/alias fuzzy match (exact > prefix > subsequence, via the shared
+ * command scorer) → tagline substring → description/tips substring. Registry
+ * order breaks ties, so an empty term returns everything in index order.
+ * Pure — unit-tested.
+ */
+export function searchDocs(term: string): CommandDoc[] {
+  const q = term.trim().toLowerCase();
+  if (!q) return [...COMMAND_DOCS];
+
+  const scored: { doc: CommandDoc; score: number }[] = [];
+  for (const doc of COMMAND_DOCS) {
+    let best: number | null = null;
+    for (const name of [doc.command, ...doc.aliases]) {
+      const s = fuzzyScore(name.toLowerCase(), q);
+      if (s !== null && (best === null || s < best)) best = s;
+    }
+    // Name matches rank above content matches (content scores start at 1000).
+    if (best === null && doc.tagline.toLowerCase().includes(q)) best = 1000;
+    if (
+      best === null &&
+      (doc.description.toLowerCase().includes(q) ||
+        doc.tips.some((t) => t.toLowerCase().includes(q)) ||
+        doc.synopsis.toLowerCase().includes(q))
+    ) {
+      best = 2000;
+    }
+    if (best !== null) scored.push({ doc, score: best });
+  }
+  scored.sort((a, b) => a.score - b.score);
+  return scored.map((x) => x.doc);
 }

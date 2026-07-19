@@ -88,3 +88,60 @@ describe("isHelpQuery", () => {
     expect(isHelpQuery("kill")).toBe(false);
   });
 });
+
+// ── `? <term>` — filtered index + full-text search (v0.87.2) ────────────────
+
+import { searchDocs, allDocs } from "./commandHelp";
+
+describe("parseHelpQuery — `? <term>` filtered index", () => {
+  it("`? <term>` yields the index with the filter", () => {
+    expect(parseHelpQuery("? clip")).toEqual({ kind: "index", filter: "clip" });
+    expect(parseHelpQuery("?  netz  ")).toEqual({ kind: "index", filter: "netz" });
+  });
+  it("bare `?` keeps an empty filter", () => {
+    expect(parseHelpQuery("?")).toEqual({ kind: "index", filter: "" });
+    expect(parseHelpQuery("  ?  ")).toEqual({ kind: "index", filter: "" });
+  });
+  it("a TRAILING `?` after an argument still stays literal", () => {
+    expect(parseHelpQuery("bruno hallo?")).toBeNull();
+    expect(parseHelpQuery("faker tpl \"warum? {name}\"")).toBeNull();
+  });
+  it("`?` mid-string never triggers the search form", () => {
+    expect(parseHelpQuery("a ? b")).toBeNull(); // `a` is a token, but ? isn't trailing-lone
+    expect(parseHelpQuery("https://x.de?id=1")).toBeNull();
+  });
+});
+
+describe("searchDocs", () => {
+  it("empty term returns every doc in registry order", () => {
+    expect(searchDocs("")).toEqual([...allDocs()]);
+    expect(searchDocs("   ")).toEqual([...allDocs()]);
+  });
+  it("keyword matches rank first (exact > prefix)", () => {
+    const kill = searchDocs("kill");
+    expect(kill[0].command).toBe("kill");
+    const set = searchDocs("sett");
+    expect(set[0].command).toBe("settings");
+  });
+  it("aliases resolve to their primary doc", () => {
+    expect(searchDocs("config")[0].command).toBe("settings");
+    expect(searchDocs("caffeine")[0].command).toBe("wakelock");
+  });
+  it("full-text: tagline/description matches surface, ranked below name hits", () => {
+    const hits = searchDocs("clipboard");
+    expect(hits.length).toBeGreaterThan(3);
+    // Every hit really mentions the term somewhere in its doc.
+    for (const d of hits) {
+      const hay = [d.command, ...d.aliases, d.tagline, d.description, d.synopsis, ...d.tips]
+        .join(" ")
+        .toLowerCase();
+      expect(hay).toContain("clip");
+    }
+  });
+  it("garbage yields an empty list (the UI shows the fallback index)", () => {
+    expect(searchDocs("zzzzqqqq")).toEqual([]);
+  });
+  it("is case-insensitive", () => {
+    expect(searchDocs("KILL")[0].command).toBe("kill");
+  });
+});

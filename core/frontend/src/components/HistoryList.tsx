@@ -182,7 +182,9 @@ export function HistoryList({
                                                 ? `social`
                                                 : entry.kind === "figlet-font"
                                                   ? `fig-${entry.data.name}`
-                                                  : `c-${entry.data.id}`;
+                                                  : entry.kind === "help"
+                                                    ? `help-${entry.data.command}`
+                                                    : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   key={key}

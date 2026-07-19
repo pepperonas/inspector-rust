@@ -51,6 +51,13 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
         <BookOpen size={15} className="shrink-0 self-center text-[var(--color-accent)]" />
         <h2 className="text-[15px] font-semibold">{doc.command}</h2>
         <span className="text-[11px] text-[var(--color-muted)]">since v{doc.version_added}</span>
+        <button
+          className={chip + " ml-auto shrink-0"}
+          onClick={() => onNavigate("?")}
+          title="Back to the command index (?)"
+        >
+          ← Index
+        </button>
       </div>
       <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">{doc.tagline}</p>
 
@@ -103,14 +110,19 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
         </>
       )}
 
-      {/* Examples */}
+      {/* Examples — clickable: put the example into the search bar, ready to
+          run/adapt (the Example.input contract: "Tab-fillable"). */}
       <SectionLabel>Examples</SectionLabel>
       <ul className="flex flex-col gap-1.5">
         {doc.examples.map((ex, i) => (
           <li key={i} className="text-[12px] leading-snug">
-            <code className="rounded bg-[var(--color-surface)] px-1.5 py-0.5 text-[11px] text-[var(--color-fg)]">
+            <button
+              onClick={() => onNavigate(ex.input)}
+              title="Click to put this example into the search bar"
+              className="md3-press rounded border border-transparent bg-[var(--color-surface)] px-1.5 py-0.5 text-left font-[var(--font-mono)] text-[11px] text-[var(--color-fg)] transition-colors hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
               {ex.input}
-            </code>
+            </button>
             <span className="text-[var(--color-muted)]"> → {ex.result}</span>
             {ex.note && <span className="text-[var(--color-muted)] opacity-80"> ({ex.note})</span>}
           </li>
@@ -178,13 +190,14 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
 
       <p className="mt-auto pt-2 text-[11px] text-[var(--color-muted)]">
         Delete the <code className="text-[var(--color-fg)]">?</code> to run · type
-        <code className="mx-1 text-[var(--color-fg)]">?</code>for the full index · Esc closes
+        <code className="mx-1 text-[var(--color-fg)]">?</code>for the browsable index ·
+        <code className="mx-1 text-[var(--color-fg)]">? &lt;text&gt;</code>searches all docs · Esc closes
       </p>
     </div>
   );
 }
 
-function IndexView({ onNavigate }: { onNavigate: Props["onNavigate"] }) {
+function IndexView({ filter, onNavigate }: { filter: string; onNavigate: Props["onNavigate"] }) {
   const groups = groupedIndex();
   return (
     <div className="flex h-full flex-col overflow-y-auto p-4 text-[var(--color-fg)]">
@@ -192,9 +205,15 @@ function IndexView({ onNavigate }: { onNavigate: Props["onNavigate"] }) {
         <BookOpen size={15} className="text-[var(--color-accent)]" />
         <h2 className="text-[15px] font-semibold">Command index</h2>
       </div>
+      {filter.trim() !== "" && (
+        <p className="mt-1 rounded border border-amber-500/40 bg-amber-500/10 px-2 py-1 text-[11px]">
+          No command matches “{filter}” — showing everything.
+        </p>
+      )}
       <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
-        Every search-bar command. Click one — or type{" "}
-        <code className="text-[var(--color-fg)]">name?</code> — for its full help.
+        Every search-bar command — arrow through the list on the left, or{" "}
+        <code className="text-[var(--color-fg)]">? &lt;text&gt;</code> to search all docs.
+        Enter puts the selected command into the search bar.
       </p>
 
       {groups.map((g) => (
@@ -226,7 +245,7 @@ function IndexView({ onNavigate }: { onNavigate: Props["onNavigate"] }) {
 
 export default function CommandHelp({ target, onNavigate }: Props) {
   return target.kind === "index" ? (
-    <IndexView onNavigate={onNavigate} />
+    <IndexView filter={target.filter} onNavigate={onNavigate} />
   ) : (
     <DocView doc={target.doc} onNavigate={onNavigate} />
   );

@@ -145,6 +145,14 @@ export interface AppEntryView {
 /** Bruno (Brutto→Netto) result surfaced as a top entry once the
  *  user has typed `bruno <€>`. The numbers come from the pure-TS
  *  computation in `lib/bruno.ts`. */
+/** One `?`-index row: a documented command, navigable with ↑/↓ — the right
+ *  preview renders the full CommandDoc of the selection live. */
+export interface HelpEntryView {
+  command: string;
+  tagline: string;
+  category: string;
+}
+
 export interface BrunoEntryView {
   yearlyGross: number;
   /** What the user typed: monthly vs yearly. Drives the row's
@@ -195,6 +203,7 @@ export type ListEntry =
   | { kind: "app"; data: AppEntryView }
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
+  | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
   | { kind: "totp-manage"; data: { label: string } }
   | { kind: "totp"; data: TotpListView }
   | { kind: "meme"; data: MemeEntry }

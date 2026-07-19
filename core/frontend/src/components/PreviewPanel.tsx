@@ -927,6 +927,10 @@ export function PreviewPanel({
     );
   }
 
+  // `?`-index rows never reach this panel (App renders CommandHelp for them),
+  // but the union includes them — narrow explicitly for the clip fallthrough.
+  if (entry.kind === "help") return null;
+
   // ── Clip preview ───────────────────────────────────────────────────────────
   const clip = entry.data;
 

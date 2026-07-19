@@ -45,6 +45,7 @@ import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
 import {
+  COMMANDS,
   commandSuggestions,
   isCommandAvailable,
   isFlappyTrigger,
@@ -77,7 +78,8 @@ import {
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
-import { parseHelpQuery, type HelpTarget } from "./lib/commandHelp";
+import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
+import { lookupDoc } from "./lib/commandDocs";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { qrPngBase64 } from "./lib/qr";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
@@ -499,6 +501,16 @@ function App() {
   // preview shows <CommandHelp> (highest precedence) and the left list is
   // blanked for the whole-index case so the docs stand alone.
   const helpTarget: HelpTarget | null = useMemo(() => parseHelpQuery(query), [query]);
+  // `?`-index rows for the LEFT list: every documented command (optionally
+  // full-text-filtered via `? <term>`), navigable with ↑/↓ — the preview
+  // renders the selected row's full doc live (keyboard-first help, v0.87.2).
+  const helpEntries: ListEntry[] = useMemo(() => {
+    if (helpTarget?.kind !== "index") return [];
+    return searchDocs(helpTarget.filter).map((d) => ({
+      kind: "help",
+      data: { command: d.command, tagline: d.tagline, category: d.category },
+    }));
+  }, [helpTarget]);
 
   // ── Kill-mode: live process picker ──────────────────────────────────
   // When the parsed command is `kill`, we override the whole combined
@@ -1723,6 +1735,7 @@ function App() {
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
+    if (helpTarget?.kind === "index") return helpEntries;
     if (isFigletMode) return figletEntries;
     return [
       // Custom commands have the HIGHEST priority. A complete command
@@ -1765,6 +1778,8 @@ function App() {
     memeEntries,
     isFigletMode,
     figletEntries,
+    helpTarget,
+    helpEntries,
     commandEntry,
     snitchSubEntry,
     shazamSubEntry,
@@ -3013,6 +3028,19 @@ function App() {
         // reveals the file in Finder on completion.
         setSocialRunSignal((n) => n + 1);
         return;
+      } else if (target.kind === "help") {
+        // `?`-index row: put the command into the search bar, ready to use —
+        // with a trailing space when it takes an argument, so typing continues
+        // seamlessly. The popup stays open.
+        const spec = COMMANDS.find((c) => c.keyword === target.data.command);
+        const needsArg = spec ? spec.syntax.trim() !== spec.keyword : false;
+        const completion = target.data.command + (needsArg ? " " : "");
+        setQuery(completion);
+        requestAnimationFrame(() => {
+          searchRef.current?.focus();
+          searchRef.current?.setSelectionRange(completion.length, completion.length);
+        });
+        return;
       } else {
         // Clipboard entry. Shift+Enter overrides the plain-text setting
         // and forces the original content type (HTML/RTF formatted paste).
@@ -3423,7 +3451,7 @@ function App() {
             <div className="flex min-h-0 flex-1">
               <div className="w-2/5 border-r border-[var(--color-border)]">
                 <HistoryList
-                  entries={helpTarget?.kind === "index" ? [] : combined}
+                  entries={combined}
                   selectedIndex={selected}
                   onSelect={setSelected}
                   onActivate={activate}
@@ -3437,7 +3465,18 @@ function App() {
                 {helpTarget ? (
                   <div className="md3-pop-in h-full">
                     <CommandHelp
-                      target={helpTarget}
+                      target={(() => {
+                        // Index mode: the preview follows the list selection —
+                        // arrow through commands, read their full docs live.
+                        if (helpTarget.kind === "index") {
+                          const sel = combined[selected];
+                          if (sel?.kind === "help") {
+                            const doc = lookupDoc(sel.data.command);
+                            if (doc) return { kind: "doc", doc } as HelpTarget;
+                          }
+                        }
+                        return helpTarget;
+                      })()}
                       onNavigate={(q) => {
                         setQuery(q);
                         requestAnimationFrame(() => searchRef.current?.focus());

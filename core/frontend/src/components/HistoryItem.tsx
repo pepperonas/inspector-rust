@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
-import { Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
+import {
+  BookOpen, Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -29,6 +30,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "kill-target") return <Skull size={size} className={cls} />;
   if (entry.kind === "opener") return <Sparkles size={size} className={cls} />;
   if (entry.kind === "bruno") return <Euro size={size} className={cls} />;
+  if (entry.kind === "help") return <BookOpen size={size} className={cls} />;
   if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "bpm") return <Activity size={size} className={cls} />;
   if (entry.kind === "totp-manage") return <KeyRound size={size} className={cls} />;
@@ -93,6 +95,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isSuggestion = entry.kind === "command-suggestion";
   const isTotpManage = entry.kind === "totp-manage";
   const isBruno = entry.kind === "bruno";
+  const isHelp = entry.kind === "help";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
   const isTotp = entry.kind === "totp";
@@ -112,6 +115,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isCustomCommand =
     isCommand ||
     isSuggestion ||
+    isHelp ||
     isTotpManage ||
     isBruno ||
     isPwgen ||
@@ -143,7 +147,7 @@ export const HistoryItem = memo(function HistoryItem({
         ? entry.data.name
         : isSocial && entry.kind === "social"
           ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile || isFiglet
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile || isFiglet
             ? ""
             : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -494,6 +498,30 @@ export const HistoryItem = memo(function HistoryItem({
           // Whole opener text — they're short (<200 chars) so a single
           // truncated line reads well without an extra hint row.
           <span className="truncate italic">{entry.data.text}</span>
+        ) : isHelp && entry.kind === "help" ? (
+          <span className="flex min-w-0 items-baseline gap-2">
+            <span className="shrink-0 font-[var(--font-mono)] text-[13px] font-semibold">
+              {entry.data.command}
+            </span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/80" : "text-[var(--color-muted)]")
+              }
+            >
+              {entry.data.tagline}
+            </span>
+            <span
+              className={
+                "ml-auto shrink-0 rounded-full px-1.5 text-[10px] " +
+                (selected
+                  ? "bg-white/20 text-white/90"
+                  : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+              }
+            >
+              {entry.data.category}
+            </span>
+          </span>
         ) : isBruno && entry.kind === "bruno" ? (
           <span className="flex flex-col">
             <span className="font-semibold">

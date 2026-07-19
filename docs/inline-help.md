@@ -9,11 +9,17 @@ popup or open a man page.
 
 | You type | You get |
 |----------|---------|
-| `?` | The command **index** — every command grouped by category, click to open |
+| `?` | The **browsable index**: the left list fills with every command — **↑/↓** browses, the right pane shows the selected command's **full doc live**, **Enter** puts the command into the search bar (with a trailing space when it takes an argument) |
+| `? <text>` | The index **filtered by full-text search** over all docs — keyword/alias fuzzy first, then tagline/description/tips matches (`? clip`, `? netzwerk`) |
 | `kill?` / `kill ?` | Full help for `kill` (a lone space before `?` is allowed) |
 | `cal?` / `nmap?` | Help resolves through **aliases** (→ `calendar`, → `sec`) |
 | `sni?` | A **prefix** resolves to the top autocomplete match (→ `snitch`) |
 | `KILL?` | Case-insensitive |
+
+In a command's doc view, the **examples are clickable** — a click puts the
+example into the search bar, ready to run or adapt — and the **← Index** chip
+jumps back to the browsable index. Search that matches nothing falls back to
+the full grouped index with a "no match" note.
 
 The trigger is intentionally narrow: it fires only for a single
 command-shaped token (lowercase alnum) plus at most one space before a lone

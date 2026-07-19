@@ -46,7 +46,7 @@ Timesheet — Ctrl+Shift+T öffnet den Tab; Ctrl+Shift+Alt+T startet/stoppt Trac
 Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Kollisionsprüfung
 
 == Suchleisten-Commands ==
-Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele, Tipps, Caveats, verwandte Befehle); `?` allein = Befehls-Index nach Kategorie. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
+Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
 Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a. (Google Translate)
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)

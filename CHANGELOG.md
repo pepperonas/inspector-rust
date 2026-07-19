@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.87.2] — 2026-07-19
+
+### Changed
+
+- **Inline help (`?`) is now fully keyboard-driven and searchable.** Typing `?` no longer blanks the left list — it fills with **every documented command** (keyword · tagline · category chip), **↑/↓ browses** and the right pane shows the selected command's **complete doc live**; **Enter puts the command into the search bar**, with a trailing space when it takes an argument — from reading straight into doing. New **`? <text>` full-text search** filters the index across ALL docs (keyword/alias fuzzy matches rank first, then tagline and description/tips mentions — `? clip` finds everything clipboard-related); a no-match search falls back to the grouped index with a notice. In a command's doc view the **examples are now clickable** (they fill the search bar, honouring the long-promised "Tab-fillable" contract) and an **← Index** chip navigates back. All literal-`?` protections (templates, globs, URLs, trailing arguments) are unchanged and re-pinned by tests; pure `searchDocs` + the extended grammar carry 10 new unit tests.
+
 ## [0.87.1] — 2026-07-19
 
 ### Added

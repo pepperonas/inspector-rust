@@ -2881,15 +2881,19 @@ function App() {
         // Render the selected font's FULL banner (with the current chip opts).
         // Enter pastes it as text; SHIFT+Enter copies it as a tightly-cropped,
         // theme-coloured PNG (clipboard + history) — for targets that mangle
-        // monospace; CMD/CTRL+SHIFT+Enter saves that PNG straight to
-        // ~/Downloads (revealed in the file manager).
+        // monospace; CMD/CTRL+SHIFT+Enter renders it with a TRANSPARENT
+        // background (glyphs in the theme text colour) and does BOTH — saves
+        // it to ~/Downloads (revealed) AND copies it to the clipboard.
         try {
           const banner = await figletRender(figletParsed.text, target.data.name, figletOpts);
           if (!banner.text.trim()) return; // nothing to render (empty/all-unsupported)
           if (shiftKey) {
-            const png = bannerPngBase64(banner.text, themePngColors());
+            const png = bannerPngBase64(banner.text, themePngColors(metaKey));
             if (!png) return;
             if (metaKey) {
+              // Copy first (clipboard + history), then save + reveal — the
+              // reveal steals focus, so it must be the last visible action.
+              await figletCopyPng(png, figletParsed.text);
               await figletSavePng(png, figletParsed.text);
             } else {
               await figletCopyPng(png, figletParsed.text);

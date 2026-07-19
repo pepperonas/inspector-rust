@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.85.10] — 2026-07-19
+
+### Changed
+
+- **figlet ⌘⇧⏎ is now the transparent do-both variant.** Cmd/Ctrl+Shift+Enter renders the banner PNG with a **transparent background** (only the glyphs, in the current theme's text colour) and performs **both** outputs in one keystroke: **saved to `~/Downloads`** (`figlet-<slug>-<ts>.png`, revealed in Finder/Explorer) **and copied to the clipboard** (+ history) — the copy runs first so the focus-stealing reveal is the last visible action; the alpha channel survives the canonical clipboard re-encode. Shift+Enter keeps the opaque theme-look copy. Preview hint now reads **“Enter copies · ⇧⏎ PNG · ⌘⇧⏎ transparent”**; `figlet?` help and docs updated. (`bannerPngBase64` accepts `bg: null` = skip the background fill on the naturally-transparent canvas.)
+
 ## [0.85.9] — 2026-07-18
 
 ### Added

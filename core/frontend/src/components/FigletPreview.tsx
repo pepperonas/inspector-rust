@@ -82,9 +82,9 @@ export function FigletPreview({
         {category && <span className="text-[11px] text-[var(--color-muted)]">· {category}</span>}
         <span
           className="ml-auto text-[11px] text-[var(--color-muted)]"
-          title="Enter copies the banner as text · Shift+Enter copies it as a cropped PNG image · Cmd/Ctrl+Shift+Enter saves the PNG to Downloads"
+          title="Enter copies the banner as text · Shift+Enter copies it as a cropped PNG image · Cmd/Ctrl+Shift+Enter: transparent-background PNG → saved to Downloads AND copied to the clipboard"
         >
-          Enter copies · ⇧⏎ PNG · ⌘⇧⏎ save
+          Enter copies · ⇧⏎ PNG · ⌘⇧⏎ transparent
         </span>
       </div>
 

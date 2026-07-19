@@ -42,11 +42,13 @@ export function bannerGrid(lines: string[]): { cols: number; rows: number } {
 }
 
 /** Current theme colours for the PNG, read from the app's CSS custom
- *  properties (falls back to the dark palette when unset, e.g. in tests). */
-export function themePngColors(): { fg: string; bg: string } {
+ *  properties (falls back to the dark palette when unset, e.g. in tests).
+ *  `bg: null` = transparent background (the ⌘⇧⏎ variant): only the glyphs are
+ *  painted, in the theme's text colour. */
+export function themePngColors(transparent = false): { fg: string; bg: string | null } {
   const style = getComputedStyle(document.documentElement);
   const fg = style.getPropertyValue("--color-fg").trim() || "#e5e7eb";
-  const bg = style.getPropertyValue("--color-bg").trim() || "#111318";
+  const bg = transparent ? null : style.getPropertyValue("--color-bg").trim() || "#111318";
   return { fg, bg };
 }
 
@@ -54,12 +56,14 @@ export function themePngColors(): { fg: string; bg: string } {
  * Render the cropped banner to an offscreen canvas and return the **base64
  * PNG body** (no `data:` prefix) — what the `figlet_copy_png` IPC expects.
  * Monospace, 2× scale for crispness, a small uniform padding so glyphs don't
- * touch the edge. Returns `null` for an empty banner or when the canvas is
- * unavailable. Browser-only (not unit-tested — the pure crop/grid above is).
+ * touch the edge. `colors.bg: null` leaves the background TRANSPARENT (only
+ * the glyphs are painted). Returns `null` for an empty banner or when the
+ * canvas is unavailable. Browser-only (not unit-tested — the pure crop/grid
+ * above is).
  */
 export function bannerPngBase64(
   text: string,
-  colors: { fg: string; bg: string },
+  colors: { fg: string; bg: string | null },
   fontSize = 14,
   scale = 2,
   pad = 10,
@@ -79,11 +83,14 @@ export function bannerPngBase64(
   canvas.width = Math.ceil(cols * charW + 2 * pad * scale);
   canvas.height = Math.ceil(rows * lineH + 2 * pad * scale);
 
-  // Sizing the canvas resets the context — set everything again.
+  // Sizing the canvas resets the context — set everything again. A fresh
+  // canvas is fully transparent, so the null-bg variant simply skips the fill.
   ctx.font = font;
   ctx.textBaseline = "top";
-  ctx.fillStyle = colors.bg;
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  if (colors.bg !== null) {
+    ctx.fillStyle = colors.bg;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
   ctx.fillStyle = colors.fg;
   for (let i = 0; i < lines.length; i++) {
     ctx.fillText(lines[i], pad * scale, pad * scale + i * lineH);

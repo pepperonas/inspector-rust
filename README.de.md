@@ -5,11 +5,11 @@
 </div>
 
 <div align="center">
-  <img src="docs/ir.png?v=6" alt="Inspector Rust — keyboard-first Clipboard-Toolkit" width="600" />
+  <img src="docs/ir.png?v=6" alt="Inspector Rust — keyboard-first Desktop-Toolkit" width="600" />
 
   # Inspector Rust 🕵️‍♂️
 
-  > **Keyboard-first Clipboard-Hyper-Toolkit — nativ auf macOS, Windows 11, Linux. Kein Electron, keine Cloud, keine Telemetrie.**
+  > **Ein Hotkey, dein ganzer Werkzeugkasten: Clipboard-History, Text-Expander, Launcher, Screenshots & OCR, Screen-Recording, systemweiter EQ und 70+ Power-Befehle — in einem einzigen nativen Popup für macOS, Windows 11 und Linux. Kein Electron, keine Cloud, keine Telemetrie.**
 
   Drück **`Ctrl+Space`** irgendwo → rahmenloses Popup über dem aktiven Monitor → Suche durch 1 000 deduplizierte Clipboard-Einträge → Enter pastet zurück in die zuvor fokussierte App. Ganzer Loop unter 200 ms, unter 50 MB RAM, AES-256-GCM-verschlüsselt at-rest mit Keys im OS-Keychain. **Gebaut für die Art Mensch, die schon Muskelgedächtnis für drei Clipboard-Manager hat und von allen genervt ist.**
 

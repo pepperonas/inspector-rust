@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.88.4] — 2026-07-21
+
+### Fixed
+
+- **Text expander intermittently deleted the word without pasting (esp. in terminals).** The buffer-backed hotkey path (v0.64.0, the one that works in iTerm2/Terminal by injecting `Backspace`s + `Cmd+V` instead of reading the field) synthesized those keystrokes **without waiting for the hotkey's own `Alt` to be released** — the AX path already waits, the buffer path forgot to. When the user held `Alt` a beat too long (intermittent by nature), our `Backspace` became **Alt+Backspace** (= delete word, wiping the whole word) and our `Cmd+V` became **Alt+Cmd+V** (≠ paste, so nothing was inserted) — exactly the reported "it deletes the word and no output comes" in an editor and "nothing happens" in a terminal. Both expansion paths now share one `wait_for_alt_release()` (polls the `Alt` key state, bounded at 80 ms) before synthesizing anything.
+
 ## [0.88.3] — 2026-07-21
 
 ### Fixed

@@ -758,6 +758,14 @@ pub fn try_hotkey_expand() -> bool {
         rt.engine.lock().reset();
         return false;
     }
+    // CRITICAL: the hotkey is `Alt+<key>`; if the user is still holding Alt
+    // when we synthesize keystrokes below, `send_backspaces` becomes
+    // Alt+Backspace (= delete WORD, wiping more than intended) and
+    // `send_paste` becomes Alt+Cmd+V (≠ paste → nothing inserted). That's the
+    // intermittent "it deleted the word but produced no output / nothing
+    // happened in the terminal" bug — the AX path already waits here, the
+    // buffer path (v0.64.0) forgot to. Wait for Alt to come up first.
+    crate::expander::wait_for_alt_release();
     INJECTING.store(true, Ordering::SeqCst);
     let watcher = rt.app.try_state::<crate::clipboard_watcher::WatcherState>();
     let result =

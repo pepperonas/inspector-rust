@@ -198,6 +198,22 @@ fn alt_currently_held() -> bool {
     false
 }
 
+/// Block until the expander hotkey's own `Alt` modifier is released (or a
+/// short timeout), so our synthesized `Backspace`/`Cmd+V` chords aren't
+/// polluted by a still-held `Alt`. Without this, a user who holds `Alt` a
+/// beat too long turns our `Backspace` into **Alt+Backspace** (= delete
+/// word) and our `Cmd+V` into **Alt+Cmd+V** (≠ paste) → the field's word
+/// gets wiped and nothing is pasted. Bounded at 80 ms so a genuinely stuck
+/// modifier can't hang the handler. Shared by the AX path
+/// ([`expand_at_cursor`]) and the buffer/terminal path
+/// (`auto_expand::try_hotkey_expand`).
+pub(crate) fn wait_for_alt_release() {
+    let start = std::time::Instant::now();
+    while alt_currently_held() && start.elapsed() < Duration::from_millis(80) {
+        thread::sleep(Duration::from_millis(8));
+    }
+}
+
 /// Best-effort check whether our own popup/editor window is the
 /// frontmost app. If yes, pressing the expander hotkey would expand
 /// into our own search bar — confusing + useless. We refuse the
@@ -745,17 +761,9 @@ pub fn expand_at_cursor(
     // the main thread, a few ms after key-down) the user may still be
     // physically holding that `Alt`. If we synthesize our own chords
     // while it's down, the source app sees `Alt+Cmd+Shift+←` instead
-    // of `Cmd+Shift+←` and breaks. Pre-v0.35 we slept a flat 40 ms;
-    // now we poll the modifier state and wait *only* if Alt is
-    // actually still pressed. Fast typists (release-before-handler)
-    // save the full 40 ms; slow ones pay the original cost. Cap at
-    // 80 ms total so a key actually stuck in the OS doesn't hang us.
-    {
-        let start = std::time::Instant::now();
-        while alt_currently_held() && start.elapsed() < Duration::from_millis(80) {
-            thread::sleep(Duration::from_millis(8));
-        }
-    }
+    // of `Cmd+Shift+←` and breaks. Poll the modifier state and wait
+    // *only* if Alt is actually still pressed (bounded at 80 ms).
+    wait_for_alt_release();
 
     // ── Path 1: native accessibility (AX / UIA) ────────────────────────────
     // Skip AX entirely when the process isn't trusted — calling AX from

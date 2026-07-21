@@ -2012,6 +2012,87 @@ export function trackGetDay(date: string): Promise<DayReport> {
 export function trackGetRange(from: string, to: string): Promise<RangeReport> {
   return invoke("track_get_range", { from, to });
 }
+
+// ── Consolidated slots ───────────────────────────────────────────────────────
+
+/** How a slot's project was determined (see tracking/slots.rs). */
+export type SlotOrigin = "tagged" | "claude" | "title" | "neighbour" | "unassigned";
+
+export interface SlotApp {
+  app: string;
+  seconds: number;
+}
+
+/** One consolidated, bookable block derived from the raw focus events. */
+export interface Slot {
+  start_ms: number;
+  end_ms: number;
+  project: string | null;
+  label: string;
+  description: string;
+  origin: SlotOrigin;
+  apps: SlotApp[];
+  event_ids: number[];
+  active_s: number;
+  span_s: number;
+  confidence: number;
+}
+
+export interface SlotConfig {
+  bridge_gap_s: number;
+  noise_s: number;
+  min_break_s: number;
+  min_slot_s: number;
+  grid_min: number;
+  neighbour_gap_s: number;
+  /** `project name = bcsbook shortcut`, one per line. */
+  project_map: string;
+}
+
+/** Consolidated slots for a local day — recomputed, never stored. */
+export function trackSlots(date: string): Promise<Slot[]> {
+  return invoke("track_slots", { date });
+}
+/** Slots per day over the inclusive range [from, to]. */
+export function trackSlotsRange(from: string, to: string): Promise<[string, Slot[]][]> {
+  return invoke("track_slots_range", { from, to });
+}
+export function getSlotConfig(): Promise<SlotConfig> {
+  return invoke("get_slot_config", {});
+}
+export function setSlotConfig(config: SlotConfig): Promise<void> {
+  return invoke("set_slot_config", { config });
+}
+
+export interface BcsRow {
+  shortcut: string;
+  from: string;
+  to: string;
+  description: string;
+  label?: string;
+  hours?: number;
+}
+
+export interface BcsPushResult {
+  written: number;
+  added: number;
+  skipped: number;
+  unmapped: string[];
+  base_url: string;
+}
+
+/** What a push would send, without sending it. */
+export function trackBcsbookPreview(date: string): Promise<[BcsRow[], string[]]> {
+  return invoke("track_bcsbook_preview", { date });
+}
+/** Hand the day's slots to bcsbook. `replace` overwrites the whole day there. */
+export function trackPushBcsbook(
+  date: string,
+  baseUrl: string | null,
+  replace: boolean,
+): Promise<BcsPushResult> {
+  return invoke("track_push_bcsbook", { date, baseUrl, replace });
+}
 /** Project-grouped customer export over [from, to] (dates) as csv|html.
  *  `project` "" = all projects; `detail` = summary | daily | full. */
 export function trackExportProjects(

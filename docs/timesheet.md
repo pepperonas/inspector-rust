@@ -9,6 +9,55 @@ editable timesheet view with **CSV** and **self-contained HTML** export.
 > **Status — incremental delivery.** This is built in the delivery order below;
 > each step is a green-gated commit. **Done so far:** Steps 1–9 — data layer, tracker core, IPC, the Timesheet tab (charts, inline editing, CSV/HTML export), the Claude watcher, and the **browser bridge** (loopback WS + MV3 extension in `extension/`). Next: Settings + remaining OS modules (step 10).
 
+## Consolidated slots (v0.90.0)
+
+Recording produces one event per focus change. That is the right granularity to
+*measure* with, and the wrong one to *book* with: a normal day reaches several
+hundred fragments of a few seconds each (463 of 1–30 s in the case that
+prompted this), and nobody transfers that into a timesheet by hand.
+
+`tracking/slots.rs` derives the few contiguous blocks a person would actually
+book. It is **non-destructive** — slots are recomputed on demand, every slot
+carries the ids of the events it came from, and the raw timeline stays exactly
+as recorded. (The older "Clean up" button is the opposite: it DELETEs idle spans
+and sub-15 s rows and cannot be undone. It remains, but is no longer the way to
+get a readable day.)
+
+Two pure, unit-tested steps:
+
+1. **Project inference** — most events carry no project, so it comes from the
+   strongest signal available: an explicit tag, the Claude working directory,
+   project-name tokens in the window title/URL/host, and finally temporal
+   neighbourhood (untagged time next to a project block inherits it; an idle
+   span breaks the chain, so a project never bleeds across a break). Which
+   signal named a slot is shown in the UI — a guess should look like one.
+2. **Consolidation** — contiguous runs of the same project, bridging short
+   gaps, **absorbing foreign interruptions shorter than `noise_s`** (this is the
+   lever that actually removes the fragmentation: a 20-second glance at Slack
+   must not split a two-hour block into three), split by real breaks, then
+   snapped to the quarter-hour grid.
+
+**Rounding may not inflate the day.** Edges snap to the *nearest* quarter and
+the minimum-length gate runs on the *measured* duration, before snapping. Both
+were verified the expensive way in the sibling project bcsbook: rounding outward
+turned a measured 7-hour day into 7.5 booked hours, and filtering after snapping
+let a 20-minute stretch pass a 30-minute floor as a 45-minute block. Timesheets
+feed billing, so an upward bias is the costly direction to be wrong in.
+
+### Handover to bcsbook
+
+`tracking/bcsbook.rs` maps slots onto the row shape of **bcsbook** (the tool
+that books hours into Projektron BCS) via a `project = shortcut` table and posts
+them to its local API for review and booking.
+
+bcsbook's `POST /api/suggestions/save` **replaces the whole day**, so pushing
+blindly would silently wipe whatever else that day holds — rows derived from git
+commits, from bcsbook's own presence tracking, and any manual correction. The
+push therefore reads the day first and merges: by default only slots that do not
+collide with an existing entry are added, and the result reports what was
+skipped and which projects still lack a shortcut. Replacing the day is possible
+but has to be asked for explicitly.
+
 ## Privacy & security (by design)
 
 - **Opt-in, off by default.** Tracking never starts automatically; `track on`

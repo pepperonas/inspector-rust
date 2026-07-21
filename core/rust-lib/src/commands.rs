@@ -364,6 +364,178 @@ pub fn track_get_day(
     crate::tracking::day_report(&db, &date)
 }
 
+// ── Consolidated slots ───────────────────────────────────────────────────────
+
+/// Slot consolidation settings, persisted under `track.slot.*`. Kept separate
+/// from `TimesheetConfig` because these tune the *derived* view, not the
+/// recording — changing them never touches stored data.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SlotConfig {
+    pub bridge_gap_s: i64,
+    pub noise_s: i64,
+    pub min_break_s: i64,
+    pub min_slot_s: i64,
+    pub grid_min: i64,
+    pub neighbour_gap_s: i64,
+    /// `inspector project name` → `bcsbook shortcut`, one `name=shortcut` per
+    /// line. Only projects listed here can be exported for booking.
+    pub project_map: String,
+}
+
+impl From<&SlotConfig> for crate::tracking::slots::SlotParams {
+    fn from(c: &SlotConfig) -> Self {
+        Self {
+            bridge_gap_s: c.bridge_gap_s,
+            noise_s: c.noise_s,
+            min_break_s: c.min_break_s,
+            min_slot_s: c.min_slot_s,
+            grid_min: c.grid_min,
+            neighbour_gap_s: c.neighbour_gap_s,
+        }
+    }
+}
+
+/// Parse the `name=shortcut` mapping. Blank lines and `#` comments are ignored;
+/// later entries win. Pure — unit-tested.
+pub fn parse_project_map(raw: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for line in raw.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((k, v)) = line.split_once('=') else { continue };
+        let (k, v) = (k.trim(), v.trim());
+        if k.is_empty() || v.is_empty() {
+            continue;
+        }
+        if let Some(slot) = out.iter_mut().find(|(n, _)| n.eq_ignore_ascii_case(k)) {
+            slot.1 = v.to_string();
+        } else {
+            out.push((k.to_string(), v.to_string()));
+        }
+    }
+    out
+}
+
+fn slot_config(db: &DbHandle) -> SlotConfig {
+    let g = |k: &str, d: &str| crate::settings::get_or(db, k, d).unwrap_or_else(|_| d.to_string());
+    let n = |k: &str, d: i64| g(k, &d.to_string()).parse().unwrap_or(d);
+    SlotConfig {
+        bridge_gap_s: n("track.slot.bridge_gap_s", 300),
+        noise_s: n("track.slot.noise_s", 90),
+        min_break_s: n("track.slot.min_break_s", 300),
+        min_slot_s: n("track.slot.min_slot_s", 900),
+        grid_min: n("track.slot.grid_min", 15),
+        neighbour_gap_s: n("track.slot.neighbour_gap_s", 600),
+        project_map: g("track.slot.project_map", ""),
+    }
+}
+
+#[tauri::command]
+pub fn get_slot_config(db: State<'_, DbHandle>) -> SlotConfig {
+    slot_config(&db)
+}
+
+#[tauri::command]
+pub fn set_slot_config(db: State<'_, DbHandle>, config: SlotConfig) -> Result<(), String> {
+    let s = |k: &str, v: String| crate::settings::set(&db, k, &v).map_err(map_err);
+    // Clamped so a hand-edited value can neither disable the consolidation
+    // silently nor make every event its own slot again.
+    s("track.slot.bridge_gap_s", config.bridge_gap_s.clamp(0, 3600).to_string())?;
+    s("track.slot.noise_s", config.noise_s.clamp(0, 900).to_string())?;
+    s("track.slot.min_break_s", config.min_break_s.clamp(60, 7200).to_string())?;
+    s("track.slot.min_slot_s", config.min_slot_s.clamp(60, 14400).to_string())?;
+    s("track.slot.grid_min", config.grid_min.clamp(0, 60).to_string())?;
+    s("track.slot.neighbour_gap_s", config.neighbour_gap_s.clamp(0, 3600).to_string())?;
+    s("track.slot.project_map", config.project_map.clone())?;
+    Ok(())
+}
+
+/// Consolidated, bookable slots for a local day. Read-only and recomputed on
+/// every call — the raw events are never modified.
+#[tauri::command]
+pub fn track_slots(
+    db: State<'_, DbHandle>,
+    date: String,
+) -> Result<Vec<crate::tracking::slots::Slot>, String> {
+    let cfg = slot_config(&db);
+    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    crate::tracking::day_slots(&db, &date, &(&cfg).into(), &names)
+}
+
+/// Same for an inclusive local-day range, one entry per day.
+#[tauri::command]
+pub fn track_slots_range(
+    db: State<'_, DbHandle>,
+    from: String,
+    to: String,
+) -> Result<Vec<(String, Vec<crate::tracking::slots::Slot>)>, String> {
+    let cfg = slot_config(&db);
+    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    crate::tracking::range_slots(&db, &from, &to, &(&cfg).into(), &names)
+}
+
+/// Preview what a push to bcsbook would send: the mapped rows plus the
+/// projects still missing a shortcut. Touches nothing.
+#[tauri::command]
+pub fn track_bcsbook_preview(
+    db: State<'_, DbHandle>,
+    date: String,
+) -> Result<(Vec<crate::tracking::bcsbook::BcsRow>, Vec<String>), String> {
+    let cfg = slot_config(&db);
+    let map = parse_project_map(&cfg.project_map);
+    let names: Vec<String> = map.iter().map(|(k, _)| k.clone()).collect();
+    let slots = crate::tracking::day_slots(&db, &date, &(&cfg).into(), &names)?;
+    Ok(crate::tracking::bcsbook::slots_to_rows(&slots, &map))
+}
+
+/// Hand the day's consolidated slots to bcsbook for review and booking.
+///
+/// bcsbook's save endpoint replaces the whole day, so this reads the day first
+/// and merges: with `replace = false` (the default) only slots that don't
+/// collide with an existing entry are added, leaving git-derived rows,
+/// presence rows and manual corrections intact.
+#[tauri::command]
+pub fn track_push_bcsbook(
+    db: State<'_, DbHandle>,
+    date: String,
+    base_url: Option<String>,
+    replace: bool,
+) -> Result<crate::tracking::bcsbook::PushResult, String> {
+    use crate::tracking::bcsbook as bb;
+    let base = base_url
+        .filter(|u| !u.trim().is_empty())
+        .unwrap_or_else(|| {
+            crate::settings::get_or(&db, "track.slot.bcsbook_url", "http://127.0.0.1:4747")
+                .unwrap_or_else(|_| "http://127.0.0.1:4747".to_string())
+        });
+    let cfg = slot_config(&db);
+    let map = parse_project_map(&cfg.project_map);
+    let names: Vec<String> = map.iter().map(|(k, _)| k.clone()).collect();
+    let slots = crate::tracking::day_slots(&db, &date, &(&cfg).into(), &names)?;
+    let (rows, unmapped) = bb::slots_to_rows(&slots, &map);
+    if rows.is_empty() {
+        return Ok(bb::PushResult {
+            written: 0,
+            added: 0,
+            skipped: 0,
+            unmapped,
+            base_url: base,
+        });
+    }
+    let existing = bb::fetch_day(&base, &date)?;
+    let (merged, added, skipped) = bb::merge_rows(&existing, &rows, replace);
+    bb::save_day(&base, &date, &merged)?;
+    Ok(bb::PushResult {
+        written: merged.len(),
+        added,
+        skipped,
+        unmapped,
+        base_url: base,
+    })
+}
+
 /// Range/week report over the inclusive local-day range `[from, to]`.
 #[tauri::command]
 pub fn track_get_range(
@@ -5246,4 +5418,38 @@ pub async fn shazam_history_clear(db: State<'_, DbHandle>) -> Result<(), String>
 #[tauri::command]
 pub async fn shazam_lyrics(artist: String, title: String) -> Result<Option<String>, String> {
     crate::shazam::fetch_lyrics(&artist, &title)
+}
+
+#[cfg(test)]
+mod project_map_tests {
+    use super::parse_project_map;
+
+    #[test]
+    fn parses_pairs_and_trims() {
+        let m = parse_project_map("kiez-finder = kiez\n bcsbook=bcs ");
+        assert_eq!(
+            m,
+            vec![
+                ("kiez-finder".to_string(), "kiez".to_string()),
+                ("bcsbook".to_string(), "bcs".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn ignores_blank_lines_comments_and_half_pairs() {
+        let m = parse_project_map("\n# a comment\nnoequals\n=missing\nkey=\nalpha=a\n");
+        assert_eq!(m, vec![("alpha".to_string(), "a".to_string())]);
+    }
+
+    #[test]
+    fn a_later_entry_overrides_an_earlier_one_case_insensitively() {
+        let m = parse_project_map("Alpha=old\nalpha=new");
+        assert_eq!(m, vec![("Alpha".to_string(), "new".to_string())]);
+    }
+
+    #[test]
+    fn an_empty_map_is_empty_not_an_error() {
+        assert!(parse_project_map("").is_empty());
+    }
 }

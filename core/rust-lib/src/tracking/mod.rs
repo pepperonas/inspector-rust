@@ -10,12 +10,14 @@
 // consumers land in later delivery steps — allow dead_code meanwhile.
 #![allow(dead_code)]
 
+pub mod bcsbook;
 pub mod bridge;
 pub mod claude;
 pub mod db;
 pub mod export;
 pub mod extension;
 pub mod os;
+pub mod slots;
 
 use crate::db::DbHandle;
 use db as tdb;
@@ -850,6 +852,73 @@ pub fn range_report(db: &DbHandle, from_date: &str, to_date: &str) -> Result<Ran
         by_app: to_buckets(by_app),
         by_project: to_buckets(by_project),
     })
+}
+
+// ── Consolidated slots (bookable blocks) ─────────────────────────────────────
+
+/// Clip an event to `[from, to)` so a slot for one day can never borrow time
+/// from the neighbouring one (`events_in_range` deliberately returns events
+/// that merely overlap the window).
+fn clip_event(e: &tdb::TrackEvent, from: i64, to: i64, now: i64) -> Option<tdb::TrackEvent> {
+    let start = e.started_at.max(from);
+    let end = e.ended_at.unwrap_or(now).min(to);
+    if end <= start {
+        return None;
+    }
+    let mut c = e.clone();
+    c.started_at = start;
+    c.ended_at = Some(end);
+    c.duration_s = Some((end - start) / 1000);
+    Some(c)
+}
+
+/// Consolidated slots for one local calendar day — the raw focus fragments
+/// grouped into the few blocks a person would actually book. Non-destructive:
+/// this only reads, so parameters can be changed and the view recomputed at
+/// will while the raw events stay untouched for auditing.
+pub fn day_slots(
+    db: &DbHandle,
+    date: &str,
+    params: &slots::SlotParams,
+    extra_projects: &[String],
+) -> Result<Vec<slots::Slot>, String> {
+    let (from, to) = day_bounds(date)?;
+    let now = now_ms();
+    let events: Vec<tdb::TrackEvent> = tdb::events_in_range(db, from, to)
+        .map_err(|e| e.to_string())?
+        .iter()
+        .filter_map(|e| clip_event(e, from, to, now))
+        .collect();
+    let known = slots::known_projects(&events, extra_projects);
+    let resolved = slots::infer_projects(&events, &known, params);
+    Ok(slots::build_slots(&resolved, params))
+}
+
+/// Slots for every day in the inclusive local-day range `[from_date, to_date]`,
+/// keyed by date. Built per day (never across midnight) so each day stays
+/// independently bookable.
+pub fn range_slots(
+    db: &DbHandle,
+    from_date: &str,
+    to_date: &str,
+    params: &slots::SlotParams,
+    extra_projects: &[String],
+) -> Result<Vec<(String, Vec<slots::Slot>)>, String> {
+    use chrono::{Duration, NaiveDate};
+    let start = NaiveDate::parse_from_str(from_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    let end = NaiveDate::parse_from_str(to_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    if end < start {
+        return Err("range end before start".into());
+    }
+    let mut out = Vec::new();
+    let mut d = start;
+    while d <= end {
+        let ds = d.format("%Y-%m-%d").to_string();
+        let s = day_slots(db, &ds, params, extra_projects)?;
+        out.push((ds, s));
+        d += Duration::days(1);
+    }
+    Ok(out)
 }
 
 /// Pure aggregation core (no DB/clock) for testability.

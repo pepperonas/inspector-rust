@@ -98,7 +98,9 @@ Sicherheit — Allowlist-only, Canonicalize-Check pro Löschung, keine Symlinks,
 
 == Zeiterfassung (Timesheet, macOS) ==
 Tracking — `track on/off`: event-basiert nach Fenster-Fokus, Idle-Auto-Pause, überlebt Neustarts
-Timesheet-Tab — Tag/Woche, Timeline (Gantt), By-App/Kategorie/Projekt, Bearbeiten/Mergen/Cleanup
+Timesheet-Tab — Tag/Woche, Slots (Default) / By-App / Timeline (Gantt), Bearbeiten/Mergen/Cleanup
+Slots — die rohen Fokus-Fragmente (Hunderte à 1–30 s) werden nicht-destruktiv zu wenigen buchbaren Projekt-Blöcken verdichtet: Projekt-Inferenz (expliziter Tag → Claude-cwd → Titel/URL-Token → zeitliche Nachbarschaft), kurze Fremd-Unterbrechungen absorbiert, Lücken gebrückt, auf Viertelstunden gerundet (nächste, nie aufblähend); jeder Slot behält seine Event-IDs zur Rückverfolgung
+BCS-Übergabe — „An bcsbook": Slots per Projekt→Shortcut-Map an bcsbooks lokale API (`/api/suggestions/save`) zum Review + Verbuchen in BCS; liest den Tag erst + merged (kollisionsfreie Slots ergänzt, bestehende git/presence/manuelle Zeilen bleiben; Replace nur explizit), ungemappte Projekte werden gemeldet
 Projekte — Zeiträume per Drag zuweisen, Projekt-Export für Kundenabrechnung
 Claude-Code-Erkennung — Zeit + Tokens pro Projekt
 Browser-Extension — aktiver Tab (Host/Titel) via Loopback-WebSocket, token-authentifiziert

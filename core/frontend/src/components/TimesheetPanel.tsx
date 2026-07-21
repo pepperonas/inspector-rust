@@ -63,6 +63,7 @@ import {
   weekBounds,
 } from "../lib/timesheet";
 import { TimesheetWeek } from "./TimesheetWeek";
+import { SlotsView } from "./SlotsView";
 
 /**
  * Timesheet tab — a day-navigable, charted view of tracked time (read-only in
@@ -93,7 +94,7 @@ export function TimesheetPanel() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [draft, setDraft] = useState<EventDraft | null>(null);
   // Events area view: "timeline" (editable list, default) vs "grouped" by app.
-  const [eventsView, setEventsView] = useState<"grouped" | "timeline">("timeline");
+  const [eventsView, setEventsView] = useState<"slots" | "grouped" | "timeline">("slots");
   // Known category / project names (for assign autocomplete).
   const [knownCategories, setKnownCategories] = useState<string[]>([]);
   const [knownProjects, setKnownProjects] = useState<string[]>([]);
@@ -774,7 +775,7 @@ export function TimesheetPanel() {
           <div className="flex items-center gap-2">
             <span className="text-[12px] font-medium text-[var(--color-muted)]">View</span>
             <div className="flex overflow-hidden rounded-full border border-[var(--color-border)]">
-              {(["grouped", "timeline"] as const).map((v) => (
+              {(["slots", "grouped", "timeline"] as const).map((v) => (
                 <button
                   key={v}
                   type="button"
@@ -786,11 +787,18 @@ export function TimesheetPanel() {
                       : "hover:bg-[var(--color-surface)]")
                   }
                 >
-                  {v === "grouped" ? "By app" : "Timeline"}
+                  {v === "slots" ? "Slots" : v === "grouped" ? "By app" : "Timeline"}
                 </button>
               ))}
             </div>
           </div>
+
+          {/* Slots — the consolidated, bookable blocks (derived, non-destructive). */}
+          {eventsView === "slots" && (
+            <Card id="slots" title="Slots">
+              <SlotsView date={date} />
+            </Card>
+          )}
 
           {/* Grouped view — every app expands to its detail (browser → hosts,
               else window titles). */}

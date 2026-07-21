@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.90.0] — 2026-07-21
+
+### Added
+
+- **Timesheet: consolidated slots — the raw fragments become bookable blocks, and can be handed to bcsbook.** A tracked day is hundreds of focus events of a few seconds each (a real day reached 463 fragments of 1–30 s): correct as a measurement, useless as a timesheet. The Timesheet tab gains a third view, **Slots**, which derives from those fragments the few contiguous blocks a person would actually book — and it is **non-destructive**, unlike the existing "Clean up" button, which DELETEs idle spans and sub-15 s rows outright. Slots are recomputed on every call, every slot keeps the ids of the events it came from as an audit trail, and the raw timeline stays exactly as recorded.
+  - **Project inference (`tracking/slots.rs`)** — most events carry no project, so it is taken from the strongest available signal: an explicit tag, the Claude working directory, project-name tokens in the window title/URL, and finally **temporal neighbourhood** (untagged time between two blocks of the same project belongs to that project; a real break stops the inheritance). Each slot reports which of these named it, so a guess is visible before it is booked.
+  - **Consolidation** — contiguous runs of one project, bridging short gaps and **absorbing short foreign interruptions** (a 20-second glance at Slack must not split a two-hour block into three), split by real breaks. Everything is tunable in the view; the defaults suit a normal knowledge-work day.
+  - **Rounding that does not inflate the day** — bounds snap to the *nearest* quarter hour and the minimum-length gate runs on the *measured* duration, before snapping. Both directions were verified the hard way in the sibling project: rounding outward turned a 7-hour day into 7.5, and filtering after snapping let a 20-minute stretch pass a 30-minute floor as a 45-minute block.
+  - **Handover to bcsbook (`tracking/bcsbook.rs`)** — "An bcsbook" maps slots to that tool's rows via a `project = shortcut` table and posts them to its local API for review and booking. bcsbook's save endpoint **replaces the whole day**, so the push reads the day first and **merges**: by default only slots that don't collide with an existing entry are added, leaving git-derived rows, presence rows and manual corrections intact; the report says what was skipped and which projects still lack a shortcut. Replacing the day is possible but must be asked for explicitly.
+  - IPC: `track_slots` · `track_slots_range` · `track_bcsbook_preview` · `track_push_bcsbook` · `get_slot_config` / `set_slot_config`. 41 new unit tests.
+
 ## [0.89.0] — 2026-07-21
 
 ### Added

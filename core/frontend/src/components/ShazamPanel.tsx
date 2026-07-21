@@ -131,11 +131,18 @@ function LinkChip({
 export function ShazamPanel({
   focused,
   initialView = "recognize",
+  viewSignal = 0,
   onExit,
 }: {
   focused: boolean;
   /** `history` opens straight into the history list (no mic). Default: recognize. */
   initialView?: "recognize" | "history";
+  /** Bumped by App.tsx on every shazam dispatch (a click on the "Identify
+   *  song" / "shazam history" list row). The panel stays mounted across
+   *  those clicks, so `initialView` alone can't re-apply the choice —
+   *  this signal makes every click land, even one matching the current
+   *  mode after the internal Listen⇄History toggle diverged from it. */
+  viewSignal?: number;
   onExit: () => void;
 }) {
   const [view, setView] = useState<"recognize" | "history" | "lyrics">(initialView);
@@ -153,6 +160,10 @@ export function ShazamPanel({
   const [history, setHistory] = useState<ShazamHistoryEntry[]>([]);
   const filteredHistory = filterShazamHistory(history, histQuery);
   const runIdRef = useRef(0);
+  /** True while a native recording/recognition is in flight — guards the
+   *  list-row click path from starting a SECOND concurrent `shazam_listen`
+   *  (cpal would open the input device twice). */
+  const busyRef = useRef(false);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -176,6 +187,7 @@ export function ShazamPanel({
       setProgress(e.payload);
       if (e.payload >= 0.999) setPhase("searching");
     });
+    busyRef.current = true;
     try {
       const m = await shazamListen(RECORD_SECONDS);
       if (runIdRef.current !== myRun) return;
@@ -196,6 +208,7 @@ export function ShazamPanel({
         setPhase("error");
       }
     } finally {
+      busyRef.current = false;
       unlisten();
     }
   }, [loadHistory]);
@@ -211,6 +224,30 @@ export function ShazamPanel({
     // Run once on mount for the chosen initial view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Every later click on the "Identify song" / "shazam history" list row
+  // bumps `viewSignal` (App.tsx) — apply it to the ALREADY-MOUNTED panel.
+  // Without this, `initialView` was consumed once at mount and the other
+  // row's click silently did nothing (field report). The ref skips the
+  // mount-time value so the mount effect above stays the only initial run.
+  const lastSignalRef = useRef(viewSignal);
+  useEffect(() => {
+    if (viewSignal === lastSignalRef.current) return;
+    lastSignalRef.current = viewSignal;
+    if (initialView === "history") {
+      // Switch to the list; an in-flight recognition keeps running in the
+      // background (view and run are orthogonal — returning to recognize
+      // shows its live state, and a match still lands in the history).
+      setView("history");
+      void loadHistory();
+    } else if (busyRef.current) {
+      // Already listening/recognizing — just bring the recognize view back
+      // (never start a SECOND concurrent native recording).
+      setView("recognize");
+    } else {
+      void run();
+    }
+  }, [viewSignal, initialView, run, loadHistory]);
 
   const copyTitle = useCallback(async () => {
     if (!match) return;

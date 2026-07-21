@@ -261,6 +261,11 @@ function App() {
   // history` opens the recognized-songs history. null = closed.
   const [shazamMode, setShazamMode] = useState<null | "listen" | "history">(null);
   const [shazamFocus, setShazamFocus] = useState(false);
+  // Bumped on EVERY shazam dispatch. The mounted panel reacts to this — a
+  // mode change alone can't cover the click on the row matching the current
+  // mode (after the panel's internal Listen⇄History toggle the prop wouldn't
+  // change at all), which left the click silently ignored.
+  const [shazamSignal, setShazamSignal] = useState(0);
   // 2FA management overlay state (separate from `bpmMode`/`gameMode`
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
@@ -2880,6 +2885,7 @@ function App() {
         // `shazam` → record + identify; `shazam history` → the history list.
         const histMode = /\b(hist|list)/i.test(arg ?? "");
         setShazamMode(histMode ? "history" : "listen");
+        setShazamSignal((n) => n + 1);
         setShazamFocus(true);
       } else {
         // Not dispatched here (e.g. pwgen has its own preview ListEntry,
@@ -3658,6 +3664,7 @@ function App() {
                     <ShazamPanel
                       focused={shazamFocus}
                       initialView={shazamMode === "history" ? "history" : "recognize"}
+                      viewSignal={shazamSignal}
                       onExit={() => {
                         setShazamMode(null);
                         setShazamFocus(false);

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.88.3] — 2026-07-21
+
+### Fixed
+
+- **Shazam: clicking the other list row now actually switches the view.** With the panel already open, clicking "Identify song" / "shazam history" in the left list did nothing — `initialView` was consumed once at mount, so the mounted panel never saw the choice (and after the internal Listen⇄History toggle the prop didn't even change). App.tsx now bumps a `viewSignal` on every shazam dispatch and the panel applies each click: the history row switches to the list without touching the mic (an in-flight recognition keeps running in the background — its match still lands in the history), the identify row starts a fresh listen, or — if a recognition is already running — brings its live view back instead of opening a second concurrent recording.
+
 ## [0.88.2] — 2026-07-19
 
 ### Fixed

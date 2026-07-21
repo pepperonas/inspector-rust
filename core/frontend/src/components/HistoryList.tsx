@@ -173,6 +173,8 @@ export function HistoryList({
                                       ? `pwgen-${entry.data.length}-${entry.data.mode}`
                                       : entry.kind === "bpm"
                                         ? `bpm-trigger`
+                                        : entry.kind === "equalizer"
+                                        ? `equalizer-trigger`
                                         : entry.kind === "totp-manage"
                                           ? `totp-manage`
                                           : entry.kind === "totp"

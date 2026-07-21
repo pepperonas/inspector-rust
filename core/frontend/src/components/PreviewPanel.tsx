@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
 import { STATE_LABELS, brunoSelfAssumptions } from "../lib/bruno";
 import {
-  Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
+  AudioLines, Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
   Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
@@ -731,6 +731,30 @@ export function PreviewPanel({
             octave-corrected + octave-snapped to 60-200 BPM, displayed
             as the 4-second rolling mean of raw estimates. Esc inside
             the overlay to exit + release the mic.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (entry.kind === "equalizer") {
+    return (
+      <div className="flex h-full flex-col gap-4 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Equalizer · microphone spectrum
+        </div>
+        <div className="flex flex-1 flex-col items-center justify-center gap-4 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-6 text-center">
+          <AudioLines size={36} className="text-[var(--color-accent)] opacity-80" />
+          <div className="text-[14px] font-semibold">{entry.data.label}</div>
+          <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
+            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the live overlay — a 28-band,
+            log-scaled spectrum analyzer with peak-hold markers, driven by
+            the microphone (shared with the BPM detector, so no extra
+            permission prompt). Play music nearby or hold the mic to a speaker.
+          </div>
+          <div className="text-[10px] text-[var(--color-muted)]">
+            Inside the overlay: <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">↩</kbd> pins it (keeps it open when you click
+            away), <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[10px]">Esc</kbd> exits + releases the mic.
           </div>
         </div>
       </div>

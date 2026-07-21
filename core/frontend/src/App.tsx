@@ -53,6 +53,7 @@ import {
   isGetShakyTrigger,
   is2faTrigger,
   isBpmTrigger,
+  isEqualizerTrigger,
   isOpenerTrigger,
   parseOtpQuery,
   rockTheBoxMode,
@@ -88,6 +89,7 @@ import { SnakeGame } from "./components/SnakeGame";
 import { FlappyGame } from "./components/FlappyGame";
 import { matchMemes, type MemeEntry } from "./lib/meme";
 import { BpmDetector } from "./components/BpmDetector";
+import { EqualizerVisualizer } from "./components/EqualizerVisualizer";
 import { TotpOverlay } from "./components/TotpOverlay";
 import {
   clearHistory,
@@ -214,6 +216,8 @@ function App() {
   // has different lifecycle semantics: audio teardown, mic
   // permission, and Enter-to-start (vs gameMode's type-to-start).
   const [bpmMode, setBpmMode] = useState(false);
+  // Equalizer overlay state — mirrors bpmMode; `equalizer`/`eq` → spectrum viz.
+  const [equalizerMode, setEqualizerMode] = useState(false);
   // Brightness mode — Enter on the `brightness` command row renders the
   // sliders in the right preview column (no separate window). `brightnessFocus`
   // is whether the arrow keys currently drive the sliders (true) or the left
@@ -1637,6 +1641,17 @@ function App() {
     };
   }, [query]);
 
+  // equalizer trigger — exact `equalizer`/`eq` surfaces an "Equalizer" row.
+  // Enter activates → equalizerMode = true → <EqualizerVisualizer /> takes
+  // over the popup body (same shape as bpm).
+  const equalizerEntry: ListEntry | null = useMemo(() => {
+    if (!isEqualizerTrigger(query)) return null;
+    return {
+      kind: "equalizer",
+      data: { label: "Equalizer (microphone spectrum)" },
+    };
+  }, [query]);
+
   // 2FA management trigger — exact `2fa` surfaces a "TOTP management"
   // row; Enter takes over the popup with the full <TotpOverlay />.
   const totpManageEntry: ListEntry | null = useMemo(() => {
@@ -1788,6 +1803,7 @@ function App() {
       ...(brunoEntry ? [brunoEntry] : []),
       ...(pwgenEntry ? [pwgenEntry] : []),
       ...(bpmEntry ? [bpmEntry] : []),
+      ...(equalizerEntry ? [equalizerEntry] : []),
       ...(totpManageEntry ? [totpManageEntry] : []),
       ...totpAutocompleteEntries,
       ...resizePresetEntries,
@@ -1820,6 +1836,7 @@ function App() {
     brunoEntry,
     pwgenEntry,
     bpmEntry,
+    equalizerEntry,
     totpManageEntry,
     totpAutocompleteEntries,
     resizePresetEntries,
@@ -2904,6 +2921,12 @@ function App() {
         setBpmMode(true);
         return;
       }
+      // equalizer trigger — Enter swaps the popup body for the live
+      // spectrum visualizer (same mic + pin/Esc behaviour as bpm).
+      if (target.kind === "equalizer") {
+        setEqualizerMode(true);
+        return;
+      }
       // 2FA management overlay — Enter swaps the popup body for the
       // TOTP manager (list / add / import / export). Esc returns.
       if (target.kind === "totp-manage") {
@@ -3179,6 +3202,7 @@ function App() {
       activeTab === "history" &&
       !gameMode &&
       !bpmMode &&
+      !equalizerMode &&
       !totpMode &&
       !pwgenEditing &&
       // The inline snippet editor owns the keyboard while it's open — otherwise
@@ -3274,6 +3298,27 @@ function App() {
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
           <BpmDetector onExit={exitBpm} />
+        </div>
+      </div>
+    );
+  }
+
+  // Equalizer mode — Enter on the `equalizer`/`eq` row takes over the
+  // app-shell with the microphone-driven spectrum visualizer. Same shape as
+  // BPM mode: Esc inside the component calls onExit (audio teardown + pin
+  // release handled there).
+  if (equalizerMode) {
+    const exitEqualizer = () => {
+      setEqualizerMode(false);
+      setQuery("");
+      setSelected(0);
+      void setSuppressHide(false).catch(() => undefined);
+      requestAnimationFrame(() => searchRef.current?.focus());
+    };
+    return (
+      <div className="flex h-screen w-screen p-2">
+        <div className="app-shell md3-pop-in flex h-full w-full flex-col">
+          <EqualizerVisualizer onExit={exitEqualizer} />
         </div>
       </div>
     );

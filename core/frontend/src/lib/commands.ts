@@ -1149,6 +1149,17 @@ export function isBpmTrigger(query: string): boolean {
 }
 
 /**
+ * `equalizer` (alias `eq`) → surface an "Equalizer" row at the top of the
+ * list. Enter-activated like `bpm` (same reasoning: short word, takeover is
+ * heavy). Fires only on the exact whole word, whitespace-tolerant +
+ * case-insensitive. Also a hidden trigger — not in the `COMMANDS` catalogue.
+ */
+export function isEqualizerTrigger(query: string): boolean {
+  const q = query.trim().toLowerCase();
+  return q === "equalizer" || q === "eq";
+}
+
+/**
  * `2fa` → surface a "2FA / TOTP management" row that on Enter opens
  * the full overlay (add / import / export / delete entries). Exact
  * match, whitespace + case tolerant.

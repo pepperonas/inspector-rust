@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import {
-  BookOpen, Activity, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
+  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
@@ -33,6 +33,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "help") return <BookOpen size={size} className={cls} />;
   if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "bpm") return <Activity size={size} className={cls} />;
+  if (entry.kind === "equalizer") return <AudioLines size={size} className={cls} />;
   if (entry.kind === "totp-manage") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "totp") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "app") {
@@ -98,6 +99,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isHelp = entry.kind === "help";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
+  const isEqualizer = entry.kind === "equalizer";
   const isTotp = entry.kind === "totp";
   const isKillTarget = entry.kind === "kill-target";
   const isMeme = entry.kind === "meme";
@@ -120,6 +122,7 @@ export const HistoryItem = memo(function HistoryItem({
     isBruno ||
     isPwgen ||
     isBpm ||
+    isEqualizer ||
     isTotp ||
     isKillTarget ||
     isMeme ||
@@ -147,7 +150,7 @@ export const HistoryItem = memo(function HistoryItem({
         ? entry.data.name
         : isSocial && entry.kind === "social"
           ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isTotpManage || isTotp || isFinderFile || isFiglet
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet
             ? ""
             : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
@@ -301,6 +304,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Live BPM detector — listens to the microphone"
     >
       bpm
+    </span>
+  ) : isEqualizer ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
+      }
+      title="Live spectrum equalizer — listens to the microphone"
+    >
+      equalizer
     </span>
   ) : isTotpManage ? (
     <span
@@ -585,6 +600,18 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               ⏎ Listen to mic + detect BPM live · Esc to exit
+            </span>
+          </span>
+        ) : isEqualizer && entry.kind === "equalizer" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.label}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Live mic spectrum · Enter pins · Esc to exit
             </span>
           </span>
         ) : isTotpManage && entry.kind === "totp-manage" ? (

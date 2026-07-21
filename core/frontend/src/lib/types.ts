@@ -203,6 +203,7 @@ export type ListEntry =
   | { kind: "app"; data: AppEntryView }
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
+  | { kind: "equalizer"; data: EqualizerTriggerView }
   | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
   | { kind: "totp-manage"; data: { label: string } }
   | { kind: "totp"; data: TotpListView }
@@ -246,6 +247,13 @@ export interface TotpListView {
 export interface BpmTriggerView {
   /** Static label rendered in the row, kept here for the renderer
    *  to read so it doesn't have to special-case the kind. */
+  label: string;
+}
+
+/** Row surfaced when the user types `equalizer` (or `eq`) exactly. Enter
+ *  activates the live spectrum equalizer overlay (`<EqualizerVisualizer />`).
+ *  A marker for the activate handler, like `BpmTriggerView`. */
+export interface EqualizerTriggerView {
   label: string;
 }
 

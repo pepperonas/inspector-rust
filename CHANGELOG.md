@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.89.0] — 2026-07-21
+
+### Added
+
+- **`equalizer` (alias `eq`) — live microphone spectrum visualizer.** Type `equalizer` (or `eq`) → Enter for a classic 28-band, log-scaled vertical-bar analyzer with peak-hold markers, driven by the microphone. Built as a faithful sibling of the `bpm` detector: it reuses the same **shared native audio capture** (`startFedMic`, ref-counted with the BPM detector + disco — no extra device access or permission prompt), the same single-`<canvas>` + `requestAnimationFrame` render loop (zero React re-render per frame), the same theme-token palette (accent → hot gradient, additive bloom), and the **same pin mechanism** — **Enter** pins it (recolours rose + suppresses click-outside dismiss so it stays floating), **Esc** exits and releases the pin + mic. The FFT is done client-side by a Web Audio `AnalyserNode` (exactly like the BPM detector's spectrum ring); band bucketing (`spectrumBars`, log-spaced) + attack/release smoothing (`smoothBars`) + a new peak-hold helper (`peakDecay`) shape the bars. Frontend-only — no new Rust module. Hidden trigger, like `bpm`.
+
 ## [0.88.4] — 2026-07-21
 
 ### Fixed

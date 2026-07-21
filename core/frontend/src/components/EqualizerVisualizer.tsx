@@ -41,12 +41,28 @@ type Phase = "requesting" | "listening" | "denied";
 const BAND_COUNT = 28;
 const FALLBACK_ACCENT: Rgb = { r: 99, g: 102, b: 241 }; // indigo, if CSS read fails
 
+/** A glowing spark that rises off a band on a loud transient. */
+interface Particle {
+  x: number;
+  y: number;
+  vx: number;
+  vy: number;
+  life: number; // remaining, seconds
+  max: number; // initial life
+  size: number;
+}
+
 /** All mutable per-frame animation state — lives in a ref so the rAF loop
  *  never touches React. */
 interface VizState {
   bars: Float32Array; // smoothed spectrum, [0,1] per band
+  prev: Float32Array; // last frame's bars — to detect rising transients
   peaks: Float32Array; // peak-hold markers, [0,1] per band
+  peakHeat: Float32Array; // 0..1 freshness of each peak cap → glow
+  particles: Particle[];
   level: number; // eased overall energy (for the top-bar label)
+  flash: number; // 0..1 overall beat flash, decays each frame
+  t: number; // running seconds — drives the shimmer
   lastT: number;
   bg: Rgb;
   cold: Rgb;
@@ -72,8 +88,13 @@ export function EqualizerVisualizer({ onExit }: Props) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const vizRef = useRef<VizState>({
     bars: new Float32Array(BAND_COUNT),
+    prev: new Float32Array(BAND_COUNT),
     peaks: new Float32Array(BAND_COUNT),
+    peakHeat: new Float32Array(BAND_COUNT),
+    particles: [],
     level: 0,
+    flash: 0,
+    t: 0,
     lastT: 0,
     bg: { r: 12, g: 13, b: 17 },
     cold: FALLBACK_ACCENT,
@@ -207,16 +228,34 @@ export function EqualizerVisualizer({ onExit }: Props) {
           v.lastT = now;
 
           if (now - startT >= WARMUP_MS) {
+            v.t += dt;
+            v.prev.set(v.bars);
             vizAnalyserRef.current.getByteFrequencyData(freqBuf);
             // Bass gets fine resolution, highs are averaged — a natural music
             // spectrum. Attack fast (punchy), release slow (satisfying fall).
-            smoothBars(v.bars, spectrumBars(freqBuf, BAND_COUNT, 0.68), dt, 0.6, 6);
+            smoothBars(v.bars, spectrumBars(freqBuf, BAND_COUNT, 0.68), dt, 0.62, 6);
             peakDecay(v.peaks, v.bars, dt, 0.5);
-            // overall energy for the label (mean of the smoothed bars)
+            // Per-band transients: a bar jumping up lights its peak cap and
+            // flicks a spark off the top — that's the eye-candy.
             let sum = 0;
-            for (let i = 0; i < v.bars.length; i++) sum += v.bars[i];
+            let maxRise = 0;
+            for (let i = 0; i < v.bars.length; i++) {
+              sum += v.bars[i];
+              const rise = v.bars[i] - v.prev[i];
+              if (rise > 0.06 && v.bars[i] > 0.18) {
+                v.peakHeat[i] = 1;
+                if (rise > maxRise) maxRise = rise;
+                if (v.particles.length < 90 && Math.random() < 0.5 + rise) {
+                  spawnSpark(v, i);
+                }
+              }
+              // cool the cap glow down
+              v.peakHeat[i] = Math.max(0, v.peakHeat[i] - dt * 2.2);
+            }
             v.level = sum / v.bars.length;
             levelRef.current = v.level;
+            v.flash = Math.max(v.flash * Math.exp(-5 * dt), Math.min(1, maxRise * 4));
+            stepSparks(v, dt);
             drawScene(canvasRef.current, v);
           }
           rafRef.current = requestAnimationFrame(tick);
@@ -350,62 +389,117 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   const geo = barGeometry(fieldW, BAND_COUNT, 0.36);
   const radius = Math.min(6, geo.barW * 0.5);
 
-  // — soft central bloom that breathes with the overall level —
-  const glow = clamp01(0.08 + v.level * 1.6);
+  const minDim = Math.min(cssW, cssH);
+
+  // — reactive background bloom rising from the baseline + a soft vignette —
+  const glow = clamp01(0.06 + v.level * 1.4 + v.flash * 0.5);
   const bloom = ctx.createRadialGradient(
     cssW / 2,
     baseline,
     0,
     cssW / 2,
     baseline,
-    Math.max(cssW, cssH) * 0.55,
+    Math.max(cssW, cssH) * 0.6,
   );
-  bloom.addColorStop(0, rgba(v.warm, 0.14 * glow));
-  bloom.addColorStop(0.6, rgba(v.warm, 0.04 * glow));
+  bloom.addColorStop(0, rgba(v.warm, 0.16 * glow));
+  bloom.addColorStop(0.55, rgba(v.warm, 0.05 * glow));
   bloom.addColorStop(1, rgba(v.warm, 0));
   ctx.fillStyle = bloom;
   ctx.fillRect(0, 0, cssW, cssH);
+  const vig = ctx.createRadialGradient(
+    cssW / 2,
+    cssH / 2,
+    minDim * 0.3,
+    cssW / 2,
+    cssH / 2,
+    Math.max(cssW, cssH) * 0.7,
+  );
+  vig.addColorStop(0, "rgba(0,0,0,0)");
+  vig.addColorStop(1, "rgba(0,0,0,0.35)");
+  ctx.fillStyle = vig;
+  ctx.fillRect(0, 0, cssW, cssH);
 
+  // Everything luminous is drawn additively for a real bloom look.
   ctx.globalCompositeOperation = "lighter";
 
   for (let i = 0; i < BAND_COUNT; i++) {
     const mag = clamp01(v.bars[i]);
     const x = padX + geo.x(i);
-    const h = Math.max(2, mag * maxBarH);
+    const cxb = x + geo.barW / 2;
+    // a subtle per-band shimmer so idle bars still feel alive
+    const shimmer = 1 + Math.sin(v.t * 2.2 + i * 0.7) * 0.04;
+    const h = Math.max(2, mag * maxBarH * shimmer);
     const y = baseline - h;
-    const col = mixRgb(v.cold, v.hot, clamp01(mag * 1.1));
+    const col = mixRgb(v.cold, v.hot, clamp01(mag * 1.15));
 
-    // bar body — vertical gradient dim→bright, additive glow for loud crests
+    // soft glow halo behind the bar (wider + translucent) — cheap fake-bloom
+    if (mag > 0.02) {
+      const halo = ctx.createLinearGradient(0, baseline, 0, y - 8);
+      halo.addColorStop(0, rgba(col, 0));
+      halo.addColorStop(1, rgba(col, 0.2 * mag));
+      ctx.fillStyle = halo;
+      ctx.fillRect(x - geo.barW * 0.5, y - 8, geo.barW * 2, h + 8);
+    }
+
+    // bar body — vertical gradient dim→bright
     const grad = ctx.createLinearGradient(0, baseline, 0, y);
-    grad.addColorStop(0, rgba(mixRgb(v.cold, v.warm, 0.3), 0.5 + mag * 0.4));
-    grad.addColorStop(1, rgba(col, 0.7 + mag * 0.3));
+    grad.addColorStop(0, rgba(mixRgb(v.cold, v.warm, 0.35), 0.55 + mag * 0.35));
+    grad.addColorStop(1, rgba(col, 0.8 + mag * 0.2));
     ctx.fillStyle = grad;
     roundedTopRect(ctx, x, y, geo.barW, h, radius);
     ctx.fill();
 
-    // gentle mirrored reflection under the baseline (fades fast)
-    const refH = Math.min(h * 0.4, cssH - baseline - 2);
+    // bright cap highlight — a near-white crest that reads as a glowing tip
+    ctx.fillStyle = rgba(mixRgb(col, { r: 255, g: 255, b: 255 }, 0.55), 0.55 + mag * 0.45);
+    roundedTopRect(ctx, x, y, geo.barW, Math.min(radius * 1.6, h), radius);
+    ctx.fill();
+
+    // mirrored reflection under the baseline (fades)
+    const refH = Math.min(h * 0.45, cssH - baseline - 2);
     if (refH > 1) {
       const rg = ctx.createLinearGradient(0, baseline, 0, baseline + refH);
-      rg.addColorStop(0, rgba(col, 0.18 + mag * 0.12));
+      rg.addColorStop(0, rgba(col, 0.2 + mag * 0.14));
       rg.addColorStop(1, rgba(col, 0));
       ctx.fillStyle = rg;
       ctx.fillRect(x, baseline + 1, geo.barW, refH);
     }
 
-    // — peak-hold marker —
+    // — glowing peak cap: a bloom on a fresh hit, cooling to a thin marker —
     const peak = clamp01(v.peaks[i]);
-    if (peak > mag + 0.01) {
+    if (peak > 0.02) {
       const py = baseline - peak * maxBarH;
-      ctx.fillStyle = rgba(v.hot, 0.85);
+      const heat = v.peakHeat[i];
+      if (heat > 0.02) {
+        const r = 3 + heat * 11;
+        const gg = ctx.createRadialGradient(cxb, py, 0, cxb, py, r);
+        gg.addColorStop(0, rgba(v.hot, 0.5 * heat));
+        gg.addColorStop(1, rgba(v.hot, 0));
+        ctx.fillStyle = gg;
+        ctx.fillRect(cxb - r, py - r, r * 2, r * 2);
+      }
+      ctx.fillStyle = rgba(mixRgb(v.hot, { r: 255, g: 255, b: 255 }, heat * 0.6), 0.65 + heat * 0.35);
       ctx.fillRect(x, py - 2, geo.barW, 2.5);
     }
   }
 
-  // — baseline —
+  // — rising sparks flicked off loud transients —
+  for (const p of v.particles) {
+    const px = padX + p.x * fieldW;
+    const py = baseline - clamp01(p.y) * maxBarH;
+    const lifeT = clamp01(p.life / p.max);
+    const r = p.size * (0.5 + lifeT);
+    const gp = ctx.createRadialGradient(px, py, 0, px, py, r * 2.2);
+    gp.addColorStop(0, rgba(mixRgb(v.warm, v.hot, 0.6), lifeT * 0.9));
+    gp.addColorStop(1, rgba(v.warm, 0));
+    ctx.fillStyle = gp;
+    ctx.fillRect(px - r * 2.2, py - r * 2.2, r * 4.4, r * 4.4);
+  }
+
+  // — baseline with a level-reactive glow —
   ctx.globalCompositeOperation = "source-over";
-  ctx.strokeStyle = rgba(mixRgb(v.warm, v.bg, 0.5), 0.35);
-  ctx.lineWidth = 1;
+  const blGlow = clamp01(0.25 + v.level * 0.8 + v.flash * 0.4);
+  ctx.strokeStyle = rgba(mixRgb(v.warm, v.hot, 0.3), 0.5 * blGlow);
+  ctx.lineWidth = 1.5;
   ctx.beginPath();
   ctx.moveTo(padX, baseline + 0.5);
   ctx.lineTo(cssW - padX, baseline + 0.5);
@@ -415,7 +509,6 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   ctx.save();
   ctx.textAlign = "center";
   ctx.textBaseline = "alphabetic";
-  const minDim = Math.min(cssW, cssH);
   ctx.font = `500 ${Math.round(Math.max(10, minDim * 0.02))}px ui-sans-serif, system-ui, sans-serif`;
   ctx.fillStyle = rgba(mixRgb(v.warm, v.bg, 0.35), 0.7);
   ctx.fillText(
@@ -424,6 +517,35 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
     cssH - Math.max(10, minDim * 0.03),
   );
   ctx.restore();
+}
+
+// ── Spark particles ──────────────────────────────────────────────────────────
+
+/** Emit a spark at the crest of band `i` (normalized coords, resolved to px at
+ *  draw time so it's resolution-independent). */
+function spawnSpark(v: VizState, i: number): void {
+  const max = 0.5 + Math.random() * 0.6;
+  v.particles.push({
+    x: (i + 0.5) / BAND_COUNT + (Math.random() - 0.5) * 0.012,
+    y: clamp01(v.bars[i]),
+    vx: (Math.random() - 0.5) * 0.22,
+    vy: 0.35 + Math.random() * 0.5, // up (normalized units/s)
+    life: max,
+    max,
+    size: 1 + Math.random() * 2,
+  });
+}
+
+/** Advance sparks: rise, gravity pulls them back, fade out. */
+function stepSparks(v: VizState, dt: number): void {
+  const G = 0.55; // gravity (norm/s²)
+  for (const p of v.particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vy -= G * dt;
+    p.life -= dt;
+  }
+  v.particles = v.particles.filter((p) => p.life > 0 && p.y > -0.05);
 }
 
 /** Path a rectangle with only its top two corners rounded (bars sit on the

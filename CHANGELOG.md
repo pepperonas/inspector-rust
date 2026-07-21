@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.1] — 2026-07-22
+
+### Fixed
+
+- **`equalizer` now surfaces the whole time you type it.** The trigger matched only the exact `eq` / `equalizer`, so the row flickered away for everything in between (`equa`, `equali`, …). It now matches any ≥2-char prefix of `equalizer`, so the row appears the moment you type `eq` and stays through to the full word.
+
+### Changed
+
+- **Prettier equalizer animation.** The spectrum bars gain a fake-bloom glow halo, a bright near-white crest highlight and a subtle idle shimmer; peak-hold caps now bloom on a fresh hit and cool to a thin marker; loud transients flick **rising glowing sparks** off the crests; the background bloom + baseline react to the overall level with a soft vignette. All still one `<canvas>` + rAF loop (no per-frame React render); glow is faked with gradients (no `shadowBlur`) to stay cheap.
+
 ## [0.91.0] — 2026-07-21
 
 ### Added

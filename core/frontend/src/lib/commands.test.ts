@@ -24,6 +24,7 @@ import {
   parseOtpQuery,
   is2faTrigger,
   isBpmTrigger,
+  isEqualizerTrigger,
   isFlappyTrigger,
   formatBytes,
   resizePresetSuggestions,
@@ -1161,6 +1162,17 @@ describe("hidden game/word triggers (exact word, case-insensitive)", () => {
     expect(isBpmTrigger("bpms")).toBe(false);
     expect(isBpmTrigger("bpm detector")).toBe(false);
     expect(isBpmTrigger("")).toBe(false);
+  });
+  it("isEqualizerTrigger matches any ≥2-char prefix of `equalizer`", () => {
+    for (const q of ["eq", "equ", "equa", "equal", "equali", "equaliz", "equalize", "equalizer"]) {
+      expect(isEqualizerTrigger(q)).toBe(true);
+      expect(isEqualizerTrigger(q.toUpperCase())).toBe(true);
+    }
+    expect(isEqualizerTrigger("  Equalizer ")).toBe(true);
+    expect(isEqualizerTrigger("e")).toBe(false); // too short
+    expect(isEqualizerTrigger("equalizers")).toBe(false); // past the word
+    expect(isEqualizerTrigger("eqz")).toBe(false); // not a prefix
+    expect(isEqualizerTrigger("")).toBe(false);
   });
   it("isFlappyTrigger matches only the exact word `learningtofly`", () => {
     expect(isFlappyTrigger("learningtofly")).toBe(true);

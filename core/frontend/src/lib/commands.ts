@@ -1156,7 +1156,10 @@ export function isBpmTrigger(query: string): boolean {
  */
 export function isEqualizerTrigger(query: string): boolean {
   const q = query.trim().toLowerCase();
-  return q === "equalizer" || q === "eq";
+  // Any prefix of "equalizer" of at least two chars matches — so the row shows
+  // the moment you type "eq" and stays visible through "equa…izer" instead of
+  // flickering away between the exact "eq" and "equalizer" (the reported bug).
+  return q.length >= 2 && "equalizer".startsWith(q);
 }
 
 /**

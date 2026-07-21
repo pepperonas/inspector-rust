@@ -207,6 +207,31 @@ export function SlotsView({ date }: { date: string }) {
               Eine Zeile je Projekt. Nur zugeordnete Projekte werden an bcsbook gesendet.
             </span>
           </label>
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={cfg.private_filter}
+              onChange={(e) => void patchCfg({ private_filter: e.target.checked })}
+            />
+            <span className="text-[12px] font-medium">Private Apps ausblenden</span>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[12px] font-medium">Private Apps / Hosts (aus Slots + Export gefiltert)</span>
+            <textarea
+              rows={5}
+              spellCheck={false}
+              disabled={!cfg.private_filter}
+              value={cfg.private_apps}
+              placeholder={"spotify\nwhatsapp\ntelegram\nyoutube.com"}
+              onChange={(e) => setCfg({ ...cfg, private_apps: e.target.value })}
+              onBlur={() => void patchCfg({ private_apps: cfg.private_apps })}
+              className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 font-mono text-[12px] disabled:opacity-50"
+            />
+            <span className="text-[11px] text-[var(--color-muted)]">
+              Ein Muster je Zeile (App-Name oder Host, Teilstring). Eine Zeile entfernen = App wieder
+              erfassen. Die Roh-Timeline bleibt vollständig.
+            </span>
+          </label>
           <button
             type="button"
             disabled={busy || slots.length === 0}

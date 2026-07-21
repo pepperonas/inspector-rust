@@ -2047,6 +2047,10 @@ export interface SlotConfig {
   neighbour_gap_s: number;
   /** `project name = bcsbook shortcut`, one per line. */
   project_map: string;
+  /** Master toggle for the private-app filter (default on). */
+  private_filter: boolean;
+  /** Apps/hosts hidden from slots + exports, one pattern per line. */
+  private_apps: string;
 }
 
 /** Consolidated slots for a local day — recomputed, never stored. */

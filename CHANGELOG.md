@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.0] — 2026-07-21
+
+### Added
+
+- **Timesheet: private-app filter + consolidated slots in the CSV/HTML export.** Two things:
+  - **Private apps are filtered out of the bookable/exported timesheet by default.** A curated list of clearly-personal apps + hosts (music: Spotify/Music/Podcasts…; messengers: WhatsApp/Telegram/Signal/Messages/Discord…; streaming: Netflix/Disney/Twitch/VLC; social: Instagram/TikTok/Reddit…; dating: Tinder/Bumble/Grindr…; games: Steam/Epic…; plus common browser hosts youtube.com/netflix.com/…) is excluded from the **Slots** view **and** the CSV/HTML export, so personal time never becomes bookable work. It is **non-destructive** — the raw timeline keeps everything as audit; only the derived views are filtered, so re-including an app applies retroactively. Seeded once on first run (never overwrites a user list); edit or toggle it in the Slots ⚙ config — **removing a line "releases" that app**. Matched case-insensitively as a substring against app name / host / url. Deliberately excludes work-typical apps (Slack, Zoom, Teams, Mail, LinkedIn) and leaves password managers to the title-strip denylist.
+  - **The CSV and HTML export now carry the consolidated slots** next to the raw events: the HTML report gains a "Consolidated slots" section (date · time · project · hours · description) and the CSV appends a delimited `# Consolidated slots` block. So a single export contains both the fine-grained measurement and the few bookable blocks.
+
 ## [0.90.0] — 2026-07-21
 
 ### Added

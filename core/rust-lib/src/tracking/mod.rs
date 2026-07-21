@@ -99,19 +99,111 @@ fn load_denylist(db: &DbHandle) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// Does the desired interval match the privacy denylist (by app, host, or url)?
-fn is_denied(d: &Desired, denylist: &[String]) -> bool {
-    if denylist.is_empty() {
+/// Case-insensitive substring match of any pattern against the app name, host
+/// or url. Shared by the title-strip **denylist** and the private-app **filter**
+/// (they differ only in what they do with a match). Pure + unit-tested.
+pub fn event_matches_patterns(
+    app: &str,
+    host: Option<&str>,
+    url: Option<&str>,
+    patterns: &[String],
+) -> bool {
+    if patterns.is_empty() {
         return false;
     }
-    let app = d.app.to_ascii_lowercase();
-    let host = d.host.as_deref().unwrap_or("").to_ascii_lowercase();
-    let url = d.url.as_deref().unwrap_or("").to_ascii_lowercase();
-    denylist.iter().any(|p| {
+    let app = app.to_ascii_lowercase();
+    let host = host.unwrap_or("").to_ascii_lowercase();
+    let url = url.unwrap_or("").to_ascii_lowercase();
+    patterns.iter().any(|p| {
         app.contains(p.as_str())
             || (!host.is_empty() && host.contains(p.as_str()))
             || (!url.is_empty() && url.contains(p.as_str()))
     })
+}
+
+/// Does the desired interval match the privacy denylist (by app, host, or url)?
+fn is_denied(d: &Desired, denylist: &[String]) -> bool {
+    event_matches_patterns(&d.app, d.host.as_deref(), d.url.as_deref(), denylist)
+}
+
+/// Curated default set of clearly-personal apps + hosts excluded from the
+/// **bookable/exported** timesheet by default (Spotify, WhatsApp, … — music,
+/// messengers, streaming, social, dating, games). Matched case-insensitively
+/// as a substring of the app name / host / url. Editable in Settings; removing
+/// an entry "releases" that app so its time counts again. The raw timeline is
+/// never touched — this only filters the derived slots + exports.
+///
+/// Deliberately NOT included (work-typical): Slack, Zoom, Teams, Outlook, Mail,
+/// LinkedIn; password managers belong in the title-strip denylist, not here.
+/// Ultra-short tokens ("tv", "x") are omitted to avoid false positives; the
+/// corresponding hosts (`x.com`, …) cover the browser case instead.
+pub const DEFAULT_PRIVATE_APPS: &[&str] = &[
+    // Messengers
+    "whatsapp", "telegram", "signal", "messages", "facetime", "messenger",
+    "wechat", "viber", "threema", "snapchat", "discord",
+    // Music / audio
+    "spotify", "music", "itunes", "podcasts", "deezer", "tidal", "soundcloud",
+    // Video / streaming
+    "netflix", "disney", "prime video", "plex", "twitch", "vlc",
+    // Social
+    "instagram", "facebook", "tiktok", "reddit", "mastodon", "pinterest",
+    // Dating
+    "tinder", "bumble", "hinge", "grindr",
+    // Gaming
+    "steam", "epic games", "battle.net", "minecraft",
+    // Common private hosts (browser tabs)
+    "youtube.com", "netflix.com", "twitch.tv", "instagram.com", "facebook.com",
+    "tiktok.com", "reddit.com", "x.com", "twitter.com", "spotify.com",
+];
+
+/// The default private-app list as a newline-joined string (for seeding the
+/// `track.private_apps` setting on first run).
+pub fn default_private_apps_text() -> String {
+    DEFAULT_PRIVATE_APPS.join("\n")
+}
+
+/// One-time seed of the default private-app list (guarded by a flag), so
+/// existing installs receive it on the next launch. Never overwrites a
+/// non-empty user list. Idempotent.
+pub fn seed_private_apps(db: &DbHandle) {
+    const FLAG: &str = "track.private_apps_seeded_v1";
+    if crate::settings::get_or(db, FLAG, "").unwrap_or_default() == "1" {
+        return;
+    }
+    let existing = crate::settings::get_or(db, "track.private_apps", "").unwrap_or_default();
+    if existing.trim().is_empty() {
+        let _ = crate::settings::set(db, "track.private_apps", &default_private_apps_text());
+    }
+    let _ = crate::settings::set(db, FLAG, "1");
+}
+
+/// Load the active private-app filter patterns, or an empty list when the
+/// master toggle (`track.private_filter`, default on) is off.
+pub fn load_private_patterns(db: &DbHandle) -> Vec<String> {
+    let enabled = crate::settings::get_or(db, "track.private_filter", "1")
+        .map(|s| s != "0")
+        .unwrap_or(true);
+    if !enabled {
+        return Vec::new();
+    }
+    crate::settings::get_or(db, "track.private_apps", "")
+        .map(|s| parse_denylist(&s))
+        .unwrap_or_default()
+}
+
+/// Drop events belonging to a private app/host from a fetched set (non-idle
+/// matches only — idle spans like `loginwindow` are never "private"). Pure.
+pub fn strip_private(events: Vec<tdb::TrackEvent>, patterns: &[String]) -> Vec<tdb::TrackEvent> {
+    if patterns.is_empty() {
+        return events;
+    }
+    events
+        .into_iter()
+        .filter(|e| {
+            e.is_idle
+                || !event_matches_patterns(&e.app_name, e.host.as_deref(), e.url.as_deref(), patterns)
+        })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -884,8 +976,12 @@ pub fn day_slots(
 ) -> Result<Vec<slots::Slot>, String> {
     let (from, to) = day_bounds(date)?;
     let now = now_ms();
-    let events: Vec<tdb::TrackEvent> = tdb::events_in_range(db, from, to)
-        .map_err(|e| e.to_string())?
+    // Private apps (Spotify, WhatsApp, …) are dropped before consolidation so
+    // they never become bookable slots. Non-destructive: the raw timeline keeps
+    // them; this only filters the derived view.
+    let private = load_private_patterns(db);
+    let raw = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
+    let events: Vec<tdb::TrackEvent> = strip_private(raw, &private)
         .iter()
         .filter_map(|e| clip_event(e, from, to, now))
         .collect();
@@ -1392,6 +1488,85 @@ mod tests {
         assert_eq!(evs.len(), 1);
         assert_eq!(evs[0].app_name, "1Password"); // app + time kept
         assert_eq!(evs[0].window_title, None); // title stripped
+    }
+
+    fn ev_priv(app: &str, host: Option<&str>, url: Option<&str>, idle: bool) -> tdb::TrackEvent {
+        tdb::TrackEvent {
+            id: 0,
+            session_id: 1,
+            app_name: app.into(),
+            app_id: None,
+            window_title: None,
+            url: url.map(|s| s.into()),
+            host: host.map(|s| s.into()),
+            category: None,
+            project: None,
+            source: "focus".into(),
+            is_idle: idle,
+            started_at: 0,
+            ended_at: Some(1000),
+            duration_s: Some(1),
+        }
+    }
+
+    #[test]
+    fn event_matches_patterns_by_app_host_url_case_insensitive() {
+        let p = vec!["spotify".to_string(), "youtube.com".to_string()];
+        assert!(event_matches_patterns("Spotify", None, None, &p)); // app, case-insensitive
+        assert!(event_matches_patterns("Google Chrome", Some("www.youtube.com"), None, &p)); // host
+        assert!(event_matches_patterns("Safari", None, Some("https://youtube.com/watch"), &p)); // url
+        assert!(!event_matches_patterns("iTerm2", Some("github.com"), None, &p)); // no match
+        assert!(!event_matches_patterns("Spotify", None, None, &[])); // empty patterns → never
+    }
+
+    #[test]
+    fn strip_private_drops_matches_keeps_idle_and_work() {
+        let patterns = parse_denylist("spotify\nwhatsapp\nyoutube.com");
+        let events = vec![
+            ev_priv("Spotify", None, None, false),                       // drop
+            ev_priv("WhatsApp", None, None, false),                      // drop
+            ev_priv("Google Chrome", Some("www.youtube.com"), None, false), // drop (host)
+            ev_priv("iTerm2", None, None, false),                       // keep (work)
+            ev_priv("loginwindow", None, None, true),                   // keep (idle)
+        ];
+        let kept = strip_private(events, &patterns);
+        let apps: Vec<&str> = kept.iter().map(|e| e.app_name.as_str()).collect();
+        assert_eq!(apps, vec!["iTerm2", "loginwindow"]);
+    }
+
+    #[test]
+    fn strip_private_is_noop_without_patterns() {
+        let events = vec![ev_priv("Spotify", None, None, false)];
+        assert_eq!(strip_private(events, &[]).len(), 1);
+    }
+
+    #[test]
+    fn default_private_apps_are_lowercase_nonempty_and_seedable() {
+        assert!(!DEFAULT_PRIVATE_APPS.is_empty());
+        for p in DEFAULT_PRIVATE_APPS {
+            assert_eq!(*p, p.to_ascii_lowercase(), "pattern must be lowercase: {p}");
+            assert!(!p.trim().is_empty());
+        }
+        // The seed text round-trips through the parser to the same list.
+        let parsed = parse_denylist(&default_private_apps_text());
+        assert_eq!(parsed.len(), DEFAULT_PRIVATE_APPS.len());
+        assert!(parsed.contains(&"spotify".to_string()));
+        assert!(parsed.contains(&"whatsapp".to_string()));
+        assert!(parsed.contains(&"youtube.com".to_string()));
+    }
+
+    #[test]
+    fn seed_private_apps_is_idempotent_and_respects_user_list() {
+        let db = test_db();
+        crate::settings::init_table(&db).unwrap();
+        // First seed writes the defaults.
+        seed_private_apps(&db);
+        let after = crate::settings::get_or(&db, "track.private_apps", "").unwrap();
+        assert!(after.contains("spotify"));
+        // User edits the list; a re-seed must NOT overwrite it.
+        crate::settings::set(&db, "track.private_apps", "onlythis").unwrap();
+        seed_private_apps(&db);
+        assert_eq!(crate::settings::get_or(&db, "track.private_apps", "").unwrap(), "onlythis");
     }
 
     #[test]

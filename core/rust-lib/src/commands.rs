@@ -380,6 +380,12 @@ pub struct SlotConfig {
     /// `inspector project name` → `bcsbook shortcut`, one `name=shortcut` per
     /// line. Only projects listed here can be exported for booking.
     pub project_map: String,
+    /// Master toggle for the private-app filter (default on).
+    pub private_filter: bool,
+    /// Apps/hosts excluded from slots + exports (one pattern per line, matched
+    /// case-insensitively against app name / host / url). Seeded with a curated
+    /// default set on first run; removing an entry "releases" that app.
+    pub private_apps: String,
 }
 
 impl From<&SlotConfig> for crate::tracking::slots::SlotParams {
@@ -429,6 +435,8 @@ fn slot_config(db: &DbHandle) -> SlotConfig {
         grid_min: n("track.slot.grid_min", 15),
         neighbour_gap_s: n("track.slot.neighbour_gap_s", 600),
         project_map: g("track.slot.project_map", ""),
+        private_filter: g("track.private_filter", "1") != "0",
+        private_apps: g("track.private_apps", ""),
     }
 }
 
@@ -449,6 +457,8 @@ pub fn set_slot_config(db: State<'_, DbHandle>, config: SlotConfig) -> Result<()
     s("track.slot.grid_min", config.grid_min.clamp(0, 60).to_string())?;
     s("track.slot.neighbour_gap_s", config.neighbour_gap_s.clamp(0, 3600).to_string())?;
     s("track.slot.project_map", config.project_map.clone())?;
+    s("track.private_filter", if config.private_filter { "1".into() } else { "0".into() })?;
+    s("track.private_apps", config.private_apps.clone())?;
     Ok(())
 }
 
@@ -823,13 +833,30 @@ pub fn track_export(
     to: i64,
 ) -> Result<String, String> {
     use chrono::TimeZone;
-    let events = crate::tracking::db::events_in_range(&db, from, to).map_err(map_err)?;
+    // Private apps (Spotify, WhatsApp, …) are filtered out of the export too,
+    // exactly like the Slots view — the raw DB is untouched.
+    let private = crate::tracking::load_private_patterns(&db);
+    let raw = crate::tracking::db::events_in_range(&db, from, to).map_err(map_err)?;
+    let events = crate::tracking::strip_private(raw, &private);
     let now = chrono::Utc::now().timestamp_millis();
+    // Consolidated slots for the same range, so the CSV/HTML carry the bookable
+    // blocks next to the raw events. Local-day range for `range_slots`.
+    let to_date = |ms: i64| {
+        chrono::Local
+            .timestamp_millis_opt(ms)
+            .single()
+            .map(|d| d.format("%Y-%m-%d").to_string())
+            .unwrap_or_default()
+    };
+    let cfg = slot_config(&db);
+    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    let slot_days = crate::tracking::range_slots(&db, &to_date(from), &to_date(to - 1), &(&cfg).into(), &names)
+        .unwrap_or_default();
     let (content, ext) = if format == "html" {
         let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
-        (crate::tracking::export::html(&events, &tokens, from, to, now), "html")
+        (crate::tracking::export::html(&events, &tokens, from, to, now, &slot_days), "html")
     } else {
-        (crate::tracking::export::csv(&events, now), "csv")
+        (crate::tracking::export::csv(&events, now, &slot_days), "csv")
     };
     let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
     let stamp = chrono::Local

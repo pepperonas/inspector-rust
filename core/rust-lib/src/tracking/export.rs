@@ -57,7 +57,11 @@ fn csv_field(s: &str) -> String {
 }
 
 /// Flat CSV: `date,start,end,duration_min,app,category,project,host,title,source,idle`.
-pub fn csv(events: &[TrackEvent], now: i64) -> String {
+pub fn csv(
+    events: &[TrackEvent],
+    now: i64,
+    slot_days: &[(String, Vec<crate::tracking::slots::Slot>)],
+) -> String {
     let mut out =
         String::from("date,start,end,duration_min,app,category,project,host,title,source,idle\n");
     for e in events {
@@ -77,6 +81,32 @@ pub fn csv(events: &[TrackEvent], now: i64) -> String {
         ];
         out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
         out.push('\n');
+    }
+    out.push_str(&slots_section_csv(slot_days));
+    out
+}
+
+/// The consolidated slots as a second, clearly delimited CSV block appended
+/// after the raw events (so a spreadsheet import sees the header row again).
+/// Empty when there are no slots. `hours` is the bookable (snapped) span.
+fn slots_section_csv(slot_days: &[(String, Vec<crate::tracking::slots::Slot>)]) -> String {
+    if slot_days.iter().all(|(_, s)| s.is_empty()) {
+        return String::new();
+    }
+    let mut out = String::from("\n# Consolidated slots\ndate,start,end,hours,project,description\n");
+    for (date, slots) in slot_days {
+        for s in slots {
+            let row = [
+                date.clone(),
+                local_time(s.start_ms),
+                local_time(s.end_ms),
+                hours2(s.span_s),
+                s.label.clone(),
+                s.description.clone(),
+            ];
+            out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
+            out.push('\n');
+        }
     }
     out
 }
@@ -437,6 +467,7 @@ pub fn html(
     from: i64,
     to: i64,
     now: i64,
+    slot_days: &[(String, Vec<crate::tracking::slots::Slot>)],
 ) -> String {
     let (mut active, mut idle) = (0i64, 0i64);
     let mut by_app: HashMap<String, i64> = HashMap::new();
@@ -629,6 +660,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
 <div class=card><h2>Top hosts</h2>{host_bars}</div>
 {browser_card}
 {claude_card}
+{slots_card}
 <div class=card><h2>Events</h2>{table}</div>
 <footer>{footer}</footer>
 </body></html>"#,
@@ -643,9 +675,50 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
         host_bars = host_bars,
         browser_card = browser_card,
         claude_card = claude_card,
+        slots_card = slots_section_html(slot_days),
         table = events_table(events, now),
         footer = FOOTER,
     )
+}
+
+/// The consolidated-slots section for the HTML report: one row per bookable
+/// slot (date · time span · project · hours · description). Empty string when
+/// there are no slots, so it silently vanishes from a slot-less report.
+fn slots_section_html(slot_days: &[(String, Vec<crate::tracking::slots::Slot>)]) -> String {
+    let total: usize = slot_days.iter().map(|(_, s)| s.len()).sum();
+    if total == 0 {
+        return String::new();
+    }
+    let mut rows = String::new();
+    let mut grand = 0i64;
+    for (date, slots) in slot_days {
+        for s in slots {
+            grand += s.span_s;
+            rows.push_str(&format!(
+                "<tr><td>{}</td><td>{}–{}</td><td>{}</td><td class=r>{}</td><td>{}</td></tr>",
+                esc(date),
+                local_time(s.start_ms),
+                local_time(s.end_ms),
+                esc(&s.label),
+                hours2(s.span_s),
+                esc(&s.description),
+            ));
+        }
+    }
+    format!(
+        "<div class=card><h2>Consolidated slots \
+         <span class=badge>{n} · {h} h</span></h2>\
+         <table><thead><tr><th>Date</th><th>Time</th><th>Project</th>\
+         <th class=r>Hours</th><th>Description</th></tr></thead><tbody>{rows}</tbody></table></div>",
+        n = total,
+        h = hours2(grand),
+        rows = rows,
+    )
+}
+
+/// Decimal hours with two places (`9000` s → `2.50`).
+fn hours2(secs: i64) -> String {
+    format!("{:.2}", secs as f64 / 3600.0)
 }
 
 fn events_table(events: &[TrackEvent], now: i64) -> String {
@@ -691,10 +764,51 @@ mod tests {
         }
     }
 
+    fn test_slot(label: &str, start_ms: i64, end_ms: i64, desc: &str) -> crate::tracking::slots::Slot {
+        crate::tracking::slots::Slot {
+            start_ms,
+            end_ms,
+            project: Some(label.into()),
+            label: label.into(),
+            description: desc.into(),
+            origin: crate::tracking::slots::Origin::Tagged,
+            apps: vec![],
+            event_ids: vec![1],
+            active_s: (end_ms - start_ms) / 1000,
+            span_s: (end_ms - start_ms) / 1000,
+            confidence: 1.0,
+        }
+    }
+
+    #[test]
+    fn csv_appends_consolidated_slots_section() {
+        let events = vec![ev("Code", 0, 60_000, false, None, None)];
+        let slots = vec![("2026-07-21".to_string(), vec![test_slot("kiez-finder", 0, 9_000_000, "branch work")])];
+        let out = csv(&events, 0, &slots);
+        assert!(out.contains("# Consolidated slots"));
+        assert!(out.contains("date,start,end,hours,project,description"));
+        assert!(out.contains("kiez-finder"));
+        assert!(out.contains("2.50")); // 9000 s → 2.50 h
+        // No slots → no section.
+        assert!(!csv(&events, 0, &[]).contains("Consolidated slots"));
+    }
+
+    #[test]
+    fn html_includes_consolidated_slots_section() {
+        let events = vec![ev("Code", 0, 60_000, false, None, None)];
+        let slots = vec![("2026-07-21".to_string(), vec![test_slot("kiez-finder", 0, 9_000_000, "branch work")])];
+        let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &slots);
+        assert!(out.contains("Consolidated slots"));
+        assert!(out.contains("kiez-finder"));
+        assert!(out.contains("2.50"));
+        // Slot-less report omits the section entirely.
+        assert!(!html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &[]).contains("Consolidated slots"));
+    }
+
     #[test]
     fn csv_has_header_and_escapes() {
         let events = vec![ev("Code, Inc", 0, 60_000, false, Some("github.com"), Some("a \"b\""))];
-        let out = csv(&events, 0);
+        let out = csv(&events, 0, &[]);
         assert!(out.starts_with("date,start,end,duration_min,app,category,project,host,title,source,idle\n"));
         assert!(out.contains("\"Code, Inc\"")); // comma → quoted
         assert!(out.contains("\"a \"\"b\"\"\"")); // quotes doubled
@@ -709,7 +823,7 @@ mod tests {
             ev("Safari", 600_000, 900_000, false, Some("github.com"), None),
             ev("Code", 900_000, 1_500_000, true, None, None),
         ];
-        let out = html(&events, &HashMap::new(), 0, 86_400_000, 2_000_000);
+        let out = html(&events, &HashMap::new(), 0, 86_400_000, 2_000_000, &[]);
         assert!(out.starts_with("<!doctype html>"));
         assert!(out.contains(FOOTER));
         // No external resource references (offline self-contained).
@@ -726,7 +840,7 @@ mod tests {
 
     #[test]
     fn html_handles_empty() {
-        let out = html(&[], &HashMap::new(), 0, 86_400_000, 0);
+        let out = html(&[], &HashMap::new(), 0, 86_400_000, 0, &[]);
         assert!(out.contains(FOOTER));
         assert!(out.contains("No active time."));
     }
@@ -787,7 +901,7 @@ mod tests {
         let mut chrome = ev("Google Chrome", 0, 120_000, false, Some("github.com"), Some("PR"));
         chrome.source = "browser".into();
         let code = ev("Code", 120_000, 300_000, false, None, Some("main.rs"));
-        let out = html(&[chrome, code], &HashMap::new(), 0, 86_400_000, 400_000);
+        let out = html(&[chrome, code], &HashMap::new(), 0, 86_400_000, 400_000, &[]);
         assert!(out.contains("By app (detailed)"));
         assert!(out.contains("<details>")); // native expand, no JS
         // Browser → host detail; other app → window-title detail.

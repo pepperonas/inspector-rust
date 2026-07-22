@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.7] — 2026-07-22
+
+### Tests
+
+- **Six new unit tests for the timesheet export consolidation** (no behaviour change). `slots::project_totals`: the interval union excludes the idle gap between a project's own intervals (20 min of work, not the 50-min span); untagged terminal time whose window title carries a known project token is attributed and counted through to a bookable total; overlapping Claude + terminal focus on the *same* project counts the shared wall-clock **once**, not twice; results are sorted by time descending. `export`: the consolidated per-project block spans multiple days and still precedes the raw-events section in the CSV; the HTML card badge shows the correct grand total.
+
 ## [0.91.6] — 2026-07-22
 
 ### Changed

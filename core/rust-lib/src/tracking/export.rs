@@ -814,6 +814,39 @@ mod tests {
     }
 
     #[test]
+    fn csv_consolidated_block_spans_multiple_days_and_leads_the_file() {
+        // A week export: two days, each with a project row. Both dates + both
+        // projects appear in the consolidated block, and the whole block still
+        // precedes the raw-events section.
+        let events = vec![ev("Code", 0, 60_000, false, None, None)];
+        let totals = vec![
+            ("2026-07-21".to_string(), vec![test_total("alpha", 3_600, 0, 3_600_000)]),
+            ("2026-07-22".to_string(), vec![test_total("beta", 1_800, 0, 1_800_000)]),
+        ];
+        let out = csv(&events, 0, &totals);
+        let cons = out.find("# Consolidated per project").unwrap();
+        let raw = out.find("# Raw events").unwrap();
+        assert!(cons < raw);
+        assert!(out.contains("2026-07-21,alpha,1.00"));
+        assert!(out.contains("2026-07-22,beta,0.50"));
+    }
+
+    #[test]
+    fn html_project_section_shows_the_grand_total() {
+        // Two projects (1.00 h + 0.50 h) → the card badge sums them to 1.50 h.
+        let events = vec![ev("Code", 0, 60_000, false, None, None)];
+        let totals = vec![(
+            "2026-07-22".to_string(),
+            vec![
+                test_total("alpha", 3_600, 0, 3_600_000),
+                test_total("beta", 1_800, 0, 1_800_000),
+            ],
+        )];
+        let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
+        assert!(out.contains("2 · 1.50 h")); // n · grand-total badge
+    }
+
+    #[test]
     fn csv_has_header_and_escapes() {
         let events = vec![ev("Code, Inc", 0, 60_000, false, Some("github.com"), Some("a \"b\""))];
         let out = csv(&events, 0, &[]);

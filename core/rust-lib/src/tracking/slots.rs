@@ -723,6 +723,67 @@ mod tests {
         assert!(project_totals(&events, &[], &SlotParams::default()).is_empty());
     }
 
+    #[test]
+    fn project_totals_union_excludes_the_gap_between_a_projects_intervals() {
+        // One project, two intervals far apart (0–10 min and 40–50 min): the
+        // total is the sum of the two (20 min), NOT the 50-min span — the idle
+        // gap in between is not work.
+        let events = vec![
+            ev(1, 0, 10, "Claude Code", Some("alpha")),
+            ev(2, 40, 50, "Claude Code", Some("alpha")),
+        ];
+        let totals = project_totals(&events, &[], &SlotParams::default());
+        assert_eq!(totals.len(), 1);
+        assert_eq!(totals[0].seconds, 20 * 60); // 10 + 10, not 50
+        assert_eq!(totals[0].start_ms, T0); // first activity
+        assert_eq!(totals[0].end_ms, T0 + 50 * 60_000); // last activity
+    }
+
+    #[test]
+    fn project_totals_counts_title_token_inferred_time() {
+        // An UNTAGGED terminal event whose window title carries a known project
+        // token ("kiez-finder-bug-fixes" → kiez-finder) is attributed to that
+        // project — the "cleverly link untagged time" path, all the way through
+        // to a bookable total. `known` supplies the token (as the project map
+        // would at runtime).
+        let events = vec![
+            with_title(ev(1, 0, 5, "iTerm2", None), "✳ kiez-finder-bug-fixes"),
+            ev(2, 5, 12, "Claude Code", Some("kiez-finder")),
+        ];
+        let known = vec!["kiez-finder".to_string()];
+        let totals = project_totals(&events, &known, &SlotParams::default());
+        assert_eq!(totals.len(), 1);
+        assert_eq!(totals[0].project, "kiez-finder");
+        // 5 min (title-inferred terminal) + 7 min (Claude) = 12 min union.
+        assert_eq!(totals[0].seconds, 12 * 60);
+    }
+
+    #[test]
+    fn project_totals_do_not_double_count_overlapping_claude_and_terminal() {
+        // While Claude runs on a project the terminal is focused on the SAME
+        // project — the two events overlap in wall-clock. The union must count
+        // that shared time ONCE (not terminal + Claude summed).
+        let mut claude = ev(1, 0, 20, "Claude Code", Some("alpha"));
+        claude.source = "claude".into();
+        let terminal = with_title(ev(2, 0, 20, "iTerm2", None), "✳ alpha");
+        let totals = project_totals(&[claude, terminal], &["alpha".to_string()], &SlotParams::default());
+        assert_eq!(totals.len(), 1);
+        assert_eq!(totals[0].project, "alpha");
+        assert_eq!(totals[0].seconds, 20 * 60); // 20 min once, not 40
+    }
+
+    #[test]
+    fn project_totals_are_sorted_by_time_descending() {
+        let events = vec![
+            ev(1, 0, 3, "Claude Code", Some("small")),   // 3 min
+            ev(2, 3, 18, "Claude Code", Some("big")),    // 15 min
+            ev(3, 18, 26, "Claude Code", Some("medium")), // 8 min
+        ];
+        let totals = project_totals(&events, &[], &SlotParams::default());
+        let order: Vec<&str> = totals.iter().map(|p| p.project.as_str()).collect();
+        assert_eq!(order, vec!["big", "medium", "small"]);
+    }
+
     // ── normalize / tokens / matching ────────────────────────────────────────
 
     #[test]

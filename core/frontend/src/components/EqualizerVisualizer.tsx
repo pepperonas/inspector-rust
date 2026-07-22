@@ -18,6 +18,7 @@ import {
   type Rgb,
 } from "../lib/bpm-visual";
 import { barGeometry, peakDecay } from "../lib/equalizer-visual";
+import { newFlap, updateFlap, flapView, type Flap } from "../lib/flap-counter";
 
 /**
  * Live spectrum equalizer — a classic vertical-bar analyzer driven by the
@@ -86,6 +87,8 @@ interface VizState {
   cold: Rgb;
   warm: Rgb;
   hot: Rgb;
+  dbFlap: Flap; // split-flap counter for the dB readout
+  bpmFlap: Flap; // split-flap counter for the BPM hero
 }
 
 export function EqualizerVisualizer({ onExit }: Props) {
@@ -124,6 +127,8 @@ export function EqualizerVisualizer({ onExit }: Props) {
     cold: FALLBACK_ACCENT,
     warm: FALLBACK_ACCENT,
     hot: { r: 255, g: 255, b: 255 },
+    dbFlap: newFlap(),
+    bpmFlap: newFlap(),
   });
   const levelRef = useRef(0);
   // Detection graph (BPM + dB), mirroring the BPM detector.
@@ -290,6 +295,13 @@ export function EqualizerVisualizer({ onExit }: Props) {
           // — full-band dBFS (always; cheap), attack fast / release slow —
           vizAnalyserRef.current.getFloatTimeDomainData(vizTimeBuf);
           v.db = smoothStep(v.db, rmsToDbfs(rms(vizTimeBuf)), 0.5, 0.12);
+
+          // Split-flap counters step the DISPLAYED dB/BPM one integer at a time
+          // (with a readable dwell) so the numbers flap like an airport board
+          // instead of flickering every frame.
+          const dtMs = dt * 1000;
+          updateFlap(v.dbFlap, v.db <= -90 ? NaN : Math.round(v.db), now, dtMs);
+          updateFlap(v.bpmFlap, v.bpm > 0 ? Math.round(v.bpm) : NaN, now, dtMs);
 
           if (now - startT >= WARMUP_MS) {
             v.t += dt;
@@ -645,7 +657,14 @@ function drawReadouts(
   ctx.shadowBlur = 12 + v.flash * 36;
   ctx.font = `700 ${numSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.fillStyle = rgba(heroCol, 1);
-  ctx.fillText(v.bpm > 0 ? String(Math.round(v.bpm)) : "—", cx, bpmY);
+  const bpmView = flapView(v.bpmFlap);
+  drawFlap(
+    ctx,
+    Number.isFinite(bpmView.value) ? String(bpmView.value) : "—",
+    cx,
+    bpmY,
+    bpmView.scaleY,
+  );
   ctx.shadowBlur = 0;
   ctx.font = `600 ${Math.round(minDim * 0.02)}px ui-sans-serif, system-ui, sans-serif`;
   ctx.fillStyle = rgba(mixRgb(v.warm, v.hot, 0.4), 0.8);
@@ -669,7 +688,33 @@ function drawReadouts(
   ctx.shadowColor = rgba(v.warm, 0.6);
   ctx.shadowBlur = db === null ? 0 : 4 + clamp01(v.level * 6) * 10;
   ctx.fillStyle = rgba(dbCol, db === null ? 0.6 : 0.95);
-  ctx.fillText(`${db === null ? "—" : db} dB`, cx, dbY);
+  // Number flaps, " dB" stays put: anchor the number|suffix boundary at a fixed
+  // x (number right-aligned, suffix left-aligned) so a digit-width change never
+  // shifts the readout horizontally.
+  const dbView = flapView(v.dbFlap);
+  const dbNum = db === null || !Number.isFinite(dbView.value) ? "—" : String(dbView.value);
+  const suffix = " dB";
+  const anchorX = cx - ctx.measureText(suffix).width / 2;
+  ctx.textAlign = "right";
+  drawFlap(ctx, dbNum, anchorX, dbY, db === null ? 1 : dbView.scaleY);
+  ctx.textAlign = "left";
+  ctx.fillText(suffix, anchorX, dbY);
+  ctx.restore();
+}
+
+/** Draw a flap number honouring the current font/fill/shadow/textAlign, squashed
+ *  vertically to `scaleY` (the mid-flip edge-on look). */
+function drawFlap(
+  ctx: CanvasRenderingContext2D,
+  str: string,
+  x: number,
+  y: number,
+  scaleY: number,
+): void {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, Math.max(0.03, scaleY));
+  ctx.fillText(str, 0, 0);
   ctx.restore();
 }
 

@@ -91,17 +91,15 @@ pub const PALM_REST_EPS_NORM: f64 = 0.03;
 /// threshold leaves slack for the outer fingers of a slightly rolling hand.
 pub const SWIPE_FINGER_MIN_MOVE_NORM: f64 = 0.06;
 
-// Tip-tap (BetterTouchTool-style "TipTap, 2 finger fix", v0.84.266): TWO fingers
-// rest on the pad, a third taps briefly to their left/right → previous/next tab.
-// Resting two fingers is a deliberate posture — you don't hold two fingers down
-// and tap a third during normal cursor use — so it's far harder to trigger by
-// accident than the old one-finger version (which is exactly why BTT's
-// two-finger fix is the reliable one, and why the thumb-anchor special-case the
-// one-finger version needed is gone).
-/// The two resting fingers must be down together at least this long before the
-/// tap lands — three fingers landing together are a swipe, never a tip-tap.
+// Tip-tap (v0.91.6): ONE finger rests on the pad, a SECOND finger taps briefly
+// to its left/right → previous/next tab. (This is the one-finger posture the
+// user asked to return to; v0.84.266 had switched to a two-finger rest to dodge
+// thumb-anchored-cursor false positives — that risk is back with one rest
+// finger, mitigated by the settle gate + movement/duration/height guards.)
+/// The resting finger must be down at least this long before the tap lands —
+/// two fingers landing together are a scroll/swipe, never a tip-tap.
 pub const TIPTAP_REST_MIN_MS: u64 = 80;
-/// The tapping finger must lift within this window (else it's a three-finger rest).
+/// The tapping finger must lift within this window (else it's a two-finger rest).
 pub const TIPTAP_TAP_MAX_MS: u64 = 300;
 /// …and must be down at least this long. 40 ms also filters MT state flicker
 /// (a lightly-resting finger can bounce between touching/hover states frame to
@@ -110,9 +108,9 @@ pub const TIPTAP_TAP_MIN_MS: u64 = 40;
 /// Max movement (normalized) a resting finger may make during the tap — more is
 /// a scroll/swipe, and a drifting rest finger re-arms its settle timer.
 pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
-/// The tap must land at least this far (normalized) beyond the resting pair's
-/// left/right edge for the direction decision to be reliable (a tap that lands
-/// *between* the two rest fingers is ambiguous → rejected).
+/// The tap must land at least this far (normalized) beyond the resting finger
+/// for the direction decision to be reliable (a tap right on top of the rest
+/// finger is ambiguous → rejected).
 pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// Refractory period between two tip-tap emits. A physical tap's lift can
 /// "bounce" (the contact re-appears for a frame or two) — without this gap one
@@ -121,8 +119,8 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// belt-and-braces, so it's kept short — 200 ms still allows ~5 deliberate
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
-/// The tap must land at a roughly similar HEIGHT as the resting pair
-/// (|Δy| to their mean, 0..1). Generous — strongly angled hands are fine.
+/// The tap must land at a roughly similar HEIGHT as the resting finger
+/// (|Δy|, 0..1). Generous — strongly angled hands are fine.
 pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
 /// …and not implausibly far past the edge sideways (an adjacent fingertip, not
 /// a wide reach across the pad).
@@ -137,9 +135,9 @@ pub enum GestureKind {
     SwipeLeft,
     SwipeRight,
     Tap,
-    /// Two fingers resting, a third tapped to their LEFT (→ previous tab).
+    /// One finger resting, a second tapped to its LEFT (→ previous tab).
     TipTapLeft,
-    /// Two fingers resting, a third tapped to their RIGHT (→ next tab).
+    /// One finger resting, a second tapped to its RIGHT (→ next tab).
     TipTapRight,
 }
 
@@ -1096,85 +1094,60 @@ fn dist(a: Contact, b: Contact) -> f64 {
 #[derive(Debug, Clone, Copy)]
 enum TtState {
     Idle,
-    /// Fewer than two fingers down — building toward the two-finger rest.
-    Building,
-    /// Two fingers resting/settling. `since` = when this 2-rest was established
+    /// One finger resting/settling. `since` = when this rest was established
     /// (reset on movement, so a tap right after a scroll can't fire).
-    Rest2 { rest: [Contact; 2], since: u64 },
-    /// Two rest + one tap finger down. `dir` is locked at tap-land time from the
-    /// tap's position relative to the pair; `started` = when the tap landed.
-    TapDown { rest: [Contact; 2], tap: Contact, dir: GestureKind, started: u64 },
-    /// The tap finger lifted (both rest fingers remain) — emit is DEFERRED one
+    Rest1 { rest: Contact, since: u64 },
+    /// Rest + one tap finger down. `dir` is locked at tap-land time from the
+    /// tap's position relative to the rest finger; `started` = when the tap
+    /// landed; `rest_since` carries the rest's settle time so chained taps
+    /// don't need to re-settle.
+    TapDown { rest: Contact, rest_since: u64, tap: Contact, dir: GestureKind, started: u64 },
+    /// The tap finger lifted (the rest finger remains) — emit is DEFERRED one
     /// frame to confirm the lift. If the tap finger re-appears next frame it was
     /// a mid-hold contact flicker (not a real lift) → back to `TapDown`, no emit;
     /// this stops one physical tap from firing twice (double-jump bug). Only a
     /// *confirmed* lift emits.
-    TapReleasing { rest: [Contact; 2], dir: GestureKind, started: u64, lift_t: u64 },
+    TapReleasing { rest: Contact, rest_since: u64, dir: GestureKind, started: u64, lift_t: u64 },
     /// Disqualified (scroll/swipe/too-many fingers) — wait for the finger count
     /// to fall back to a resting posture, then re-settle.
     Poisoned,
 }
 
-/// Split three contacts into the resting pair + the tap. The tap is the contact
-/// **furthest from both** tracked rest positions — i.e. the newcomer — and the
-/// other two are re-assigned to `rest[0]`/`rest[1]` by proximity so tracking
-/// stays stable frame to frame.
-fn split_rest_tap(c: &[Contact], rest: [Contact; 2]) -> ([Contact; 2], Contact) {
-    let score = |ci: Contact| dist(ci, rest[0]).min(dist(ci, rest[1]));
-    let (s0, s1, s2) = (score(c[0]), score(c[1]), score(c[2]));
-    let tap_i = if s0 >= s1 && s0 >= s2 {
-        0
-    } else if s1 >= s2 {
-        1
+/// Split two contacts into the resting finger + the tap. The rest is the
+/// contact **closest** to the tracked rest position; the tap is the newcomer.
+fn split_rest_tap(c: &[Contact], rest: Contact) -> (Contact, Contact) {
+    if dist(c[0], rest) <= dist(c[1], rest) {
+        (c[0], c[1])
     } else {
-        2
-    };
-    let tap = c[tap_i];
-    let (o0, o1) = match tap_i {
-        0 => (c[1], c[2]),
-        1 => (c[0], c[2]),
-        _ => (c[0], c[1]),
-    };
-    // Keep each remaining contact matched to the nearer of the two rest slots.
-    let (r0, r1) = if dist(o0, rest[0]) + dist(o1, rest[1])
-        <= dist(o1, rest[0]) + dist(o0, rest[1])
-    {
-        (o0, o1)
-    } else {
-        (o1, o0)
-    };
-    ([r0, r1], tap)
+        (c[1], c[0])
+    }
 }
 
-/// Which way a tap points relative to the resting pair, or `None` when it lands
-/// between the two fingers (ambiguous), too far past the edge, or at a wildly
-/// different height. Pure — the direction heart of the recogniser.
-pub fn tiptap_direction(rest: [Contact; 2], tap: Contact) -> Option<GestureKind> {
-    let lo = rest[0].x.min(rest[1].x);
-    let hi = rest[0].x.max(rest[1].x);
-    let cy = (rest[0].y + rest[1].y) * 0.5;
-    if (tap.y - cy).abs() > TIPTAP_MAX_DY_NORM {
+/// Which way a tap points relative to the resting finger, or `None` when it
+/// lands on top of it (ambiguous), too far away, or at a wildly different
+/// height. Pure — the direction heart of the recogniser.
+pub fn tiptap_direction(rest: Contact, tap: Contact) -> Option<GestureKind> {
+    if (tap.y - rest.y).abs() > TIPTAP_MAX_DY_NORM {
         return None;
     }
-    let right_gap = tap.x - hi; // tap to the right of BOTH fingers
-    let left_gap = lo - tap.x; // tap to the left of BOTH fingers
-    if (TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&right_gap) {
+    let dx = tap.x - rest.x; // > 0 = tap is to the right of the rest finger
+    if (TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&dx) {
         Some(GestureKind::TipTapRight)
-    } else if (TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&left_gap) {
+    } else if (TIPTAP_MIN_SEP_NORM..=TIPTAP_MAX_DX_NORM).contains(&(-dx)) {
         Some(GestureKind::TipTapLeft)
     } else {
         None
     }
 }
 
-/// BetterTouchTool-style **TipTap (2 finger fix)** recogniser: two fingers rest
-/// on the pad, a third taps briefly to their left/right → [`GestureKind::
-/// TipTapLeft`]/[`TipTapRight`]. Pure + unit-tested; fed per-frame with every
-/// contact's position (unordered). Guards: the two rest fingers must be down
-/// together ≥ `TIPTAP_REST_MIN_MS` first (kills the three-finger swipe, whose
-/// fingers land together), the tap must lift within `TIPTAP_TAP_MAX_MS`, and
-/// movement > `TIPTAP_MAX_MOVE_NORM` by a resting finger disqualifies the
-/// attempt. Taps chain: the two rest fingers stay down and a third taps again.
+/// **TipTap** recogniser (one-finger-rest, v0.91.6): one finger rests on the
+/// pad, a second taps briefly to its left/right → [`GestureKind::TipTapLeft`]/
+/// [`TipTapRight`]. Pure + unit-tested; fed per-frame with every contact's
+/// position (unordered). Guards: the rest finger must be down ≥
+/// `TIPTAP_REST_MIN_MS` first (kills the two-finger scroll/swipe, whose fingers
+/// land together), the tap must lift within `TIPTAP_TAP_MAX_MS`, and movement >
+/// `TIPTAP_MAX_MOVE_NORM` by the rest finger disqualifies the attempt. Taps
+/// chain: the rest finger stays down and a second taps again.
 #[derive(Debug, Default)]
 pub struct TipTapRecognizer {
     state: Option<TtState>,
@@ -1213,47 +1186,36 @@ impl TipTapRecognizer {
 
     fn step(state: TtState, t_ms: u64, c: &[Contact]) -> (TtState, Option<GestureKind>) {
         match state {
-            // Idle / Building / Poisoned all funnel finger-count changes toward a
-            // fresh two-finger rest; they differ only in what counts as "reset".
-            TtState::Idle | TtState::Building | TtState::Poisoned => match c.len() {
+            // Idle / Poisoned funnel finger-count changes toward a fresh rest.
+            TtState::Idle | TtState::Poisoned => match c.len() {
                 0 => (TtState::Idle, None),
-                1 => (TtState::Building, None),
-                2 => (TtState::Rest2 { rest: [c[0], c[1]], since: t_ms }, None),
-                _ => (TtState::Poisoned, None), // 3+ landing at once = swipe/other
+                1 => (TtState::Rest1 { rest: c[0], since: t_ms }, None),
+                _ => (TtState::Poisoned, None), // 2+ landing at once = scroll/swipe
             },
-            TtState::Rest2 { rest, since } => match c.len() {
+            TtState::Rest1 { rest, since } => match c.len() {
                 0 => (TtState::Idle, None),
-                1 => (TtState::Building, None), // one rest finger lifted
-                2 => {
-                    // Track both rest fingers; big movement (scroll) re-arms the
+                1 => {
+                    // Track the rest finger; big movement (scroll) re-arms the
                     // settle timer so a tap right after can't fire.
-                    let (r0, r1) = if dist(c[0], rest[0]) + dist(c[1], rest[1])
-                        <= dist(c[1], rest[0]) + dist(c[0], rest[1])
-                    {
-                        (c[0], c[1])
-                    } else {
-                        (c[1], c[0])
-                    };
-                    let moved = dist(r0, rest[0]) > TIPTAP_MAX_MOVE_NORM
-                        || dist(r1, rest[1]) > TIPTAP_MAX_MOVE_NORM;
+                    let moved = dist(c[0], rest) > TIPTAP_MAX_MOVE_NORM;
                     (
-                        TtState::Rest2 {
-                            rest: [r0, r1],
+                        TtState::Rest1 {
+                            rest: c[0],
                             since: if moved { t_ms } else { since },
                         },
                         None,
                     )
                 }
-                3 => {
+                2 => {
                     if t_ms.saturating_sub(since) < TIPTAP_REST_MIN_MS {
-                        // The third finger landed before the pair settled → a
-                        // three-finger swipe, not a tip-tap.
+                        // The second finger landed before the rest settled → a
+                        // two-finger scroll/swipe, not a tip-tap.
                         return (TtState::Poisoned, None);
                     }
-                    let (pair, tap) = split_rest_tap(c, rest);
-                    match tiptap_direction(pair, tap) {
+                    let (r, tap) = split_rest_tap(c, rest);
+                    match tiptap_direction(r, tap) {
                         Some(dir) => (
-                            TtState::TapDown { rest: pair, tap, dir, started: t_ms },
+                            TtState::TapDown { rest: r, rest_since: since, tap, dir, started: t_ms },
                             None,
                         ),
                         // Ambiguous / implausible tap position → not a tip-tap.
@@ -1262,59 +1224,54 @@ impl TipTapRecognizer {
                 }
                 _ => (TtState::Poisoned, None),
             },
-            TtState::TapDown { rest, tap, dir, started } => match c.len() {
-                // Everything lifted fast — the tap plus the rest fingers went up
+            TtState::TapDown { rest, rest_since, tap, dir, started } => match c.len() {
+                // Everything lifted fast — the tap plus the rest went up
                 // near-together. Emit if the tap duration was valid.
                 0 => (TtState::Idle, Self::tap_emit(dir, started, t_ms)),
-                1 => (TtState::Building, Self::tap_emit(dir, started, t_ms)),
-                2 => {
-                    // One finger lifted. Did the TAP lift (both remaining match
-                    // the rest pair) or did a rest lift (the tap is still here)?
-                    let tap_present = c.iter().any(|&x| {
-                        dist(x, tap) < dist(x, rest[0]).min(dist(x, rest[1]))
-                    });
-                    if tap_present {
-                        // A rest finger lifted, tap still down → ambiguous, drop it.
-                        (TtState::Poisoned, None)
+                1 => {
+                    // One finger lifted. Did the TAP lift (the remaining matches
+                    // the rest) or did the rest lift (the tap is still here)?
+                    if dist(c[0], rest) <= dist(c[0], tap) {
+                        // Rest remains → tap lifted → DEFER one frame to confirm.
+                        (TtState::TapReleasing { rest: c[0], rest_since, dir, started, lift_t: t_ms }, None)
                     } else {
-                        // Tap lifted → DEFER one frame to confirm (flicker guard).
-                        (TtState::TapReleasing { rest, dir, started, lift_t: t_ms }, None)
+                        // The rest finger lifted, tap still down → ambiguous.
+                        (TtState::Poisoned, None)
                     }
                 }
-                3 => {
-                    // Still holding. Movement of a rest finger or overstaying the
-                    // tap window means it's a scroll/hold, not a tap.
-                    let (pair, t) = split_rest_tap(c, rest);
-                    if dist(pair[0], rest[0]) > TIPTAP_MAX_MOVE_NORM
-                        || dist(pair[1], rest[1]) > TIPTAP_MAX_MOVE_NORM
+                2 => {
+                    // Still holding. Movement of the rest finger or overstaying
+                    // the tap window means it's a scroll/hold, not a tap.
+                    let (r, t) = split_rest_tap(c, rest);
+                    if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
                         || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
                     {
                         return (TtState::Poisoned, None);
                     }
-                    (TtState::TapDown { rest: pair, tap: t, dir, started }, None)
+                    (TtState::TapDown { rest: r, rest_since, tap: t, dir, started }, None)
                 }
                 _ => (TtState::Poisoned, None),
             },
-            TtState::TapReleasing { rest, dir, started, lift_t } => match c.len() {
+            TtState::TapReleasing { rest, rest_since, dir, started, lift_t } => match c.len() {
                 // Lift confirmed (tap stayed gone) → emit once.
                 0 => (TtState::Idle, Self::tap_emit(dir, started, lift_t)),
-                1 => (TtState::Building, Self::tap_emit(dir, started, lift_t)),
-                2 => (
-                    TtState::Rest2 { rest: [c[0], c[1]], since: t_ms },
+                1 => (
+                    // The rest finger stays down — chaining: go back to a settled
+                    // Rest1 (carry `rest_since`) so a second tap can fire at once.
+                    TtState::Rest1 { rest: c[0], since: rest_since },
                     Self::tap_emit(dir, started, lift_t),
                 ),
-                3 => {
+                2 => {
                     // The tap finger re-appeared: it was a mid-hold flicker, NOT
                     // a real lift → resume the SAME tap (keep `started`, `dir`),
                     // no emit. This is the double-fire fix.
-                    let (pair, t) = split_rest_tap(c, rest);
-                    if dist(pair[0], rest[0]) > TIPTAP_MAX_MOVE_NORM
-                        || dist(pair[1], rest[1]) > TIPTAP_MAX_MOVE_NORM
+                    let (r, t) = split_rest_tap(c, rest);
+                    if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
                         || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
                     {
                         return (TtState::Poisoned, None);
                     }
-                    (TtState::TapDown { rest: pair, tap: t, dir, started }, None)
+                    (TtState::TapDown { rest: r, rest_since, tap: t, dir, started }, None)
                 }
                 _ => (TtState::Poisoned, None),
             },
@@ -1933,72 +1890,71 @@ mod tests {
         frames.iter().filter_map(|(t, cs)| r.feed(*t, cs)).collect()
     }
 
-    // Two resting fingers (an adjacent pair) at a given height.
-    fn rest_pair() -> Vec<Contact> {
-        vec![Contact { x: 0.44, y: 0.5 }, Contact { x: 0.52, y: 0.5 }]
+    // One resting finger at a given height.
+    fn rest_one() -> Vec<Contact> {
+        vec![Contact { x: 0.48, y: 0.5 }]
     }
-    fn rest_plus(tap_x: f64) -> Vec<Contact> {
-        vec![
-            Contact { x: 0.44, y: 0.5 },
-            Contact { x: 0.52, y: 0.5 },
-            Contact { x: tap_x, y: 0.5 },
-        ]
+    // Rest finger + a tap finger at `tap_x`.
+    fn rest_tap(tap_x: f64) -> Vec<Contact> {
+        vec![Contact { x: 0.48, y: 0.5 }, Contact { x: tap_x, y: 0.5 }]
     }
 
     #[test]
-    fn tiptap_two_rest_then_tap_right() {
-        // Two fingers rest; a third taps to their RIGHT (0.68) for ~60 ms → next.
+    fn tiptap_rest_then_tap_right() {
+        // One finger rests; a second taps to its RIGHT (0.68) for ~60 ms → next.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()), // settled ≥ REST_MIN_MS
-            (150, rest_plus(0.68)), // TapDown
-            (210, rest_pair()),     // tap lifted → TapReleasing
-            (300, vec![]),          // full lift → emit
+            (0, rest_one()),
+            (100, rest_one()), // settled ≥ REST_MIN_MS
+            (150, rest_tap(0.68)), // TapDown
+            (210, rest_one()),     // tap lifted (rest remains) → TapReleasing
+            (300, rest_one()),     // confirmed → emit
+            (400, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
     }
 
     #[test]
-    fn tiptap_two_rest_then_tap_left() {
-        // A third taps to the LEFT of both (0.28) → previous.
+    fn tiptap_rest_then_tap_left() {
+        // A second finger taps to the LEFT of the rest (0.28) → previous.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.28)),
-            (210, rest_pair()),
-            (300, vec![]),
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.28)),
+            (210, rest_one()),
+            (300, rest_one()),
+            (400, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapLeft]);
     }
 
     #[test]
-    fn tiptap_tap_between_the_rest_fingers_is_ambiguous() {
-        // A tap landing BETWEEN the two rest fingers has no clear direction.
+    fn tiptap_tap_on_top_of_the_rest_is_ambiguous() {
+        // A tap landing right on the rest finger has no clear direction.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.48)), // between 0.44 and 0.52
-            (210, rest_pair()),
-            (300, vec![]),
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.49)), // dx 0.01 < MIN_SEP
+            (210, rest_one()),
+            (300, rest_one()),
+            (400, vec![]),
         ]);
-        assert!(evs.is_empty(), "an in-between tap must not fire");
+        assert!(evs.is_empty(), "an on-top tap must not fire");
     }
 
     #[test]
-    fn tiptap_chains_while_the_pair_stays_down() {
-        // Human-speed chaining: each tap re-settles ≥ REST_MIN_MS and the emits
-        // are > EMIT_GAP_MS apart. The pair stays down; the confirm is a
-        // 2-contact frame (not a full lift).
+    fn tiptap_chains_while_the_rest_stays_down() {
+        // Human-speed chaining: the rest finger stays down and a second taps
+        // again. The confirm is a 1-contact frame (not a full lift), and the
+        // carried rest-settle time lets the next tap fire without re-settling.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)), // TapDown
-            (210, rest_pair()),     // TapReleasing
-            (260, rest_pair()),     // confirmed → emit #1 (Right)
-            (520, rest_pair()),     // settled again
-            (580, rest_plus(0.28)), // TapDown
-            (640, rest_pair()),     // TapReleasing
-            (690, rest_pair()),     // emit #2 (Left) — > EMIT_GAP_MS after #1
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)), // TapDown
+            (210, rest_one()),     // TapReleasing
+            (260, rest_one()),     // confirmed → emit #1 (Right)
+            (520, rest_tap(0.28)), // TapDown (rest still settled)
+            (580, rest_one()),     // TapReleasing
+            (640, rest_one()),     // emit #2 (Left) — > EMIT_GAP_MS after #1
             (800, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapLeft]);
@@ -2008,15 +1964,14 @@ mod tests {
     fn tiptap_rapid_deliberate_chaining_is_not_swallowed() {
         // Two deliberate taps ~250 ms apart must BOTH fire.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)),
-            (210, rest_pair()),
-            (250, rest_pair()), // emit #1
-            (350, rest_pair()), // settle done
-            (410, rest_plus(0.68)),
-            (470, rest_pair()),
-            (500, rest_pair()), // emit #2 — 250 ms after #1
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
+            (210, rest_one()),
+            (250, rest_one()), // emit #1
+            (410, rest_tap(0.68)),
+            (470, rest_one()),
+            (500, rest_one()), // emit #2 — 250 ms after #1
             (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight, GestureKind::TipTapRight]);
@@ -2028,13 +1983,13 @@ mod tests {
         // flicker) then returns before the REAL lift. The deferred lift-confirm
         // fires exactly ONCE — no jump-two-tabs.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)), // TapDown
-            (200, rest_pair()),     // flicker: tap gone one frame → TapReleasing
-            (210, rest_plus(0.68)), // tap back → flicker, not a lift → TapDown
-            (420, rest_pair()),     // the real lift → TapReleasing
-            (500, rest_pair()),     // confirmed → single emit
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)), // TapDown
+            (200, rest_one()),     // flicker: tap gone one frame → TapReleasing
+            (210, rest_tap(0.68)), // tap back → flicker, not a lift → TapDown
+            (420, rest_one()),     // the real lift → TapReleasing
+            (500, rest_one()),     // confirmed → single emit
             (600, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
@@ -2045,13 +2000,13 @@ mod tests {
         // The tap's lift "bounces": the contact re-appears for a frame right
         // after emitting. The emit refractory must swallow it.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)),
-            (210, rest_pair()),     // TapReleasing
-            (250, rest_pair()),     // emit
-            (270, rest_plus(0.68)), // bounce re-contact 20 ms later → TapDown
-            (300, rest_pair()),     // its lift is within the 200 ms refractory
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
+            (210, rest_one()),     // TapReleasing
+            (250, rest_one()),     // emit
+            (270, rest_tap(0.68)), // bounce re-contact 20 ms later → TapDown
+            (300, rest_one()),     // its lift is within the 200 ms refractory
             (400, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
@@ -2059,17 +2014,17 @@ mod tests {
 
     #[test]
     fn tiptap_recovers_after_a_rejected_attempt_without_full_lift() {
-        // A three-finger swipe poisons; falling back to the resting pair and
-        // re-settling must re-arm (no need to lift everything).
+        // A two-finger scroll/swipe poisons; falling back to the resting finger
+        // and re-settling must re-arm (no need to lift everything).
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (10, rest_plus(0.68)), // 3rd landed within settle → poisoned
-            (200, rest_plus(0.68)),
-            (250, rest_pair()), // back to the pair → recovering
-            (400, rest_pair()), // settled ≥ REST_MIN_MS
-            (450, rest_plus(0.68)),
-            (510, rest_pair()),
-            (560, rest_pair()), // valid tap → emit
+            (0, rest_one()),
+            (10, rest_tap(0.68)), // 2nd landed within settle → poisoned
+            (200, rest_tap(0.68)),
+            (250, rest_one()), // back to the rest → recovering
+            (400, rest_one()), // settled ≥ REST_MIN_MS
+            (450, rest_tap(0.68)),
+            (510, rest_one()),
+            (560, rest_one()), // valid tap → emit
             (700, vec![]),
         ]);
         assert_eq!(evs, vec![GestureKind::TipTapRight]);
@@ -2077,49 +2032,49 @@ mod tests {
 
     #[test]
     fn tiptap_tolerates_an_angled_hand() {
-        // The tap lands noticeably HIGHER than the resting pair (Δy = 0.28) — a
+        // The tap lands noticeably HIGHER than the rest finger (Δy = 0.28) — a
         // natural angled-hand tip-tap; must fire.
         let ok = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
+            (0, rest_one()),
+            (100, rest_one()),
             (150, vec![
-                Contact { x: 0.44, y: 0.5 },
-                Contact { x: 0.52, y: 0.5 },
-                Contact { x: 0.68, y: 0.22 }, // Δy 0.28 from mean 0.5
+                Contact { x: 0.48, y: 0.5 },
+                Contact { x: 0.68, y: 0.22 }, // Δy 0.28 from the rest
             ]),
-            (210, rest_pair()),
-            (300, vec![]),
+            (210, rest_one()),
+            (300, rest_one()),
+            (400, vec![]),
         ]);
         assert_eq!(ok, vec![GestureKind::TipTapRight]);
         // …but a wildly different height (Δy = 0.70) is no tip-tap posture.
         let too_high = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
+            (0, rest_one()),
+            (100, rest_one()),
             (150, vec![
-                Contact { x: 0.44, y: 0.5 },
-                Contact { x: 0.52, y: 0.5 },
-                Contact { x: 0.68, y: 1.20 }, // Δy 0.70 from mean 0.5
+                Contact { x: 0.48, y: 0.5 },
+                Contact { x: 0.68, y: 1.20 }, // Δy 0.70 from the rest
             ]),
-            (210, rest_pair()),
-            (300, vec![]),
+            (210, rest_one()),
+            (300, rest_one()),
+            (400, vec![]),
         ]);
         assert!(too_high.is_empty());
     }
 
     #[test]
-    fn tiptap_rejects_three_fingers_landing_together_swipe_guard() {
-        // The third finger lands before the pair settled → a swipe, not a tap.
+    fn tiptap_rejects_two_fingers_landing_together_scroll_guard() {
+        // The second finger lands before the rest settled → a scroll, not a tap.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (30, rest_plus(0.68)), // 30 ms < REST_MIN_MS
-            (90, rest_pair()),
+            (0, rest_one()),
+            (30, rest_tap(0.68)), // 30 ms < REST_MIN_MS
+            (90, rest_one()),
             (150, vec![]),
         ]);
         assert!(evs.is_empty());
-        // Three fingers all landing at once (a swipe start) never fires either.
+        // Two fingers landing at once (a scroll/swipe start) never fires either.
         let evs = tiptap_events(&[
-            (0, rest_plus(0.68)),
-            (60, rest_plus(0.68)),
+            (0, rest_tap(0.68)),
+            (60, rest_tap(0.68)),
             (120, vec![]),
         ]);
         assert!(evs.is_empty());
@@ -2127,76 +2082,76 @@ mod tests {
 
     #[test]
     fn tiptap_rejects_movement_and_overstay() {
-        // All three glide (a 3-finger scroll/swipe) → the rest fingers move →
+        // Both glide (a two-finger scroll/swipe) → the rest finger moves →
         // poisoned.
         let scroll = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)),
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
             (200, vec![
-                Contact { x: 0.44, y: 0.30 },
-                Contact { x: 0.52, y: 0.30 },
+                Contact { x: 0.48, y: 0.30 }, // rest moved up 0.20
                 Contact { x: 0.68, y: 0.30 },
             ]),
-            (260, rest_pair()),
+            (260, rest_one()),
             (300, vec![]),
         ]);
         assert!(scroll.is_empty());
-        // The third finger overstays the tap window (a three-finger rest).
+        // The tap finger overstays the tap window (a two-finger rest).
         let hold = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)),
-            (600, rest_plus(0.68)), // > TAP_MAX_MS
-            (700, rest_pair()),
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
+            (600, rest_tap(0.68)), // > TAP_MAX_MS
+            (700, rest_one()),
             (800, vec![]),
         ]);
         assert!(hold.is_empty());
     }
 
     #[test]
-    fn tiptap_no_emit_when_a_rest_finger_lifts_instead() {
-        // During the hold a REST finger lifts (tap + one rest remain) →
+    fn tiptap_no_emit_when_the_rest_finger_lifts_instead() {
+        // During the hold the REST finger lifts (only the tap remains) →
         // ambiguous, nothing fires.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (150, rest_plus(0.68)),
-            (210, vec![Contact { x: 0.52, y: 0.5 }, Contact { x: 0.68, y: 0.5 }]), // a rest gone
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
+            (210, vec![Contact { x: 0.68, y: 0.5 }]), // the rest is gone, tap remains
             (300, vec![]),
         ]);
         assert!(evs.is_empty());
     }
 
     #[test]
-    fn tiptap_two_finger_tap_alone_never_fires() {
-        // Two fingers tap without a third — a normal two-finger tap (right-click)
-        // must never be read as a tip-tap.
+    fn tiptap_single_finger_rest_alone_never_fires() {
+        // Just one resting finger with no tap — normal cursor use must never be
+        // read as a tip-tap.
         let evs = tiptap_events(&[
-            (0, rest_pair()),
-            (100, rest_pair()),
-            (160, vec![]),
+            (0, rest_one()),
+            (100, rest_one()),
+            (200, rest_one()),
+            (260, vec![]),
         ]);
         assert!(evs.is_empty());
     }
 
     #[test]
     fn tiptap_direction_edges() {
-        let pair = [Contact { x: 0.44, y: 0.5 }, Contact { x: 0.52, y: 0.5 }];
+        let rest = Contact { x: 0.48, y: 0.5 };
         assert_eq!(
-            tiptap_direction(pair, Contact { x: 0.70, y: 0.5 }),
+            tiptap_direction(rest, Contact { x: 0.70, y: 0.5 }),
             Some(GestureKind::TipTapRight)
         );
         assert_eq!(
-            tiptap_direction(pair, Contact { x: 0.26, y: 0.5 }),
+            tiptap_direction(rest, Contact { x: 0.26, y: 0.5 }),
             Some(GestureKind::TipTapLeft)
         );
-        // Between the fingers → None.
-        assert_eq!(tiptap_direction(pair, Contact { x: 0.48, y: 0.5 }), None);
-        // Too far past the edge → None.
-        assert_eq!(tiptap_direction(pair, Contact { x: 0.98, y: 0.5 }), None);
+        // On top of the rest finger → None.
+        assert_eq!(tiptap_direction(rest, Contact { x: 0.49, y: 0.5 }), None);
+        // Too far away → None.
+        assert_eq!(tiptap_direction(rest, Contact { x: 0.98, y: 0.5 }), None);
         // Too high (Δy 0.60 > the 0.55 limit) → None.
-        assert_eq!(tiptap_direction(pair, Contact { x: 0.70, y: 1.10 }), None);
+        assert_eq!(tiptap_direction(rest, Contact { x: 0.70, y: 1.10 }), None);
     }
 
 

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.6] — 2026-07-22
+
+### Changed
+
+- **Tip-tap tab switching is now a one-finger-rest gesture** (macOS), reverted at the user's request from the two-finger-rest posture v0.84.266 had adopted: rest **one** finger on the pad and tap a **second** briefly to its left/right → previous/next tab. The `TipTapRecognizer` state machine, `split_rest_tap`, `tiptap_direction` and the macOS contact feed were rewritten for a single resting `Contact` (poison at ≥ 3 contacts). **Trade-off:** one resting finger overlaps thumb-anchored cursor use, so it is more false-positive-prone than the two-finger rest — mitigated by the settle gate (rest ≥ 80 ms before the tap, so a two-finger scroll's simultaneous landing is rejected), the 40–300 ms tap window, the movement guard and the direction/height bounds. All 14 tip-tap recogniser unit tests were rewritten for the one-finger posture.
+
 ## [0.91.5] — 2026-07-22
 
 ### Fixed

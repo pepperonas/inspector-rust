@@ -347,11 +347,11 @@ extern "C" fn frame_callback(
     }
 
     // Tip-tap runs on per-contact positions (the centroid can't tell which
-    // finger tapped). Same y-flip + TOUCHING filter as above. It needs exactly 3
-    // contacts (2 rest + 1 tap) and poisons at ≥ 4, so a 4-slot buffer is enough
-    // to both see the tap and detect "too many". Size-palms are skipped so a
-    // resting palm heel doesn't poison every tip-tap attempt.
-    let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
+    // finger tapped). Same y-flip + on-pad state filter as above. It needs
+    // exactly 2 contacts (1 rest + 1 tap) and poisons at ≥ 3, so a 3-slot buffer
+    // is enough to both see the tap and detect "too many". Size-palms are
+    // skipped so a resting palm heel doesn't poison every tip-tap attempt.
+    let mut contacts: [Contact; 3] = [Contact { x: 0.0, y: 0.0 }; 3];
     let mut cn = 0usize;
     for f in fingers.iter() {
         // Use the SAME on-pad state set as the palm-aware feed above

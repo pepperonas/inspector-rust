@@ -189,4 +189,13 @@ describe("CRT power-on / power-off", () => {
     await expect(playCrtOff(el)).resolves.toBeUndefined();
     await expect(playCrtOff(null)).resolves.toBeUndefined();
   });
+
+  it("hides the scrollbar (crt-anim on <html>) from prime through settle", () => {
+    const el = document.createElement("div");
+    primeCrtHidden(el);
+    expect(document.documentElement.classList.contains("crt-anim")).toBe(true);
+    // no WAAPI here → playCrtOn takes the settle path, which restores the bar
+    playCrtOn(el);
+    expect(document.documentElement.classList.contains("crt-anim")).toBe(false);
+  });
 });

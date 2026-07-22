@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.92.1] — 2026-07-22
+
+### Fixed
+
+- **CRT popup animation: the scrollbar no longer animates weirdly at the edge.** During the power-on/off the shell scales + brightness-filters, which dragged the custom scrollbar thumb along (a jittery bar at the right edge). The scrollbar thumb is now made transparent for the duration of the animation (a `crt-anim` class on `<html>`, toggled by `playCrtOn`/`playCrtOff`/`primeCrtHidden`) — reflow-free, since only the thumb colour changes and the gutter width is untouched.
+
 ## [0.92.0] — 2026-07-22
 
 ### Changed

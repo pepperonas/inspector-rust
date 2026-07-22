@@ -301,6 +301,17 @@ code {
   background: var(--color-muted);
 }
 
+/* While the CRT power-on/off scales + brightness-filters the shell, the
+   scrollbar thumb (at the scroll area's edge) scales with it and reads as a
+   weirdly-animated bar. Make the thumb transparent for the duration — the
+   track is already transparent and the gutter width is unchanged, so this
+   hides the thumb WITHOUT reflowing the content. Toggled on <html> by
+   playCrtOn/playCrtOff (lib/md3-motion.ts). */
+html.crt-anim ::-webkit-scrollbar-thumb,
+html.crt-anim ::-webkit-scrollbar-thumb:hover {
+  background: transparent;
+}
+
 .app-shell {
   border: 1px solid var(--color-border);
   background: var(--color-bg);

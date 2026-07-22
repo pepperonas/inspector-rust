@@ -272,15 +272,26 @@ const CRT_DOT_Y = 0.012;
  *  of full-opacity content, before `playCrtOn` blooms it. */
 export function primeCrtHidden(el: HTMLElement | null): void {
   if (!el) return;
+  setCrtScrollbarsHidden(true); // keep the scrollbar hidden from prime through power-on
   el.style.opacity = "1";
   el.style.transform = `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`;
   el.style.filter = "brightness(2.6)";
+}
+
+/** Hide/show the (custom) scrollbar thumb for the CRT scale — a scaled +
+ *  brightness-filtered scrollbar renders oddly at the shell's edge. Reflow-free
+ *  (only the thumb colour changes; the gutter width is untouched). */
+function setCrtScrollbarsHidden(on: boolean): void {
+  if (typeof document !== "undefined") {
+    document.documentElement.classList.toggle("crt-anim", on);
+  }
 }
 
 function clearCrtStyle(el: HTMLElement): void {
   el.style.opacity = "";
   el.style.transform = "";
   el.style.filter = "";
+  setCrtScrollbarsHidden(false);
 }
 
 /**
@@ -295,6 +306,7 @@ export function playCrtOn(el: HTMLElement | null): void {
     settle();
     return;
   }
+  setCrtScrollbarsHidden(true); // hidden through the power-on; `settle` restores
   // Drop any forwards-filled power-off still applied from the last dismiss.
   el.getAnimations?.().forEach((a) => a.cancel());
   const anim = el.animate(
@@ -326,6 +338,7 @@ export function playCrtOff(el: HTMLElement | null): Promise<void> {
   if (!el || typeof el.animate !== "function" || prefersReducedMotion()) {
     return Promise.resolve();
   }
+  setCrtScrollbarsHidden(true); // hide the scrollbar for the whole collapse
   el.getAnimations?.().forEach((a) => a.cancel());
   const anim = el.animate(
     [
@@ -336,7 +349,11 @@ export function playCrtOff(el: HTMLElement | null): Promise<void> {
     ],
     { duration: CRT_OFF_MS, easing: "linear", fill: "forwards" },
   );
-  return anim.finished.then(() => undefined).catch(() => undefined);
+  // Restore the scrollbar once collapsed (the window hides right after; the next
+  // open's prime re-hides it). Keeps the class from leaking if the popup lingers.
+  return anim.finished
+    .then(() => setCrtScrollbarsHidden(false))
+    .catch(() => setCrtScrollbarsHidden(false));
 }
 
 /**

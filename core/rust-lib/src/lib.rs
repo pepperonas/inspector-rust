@@ -751,6 +751,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::shazam_history_delete,
             commands::shazam_history_clear,
             commands::shazam_lyrics,
+            commands::shazam_lyrics_translated,
             commands::list_memes,
             commands::copy_meme,
             commands::get_meme_dir,

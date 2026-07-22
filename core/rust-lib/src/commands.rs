@@ -5450,6 +5450,17 @@ pub async fn shazam_lyrics(artist: String, title: String) -> Result<Option<Strin
     crate::shazam::fetch_lyrics(&artist, &title)
 }
 
+/// Fetch a track's lyrics and translate them to German (per-line, via a keyless
+/// endpoint). Async. `Ok(None)` = the catalogue has no lyrics for this track;
+/// the detected source language is returned so the UI can note a German song.
+#[tauri::command]
+pub async fn shazam_lyrics_translated(
+    artist: String,
+    title: String,
+) -> Result<Option<crate::shazam::TranslatedLyrics>, String> {
+    crate::shazam::fetch_lyrics_translated(&artist, &title, "de")
+}
+
 #[cfg(test)]
 mod project_map_tests {
     use super::parse_project_map;

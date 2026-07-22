@@ -19,6 +19,7 @@ import {
   ScrollText,
   Search,
   ArrowLeft,
+  Languages,
 } from "lucide-react";
 import {
   shazamListen,
@@ -26,8 +27,10 @@ import {
   shazamHistoryClear,
   shazamHistoryDelete,
   shazamLyrics,
+  shazamLyricsTranslated,
   type ShazamMatch,
   type ShazamHistoryEntry,
+  type TranslatedLyrics,
 } from "../lib/ipc";
 import { filterShazamHistory } from "../lib/shazam-filter";
 import { listen } from "@tauri-apps/api/event";
@@ -149,7 +152,15 @@ export function ShazamPanel({
   /** Where the lyrics view returns to on ←. */
   const [lyricsBack, setLyricsBack] = useState<"recognize" | "history">("recognize");
   const [lyricsMeta, setLyricsMeta] = useState<{ title: string; artist: string; cover: string } | null>(null);
-  const [lyrics, setLyrics] = useState<{ status: "loading" | "ok" | "none" | "error"; text: string }>({ status: "loading", text: "" });
+  const [lyrics, setLyrics] = useState<{ status: "idle" | "loading" | "ok" | "none" | "error"; text: string }>({ status: "idle", text: "" });
+  /** Which lyrics variant the view shows: original vs. bilingual (+DE). */
+  const [lyricsMode, setLyricsMode] = useState<"orig" | "bi">("orig");
+  /** German translation of the current track's lyrics (lazy — loaded on demand). */
+  const [translated, setTranslated] = useState<{
+    status: "idle" | "loading" | "ok" | "none" | "error";
+    data: TranslatedLyrics | null;
+    error: string;
+  }>({ status: "idle", data: null, error: "" });
   /** History search query (title · artist · album · genre). */
   const [histQuery, setHistQuery] = useState("");
   const [phase, setPhase] = useState<Phase>("listening");
@@ -279,20 +290,60 @@ export function ShazamPanel({
     }
   }, []);
 
-  /** Open the in-app lyrics view for a track (lrclib.net, anonymous). */
+  /** Fetch the plain (original) lyrics for a track. */
+  const loadPlain = useCallback((artist: string, title: string) => {
+    setLyrics({ status: "loading", text: "" });
+    shazamLyrics(artist, title)
+      .then((text) => setLyrics(text ? { status: "ok", text } : { status: "none", text: "" }))
+      .catch((e) => setLyrics({ status: "error", text: String(e) }));
+  }, []);
+
+  /** Fetch the German translation (lrclib → keyless translate). */
+  const loadTranslation = useCallback((artist: string, title: string) => {
+    setTranslated({ status: "loading", data: null, error: "" });
+    shazamLyricsTranslated(artist, title)
+      .then((d) =>
+        setTranslated(
+          d ? { status: "ok", data: d, error: "" } : { status: "none", data: null, error: "" },
+        ),
+      )
+      .catch((e) => setTranslated({ status: "error", data: null, error: String(e) }));
+  }, []);
+
+  /** Open the in-app lyrics view for a track. `mode` picks original vs. the
+   *  bilingual (+DE) variant; both are lazy-loaded and cached until re-opened. */
   const openLyrics = useCallback(
-    (title: string, artist: string, cover: string, from: "recognize" | "history") => {
+    (
+      title: string,
+      artist: string,
+      cover: string,
+      from: "recognize" | "history",
+      mode: "orig" | "bi" = "orig",
+    ) => {
       setLyricsBack(from);
       setLyricsMeta({ title, artist, cover });
-      setLyrics({ status: "loading", text: "" });
+      setLyricsMode(mode);
+      setLyrics({ status: "idle", text: "" });
+      setTranslated({ status: "idle", data: null, error: "" });
       setView("lyrics");
-      shazamLyrics(artist, title)
-        .then((text) =>
-          setLyrics(text ? { status: "ok", text } : { status: "none", text: "" }),
-        )
-        .catch((e) => setLyrics({ status: "error", text: String(e) }));
+      if (mode === "bi") loadTranslation(artist, title);
+      else loadPlain(artist, title);
     },
-    [],
+    [loadPlain, loadTranslation],
+  );
+
+  /** Toggle Original ⇄ +DE inside the lyrics view; lazy-loads the variant the
+   *  first time it's shown (no re-recognition). */
+  const switchLyricsMode = useCallback(
+    (mode: "orig" | "bi") => {
+      setLyricsMode(mode);
+      if (!lyricsMeta) return;
+      if (mode === "bi" && translated.status === "idle")
+        loadTranslation(lyricsMeta.artist, lyricsMeta.title);
+      if (mode === "orig" && lyrics.status === "idle")
+        loadPlain(lyricsMeta.artist, lyricsMeta.title);
+    },
+    [lyricsMeta, translated.status, lyrics.status, loadTranslation, loadPlain],
   );
 
   /** Browser fallback when the lyrics catalogue has no entry. */
@@ -457,6 +508,14 @@ export function ShazamPanel({
             </button>
             <button
               type="button"
+              onClick={() => openLyrics(match.title, match.artist, match.cover_url, "recognize", "bi")}
+              className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
+              title="Lyrics with a German translation under each line"
+            >
+              <Languages size={13} /> Lyrics DE
+            </button>
+            <button
+              type="button"
               onClick={() => void copyTitle()}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
             >
@@ -528,13 +587,34 @@ export function ShazamPanel({
               <div className="truncate text-xs font-semibold text-[var(--color-fg)]">{lyricsMeta.title}</div>
               <div className="truncate text-[11px] text-[var(--color-muted)]">{lyricsMeta.artist}</div>
             </div>
+            {/* Original ⇄ +DE toggle */}
+            <div className="ml-auto flex shrink-0 items-center rounded-lg border border-[var(--color-border)] p-0.5 text-[11px]">
+              <button
+                type="button"
+                onClick={() => switchLyricsMode("orig")}
+                className={`rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "orig" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
+                title="Original lyrics"
+              >
+                Original
+              </button>
+              <button
+                type="button"
+                onClick={() => switchLyricsMode("bi")}
+                className={`flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "bi" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
+                title="German translation under each line"
+              >
+                <Languages size={11} /> +DE
+              </button>
+            </div>
           </div>
-          {lyrics.status === "loading" && (
+
+          {/* ── Original lyrics ── */}
+          {lyricsMode === "orig" && lyrics.status === "loading" && (
             <div className="flex flex-1 items-center justify-center gap-2 text-xs text-[var(--color-muted)]">
               <Loader2 size={14} className="animate-spin" /> Loading lyrics…
             </div>
           )}
-          {lyrics.status === "ok" && (
+          {lyricsMode === "orig" && lyrics.status === "ok" && (
             <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
               <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-relaxed text-[var(--color-fg)]">
                 {lyrics.text}
@@ -542,13 +622,67 @@ export function ShazamPanel({
               <div className="mt-3 text-[10px] text-[var(--color-muted)]">Lyrics via lrclib.net</div>
             </div>
           )}
-          {(lyrics.status === "none" || lyrics.status === "error") && (
+          {lyricsMode === "orig" && (lyrics.status === "none" || lyrics.status === "error") && (
             <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
               <ScrollText size={22} className="text-[var(--color-muted)]" />
               <div className="text-xs text-[var(--color-muted)]">
                 {lyrics.status === "none"
                   ? "No lyrics in the catalogue for this track."
                   : lyrics.text}
+              </div>
+              <button
+                type="button"
+                onClick={searchLyricsInBrowser}
+                className="flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-xs font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)]"
+              >
+                <Search size={12} /> Search in the browser
+              </button>
+            </div>
+          )}
+
+          {/* ── Bilingual lyrics (+DE) ── */}
+          {lyricsMode === "bi" && translated.status === "loading" && (
+            <div className="flex flex-1 items-center justify-center gap-2 text-xs text-[var(--color-muted)]">
+              <Loader2 size={14} className="animate-spin" /> Übersetze Songtext…
+            </div>
+          )}
+          {lyricsMode === "bi" && translated.status === "ok" && translated.data && (
+            <div className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3">
+              {translated.data.src_lang === "de" ? (
+                <>
+                  <div className="mb-2 text-[11px] text-[var(--color-muted)]">
+                    Dieser Song ist bereits auf Deutsch.
+                  </div>
+                  <pre className="whitespace-pre-wrap font-sans text-[12.5px] leading-relaxed text-[var(--color-fg)]">
+                    {translated.data.segments.map((s) => s.orig).join("\n")}
+                  </pre>
+                </>
+              ) : (
+                <div className="space-y-2">
+                  {translated.data.segments.map((s, i) => (
+                    <div key={i}>
+                      <div className="whitespace-pre-wrap text-[12.5px] leading-snug text-[var(--color-fg)]">
+                        {s.orig}
+                      </div>
+                      <div className="whitespace-pre-wrap text-[11.5px] italic leading-snug text-[var(--color-muted)]">
+                        {s.trans}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div className="mt-3 text-[10px] text-[var(--color-muted)]">
+                Lyrics via lrclib.net · Übersetzung via Google Translate
+              </div>
+            </div>
+          )}
+          {lyricsMode === "bi" && (translated.status === "none" || translated.status === "error") && (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 text-center">
+              <ScrollText size={22} className="text-[var(--color-muted)]" />
+              <div className="text-xs text-[var(--color-muted)]">
+                {translated.status === "none"
+                  ? "No lyrics in the catalogue for this track."
+                  : translated.error}
               </div>
               <button
                 type="button"

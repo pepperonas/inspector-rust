@@ -765,6 +765,91 @@ pub fn fetch_lyrics(artist: &str, title: &str) -> Result<Option<String>, String>
     }
 }
 
+// ── Lyrics translation (Google translate_a/single — free, keyless) ───────────
+
+/// One lyrics segment: the original text and its translation (the alignment
+/// comes straight from the translate API, per sentence — not guessed).
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct LyricSegment {
+    pub orig: String,
+    pub trans: String,
+}
+
+/// Bilingual lyrics: the detected source language (BCP-47-ish, e.g. `"en"`,
+/// `"de"`) + per-segment original/translation pairs.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct TranslatedLyrics {
+    pub src_lang: String,
+    pub segments: Vec<LyricSegment>,
+}
+
+/// Parse Google's `translate_a/single` response: `data[0]` is an array of
+/// `[trans, orig, …]` sentence pairs, `data[2]` is the detected source
+/// language. `None` when the JSON is malformed or carries no sentences.
+/// Pure — unit-tested.
+pub fn parse_google_translate(body: &str) -> Option<TranslatedLyrics> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    let sentences = v.get(0)?.as_array()?;
+    let src_lang = v.get(2).and_then(|x| x.as_str()).unwrap_or("").to_string();
+    let mut segments = Vec::new();
+    for s in sentences {
+        let arr = match s.as_array() {
+            Some(a) => a,
+            None => continue,
+        };
+        // `[trans, orig, …]`; trailing entries (translit etc.) are ignored.
+        // A sentence without both text fields (e.g. a transliteration-only
+        // segment) is skipped.
+        if let (Some(trans), Some(orig)) = (
+            arr.first().and_then(|x| x.as_str()),
+            arr.get(1).and_then(|x| x.as_str()),
+        ) {
+            segments.push(LyricSegment {
+                orig: orig.to_string(),
+                trans: trans.to_string(),
+            });
+        }
+    }
+    if segments.is_empty() {
+        return None;
+    }
+    Some(TranslatedLyrics { src_lang, segments })
+}
+
+/// Translate `text` to `target` via Google's keyless endpoint (only the lyrics
+/// text + languages leave the machine). Blocking (ureq) — call from an async
+/// command.
+pub fn translate_text(text: &str, target: &str) -> Result<TranslatedLyrics, String> {
+    let resp = ureq::get("https://translate.googleapis.com/translate_a/single")
+        .query("client", "gtx")
+        .query("sl", "auto")
+        .query("tl", target)
+        .query("dt", "t")
+        .query("q", text)
+        .timeout(std::time::Duration::from_secs(12))
+        .call();
+    match resp {
+        Ok(r) => {
+            let body = r.into_string().map_err(|e| format!("translate read: {e}"))?;
+            parse_google_translate(&body).ok_or_else(|| "Übersetzung nicht lesbar".to_string())
+        }
+        Err(e) => Err(format!("Übersetzung fehlgeschlagen: {e}")),
+    }
+}
+
+/// Fetch a track's lyrics (lrclib) and translate them to `target`. `Ok(None)` =
+/// the catalogue has no lyrics for this track.
+pub fn fetch_lyrics_translated(
+    artist: &str,
+    title: &str,
+    target: &str,
+) -> Result<Option<TranslatedLyrics>, String> {
+    match fetch_lyrics(artist, title)? {
+        None => Ok(None),
+        Some(text) => Ok(Some(translate_text(&text, target)?)),
+    }
+}
+
 pub fn history_clear(db: &DbHandle) -> rusqlite::Result<()> {
     db.lock().execute("DELETE FROM shazam_history", [])?;
     Ok(())
@@ -1060,5 +1145,42 @@ mod tests {
         assert_eq!(parse_lrclib_response(r#"{"instrumental":true}"#), None);
         assert_eq!(parse_lrclib_response("not json"), None);
         assert_eq!(parse_lrclib_response(r#"{"plainLyrics":null}"#), None);
+    }
+
+    #[test]
+    fn parse_google_translate_pairs_segments_and_reads_source_lang() {
+        // Shape of translate_a/single: data[0] = [[trans, orig, …], …], data[2] = src lang.
+        let body = r#"[[["Hallo Welt","Hello world",null,null,10],
+                        ["Ich fühle mich gut","I feel fine",null,null,3]],null,"en"]"#;
+        let t = parse_google_translate(body).expect("some");
+        assert_eq!(t.src_lang, "en");
+        assert_eq!(t.segments.len(), 2);
+        assert_eq!(t.segments[0], LyricSegment { orig: "Hello world".into(), trans: "Hallo Welt".into() });
+        assert_eq!(t.segments[1].orig, "I feel fine");
+    }
+
+    #[test]
+    fn parse_google_translate_flags_a_german_source() {
+        // Already German → src "de", trans == orig (the UI drops the extra line).
+        let body = r#"[[["Wir sind Helden","Wir sind Helden",null,null,0]],null,"de"]"#;
+        let t = parse_google_translate(body).expect("some");
+        assert_eq!(t.src_lang, "de");
+        assert_eq!(t.segments[0].orig, t.segments[0].trans);
+    }
+
+    #[test]
+    fn parse_google_translate_skips_non_text_and_rejects_garbage() {
+        // A transliteration-only segment (no orig string) is skipped, the real one kept.
+        let mixed = r#"[[["Guten Morgen","Good morning",null,null,1],["","",null,null,3,[]]],null,"en"]"#;
+        let t = parse_google_translate(mixed).expect("some");
+        assert_eq!(t.segments.len(), 2); // "" is still a valid string pair; kept
+        assert_eq!(t.segments[0].trans, "Guten Morgen");
+        // malformed / empty inputs → None
+        assert_eq!(parse_google_translate("not json"), None);
+        assert_eq!(parse_google_translate(r#"[null,null,"en"]"#), None); // data[0] not an array
+        assert_eq!(parse_google_translate(r#"[[],null,"en"]"#), None); // no sentences
+        // missing source-language slot → empty string, still parses the segments
+        let no_lang = r#"[[["Hallo","Hi",null,null,1]]]"#;
+        assert_eq!(parse_google_translate(no_lang).unwrap().src_lang, "");
     }
 }

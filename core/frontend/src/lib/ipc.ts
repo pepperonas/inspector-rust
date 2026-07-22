@@ -1139,6 +1139,26 @@ export function shazamHistoryList(limit?: number): Promise<ShazamHistoryEntry[]>
 export function shazamLyrics(artist: string, title: string): Promise<string | null> {
   return invoke("shazam_lyrics", { artist, title });
 }
+
+/** One lyrics line/segment + its German translation (aligned by the translate API). */
+export interface LyricSegment {
+  orig: string;
+  trans: string;
+}
+/** Bilingual lyrics: the detected source language (e.g. "en", "de") + segments. */
+export interface TranslatedLyrics {
+  src_lang: string;
+  segments: LyricSegment[];
+}
+/** Lyrics translated to German (lrclib → keyless translate). `null` = no lyrics
+ *  in the catalogue. When `src_lang === "de"` the track is already German
+ *  (`trans` equals `orig`) and the UI shows the plain lyrics. */
+export function shazamLyricsTranslated(
+  artist: string,
+  title: string,
+): Promise<TranslatedLyrics | null> {
+  return invoke("shazam_lyrics_translated", { artist, title });
+}
 export function shazamHistoryDelete(id: number): Promise<void> {
   return invoke("shazam_history_delete", { id });
 }

@@ -726,7 +726,7 @@ pub struct DayReport {
 
 /// Total seconds covered by the union of `intervals` (ms, may overlap). Merges
 /// overlapping/adjacent ranges so the result never exceeds real elapsed time.
-fn union_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
+pub(crate) fn union_seconds(mut intervals: Vec<(i64, i64)>) -> i64 {
     if intervals.is_empty() {
         return 0;
     }
@@ -1012,6 +1012,51 @@ pub fn range_slots(
         let ds = d.format("%Y-%m-%d").to_string();
         let s = day_slots(db, &ds, params, extra_projects)?;
         out.push((ds, s));
+        d += Duration::days(1);
+    }
+    Ok(out)
+}
+
+/// Per-project daily totals for one local day — the robust, overlap-corrected
+/// consolidation used by the **export** (see `slots::project_totals`). Handles
+/// parallel Claude sessions where the timeline-walk `day_slots` would splinter.
+pub fn day_project_totals(
+    db: &DbHandle,
+    date: &str,
+    params: &slots::SlotParams,
+    extra_projects: &[String],
+) -> Result<Vec<slots::ProjectTotal>, String> {
+    let (from, to) = day_bounds(date)?;
+    let now = now_ms();
+    let private = load_private_patterns(db);
+    let raw = tdb::events_in_range(db, from, to).map_err(|e| e.to_string())?;
+    let events: Vec<tdb::TrackEvent> = strip_private(raw, &private)
+        .iter()
+        .filter_map(|e| clip_event(e, from, to, now))
+        .collect();
+    let known = slots::known_projects(&events, extra_projects);
+    Ok(slots::project_totals(&events, &known, params))
+}
+
+/// Per-project totals for every day in the inclusive local-day range.
+pub fn range_project_totals(
+    db: &DbHandle,
+    from_date: &str,
+    to_date: &str,
+    params: &slots::SlotParams,
+    extra_projects: &[String],
+) -> Result<Vec<(String, Vec<slots::ProjectTotal>)>, String> {
+    use chrono::{Duration, NaiveDate};
+    let start = NaiveDate::parse_from_str(from_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    let end = NaiveDate::parse_from_str(to_date, "%Y-%m-%d").map_err(|e| format!("bad date: {e}"))?;
+    if end < start {
+        return Err("range end before start".into());
+    }
+    let mut out = Vec::new();
+    let mut d = start;
+    while d <= end {
+        let ds = d.format("%Y-%m-%d").to_string();
+        out.push((ds.clone(), day_project_totals(db, &ds, params, extra_projects)?));
         d += Duration::days(1);
     }
     Ok(out)

@@ -503,6 +503,82 @@ pub fn build_slots(events: &[Resolved], params: &SlotParams) -> Vec<Slot> {
     slots
 }
 
+/// A per-project daily total — the robust consolidation for the **export**.
+/// Unlike [`build_slots`] (a chronological timeline walk that assumes one focus
+/// at a time), this groups by project and **unions the intervals**, so it is
+/// correct even when several Claude sessions run in **parallel** across
+/// different projects (the events overlap heavily — a raw sum would report
+/// dozens of hours per day). `seconds` is the overlap-corrected time actually
+/// spent on that project.
+#[derive(Debug, Clone, Serialize)]
+pub struct ProjectTotal {
+    pub project: String,
+    /// Union of the project's intervals (overlaps merged, gaps excluded).
+    pub seconds: i64,
+    /// First activity on the project that day.
+    pub start_ms: i64,
+    /// Last activity on the project that day.
+    pub end_ms: i64,
+    pub apps: Vec<SlotApp>,
+    pub description: String,
+}
+
+/// Consolidate a day's events into **one row per project**, overlap-corrected.
+/// Runs the same project inference as [`build_slots`], then per project unions
+/// the intervals (via `union_seconds`). Untagged/unassigned time is skipped
+/// (it has no project to book against). Projects below `MIN_TOTAL_S` (1 min) of
+/// real time are dropped as noise. Sorted by time desc. Pure + unit-tested.
+pub fn project_totals(events: &[TrackEvent], known: &[String], params: &SlotParams) -> Vec<ProjectTotal> {
+    const MIN_TOTAL_S: i64 = 60;
+    use std::collections::HashMap;
+    let resolved = infer_projects(events, known, params);
+    struct Agg {
+        ivs: Vec<(i64, i64)>,
+        apps: HashMap<String, i64>,
+        details: HashMap<String, i64>,
+    }
+    let mut by: HashMap<String, Agg> = HashMap::new();
+    for r in &resolved {
+        if r.is_idle {
+            continue;
+        }
+        let Some(proj) = r.project.as_ref().filter(|p| !p.is_empty()) else {
+            continue; // unassigned time can't be booked against a project
+        };
+        let a = by.entry(proj.clone()).or_insert_with(|| Agg {
+            ivs: Vec::new(),
+            apps: HashMap::new(),
+            details: HashMap::new(),
+        });
+        a.ivs.push((r.start_ms, r.end_ms));
+        *a.apps.entry(r.app.clone()).or_default() += r.seconds();
+        if let Some(d) = &r.detail {
+            *a.details.entry(d.clone()).or_default() += r.seconds();
+        }
+    }
+    let mut out: Vec<ProjectTotal> = by
+        .into_iter()
+        .map(|(project, a)| {
+            let seconds = super::union_seconds(a.ivs.clone());
+            let start_ms = a.ivs.iter().map(|(s, _)| *s).min().unwrap_or(0);
+            let end_ms = a.ivs.iter().map(|(_, e)| *e).max().unwrap_or(0);
+            let mut apps: Vec<SlotApp> = a
+                .apps
+                .into_iter()
+                .map(|(app, seconds)| SlotApp { app, seconds })
+                .collect();
+            apps.sort_by(|x, y| y.seconds.cmp(&x.seconds).then(x.app.cmp(&y.app)));
+            let mut details: Vec<(String, i64)> = a.details.into_iter().collect();
+            details.sort_by(|x, y| y.1.cmp(&x.1).then(x.0.cmp(&y.0)));
+            let description = build_description(&project, &details);
+            ProjectTotal { project, seconds, start_ms, end_ms, apps, description }
+        })
+        .filter(|p| p.seconds >= MIN_TOTAL_S)
+        .collect();
+    out.sort_by(|a, b| b.seconds.cmp(&a.seconds).then(a.project.cmp(&b.project)));
+    out
+}
+
 /// Round every slot's bounds to the nearest grid multiple and drop anything
 /// that collapses; then push overlapping neighbours apart so the result can be
 /// booked (the target system rejects overlapping entries).
@@ -598,6 +674,53 @@ mod tests {
 
     fn secs(from_min: i64, to_min: i64) -> i64 {
         (to_min - from_min) * 60
+    }
+
+    // ── project_totals (overlap-corrected export consolidation) ──────────────
+
+    #[test]
+    fn project_totals_union_corrects_parallel_overlap() {
+        // Two overlapping "parallel Claude session" events on the SAME project
+        // (00:00–00:30 and 00:10–00:40) → union is 40 min, NOT the 60-min sum.
+        let events = vec![
+            ev(1, 0, 30, "Claude Code", Some("alpha")),
+            ev(2, 10, 40, "Claude Code", Some("alpha")),
+        ];
+        let totals = project_totals(&events, &[], &SlotParams::default());
+        assert_eq!(totals.len(), 1);
+        assert_eq!(totals[0].project, "alpha");
+        assert_eq!(totals[0].seconds, 40 * 60); // union, overlap removed
+        assert_eq!(totals[0].start_ms, T0);
+    }
+
+    #[test]
+    fn project_totals_groups_distinct_projects_and_survives_fragmentation() {
+        // A fragmented, interleaved multi-project day (the real failure case):
+        // 3 min here, 4 min there — the timeline walk + 15-min floor would drop
+        // all of it, but per-project totals keep every project's real time.
+        let events = vec![
+            ev(1, 0, 3, "Claude Code", Some("alpha")),
+            ev(2, 3, 7, "Claude Code", Some("beta")),
+            ev(3, 7, 10, "Claude Code", Some("alpha")),
+            ev(4, 10, 12, "Claude Code", Some("beta")),
+            idle(5, 12, 30),
+        ];
+        let totals = project_totals(&events, &[], &SlotParams::default());
+        assert_eq!(totals.len(), 2);
+        // alpha: 3 + 3 = 6 min; beta: 4 + 2 = 6 min (sorted desc, tie → name)
+        let alpha = totals.iter().find(|p| p.project == "alpha").unwrap();
+        let beta = totals.iter().find(|p| p.project == "beta").unwrap();
+        assert_eq!(alpha.seconds, 6 * 60);
+        assert_eq!(beta.seconds, 6 * 60);
+    }
+
+    #[test]
+    fn project_totals_skips_unassigned_and_sub_minute_noise() {
+        let events = vec![
+            ev(1, 0, 10, "iTerm2", None), // no project → skipped
+            ev(2, 10, 10, "Claude Code", Some("tiny")), // 0 s → below floor
+        ];
+        assert!(project_totals(&events, &[], &SlotParams::default()).is_empty());
     }
 
     // ── normalize / tokens / matching ────────────────────────────────────────

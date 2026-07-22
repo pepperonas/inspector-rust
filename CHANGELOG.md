@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.3] — 2026-07-22
+
+### Fixed
+
+- **CSV/HTML export now consolidates correctly for parallel Claude sessions.** The export's consolidated block used the timeline-walk slot builder (`build_slots`), which assumes one focus at a time — but a real day of **parallel Claude sessions across many projects** produces thousands of heavily **overlapping** events (a raw sum reported 40+ h/day for a single project). The walk splintered on the overlaps and the 15-minute floor then dropped almost everything, so the export showed only the raw events. The export now uses a new **per-project, overlap-corrected consolidation** (`slots::project_totals`): it groups by inferred project and **unions each project's intervals** (`union_seconds`), so every project's real time is captured, correct even with parallel sessions and fragmented multi-project days. CSV gains a `# Consolidated per project (overlap-corrected)` block (date · project · hours · first · last · apps) and the HTML report a matching "Consolidated per project" card. The Slots view + bcsbook push keep the timeline model (they need bookable from–to blocks).
+
 ## [0.91.2] — 2026-07-22
 
 ### Changed

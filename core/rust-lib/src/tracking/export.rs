@@ -60,7 +60,7 @@ fn csv_field(s: &str) -> String {
 pub fn csv(
     events: &[TrackEvent],
     now: i64,
-    slot_days: &[(String, Vec<crate::tracking::slots::Slot>)],
+    project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)],
 ) -> String {
     let mut out =
         String::from("date,start,end,duration_min,app,category,project,host,title,source,idle\n");
@@ -82,27 +82,30 @@ pub fn csv(
         out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
         out.push('\n');
     }
-    out.push_str(&slots_section_csv(slot_days));
+    out.push_str(&project_section_csv(project_days));
     out
 }
 
-/// The consolidated slots as a second, clearly delimited CSV block appended
-/// after the raw events (so a spreadsheet import sees the header row again).
-/// Empty when there are no slots. `hours` is the bookable (snapped) span.
-fn slots_section_csv(slot_days: &[(String, Vec<crate::tracking::slots::Slot>)]) -> String {
-    if slot_days.iter().all(|(_, s)| s.is_empty()) {
+/// The consolidated **per-project** totals as a second, clearly delimited CSV
+/// block appended after the raw events (a spreadsheet import sees the header
+/// again). `hours` is the overlap-corrected union of the project's time, so it
+/// stays correct even with parallel Claude sessions. Empty when nothing
+/// consolidated.
+fn project_section_csv(project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)]) -> String {
+    if project_days.iter().all(|(_, p)| p.is_empty()) {
         return String::new();
     }
-    let mut out = String::from("\n# Consolidated slots\ndate,start,end,hours,project,description\n");
-    for (date, slots) in slot_days {
-        for s in slots {
+    let mut out = String::from("\n# Consolidated per project (overlap-corrected)\ndate,project,hours,first,last,apps\n");
+    for (date, projects) in project_days {
+        for p in projects {
+            let apps = p.apps.iter().take(3).map(|a| a.app.clone()).collect::<Vec<_>>().join(", ");
             let row = [
                 date.clone(),
-                local_time(s.start_ms),
-                local_time(s.end_ms),
-                hours2(s.span_s),
-                s.label.clone(),
-                s.description.clone(),
+                p.project.clone(),
+                hours2(p.seconds),
+                local_time(p.start_ms),
+                local_time(p.end_ms),
+                apps,
             ];
             out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
             out.push('\n');
@@ -467,7 +470,7 @@ pub fn html(
     from: i64,
     to: i64,
     now: i64,
-    slot_days: &[(String, Vec<crate::tracking::slots::Slot>)],
+    project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)],
 ) -> String {
     let (mut active, mut idle) = (0i64, 0i64);
     let mut by_app: HashMap<String, i64> = HashMap::new();
@@ -675,41 +678,43 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
         host_bars = host_bars,
         browser_card = browser_card,
         claude_card = claude_card,
-        slots_card = slots_section_html(slot_days),
+        slots_card = project_section_html(project_days),
         table = events_table(events, now),
         footer = FOOTER,
     )
 }
 
-/// The consolidated-slots section for the HTML report: one row per bookable
-/// slot (date · time span · project · hours · description). Empty string when
-/// there are no slots, so it silently vanishes from a slot-less report.
-fn slots_section_html(slot_days: &[(String, Vec<crate::tracking::slots::Slot>)]) -> String {
-    let total: usize = slot_days.iter().map(|(_, s)| s.len()).sum();
+/// The consolidated **per-project** section for the HTML report: one row per
+/// project per day (date · project · overlap-corrected hours · first–last ·
+/// apps). Empty string when nothing consolidated, so it silently vanishes.
+fn project_section_html(project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)]) -> String {
+    let total: usize = project_days.iter().map(|(_, p)| p.len()).sum();
     if total == 0 {
         return String::new();
     }
     let mut rows = String::new();
     let mut grand = 0i64;
-    for (date, slots) in slot_days {
-        for s in slots {
-            grand += s.span_s;
+    for (date, projects) in project_days {
+        for p in projects {
+            grand += p.seconds;
+            let apps = p.apps.iter().take(3).map(|a| esc(&a.app)).collect::<Vec<_>>().join(", ");
             rows.push_str(&format!(
-                "<tr><td>{}</td><td>{}–{}</td><td>{}</td><td class=r>{}</td><td>{}</td></tr>",
+                "<tr><td>{}</td><td>{}</td><td class=r>{}</td><td>{}–{}</td><td>{}</td></tr>",
                 esc(date),
-                local_time(s.start_ms),
-                local_time(s.end_ms),
-                esc(&s.label),
-                hours2(s.span_s),
-                esc(&s.description),
+                esc(&p.project),
+                hours2(p.seconds),
+                local_time(p.start_ms),
+                local_time(p.end_ms),
+                apps,
             ));
         }
     }
     format!(
-        "<div class=card><h2>Consolidated slots \
+        "<div class=card><h2>Consolidated per project \
          <span class=badge>{n} · {h} h</span></h2>\
-         <table><thead><tr><th>Date</th><th>Time</th><th>Project</th>\
-         <th class=r>Hours</th><th>Description</th></tr></thead><tbody>{rows}</tbody></table></div>",
+         <p class=sub>Overlap-corrected union per project — correct even with parallel sessions.</p>\
+         <table><thead><tr><th>Date</th><th>Project</th><th class=r>Hours</th>\
+         <th>First–Last</th><th>Apps</th></tr></thead><tbody>{rows}</tbody></table></div>",
         n = total,
         h = hours2(grand),
         rows = rows,
@@ -764,45 +769,40 @@ mod tests {
         }
     }
 
-    fn test_slot(label: &str, start_ms: i64, end_ms: i64, desc: &str) -> crate::tracking::slots::Slot {
-        crate::tracking::slots::Slot {
+    fn test_total(project: &str, seconds: i64, start_ms: i64, end_ms: i64) -> crate::tracking::slots::ProjectTotal {
+        crate::tracking::slots::ProjectTotal {
+            project: project.into(),
+            seconds,
             start_ms,
             end_ms,
-            project: Some(label.into()),
-            label: label.into(),
-            description: desc.into(),
-            origin: crate::tracking::slots::Origin::Tagged,
-            apps: vec![],
-            event_ids: vec![1],
-            active_s: (end_ms - start_ms) / 1000,
-            span_s: (end_ms - start_ms) / 1000,
-            confidence: 1.0,
+            apps: vec![crate::tracking::slots::SlotApp { app: "Claude Code".into(), seconds }],
+            description: String::new(),
         }
     }
 
     #[test]
-    fn csv_appends_consolidated_slots_section() {
+    fn csv_appends_consolidated_project_section() {
         let events = vec![ev("Code", 0, 60_000, false, None, None)];
-        let slots = vec![("2026-07-21".to_string(), vec![test_slot("kiez-finder", 0, 9_000_000, "branch work")])];
-        let out = csv(&events, 0, &slots);
-        assert!(out.contains("# Consolidated slots"));
-        assert!(out.contains("date,start,end,hours,project,description"));
+        let totals = vec![("2026-07-21".to_string(), vec![test_total("kiez-finder", 9_000, 0, 9_000_000)])];
+        let out = csv(&events, 0, &totals);
+        assert!(out.contains("# Consolidated per project"));
+        assert!(out.contains("date,project,hours,first,last,apps"));
         assert!(out.contains("kiez-finder"));
         assert!(out.contains("2.50")); // 9000 s → 2.50 h
-        // No slots → no section.
-        assert!(!csv(&events, 0, &[]).contains("Consolidated slots"));
+        // Nothing consolidated → no section.
+        assert!(!csv(&events, 0, &[]).contains("Consolidated per project"));
     }
 
     #[test]
-    fn html_includes_consolidated_slots_section() {
+    fn html_includes_consolidated_project_section() {
         let events = vec![ev("Code", 0, 60_000, false, None, None)];
-        let slots = vec![("2026-07-21".to_string(), vec![test_slot("kiez-finder", 0, 9_000_000, "branch work")])];
-        let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &slots);
-        assert!(out.contains("Consolidated slots"));
+        let totals = vec![("2026-07-21".to_string(), vec![test_total("kiez-finder", 9_000, 0, 9_000_000)])];
+        let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
+        assert!(out.contains("Consolidated per project"));
         assert!(out.contains("kiez-finder"));
         assert!(out.contains("2.50"));
-        // Slot-less report omits the section entirely.
-        assert!(!html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &[]).contains("Consolidated slots"));
+        // Empty report omits the section entirely.
+        assert!(!html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &[]).contains("Consolidated per project"));
     }
 
     #[test]

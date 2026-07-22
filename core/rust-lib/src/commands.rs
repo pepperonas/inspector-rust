@@ -850,13 +850,16 @@ pub fn track_export(
     };
     let cfg = slot_config(&db);
     let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
-    let slot_days = crate::tracking::range_slots(&db, &to_date(from), &to_date(to - 1), &(&cfg).into(), &names)
-        .unwrap_or_default();
+    // Per-project, overlap-corrected consolidation (robust to parallel Claude
+    // sessions, unlike the timeline slots which need one focus at a time).
+    let project_days =
+        crate::tracking::range_project_totals(&db, &to_date(from), &to_date(to - 1), &(&cfg).into(), &names)
+            .unwrap_or_default();
     let (content, ext) = if format == "html" {
         let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
-        (crate::tracking::export::html(&events, &tokens, from, to, now, &slot_days), "html")
+        (crate::tracking::export::html(&events, &tokens, from, to, now, &project_days), "html")
     } else {
-        (crate::tracking::export::csv(&events, now, &slot_days), "csv")
+        (crate::tracking::export::csv(&events, now, &project_days), "csv")
     };
     let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
     let stamp = chrono::Local

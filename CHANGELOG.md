@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.4] — 2026-07-22
+
+### Fixed
+
+- **Consolidated export block now leads the file instead of hiding at the bottom.** The overlap-corrected per-project consolidation (v0.91.3) works — verified live against the real tracking DB: a 518-event day yielded 16 clean per-project rows (bcsbook 0.74 h, celox-portal 0.53 h, …). But in the CSV it was appended *after* all the raw events, so opening the file showed only raw rows ("still not consolidated" — you had to scroll past hundreds of lines to reach it). The CSV now leads with the `# Consolidated per project` block, then a `# Raw events` section; the HTML report moves its "Consolidated per project" card to the very top, right under the summary stats.
+
 ## [0.91.3] — 2026-07-22
 
 ### Fixed

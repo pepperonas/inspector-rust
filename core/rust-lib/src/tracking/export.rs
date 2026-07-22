@@ -62,8 +62,15 @@ pub fn csv(
     now: i64,
     project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)],
 ) -> String {
-    let mut out =
-        String::from("date,start,end,duration_min,app,category,project,host,title,source,idle\n");
+    // Consolidated per-project summary FIRST — it's the point of the export, so
+    // it must not be buried under hundreds of raw-event rows (the "still not
+    // consolidated" report was just the block sitting at the very bottom).
+    let mut out = project_section_csv(project_days);
+    if !out.is_empty() {
+        out.push('\n');
+    }
+    out.push_str("# Raw events\n");
+    out.push_str("date,start,end,duration_min,app,category,project,host,title,source,idle\n");
     for e in events {
         let dur_min = format!("{:.1}", effective_dur_s(e, now) as f64 / 60.0);
         let row = [
@@ -82,20 +89,18 @@ pub fn csv(
         out.push_str(&row.iter().map(|f| csv_field(f)).collect::<Vec<_>>().join(","));
         out.push('\n');
     }
-    out.push_str(&project_section_csv(project_days));
     out
 }
 
-/// The consolidated **per-project** totals as a second, clearly delimited CSV
-/// block appended after the raw events (a spreadsheet import sees the header
-/// again). `hours` is the overlap-corrected union of the project's time, so it
-/// stays correct even with parallel Claude sessions. Empty when nothing
-/// consolidated.
+/// The consolidated **per-project** totals as a clearly delimited CSV block at
+/// the TOP of the file (before the raw events — it's what the export is for).
+/// `hours` is the overlap-corrected union of the project's time, so it stays
+/// correct even with parallel Claude sessions. Empty when nothing consolidated.
 fn project_section_csv(project_days: &[(String, Vec<crate::tracking::slots::ProjectTotal>)]) -> String {
     if project_days.iter().all(|(_, p)| p.is_empty()) {
         return String::new();
     }
-    let mut out = String::from("\n# Consolidated per project (overlap-corrected)\ndate,project,hours,first,last,apps\n");
+    let mut out = String::from("# Consolidated per project (overlap-corrected)\ndate,project,hours,first,last,apps\n");
     for (date, projects) in project_days {
         for p in projects {
             let apps = p.apps.iter().take(3).map(|a| a.app.clone()).collect::<Vec<_>>().join(", ");
@@ -655,6 +660,7 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
   <div class=stat><div class=l>Idle</div><div class=n>{idle}</div></div>
   <div class=stat><div class=l>Events</div><div class=n>{nevents}</div></div>
 </div>
+{slots_card}
 <div class=card><h2>Active time per day</h2>{daily_bars}</div>
 <div class=grid2>
   <div class=card><h2>By app</h2>{app_donut}</div>
@@ -663,7 +669,6 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
 <div class=card><h2>Top hosts</h2>{host_bars}</div>
 {browser_card}
 {claude_card}
-{slots_card}
 <div class=card><h2>Events</h2>{table}</div>
 <footer>{footer}</footer>
 </body></html>"#,
@@ -785,11 +790,14 @@ mod tests {
         let events = vec![ev("Code", 0, 60_000, false, None, None)];
         let totals = vec![("2026-07-21".to_string(), vec![test_total("kiez-finder", 9_000, 0, 9_000_000)])];
         let out = csv(&events, 0, &totals);
-        assert!(out.contains("# Consolidated per project"));
+        // The consolidated summary must come FIRST — before the raw events —
+        // so it isn't buried under hundreds of rows.
+        assert!(out.starts_with("# Consolidated per project"));
         assert!(out.contains("date,project,hours,first,last,apps"));
         assert!(out.contains("kiez-finder"));
         assert!(out.contains("2.50")); // 9000 s → 2.50 h
-        // Nothing consolidated → no section.
+        assert!(out.find("# Consolidated per project").unwrap() < out.find("# Raw events").unwrap());
+        // Nothing consolidated → no section, just the raw block.
         assert!(!csv(&events, 0, &[]).contains("Consolidated per project"));
     }
 
@@ -809,7 +817,9 @@ mod tests {
     fn csv_has_header_and_escapes() {
         let events = vec![ev("Code, Inc", 0, 60_000, false, Some("github.com"), Some("a \"b\""))];
         let out = csv(&events, 0, &[]);
-        assert!(out.starts_with("date,start,end,duration_min,app,category,project,host,title,source,idle\n"));
+        // With no consolidation, the file starts straight with the raw-events
+        // section (its `# Raw events` header + column row).
+        assert!(out.starts_with("# Raw events\ndate,start,end,duration_min,app,category,project,host,title,source,idle\n"));
         assert!(out.contains("\"Code, Inc\"")); // comma → quoted
         assert!(out.contains("\"a \"\"b\"\"\"")); // quotes doubled
         assert!(out.contains("github.com"));

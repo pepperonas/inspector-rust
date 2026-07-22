@@ -307,6 +307,9 @@ code {
   border-radius: 12px;
   overflow: hidden;
   box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
+  /* The CRT power-on/off (playCrtOn/playCrtOff) scales the shell about its
+     centre into a scanline — pin the origin so it can't drift. */
+  transform-origin: center center;
 }
 
 .fade-in {

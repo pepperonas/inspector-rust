@@ -39,7 +39,7 @@ import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
-import { playEntrance, playExit, MD3_SPRING } from "./lib/md3-motion";
+import { playCrtOn, playCrtOff, primeCrtHidden, CRT_OFF_MS } from "./lib/md3-motion";
 import { detectSocial } from "./lib/social";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
@@ -369,12 +369,12 @@ function App() {
   const searchRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
 
-  // Dismiss = the reverse of the summon (§ signature transition): play a short
-  // accelerate-away exit on the shell, *then* hide the OS window — so closing
-  // mirrors the spring entrance instead of snapping out. Under reduced motion /
-  // no WAAPI, `playExit` resolves instantly, so there's no added dismiss
-  // latency. (The Rust focus-loss path hides without this on purpose — clicking
-  // away should be immediate.) All `hidePopup()` callers route through here.
+  // Dismiss = the reverse of the summon (§ signature transition): play the CRT
+  // TV power-OFF on the shell, *then* hide the OS window — so closing mirrors
+  // the power-on instead of snapping out. Under reduced motion / no WAAPI,
+  // `playCrtOff` resolves instantly, so there's no added dismiss latency. (The
+  // Rust focus-loss path hides without this on purpose — clicking away should
+  // be immediate.) All `hidePopup()` callers route through here.
   // Hide-race hardening (v0.88.1): Esc key-repeat / fast close-reopen used to
   // leave STALE hide calls in flight — each awaits the 130 ms exit animation
   // before the IPC, so a straggler could fire AFTER the popup was re-shown and
@@ -390,8 +390,11 @@ function App() {
     const gen = showGenRef.current;
     try {
       await Promise.race([
-        playExit(shellRef.current),
-        new Promise((r) => window.setTimeout(r, 200)),
+        playCrtOff(shellRef.current),
+        // Cap the await at the CRT power-off duration + margin so a hung
+        // `finished` can't block hiding; the show-generation guard below drops
+        // a straggler if the popup was re-shown meanwhile.
+        new Promise((r) => window.setTimeout(r, CRT_OFF_MS + 90)),
       ]);
       if (showGenRef.current !== gen) return; // re-shown → stale hide, drop it
       await hidePopupRaw();
@@ -2187,13 +2190,10 @@ function App() {
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
-      // MD3 expressive "pop-in" — a real spring (overshoot baked into the
-      // keyframes), re-played on every open. Fast spatial scheme keeps it
-      // snappy for a launcher; no-op under prefers-reduced-motion.
-      playEntrance(shellRef.current, MD3_SPRING.spatial.expressive.fast, {
-        fromScale: 0.97,
-        riseY: 8,
-      });
+      // CRT TV power-ON — the popup's signature open: a bright dot blooms out
+      // of the tube, snaps into a scanline, and the shell stretches out of it.
+      // Re-played on every open; no-op under prefers-reduced-motion.
+      playCrtOn(shellRef.current);
     });
   });
 
@@ -2364,15 +2364,11 @@ function App() {
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
     // popup, and the next open must start on the normal history view.
     setTotpMode(false);
-    // Prime the shell to the entrance START state (opacity 0 + slightly small)
-    // WHILE hidden — so the next open doesn't flash a frame of full-opacity
-    // content before `playEntrance` runs (the OS makes the window visible before
-    // the window-shown handler fires). `playEntrance`'s `settle` clears it.
-    const el = shellRef.current;
-    if (el) {
-      el.style.opacity = "0";
-      el.style.transform = "translateY(8px) scale(0.97)";
-    }
+    // Prime the shell to the CRT power-off END state (a collapsed bright dot)
+    // WHILE hidden — so the OS `show()` (which reveals the window before the
+    // window-shown handler runs) shows the dark tube + dot, never a flash of
+    // full-opacity content, before `playCrtOn` blooms it. `playCrtOn` clears it.
+    primeCrtHidden(shellRef.current);
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

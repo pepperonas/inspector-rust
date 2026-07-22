@@ -249,6 +249,96 @@ export function playEntrance(
  *  shorter than the springy entrance (exits accelerate away). */
 export const EXIT_MS = 130;
 
+// ── CRT TV power-on / power-off (the popup's signature open/close) ────────────
+// Modeled on zauberkoch's cathode-tube animation: the shell powers ON like a
+// picture tube — a bright dot blooms, snaps out into a horizontal scanline, then
+// the picture stretches vertically out of the line with a phosphor flash that
+// settles — and powers OFF in reverse (collapse to the scanline, run to a dot,
+// burn out). Runs on the shell element via WAAPI (scaleX/scaleY + brightness
+// about its centre); deliberate cathode easings, not springs. `prefers-
+// reduced-motion` → the caller skips it (instant show / plain settle).
+
+/** Duration (ms) of the TV power-on. */
+export const CRT_ON_MS = 440;
+/** Duration (ms) of the TV power-off — the popup stays visible this long on close. */
+export const CRT_OFF_MS = 340;
+/** Residual scale for the "scanline runs to a dot" pinch. */
+const CRT_DOT_X = 0.02;
+const CRT_DOT_Y = 0.012;
+
+/** The collapsed START state (a bright dot at the shell's centre). Applied to
+ *  the shell WHILE the popup is hidden so the OS `show()` — which reveals the
+ *  window before the JS handler runs — shows the dark tube + dot, never a flash
+ *  of full-opacity content, before `playCrtOn` blooms it. */
+export function primeCrtHidden(el: HTMLElement | null): void {
+  if (!el) return;
+  el.style.opacity = "1";
+  el.style.transform = `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`;
+  el.style.filter = "brightness(2.6)";
+}
+
+function clearCrtStyle(el: HTMLElement): void {
+  el.style.opacity = "";
+  el.style.transform = "";
+  el.style.filter = "";
+}
+
+/**
+ * TV power-ON: dot → scanline → picture. No-op-with-settle when motion is
+ * unavailable / reduced (the shell is left at its natural state so a primed dot
+ * can't get stuck). Re-triggers on every open like `playEntrance`.
+ */
+export function playCrtOn(el: HTMLElement | null): void {
+  if (!el) return;
+  const settle = () => clearCrtStyle(el);
+  if (typeof el.animate !== "function" || prefersReducedMotion()) {
+    settle();
+    return;
+  }
+  // Drop any forwards-filled power-off still applied from the last dismiss.
+  el.getAnimations?.().forEach((a) => a.cancel());
+  const anim = el.animate(
+    [
+      { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.6)", opacity: 1, offset: 0, easing: "cubic-bezier(0.2, 0.75, 0.3, 1)" },
+      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.2)", opacity: 1, offset: 0.34, easing: "cubic-bezier(0.15, 0.65, 0.45, 1)" },
+      { transform: "scaleX(1) scaleY(1.06)", filter: "brightness(1.25)", opacity: 1, offset: 0.82, easing: "ease-out" },
+      { transform: "scaleX(1) scaleY(1)", filter: "brightness(1)", opacity: 1, offset: 1 },
+    ],
+    { duration: CRT_ON_MS, easing: "linear", fill: "forwards" },
+  );
+  anim.addEventListener(
+    "finish",
+    () => {
+      settle();
+      anim.cancel();
+    },
+    { once: true },
+  );
+}
+
+/**
+ * TV power-OFF: picture → scanline → dot → burnout. Resolves when finished (so
+ * the caller hides the OS window only after it played), or immediately when
+ * motion is unavailable / reduced. `fill: "forwards"` holds the burnt-out frame
+ * until the window is actually hidden; `playCrtOn` cancels it on the next open.
+ */
+export function playCrtOff(el: HTMLElement | null): Promise<void> {
+  if (!el || typeof el.animate !== "function" || prefersReducedMotion()) {
+    return Promise.resolve();
+  }
+  el.getAnimations?.().forEach((a) => a.cancel());
+  const anim = el.animate(
+    [
+      { transform: "scaleX(1) scaleY(1)", filter: "brightness(1)", opacity: 1, offset: 0, easing: "cubic-bezier(0.5, 0, 0.85, 0.35)" },
+      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.4)", opacity: 1, offset: 0.55, easing: "ease-in" },
+      { transform: `scaleX(1.04) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.8)", opacity: 1, offset: 0.72, easing: "cubic-bezier(0.55, 0, 0.85, 0.35)" },
+      { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(3)", opacity: 0, offset: 1 },
+    ],
+    { duration: CRT_OFF_MS, easing: "linear", fill: "forwards" },
+  );
+  return anim.finished.then(() => undefined).catch(() => undefined);
+}
+
 /**
  * Play the dismiss animation — the **reverse of [`playEntrance`]**: the panel
  * accelerates away (fades out while dropping + scaling down) on the MD3

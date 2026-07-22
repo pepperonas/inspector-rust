@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import {
   MD3_SPRING,
   MD3_EASING,
@@ -6,6 +6,11 @@ import {
   simulateSpring,
   popInKeyframes,
   springScaleCss,
+  primeCrtHidden,
+  playCrtOn,
+  playCrtOff,
+  CRT_ON_MS,
+  CRT_OFF_MS,
 } from "./md3-motion";
 
 describe("MD3 token tables", () => {
@@ -103,5 +108,85 @@ describe("springScaleCss", () => {
     const { css } = springScaleCss("t-crit", 1, 1.5, MD3_SPRING.effects.standard.default);
     const scales = [...css.matchAll(/scale\((\d+\.\d+)\)/g)].map((m) => Number(m[1]));
     expect(Math.max(...scales)).toBeLessThanOrEqual(1.5001);
+  });
+});
+
+describe("CRT power-on / power-off", () => {
+  beforeEach(() => {
+    vi.stubGlobal("matchMedia", () => ({ matches: false }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("primeCrtHidden sets the collapsed-dot start state; null is a no-op", () => {
+    const el = document.createElement("div");
+    primeCrtHidden(el);
+    expect(el.style.opacity).toBe("1");
+    expect(el.style.transform).toContain("scaleX(0.02)");
+    expect(el.style.transform).toContain("scaleY(0.012)");
+    expect(el.style.filter).toContain("brightness");
+    expect(() => primeCrtHidden(null)).not.toThrow();
+  });
+
+  it("playCrtOn clears the primed styles when WAAPI is unavailable (settle)", () => {
+    // happy-dom elements have no `.animate` → the settle path runs.
+    const el = document.createElement("div");
+    primeCrtHidden(el);
+    playCrtOn(el);
+    expect(el.style.opacity).toBe("");
+    expect(el.style.transform).toBe("");
+    expect(el.style.filter).toBe("");
+    expect(() => playCrtOn(null)).not.toThrow();
+  });
+
+  it("playCrtOn animates dot → scanline → picture with a brightness flash", () => {
+    const calls: unknown[][] = [];
+    const el = {
+      style: {} as CSSStyleDeclaration,
+      getAnimations: () => [],
+      animate: (kf: unknown, opts: unknown) => {
+        calls.push([kf, opts]);
+        return { addEventListener: (_e: string, cb: () => void) => cb(), cancel: () => {} };
+      },
+    } as unknown as HTMLElement;
+    playCrtOn(el);
+    expect(calls).toHaveLength(1);
+    const [kf, opts] = calls[0] as [Array<Record<string, unknown>>, Record<string, unknown>];
+    expect(kf).toHaveLength(4);
+    // first frame is the collapsed dot, last is the settled full picture
+    expect(String(kf[0].transform)).toContain("scaleX(0.02)");
+    expect(kf[3].transform).toBe("scaleX(1) scaleY(1)");
+    // a phosphor-bright flash at the start, settling to brightness(1)
+    expect(String(kf[0].filter)).toContain("brightness(2.6)");
+    expect(kf[3].filter).toBe("brightness(1)");
+    expect(opts.duration).toBe(CRT_ON_MS);
+    expect(opts.fill).toBe("forwards");
+  });
+
+  it("playCrtOff collapses picture → scanline → dot → burnout and resolves", async () => {
+    const calls: unknown[][] = [];
+    const el = {
+      style: {} as CSSStyleDeclaration,
+      getAnimations: () => [],
+      animate: (kf: unknown, opts: unknown) => {
+        calls.push([kf, opts]);
+        return { finished: Promise.resolve() };
+      },
+    } as unknown as HTMLElement;
+    await expect(playCrtOff(el)).resolves.toBeUndefined();
+    const [kf, opts] = calls[0] as [Array<Record<string, unknown>>, Record<string, unknown>];
+    expect(kf).toHaveLength(4);
+    expect(kf[0].transform).toBe("scaleX(1) scaleY(1)"); // full picture
+    expect(kf[0].opacity).toBe(1);
+    expect(String(kf[1].transform)).toContain("scaleY(0.012)"); // collapsed scanline
+    expect(kf[3].opacity).toBe(0); // burnt out
+    expect(opts.duration).toBe(CRT_OFF_MS);
+  });
+
+  it("playCrtOff resolves immediately without WAAPI", async () => {
+    const el = document.createElement("div"); // no `.animate`
+    await expect(playCrtOff(el)).resolves.toBeUndefined();
+    await expect(playCrtOff(null)).resolves.toBeUndefined();
   });
 });

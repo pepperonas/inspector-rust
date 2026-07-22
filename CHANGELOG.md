@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.92.0] — 2026-07-22
+
+### Changed
+
+- **The popup now opens and closes with a CRT TV power-on / power-off animation** — the signature summon/dismiss. On open, a bright dot blooms out of the dark tube, snaps into a horizontal scanline, and the shell stretches vertically out of the line with a phosphor flash that settles to the real UI. On close (Esc / paste-and-close), it reverses: the picture collapses into the bright scanline, runs together into a dot and the phosphor burns out, *then* the window hides. Modeled on the reference cathode animation (deliberate hard ease-in collapse / ease-out arrival, not springs); runs on the app-shell via WAAPI (`playCrtOn` / `playCrtOff` in `lib/md3-motion.ts`), scaled about its centre with a brightness ramp. Replaces the MD3 spring pop-in/accelerate-away. `prefers-reduced-motion` → instant show / plain hide, no CRT; clicking away still hides immediately (the Rust focus-loss path is unchanged, deliberately snappy).
+
 ## [0.91.7] — 2026-07-22
 
 ### Tests

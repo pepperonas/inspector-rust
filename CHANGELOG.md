@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.5] — 2026-07-22
+
+### Fixed
+
+- **Tip-tap tab switching works again** (macOS). v0.85.6 widened the palm-aware feed to the on-pad states MAKE/TOUCHING/BREAK (a lightly-resting finger bounces between them frame-to-frame) but left the **tip-tap** feed on TOUCHING-only. So a resting finger dropping to MAKE/BREAK for a frame made the two-finger rest pair momentarily count as one — which resets the recogniser's `Rest2` "settled ≥ 80 ms" timer every time — and the third-finger tap never fired the gesture; the palm recogniser then logged it as a stray 1-/2-finger tap. The tip-tap contact feed now uses the same on-pad state set (only the true leaving states HOVER/LINGER/OUT and genuine size-palms are excluded), so the resting pair stays stable and the tab switch fires.
+
 ## [0.91.4] — 2026-07-22
 
 ### Fixed

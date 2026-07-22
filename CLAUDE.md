@@ -716,8 +716,16 @@ re-appears as 3 contacts → back to `TapDown` with the SAME `started`, no emit.
 This is the fix for the recurring "one tip-tap jumps two tabs". On a 3→2 lift the
 tap must genuinely be the finger that left (both remaining match the rest pair);
 if a *rest* finger lifted instead (tap still down) it's ambiguous → poisoned.
-**Robustness
-(v0.84.208):** tip-tap contacts are filtered to MT finger **state 4 (touching)**
+**Regression fix (v0.91.5):** the tip-tap contact feed uses the **same on-pad
+state set as the palm-aware feed — MAKE(3)|TOUCHING(4)|BREAK(5)**, not
+TOUCHING-only. v0.85.6 widened the palm feed to those states (a lightly-resting
+finger bounces between them frame-to-frame) but forgot the tip-tap feed, so a
+resting finger flickering to MAKE/BREAK for a frame dropped the two-finger rest
+pair to one → the recogniser's `Rest2` "settled ≥ 80 ms" timer reset every time
+→ the tab-switch gesture stopped firing (the palm recogniser logged it as a
+stray 1-/2-finger tap). Only the true LEAVING states (HOVER/LINGER/OUT) +
+genuine size-palms are excluded now. **Older note
+(v0.84.208):** tip-tap contacts were filtered to MT finger **state 4 (touching)**
 — a lifting finger lingers in the frame array in the leaving states (5–7),
 which read as still-down contacts (stuck recogniser + phantom taps); a
 **poisoned attempt recovers at ≤ 1 remaining contact** with a fresh settle (the

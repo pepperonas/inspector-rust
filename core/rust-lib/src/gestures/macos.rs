@@ -354,7 +354,16 @@ extern "C" fn frame_callback(
     let mut contacts: [Contact; 4] = [Contact { x: 0.0, y: 0.0 }; 4];
     let mut cn = 0usize;
     for f in fingers.iter() {
-        if f.state != MT_STATE_TOUCHING || f.size >= PALM_SIZE {
+        // Use the SAME on-pad state set as the palm-aware feed above
+        // (MAKE|TOUCHING|BREAK), NOT TOUCHING alone. A lightly-resting finger
+        // bounces between TOUCHING and MAKE/BREAK frame-to-frame; a
+        // TOUCHING-only filter dropped it on those frames, so the two resting
+        // fingers never stayed "settled" together long enough and the tip-tap
+        // never fired (v0.85.6 widened the palm feed but forgot this one — the
+        // "tab switch stopped working" regression). Only HOVER/LINGER/OUT (the
+        // true leaving states) and genuine size-palms are excluded.
+        let on_pad = matches!(f.state, MT_STATE_MAKE | MT_STATE_TOUCHING | MT_STATE_BREAK);
+        if !on_pad || f.size >= PALM_SIZE {
             continue;
         }
         if cn >= contacts.len() {

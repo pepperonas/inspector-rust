@@ -3,8 +3,13 @@ import { AudioLines, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { setSuppressHide } from "../lib/ipc";
 import { warmContext } from "../lib/warm-audio";
 import { startFedMic } from "../lib/mic-feed";
+import { BpmAnalyzer } from "../lib/bpm";
+import { rms, rmsToDbfs, smoothStep } from "../lib/audio-level";
 import {
   clamp01,
+  confidenceColor,
+  easeOutCubic,
+  lerp,
   mixRgb,
   parseColor,
   rgba,
@@ -52,6 +57,12 @@ interface Particle {
   size: number;
 }
 
+/** An expanding ring emitted on each confident beat. */
+interface Shock {
+  age: number; // seconds since spawn
+  intensity: number; // 0..1
+}
+
 /** All mutable per-frame animation state — lives in a ref so the rAF loop
  *  never touches React. */
 interface VizState {
@@ -60,10 +71,17 @@ interface VizState {
   peaks: Float32Array; // peak-hold markers, [0,1] per band
   peakHeat: Float32Array; // 0..1 freshness of each peak cap → glow
   particles: Particle[];
+  shocks: Shock[]; // beat shockwave rings
   level: number; // eased overall energy (for the top-bar label)
   flash: number; // 0..1 overall beat flash, decays each frame
+  beatPunch: number; // 0..1 springy kick on each beat (lifts the bars)
   t: number; // running seconds — drives the shimmer
   lastT: number;
+  // Beat + level readouts (mirror the BPM detector).
+  bpm: number;
+  confidence: number;
+  hasBeat: boolean;
+  db: number; // smoothed full-band dBFS
   bg: Rgb;
   cold: Rgb;
   warm: Rgb;
@@ -92,16 +110,25 @@ export function EqualizerVisualizer({ onExit }: Props) {
     peaks: new Float32Array(BAND_COUNT),
     peakHeat: new Float32Array(BAND_COUNT),
     particles: [],
+    shocks: [],
     level: 0,
     flash: 0,
+    beatPunch: 0,
     t: 0,
     lastT: 0,
+    bpm: 0,
+    confidence: 0,
+    hasBeat: false,
+    db: -100,
     bg: { r: 12, g: 13, b: 17 },
     cold: FALLBACK_ACCENT,
     warm: FALLBACK_ACCENT,
     hot: { r: 255, g: 255, b: 255 },
   });
   const levelRef = useRef(0);
+  // Detection graph (BPM + dB), mirroring the BPM detector.
+  const detectAnalyserRef = useRef<AnalyserNode | null>(null);
+  const analyzerRef = useRef<BpmAnalyzer>(new BpmAnalyzer());
 
   // Re-read theme colors from CSS into the viz palette. Rose while pinned.
   const refreshPalette = () => {
@@ -178,8 +205,11 @@ export function EqualizerVisualizer({ onExit }: Props) {
     fedMicRef.current?.stop();
     fedMicRef.current = null;
     vizAnalyserRef.current?.disconnect();
+    detectAnalyserRef.current?.disconnect();
     audioCtxRef.current = null;
     vizAnalyserRef.current = null;
+    detectAnalyserRef.current = null;
+    analyzerRef.current.reset();
   };
 
   // Boot the audio graph. Re-entrant via `attempt` so "Retry" re-triggers it.
@@ -203,8 +233,27 @@ export function EqualizerVisualizer({ onExit }: Props) {
         viz.smoothingTimeConstant = 0.7; // gentle; the punch comes from smoothBars
         fed.source.connect(viz);
 
+        // Detection chain (BPM + beat), identical to the BPM detector: the mic
+        // bandpassed to the 30–100 Hz kick band → analyser → BpmAnalyzer.
+        const highpass = ctx.createBiquadFilter();
+        highpass.type = "highpass";
+        highpass.frequency.value = 30;
+        highpass.Q.value = 0.7;
+        const lowpass = ctx.createBiquadFilter();
+        lowpass.type = "lowpass";
+        lowpass.frequency.value = 100;
+        lowpass.Q.value = 1.5;
+        const detect = ctx.createAnalyser();
+        detect.fftSize = 1024;
+        detect.smoothingTimeConstant = 0;
+        fed.source.connect(highpass);
+        highpass.connect(lowpass);
+        lowpass.connect(detect);
+
         audioCtxRef.current = ctx;
         vizAnalyserRef.current = viz;
+        detectAnalyserRef.current = detect;
+        analyzerRef.current.reset();
         const v = vizRef.current;
         v.bars.fill(0);
         v.peaks.fill(0);
@@ -215,6 +264,8 @@ export function EqualizerVisualizer({ onExit }: Props) {
         setPhase("listening");
 
         const freqBuf = new Uint8Array(viz.frequencyBinCount);
+        const detectTimeBuf = new Float32Array(detect.fftSize);
+        const vizTimeBuf = new Float32Array(viz.fftSize); // full-band, for dBFS
         // Opening the mic makes macOS reconfigure the shared audio device; for
         // ~300 ms the output can stutter. Defer the heavy draw until it settles
         // (same warm-up as the BPM detector).
@@ -222,10 +273,23 @@ export function EqualizerVisualizer({ onExit }: Props) {
         const WARMUP_MS = 300;
 
         const tick = () => {
-          if (cancelled || !vizAnalyserRef.current) return;
+          if (cancelled || !vizAnalyserRef.current || !detectAnalyserRef.current) return;
           const now = performance.now();
           const dt = Math.min(0.05, Math.max(0.001, (now - v.lastT) / 1000));
           v.lastT = now;
+
+          // — BPM detection (always; cheap) —
+          detectAnalyserRef.current.getFloatTimeDomainData(detectTimeBuf);
+          analyzerRef.current.push(detectTimeBuf, now);
+          const est = analyzerRef.current.estimate(now);
+          const bassEnergy = analyzerRef.current.currentEnergy();
+          v.bpm = est.bpm;
+          v.confidence = est.confidence;
+          v.hasBeat = est.bpm > 0;
+
+          // — full-band dBFS (always; cheap), attack fast / release slow —
+          vizAnalyserRef.current.getFloatTimeDomainData(vizTimeBuf);
+          v.db = smoothStep(v.db, rmsToDbfs(rms(vizTimeBuf)), 0.5, 0.12);
 
           if (now - startT >= WARMUP_MS) {
             v.t += dt;
@@ -254,8 +318,23 @@ export function EqualizerVisualizer({ onExit }: Props) {
             }
             v.level = sum / v.bars.length;
             levelRef.current = v.level;
+
+            // — beat reaction (BPM-driven, like the BPM detector) —
+            const intensity = clamp01(bassEnergy * 8);
+            if (est.beatJustFired) {
+              v.flash = Math.max(v.flash, 0.6 + intensity * 0.4);
+              v.beatPunch = 1;
+              v.shocks.push({ age: 0, intensity });
+              // a burst of sparks fountaining up from the baseline
+              const burst = Math.round(6 + intensity * 22);
+              for (let k = 0; k < burst && v.particles.length < 140; k++) {
+                spawnBeatSpark(v, intensity);
+              }
+            }
             v.flash = Math.max(v.flash * Math.exp(-5 * dt), Math.min(1, maxRise * 4));
+            v.beatPunch *= Math.exp(-8 * dt);
             stepSparks(v, dt);
+            stepShocks(v, dt);
             drawScene(canvasRef.current, v);
           }
           rafRef.current = requestAnimationFrame(tick);
@@ -422,13 +501,29 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   // Everything luminous is drawn additively for a real bloom look.
   ctx.globalCompositeOperation = "lighter";
 
+  // — beat shockwaves: rings expanding from the baseline centre on each beat —
+  const baseR = minDim * 0.14;
+  for (const s of v.shocks) {
+    const t = s.age / SHOCK_DUR;
+    const r = baseR * (0.4 + easeOutCubic(t) * (3.2 + s.intensity * 2.2));
+    const alpha = (1 - t) * (0.16 + s.intensity * 0.26);
+    ctx.beginPath();
+    ctx.arc(cssW / 2, baseline, r, Math.PI, 2 * Math.PI); // upper half-ring
+    ctx.lineWidth = lerp(3.5, 0.5, t) * (1 + s.intensity);
+    ctx.strokeStyle = rgba(mixRgb(v.warm, v.hot, s.intensity), alpha);
+    ctx.stroke();
+  }
+
+  // Bars lift a touch on each beat (springy punch).
+  const punch = 1 + v.beatPunch * 0.13;
+
   for (let i = 0; i < BAND_COUNT; i++) {
     const mag = clamp01(v.bars[i]);
     const x = padX + geo.x(i);
     const cxb = x + geo.barW / 2;
     // a subtle per-band shimmer so idle bars still feel alive
     const shimmer = 1 + Math.sin(v.t * 2.2 + i * 0.7) * 0.04;
-    const h = Math.max(2, mag * maxBarH * shimmer);
+    const h = Math.max(2, mag * maxBarH * shimmer * punch);
     const y = baseline - h;
     const col = mixRgb(v.cold, v.hot, clamp01(mag * 1.15));
 
@@ -495,8 +590,15 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
     ctx.fillRect(px - r * 2.2, py - r * 2.2, r * 4.4, r * 4.4);
   }
 
-  // — baseline with a level-reactive glow —
+  // — whole-scene beat flash (a warm veil that pulses on the beat) —
+  if (v.flash > 0.01) {
+    ctx.fillStyle = rgba(v.warm, 0.1 * v.flash);
+    ctx.fillRect(0, 0, cssW, cssH);
+  }
+
   ctx.globalCompositeOperation = "source-over";
+
+  // — baseline with a level-reactive glow —
   const blGlow = clamp01(0.25 + v.level * 0.8 + v.flash * 0.4);
   ctx.strokeStyle = rgba(mixRgb(v.warm, v.hot, 0.3), 0.5 * blGlow);
   ctx.lineWidth = 1.5;
@@ -504,6 +606,9 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
   ctx.moveTo(padX, baseline + 0.5);
   ctx.lineTo(cssW - padX, baseline + 0.5);
   ctx.stroke();
+
+  // — BPM hero + dB readout (top HUD, glowing, flares on the beat) —
+  drawReadouts(ctx, v, cssW, minDim);
 
   // — bottom status line —
   ctx.save();
@@ -516,6 +621,55 @@ function drawScene(canvas: HTMLCanvasElement | null, v: VizState): void {
     cssW / 2,
     cssH - Math.max(10, minDim * 0.03),
   );
+  ctx.restore();
+}
+
+/** The BPM hero (top-centre) + a dB readout under it — drawn on the canvas so
+ *  they glow and flare with the beat without touching React. */
+function drawReadouts(
+  ctx: CanvasRenderingContext2D,
+  v: VizState,
+  cssW: number,
+  minDim: number,
+): void {
+  ctx.save();
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  const cx = cssW / 2;
+  const heroCol = mixRgb(v.hot, { r: 255, g: 255, b: 255 }, clamp01(v.flash));
+
+  // BPM hero
+  const bpmY = minDim * 0.16;
+  const numSize = Math.round(minDim * 0.13);
+  ctx.shadowColor = rgba(v.warm, 0.9);
+  ctx.shadowBlur = 12 + v.flash * 36;
+  ctx.font = `700 ${numSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  ctx.fillStyle = rgba(heroCol, 1);
+  ctx.fillText(v.bpm > 0 ? String(Math.round(v.bpm)) : "—", cx, bpmY);
+  ctx.shadowBlur = 0;
+  ctx.font = `600 ${Math.round(minDim * 0.02)}px ui-sans-serif, system-ui, sans-serif`;
+  ctx.fillStyle = rgba(mixRgb(v.warm, v.hot, 0.4), 0.8);
+  ctx.fillText("B P M", cx, bpmY + numSize * 0.62);
+
+  // confidence sweep dot under the BPM
+  if (v.hasBeat) {
+    const dotY = bpmY + numSize * 0.62 + minDim * 0.028;
+    ctx.fillStyle = rgba(confidenceColor(v.confidence), 0.9);
+    ctx.beginPath();
+    ctx.arc(cx, dotY, Math.max(2, minDim * 0.006), 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // dB readout (smaller, quieter — mirrors the BPM detector's meter)
+  const dbY = minDim * 0.33;
+  const db = v.db <= -90 ? null : Math.round(v.db);
+  const dbSize = Math.round(minDim * 0.045);
+  ctx.font = `600 ${dbSize}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+  const dbCol = db === null ? mixRgb(v.warm, v.bg, 0.5) : v.warm;
+  ctx.shadowColor = rgba(v.warm, 0.6);
+  ctx.shadowBlur = db === null ? 0 : 4 + clamp01(v.level * 6) * 10;
+  ctx.fillStyle = rgba(dbCol, db === null ? 0.6 : 0.95);
+  ctx.fillText(`${db === null ? "—" : db} dB`, cx, dbY);
   ctx.restore();
 }
 
@@ -536,6 +690,20 @@ function spawnSpark(v: VizState, i: number): void {
   });
 }
 
+/** A bigger, faster spark that fountains up from the baseline on a beat. */
+function spawnBeatSpark(v: VizState, intensity: number): void {
+  const max = 0.6 + Math.random() * 0.7;
+  v.particles.push({
+    x: Math.random(),
+    y: 0, // baseline
+    vx: (Math.random() - 0.5) * 0.4,
+    vy: 0.5 + Math.random() * (0.6 + intensity),
+    life: max,
+    max,
+    size: 1.2 + Math.random() * 2.5,
+  });
+}
+
 /** Advance sparks: rise, gravity pulls them back, fade out. */
 function stepSparks(v: VizState, dt: number): void {
   const G = 0.55; // gravity (norm/s²)
@@ -546,6 +714,13 @@ function stepSparks(v: VizState, dt: number): void {
     p.life -= dt;
   }
   v.particles = v.particles.filter((p) => p.life > 0 && p.y > -0.05);
+}
+
+const SHOCK_DUR = 0.9;
+/** Advance beat shockwave rings; drop the finished ones. */
+function stepShocks(v: VizState, dt: number): void {
+  for (const s of v.shocks) s.age += dt;
+  v.shocks = v.shocks.filter((s) => s.age < SHOCK_DUR);
 }
 
 /** Path a rectangle with only its top two corners rounded (bars sit on the

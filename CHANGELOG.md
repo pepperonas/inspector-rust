@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.91.2] — 2026-07-22
+
+### Changed
+
+- **Equalizer now shows live BPM + dB and reacts to the beat like the BPM detector.** It runs the same detection chain as `bpm` (30–100 Hz kick-band bandpass → `BpmAnalyzer`, off the shared native mic — no extra permission) and a full-band dBFS meter. On screen: a glowing **BPM hero** number (top-centre, with a confidence-coloured dot) and a **dB readout** under it, both flaring on the beat. Each confident beat now fires an expanding **shockwave ring** from the baseline, a whole-scene **beat flash**, a springy **punch** that lifts the bars, and a **fountain of sparks** — on top of the existing per-band glow/peak/transient effects. Still one `<canvas>` + rAF loop (no per-frame React render).
+
 ## [0.91.1] — 2026-07-22
 
 ### Fixed

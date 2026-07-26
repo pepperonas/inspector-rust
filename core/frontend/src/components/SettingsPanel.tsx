@@ -57,6 +57,8 @@ import {
   brunoSetDefaults,
   getMemeDir,
   setMemeDir,
+  getLineageHighlight,
+  setLineageHighlight,
   getTimesheetConfig,
   setTimesheetConfig,
   trackCategoryRules,
@@ -560,6 +562,19 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   // backend (next show recentres it).
   const [winSize, setWinSize] = useState<string | null>(null);
   const [winSizeBusy, setWinSizeBusy] = useState(false);
+  // Lineage rails in the history list (v0.93.1) — purely visual.
+  const [lineageRails, setLineageRails] = useState(true);
+  useEffect(() => {
+    void getLineageHighlight().then(setLineageRails).catch(() => undefined);
+  }, []);
+  const changeLineageRails = async (value: boolean) => {
+    setLineageRails(value); // optimistic — the toggle must feel instant
+    try {
+      await setLineageHighlight(value);
+    } catch {
+      setLineageRails(!value);
+    }
+  };
   useEffect(() => {
     getWindowSizePreference()
       .then((s) => setWinSize(s))
@@ -2153,6 +2168,24 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               {winSize === null
                 ? "Loading…"
                 : "Popup window dimensions — Small 600×430, Medium 700×500, Large 840×600. Applies immediately and recentres on the next open."}
+            </p>
+            <Row label="Lineage rails">
+              <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                <input
+                  type="checkbox"
+                  checked={lineageRails}
+                  onChange={(e) => void changeLineageRails(e.target.checked)}
+                  className="accent-[var(--color-accent)]"
+                />
+                Connect a copy to the entry it came from
+              </label>
+            </Row>
+            <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
+              When you copy an entry in another shape (plain text, UPPERCASE,
+              Base64 …), the copy becomes a new entry at the top while the
+              original stays put. Coloured paths on the left of the list tie the
+              two together, like a commit graph. Purely visual — switching this
+              off changes nothing about what gets copied.
             </p>
           </Section>
         </div>

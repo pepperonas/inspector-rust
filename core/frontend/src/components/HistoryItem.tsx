@@ -3,6 +3,7 @@ import {
   BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
+import { derivedKindLabel, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
 interface Props {
@@ -16,7 +17,48 @@ interface Props {
   onDelete?: () => void;
   /** Pin / unpin the clip (floats to top, never pruned). Only for `kind: "clip"`. */
   onTogglePin?: (pinned: boolean) => void;
+  /** Lineage rails crossing this row (v0.93.1) — see `lib/lineage.ts`. */
+  rails?: Rail[];
+  /** Width reserved for the rail gutter, in px. Uniform across the whole list
+   *  (so rows never jitter) and 0 when the rails are off. */
+  railGutter?: number;
   style?: React.CSSProperties;
+}
+
+/** Width of one lineage lane, in px. Kept narrow: the rails live in the row's
+ *  existing left padding, so switching them on never shifts the text. */
+const LANE_W = 5;
+
+/**
+ * The git-graph rails on a row's left edge: a thin vertical line per lane the
+ * row participates in, plus a dot where the row *is* a member of that lineage
+ * (a derived copy or the clip it was made from). Absolutely positioned inside
+ * the row's padding — zero layout impact, so the toggle is purely visual.
+ */
+function LineageRails({ rails, kind }: { rails?: Rail[]; kind?: string | null }) {
+  if (!rails || rails.length === 0) return null;
+  return (
+    <span
+      aria-hidden
+      className="pointer-events-none absolute inset-y-0 left-0"
+      title={derivedKindLabel(kind)}
+    >
+      {rails.map((r) => (
+        <span key={r.lane}>
+          <span
+            className="absolute inset-y-0 w-[2px] opacity-60"
+            style={{ left: 2 + r.lane * LANE_W, background: r.color }}
+          />
+          {r.node && (
+            <span
+              className="absolute top-1/2 h-[6px] w-[6px] -translate-y-1/2 rounded-full"
+              style={{ left: r.lane * LANE_W, background: r.color }}
+            />
+          )}
+        </span>
+      ))}
+    </span>
+  );
 }
 
 function TypeIcon({ entry }: { entry: ListEntry }) {
@@ -68,6 +110,8 @@ export const HistoryItem = memo(function HistoryItem({
   onDoubleClick,
   onSaveAsNote,
   onDelete,
+  rails,
+  railGutter = 0,
   onTogglePin,
   style,
 }: Props) {
@@ -135,6 +179,8 @@ export const HistoryItem = memo(function HistoryItem({
   const isFinderFile = entry.kind === "finder-file";
   // A clip carrying a user note → highlighted yellow in the list.
   const isNotedClip = entry.kind === "clip" && !!entry.data.note;
+  // Which manipulation produced this clip — the lineage rail's tooltip.
+  const lineageKind = entry.kind === "clip" ? entry.data.derived_kind : null;
   // Styled-text clips (HTML/RTF) get a subtle format tag so they're
   // distinguishable from plain text at a glance (plain text shows no tag).
   const styledFormat =
@@ -383,11 +429,11 @@ export const HistoryItem = memo(function HistoryItem({
 
   return (
     <div
-      style={style}
+      style={railGutter ? { ...style, paddingLeft: 12 + railGutter } : style}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       className={
-        "group flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] " +
+        "group relative flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] " +
         // Custom-command rows fade in when they surface (opacity-only — the row
         // root holds the virtualizer's translateY transform).
         (isCustomCommand ? "md3-cmd-enter " : "") +
@@ -402,6 +448,7 @@ export const HistoryItem = memo(function HistoryItem({
               : "hover:bg-[var(--color-surface)]")
       }
     >
+      <LineageRails rails={rails} kind={lineageKind} />
       <span
         className={
           "shrink-0 " +

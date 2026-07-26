@@ -155,6 +155,7 @@ import {
   getThemePreference,
   getBoomConfig,
   translateText,
+  getLineageHighlight,
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -545,6 +546,16 @@ function App() {
     | { status: "ok"; text: string; provider: string; detectedSource: string }
     | { status: "error" };
   const [liveTranslation, setLiveTranslation] = useState<LiveTranslation | null>(null);
+
+  // Lineage rails in the history list (v0.93.1). Re-read whenever the History
+  // tab comes back into view — the only place the setting can be changed is the
+  // Settings tab, so returning here is exactly when a fresh value is needed
+  // (no event plumbing, and it can't go stale).
+  const [lineageHighlight, setLineageHighlight] = useState(true);
+  useEffect(() => {
+    if (activeTab !== "history") return;
+    void getLineageHighlight().then(setLineageHighlight).catch(() => undefined);
+  }, [activeTab]);
   const translateCacheRef = useRef<Map<string, { text: string; provider: string; detectedSource: string }>>(
     new Map(),
   );
@@ -3610,6 +3621,7 @@ function App() {
                   onDeleteClip={onDeleteClip}
                   onTogglePin={onTogglePin}
                   onClearAll={onClearAllHistory}
+                  lineageHighlight={lineageHighlight}
                 />
               </div>
               <div className="w-3/5 min-w-0">

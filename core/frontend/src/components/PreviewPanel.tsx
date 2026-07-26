@@ -1074,7 +1074,7 @@ export function PreviewPanel({
       <span>{formatBytes(clip.byte_size)}</span>
       <div className="ml-auto flex items-center gap-2">
         {(clip.content_type === "html" || clip.content_type === "rtf") &&
-          clip.content_text && <CopyPlainButton text={clip.content_text} />}
+          clip.content_text && <CopyPlainButton text={clip.content_text} sourceId={clip.id} />}
         <NoteButton entry={clip} />
       </div>
     </div>
@@ -1135,7 +1135,7 @@ export function PreviewPanel({
         />
         {/* HTML clips have a text representation in `content_text` —
             offer the same string transforms as plain-text entries. */}
-        {clip.content_text && <TransformBar text={clip.content_text} />}
+        {clip.content_text && <TransformBar text={clip.content_text} sourceId={clip.id} />}
       </div>
     );
   }
@@ -1152,7 +1152,7 @@ export function PreviewPanel({
         </div>
         {/* RTF clips: same string transforms apply to the plain-text
             representation, like OCR / HTML / plain text. */}
-        {clip.content_text && <TransformBar text={clip.content_text} />}
+        {clip.content_text && <TransformBar text={clip.content_text} sourceId={clip.id} />}
       </div>
     );
   }
@@ -1170,7 +1170,7 @@ export function PreviewPanel({
         const social = detectSocial(clip.content_text);
         return social ? <SocialDownloadBar target={social} /> : null;
       })()}
-      <TransformBar text={clip.content_text} />
+      <TransformBar text={clip.content_text} sourceId={clip.id} />
     </div>
   );
 }
@@ -1384,11 +1384,11 @@ const SMART_ICON: Record<SmartActionKind, typeof ExternalLink> = {
 /** Copy the clip's plain-text representation to the clipboard (for rich clips
  *  like HTML/RTF). Goes through `commit_transformed_text` so the write is
  *  marked self-write + lands in history as a plain-text entry. */
-function CopyPlainButton({ text }: { text: string }) {
+function CopyPlainButton({ text, sourceId }: { text: string; sourceId?: number }) {
   const [done, setDone] = useState(false);
   const doneTimer = useRef<number | null>(null);
   const copy = () => {
-    void commitTransformedText(text).catch(() => undefined);
+    void commitTransformedText(text, sourceId, "plain-text").catch(() => undefined);
     setDone(true);
     if (doneTimer.current !== null) window.clearTimeout(doneTimer.current);
     doneTimer.current = window.setTimeout(() => setDone(false), 1500);
@@ -1878,12 +1878,14 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
  *  which digit triggers which transform. The keyboard handler itself
  *  is always mounted so the shortcuts still fire even if the user
  *  doesn't bother peeking at the chip overlay. */
-function TransformBar({ text }: { text: string }) {
+function TransformBar({ text, sourceId }: { text: string; sourceId?: number }) {
   const modHeld = useModifierHeld();
 
   const run = async (kind: TransformKind) => {
     try {
-      await commitTransformedText(applyTransform(kind, text));
+      // The result is a NEW entry at the top; `sourceId`/`kind` record where it
+      // came from so the list can draw the lineage rail back to the original.
+      await commitTransformedText(applyTransform(kind, text), sourceId, kind);
     } catch (e) {
       console.error("transform commit failed", e);
     }

@@ -11,6 +11,9 @@ Bild speichern — jeder Bild-Clip hat im Preview einen Save-to-Downloads-Button
 Bild-Recolor — einfarbige Logos/Silhouetten umfärben
 Freisteller (Cut-out) — ML-Hintergrundentfernung (U2Netp, offline) per Cmd/Ctrl+B
 Clipboard-Privacy — App-Ausschlussliste (z. B. Passwortmanager) + Auto-Clear nach N Sekunden
+Rich-Copy-Treue — kopiertes Markdown/Rich-Text behält seinen Quelltext (Umbrüche inklusive); Enter fügt MD als MD ein und hebt den Eintrag wieder nach oben
+Abgeleitete Kopien — Plain-Text/Transform-Kopien werden ein NEUER Eintrag ganz oben, das Original bleibt unverändert an seiner Position
+Lineage-Rails — farbige Pfade links in der Liste verbinden eine Kopie mit ihrem Original (wie eine Commit-History); abschaltbar unter Settings → Appearance
 Capture-Pause — Erfassung über Tray anhalten
 
 == Snippets & Text-Expander ==

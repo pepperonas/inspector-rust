@@ -2598,8 +2598,27 @@ export function toggleMute(): Promise<boolean> {
  *  history entry. Used by the string-manipulation transforms
  *  (`Cmd/Ctrl+1…9` on a selected text entry — see `lib/text-transform.ts`).
  *  Backend: `commands::commit_transformed_text`. */
-export function commitTransformedText(text: string): Promise<void> {
-  return invoke("commit_transformed_text", { text });
+export function commitTransformedText(
+  text: string,
+  sourceId?: number | null,
+  kind?: string | null,
+): Promise<void> {
+  return invoke("commit_transformed_text", {
+    text,
+    sourceId: sourceId ?? null,
+    kind: kind ?? null,
+  });
+}
+
+/** Whether the history list draws the lineage rails that connect a derived
+ *  copy to the clip it came from (v0.93.1, default on). */
+export function getLineageHighlight(): Promise<boolean> {
+  return invoke("get_lineage_highlight");
+}
+
+/** Persist the lineage-rail preference. */
+export function setLineageHighlight(value: boolean): Promise<void> {
+  return invoke("set_lineage_highlight", { value });
 }
 
 // ── macOS Screen Recording permission ──────────────────────────────────────

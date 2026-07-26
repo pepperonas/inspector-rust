@@ -40,7 +40,9 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
             created_at    INTEGER NOT NULL,
             last_used_at  INTEGER NOT NULL,
             pinned        INTEGER NOT NULL DEFAULT 0,
-            note          TEXT
+            note          TEXT,
+            derived_from  INTEGER,
+            derived_kind  TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
         CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
@@ -55,6 +57,12 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // Migration: `note` column (v0.84.106) — a user note attached to a clip
     // (encrypted at rest, like content). Noted clips are exempt from pruning.
     let _ = conn.execute("ALTER TABLE entries ADD COLUMN note TEXT", []);
+    // Migration: clip lineage (v0.93.1) — a clip produced by copying an
+    // existing one in a different shape (plain text / a text transform) records
+    // its source + the manipulation, so the list can draw a git-graph-style
+    // rail between the derived copy and its original.
+    let _ = conn.execute("ALTER TABLE entries ADD COLUMN derived_from INTEGER", []);
+    let _ = conn.execute("ALTER TABLE entries ADD COLUMN derived_kind TEXT", []);
     // Timesheet (time-tracking) tables — same idempotent CREATE-IF-NOT-EXISTS
     // convention; never crash an existing DB.
     crate::tracking::db::init_schema(&conn)
@@ -79,6 +87,27 @@ pub fn hash_payload(content_type: ContentType, data: &str) -> String {
 /// Insert a new clip, or bump `last_used_at` if its hash already exists.
 /// Returns the row id of the affected entry.
 pub fn upsert_clip(db: &DbHandle, clip: &NewClip) -> Result<i64> {
+    upsert_clip_derived(db, clip, None, None)
+}
+
+/// [`upsert_clip`] that additionally records **lineage** (v0.93.1): the entry
+/// this clip was derived from + which manipulation produced it.
+///
+/// Used by the "copy in another shape" paths (plain-text copy, the `Cmd+1…9`
+/// text transforms). The derived copy is a *separate* row that lands at the top
+/// of the history — the source row is deliberately **not** touched, so it keeps
+/// its own content and its position in the list.
+///
+/// Lineage is recorded **only on insert**. On a hash collision the existing row
+/// just gets its recency bumped and keeps whatever lineage it already had — so a
+/// clip that was captured on its own is never retroactively relabelled as
+/// derived, even when a transform later happens to produce the identical text.
+pub fn upsert_clip_derived(
+    db: &DbHandle,
+    clip: &NewClip,
+    derived_from: Option<i64>,
+    derived_kind: Option<&str>,
+) -> Result<i64> {
     let now = Utc::now().timestamp_millis();
     let hash = hash_payload(clip.content_type, &clip.content_data);
     let conn = db.lock();
@@ -92,6 +121,8 @@ pub fn upsert_clip(db: &DbHandle, clip: &NewClip) -> Result<i64> {
         .optional()?;
 
     let id = if let Some(id) = existing {
+        // Recency only — see the doc comment: an existing row keeps its own
+        // lineage (or its lack of one).
         conn.execute(
             "UPDATE entries SET last_used_at = ?1 WHERE id = ?2",
             params![now, id],
@@ -108,8 +139,8 @@ pub fn upsert_clip(db: &DbHandle, clip: &NewClip) -> Result<i64> {
             r#"
             INSERT INTO entries (
                 content_type, content_text, content_data, hash,
-                byte_size, created_at, last_used_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+                byte_size, created_at, last_used_at, derived_from, derived_kind
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
             "#,
             params![
                 clip.content_type.as_str(),
@@ -119,6 +150,8 @@ pub fn upsert_clip(db: &DbHandle, clip: &NewClip) -> Result<i64> {
                 clip.byte_size,
                 now,
                 now,
+                derived_from,
+                derived_kind,
             ],
         )?;
         conn.last_insert_rowid()
@@ -170,7 +203,8 @@ pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>
     let mut stmt = conn.prepare(
         r#"
         SELECT id, content_type, content_text, content_data, hash,
-               byte_size, created_at, last_used_at, pinned, note
+               byte_size, created_at, last_used_at, pinned, note,
+               derived_from, derived_kind
         FROM entries
         ORDER BY pinned DESC, last_used_at DESC
         LIMIT ?1 OFFSET ?2
@@ -203,7 +237,8 @@ pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipE
         r#"
         SELECT id, content_type, content_text,
                CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
-               hash, byte_size, created_at, last_used_at, pinned, note
+               hash, byte_size, created_at, last_used_at, pinned, note,
+               derived_from, derived_kind
         FROM entries
         ORDER BY pinned DESC, last_used_at DESC
         LIMIT ?1 OFFSET ?2
@@ -233,7 +268,8 @@ pub fn get(db: &DbHandle, id: i64) -> Result<Option<ClipEntry>> {
         .query_row(
             r#"
             SELECT id, content_type, content_text, content_data, hash,
-                   byte_size, created_at, last_used_at, pinned, note
+                   byte_size, created_at, last_used_at, pinned, note,
+                   derived_from, derived_kind
             FROM entries
             WHERE id = ?1
             "#,
@@ -279,7 +315,9 @@ mod tests {
                 created_at    INTEGER NOT NULL,
                 last_used_at  INTEGER NOT NULL,
                 pinned        INTEGER NOT NULL DEFAULT 0,
-                note          TEXT
+                note          TEXT,
+                derived_from  INTEGER,
+                derived_kind  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX IF NOT EXISTS idx_hash ON entries(hash);
@@ -506,6 +544,62 @@ mod tests {
     }
 
     #[test]
+    fn derived_copy_is_its_own_entry_and_leaves_the_source_in_place() {
+        // The contract behind the lineage feature: copying a clip in another
+        // shape must add a NEW row at the top and must NOT touch the original —
+        // the source keeps its own content *and* its position in the list.
+        let db = test_db();
+        let source = upsert_clip(&db, &text_clip("Hello World")).unwrap();
+        let source_pos = get(&db, source).unwrap().unwrap().last_used_at;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+
+        let derived =
+            upsert_clip_derived(&db, &text_clip("HELLO WORLD"), Some(source), Some("upper")).unwrap();
+
+        assert_ne!(derived, source, "the derived copy must be its own entry");
+        let src = get(&db, source).unwrap().unwrap();
+        assert_eq!(src.content_text, "Hello World", "source content untouched");
+        assert_eq!(src.last_used_at, source_pos, "source must keep its position");
+        assert_eq!(src.derived_from, None, "the source is not itself derived");
+
+        let der = get(&db, derived).unwrap().unwrap();
+        assert_eq!(der.derived_from, Some(source));
+        assert_eq!(der.derived_kind.as_deref(), Some("upper"));
+        assert!(der.last_used_at > source_pos, "the derived copy sorts to the top");
+    }
+
+    #[test]
+    fn organic_clip_is_never_retroactively_relabelled_as_derived() {
+        // A clip that was captured on its own keeps `derived_from = None` even
+        // when the identical text is later produced by a transform — otherwise
+        // an unrelated old clip would suddenly sprout a lineage rail.
+        let db = test_db();
+        let organic = upsert_clip(&db, &text_clip("same")).unwrap();
+        let other = upsert_clip(&db, &text_clip("other")).unwrap();
+
+        let again = upsert_clip_derived(&db, &text_clip("same"), Some(other), Some("upper")).unwrap();
+
+        assert_eq!(again, organic, "dedup by hash still applies");
+        assert_eq!(get(&db, organic).unwrap().unwrap().derived_from, None);
+    }
+
+    #[test]
+    fn re_deriving_the_same_text_is_idempotent() {
+        // Applying the same transform twice must not pile up rows — it bumps
+        // the existing derived copy back to the top and keeps its lineage.
+        let db = test_db();
+        let source = upsert_clip(&db, &text_clip("src")).unwrap();
+        let derived =
+            upsert_clip_derived(&db, &text_clip("SRC"), Some(source), Some("upper")).unwrap();
+        let again =
+            upsert_clip_derived(&db, &text_clip("SRC"), Some(source), Some("upper")).unwrap();
+        assert_eq!(again, derived, "same payload → same row");
+        let row = get(&db, derived).unwrap().unwrap();
+        assert_eq!(row.derived_from, Some(source));
+        assert_eq!(row.derived_kind.as_deref(), Some("upper"));
+    }
+
+    #[test]
     fn list_orders_by_last_used_at_desc() {
         let db = test_db();
         upsert_clip(&db, &text_clip("first")).unwrap();
@@ -677,5 +771,7 @@ fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
             .get::<_, Option<String>>(9)?
             .map(|enc| crypto::decrypt(&enc))
             .filter(|s| !s.is_empty()),
+        derived_from: row.get(10)?,
+        derived_kind: row.get::<_, Option<String>>(11)?.filter(|s| !s.is_empty()),
     })
 }

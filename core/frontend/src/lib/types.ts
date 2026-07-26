@@ -18,6 +18,12 @@ export interface ClipEntry {
   pinned: boolean;
   /** Optional user note; noted entries are highlighted yellow + kept (v0.84.106). */
   note: string | null;
+  /** Lineage (v0.93.1): the entry this clip was derived from — set when the
+   *  user copied an existing clip in another shape (plain text, upper-case,
+   *  base64, …). `null` for organically captured clips. */
+  derived_from: number | null;
+  /** Which manipulation produced this clip (`plain`, `upper`, `base64`, …). */
+  derived_kind: string | null;
 }
 
 export interface Snippet {

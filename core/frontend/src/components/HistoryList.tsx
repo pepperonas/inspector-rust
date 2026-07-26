@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Palette, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
+import { computeLineage, laneCount } from "../lib/lineage";
 import type { ListEntry } from "../lib/types";
 
 interface Props {
@@ -19,6 +20,9 @@ interface Props {
   onTogglePin?: (i: number, pinned: boolean) => void;
   /** Clear-all-history handler: invoked from the toolbar button at the top. */
   onClearAll?: () => void;
+  /** Draw the lineage rails connecting a derived copy to its source
+   *  (v0.93.1). Off = the list renders exactly as before. */
+  lineageHighlight?: boolean;
 }
 
 const ROW_HEIGHT = 36;
@@ -32,10 +36,27 @@ export function HistoryList({
   onDeleteClip,
   onTogglePin,
   onClearAll,
+  lineageHighlight = true,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
+
+  // Lineage rails, computed over the WHOLE list (not just the visible window)
+  // so a lane's span is right no matter where the user has scrolled. Non-clip
+  // rows go in as `null` to keep positions aligned with the rendered rows.
+  const rails = useMemo(() => {
+    if (!lineageHighlight) return null;
+    return computeLineage(entries.map((e) => (e.kind === "clip" ? e.data : null)));
+  }, [entries, lineageHighlight]);
+
+  // One uniform gutter for the whole list so rows never jitter as lanes come
+  // and go while scrolling. Capped so a pathological number of concurrent
+  // lineages can't eat the row.
+  const railGutter = useMemo(
+    () => (rails ? Math.min(laneCount(rails), 4) * 5 : 0),
+    [rails],
+  );
 
   const virtualizer = useVirtualizer({
     count: entries.length,
@@ -190,6 +211,10 @@ export function HistoryList({
                                                     : `c-${entry.data.id}`;
               return (
                 <HistoryItem
+                  rails={
+                    entry.kind === "clip" ? rails?.get(entry.data.id) : undefined
+                  }
+                  railGutter={railGutter}
                   key={key}
                   entry={entry}
                   selected={virtualRow.index === selectedIndex}

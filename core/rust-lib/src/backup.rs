@@ -899,7 +899,9 @@ mod tests {
                 created_at    INTEGER NOT NULL,
                 last_used_at  INTEGER NOT NULL,
                 pinned        INTEGER NOT NULL DEFAULT 0,
-                note          TEXT
+                note          TEXT,
+                derived_from  INTEGER,
+                derived_kind  TEXT
             );
             CREATE INDEX idx_last_used ON entries(last_used_at DESC);
             CREATE INDEX idx_hash ON entries(hash);

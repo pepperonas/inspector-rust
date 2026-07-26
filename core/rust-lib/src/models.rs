@@ -54,6 +54,17 @@ pub struct ClipEntry {
     /// entry is highlighted in the list and exempt from pruning.
     #[serde(default)]
     pub note: Option<String>,
+    /// Lineage (v0.93.1): the id of the entry this clip was *derived* from —
+    /// set when the user copies an existing clip in a different shape (plain
+    /// text, upper-case, base64, …). The derived copy is its own entry at the
+    /// top of the history; the original keeps its content **and its position**.
+    /// `None` for organically captured clips.
+    #[serde(default)]
+    pub derived_from: Option<i64>,
+    /// Which manipulation produced this clip (`plain`, `upper`, `base64`, …) —
+    /// plaintext, purely descriptive, shown as the lineage tooltip.
+    #[serde(default)]
+    pub derived_kind: Option<String>,
 }
 
 /// Payload coming in from the clipboard watcher, not yet hashed/stored.
@@ -144,9 +155,13 @@ mod tests {
             last_used_at: 1_700_000_000_500,
             pinned: false,
             note: None,
+            derived_from: Some(7),
+            derived_kind: Some("upper".into()),
         };
         let json = serde_json::to_string(&original).expect("serialize");
         let back: ClipEntry = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.derived_from, original.derived_from);
+        assert_eq!(back.derived_kind, original.derived_kind);
         assert_eq!(back.id, original.id);
         assert_eq!(back.content_type, original.content_type);
         assert_eq!(back.content_text, original.content_text);

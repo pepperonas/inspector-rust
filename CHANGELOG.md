@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.1] — 2026-07-26
+
+### Fixed
+
+- **Copied Markdown is kept as Markdown.** A rich copy puts *two* flavours on the clipboard — the styled one (HTML) and the source text. The watcher stored the HTML and derived the preview by stripping its tags, and that stripper collapses **every newline into a space** — so a copied Markdown document was listed (and, on Enter, pasted) as one mangled line. The pasteboard's own text flavour is now used as the entry's text, so the Markdown source survives verbatim: it reads as Markdown in the list and lands in the clipboard as Markdown. The stripper stays as the fallback for the rare rich-without-text clipboard.
+- **Pasting moves the entry back to the top right away.** The paste already refreshed the entry's recency, but nothing told the list — the reordering only showed up the next time the popup was opened.
+
+### Added
+
+- **Lineage rails — a commit-graph for your clipboard.** Copying an entry in another shape (plain text, UPPERCASE, Base64 …) has always made a *new* entry at the top while the original keeps its content and its position. Those two are now visibly tied together: coloured paths down the left edge of the list connect a copy to the entry it came from, with a node dot on each end and the line running through the rows in between — exactly like the branch lines in a commit history. Overlapping lineages get their own lane and colour; separate ones reuse lanes. Hovering a rail names the manipulation that produced the copy.
+- **Settings → Appearance → "Lineage rails"** switches the paths off. Purely visual: nothing about what gets copied, stored or pasted changes.
+
 ## [0.93.0] — 2026-07-26
 
 ### Added

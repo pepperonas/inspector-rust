@@ -76,6 +76,12 @@ pub fn search_history(
 /// want to drop the source app's styling when pasting elsewhere.
 const KEY_PLAIN_TEXT_ONLY: &str = "paste.plain_text_only";
 
+/// Settings key for the history list's lineage rails — the git-graph-style
+/// coloured paths that connect a derived copy (plain text / a text transform)
+/// to the clip it was made from. Defaults to `true`; purely decorative, so it
+/// can be switched off without changing any behaviour.
+const KEY_LINEAGE_HIGHLIGHT: &str = "history.lineage_highlight";
+
 /// When false (the default), the OCR pipeline persists only the
 /// recognised text to history — the source PNG is captured for the
 /// recognition step and then discarded. When true, the PNG is also
@@ -148,7 +154,11 @@ pub fn paste_entry(
         watcher.mark_self_write(entry.content_type, &entry.content_data);
         paste::paste_entry(&entry).map_err(map_err)?;
     }
+    // Pasting is a *use* — bump recency so the entry floats back to the top of
+    // the history, and tell the frontend so the list reorders right away
+    // instead of only on the next popup open (v0.93.1).
     db::touch(&db, id).map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
     Ok(())
 }
 
@@ -156,6 +166,25 @@ pub fn paste_entry(
 #[tauri::command]
 pub fn get_paste_plain_text_only(db: State<'_, DbHandle>) -> Result<bool, String> {
     settings::get_bool(&db, KEY_PLAIN_TEXT_ONLY, true).map_err(map_err)
+}
+
+/// Whether the history list draws the git-graph lineage rails that connect a
+/// derived copy (plain text / a text transform) to the clip it came from
+/// (v0.93.1, default on).
+#[tauri::command]
+pub fn get_lineage_highlight(db: State<'_, DbHandle>) -> Result<bool, String> {
+    settings::get_bool(&db, KEY_LINEAGE_HIGHLIGHT, true).map_err(map_err)
+}
+
+/// Persist a new value for `history.lineage_highlight`.
+#[tauri::command]
+pub fn set_lineage_highlight(db: State<'_, DbHandle>, value: bool) -> Result<(), String> {
+    settings::set(
+        &db,
+        KEY_LINEAGE_HIGHLIGHT,
+        if value { "true" } else { "false" },
+    )
+    .map_err(map_err)
 }
 
 /// Persist a new value for `paste.plain_text_only`.
@@ -1377,6 +1406,7 @@ pub fn paste_entry_formatted(
     watcher.mark_self_write(entry.content_type, &entry.content_data);
     paste::paste_entry(&entry).map_err(map_err)?;
     db::touch(&db, id).map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
     Ok(())
 }
 
@@ -3994,8 +4024,18 @@ pub fn toggle_mute() -> Result<bool, String> {
 /// text entry) are computed frontend-side in `lib/text-transform.ts`;
 /// this is the shared write path — mark self-write so the watcher
 /// skips it, set the clipboard, push a Text history entry.
+///
+/// The result is always a **new** entry at the top of the history; the clip it
+/// was derived from keeps its own content *and its position* (it is deliberately
+/// not touched). `source_id` + `kind` record that lineage (v0.93.1) so the list
+/// can draw the git-graph rail between the copy and its original.
 #[tauri::command]
-pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), String> {
+pub fn commit_transformed_text(
+    app: AppHandle,
+    text: String,
+    source_id: Option<i64>,
+    kind: Option<String>,
+) -> Result<(), String> {
     use clipboard_rs::{Clipboard, ClipboardContext};
 
     if let Some(watcher) = app.try_state::<WatcherState>() {
@@ -4006,7 +4046,7 @@ pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), Strin
         .map_err(|e| format!("set_text: {e:?}"))?;
 
     if let Some(db) = app.try_state::<DbHandle>() {
-        if let Err(e) = db::upsert_clip(
+        if let Err(e) = db::upsert_clip_derived(
             &db,
             &crate::models::NewClip {
                 content_type: crate::models::ContentType::Text,
@@ -4014,6 +4054,8 @@ pub fn commit_transformed_text(app: AppHandle, text: String) -> Result<(), Strin
                 content_data: text.clone(),
                 byte_size: text.len() as i64,
             },
+            source_id,
+            kind.as_deref(),
         ) {
             tracing::warn!("transform: failed to save transformed text to history: {e:#}");
         }

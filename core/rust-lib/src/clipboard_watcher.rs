@@ -141,7 +141,8 @@ impl Handler {
         if self.ctx.has(ContentFormat::Html) {
             if let Ok(html) = self.ctx.get_html() {
                 if !html.trim().is_empty() {
-                    let text = strip_html(&html);
+                    let plain = self.ctx.get_text().ok();
+                    let text = preview_text(plain.as_deref(), || strip_html(&html));
                     let byte_size = html.len() as i64;
                     self.store(NewClip {
                         content_type: ContentType::Html,
@@ -156,7 +157,8 @@ impl Handler {
         if self.ctx.has(ContentFormat::Rtf) {
             if let Ok(rtf) = self.ctx.get_rich_text() {
                 if !rtf.trim().is_empty() {
-                    let text = strip_rtf(&rtf);
+                    let plain = self.ctx.get_text().ok();
+                    let text = preview_text(plain.as_deref(), || strip_rtf(&rtf));
                     let byte_size = rtf.len() as i64;
                     self.store(NewClip {
                         content_type: ContentType::Rtf,
@@ -317,6 +319,26 @@ fn strip_rtf(rtf: &str) -> String {
 }
 
 /// Extremely minimal HTML → plain-text: drops tags.
+/// Pick the plain-text representation of a *rich* (HTML/RTF) clip.
+///
+/// A rich copy always carries the **source text** alongside the styled flavour,
+/// and that flavour is what the user actually copied: from a Markdown editor
+/// it's the Markdown source, from a browser selection the visible text. It is
+/// strictly better than our tag-stripper — `strip_html` collapses **every**
+/// newline into a single space (see `strip_html_collapses_whitespace`), so a
+/// copied Markdown document used to come back as one mangled line, and pasting
+/// it as plain text (the default) pasted *that* rather than the Markdown
+/// (v0.93.1: "md is shown as html in the list").
+///
+/// The stripper stays as the fallback for the rare rich-without-text clipboard.
+/// The fallback is lazy so it isn't computed when the text flavour is present.
+fn preview_text(plain: Option<&str>, fallback: impl FnOnce() -> String) -> String {
+    match plain {
+        Some(t) if !t.trim().is_empty() => t.to_string(),
+        _ => fallback(),
+    }
+}
+
 fn strip_html(html: &str) -> String {
     let mut out = String::with_capacity(html.len());
     let mut in_tag = false;
@@ -333,7 +355,7 @@ fn strip_html(html: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{is_excluded_app, strip_html, strip_rtf, WatcherState};
+    use super::{is_excluded_app, preview_text, strip_html, strip_rtf, WatcherState};
 
     #[test]
     fn excluded_app_matches_case_insensitive_substring() {
@@ -385,6 +407,45 @@ mod tests {
     #[test]
     fn strip_html_empty_input() {
         assert_eq!(strip_html(""), "");
+    }
+
+    #[test]
+    fn preview_text_prefers_the_pasteboard_plain_flavour() {
+        // The Markdown case: the rich flavour is rendered HTML, the text
+        // flavour is the source. The source must win — verbatim, newlines and
+        // markers intact (the stripper would flatten it to one line).
+        let md = "# Title\n\n- one\n- two";
+        let stripped = strip_html("<h1>Title</h1><ul><li>one</li><li>two</li></ul>");
+        assert_eq!(preview_text(Some(md), || stripped.clone()), md);
+        assert!(
+            !stripped.contains('\n') && !stripped.contains('#'),
+            "sanity: the stripper flattens the document ({stripped:?}), which is \
+             exactly why the text flavour has to win"
+        );
+    }
+
+    #[test]
+    fn preview_text_falls_back_when_there_is_no_usable_text_flavour() {
+        for plain in [None, Some(""), Some("   \n\t ")] {
+            assert_eq!(
+                preview_text(plain, || "stripped".to_string()),
+                "stripped",
+                "plain={plain:?} must fall back"
+            );
+        }
+    }
+
+    #[test]
+    fn preview_text_does_not_evaluate_the_fallback_when_unused() {
+        // The fallback is lazy — stripping a large HTML payload should be
+        // skipped entirely when the text flavour is present.
+        let mut called = false;
+        let out = preview_text(Some("source"), || {
+            called = true;
+            "stripped".to_string()
+        });
+        assert_eq!(out, "source");
+        assert!(!called, "fallback must not run when the text flavour is used");
     }
 
     #[test]

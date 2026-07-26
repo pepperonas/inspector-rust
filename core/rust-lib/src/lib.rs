@@ -29,6 +29,7 @@ mod hue;
 mod snitch;
 mod sync;
 mod shazam;
+mod translate;
 mod mic_capture;
 mod image_ops;
 mod logging;
@@ -752,6 +753,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::shazam_history_clear,
             commands::shazam_lyrics,
             commands::shazam_lyrics_translated,
+            commands::translate_text,
             commands::list_memes,
             commands::copy_meme,
             commands::get_meme_dir,

@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.0] — 2026-07-26
+
+### Added
+
+- **Live translation in the preview for the `tr*` commands.** Typing e.g. `tren enhancement` now shows the German translation **directly in the preview** while you type — no need to press Enter first. A ~350 ms debounce fires a keyless lookup; identical queries are cached (per session, keyed `sl|tl|text`) and a request-sequence guard drops stale results so fast typing always settles on the latest text. The result card shows the translated text, the detected source language (for `trauto`) and which engine produced it.
+- **Provider (strategy) pattern with automatic fallback (`translate.rs`).** The unofficial, keyless **Google gtx** endpoint is primary (same engine as "open Google Translate in the browser", so quality + privacy trade-off are identical); **MyMemory** (also keyless) is an automatic fallback when Google is unreachable. Both are tried in order per request with a short 2.5 s timeout; response parsers are pure + unit-tested (8 tests). Adding another engine (LibreTranslate, DeepL, …) is one `impl Provider` + a list entry.
+
+### Unchanged (deliberate)
+
+- **Pressing Enter still opens Google Translate in the browser** — the live preview is purely additive and never removes the browser fallback. If every provider fails (timeout / rate-limit / offline), the preview says so and Enter still works.
+
 ## [0.92.1] — 2026-07-22
 
 ### Fixed

@@ -5461,6 +5461,21 @@ pub async fn shazam_lyrics_translated(
     crate::shazam::fetch_lyrics_translated(&artist, &title, "de")
 }
 
+/// Live translation for the `tr*` search-bar commands (Google gtx → MyMemory
+/// fallback, both keyless). Runs the blocking HTTP on a `spawn_blocking` task
+/// so a debounced live-preview call never stalls the async runtime. On failure
+/// the frontend keeps the browser-open (`translateUrl`) fallback.
+#[tauri::command]
+pub async fn translate_text(
+    text: String,
+    source: String,
+    target: String,
+) -> Result<crate::translate::Translation, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::translate::translate(&text, &source, &target))
+        .await
+        .map_err(|e| format!("translate task: {e}"))?
+}
+
 #[cfg(test)]
 mod project_map_tests {
     use super::parse_project_map;

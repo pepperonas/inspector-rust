@@ -25,6 +25,8 @@ import { formatBytes } from "../lib/format";
 import { readableForeground, tryParseColor } from "../lib/colors";
 import { IS_MAC } from "../lib/platform";
 import { TRANSFORMS, applyTransform, type TransformKind } from "../lib/text-transform";
+import { TRANSLATE_LANGS, isTranslateKind } from "../lib/commands";
+import type { CommandKind } from "../lib/commands";
 import { useModifierHeld } from "../hooks/useModifierHeld";
 import {
   commitTransformedText,
@@ -90,7 +92,17 @@ interface Props {
   figletText?: string;
   figletOpts?: FigletOpts;
   onFigletOptsChange?: (patch: Partial<FigletOpts>) => void;
+  /** Live translation for the `tr*` commands (v0.93.0): the debounced result of
+   *  the keyless Google/MyMemory lookup, rendered directly in the preview. The
+   *  "Enter opens Google Translate" browser fallback stays regardless. */
+  liveTranslation?: PreviewLiveTranslation | null;
 }
+
+/** The live-translation state passed down from App.tsx. */
+export type PreviewLiveTranslation =
+  | { status: "loading" }
+  | { status: "ok"; text: string; provider: string; detectedSource: string }
+  | { status: "error" };
 
 /** One label/value line in the Bruno (net-pay) breakdown. Module-level so its
  *  identity is stable across PreviewPanel re-renders — otherwise the animated
@@ -122,6 +134,93 @@ function BrunoRow({
   );
 }
 
+/** Human-readable names for the language codes used by the `tr*` commands. */
+const LANG_NAMES: Record<string, string> = {
+  auto: "Auto-detect",
+  en: "English",
+  de: "German",
+  it: "Italian",
+  es: "Spanish",
+  pl: "Polish",
+};
+
+/**
+ * Live-translation preview for the `tr*` commands (v0.93.0). Shows the debounced
+ * keyless result inline; the "Enter opens Google Translate" browser fallback is
+ * always offered and never depends on the live lookup succeeding.
+ */
+function TranslatePreview({
+  kind,
+  text,
+  live,
+}: {
+  kind: CommandKind;
+  text: string;
+  live: PreviewLiveTranslation | null | undefined;
+}) {
+  const pair = TRANSLATE_LANGS[kind];
+  const srcName = pair ? (LANG_NAMES[pair.sl] ?? pair.sl) : "";
+  const tgtName = pair ? (LANG_NAMES[pair.tl] ?? pair.tl) : "";
+  const detected =
+    live?.status === "ok" && live.detectedSource
+      ? (LANG_NAMES[live.detectedSource] ?? live.detectedSource)
+      : null;
+
+  return (
+    <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
+      <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+        Translate · {detected ?? srcName} → {tgtName}
+      </div>
+
+      {text.length === 0 ? (
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[12px] text-[var(--color-muted)]">
+          Type something to translate…
+        </div>
+      ) : (
+        <>
+          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+            <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+              {detected ?? srcName}
+            </div>
+            <div className="mt-1 text-[13px] leading-snug">{text}</div>
+          </div>
+
+          <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                {tgtName}
+              </div>
+              {live?.status === "loading" && (
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-muted)]" />
+              )}
+            </div>
+            {live?.status === "ok" ? (
+              <>
+                <div className="mt-1 text-[15px] font-semibold leading-snug">{live.text}</div>
+                <div className="mt-2 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                  via {live.provider}
+                </div>
+              </>
+            ) : live?.status === "error" ? (
+              <div className="mt-1 text-[12px] text-[var(--color-muted)]">
+                Live translation unavailable — press Enter to open Google Translate.
+              </div>
+            ) : (
+              <div className="mt-1 text-[13px] italic text-[var(--color-muted)]">
+                {live?.status === "loading" ? "Translating…" : "…"}
+              </div>
+            )}
+          </div>
+        </>
+      )}
+
+      <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+        ⏎ Enter opens Google Translate in the browser
+      </div>
+    </div>
+  );
+}
+
 export function PreviewPanel({
   entry,
   pwgenMode,
@@ -146,6 +245,7 @@ export function PreviewPanel({
   figletText = "",
   figletOpts,
   onFigletOptsChange,
+  liveTranslation,
 }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -432,6 +532,15 @@ export function PreviewPanel({
             }
           }
           rerollSignal={fakerReroll}
+        />
+      );
+    }
+    if (isTranslateKind(entry.data.commandKind as CommandKind)) {
+      return (
+        <TranslatePreview
+          kind={entry.data.commandKind as CommandKind}
+          text={entry.data.arg.trim()}
+          live={liveTranslation}
         />
       );
     }

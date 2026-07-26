@@ -1159,6 +1159,26 @@ export function shazamLyricsTranslated(
 ): Promise<TranslatedLyrics | null> {
   return invoke("shazam_lyrics_translated", { artist, title });
 }
+/** A live translation result (Google gtx → MyMemory fallback, both keyless). */
+export interface Translation {
+  text: string;
+  /** Detected source language, or "" when the provider doesn't report one. */
+  detected_source: string;
+  /** Which provider produced it: "google" | "mymemory". */
+  provider: string;
+}
+
+/** Translate `text` from `source` → `target` for the live `tr*` preview. Rejects
+ *  on timeout / rate-limit / network error — the caller then keeps the
+ *  browser-open Google-Translate fallback. */
+export function translateText(
+  text: string,
+  source: string,
+  target: string,
+): Promise<Translation> {
+  return invoke("translate_text", { text, source, target });
+}
+
 export function shazamHistoryDelete(id: number): Promise<void> {
   return invoke("shazam_history_delete", { id });
 }

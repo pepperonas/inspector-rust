@@ -47,7 +47,7 @@ Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Koll
 
 == Suchleisten-Commands ==
 Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
-Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a. (Google Translate)
+Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a.: Live-Übersetzung direkt in der Preview beim Tippen (keyless Google gtx + MyMemory-Fallback, debounced + gecacht); Enter öffnet weiterhin Google Translate im Browser
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
 Fake-Testdaten — `faker [gen] [n] [@locale] [--json|csv|sql|ts]`: 70+ Generatoren × 14 Locales, Composites (person/user/address/order), Ranges (`int 1..100`), `--seed=` reproduzierbar, ⌘/Ctrl+R-Reroll, `tpl`-Templates, ehrlicher EN-Fallback; auch `{faker:…}` in Snippets; Settings → Faker

@@ -154,6 +154,7 @@ import {
   listTimers,
   getThemePreference,
   getBoomConfig,
+  translateText,
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -531,6 +532,66 @@ function App() {
     () => commandSuggestions(query).filter((c) => isCommandAvailable(c)),
     [query],
   );
+
+  // ── Live translation preview (v0.93.0) ────────────────────────────────────
+  // When a `tr*` command is being typed, fetch the translation in the
+  // background (debounced + cached) and show it in the preview — no need to
+  // press Enter. Enter still opens Google Translate in the browser (the
+  // untouched fallback); a failed fetch (timeout/rate-limit/network) simply
+  // leaves that fallback as the only path. Backed by `translate_text` (Google
+  // gtx → MyMemory, both keyless).
+  type LiveTranslation =
+    | { status: "loading" }
+    | { status: "ok"; text: string; provider: string; detectedSource: string }
+    | { status: "error" };
+  const [liveTranslation, setLiveTranslation] = useState<LiveTranslation | null>(null);
+  const translateCacheRef = useRef<Map<string, { text: string; provider: string; detectedSource: string }>>(
+    new Map(),
+  );
+  const translateSeqRef = useRef(0);
+  // The active translate request as a stable signature (kind + arg), null when
+  // the current input isn't a translate command.
+  const translateReq = useMemo(() => {
+    const cmd = parsedCommand;
+    if (!cmd || !isTranslateKind(cmd.spec.kind)) return null;
+    const pair = TRANSLATE_LANGS[cmd.spec.kind];
+    if (!pair) return null;
+    const text = cmd.arg.trim();
+    if (!text) return null;
+    return { sl: pair.sl, tl: pair.tl, text };
+  }, [parsedCommand]);
+  const translateKey = translateReq
+    ? `${translateReq.sl}|${translateReq.tl}|${translateReq.text}`
+    : null;
+  useEffect(() => {
+    if (!translateReq || translateKey === null) {
+      setLiveTranslation(null);
+      return;
+    }
+    // Cache hit → show instantly (identical repeated queries never re-fetch).
+    const cached = translateCacheRef.current.get(translateKey);
+    if (cached) {
+      setLiveTranslation({ status: "ok", ...cached });
+      return;
+    }
+    const seq = ++translateSeqRef.current;
+    setLiveTranslation({ status: "loading" });
+    const timer = window.setTimeout(() => {
+      translateText(translateReq.text, translateReq.sl, translateReq.tl)
+        .then((r) => {
+          if (seq !== translateSeqRef.current) return; // a newer query superseded this
+          const entry = { text: r.text, provider: r.provider, detectedSource: r.detected_source };
+          translateCacheRef.current.set(translateKey, entry);
+          setLiveTranslation({ status: "ok", ...entry });
+        })
+        .catch(() => {
+          if (seq === translateSeqRef.current) setLiveTranslation({ status: "error" });
+        });
+    }, 350);
+    return () => window.clearTimeout(timer);
+    // translateReq is derived from translateKey; depend on the stable key only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [translateKey]);
 
   // ── Inline help (`?`): render command docs in the preview column ──────
   // A trailing `?` on a command/prefix (or `?` alone) asks for help; the
@@ -3747,6 +3808,7 @@ function App() {
                     onFigletOptsChange={(patch) =>
                       setFigletOptsOverride((prev) => ({ ...prev, ...patch }))
                     }
+                    liveTranslation={liveTranslation}
                     snippetCategories={snippetCategories}
                     snippetEditing={
                       current?.kind === "snippet" && snippetEditingId === current.data.id

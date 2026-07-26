@@ -1880,6 +1880,9 @@ function RecolorToolbar({ entryId }: { entryId: number }) {
  *  doesn't bother peeking at the chip overlay. */
 function TransformBar({ text, sourceId }: { text: string; sourceId?: number }) {
   const modHeld = useModifierHeld();
+  // Clicking the hint keeps the chips open without holding the modifier — the
+  // options stay reachable for mouse users (and while reading a long label).
+  const [pinned, setPinned] = useState(false);
 
   const run = async (kind: TransformKind) => {
     try {
@@ -1923,15 +1926,48 @@ function TransformBar({ text, sourceId }: { text: string; sourceId?: number }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [text]);
 
-  if (!modHeld) return null;
-
   const mod = IS_MAC ? "⌘" : "Ctrl+";
+  const modKey = IS_MAC ? "⌘" : "Ctrl";
+
+  // Until the modifier goes down the chips are hidden — which used to mean the
+  // whole feature was invisible. Show what unlocks it instead of nothing; the
+  // hint doubles as a button so the options are reachable by mouse too.
+  if (!modHeld && !pinned) {
+    return (
+      <button
+        type="button"
+        onClick={() => setPinned(true)}
+        title="Copy this entry in another shape — plain text, UPPERCASE, Base64, …"
+        className="md3-press mt-2 flex shrink-0 items-center gap-1.5 self-start rounded-lg border border-dashed border-[var(--color-border)] px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      >
+        <Type size={11} />
+        <span>
+          Hold{" "}
+          <kbd className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)] text-[9px] normal-case">
+            {modKey}
+          </kbd>{" "}
+          for formatting options
+        </span>
+      </button>
+    );
+  }
 
   return (
     <div className="mt-2 shrink-0 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-2">
       <div className="mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
         <Type size={12} className="text-[var(--color-accent)]" />
         Transform → new entry + clipboard
+        {pinned && (
+          <button
+            type="button"
+            onClick={() => setPinned(false)}
+            title="Hide the formatting options"
+            aria-label="Hide the formatting options"
+            className="ml-auto rounded px-1 text-[12px] leading-none hover:text-[var(--color-accent)]"
+          >
+            ×
+          </button>
+        )}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {TRANSFORMS.map((t) => {

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.2] — 2026-07-26
+
+### Changed
+
+- **The formatting options announce themselves.** The transform chips on a text / HTML / RTF clip only appear while the platform modifier is held, which meant that until you knew the trick the whole feature was invisible. The preview now shows a quiet `Hold ⌘ for formatting options` line in that slot instead of nothing (`Ctrl` on Windows/Linux). Clicking the hint pins the chips open, so the options are reachable by mouse as well — a `×` in the header collapses them again.
+
 ## [0.93.1] — 2026-07-26
 
 ### Fixed

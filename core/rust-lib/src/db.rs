@@ -198,6 +198,31 @@ pub fn set_note(db: &DbHandle, id: i64, note: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Attach lineage to an entry that doesn't have any yet (v0.93.3).
+///
+/// Used by the **backup restore**, which has to re-establish the rails after
+/// ids were reassigned on import. Unlike the live path — where a transform
+/// merely *happening* to produce existing text is a coincidence and must not
+/// relabel that row — a backup states a fact about this very clip, so filling
+/// an empty lineage is correct. It still never overwrites an existing one.
+pub fn set_lineage_if_absent(
+    db: &DbHandle,
+    id: i64,
+    derived_from: i64,
+    derived_kind: Option<&str>,
+) -> Result<()> {
+    let conn = db.lock();
+    conn.execute(
+        r#"
+        UPDATE entries
+           SET derived_from = ?2, derived_kind = ?3
+         WHERE id = ?1 AND derived_from IS NULL
+        "#,
+        params![id, derived_from, derived_kind],
+    )?;
+    Ok(())
+}
+
 pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
     let conn = db.lock();
     let mut stmt = conn.prepare(
@@ -566,6 +591,51 @@ mod tests {
         assert_eq!(der.derived_from, Some(source));
         assert_eq!(der.derived_kind.as_deref(), Some("upper"));
         assert!(der.last_used_at > source_pos, "the derived copy sorts to the top");
+    }
+
+    #[test]
+    fn every_read_path_returns_the_lineage() {
+        // `row_to_entry` addresses columns by INDEX, so the three SELECTs and
+        // the mapper have to agree. Reading a lineage back through all of them
+        // is the guard against a column being added to one query only — which
+        // would silently shift `pinned`/`note`/`derived_*` by one.
+        let db = test_db();
+        let source = upsert_clip(&db, &text_clip("src")).unwrap();
+        let derived =
+            upsert_clip_derived(&db, &text_clip("SRC"), Some(source), Some("upper")).unwrap();
+        set_pinned(&db, derived, true).unwrap();
+        set_note(&db, derived, Some("a note")).unwrap();
+
+        let from_get = get(&db, derived).unwrap().unwrap();
+        let from_list = list(&db, 10, 0).unwrap().into_iter().find(|e| e.id == derived).unwrap();
+        let from_slim =
+            list_slim(&db, 10, 0).unwrap().into_iter().find(|e| e.id == derived).unwrap();
+
+        for (name, row) in [("get", &from_get), ("list", &from_list), ("list_slim", &from_slim)] {
+            assert_eq!(row.derived_from, Some(source), "{name}: derived_from");
+            assert_eq!(row.derived_kind.as_deref(), Some("upper"), "{name}: derived_kind");
+            // The neighbouring columns must not have shifted either.
+            assert!(row.pinned, "{name}: pinned");
+            assert_eq!(row.note.as_deref(), Some("a note"), "{name}: note");
+            assert_eq!(row.content_text, "SRC", "{name}: content_text");
+        }
+    }
+
+    #[test]
+    fn set_lineage_if_absent_fills_only_an_empty_lineage() {
+        let db = test_db();
+        let a = upsert_clip(&db, &text_clip("a")).unwrap();
+        let b = upsert_clip(&db, &text_clip("b")).unwrap();
+        let c = upsert_clip(&db, &text_clip("c")).unwrap();
+
+        set_lineage_if_absent(&db, c, a, Some("upper")).unwrap();
+        assert_eq!(get(&db, c).unwrap().unwrap().derived_from, Some(a));
+
+        // A second call must not re-point an already-established rail.
+        set_lineage_if_absent(&db, c, b, Some("lower")).unwrap();
+        let row = get(&db, c).unwrap().unwrap();
+        assert_eq!(row.derived_from, Some(a), "existing lineage must win");
+        assert_eq!(row.derived_kind.as_deref(), Some("upper"));
     }
 
     #[test]

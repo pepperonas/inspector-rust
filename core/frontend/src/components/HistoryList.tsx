@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 import { Palette, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
-import { computeLineage, laneCount } from "../lib/lineage";
+import { computeLineage, railGutterPx } from "../lib/lineage";
 import type { ListEntry } from "../lib/types";
 
 interface Props {
@@ -53,10 +53,7 @@ export function HistoryList({
   // One uniform gutter for the whole list so rows never jitter as lanes come
   // and go while scrolling. Capped so a pathological number of concurrent
   // lineages can't eat the row.
-  const railGutter = useMemo(
-    () => (rails ? Math.min(laneCount(rails), 4) * 5 : 0),
-    [rails],
-  );
+  const railGutter = useMemo(() => railGutterPx(rails), [rails]);
 
   const virtualizer = useVirtualizer({
     count: entries.length,

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { computeLineage, laneCount, derivedKindLabel, LINEAGE_COLORS } from "./lineage";
+import {
+  computeLineage,
+  laneCount,
+  derivedKindLabel,
+  railGutterPx,
+  visibleRails,
+  LANE_W,
+  MAX_LANES,
+  LINEAGE_COLORS,
+} from "./lineage";
 import type { ClipEntry } from "./types";
 
 /** Minimal clip stub — only the fields `computeLineage` reads matter. */
@@ -135,6 +144,63 @@ describe("computeLineage", () => {
     // Defensive: a corrupt row pointing at itself must not spin the union-find.
     const rails = computeLineage([clip(1, 1), clip(2)]);
     expect(rails.get(1)![0].node).toBe(true);
+  });
+});
+
+describe("computeLineage — pruning gaps", () => {
+  it("does not bridge a chain whose middle link was pruned", () => {
+    // A ← B ← C, but B is gone from the list. C must stand alone rather than
+    // being wired to A, which it was never directly copied from.
+    const rails = computeLineage([clip(3, 2), clip(1)]); // C(from B), A
+    expect(rails.get(3)).toEqual([{ lane: 0, color: LINEAGE_COLORS[0], node: true }]);
+    expect(rails.has(1)).toBe(false);
+  });
+
+  it("leaves rows outside a lineage's span untouched", () => {
+    // Rows above and below the family must carry no rail at all.
+    const rails = computeLineage([clip(9), clip(10, 30), clip(30), clip(8)]);
+    expect(rails.has(9)).toBe(false);
+    expect(rails.has(8)).toBe(false);
+    expect(rails.size).toBe(2);
+  });
+});
+
+describe("railGutterPx / visibleRails", () => {
+  it("reserves exactly the width the renderer draws", () => {
+    // The gutter and the drawn rails share LANE_W/MAX_LANES — if they ever
+    // disagree, rails spill into the row text.
+    const rails = computeLineage([clip(1, 3), clip(2, 4), clip(3), clip(4)]);
+    expect(laneCount(rails)).toBe(2);
+    expect(railGutterPx(rails)).toBe(2 * LANE_W);
+    for (const list of rails.values()) {
+      for (const r of visibleRails(list)) {
+        expect(r.lane * LANE_W).toBeLessThan(railGutterPx(rails));
+      }
+    }
+  });
+
+  it("caps the gutter and hides the lanes that no longer fit", () => {
+    // Seven overlapping families → more lanes than a row can show.
+    const entries: ClipEntry[] = [];
+    for (let i = 0; i < 7; i++) entries.push(clip(100 + i, 200 + i));
+    for (let i = 0; i < 7; i++) entries.push(clip(200 + i));
+    const rails = computeLineage(entries);
+
+    expect(laneCount(rails)).toBe(7);
+    expect(railGutterPx(rails)).toBe(MAX_LANES * LANE_W);
+    // Nothing beyond the reserved gutter is drawn.
+    for (const list of rails.values()) {
+      for (const r of visibleRails(list)) expect(r.lane).toBeLessThan(MAX_LANES);
+    }
+    // The deep lane exists in the data but is not rendered.
+    expect(rails.get(106)!.some((r) => r.lane >= MAX_LANES)).toBe(true);
+    expect(visibleRails(rails.get(106)!).some((r) => r.lane >= MAX_LANES)).toBe(false);
+  });
+
+  it("reserves nothing when the rails are switched off", () => {
+    expect(railGutterPx(null)).toBe(0);
+    expect(railGutterPx(computeLineage([clip(1), clip(2)]))).toBe(0);
+    expect(visibleRails(undefined)).toEqual([]);
   });
 });
 

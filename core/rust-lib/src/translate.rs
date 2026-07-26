@@ -139,17 +139,33 @@ pub fn parse_mymemory(body: &str) -> Option<Translation> {
 /// succeeds (Google gtx, then MyMemory). Returns the last error if all fail —
 /// the caller then relies on the browser-open fallback. Blocking.
 pub fn translate(text: &str, sl: &str, tl: &str) -> Result<Translation, String> {
+    translate_with(&[&GoogleGtx, &MyMemory], text, sl, tl, TIMEOUT)
+}
+
+/// The provider-independent half of [`translate`]: input validation, the
+/// try-in-order fallback and the error that survives when everything failed.
+///
+/// Split out so the orchestration can be unit-tested with stub providers — the
+/// real ones need the network, but *which* provider gets asked, in what order,
+/// and what happens when one is unavailable is exactly the logic worth pinning
+/// down.
+fn translate_with(
+    providers: &[&dyn Provider],
+    text: &str,
+    sl: &str,
+    tl: &str,
+    timeout: Duration,
+) -> Result<Translation, String> {
     let text = text.trim();
     if text.is_empty() {
         return Err("empty text".into());
     }
-    let providers: [&dyn Provider; 2] = [&GoogleGtx, &MyMemory];
     let mut last_err = String::from("no provider available");
     for p in providers {
         if !p.supports_source(sl) {
             continue;
         }
-        match p.translate(text, sl, tl, TIMEOUT) {
+        match p.translate(text, sl, tl, timeout) {
             Ok(t) => {
                 tracing::debug!(
                     "translate {sl}->{tl} via {}: {} chars",
@@ -170,6 +186,128 @@ pub fn translate(text: &str, sl: &str, tl: &str) -> Result<Translation, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::cell::Cell;
+
+    /// A scripted provider: records whether it was asked, and answers with a
+    /// canned success or failure. Lets the fallback order be asserted without
+    /// touching the network.
+    struct Stub {
+        name: &'static str,
+        /// `false` → the orchestrator must skip it entirely (the MyMemory
+        /// "can't do `auto`" case).
+        handles_auto: bool,
+        ok: bool,
+        asked: Cell<bool>,
+    }
+
+    impl Stub {
+        fn new(name: &'static str, ok: bool) -> Self {
+            Self { name, handles_auto: true, ok, asked: Cell::new(false) }
+        }
+        fn no_auto(name: &'static str, ok: bool) -> Self {
+            Self { name, handles_auto: false, ok, asked: Cell::new(false) }
+        }
+    }
+
+    impl Provider for Stub {
+        fn name(&self) -> &'static str {
+            self.name
+        }
+        fn supports_source(&self, sl: &str) -> bool {
+            self.handles_auto || sl != "auto"
+        }
+        fn translate(
+            &self,
+            text: &str,
+            _sl: &str,
+            _tl: &str,
+            _t: Duration,
+        ) -> Result<Translation, String> {
+            self.asked.set(true);
+            if self.ok {
+                Ok(Translation {
+                    text: format!("{text} [{}]", self.name),
+                    detected_source: String::new(),
+                    provider: self.name.into(),
+                })
+            } else {
+                Err(format!("{} exploded", self.name))
+            }
+        }
+    }
+
+    const T: Duration = Duration::from_millis(10);
+
+    #[test]
+    fn the_first_provider_wins_and_the_rest_are_never_asked() {
+        let first = Stub::new("first", true);
+        let second = Stub::new("second", true);
+        let out = translate_with(&[&first, &second], "hi", "en", "de", T).unwrap();
+        assert_eq!(out.provider, "first");
+        assert!(first.asked.get());
+        assert!(!second.asked.get(), "the fallback must stay unused on success");
+    }
+
+    #[test]
+    fn a_failing_provider_falls_through_to_the_next() {
+        let broken = Stub::new("broken", false);
+        let backup = Stub::new("backup", true);
+        let out = translate_with(&[&broken, &backup], "hi", "en", "de", T).unwrap();
+        assert_eq!(out.provider, "backup");
+        assert!(broken.asked.get() && backup.asked.get());
+    }
+
+    #[test]
+    fn a_provider_that_cannot_handle_the_source_is_skipped_not_failed() {
+        // `trauto` sends sl="auto"; MyMemory needs a concrete language, so it
+        // must be passed over rather than asked and counted as a failure.
+        let picky = Stub::no_auto("picky", true);
+        let general = Stub::new("general", true);
+        let out = translate_with(&[&picky, &general], "hi", "auto", "de", T).unwrap();
+        assert_eq!(out.provider, "general");
+        assert!(!picky.asked.get(), "an unsupported source must not be attempted");
+
+        // …but with a concrete source it is asked first again.
+        let picky2 = Stub::no_auto("picky", true);
+        let out2 = translate_with(&[&picky2, &general], "hi", "en", "de", T).unwrap();
+        assert_eq!(out2.provider, "picky");
+    }
+
+    #[test]
+    fn the_last_error_survives_when_every_provider_failed() {
+        // The caller shows the browser fallback on `Err`, so the message has to
+        // describe the final attempt rather than a generic placeholder.
+        let a = Stub::new("a", false);
+        let b = Stub::new("b", false);
+        let err = translate_with(&[&a, &b], "hi", "en", "de", T).unwrap_err();
+        assert_eq!(err, "b exploded");
+    }
+
+    #[test]
+    fn no_usable_provider_still_reports_an_error() {
+        let picky = Stub::no_auto("picky", true);
+        let err = translate_with(&[&picky], "hi", "auto", "de", T).unwrap_err();
+        assert!(!err.is_empty());
+        assert!(!picky.asked.get());
+    }
+
+    #[test]
+    fn blank_input_is_rejected_before_any_provider_is_contacted() {
+        // The frontend debounces per keystroke — whitespace must never become a
+        // network request.
+        for blank in ["", "   ", "\n\t "] {
+            let p = Stub::new("p", true);
+            assert!(translate_with(&[&p], blank, "en", "de", T).is_err());
+            assert!(!p.asked.get(), "blank input must not reach a provider");
+        }
+    }
+
+    #[test]
+    fn the_text_is_trimmed_before_being_sent() {
+        let p = Stub::new("p", true);
+        let out = translate_with(&[&p], "  hello  ", "en", "de", T).unwrap();
+        assert_eq!(out.text, "hello [p]");
+    }
 
     #[test]
     fn parse_google_joins_sentence_segments_and_reads_source() {

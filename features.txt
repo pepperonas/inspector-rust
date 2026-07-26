@@ -13,7 +13,7 @@ Freisteller (Cut-out) — ML-Hintergrundentfernung (U2Netp, offline) per Cmd/Ctr
 Clipboard-Privacy — App-Ausschlussliste (z. B. Passwortmanager) + Auto-Clear nach N Sekunden
 Rich-Copy-Treue — kopiertes Markdown/Rich-Text behält seinen Quelltext (Umbrüche inklusive); Enter fügt MD als MD ein und hebt den Eintrag wieder nach oben
 Abgeleitete Kopien — Plain-Text/Transform-Kopien werden ein NEUER Eintrag ganz oben, das Original bleibt unverändert an seiner Position
-Lineage-Rails — farbige Pfade links in der Liste verbinden eine Kopie mit ihrem Original (wie eine Commit-History); abschaltbar unter Settings → Appearance
+Lineage-Rails — farbige Pfade links in der Liste verbinden eine Kopie mit ihrem Original (wie eine Commit-History); überstehen Backup/Restore (IDs werden neu zugeordnet); abschaltbar unter Settings → Appearance. Doku docs/clipboard-shapes.md
 Capture-Pause — Erfassung über Tray anhalten
 
 == Snippets & Text-Expander ==
@@ -50,7 +50,7 @@ Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Koll
 
 == Suchleisten-Commands ==
 Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
-Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a.: Live-Übersetzung direkt in der Preview beim Tippen (keyless Google gtx + MyMemory-Fallback, debounced + gecacht); Enter öffnet weiterhin Google Translate im Browser
+Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a.: Live-Übersetzung direkt in der Preview beim Tippen (keyless Google gtx + MyMemory-Fallback, debounced + gecacht); Enter öffnet weiterhin Google Translate im Browser. Doku docs/translation.md
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
 Fake-Testdaten — `faker [gen] [n] [@locale] [--json|csv|sql|ts]`: 70+ Generatoren × 14 Locales, Composites (person/user/address/order), Ranges (`int 1..100`), `--seed=` reproduzierbar, ⌘/Ctrl+R-Reroll, `tpl`-Templates, ehrlicher EN-Fallback; auch `{faker:…}` in Snippets; Settings → Faker

@@ -164,6 +164,29 @@ export function laneCount(rails: Map<number, Rail[]>): number {
   return max + 1;
 }
 
+/** Horizontal pitch of one lane, in px. */
+export const LANE_W = 5;
+
+/**
+ * How many lanes a row can show. Every lane widens the gutter, so an absurd
+ * number of concurrent lineages would eat the row; past this the deeper lanes
+ * are simply not drawn. Kept here — next to {@link railGutterPx} — because the
+ * gutter and the renderer must agree, or rails would spill into the text.
+ */
+export const MAX_LANES = 4;
+
+/** Gutter the list must reserve on the left for {@link visibleRails}. */
+export function railGutterPx(rails: Map<number, Rail[]> | null): number {
+  if (!rails) return 0;
+  return Math.min(laneCount(rails), MAX_LANES) * LANE_W;
+}
+
+/** The rails a row may actually draw — those that fit the reserved gutter. */
+export function visibleRails(rails: Rail[] | undefined): Rail[] {
+  if (!rails) return [];
+  return rails.filter((r) => r.lane < MAX_LANES);
+}
+
 /**
  * Human-readable label for a `derived_kind`, used in the rail tooltip.
  *

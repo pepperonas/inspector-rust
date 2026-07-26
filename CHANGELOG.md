@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.3] — 2026-07-26
+
+### Fixed
+
+- **Lineage survived nothing — a backup restore silently dropped it.** `derived_from` is a foreign key and row ids are reassigned on import, so the rails simply vanished when you restored a backup. The restore now maps old ids to new ones and re-points each rail; a rail whose source didn't make it into the backup is dropped rather than aimed at whatever unrelated clip now holds that id. Found by writing the round-trip test.
+- **Lineage rails could draw over the row text.** The gutter the list reserves was capped at four lanes while the renderer drew *all* of them, so more than four concurrent lineages spilled into the entry text. The lane width and cap now live in one place (`LANE_W` / `MAX_LANES`) shared by `railGutterPx` (what gets reserved) and `visibleRails` (what gets drawn), with a test asserting every drawn lane fits.
+
+### Added
+
+- **[`docs/clipboard-shapes.md`](./docs/clipboard-shapes.md)** — full reference for how a clipboard entry gets its content: what a rich copy actually carries, why copied Markdown used to arrive flattened, the three rules for what each copy does to the list, the lineage data model and lane algorithm, every deliberate edge case, and the settings.
+- **[`docs/translation.md`](./docs/translation.md)** — full reference for the `tr*` commands, including the **provider comparison** (Google `gtx`, MyMemory, DeepL Free, LibreTranslate, Argos — cost, keys, reliability, privacy and why each was chosen or rejected), the strategy pattern, and the debounce/cache/staleness model.
+- **28 new unit tests.** Translation: the provider fallback is now testable without the network (`translate_with` + stub providers) — first-wins, fall-through on failure, an unsupported source being *skipped* rather than failed, last-error survival, blank input never reaching a provider. Clipboard: every read path returns the lineage (a guard against the column-index coupling in `row_to_entry`), `set_lineage_if_absent` fills only an empty lineage, backup round-trip with remapped ids, dangling rails dropped, chains with a pruned middle link, gutter/clamp agreement.
+
 ## [0.93.2] — 2026-07-26
 
 ### Changed

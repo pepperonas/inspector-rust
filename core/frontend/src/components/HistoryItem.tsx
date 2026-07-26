@@ -3,7 +3,7 @@ import {
   BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
-import { derivedKindLabel, type Rail } from "../lib/lineage";
+import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 
 interface Props {
@@ -25,10 +25,6 @@ interface Props {
   style?: React.CSSProperties;
 }
 
-/** Width of one lineage lane, in px. Kept narrow: the rails live in the row's
- *  existing left padding, so switching them on never shifts the text. */
-const LANE_W = 5;
-
 /**
  * The git-graph rails on a row's left edge: a thin vertical line per lane the
  * row participates in, plus a dot where the row *is* a member of that lineage
@@ -36,14 +32,17 @@ const LANE_W = 5;
  * the row's padding — zero layout impact, so the toggle is purely visual.
  */
 function LineageRails({ rails, kind }: { rails?: Rail[]; kind?: string | null }) {
-  if (!rails || rails.length === 0) return null;
+  // Only the lanes the list reserved gutter for — otherwise a deep lane would
+  // draw over the row's text.
+  const drawn = visibleRails(rails);
+  if (drawn.length === 0) return null;
   return (
     <span
       aria-hidden
       className="pointer-events-none absolute inset-y-0 left-0"
       title={derivedKindLabel(kind)}
     >
-      {rails.map((r) => (
+      {drawn.map((r) => (
         <span key={r.lane}>
           <span
             className="absolute inset-y-0 w-[2px] opacity-60"

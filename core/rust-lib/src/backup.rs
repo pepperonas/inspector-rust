@@ -497,6 +497,10 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
 
     // 2) History — re-use the existing dedup-by-hash upsert. Duplicates
     //    just bump `last_used_at`; new rows respect the 1 000-entry cap.
+    // Row ids are assigned fresh here, so the clip lineage (`derived_from`, a
+    // foreign key) can only be restored once every row has landed — remember
+    // the old→new mapping and fix the rails up in a second pass below.
+    let mut id_map: std::collections::HashMap<i64, i64> = std::collections::HashMap::new();
     for (idx, entry) in backup.history.iter().enumerate() {
         let new_clip = NewClip {
             content_type: entry.content_type,
@@ -513,9 +517,21 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
                 if let Some(n) = entry.note.as_deref().filter(|s| !s.is_empty()) {
                     let _ = db::set_note(db, id, Some(n));
                 }
+                id_map.insert(entry.id, id);
                 result.history_imported += 1;
             }
             Err(e) => result.errors.push(format!("history #{idx}: {e}")),
+        }
+    }
+    // 2b) Re-point each restored copy at its restored source. A rail whose
+    //     source didn't make it into the backup (pruned before the export) is
+    //     simply dropped — better no rail than one aimed at a stranger.
+    for entry in backup.history.iter() {
+        let (Some(old_src), Some(&new_id)) = (entry.derived_from, id_map.get(&entry.id)) else {
+            continue;
+        };
+        if let Some(&new_src) = id_map.get(&old_src) {
+            let _ = db::set_lineage_if_absent(db, new_id, new_src, entry.derived_kind.as_deref());
         }
     }
 
@@ -915,6 +931,16 @@ mod tests {
         settings::init_table(&db).unwrap();
         totp_store::init_table(&db).unwrap();
         db
+    }
+
+    /// A plain-text clip, for the history round-trip tests.
+    fn clip(text: &str) -> NewClip {
+        NewClip {
+            content_type: ContentType::Text,
+            content_text: text.to_string(),
+            content_data: text.to_string(),
+            byte_size: text.len() as i64,
+        }
     }
 
     /// Seed one session with two events (one browser event with title+url),
@@ -1469,6 +1495,71 @@ mod tests {
         // …and the JSON carries no `timesheet` key at all.
         let json = serde_json::to_string(&b).unwrap();
         assert!(!json.contains("timesheet"));
+    }
+
+    #[test]
+    fn clip_lineage_survives_a_backup_round_trip_with_remapped_ids() {
+        // `derived_from` is a foreign key, and row ids are assigned fresh on
+        // import — so the restore has to REMAP it, not copy it. Copying would
+        // silently point the rail at whatever unrelated clip happens to own
+        // that id in the target database.
+        let db = fresh_db();
+        let source = db::upsert_clip(&db, &clip("Hello World")).unwrap();
+        let derived =
+            db::upsert_clip_derived(&db, &clip("HELLO WORLD"), Some(source), Some("upper")).unwrap();
+
+        let b = export(&db, ExportOptions::all()).unwrap();
+
+        // Import into a fresh db whose ids will NOT line up with the source's:
+        // two unrelated clips are inserted first so every id shifts.
+        let db2 = fresh_db();
+        db::upsert_clip(&db2, &clip("filler one")).unwrap();
+        db::upsert_clip(&db2, &clip("filler two")).unwrap();
+        import_json(&db2, &serde_json::to_string(&b).unwrap()).unwrap();
+
+        let rows = db::list(&db2, 100, 0).unwrap();
+        let src = rows.iter().find(|e| e.content_text == "Hello World").expect("source restored");
+        let der = rows.iter().find(|e| e.content_text == "HELLO WORLD").expect("copy restored");
+
+        assert_ne!(der.id, derived, "ids are reassigned on import");
+        assert_eq!(
+            der.derived_from,
+            Some(src.id),
+            "the rail must point at the RESTORED source, not the old id"
+        );
+        assert_eq!(der.derived_kind.as_deref(), Some("upper"));
+        assert_eq!(src.derived_from, None, "the source is not itself derived");
+    }
+
+    #[test]
+    fn a_rail_whose_source_is_missing_from_the_backup_is_dropped() {
+        // The source was pruned before the export, so only the copy is in the
+        // document. Carrying its old `derived_from` over would aim the rail at
+        // whichever unrelated clip happens to hold that id after import.
+        let db = fresh_db();
+        let mut b = export(&db, ExportOptions::all()).unwrap();
+        b.history.push(ClipEntry {
+            id: 42,
+            content_type: ContentType::Text,
+            content_text: "orphan copy".into(),
+            content_data: "orphan copy".into(),
+            hash: "does-not-matter".into(),
+            byte_size: 11,
+            created_at: 1,
+            last_used_at: 1,
+            pinned: false,
+            note: None,
+            derived_from: Some(41), // never exported
+            derived_kind: Some("upper".into()),
+        });
+
+        let db2 = fresh_db();
+        db::upsert_clip(&db2, &clip("an unrelated clip")).unwrap();
+        import_json(&db2, &serde_json::to_string(&b).unwrap()).unwrap();
+
+        let rows = db::list(&db2, 100, 0).unwrap();
+        let orphan = rows.iter().find(|e| e.content_text == "orphan copy").expect("imported");
+        assert_eq!(orphan.derived_from, None, "a dangling rail must be dropped");
     }
 
     #[test]

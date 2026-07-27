@@ -3,6 +3,7 @@ import {
   formatDuration,
   formatClock,
   localDateStr,
+  shortDayLabel,
   shiftDay,
   dayStartMs,
   dayEndMs,
@@ -263,5 +264,26 @@ describe("timesheet helpers", () => {
     expect(half.widthPct).toBeCloseTo(50, 6);
     // Degenerate zero-length day window.
     expect(timelineBand(day, day + hour, day, day + hour, day)).toBeNull();
+  });
+});
+
+describe("shortDayLabel", () => {
+  it("parses YYYY-MM-DD and includes the day-of-month (locale-independent)", () => {
+    // The exact weekday/month wording is locale-dependent, but the numeric day
+    // must survive the split + local Date construction intact.
+    expect(shortDayLabel("2026-07-27")).toContain("27");
+    expect(shortDayLabel("2026-01-05")).toContain("5");
+    expect(shortDayLabel("2026-12-31")).toContain("31");
+  });
+
+  it("distinguishes different dates", () => {
+    expect(shortDayLabel("2026-01-01")).not.toBe(shortDayLabel("2026-12-01"));
+  });
+
+  it("does not off-by-one across the month boundary (local, not UTC)", () => {
+    // Built as a LOCAL date, so the 1st never renders as the previous month's
+    // last day regardless of the runner's timezone.
+    expect(shortDayLabel("2026-03-01")).toContain("1");
+    expect(shortDayLabel("2026-03-01")).not.toContain("28");
   });
 });

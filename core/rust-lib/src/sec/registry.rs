@@ -303,3 +303,161 @@ pub static CATALOG: &[ToolSpec] = &[
     ToolSpec { name: "john", aliases: &["jtr", "ripper"], binary: "john", presets: JOHN_PRESETS, fields: JOHN_FIELDS, flag_help: JOHN_FLAG_HELP, notes: JOHN_NOTES },
     ToolSpec { name: "gobuster", aliases: &["gobust"], binary: "gobuster", presets: GOBUSTER_PRESETS, fields: GOBUSTER_FIELDS, flag_help: GOBUSTER_FLAG_HELP, notes: &["Added purely as a registry entry — proof that a new tool needs no code change."] },
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::collections::HashSet;
+
+    /// Every literal token a preset would emit, in order.
+    fn literals(p: &PresetSpec) -> Vec<&'static str> {
+        p.segments
+            .iter()
+            .filter_map(|s| match s {
+                Segment::Lit { text } => Some(*text),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn tool_names_and_aliases_are_globally_unique() {
+        // A name/alias that collides across tools would make the frontend's
+        // tool resolver ambiguous — the first hit would silently shadow the
+        // other. (sec/mod.rs checks per-tool uniqueness; this is the cross-tool
+        // guard.)
+        let mut seen = HashSet::new();
+        for t in CATALOG {
+            assert!(seen.insert(t.name), "duplicate tool name {}", t.name);
+            for a in t.aliases {
+                assert!(seen.insert(*a), "alias {a} collides (tool {})", t.name);
+            }
+        }
+    }
+
+    #[test]
+    fn preset_aliases_are_unique_within_a_tool_and_never_shadow_a_name() {
+        for t in CATALOG {
+            let mut seen = HashSet::new();
+            for p in t.presets {
+                assert!(seen.insert(p.name), "{}: preset name {} reused", t.name, p.name);
+            }
+            for p in t.presets {
+                for a in p.aliases {
+                    assert!(seen.insert(*a), "{}: preset alias {a} collides", t.name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_preset_starts_with_a_real_binary_token() {
+        // The first literal is the program that will actually run — it must be
+        // a non-flag word (the *2john helpers legitimately differ from the
+        // tool's own binary, so we don't force `== t.binary`).
+        for t in CATALOG {
+            for p in t.presets {
+                let first = literals(p)
+                    .into_iter()
+                    .next()
+                    .unwrap_or_else(|| panic!("{}::{} emits no literal", t.name, p.name));
+                assert!(!first.starts_with('-'), "{}::{} starts with a flag {first}", t.name, p.name);
+                assert!(!first.is_empty());
+            }
+        }
+    }
+
+    #[test]
+    fn each_tools_own_binary_appears_as_a_leading_literal_somewhere() {
+        // At least one preset must invoke the tool's declared binary directly
+        // (the prepare/*2john presets are the deliberate exception).
+        for t in CATALOG {
+            let runs_binary = t
+                .presets
+                .iter()
+                .any(|p| literals(p).first() == Some(&t.binary));
+            assert!(runs_binary, "{}: no preset invokes its binary {}", t.name, t.binary);
+        }
+    }
+
+    #[test]
+    fn sharp_flagging_is_honest_in_both_directions() {
+        // `sharp` is author-curated, NOT mechanically derived from the tags
+        // (e.g. `nmap os`/`stealth-syn` are needs-root but intentionally not
+        // sharp; `udp-top`/`vuln` are long-running but not sharp). Only two
+        // directions are guaranteed:
+        for t in CATALOG {
+            for p in t.presets {
+                // (1) A preset that WRITES TARGET DATA out must always confirm.
+                if p.tags.contains(&"writes-data") {
+                    assert!(p.sharp, "{}::{} writes data but is not sharp", t.name, p.name);
+                }
+                // (2) A sharp preset is never sharp without a reason — it must
+                // carry at least one honest danger tag.
+                if p.sharp {
+                    assert!(!p.tags.is_empty(), "{}::{} is sharp with no danger tag", t.name, p.name);
+                }
+            }
+        }
+        // Spot-check the three canonical destructive presets.
+        let sharp: HashSet<(&str, &str)> = CATALOG
+            .iter()
+            .flat_map(|t| t.presets.iter().filter(|p| p.sharp).map(move |p| (t.name, p.name)))
+            .collect();
+        for want in [("nmap", "full-tcp"), ("sqlmap", "dump"), ("john", "incremental")] {
+            assert!(sharp.contains(&want), "{want:?} must be sharp");
+        }
+    }
+
+    #[test]
+    fn no_preset_tag_is_marketing() {
+        // Tags are honest, non-marketing chips — the catalogue may only use the
+        // documented vocabulary, never a "stealth"/"bypass"/"undetectable" sell.
+        const ALLOWED: &[&str] =
+            &["long-running", "loud", "writes-data", "needs-root", "jumbo-only", "prepare"];
+        for t in CATALOG {
+            for p in t.presets {
+                for tag in p.tags {
+                    assert!(ALLOWED.contains(tag), "{}::{} has undocumented tag {tag}", t.name, p.name);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn required_fields_are_actually_emitted_by_the_presets_that_use_them() {
+        // If a preset lists a required field, the built command must contain a
+        // segment that emits it — otherwise the "required" placeholder never
+        // shows and the field is silently dead.
+        for t in CATALOG {
+            let required: HashSet<&str> =
+                t.fields.iter().filter(|f| f.required).map(|f| f.key).collect();
+            for p in t.presets {
+                let emitted: HashSet<&str> = p
+                    .segments
+                    .iter()
+                    .filter_map(|s| match s {
+                        Segment::Field { key } | Segment::Flag { key, .. } | Segment::Joined { key, .. } => Some(*key),
+                        Segment::Lit { .. } => None,
+                    })
+                    .collect();
+                for key in p.fields {
+                    if required.contains(key) {
+                        assert!(emitted.contains(key), "{}::{} declares required {key} but never emits it", t.name, p.name);
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn autocomplete_data_is_present_and_sane() {
+        assert!(!COMMON_WORDLISTS.is_empty());
+        for w in COMMON_WORDLISTS {
+            assert!(w.starts_with('/'), "wordlist path {w} is not absolute");
+        }
+        // Both John lines are represented so the Core/Jumbo filter has entries.
+        assert!(JOHN_FORMATS.iter().any(|f| !f.jumbo), "no Core formats");
+        assert!(JOHN_FORMATS.iter().any(|f| f.jumbo), "no Jumbo formats");
+    }
+}

@@ -512,3 +512,135 @@ pub fn lookup(name: &str) -> Option<&'static GenSpec> {
         .find(|g| g.name == n)
         .or_else(|| CATALOG.iter().find(|g| g.aliases.iter().any(|a| *a == n)))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Args::int_range ──────────────────────────────────────────────────────
+
+    fn args(raw: &str) -> Args {
+        Args::new(Some(raw.to_string()))
+    }
+
+    #[test]
+    fn int_range_none_and_garbage_fall_back_to_defaults() {
+        assert_eq!(Args::new(None).int_range(1, 100), (1, 100));
+        assert_eq!(args("nonsense").int_range(1, 100), (1, 100));
+        assert_eq!(args("").int_range(2, 9), (2, 9));
+        // A lone bound with no `..` is not a range → defaults, not a panic.
+        assert_eq!(args("50").int_range(1, 100), (1, 100));
+    }
+
+    #[test]
+    fn int_range_parses_exclusive_and_inclusive() {
+        assert_eq!(args("1..10").int_range(0, 0), (1, 10));
+        assert_eq!(args("1..=10").int_range(0, 0), (1, 10));
+        // `..=` is matched before `..`, so the trailing `=` is never leaked
+        // into the second bound (which would make it unparseable → default).
+        assert_eq!(args("5..=5").int_range(9, 9), (5, 5));
+    }
+
+    #[test]
+    fn int_range_swaps_a_reversed_range() {
+        // A reversed range is normalised, never yields lo > hi.
+        assert_eq!(args("100..1").int_range(0, 0), (1, 100));
+        assert_eq!(args("100..=1").int_range(0, 0), (1, 100));
+    }
+
+    #[test]
+    fn int_range_tolerates_whitespace_and_negatives() {
+        assert_eq!(args(" -5 .. 5 ").int_range(0, 0), (-5, 5));
+        assert_eq!(args("-10..-2").int_range(0, 0), (-10, -2));
+        // A single unparseable bound falls back to that side's default.
+        assert_eq!(args("x..10").int_range(1, 99), (1, 10));
+        assert_eq!(args("1..y").int_range(0, 99), (1, 99));
+    }
+
+    // ── Args::count ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn count_accepts_the_valid_band_and_clamps_the_rest_to_the_default() {
+        assert_eq!(args("5").count(3), 5);
+        assert_eq!(args("1").count(3), 1); // lower edge in-band
+        assert_eq!(args("200").count(3), 200); // upper edge in-band
+        assert_eq!(args("0").count(3), 3); // below band → default
+        assert_eq!(args("201").count(3), 3); // above band → default
+        assert_eq!(args("nope").count(7), 7); // garbage → default
+        assert_eq!(Args::new(None).count(4), 4); // absent → default
+        assert_eq!(args("  10 ").count(3), 10); // trimmed
+    }
+
+    // ── Args::fmt ────────────────────────────────────────────────────────────
+
+    #[test]
+    fn fmt_returns_the_raw_string_or_none_when_empty() {
+        assert_eq!(args("%d.%m.%Y").fmt(), Some("%d.%m.%Y"));
+        assert_eq!(args("").fmt(), None);
+        assert_eq!(Args::new(None).fmt(), None);
+        // A format made only of spaces is NOT empty → passed verbatim.
+        assert_eq!(args("   ").fmt(), Some("   "));
+    }
+
+    // ── lookup ───────────────────────────────────────────────────────────────
+
+    #[test]
+    fn lookup_is_case_and_whitespace_insensitive() {
+        assert_eq!(lookup("  FIRST_NAME ").unwrap().name, "first_name");
+        assert_eq!(lookup("VORNAME").unwrap().name, "first_name"); // via alias
+        assert!(lookup("definitely-not-a-generator").is_none());
+    }
+
+    #[test]
+    fn lookup_prefers_an_exact_name_over_an_alias() {
+        // `user` is a composite generator AND `username` is a separate one; the
+        // exact-name match must win regardless of table order.
+        assert!(lookup("user").unwrap().composite);
+        assert_eq!(lookup("username").unwrap().name, "username");
+    }
+
+    // ── CATALOG structural invariants ────────────────────────────────────────
+
+    #[test]
+    fn every_name_and_alias_is_globally_unique() {
+        let mut seen = std::collections::HashSet::new();
+        for g in CATALOG {
+            assert!(seen.insert(g.name), "duplicate generator name {}", g.name);
+            for a in g.aliases {
+                assert!(seen.insert(*a), "alias {a} collides (generator {})", g.name);
+            }
+        }
+    }
+
+    #[test]
+    fn names_and_aliases_are_lowercase_with_no_whitespace() {
+        // `lookup` lowercases the query, so an upper-case catalogue key would be
+        // permanently unreachable.
+        for g in CATALOG {
+            for key in std::iter::once(g.name).chain(g.aliases.iter().copied()) {
+                assert_eq!(key, key.to_ascii_lowercase(), "{key} must be lowercase");
+                assert!(!key.chars().any(char::is_whitespace), "{key} has whitespace");
+                assert!(!key.is_empty(), "empty key in generator {}", g.name);
+            }
+        }
+    }
+
+    #[test]
+    fn composites_declare_fields_and_scalars_do_not() {
+        for g in CATALOG {
+            if g.composite {
+                assert!(!g.fields.is_empty(), "composite {} has no fields", g.name);
+            } else {
+                assert!(g.fields.is_empty(), "scalar {} declares fields", g.name);
+            }
+        }
+    }
+
+    #[test]
+    fn every_generator_carries_a_category_and_description() {
+        for g in CATALOG {
+            assert!(!g.category.is_empty(), "{} has no category", g.name);
+            assert!(!g.description.is_empty(), "{} has no description", g.name);
+        }
+    }
+}

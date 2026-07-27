@@ -5,6 +5,7 @@ import {
   isBrunoPrefix,
   normaliseAmount,
   parseBrunoCommand,
+  brunoSelfAssumptions,
   type BrunoInput,
 } from "./bruno";
 
@@ -556,5 +557,52 @@ describe("formatBrunoSelfBreakdown", () => {
 
   it("carries the RV/AV + USt/§19 disclaimer", () => {
     expect(formatBrunoSelfBreakdown(view)).toContain("§ 19 Kleinunternehmer");
+  });
+});
+
+describe("brunoSelfAssumptions", () => {
+  const base = {
+    businessType: "freiberufler" as const,
+    hebesatz: 400,
+    kvType: "gkv" as const,
+    kvSickPay: false,
+    children: 0,
+    isChurchMember: false,
+    married: false,
+    state: "nw",
+  };
+
+  it("describes the freelancer default (no trade tax, ermäßigt GKV, single, childless)", () => {
+    const s = brunoSelfAssumptions(base);
+    expect(s).toContain("Freiberufler (keine GewSt)");
+    expect(s).toContain("GKV freiwillig ermäßigt");
+    expect(s).toContain("Grundtarif");
+    expect(s).toContain("kinderlos");
+    expect(s).toContain("keine Kirchensteuer");
+  });
+
+  it("shows the Hebesatz only for a Gewerbebetrieb", () => {
+    expect(brunoSelfAssumptions({ ...base, businessType: "gewerbe", hebesatz: 470 })).toContain(
+      "Gewerbebetrieb · Hebesatz 470 %",
+    );
+    expect(brunoSelfAssumptions(base)).not.toContain("Hebesatz");
+  });
+
+  it("switches GKV variants and PKV", () => {
+    expect(brunoSelfAssumptions({ ...base, kvSickPay: true })).toContain("GKV freiwillig mit Krankengeld");
+    expect(brunoSelfAssumptions({ ...base, kvType: "pkv" })).toContain("PKV (Fixbeitrag)");
+  });
+
+  it("pluralises children and flips marriage/church", () => {
+    expect(brunoSelfAssumptions({ ...base, children: 1 })).toContain("1 Kind");
+    const many = brunoSelfAssumptions({ ...base, children: 3 });
+    expect(many).toContain("3 Kinder");
+    const wed = brunoSelfAssumptions({ ...base, married: true, isChurchMember: true });
+    expect(wed).toContain("Splittingtarif");
+    expect(wed).toContain("kirchensteuerpflichtig");
+  });
+
+  it("uses the state label, falling back to upper-case for an unknown code", () => {
+    expect(brunoSelfAssumptions({ ...base, state: "zz" })).toContain("ZZ");
   });
 });

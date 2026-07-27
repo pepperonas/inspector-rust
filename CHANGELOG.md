@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.93.4] — 2026-07-27
+
+### Added
+
+- **~50 new unit tests over previously untested pure surfaces.** Two registry modules that had *no* tests now carry structural + parser guards, and six pure frontend helpers gained coverage:
+  - **`faker/registry.rs`** — the `Args` parser (int-range: exclusive/inclusive/reversed-swap/whitespace/negatives/garbage; count clamping to the 1–200 band; `fmt` empty-vs-verbatim), `lookup` (case/whitespace-insensitive, exact-name-beats-alias), and catalogue invariants (globally-unique lowercase names/aliases, composites-declare-fields, every generator categorised).
+  - **`sec/registry.rs`** — cross-tool invariants the per-tool checks in `sec/mod.rs` didn't cover: tool names/aliases globally unique, preset aliases never shadow a name, every preset starts with a real binary token, each tool invokes its own binary somewhere, required fields are actually emitted, and the tag vocabulary is the honest non-marketing set.
+  - **Frontend** — `sec.ts` `findTool` + `presetFlagHelp`, `faker.ts` `fuzzyScore` (exact > prefix > infix > trailing-typo > anchored-subsequence > description), `commands.ts` `parseTrackArg`, `space-invaders.ts` `formationWidth` (centred, no trailing gap), `timesheet.ts` `shortDayLabel` (locale-robust, no month-boundary off-by-one), `bruno.ts` `brunoSelfAssumptions`.
+
+### Fixed
+
+- **`sec` `sharp` flagging is now pinned as author-curated, not tag-derived.** Writing the invariant test surfaced that `sharp` is *not* mechanically derived from the danger tags (`nmap os`/`stealth-syn` are `needs-root` but deliberately not sharp; `udp-top`/`vuln` are `long-running` but not sharp). The test asserts only the two directions that are actually guaranteed — a `writes-data` preset must confirm, and a sharp preset always carries a danger tag — rather than an over-strong rule the code never promised.
+
 ## [0.93.3] — 2026-07-26
 
 ### Fixed

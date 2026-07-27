@@ -8,6 +8,7 @@ import {
   fuzzyScore,
   parseAlarmArg,
   parseWakelockArg,
+  parseTrackArg,
   parseDiscoArg,
   isGetShakyTrigger,
   isOpenerTrigger,
@@ -1195,5 +1196,30 @@ describe("platform gating", () => {
       expect(c.platform.length).toBeGreaterThan(0);
       for (const p of c.platform) expect(["mac", "win", "linux"]).toContain(p);
     }
+  });
+});
+
+describe("parseTrackArg", () => {
+  it("treats an empty / whitespace arg as 'open the tab'", () => {
+    expect(parseTrackArg("")).toBe("open");
+    expect(parseTrackArg("   ")).toBe("open");
+  });
+
+  it("accepts every start synonym", () => {
+    for (const a of ["on", "start", "1", "ON", " Start "]) {
+      expect(parseTrackArg(a)).toBe("on");
+    }
+  });
+
+  it("accepts every stop synonym", () => {
+    for (const a of ["off", "stop", "0", "OFF", " Stop "]) {
+      expect(parseTrackArg(a)).toBe("off");
+    }
+  });
+
+  it("rejects anything else", () => {
+    expect(parseTrackArg("pause")).toBeNull();
+    expect(parseTrackArg("2")).toBeNull();
+    expect(parseTrackArg("onn")).toBeNull();
   });
 });

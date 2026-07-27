@@ -16,6 +16,9 @@ import {
   createFormation,
   dropFormation,
   formationExtents,
+  formationWidth,
+  ALIEN_COLS,
+  ALIEN_GAP_X,
   frameScale,
   movePlayer,
   pickShooter,
@@ -239,5 +242,22 @@ describe("pickShooter", () => {
     aliens.forEach((a) => (a.alive = false));
     aliens[27].alive = true;
     expect(pickShooter(aliens)).toBe(aliens[27]);
+  });
+});
+
+describe("formationWidth", () => {
+  it("spans all columns with gaps only between them (no trailing gap)", () => {
+    expect(formationWidth()).toBe(ALIEN_COLS * ALIEN_W + (ALIEN_COLS - 1) * ALIEN_GAP_X);
+  });
+
+  it("centres the created formation inside the field", () => {
+    const fieldW = 800;
+    const aliens = createFormation(fieldW, 40);
+    const xs = aliens.map((a) => a.x);
+    const left = Math.min(...xs);
+    const right = Math.max(...xs) + ALIEN_W;
+    // Equal margin on both sides → the row is centred.
+    expect(left).toBeCloseTo(fieldW - right, 5);
+    expect(right - left).toBe(formationWidth());
   });
 });

@@ -6,6 +6,7 @@ import {
   matchCatalog,
   resolveGenerator,
   fuzzyBest,
+  fuzzyScore,
   type CatalogEntry,
   type FakerDefaults,
   type FakerGenResult,
@@ -219,5 +220,49 @@ describe("formatters", () => {
   it("ts scalar emits an array of literals with escaped quotes", () => {
     const out = formatValues(scalarResult(['a"b', "c"]), "ts");
     expect(out).toBe('const data = ["a\\"b", "c"];');
+  });
+});
+
+describe("fuzzyScore", () => {
+  const email = CAT[0]; // name "email", alias "mail"
+  const zip = CAT[1]; // name "zip", aliases "plz"/"postcode"
+
+  it("ranks an exact match best, then prefix, then infix (lower = better)", () => {
+    const exact = fuzzyScore(email, "email")!;
+    const prefix = fuzzyScore(email, "ema")!;
+    const infix = fuzzyScore(email, "mai")!; // "mail" alias contains "mai"? prefix actually
+    expect(exact).toBeLessThan(prefix);
+    expect(prefix).toBeLessThan(0);
+    expect(infix).toBeLessThan(0);
+  });
+
+  it("scores against the best of name + aliases", () => {
+    // "plz" is an exact alias → beats a mere prefix of the name.
+    expect(fuzzyScore(zip, "plz")).toBe(-1000);
+    expect(fuzzyScore(zip, "postcode")).toBe(-1000);
+  });
+
+  it("matches a trailing-typo query (plzz → plz)", () => {
+    // The query is one char longer than the alias but within the fuzz window.
+    expect(fuzzyScore(zip, "plzz")).not.toBeNull();
+    // Too far off → no match.
+    expect(fuzzyScore(zip, "plzzzz")).toBeNull();
+  });
+
+  it("matches a first-char-anchored subsequence of 3+ chars", () => {
+    // "pstcd" is a subsequence of "postcode" anchored on 'p'.
+    expect(fuzzyScore(zip, "pstcd")).not.toBeNull();
+    // "otd" is a subsequence of "postcode" but NOT anchored on 'p' and not an
+    // infix → no match (the anchor guard is what stops noisy hits).
+    expect(fuzzyScore(zip, "otd")).toBeNull();
+  });
+
+  it("falls back to a weak description-contains match", () => {
+    // "postal" is only in the description, not the name/aliases → weak (500).
+    expect(fuzzyScore(zip, "postal")).toBe(500);
+  });
+
+  it("returns null when nothing matches", () => {
+    expect(fuzzyScore(email, "xyz")).toBeNull();
   });
 });

@@ -6,6 +6,8 @@ import {
   requiredKeys,
   visiblePresets,
   matchPresets,
+  findTool,
+  presetFlagHelp,
   type SecCatalog,
   type SecDefaults,
   type ToolSpec,
@@ -314,5 +316,59 @@ describe("John Core/Jumbo gating + fuzzy", () => {
   it("fuzzy finds presets over alias/description", () => {
     expect(matchPresets("vers", NMAP.presets).map((p) => p.name)).toContain("service");
     expect(matchPresets("brute", JOHN.presets).map((p) => p.name)).toContain("incremental");
+  });
+});
+
+describe("findTool", () => {
+  it("resolves by exact name, case-insensitively", () => {
+    expect(findTool("nmap", CAT)?.name).toBe("nmap");
+    expect(findTool("NMAP", CAT)?.name).toBe("nmap");
+    expect(findTool("  John  ".trim(), CAT)?.name).toBe("john");
+  });
+
+  it("resolves by alias when the name misses", () => {
+    expect(findTool("scan", CAT)?.name).toBe("nmap");
+    expect(findTool("ferox", CAT)?.name).toBe("feroxbuster");
+    expect(findTool("jtr", CAT)?.name).toBe("john");
+  });
+
+  it("prefers an exact name over another tool's alias", () => {
+    // A tool literally named after another's alias must still win by name.
+    const shadow: SecCatalog = {
+      ...CAT,
+      tools: [{ ...FEROX, name: "scan", aliases: [] }, NMAP],
+    };
+    // "scan" is now FEROX's name AND NMAP's alias → the name wins.
+    expect(findTool("scan", shadow)?.name).toBe("scan");
+  });
+
+  it("returns undefined for an unknown tool", () => {
+    expect(findTool("hydra", CAT)).toBeUndefined();
+  });
+});
+
+describe("presetFlagHelp", () => {
+  it("returns only the flags the preset actually emits, in catalogue order", () => {
+    const service = NMAP.presets.find((p) => p.name === "service")!;
+    const help = presetFlagHelp(NMAP, service);
+    const flags = help.map(([f]) => f);
+    // -sV/-sC (bare-flag literals) + -p/-T/-oA (flag/joined) are used…
+    expect(flags).toEqual(["-sV", "-sC", "-p", "-T", "-oA"]);
+    // …and -p- (a different preset's literal) is not.
+    expect(flags).not.toContain("-p-");
+  });
+
+  it("covers each segment kind that contributes a flag", () => {
+    const full = NMAP.presets.find((p) => p.name === "full-tcp")!;
+    const flags = presetFlagHelp(NMAP, full).map(([f]) => f);
+    expect(flags).toContain("-p-"); // bare-flag literal
+    expect(flags).toContain("-p"); // flag segment
+    expect(flags).toContain("-T"); // joined segment
+  });
+
+  it("is empty when no used flag has help", () => {
+    const dir = FEROX.presets[0];
+    // FEROX only has -u/-w help, both used → non-empty; strip the help table.
+    expect(presetFlagHelp({ ...FEROX, flag_help: [] }, dir)).toEqual([]);
   });
 });

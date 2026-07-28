@@ -1,21 +1,26 @@
-//! Listen-only Escape watcher (macOS, v0.88.1).
+//! Unfocused-popup Escape watcher (macOS, v0.88.1).
 //!
-//! When the user disables "click outside closes the popup"
-//! (`popup.close_on_blur = false`), the overlay stays open while focus lives
-//! elsewhere — and the webview then receives no key events, so Esc couldn't
-//! close it. This module arms an active `CGEventTap` that watches for the
-//! Escape keycode and hides the popup. The Esc that dismisses the popup is
-//! **consumed** (v0.94.0) so it never leaks to the focused app underneath —
-//! it was meant to close the overlay, not to also cancel a dialog / exit an
-//! editor mode / deselect in whatever app is behind it. Because the arm is
-//! **one-shot** (it disarms after the first Esc), only that dismissing Esc is
-//! swallowed; every later Esc flows to the focused app as usual.
+//! When the popup is visible on screen but another app holds keyboard focus,
+//! the webview receives no key events, so Esc couldn't close it. This module
+//! arms an active `CGEventTap` that watches for the Escape keycode, hides the
+//! popup, and **consumes** that dismissing Esc (v0.94.0) so it never leaks to
+//! the focused app underneath — it was meant to close the overlay, not to also
+//! cancel a dialog / exit an editor mode / deselect in whatever app is behind
+//! it. Because the arm is **one-shot** (it disarms after the first Esc), only
+//! that dismissing Esc is swallowed; every later Esc flows to the focused app
+//! as usual.
 //!
-//! Armed ONLY while: popup visible + unfocused + close-on-blur disabled.
-//! Disarmed on focus-regain and on hide. The tap thread is created lazily on
-//! the first arm and stays alive, gated by an `ARMED` atomic — arming after
-//! that is a store, never an FFI call (the global-shortcut-mutex deadlock
-//! lesson from the record overlay doesn't apply here, but cheap is cheap).
+//! Armed while: popup **visible + unfocused**, in BOTH `close_on_blur` states
+//! (v0.94.0 — the guarantee "if IR is on screen, Esc kills IR, not the app
+//! behind it" must not depend on the setting). With `close_on_blur` ON the
+//! popup usually also auto-hides on blur (which disarms this again via
+//! `hide_popup`), so the watcher only bites while the popup LINGERS visible —
+//! the post-show grace window, or a modal keeping it open. With `close_on_blur`
+//! OFF the popup stays open unfocused, which is its whole point. Disarmed on
+//! focus-regain and on hide, so it's NEVER armed while the popup is focused
+//! (the webview keeps its own Esc semantics then). The tap thread is created
+//! lazily on the first arm and stays alive, gated by an `ARMED` atomic — arming
+//! after that is a store, never an FFI call.
 //!
 //! Uses the same raw-FFI pattern as `input_lock.rs` / `gestures`; needs the
 //! Accessibility grant the expander already holds. Without the grant the tap

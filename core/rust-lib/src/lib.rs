@@ -475,16 +475,27 @@ pub fn run(context: tauri::Context<Wry>) {
                             // click-outside must NOT close → skip every
                             // auto-hide path; Esc / the toggle hotkey remain
                             // the only ways to dismiss.
+                            // macOS: whenever the popup is VISIBLE but just lost
+                            // focus, arm the Esc watcher so the dismissing Esc
+                            // closes IR and is CONSUMED (never leaks to the app
+                            // underneath). This is done for BOTH close_on_blur
+                            // states — consistency: "if IR is on screen, Esc
+                            // kills IR, not the app behind it." When close_on_blur
+                            // is ON the popup also auto-hides below, and
+                            // `hide_popup` disarms the watcher again, so the arm
+                            // only bites while the popup LINGERS visible (post-show
+                            // grace, or a modal/overlay keeping it open). Never
+                            // armed while focused — `Focused(true)` disarms — so the
+                            // webview keeps its own Esc semantics (inline-panel
+                            // "back" etc.) when IR has focus.
+                            #[cfg(target_os = "macos")]
+                            if win_for_events.is_visible().unwrap_or(false) {
+                                esc_watch::arm(&app_handle);
+                            }
                             if !close_on_blur.load(Ordering::Relaxed) {
                                 // The popup stays open while unfocused — the
-                                // webview gets no key events now, so an active
-                                // global tap watches for Esc (macOS) and
-                                // CONSUMES the dismissing keypress so it never
-                                // leaks to the app underneath.
-                                #[cfg(target_os = "macos")]
-                                if win_for_events.is_visible().unwrap_or(false) {
-                                    esc_watch::arm(&app_handle);
-                                }
+                                // webview gets no key events now, so the armed
+                                // watcher above is what closes it on Esc.
                                 return;
                             }
                             #[cfg(target_os = "windows")]

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.94.1] — 2026-07-28
+
+### Changed
+
+- **The Esc-swallow guarantee no longer depends on the "click outside closes the popup" setting.** v0.94.0 only consumed the dismissing Escape when that setting was OFF (the only path that armed the watcher). Now the Escape watcher is armed whenever the popup is **visible but unfocused**, in both settings — so "if IR is on screen, Escape closes IR and never reaches the app behind it" holds consistently. With the setting ON the popup still auto-hides on focus loss (and `hide_popup` disarms the watcher), so this only bites while the popup lingers visible — right after opening, or when a modal keeps it open — but there Escape is now swallowed too instead of leaking. macOS.
+
 ## [0.94.0] — 2026-07-28
 
 ### Added

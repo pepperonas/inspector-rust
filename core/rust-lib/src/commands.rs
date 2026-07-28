@@ -1522,6 +1522,13 @@ pub fn list_snippets(db: State<'_, DbHandle>) -> Result<Vec<Snippet>, String> {
 }
 
 #[tauri::command]
+pub fn get_snippet_storage(
+    db: State<'_, DbHandle>,
+) -> Result<snippets::SnippetStorage, String> {
+    snippets::storage_stats(&db).map_err(map_err)
+}
+
+#[tauri::command]
 pub fn find_snippets(
     db: State<'_, DbHandle>,
     query: String,

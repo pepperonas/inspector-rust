@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.95.0] — 2026-07-28
+
+### Added
+
+- **Snippet storage readout in Settings.** A new **Settings → Snippets** section shows how many snippets you have and how much space they occupy on disk (`get_snippet_storage` sums the stored column bytes; the AES-encrypted body counts at its real ciphertext size). Deep-linkable via `settings snippets` / `settings speicher`.
+
+### Changed
+
+- **The Snippets tab is virtualised** (`@tanstack/react-virtual`, same as the clipboard list), so thousands of snippets scroll smoothly instead of rendering every row at once.
+
+### Note
+
+- **There was never a 1000-snippet limit.** The `MAX_ENTRIES = 1000` cap applies only to clipboard *history*; the snippets table is never pruned and `list_all` returns every row — you can already store as many snippets as you like. The virtualisation above just makes browsing that many pleasant.
+
 ## [0.94.1] — 2026-07-28
 
 ### Changed

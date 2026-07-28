@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useVirtualizer } from "@tanstack/react-virtual";
 import { open, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import { confirmDialog } from "../lib/confirm";
@@ -84,6 +85,17 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
     const name = catName.get(filter);
     return snippets.filter((s) => s.category === name);
   }, [snippets, filter, catName]);
+
+  // Virtualise the list so thousands of snippets scroll smoothly (there is no
+  // cap on how many you can store). Dynamic measurement handles the ~2-line
+  // rows without a hard-coded height.
+  const listRef = useRef<HTMLDivElement>(null);
+  const rowVirtualizer = useVirtualizer({
+    count: visible.length,
+    getScrollElement: () => listRef.current,
+    estimateSize: () => 46,
+    overscan: 10,
+  });
 
   const openNew = () => {
     // Pre-fill the group from the current filter for a fast "add to this group".
@@ -367,78 +379,93 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
           </div>
         )}
 
-        <div className="flex-1 overflow-auto">
-          {visible.length === 0 && (
+        <div ref={listRef} className="flex-1 overflow-auto">
+          {visible.length === 0 ? (
             <div className="flex h-full items-center justify-center text-[12px] text-[var(--color-muted)]">
               {snippets.length === 0 ? "No snippets yet" : "No snippets in this group"}
             </div>
-          )}
-          {visible.map((s) => {
-            const isActive = form?.id === s.id;
-            return (
-              <div
-                key={s.id}
-                onClick={() => openEdit(s)}
-                className={
-                  "group flex cursor-pointer items-start gap-2 px-3 py-2 text-[12px] " +
-                  (isActive
-                    ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
-                    : "hover:bg-[var(--color-surface)]")
-                }
-              >
-                <Zap
-                  size={12}
-                  className={"mt-0.5 shrink-0 " + (isActive ? "text-white/80" : "text-[var(--color-accent)]")}
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate font-[var(--font-mono)] font-medium">{s.abbreviation}</div>
+          ) : (
+            <div
+              style={{ height: rowVirtualizer.getTotalSize(), width: "100%", position: "relative" }}
+            >
+              {rowVirtualizer.getVirtualItems().map((vr) => {
+                const s = visible[vr.index];
+                const isActive = form?.id === s.id;
+                return (
                   <div
+                    key={s.id}
+                    data-index={vr.index}
+                    ref={rowVirtualizer.measureElement}
+                    onClick={() => openEdit(s)}
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      width: "100%",
+                      transform: `translateY(${vr.start}px)`,
+                    }}
                     className={
-                      "truncate text-[11px] " + (isActive ? "text-white/70" : "text-[var(--color-muted)]")
+                      "group flex cursor-pointer items-start gap-2 px-3 py-2 text-[12px] " +
+                      (isActive
+                        ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                        : "hover:bg-[var(--color-surface)]")
                     }
                   >
-                    {s.title || s.body.split("\n")[0]}
+                    <Zap
+                      size={12}
+                      className={"mt-0.5 shrink-0 " + (isActive ? "text-white/80" : "text-[var(--color-accent)]")}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-[var(--font-mono)] font-medium">{s.abbreviation}</div>
+                      <div
+                        className={
+                          "truncate text-[11px] " + (isActive ? "text-white/70" : "text-[var(--color-muted)]")
+                        }
+                      >
+                        {s.title || s.body.split("\n")[0]}
+                      </div>
+                    </div>
+                    {/* Group badge — only when viewing "All" so it's not redundant. */}
+                    {s.category && filter === null && (
+                      <span
+                        className={
+                          "mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[9px] " +
+                          (isActive ? "bg-white/20 text-white/90" : "bg-[var(--color-surface)] text-[var(--color-muted)]")
+                        }
+                      >
+                        {s.category}
+                      </span>
+                    )}
+                    {/* Version badge (cue-compatible content revision). */}
+                    <span
+                      className={
+                        "mt-0.5 shrink-0 font-[var(--font-mono)] text-[9px] tabular-nums " +
+                        (isActive ? "text-white/60" : "text-[var(--color-muted)]/70")
+                      }
+                      title={`Version ${s.version ?? 1}`}
+                    >
+                      v{s.version ?? 1}
+                    </span>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        void remove(s.id);
+                      }}
+                      className={
+                        "shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 " +
+                        (isActive
+                          ? "text-white/80 hover:bg-white/20"
+                          : "text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-red-400")
+                      }
+                      title="Delete snippet"
+                    >
+                      <Trash2 size={12} />
+                    </button>
                   </div>
-                </div>
-                {/* Group badge — only when viewing "All" so it's not redundant. */}
-                {s.category && filter === null && (
-                  <span
-                    className={
-                      "mt-0.5 shrink-0 rounded-full px-1.5 py-0.5 text-[9px] " +
-                      (isActive ? "bg-white/20 text-white/90" : "bg-[var(--color-surface)] text-[var(--color-muted)]")
-                    }
-                  >
-                    {s.category}
-                  </span>
-                )}
-                {/* Version badge (cue-compatible content revision). */}
-                <span
-                  className={
-                    "mt-0.5 shrink-0 font-[var(--font-mono)] text-[9px] tabular-nums " +
-                    (isActive ? "text-white/60" : "text-[var(--color-muted)]/70")
-                  }
-                  title={`Version ${s.version ?? 1}`}
-                >
-                  v{s.version ?? 1}
-                </span>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    void remove(s.id);
-                  }}
-                  className={
-                    "shrink-0 rounded p-0.5 opacity-0 group-hover:opacity-100 " +
-                    (isActive
-                      ? "text-white/80 hover:bg-white/20"
-                      : "text-[var(--color-muted)] hover:bg-[var(--color-border)] hover:text-red-400")
-                  }
-                  title="Delete snippet"
-                >
-                  <Trash2 size={12} />
-                </button>
-              </div>
-            );
-          })}
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 

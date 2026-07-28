@@ -57,6 +57,8 @@ import {
   brunoSetDefaults,
   getMemeDir,
   setMemeDir,
+  getSnippetStorage,
+  type SnippetStorage,
   getLineageHighlight,
   setLineageHighlight,
   getTimesheetConfig,
@@ -1723,6 +1725,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               </ul>
             </details>
           </Section>
+        </div>
+
+        {/* Snippets — count + on-disk storage (v0.95.0) */}
+        <div className="mt-8">
+          <SnippetsSection />
         </div>
 
         {/* Clipboard privacy (v0.76.0) */}
@@ -4732,6 +4739,49 @@ function MemeSection() {
         Animated previews only render for folders inside the scoped default location; a
         custom folder still lists and copies memes.
       </p>
+    </Section>
+  );
+}
+
+function SnippetsSection() {
+  const [stats, setStats] = useState<SnippetStorage | null>(null);
+
+  // Re-read on every mount. The Settings content subtree is keyed on the
+  // active tab in App.tsx, so it remounts each time Settings is opened → the
+  // figure is always current without event plumbing.
+  useEffect(() => {
+    let alive = true;
+    getSnippetStorage()
+      .then((s) => alive && setStats(s))
+      .catch(() => alive && setStats({ count: 0, bytes: 0 }));
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  return (
+    <Section
+      icon={<Zap size={16} className="text-[var(--color-accent)]" />}
+      id="snippets"
+      title="Snippets"
+      subtitle="Text-expander templates, managed in the Snippets tab. There is no cap on how many you can store — this just shows how much space they take up."
+    >
+      <div className="flex items-baseline gap-8">
+        <div>
+          <div className="text-[22px] font-semibold tabular-nums">
+            {stats ? stats.count.toLocaleString() : "…"}
+          </div>
+          <div className="text-[11px] text-[var(--color-muted)]">
+            snippet{stats && stats.count === 1 ? "" : "s"}
+          </div>
+        </div>
+        <div>
+          <div className="text-[22px] font-semibold tabular-nums">
+            {stats ? formatBytes(stats.bytes) : "…"}
+          </div>
+          <div className="text-[11px] text-[var(--color-muted)]">on disk (encrypted)</div>
+        </div>
+      </div>
     </Section>
   );
 }

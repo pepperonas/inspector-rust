@@ -24,6 +24,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "popup-hotkey", label: "Popup hotkey", names: ["popup", "hotkey", "popup hotkey"] },
   { id: "global-shortcuts", label: "Global shortcuts", names: ["shortcuts", "global shortcuts", "hotkeys", "tastatur", "keyboard"] },
   { id: "expander", label: "Text expander", names: ["expander", "text expander", "snippets expander", "abbreviation"] },
+  { id: "snippets", label: "Snippets", names: ["snippets", "snippet", "storage", "speicher", "count"] },
   { id: "appearance", label: "Appearance", names: ["appearance", "theme", "darstellung", "dark", "light", "size"] },
   { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear"] },
   { id: "cleaning", label: "Cleaning", names: ["cleaning", "clean", "cleaner", "aufräumen"] },

@@ -615,6 +615,16 @@ export function listSnippets(): Promise<Snippet[]> {
   return invoke("list_snippets");
 }
 
+/** Snippet count + on-disk footprint (bytes of the stored, encrypted columns). */
+export interface SnippetStorage {
+  count: number;
+  bytes: number;
+}
+
+export function getSnippetStorage(): Promise<SnippetStorage> {
+  return invoke("get_snippet_storage");
+}
+
 export function findSnippets(query: string): Promise<Snippet[]> {
   return invoke("find_snippets", { query });
 }

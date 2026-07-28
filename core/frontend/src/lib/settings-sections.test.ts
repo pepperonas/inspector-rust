@@ -45,6 +45,12 @@ describe("matchSettingsSection", () => {
     expect(matchSettingsSection("aufräumen")?.id).toBe("cleaning");
   });
 
+  it("routes snippets + storage synonyms to the Snippets section", () => {
+    expect(matchSettingsSection("snippets")?.id).toBe("snippets");
+    expect(matchSettingsSection("storage")?.id).toBe("snippets");
+    expect(matchSettingsSection("speicher")?.id).toBe("snippets");
+  });
+
   it("prefixes and fuzzy subsequences resolve", () => {
     expect(matchSettingsSection("sy")?.id).toBe("cloud-sync"); // prefix of "sync"
     expect(matchSettingsSection("brn")?.id).toBe("bruno"); // subsequence

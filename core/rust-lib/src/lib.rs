@@ -551,6 +551,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hide_popup,
             commands::paste_text,
             commands::list_snippets,
+            commands::get_snippet_storage,
             commands::find_snippets,
             commands::upsert_snippet,
             commands::list_snippet_categories,

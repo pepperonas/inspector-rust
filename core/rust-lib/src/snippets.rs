@@ -66,6 +66,14 @@ pub struct ImportResult {
     pub errors: Vec<String>,
 }
 
+/// Snippet count + on-disk footprint (bytes of the stored columns). Shown in
+/// Settings; there is no cap on the table.
+#[derive(Debug, Default, Clone, Copy, Serialize)]
+pub struct SnippetStorage {
+    pub count: i64,
+    pub bytes: i64,
+}
+
 pub fn init_table(db: &DbHandle) -> Result<()> {
     let conn = db.lock();
     conn.execute_batch(
@@ -115,6 +123,26 @@ pub fn list_all(db: &DbHandle) -> Result<Vec<Snippet>> {
     let mut stmt = conn.prepare(&sql)?;
     let rows = stmt.query_map([], row_to_snippet)?;
     rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+}
+
+/// How many snippets exist and how much on-disk space they occupy. Bytes are
+/// the **actual stored** column bytes (`abbreviation + title + body`), so the
+/// AES-encrypted body counts at its ciphertext size — that's the true storage
+/// footprint. `CAST(... AS BLOB)` makes `LENGTH` count bytes, not characters,
+/// so Unicode abbreviations/titles are measured correctly. There is no cap on
+/// the snippets table — this is a footprint readout, not a limit.
+pub fn storage_stats(db: &DbHandle) -> Result<SnippetStorage> {
+    let conn = db.lock();
+    let (count, bytes): (i64, i64) = conn.query_row(
+        "SELECT COUNT(*), \
+                COALESCE(SUM(LENGTH(CAST(abbreviation AS BLOB)) \
+                           + LENGTH(CAST(title AS BLOB)) \
+                           + LENGTH(CAST(body AS BLOB))), 0) \
+         FROM snippets",
+        [],
+        |r| Ok((r.get(0)?, r.get(1)?)),
+    )?;
+    Ok(SnippetStorage { count, bytes })
 }
 
 /// Look up a single snippet by its abbreviation. Returns the case-sensitive
@@ -702,6 +730,47 @@ mod tests {
         let db = Arc::new(Mutex::new(conn));
         init_table(&db).unwrap();
         db
+    }
+
+    #[test]
+    fn storage_stats_counts_rows_and_stored_bytes() {
+        let db = test_db();
+        // Empty table → zero, and the SUM must COALESCE to 0 (not NULL/err).
+        let empty = storage_stats(&db).unwrap();
+        assert_eq!(empty.count, 0);
+        assert_eq!(empty.bytes, 0);
+
+        // In the test process the cipher is uninitialised → body stored as
+        // plaintext, so the byte count is exactly abbreviation+title+body.
+        create(&db, "mfg", "Gruß", "Mit freundlichen Grüßen", None).unwrap();
+        create(&db, "sig", "", "Cheers", None).unwrap();
+        let s = storage_stats(&db).unwrap();
+        assert_eq!(s.count, 2);
+        let expected = "mfg".len()
+            + "Gruß".len()
+            + "Mit freundlichen Grüßen".len()
+            + "sig".len()
+            + "".len()
+            + "Cheers".len();
+        assert_eq!(s.bytes, expected as i64);
+        // Umlauts are multi-byte → the CAST-AS-BLOB path counts bytes, not chars.
+        assert!(s.bytes > ("mfg".chars().count()
+            + "Gruß".chars().count()
+            + "Mit freundlichen Grüßen".chars().count()
+            + "sig".chars().count()
+            + "Cheers".chars().count()) as i64);
+    }
+
+    #[test]
+    fn storage_stats_has_no_thousand_row_cap() {
+        // Guard the promise: the snippets table is never pruned, so well over
+        // 1000 rows persist and are all counted.
+        let db = test_db();
+        for i in 0..1500 {
+            create(&db, &format!("ab{i}"), "", "body", None).unwrap();
+        }
+        assert_eq!(storage_stats(&db).unwrap().count, 1500);
+        assert_eq!(list_all(&db).unwrap().len(), 1500);
     }
 
     #[test]

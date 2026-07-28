@@ -2325,4 +2325,90 @@ mod tests {
         let chosen = filter_by_selection(&plan, &roots, &[view.dirs[0].path.clone()]);
         assert_eq!(chosen.items.len(), 1);
     }
+
+    // ── developer-target pure helpers (v0.84.264) ────────────────────────────
+
+    #[test]
+    fn parse_dev_roots_splits_on_commas_and_newlines_trimming_blanks() {
+        assert_eq!(
+            parse_dev_roots("~/claude\n ~/cursor , ~/dev"),
+            vec!["~/claude", "~/cursor", "~/dev"],
+        );
+        // A trailing/double separator never yields an empty entry.
+        assert_eq!(parse_dev_roots("a,,b,\n"), vec!["a", "b"]);
+        // Whitespace-only / empty input → no roots (feature disabled, not a
+        // single "" root that would scan the cwd).
+        assert!(parse_dev_roots("   ").is_empty());
+        assert!(parse_dev_roots("").is_empty());
+    }
+
+    #[test]
+    fn is_command_category_is_exactly_the_tool_driven_ones() {
+        for k in [KEY_DOCKER, KEY_SIMCTL, KEY_PNPM, KEY_BREW] {
+            assert!(is_command_category(k), "{k} should be command-based");
+        }
+        // File-based categories are NOT command categories (they have roots the
+        // executor deletes; a command category has none).
+        for k in [KEY_DUPES, "logs", "dev_caches", "node_modules"] {
+            assert!(!is_command_category(k), "{k} must not be command-based");
+        }
+    }
+
+    #[test]
+    fn parse_jetbrains_dir_splits_product_from_version_at_the_first_digit() {
+        assert_eq!(
+            parse_jetbrains_dir("IntelliJIdea2023.2"),
+            Some(("IntelliJIdea".into(), "2023.2".into())),
+        );
+        assert_eq!(
+            parse_jetbrains_dir("PyCharm2024.1"),
+            Some(("PyCharm".into(), "2024.1".into())),
+        );
+        // No digit → no version → not a versioned JetBrains dir.
+        assert_eq!(parse_jetbrains_dir("consoles"), None);
+        // A leading digit means an empty product → rejected (can't attribute it).
+        assert_eq!(parse_jetbrains_dir("2023.2"), None);
+        assert_eq!(parse_jetbrains_dir(""), None);
+    }
+
+    #[test]
+    fn version_key_orders_numerically_not_lexically() {
+        // The whole point: "2023.10" is NEWER than "2023.2". A string sort would
+        // put ".10" before ".2" and delete the wrong (newest) version.
+        assert!(version_key("2023.10") > version_key("2023.2"));
+        assert!(version_key("2024.1") > version_key("2023.10"));
+        // Non-digit suffixes on a segment are truncated to their leading digits
+        // ("2023.2-eap" / "2023.2b" → [2023, 2]); "-" also separates.
+        assert_eq!(version_key("2023.2-eap"), vec![2023, 2, 0]);
+        assert_eq!(version_key("2023.2b"), vec![2023, 2]);
+    }
+
+    #[test]
+    fn normalise_product_collapses_app_bundle_and_spacing() {
+        // The bundle name and the support-dir name must compare equal.
+        assert_eq!(normalise_product("IntelliJ IDEA.app"), "intellijidea");
+        assert_eq!(normalise_product("IntelliJIdea"), "intellijidea");
+        assert_eq!(normalise_product("IntelliJ IDEA.app"), normalise_product("IntelliJIdea"));
+        assert_eq!(normalise_product("PyCharm Community"), "pycharmcommunity");
+    }
+
+    #[test]
+    fn jetbrains_orphans_keeps_newest_and_flags_uninstalled() {
+        let present = vec![
+            "IntelliJIdea2023.2".to_string(),
+            "IntelliJIdea2023.10".to_string(), // NEWER than .2 (numeric)
+            "PyCharm2024.1".to_string(),
+            "notaversion".to_string(), // unparseable → never touched
+        ];
+        // IntelliJ is installed, PyCharm is not.
+        let installed = vec!["IntelliJ IDEA.app".to_string()];
+        let orphans = jetbrains_orphans(&present, &installed);
+        // The older IntelliJ version is an orphan; the newest is KEPT.
+        assert!(orphans.contains(&"IntelliJIdea2023.2".to_string()));
+        assert!(!orphans.contains(&"IntelliJIdea2023.10".to_string()));
+        // The uninstalled product's dir is fully orphaned.
+        assert!(orphans.contains(&"PyCharm2024.1".to_string()));
+        // Unparseable dirs are never listed.
+        assert!(!orphans.contains(&"notaversion".to_string()));
+    }
 }

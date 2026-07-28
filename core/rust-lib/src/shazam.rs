@@ -1183,4 +1183,22 @@ mod tests {
         let no_lang = r#"[[["Hallo","Hi",null,null,1]]]"#;
         assert_eq!(parse_google_translate(no_lang).unwrap().src_lang, "");
     }
+
+    #[test]
+    fn url_encode_matches_rfc3986_unreserved_set() {
+        // Unreserved characters pass through verbatim…
+        assert_eq!(url_encode("aZ09-_.~"), "aZ09-_.~");
+        // …everything else is percent-encoded, upper-case hex.
+        assert_eq!(url_encode("a b"), "a%20b");
+        assert_eq!(url_encode("q=1&x/y?"), "q%3D1%26x%2Fy%3F");
+        assert_eq!(url_encode(""), "");
+    }
+
+    #[test]
+    fn url_encode_percent_encodes_each_utf8_byte() {
+        // A multi-byte character becomes one %XX per byte (never a raw char),
+        // so a query with umlauts/emoji stays a valid URL.
+        assert_eq!(url_encode("ä"), "%C3%A4"); // U+00E4 = 0xC3 0xA4
+        assert_eq!(url_encode("Björk"), "Bj%C3%B6rk");
+    }
 }

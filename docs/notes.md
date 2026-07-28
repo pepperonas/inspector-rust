@@ -155,7 +155,7 @@ The Rust backend emits one note-related event:
 
 ## Testing
 
-The notes module has 10 unit tests (`cargo test -p inspector-rust-core notes`):
+The notes module has 16 unit tests (`cargo test -p inspector-rust-core notes`):
 
 | Test                                              | Asserts                                                            |
 |---------------------------------------------------|--------------------------------------------------------------------|
@@ -164,10 +164,16 @@ The notes module has 10 unit tests (`cargo test -p inspector-rust-core notes`):
 | `save_from_clip_returns_none_when_clip_missing`   | Source clip already pruned → `Ok(None)`                            |
 | `list_all_orders_by_updated_at_desc`              | Newest note first                                                  |
 | `list_categories_returns_distinct_non_empty_sorted` | DISTINCT, no empty, sorted case-insensitively                    |
+| `list_categories_dedupes_and_omits_empty`         | Duplicate + empty categories collapse away                         |
 | `update_changes_title_body_and_category`          | All editable fields update + `byte_size` recalculated              |
+| `update_modifies_title_body_and_category`         | Edit round-trips through a fresh read                              |
 | `update_ignores_body_for_image_notes`             | Image notes are read-only at the body level                        |
+| `get_returns_none_for_unknown_id`                 | Missing id → `Ok(None)`, not an error                             |
 | `delete_removes_note`                             | Per-row delete                                                     |
+| `delete_removes_only_targeted_note`               | Delete is scoped — siblings survive                                |
 | `clear_all_removes_every_note`                    | `Clear All` empties the table                                      |
+| `clear_all_truly_wipes_every_note`                | No rows linger after `Clear All`                                   |
+| `notes_persist_long_unicode_titles_and_bodies`    | Long Unicode/Umlaut titles + bodies round-trip intact              |
 | `append_imported_preserves_timestamps_and_payload` | Backup-restore path is lossless (used by [`docs/backup.md`](./backup.md)) |
 
 ## See also

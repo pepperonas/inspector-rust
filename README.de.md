@@ -557,13 +557,13 @@ Tippe einen Mathe-Ausdruck ins Suchfeld, das Ergebnis erscheint als oberster Lis
 
 - Operatoren `+ - * / % ^`, unär `+/-`, Klammern. Zahlen: int/dezimal/wissenschaftlich/`1_000`-gruppiert. Konstanten: `pi`/`π`, `tau`, `e`. Funktionen: `sqrt`, `cbrt`, `abs`, `sign`, `floor`/`ceil`/`round`, `ln`/`log`/`log2`, `exp`, Trig + Hyperbolisch + Invers, `min`/`max`/`pow`/`mod`.
 - Aktiviert nur bei Ausdrücken mit mindestens einem Operator/Function/Konstante — pure Zahlen und Text triggern nicht. Force-Evaluation einer Literale mit `=`-Prefix (`=pi`).
-- Sicherer Recursive-Descent-Parser in [`calc.ts`](./core/frontend/src/lib/calc.ts), kein `eval`. 27 Tests.
+- Sicherer Recursive-Descent-Parser in [`calc.ts`](./core/frontend/src/lib/calc.ts), kein `eval`. 43 Tests.
 
 ### Farb-Tools (v0.4.0 → v0.5.2)
 - **Inline-Hex-Preview** — tippe `#3366FF` (auch `3366ff`, `#abc`, `#abcdef12`) → Swatch + Hex + RGB-Zeile oben → Enter pasted Großbuchstaben `#RRGGBB`.
 - **HSV-Picker-Modal** — Hue-Slider, großes Swatch, Output-Tabs für Hex / RGB / HSL, Zwei-Klick-Auswahl (kein stiller Default), Copy via Tauri-Clipboard-Plugin (umgeht WKWebView-Restriktionen).
 - **Pixel vom Bildschirm picken** — sample irgendein Pixel auf dem Desktop. macOS: Apples `NSColorSampler`-Lupe. Windows: Fullscreen-Overlay + `GetPixel`. Modul: [`screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
-- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 Tests. Referenz: [`docs/colors.md`](./docs/colors.md).
+- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 37 Tests. Referenz: [`docs/colors.md`](./docs/colors.md).
 
 ### Bildschirm-Region-OCR (v0.9.0, macOS)
 Drück `Ctrl+Shift+O` (oder nutze den Tray-Eintrag **OCR Region**) → Marquee über jeden Text auf dem Bildschirm ziehen → Inspector Rust läuft Apple Vision über die Auswahl und schreibt den erkannten Text direkt auf deine Zwischenablage. Der Text landet oben in der History; das Source-PNG wird als separater Image-Eintrag direkt darunter aufbewahrt, sodass du eine andere Region nochmal OCR'en kannst ohne den Screenshot neu zu machen, und Enter auf dem auto-selected Top-Eintrag pasted den **Text**, nicht den Screenshot (Ordering gefixt in v0.14.2). Der Hotkey ist **literal Control** auch auf macOS (v0.14.1+ — frühere Builds nutzten `⌘⇧O`, was mit IDE-Bindings kollidierte).
@@ -660,7 +660,7 @@ Dann das Popup öffnen und `meme` tippen (optional `meme katze` zum Filtern). Un
 - **Freelancer / Selbständige (`f`-Suffix, v0.86.0)** — `bruno 80000f` rechnet das Netto aus dem Jahres**gewinn**; `bruno 7000mf` aus dem Monatsgewinn; `bruno 90000-15000f` aus Einnahmen − Betriebsausgaben. Modell: **freiwillige GKV** (14,0 % ermäßigt / 14,6 % mit Krankengeldanspruch + Zusatzbeitrag, auf den Gewinn zwischen Mindestbemessungsgrundlage und Beitragsbemessungsgrenze) **oder PKV-Fixbeitrag**; volle Pflegeversicherung; **keine RV-/AV-Pflicht**; Grund- oder **Splittingtarif**; **Gewerbesteuer** für Gewerbebetriebe (Freibetrag 24.500 €, Messzahl 3,5 % × Gemeinde-Hebesatz) inkl. **§ 35-EStG-Anrechnung** — Freiberufler bleiben befreit. USt ist durchlaufender Posten (nur § 19-Hinweis). Rechtsform, Hebesatz, GKV/PKV & Splitting unter **Settings → Bruno → Selbständig**.
 - **Smart Defaults** — Steuerklasse I, NRW, 0 Kinder, kein Kirchen-Mitglied, TK-Niveau 2,45 % KV-Zusatz. Persönliche Werte via **Settings → Bruno** (in SQLite-Settings persistiert; `bruno-defaults-changed`-Event aktualisiert das Popup ohne Restart).
 - **Steuerjahr 2025** — §32a EStG (vereinfacht), Grundfreibetrag 12.096 €, Beitragsbemessungsgrenzen KV 66.150 € / RV 96.600 €. Portiert aus der [Steuerschleuder](https://steuerschleuder.celox.io/)-Web-App des Maintainers.
-- **Pure-TS-Compute** — kein IPC-Roundtrip pro Tastendruck. Zahlenformat-toleranter Parser (`bruno 60.000` = `bruno 60,000` = `bruno 60000`). 77 Unit-Tests pinnen Compute + Parser (beide Modi). ⚠️ Vereinfacht — kein Faktorverfahren, keine individuellen Freibeträge. Keine Steuerberatung.
+- **Pure-TS-Compute** — kein IPC-Roundtrip pro Tastendruck. Zahlenformat-toleranter Parser (`bruno 60.000` = `bruno 60,000` = `bruno 60000`). 82 Unit-Tests pinnen Compute + Parser (beide Modi). ⚠️ Vereinfacht — kein Faktorverfahren, keine individuellen Freibeträge. Keine Steuerberatung.
 
 ### `freeze` (v0.28.0)
 - Natives macOS-`CGEventTap` (raw FFI auf `ApplicationServices` + `CoreFoundation`) blockt alle Tastatur- + Maus-Eingaben bis der konfigurierte Unlock-Chord (Default `i + r`) gedrückt wird. Installiert auf dem Main-Run-Loop via `CFRunLoopGetMain()` — Worker-Thread-Varianten haben Events auf Sonoma+ stillschweigend nicht gedroppt.

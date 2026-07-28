@@ -108,7 +108,7 @@ Three loss scenarios, ranked by survivability:
 
 ## Implementation
 
-Source: [`core/rust-lib/src/crypto.rs`](../core/rust-lib/src/crypto.rs) (~280 LOC, 6 unit tests).
+Source: [`core/rust-lib/src/crypto.rs`](../core/rust-lib/src/crypto.rs) (~280 LOC, 16 unit tests).
 
 Tests cover:
 
@@ -118,6 +118,10 @@ Tests cover:
 - Fresh-nonce — same plaintext encrypts to two different ciphertexts on consecutive calls.
 - Tampered-ciphertext rejection — flipping a base64 byte produces a decryption error.
 - Wrong-key rejection — decryption fails when the cipher was built with a different key.
+- Payload edge cases — Unicode, large blobs, embedded NULs/newlines, and long single-byte runs all roundtrip.
+- Envelope invariants — output always carries the `v1:` prefix, is strictly longer than the input, and the key length constant is AES-256.
+- Malformed-input rejection — truncated ciphertext and garbled base64 both error rather than panic.
+- `migrate_table` is a no-op when no global key is set (the unit-test condition).
 
 The encrypt/decrypt path is wired into `db.rs::row_to_entry`, `snippets.rs::row_to_snippet`, `notes.rs::row_to_note` (read paths), and into the corresponding `INSERT` / `UPDATE` statements (write paths). When the global cipher isn't initialised — only happens in unit tests that build in-memory DBs without app setup — encrypt/decrypt are no-ops, so existing tests continue to work without mocking.
 

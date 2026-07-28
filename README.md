@@ -595,13 +595,13 @@ Type a math expression in the search field, the result appears as the top list i
 
 - Operators `+ - * / % ^`, unary `+/-`, parens. Numbers: int/decimal/scientific/`1_000`-grouped. Constants: `pi`/`π`, `tau`, `e`. Functions: `sqrt`, `cbrt`, `abs`, `sign`, `floor`/`ceil`/`round`, `ln`/`log`/`log2`, `exp`, trig + hyperbolic + inverse, `min`/`max`/`pow`/`mod`.
 - Gated to expressions with at least one operator/function/constant — plain numbers and text don't trigger. Force-evaluate a literal with `=` prefix (`=pi`).
-- Safe recursive-descent parser in [`calc.ts`](./core/frontend/src/lib/calc.ts), no `eval`. 27 tests.
+- Safe recursive-descent parser in [`calc.ts`](./core/frontend/src/lib/calc.ts), no `eval`. 43 tests.
 
 ### Color tools (v0.4.0 → v0.5.2)
 - **Inline hex preview** — type `#3366FF` (also `3366ff`, `#abc`, `#abcdef12`) → swatch + hex + RGB row at top → Enter pastes uppercase `#RRGGBB`.
 - **HSV picker modal** — hue slider, big swatch, output tabs for hex / RGB / HSL, two-click selection (no silent default), copy via Tauri clipboard plugin (sidesteps WKWebView restrictions).
 - **Pick from screen** — sample any pixel on the desktop. macOS: Apple's `NSColorSampler` magnifier loupe. Windows: fullscreen overlay + `GetPixel`. Module: [`screen_picker.rs`](./core/rust-lib/src/screen_picker.rs).
-- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 32 tests. Reference: [`docs/colors.md`](./docs/colors.md).
+- Frontend in [`colors.ts`](./core/frontend/src/lib/colors.ts) + [`ColorPickerModal.tsx`](./core/frontend/src/components/ColorPickerModal.tsx). 37 tests. Reference: [`docs/colors.md`](./docs/colors.md).
 
 ### Screen-region OCR (v0.9.0, macOS)
 Press `Ctrl+Shift+O` (or use the tray's **OCR Region** entry) → drag a marquee over any text on screen → Inspector Rust runs Apple Vision over the selection and writes the recognized text straight to your clipboard. The text also lands at the top of History; the source PNG is kept as a separate image entry just below, so you can re-OCR a different region without rescreenshotting and pressing Enter on the auto-selected top entry pastes the **text**, not the screenshot (ordering fixed in v0.14.2). The hotkey is **literal Control** on macOS too (v0.14.1+ — earlier builds used `⌘⇧O` which collided with IDE bindings).
@@ -699,7 +699,7 @@ Then open the popup and type `meme` (optionally `meme cat` to filter). Subfolder
 - **Freelancer / self-employed (`f` suffix, v0.86.0)** — `bruno 80000f` computes the net from a yearly **profit**; `bruno 7000mf` from a monthly one; `bruno 90000-15000f` from income − business expenses. Model: voluntary **GKV** (14.0 % reduced / 14.6 % with sick-pay entitlement + Zusatzbeitrag, assessed on the profit between the Mindestbemessungsgrundlage and the contribution cap) **or a fixed PKV premium**; full care-insurance rate; **no pension/unemployment contributions**; Grund- or **Splittingtarif**; **Gewerbesteuer** for Gewerbebetriebe (24 500 € allowance, 3.5 % Messzahl × municipal Hebesatz) incl. the **§ 35 EStG credit** — Freiberufler stay exempt. VAT is a pass-through (§ 19 hint only). Configure Rechtsform, Hebesatz, GKV/PKV & Splitting under **Settings → Bruno → Selbständig**.
 - **Smart defaults** — Steuerklasse I, NRW, 0 Kinder, kein Kirchensteuerpflichtig, TK-Niveau 2,45 % KV-Zusatz. Override per user in **Settings → Bruno** (persisted via SQLite settings table; `bruno-defaults-changed` event refreshes the popup without restart).
 - **Steuerjahr 2025** — §32a EStG tariff (simplified), Grundfreibetrag 12.096 €, Beitragsbemessungsgrenzen KV 66.150 € / RV 96.600 €. Ported from the maintainer's [steuerschleuder](https://steuerschleuder.celox.io/) web app.
-- **Pure-TS compute** — no IPC round-trip per keystroke. Number-format-tolerant parser (`bruno 60.000` = `bruno 60,000` = `bruno 60000`). 77 unit tests pin the compute + parser (both modes). ⚠️ Simplified — no Faktorverfahren, no individual Freibeträge. Keine Steuerberatung.
+- **Pure-TS compute** — no IPC round-trip per keystroke. Number-format-tolerant parser (`bruno 60.000` = `bruno 60,000` = `bruno 60000`). 82 unit tests pin the compute + parser (both modes). ⚠️ Simplified — no Faktorverfahren, no individual Freibeträge. Keine Steuerberatung.
 
 ### `freeze` (v0.28.0)
 - Native macOS `CGEventTap` (raw FFI on `ApplicationServices` + `CoreFoundation`) blocks all keyboard + mouse input until the configured unlock chord (default `i + r`) is pressed. Installed on the main run loop via `CFRunLoopGetMain()` — worker-thread variants silently failed to drop events on Sonoma+.

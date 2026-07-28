@@ -221,7 +221,7 @@ If you fork the shells, make sure both are present.
 
 ## Testing
 
-The `backup` module has 5 unit tests (`cargo test -p inspector-rust-core backup`):
+The `backup` module has 35 unit tests (`cargo test -p inspector-rust-core backup`). The suite grew with the format — later cases cover encrypted backups (Argon2id envelope, wrong-password rejection), snippet versioning + categories round-tripping by name, clip-lineage id remapping, and the opt-in timesheet section. The core round-trip cases:
 
 | Test                                        | Asserts                                                              |
 |---------------------------------------------|----------------------------------------------------------------------|
@@ -230,6 +230,8 @@ The `backup` module has 5 unit tests (`cargo test -p inspector-rust-core backup`
 | `import_rejects_newer_backup_version`       | Backup with `version = CURRENT + 1` → `Err`                          |
 | `import_invalid_json_returns_err`           | Malformed JSON → `Err`, no DB writes                                 |
 | `replace_all_clears_then_inserts`           | The (currently un-exposed) `replace_all` helper truly wipes first     |
+| `clip_lineage_survives_a_backup_round_trip_with_remapped_ids` | `derived_from` re-points to the new ids after import |
+| `snippet_versions_survive_the_roundtrip_and_reimport_is_a_noop` | Version merge converges; re-import changes nothing |
 
 `replace_all` is implemented but not yet wired into the UI — it's the "destructive replace" path for when we want to add it later (probably gated behind an explicit checkbox in the import dialog).
 

@@ -41,6 +41,7 @@ import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
 import { playCrtOn, playCrtOff, primeCrtHidden, CRT_OFF_MS } from "./lib/md3-motion";
 import { detectSocial } from "./lib/social";
+import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
 import { tryParseColor } from "./lib/colors";
@@ -480,6 +481,21 @@ function App() {
   }, [pasteError]);
 
   const filteredClips = useFuzzySearch(entries, query);
+
+  // Pinned-only view: a toggle in the history toolbar collapses the list to
+  // just the pinned clips (★). While on, the whole custom-command/snippet/
+  // launcher stack is suppressed — it's a pure "my pinned clips" browser (the
+  // query still filters within them). `pinnedCount` (total pins, query-
+  // independent) drives the toolbar badge.
+  const [pinnedOnly, setPinnedOnly] = useState(false);
+  const pinnedCount = useMemo(
+    () => entries.reduce((n, e) => (e.pinned ? n + 1 : n), 0),
+    [entries],
+  );
+  const togglePinnedOnly = useCallback(() => {
+    setPinnedOnly((v) => !v);
+    setSelected(0);
+  }, []);
 
   // Game easter eggs: the instant the query is exactly a magic word,
   // transform the popup into that game. No Enter needed — finishing
@@ -1857,6 +1873,13 @@ function App() {
     if (isMemeMode) return memeEntries;
     if (helpTarget?.kind === "index") return helpEntries;
     if (isFigletMode) return figletEntries;
+    // Pinned-only browser: just the pinned clips (still query-filtered), and
+    // nothing else — no commands, snippets, launcher hits or calc rows.
+    if (pinnedOnly) {
+      return pinnedClips(filteredClips).map(
+        (c): ListEntry => ({ kind: "clip", data: c }),
+      );
+    }
     return [
       // Custom commands have the HIGHEST priority. A complete command
       // (commandEntry) takes the top slot, and partial command *suggestions*
@@ -1901,6 +1924,7 @@ function App() {
     figletEntries,
     helpTarget,
     helpEntries,
+    pinnedOnly,
     commandEntry,
     snitchSubEntry,
     shazamSubEntry,
@@ -2431,6 +2455,7 @@ function App() {
     setActiveTab("history");
     setQuery("");
     setSelected(0);
+    setPinnedOnly(false);
     setPwgenEditing(false);
     setSnippetEditingId(null);
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
@@ -3622,6 +3647,9 @@ function App() {
                   onTogglePin={onTogglePin}
                   onClearAll={onClearAllHistory}
                   lineageHighlight={lineageHighlight}
+                  pinnedOnly={pinnedOnly}
+                  pinnedCount={pinnedCount}
+                  onTogglePinnedOnly={togglePinnedOnly}
                 />
               </div>
               <div className="w-3/5 min-w-0">

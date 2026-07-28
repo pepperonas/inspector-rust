@@ -1,7 +1,7 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Palette, Trash2 } from "lucide-react";
+import { Palette, Pin, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
 import { computeLineage, railGutterPx } from "../lib/lineage";
@@ -23,6 +23,13 @@ interface Props {
   /** Draw the lineage rails connecting a derived copy to its source
    *  (v0.93.1). Off = the list renders exactly as before. */
   lineageHighlight?: boolean;
+  /** Pinned-only filter (v0.94.0): when true the list shows only pinned clips;
+   *  the toolbar toggle reflects/flips it. */
+  pinnedOnly?: boolean;
+  /** Total number of pinned clips (query-independent) — drives the toggle badge. */
+  pinnedCount?: number;
+  /** Flip the pinned-only filter. */
+  onTogglePinnedOnly?: () => void;
 }
 
 const ROW_HEIGHT = 36;
@@ -37,6 +44,9 @@ export function HistoryList({
   onTogglePin,
   onClearAll,
   lineageHighlight = true,
+  pinnedOnly = false,
+  pinnedCount = 0,
+  onTogglePinnedOnly,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -100,9 +110,35 @@ export function HistoryList({
       {/* Toolbar always rendered — the color picker is always available;
           the Clear All / count controls are conditional within. */}
       <div className="flex shrink-0 items-center justify-between border-b border-[var(--color-border)] px-3 py-1 text-[11px] text-[var(--color-muted)]">
-          <span>
-            {clipCount} clip{clipCount === 1 ? "" : "s"}
-          </span>
+          <div className="flex items-center gap-1">
+            {onTogglePinnedOnly && (
+              <button
+                onClick={onTogglePinnedOnly}
+                aria-pressed={pinnedOnly}
+                className={
+                  "flex items-center gap-1 rounded px-2 py-0.5 " +
+                  (pinnedOnly
+                    ? "bg-[var(--color-accent)]/15 text-[var(--color-accent)]"
+                    : "hover:bg-[var(--color-surface)] hover:text-[var(--color-accent)]")
+                }
+                title={
+                  pinnedOnly
+                    ? "Show all clipboard entries"
+                    : "Show only pinned clips"
+                }
+              >
+                <Pin size={11} className={pinnedOnly ? "fill-current" : ""} />
+                {pinnedOnly
+                  ? `${clipCount} pinned`
+                  : `Pinned${pinnedCount > 0 ? ` (${pinnedCount})` : ""}`}
+              </button>
+            )}
+            {!pinnedOnly && (
+              <span className="pl-1">
+                {clipCount} clip{clipCount === 1 ? "" : "s"}
+              </span>
+            )}
+          </div>
           <div className="flex items-center gap-1">
             <button
               onClick={() => setPickerOpen(true)}
@@ -145,7 +181,9 @@ export function HistoryList({
 
       {entries.length === 0 ? (
         <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-muted)]">
-          <span className="md3-empty-float">No matches</span>
+          <span className="md3-empty-float">
+            {pinnedOnly ? "No pinned clips" : "No matches"}
+          </span>
         </div>
       ) : (
         <div ref={parentRef} className="flex-1 overflow-auto">

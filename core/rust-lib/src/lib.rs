@@ -477,9 +477,10 @@ pub fn run(context: tauri::Context<Wry>) {
                             // the only ways to dismiss.
                             if !close_on_blur.load(Ordering::Relaxed) {
                                 // The popup stays open while unfocused — the
-                                // webview gets no key events now, so a
-                                // listen-only global tap watches for Esc
-                                // (macOS; consumes nothing).
+                                // webview gets no key events now, so an active
+                                // global tap watches for Esc (macOS) and
+                                // CONSUMES the dismissing keypress so it never
+                                // leaks to the app underneath.
                                 #[cfg(target_os = "macos")]
                                 if win_for_events.is_visible().unwrap_or(false) {
                                     esc_watch::arm(&app_handle);

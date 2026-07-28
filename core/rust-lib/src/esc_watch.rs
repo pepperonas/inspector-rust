@@ -3,9 +3,13 @@
 //! When the user disables "click outside closes the popup"
 //! (`popup.close_on_blur = false`), the overlay stays open while focus lives
 //! elsewhere — and the webview then receives no key events, so Esc couldn't
-//! close it. This module arms a **listen-only** `CGEventTap` (it never
-//! consumes the keypress — the focused app still gets its Esc) that watches
-//! for the Escape keycode and hides the popup.
+//! close it. This module arms an active `CGEventTap` that watches for the
+//! Escape keycode and hides the popup. The Esc that dismisses the popup is
+//! **consumed** (v0.94.0) so it never leaks to the focused app underneath —
+//! it was meant to close the overlay, not to also cancel a dialog / exit an
+//! editor mode / deselect in whatever app is behind it. Because the arm is
+//! **one-shot** (it disarms after the first Esc), only that dismissing Esc is
+//! swallowed; every later Esc flows to the focused app as usual.
 //!
 //! Armed ONLY while: popup visible + unfocused + close-on-blur disabled.
 //! Disarmed on focus-regain and on hide. The tap thread is created lazily on
@@ -71,8 +75,10 @@ extern "C" {
 
 const SESSION_EVENT_TAP: u32 = 1;
 const HEAD_INSERT_EVENT_TAP: u32 = 0;
-/// Listen-only: we OBSERVE Esc, we never swallow it.
-const TAP_OPTION_LISTEN_ONLY: u32 = 1;
+/// Active (default) tap: we can SWALLOW the dismissing Esc by returning null
+/// from the callback, so it never reaches the app underneath. Every other
+/// event is passed through unchanged.
+const TAP_OPTION_DEFAULT: u32 = 0;
 const EVT_KEY_DOWN: u32 = 10;
 const EVT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const EVT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
@@ -111,11 +117,15 @@ extern "C" fn tap_callback(
                         crate::hotkey::hide_popup(app);
                     }
                 });
+                // Consume this Escape: it dismissed OUR popup, so the focused
+                // app underneath must not also receive it. Returning null drops
+                // the event. (One-shot arm ⇒ every later Esc still flows on.)
+                return std::ptr::null_mut();
             }
         }
         _ => {}
     }
-    // Listen-only tap: the return value is ignored; the event flows on.
+    // Everything we don't act on flows through unchanged.
     event
 }
 
@@ -130,7 +140,7 @@ fn ensure_thread() {
             let tap = CGEventTapCreate(
                 SESSION_EVENT_TAP,
                 HEAD_INSERT_EVENT_TAP,
-                TAP_OPTION_LISTEN_ONLY,
+                TAP_OPTION_DEFAULT,
                 mask,
                 tap_callback,
                 std::ptr::null_mut(),

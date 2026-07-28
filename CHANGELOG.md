@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.94.0] — 2026-07-28
+
+### Added
+
+- **Pinned-only view in the clipboard history.** A pin toggle in the history toolbar collapses the list to just your pinned clips (★) — commands, snippets, launcher hits and calc rows are hidden while it's on, so it's a clean "my pinned clips" browser (the search box still filters within them). The toggle shows the total pin count, lights up in the accent colour while active, and resets when the popup closes. New pure helper `lib/history-filter.ts::pinnedClips` (+ 4 tests).
+
+### Changed
+
+- **Esc that closes the popup no longer leaks to the app underneath.** With "click outside closes the popup" turned off, the popup can stay open while another app has focus; the global Escape watcher that dismisses it used to be *listen-only*, so that same Esc also reached the focused app (cancelling its dialog, exiting an editor mode, deselecting…). The watcher now **consumes** the dismissing Escape. Because it's one-shot (it disarms after firing), only that one closing Esc is swallowed — every later Escape flows to the focused app as before. macOS; needs the Accessibility grant the app already uses.
+
 ## [0.93.4] — 2026-07-27
 
 ### Added

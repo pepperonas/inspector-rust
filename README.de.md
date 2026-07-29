@@ -382,16 +382,28 @@
 
 ## Screenshots
 
-*Aufgenommen mit v0.85.11 auf macOS (Dark Theme), mit Demo-Clipboard-History.*
+*Dark Theme auf macOS, mit Demo-Clipboard-History — Dummy-Daten, keine echten Clips.*
 
 | | |
 |---|---|
+| ![weather — aktuelles Wetter + animierte Vorschau](docs/screenshots/weather.png) | ![boom — systemweiter Audio-EQ](docs/screenshots/boom.png) |
+| **`weather`** — aktuelles Wetter + animierte 5-Tage-Vorschau | **`boom`** — systemweiter 10-Band-EQ + Presets + Volume-Boost |
+| ![equalizer — Live-Mikro-Spektrum-Visualizer](docs/screenshots/equalizer.png) | ![bpm — Live-Mikro-Tempo-Detektor](docs/screenshots/bpm.png) |
+| **`equalizer`** — Live-28-Band-Mikro-Spektrum + Beat-Reaktion | **`bpm`** — Live-Mikro-Tempo-Detektor (128 BPM · 99 % Konfidenz) |
+| ![hue — Philips-Hue-Lampensteuerung](docs/screenshots/hue.png) | ![snitch map — Verbindungs-Weltkarte](docs/screenshots/snitch-map.png) |
+| **`hue`** — Philips Hue: Farbe + Helligkeit pro Lampe | **`snitch map`** — laufende Outbound-Verbindungen auf einer Weltkarte |
+| ![shazam — Songerkennung über das Mikro](docs/screenshots/shazam.png) | ![stats — Live-System-Dashboard](docs/screenshots/stats.png) |
+| **`shazam`** — den laufenden Song über das Mikro erkennen | **`stats`** — Live-Dashboard für CPU / RAM / Akku / Netzwerk |
+| ![calendar — Monatsansicht + Wochentag-Recherche](docs/screenshots/calendar.png) | ![brightness — Slider pro Monitor](docs/screenshots/brightness.png) |
+| **`calendar`** — Monatsansicht + Wochentag-Recherche | **`brightness`** — Slider pro Monitor (+ EDR/XDR-Boost) |
+| ![sound — Audio-Ausgabe-Wähler](docs/screenshots/sound.png) | ![uptime — Live-animierte Anzeige](docs/screenshots/uptime.png) |
+| **`sound`** — Audio-Ausgabe-Wähler + Lautstärke-Slider | **`uptime`** — Live-animierte Uptime-Anzeige |
 | ![Clipboard-History — Suche, Vorschau, Smart-Actions](docs/screenshots/history.png) | ![figlet — ASCII-Art-Banner-Galerie](docs/screenshots/figlet.png) |
 | **Clipboard-History** — Suche beim Tippen, Live-Vorschau, Notizen + QR | **`figlet`** — ASCII-Banner-Galerie; jede Zeile rendert *deinen* Text |
-| ![stats — Live-System-Dashboard](docs/screenshots/stats.png) | ![Inline-Rechner](docs/screenshots/calc.png) |
-| **`stats`** — Live-Dashboard für CPU / RAM / Akku / Netzwerk | **Inline-Rechner** — Ausdruck tippen, Enter fügt das Ergebnis ein |
-| ![bruno — Brutto-Netto-Rechner](docs/screenshots/bruno.png) | ![Inline-Hilfe — Befehls-Index](docs/screenshots/help.png) |
-| **`bruno`** — deutsche Brutto→Netto-Aufstellung | **`?`** — eingebauter Befehls-Index & Inline-Hilfe |
+| ![bruno — Brutto-Netto-Rechner](docs/screenshots/bruno.png) | ![Inline-Rechner](docs/screenshots/calc.png) |
+| **`bruno`** — deutsche Brutto→Netto-Aufstellung | **Inline-Rechner** — Ausdruck tippen, Enter fügt das Ergebnis ein |
+| ![Inline-Hilfe — Befehls-Index](docs/screenshots/help.png) | |
+| **`?`** — eingebauter Befehls-Index & Inline-Hilfe | |
 
 ## Download
 

@@ -382,16 +382,28 @@
 
 ## Screenshots
 
-*Taken from v0.85.11 on macOS (dark theme) with a demo clipboard history.*
+*Dark theme on macOS, with a demo clipboard history — dummy data, no real clips.*
 
 | | |
 |---|---|
+| ![weather — current conditions + animated forecast](docs/screenshots/weather.png) | ![boom — system-wide audio EQ](docs/screenshots/boom.png) |
+| **`weather`** — current conditions + animated 5-day forecast | **`boom`** — system-wide 10-band EQ + presets + volume boost |
+| ![equalizer — live mic spectrum visualizer](docs/screenshots/equalizer.png) | ![bpm — live mic tempo detector](docs/screenshots/bpm.png) |
+| **`equalizer`** — live 28-band mic spectrum + beat reaction | **`bpm`** — live mic tempo detector (128 BPM · 99 % confidence) |
+| ![hue — Philips Hue lamp control](docs/screenshots/hue.png) | ![snitch map — live connections world map](docs/screenshots/snitch-map.png) |
+| **`hue`** — Philips Hue: per-lamp colour + brightness | **`snitch map`** — live outbound connections on a world map |
+| ![shazam — song recognition from the mic](docs/screenshots/shazam.png) | ![stats — live system dashboard](docs/screenshots/stats.png) |
+| **`shazam`** — identify the playing song from the mic | **`stats`** — live CPU / RAM / battery / network dashboard |
+| ![calendar — month view + weekday lookup](docs/screenshots/calendar.png) | ![brightness — per-monitor sliders](docs/screenshots/brightness.png) |
+| **`calendar`** — month view + weekday lookup | **`brightness`** — per-monitor sliders (+ EDR/XDR boost) |
+| ![sound — audio output picker](docs/screenshots/sound.png) | ![uptime — live animated readout](docs/screenshots/uptime.png) |
+| **`sound`** — audio output picker + volume slider | **`uptime`** — live, animated uptime readout |
 | ![Clipboard history — search, preview, smart actions](docs/screenshots/history.png) | ![figlet — ASCII-art banner gallery](docs/screenshots/figlet.png) |
 | **Clipboard history** — search-as-you-type, live preview, notes + QR | **`figlet`** — ASCII-banner gallery; every row renders *your* text |
-| ![stats — live system dashboard](docs/screenshots/stats.png) | ![Inline calculator](docs/screenshots/calc.png) |
-| **`stats`** — live CPU / RAM / battery / network dashboard | **Inline calculator** — type an expression, Enter pastes the result |
-| ![bruno — German net-pay calculator](docs/screenshots/bruno.png) | ![Inline help — command index](docs/screenshots/help.png) |
-| **`bruno`** — German gross→net breakdown | **`?`** — built-in command index & inline help |
+| ![bruno — German net-pay calculator](docs/screenshots/bruno.png) | ![Inline calculator](docs/screenshots/calc.png) |
+| **`bruno`** — German gross→net breakdown | **Inline calculator** — type an expression, Enter pastes the result |
+| ![Inline help — command index](docs/screenshots/help.png) | |
+| **`?`** — built-in command index & inline help | |
 
 ## Download
 

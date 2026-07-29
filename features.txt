@@ -50,7 +50,7 @@ Timesheet — Ctrl+Shift+T öffnet den Tab; Ctrl+Shift+Alt+T startet/stoppt Trac
 Alle Aktions-Hotkeys umbelegbar — Settings → Global shortcuts, mit Live-Kollisionsprüfung
 
 == Suchleisten-Commands ==
-Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
+Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs, `?<command>` OHNE Leerzeichen (z. B. `?snitch`) = direkt die Doku dieses Befehls. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
 Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a.: Live-Übersetzung direkt in der Preview beim Tippen (keyless Google gtx + MyMemory-Fallback, debounced + gecacht); Enter öffnet weiterhin Google Translate im Browser. Doku docs/translation.md
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)
@@ -69,7 +69,7 @@ Netto-Rechner — `bruno <brutto>`: deutscher Brutto→Netto-Rechner (2025); Suf
 Timer/Wecker — `timer <n>[s/min]`, `alarm <HH:MM>` mit Vollbild-Alarm
 Passwörter — `pwgen [länge]`: 4 Modi (alnum/symbols/dict/leet), CSPRNG
 Kalender — `calendar [monat jahr]` / `cal`: Monatsansicht, Wochentag-Recherche, ←→↑↓-Navigation
-Zufall — `rnd [min max]` / `random`: Würfel-Toast
+Zufall — `rnd` / `random`: würfelt eine Zahl und zeigt sie direkt im Preview (groß) + „Roll again"-Button zum Neuwürfeln im Bereich; Enter fügt die gezeigte Zahl ein. Bereich: `rnd` (1–6) · `rnd 100` · `rnd 5 500` · `rnd 1-2` (Dash-Range)
 Vokale — `rmvvls <text>`: Vokale entfernen → Clipboard
 Meme-Picker — `meme [suche]`: GIF/Bild-Bibliothek durchsuchen, animiert kopieren
 Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)

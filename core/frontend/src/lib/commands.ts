@@ -760,6 +760,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
 export function parseRandomArg(arg: string): { min: number; max: number } | null {
   const t = arg.trim();
   if (t === "") return { min: 1, max: 6 };
+  // Dash range: `5-500`, `1-2`, `5 - 500` (both bounds non-negative; a leading
+  // `-` on a single number stays a negative bound via the space path below).
+  const dash = t.match(/^(\d+)\s*-\s*(\d+)$/);
+  if (dash) {
+    let min = parseInt(dash[1], 10);
+    let max = parseInt(dash[2], 10);
+    if (min > max) [min, max] = [max, min];
+    return { min, max };
+  }
   const parts = t.split(/\s+/);
   if (parts.length > 2) return null;
   if (!parts.every((p) => /^-?\d+$/.test(p))) return null;

@@ -21,6 +21,7 @@ import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { WeatherPanel } from "./components/WeatherPanel";
+import { RandomPanel } from "./components/RandomPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
   parseFigletCommand,
@@ -923,6 +924,18 @@ function App() {
     }
   }, [isWeatherCmd, weatherMode]);
 
+  // Random mode shows the rolled number directly in the preview while `rnd`/
+  // `random` is typed (like `calendar`); a Roll-again button re-rolls, Enter
+  // pastes the shown number. `randomValueRef` holds what the panel currently
+  // shows so the dispatch pastes exactly it.
+  const [randomMode, setRandomMode] = useState(false);
+  const randomValueRef = useRef<number | null>(null);
+  const isRandomCmd = parsedCommand?.spec.kind === "random";
+  useEffect(() => {
+    if (isRandomCmd && !randomMode) setRandomMode(true);
+    else if (!isRandomCmd && randomMode) setRandomMode(false);
+  }, [isRandomCmd, randomMode]);
+
   // Calendar mode shows directly while `calendar`/`cal` is typed (no Enter
   // needed — like `sound`); Enter only hands it keyboard focus.
   const isCalendarCmd = parsedCommand?.spec.kind === "calendar";
@@ -1343,8 +1356,10 @@ function App() {
         const r = parseRandomArg(arg);
         label = r
           ? `Roll a random number · ${r.min}–${r.max}`
-          : `random: invalid arg ("${arg}") — use a number, or two numbers`;
-        hint = r ? "Shown big on screen (CSPRNG)" : "e.g. rnd · rnd 100 · rnd 5 500";
+          : `random: invalid arg ("${arg}") — a number, two numbers, or a-b`;
+        hint = r
+          ? "Shown in the preview · Roll again to re-roll · Enter pastes it"
+          : "e.g. rnd · rnd 100 · rnd 5 500 · rnd 1-2";
         break;
       }
       case "pwgen":
@@ -3025,16 +3040,17 @@ function App() {
         await hidePopup();
         return true;
       } else if (commandKind === "random") {
-        // Roll a random number and show it in the (longer-lasting) toast.
+        // The RandomPanel shows the rolled number live in the preview; Enter
+        // pastes EXACTLY that number (fall back to a fresh roll if the panel
+        // hasn't reported one yet). Re-rolling is the panel's button.
         const r = parseRandomArg(arg);
         if (!r) {
           setPasteError("other");
           return true;
         }
-        const n = randomInt(r.min, r.max);
-        // showStatusToast hides the popup + plays the flourish (don't also
-        // call hidePopup — that would swallow the toast on macOS).
-        await showStatusToast("random", true, String(n), `${r.min}–${r.max}`);
+        const n = randomValueRef.current ?? randomInt(r.min, r.max);
+        await pasteText(String(n));
+        await hidePopup();
       } else if (commandKind === "clean") {
         // Open the interactive category picker in the preview column (scan →
         // checkbox selection → two-stage delete). Replaces the old
@@ -3824,6 +3840,18 @@ function App() {
                         setWeatherFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
+                    />
+                  </div>
+                ) : randomMode ? (
+                  <div className="md3-pop-in h-full">
+                    <RandomPanel
+                      arg={isRandomCmd ? (parsedCommand?.arg ?? "") : ""}
+                      onValue={(n) => {
+                        randomValueRef.current = n;
+                      }}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
                     />
                   </div>
                 ) : calendarMode ? (

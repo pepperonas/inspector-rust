@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.98.2] — 2026-07-29
+
+### Changed
+
+- **`rnd` now shows the rolled number live in the preview + a "Roll again" button.** Instead of a one-shot toast, typing `rnd` (or `rnd 100` / `rnd 5 500`) renders the number big in the preview column and re-rolls within the range on the button; **Enter pastes exactly the shown number**. The range parser also accepts a **dash range** now — `rnd 1-2`, `rnd 5-500` — which previously errored as an invalid argument.
+
+### Fixed
+
+- **`?snitch` (no space) now opens that command's help.** A leading `?` immediately followed by a command — `?snitch`, `?weather`, `?cal` — resolves straight to the command's inline help/doc, just like `snitch?`. `? <term>` (with a space) still runs the full-text help index search.
+
 ## [0.98.1] — 2026-07-29
 
 ### Fixed

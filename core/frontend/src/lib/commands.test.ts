@@ -879,11 +879,18 @@ describe("parseRandomArg", () => {
   it("supports negative bounds", () => {
     expect(parseRandomArg("-5 5")).toEqual({ min: -5, max: 5 });
   });
+  it("accepts a dash range (5-500, 1-2, spaced)", () => {
+    expect(parseRandomArg("1-2")).toEqual({ min: 1, max: 2 });
+    expect(parseRandomArg("5-500")).toEqual({ min: 5, max: 500 });
+    expect(parseRandomArg("5 - 500")).toEqual({ min: 5, max: 500 });
+    expect(parseRandomArg("500-5")).toEqual({ min: 5, max: 500 }); // swapped
+  });
   it("rejects non-integers and 3+ numbers", () => {
     expect(parseRandomArg("abc")).toBeNull();
     expect(parseRandomArg("5x")).toBeNull();
     expect(parseRandomArg("1.5")).toBeNull();
     expect(parseRandomArg("1 2 3")).toBeNull();
+    expect(parseRandomArg("1-2-3")).toBeNull();
   });
 });
 

@@ -31,6 +31,12 @@ const INDEX_SEARCH_RE = /^\s*\?\s+(.+)$/;
 // paths, and quoted/templated args — the whole collision class — because none
 // of those reduce to a single `[a-z0-9]+` token before the trailing `?`.
 const TOKEN_HELP_RE = /^\s*([a-z0-9]+)\s?\?\s*$/i;
+// A LEADING `?` immediately followed by a single command token, no space:
+// `?snitch` → snitch's doc (v0.98.2). A leading `?` is unambiguously a help
+// request (no history search or command starts with `?`; every literal-`?`
+// collision has the `?` LATER in the string), so this can resolve straight to
+// the doc. `? <term>` (WITH a space) stays the full-text index search below.
+const LEADING_TOKEN_HELP_RE = /^\s*\?([a-z0-9]+)\s*$/i;
 
 /**
  * Parse a raw search query into a help request, or `null` when a trailing `?`
@@ -43,6 +49,22 @@ const TOKEN_HELP_RE = /^\s*([a-z0-9]+)\s?\?\s*$/i;
  */
 export function parseHelpQuery(query: string): HelpTarget | null {
   if (INDEX_RE.test(query)) return { kind: "index", filter: "" };
+
+  // `?snitch` (leading `?`, no space) → resolve straight to the command doc,
+  // exactly like `snitch?`. Falls back to filtering the index by the term when
+  // it matches no command (still a help request — the leading `?` is the tell).
+  const lead = LEADING_TOKEN_HELP_RE.exec(query);
+  if (lead) {
+    const t = lead[1].toLowerCase();
+    const exact = lookupDoc(t);
+    if (exact) return { kind: "doc", doc: exact };
+    const top = commandSuggestions(t)[0];
+    if (top) {
+      const doc = lookupDoc(top.keyword);
+      if (doc) return { kind: "doc", doc };
+    }
+    return { kind: "index", filter: t };
+  }
 
   const search = INDEX_SEARCH_RE.exec(query);
   if (search) return { kind: "index", filter: search[1].trim() };

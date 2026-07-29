@@ -48,6 +48,29 @@ describe("parseHelpQuery — partial prefix + `?`", () => {
   });
 });
 
+describe("parseHelpQuery — leading `?<command>` (no space)", () => {
+  it("resolves the command doc directly, like `snitch?`", () => {
+    expect(doc("?snitch")).toBe("snitch");
+    expect(doc("?weather")).toBe("weather");
+    expect(doc("?kill")).toBe("kill");
+  });
+  it("resolves hidden aliases + prefixes too", () => {
+    expect(doc("?cal")).toBe("calendar"); // hidden alias
+    expect(doc("?sni")).toBe("snitch"); // prefix
+    expect(doc("?bright")).toBe("brightness");
+  });
+  it("is case-insensitive + whitespace-tolerant", () => {
+    expect(doc("?SNITCH")).toBe("snitch");
+    expect(doc("  ?weather  ")).toBe("weather");
+  });
+  it("an unmatched term still opens the (filtered) index — the leading ? is the tell", () => {
+    expect(parseHelpQuery("?zzzzz")).toEqual({ kind: "index", filter: "zzzzz" });
+  });
+  it("`? term` WITH a space stays the full-text index search (unchanged)", () => {
+    expect(parseHelpQuery("? snitch")).toEqual({ kind: "index", filter: "snitch" });
+  });
+});
+
 describe("parseHelpQuery — `?` as a literal (no trigger)", () => {
   it("does not trigger inside a quoted template argument", () => {
     expect(doc('faker tpl "warum? {name}"')).toBeNull();

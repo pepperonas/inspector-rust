@@ -13,6 +13,14 @@
 
   Drück **`Ctrl+Space`** irgendwo → rahmenloses Popup über dem aktiven Monitor → Suche durch 1 000 deduplizierte Clipboard-Einträge → Enter pastet zurück in die zuvor fokussierte App. Ganzer Loop unter 200 ms, unter 50 MB RAM, AES-256-GCM-verschlüsselt at-rest mit Keys im OS-Keychain. **Gebaut für die Art Mensch, die schon Muskelgedächtnis für drei Clipboard-Manager hat und von allen genervt ist.**
 
+  <p>
+    <a href="https://www.paypal.com/donate/?business=martin.pfeffer@celox.io&item_name=Inspector+Rust&currency_code=EUR">
+      <img src="https://img.shields.io/badge/%E2%98%95_Spendier_dem_Dev_einen_Kaffee-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Spenden via PayPal" />
+    </a>
+  </p>
+
+  <em>Kostenlos, Open-Source, null Telemetrie — eine Person, viele durchgemachte Nächte und eine unvernünftige Menge Espresso. Wenn Inspector Rust dir gerade ein paar hundert Tastenanschläge gespart hat, <a href="https://www.paypal.com/donate/?business=martin.pfeffer@celox.io&item_name=Inspector+Rust&currency_code=EUR">wirf einen Kaffee in die Kasse</a> ☕ — jede Tasse wird wortwörtlich zum nächsten Befehl.</em>
+
   ### ✨ Was es kann (in kurz)
 
   *Grob sortiert nach Alltagsnutzen × Engineering-Aufwand dahinter — Flagship-Features zuerst, Easter-Eggs zuletzt.*

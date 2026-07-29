@@ -15,7 +15,7 @@
 
   <p>
     <a href="https://www.paypal.com/donate/?business=martin.pfeffer@celox.io&item_name=Inspector+Rust&currency_code=EUR">
-      <img src="https://img.shields.io/badge/%E2%98%95_Spendier_dem_Dev_einen_Kaffee-PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" alt="Spenden via PayPal" />
+      <img src="https://img.shields.io/badge/%E2%98%95_Spendier_dem_Dev_einen_Kaffee-Spenden_via_PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" height="80" alt="Spenden via PayPal" />
     </a>
   </p>
 
@@ -288,6 +288,54 @@
   [![Self-hosted](https://img.shields.io/badge/data-on%20your%20disk-brightgreen?style=flat-square)](#)
   [![Free forever](https://img.shields.io/badge/free-forever-brightgreen?style=flat-square)](./LICENSE)
   [![Made in Germany](https://img.shields.io/badge/made%20in-Germany-FFCE00?style=flat-square)](#)
+
+  <!-- ── Neu dazugekommen ────────────────────────────────────── -->
+  [![Wetter](https://img.shields.io/badge/wetter-Vorschau%20%2B%20animiert-4aa3e8?style=flat-square)](#)
+  [![Equalizer](https://img.shields.io/badge/equalizer-28--Band%20Mikro--Visualizer-e11d48?style=flat-square)](#)
+  [![Konfigurierbarer Verlauf](https://img.shields.io/badge/verlauf-Limit%2050–100k-1f6feb?style=flat-square)](#)
+  [![Esc-only + Enter-Paste](https://img.shields.io/badge/popup-Esc--only%20%2B%20Enter--Paste-blueviolet?style=flat-square)](#)
+  [![Cloud-Sync](https://img.shields.io/badge/snippets-Cloud--Sync%20(cue)-1f6feb?style=flat-square)](#)
+  [![Songtexte](https://img.shields.io/badge/shazam-Songtexte%20(lrclib)-1DB954?style=flat-square)](https://lrclib.net)
+  [![In Spotify öffnen](https://img.shields.io/badge/shazam-in%20Spotify%20öffnen-1DB954?style=flat-square&logo=spotify&logoColor=white)](#)
+  [![CRT-Animation](https://img.shields.io/badge/popup-CRT--Einschalt--Animation-ff69b4?style=flat-square)](#)
+  [![View Transitions](https://img.shields.io/badge/motion-View%20Transitions-blueviolet?style=flat-square)](#)
+  [![Reduced Motion](https://img.shields.io/badge/a11y-prefers--reduced--motion-2ea043?style=flat-square)](#)
+  [![Snippet-Versionierung](https://img.shields.io/badge/snippets-Inhalts--Versionierung-1f6feb?style=flat-square)](./docs/snippets-import.md)
+
+  <!-- ── Tech (noch mehr) ────────────────────────────────────── -->
+  [![OpenWeatherMap](https://img.shields.io/badge/OpenWeather-Vorhersage--API-EB6E4B?style=flat-square)](https://openweathermap.org)
+  [![ip-api](https://img.shields.io/badge/ip--api-Geolokalisierung-1f6feb?style=flat-square)](https://ip-api.com)
+  [![rustfft](https://img.shields.io/badge/rustfft-FFT-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/rustfft)
+  [![cpal](https://img.shields.io/badge/cpal-natives%20Mikro-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/cpal)
+  [![Web Audio](https://img.shields.io/badge/Web%20Audio-AnalyserNode-FF3E00?style=flat-square)](#)
+  [![Google Translate](https://img.shields.io/badge/übersetzen-Google%20gtx-4285F4?style=flat-square&logo=googletranslate&logoColor=white)](./docs/translation.md)
+  [![MyMemory](https://img.shields.io/badge/übersetzen-MyMemory%20Fallback-1f6feb?style=flat-square)](./docs/translation.md)
+  [![lrclib](https://img.shields.io/badge/songtexte-lrclib.net-1DB954?style=flat-square)](https://lrclib.net)
+  [![figlet-rs](https://img.shields.io/badge/figlet--rs-ASCII-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/figlet-rs)
+  [![pulldown-cmark](https://img.shields.io/badge/pulldown--cmark-Markdown-CE422B?style=flat-square&logo=rust&logoColor=white)](https://crates.io/crates/pulldown-cmark)
+  [![Simple Icons](https://img.shields.io/badge/Brand--Icons-Simple%20Icons-111111?style=flat-square&logo=simpleicons&logoColor=white)](https://simpleicons.org)
+  [![CGEventTap](https://img.shields.io/badge/macOS-CGEventTap-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![MultitouchSupport](https://img.shields.io/badge/macOS-MultitouchSupport-000000?style=flat-square&logo=apple&logoColor=white)](#)
+  [![Equalizer APO](https://img.shields.io/badge/Windows-Equalizer%20APO-0078D4?style=flat-square&logo=windows&logoColor=white)](https://sourceforge.net/projects/equalizerapo/)
+
+  <!-- ── Testing (erweitert) ─────────────────────────────────── -->
+  [![happy-dom](https://img.shields.io/badge/happy--dom-Test--Env-6E9F18?style=flat-square)](https://github.com/capricorn86/happy-dom)
+  [![Coverage-Tooling](https://img.shields.io/badge/coverage-llvm--cov%20%2B%20v8-2ea043?style=flat-square)](#)
+  [![lib-Coverage](https://img.shields.io/badge/lib--Coverage-~84%25%20stmt-2ea043?style=flat-square)](#)
+  [![GitHub Actions](https://img.shields.io/badge/CI-GitHub%20Actions-2088FF?style=flat-square&logo=githubactions&logoColor=white)](./.github/workflows/ci.yml)
+  [![Deterministische Tests](https://img.shields.io/badge/tests-deterministisch%20·%20offline-success?style=flat-square)](#)
+  [![Pure-Core-Testing](https://img.shields.io/badge/stil-pure--core%20Unit--Tests-blueviolet?style=flat-square)](#)
+
+  <!-- ── Mehr Vibes ──────────────────────────────────────────── -->
+  [![Buy me a coffee](https://img.shields.io/badge/support-buy%20me%20a%20coffee-FFDD00?style=flat-square&logo=buymeacoffee&logoColor=black)](https://www.paypal.com/donate/?business=martin.pfeffer@celox.io&item_name=Inspector+Rust&currency_code=EUR)
+  [![celox.io](https://img.shields.io/badge/von-celox.io-0B57D0?style=flat-square)](https://celox.io)
+  [![Solo-Dev](https://img.shields.io/badge/gebaut%20von-einem%20Menschen-blueviolet?style=flat-square)](#)
+  [![Espresso-betrieben](https://img.shields.io/badge/angetrieben%20von-Espresso-6F4E37?style=flat-square)](#)
+  [![Zero Config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
+  [![Kein Account](https://img.shields.io/badge/account-nicht%20nötig-brightgreen?style=flat-square)](#)
+  [![100+ Features](https://img.shields.io/badge/features-100%2B-e11d48?style=flat-square)](./features.txt)
+  [![Retro-Games](https://img.shields.io/badge/versteckt-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
+  [![Auf LinkedIn teilen](https://img.shields.io/badge/teilen%20auf-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 
   Drück `Ctrl+Space` → suchen → einfügen. Inspiriert von Alfreds Clipboard-Viewer auf macOS, eingedampft auf ein Tool, das du auf jeder Maschine behalten kannst.
 </div>

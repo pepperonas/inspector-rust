@@ -776,75 +776,59 @@ Dann das Popup öffnen und `meme` tippen (optional `meme katze` zum Filtern). Un
 ```
 inspector-rust/
 ├── core/
-│   ├── frontend/            # React 19 + TS + Tailwind v4 (plattformübergreifend)
+│   ├── frontend/                      # React 19 · TS 5 · Tailwind v4 · Vite 7 — eine UI für alle 3 OSes
 │   │   └── src/
-│   │       ├── components/  # SearchBar, HistoryList/Item, PreviewPanel, SnippetsPanel, NotesPanel, …
-│   │       ├── hooks/       # useClipboardHistory, useFuzzySearch, useSnippets, useNotes, useKeyboardNav
-│   │       └── lib/         # ipc.ts, types.ts, calc.ts (Alfred-Style-Evaluator), format.ts
-│   └── rust-lib/            # Geteilte Rust-App-Logik
-│       ├── build.rs         # Linkt das macOS Vision-Framework für OCR
-│       ├── models/
-│       │   └── u2netp.onnx  # U²-Net Cutout-Model (~4,5 MB, Apache-2.0)
+│   │       ├── App.tsx                # Popup-Shell: kombinierte Liste, dispatchCommand, alle Inline-Panel-Verdrahtungen
+│   │       ├── components/            # 57 Komponenten — SearchBar, HistoryList/Item, PreviewPanel, die Inline-Panels
+│   │       │                          #   (Weather · Stats · Hue · Boom · Calendar · Shazam · Snitch · BPM · Equalizer …),
+│   │       │                          #   die versteckten Games, der Screenshot-Editor, Settings/Features-Tabs
+│   │       ├── hooks/                 # 8 Hooks — useClipboardHistory · useFuzzySearch · useSnippets · useKeyboardNav …
+│   │       └── lib/                   # ~60 reine, unit-getestete Module — ipc.ts · commands.ts · commandDocs.ts · calc.ts
+│   │                                  #   · convert.ts · bpm.ts · disco-engine.ts · weather.ts · figlet.ts · qr.ts …
+│   └── rust-lib/                      # inspector-rust-core — GESAMTE Logik (66 Module + 10 Subsystem-Ordner)
+│       ├── build.rs                   # linkt macOS Vision (OCR) + Metal (EDR-Helligkeit)
+│       ├── models/u2netp.onnx         # U²-Net-Cutout-Model (~4,5 MB, Apache-2.0)
+│       ├── assets/                    # eingebettete WAV-Cues + Alarm + ~550 gzip-Figlet-Fonts
 │       └── src/
-│           ├── lib.rs                # Tauri-Builder, Plugin-/Tray-Setup, invoke_handler
-│           ├── commands.rs           # alle #[tauri::command]-Wrapper
-│           ├── models.rs             # ContentType / ClipEntry / NewClip + Caps
-│           ├── db.rs                 # entries-Table, Hash-Dedup, Prune
-│           ├── crypto.rs             # AES-256-GCM At-Rest-Encryption + OS-Keychain-Key
-│           ├── snippets.rs           # snippets-Table, JSON-Upsert, Exakt-Abbreviation-Lookup
-│           ├── seed.rs               # Default-AI-Prompt-Snippets — First-Launch-Seeder + `Restore defaults`-IPC
-│           ├── seed/
-│           │   └── ai_prompts.json   # 27 gebündelte AI-Prompts (~35 KB) — zur Compile-Zeit via include_str! eingelesen
-│           ├── notes.rs              # notes-Table, Kategorien, save_from_clip
-│           ├── backup.rs             # Full-App-Export/Import (versioniertes JSON)
-│           ├── settings.rs           # Key/Value-Store (Expander-Hotkey + Zukunfts-Prefs)
-│           ├── ui_state.rs           # suppress_hide-Flag für Native-Modal-Interaktion
-│           ├── expander.rs           # Trigger-basierter Text-Expander (AX/UIA primary, Clipboard-Fallback)
-│           ├── text_field/           # FieldAccess-Trait + macOS-AX + Windows-UIA-Implementierungen
-│           ├── paste.rs              # write_to_clipboard + enigo-Paste-Shortcut
-│           ├── hotkey.rs             # Global Ctrl+Space + Ctrl+Shift+O + Ctrl+Shift+S + Ctrl+Shift+C + Expander-Hotkey + Direct Slots
-│           ├── clipboard_watcher.rs  # Event-getriebene Capture, RTF-Stripping (Image > Files-Priorität)
-│           ├── recolor.rs            # Image-Tint (Lerp Target ↔ Weiß nach Per-Pixel-Luminanz)
-│           ├── cutout.rs             # Legacy Chroma-Key-Cutout (als Fast-Path-Option behalten)
-│           ├── cutout_ml.rs          # U²-Net-basierter Subject-Cutout via `ort` (ONNX Runtime)
-│           ├── image_ops.rs          # `rz` Resize (Lanczos3) + `optim` PNG-Optimierung (oxipng)
-│           ├── system_commands.rs    # `kill` / `reboot` / `shutdown` / `lock` (sysinfo + osascript)
-│           ├── screen_picker.rs      # Farb-Eyedropper (NSColorSampler / GDI-Overlay)
-│           ├── region_picker.rs      # screencapture-i (macOS) / GDI-Overlay (Windows) — OCR + Screenshot
-│           ├── ocr.rs                # Apple Vision (macOS) / Windows.Media.Ocr (Windows)-Wrapper
-│           └── screen_recording.rs   # macOS-Bildschirmaufnahme-TCC-Permission-API — gated OCR + Screenshot
-├── win/                     # Windows-spezifische Bundle-Shell
-│   ├── README.md            # Windows-Install- & Build-Details
-│   ├── package.json         # Tauri-CLI-Entry
-│   └── src-tauri/           # main.rs, Cargo.toml, tauri.conf.json, capabilities/, icons/
-├── macos/                   # macOS-spezifische Bundle-Shell
-│   ├── README.md            # macOS-Install, Gatekeeper, Accessibility, Troubleshooting
-│   ├── package.json
-│   └── src-tauri/           # entitlements.plist, tauri.conf.json (dmg+app), capabilities/
-├── .github/
-│   └── workflows/
-│       ├── ci.yml           # Rust- + Frontend-Tests bei jedem Push/PR
-│       └── release.yml      # Baut Bundles und published GitHub-Release bei v*-Tags
-├── docs/
-│   ├── spec.md              # Originale Produkt-Spezifikation
-│   ├── snippets-import.md   # JSON-Snippet-Import — Schema, Semantik, Beispiele
-│   ├── notes.md             # Notes-Feature — Kategorien, Edit-Semantik, IPC-Surface
-│   ├── backup.md            # Full-App-Export/Import — Schema, Merge-Semantik, jq-Rezepte
-│   ├── text-expander.md     # System-weiter Expander — Workflow, Hotkey-Format, Per-OS-Caveats
-│   ├── colors.md            # Inline-Hex-Preview + Custom-HSV-Picker + System-Eyedropper
-│   ├── ai-prompts.md        # 27 gebündelte Default-AI-Prompt-Snippets
-│   ├── encryption.md        # AES-256-GCM At-Rest-Encryption — Threat-Model, Key-Storage, Migration
-│   ├── RELEASING.md         # Release-Procedure
-│   ├── ir-w1024.png         # Brand-Artwork — README-Hero + Inline-Image (1024×1024, ~1,9 MB)
-│   └── examples/
-│       └── snippets/        # 5 thematische JSON-Beispiele + eigene README
-├── scripts/
-│   ├── check.sh                      # cargo clippy + tsc + eslint
-│   ├── install-macos.sh              # Idempotenter Build + stabiles-Zertifikat-Re-Sign + Install (erhält TCC-Grants über Rebuilds hinweg)
-│   └── grant-permissions-macos.sh   # Geführtes Einmal-Setup für alle vier macOS-TCC-Berechtigungen
-├── Cargo.toml               # Rust-Workspace (Members: core/rust-lib, win/src-tauri, macos/src-tauri)
-├── pnpm-workspace.yaml      # pnpm-Workspace (core/frontend, win, macos)
-└── package.json             # Root-Scripts: dev:{win,macos}, build:{win,macos}, lint, typecheck, format, test, check
+│           ├── lib.rs · commands.rs                 # Tauri-Builder + Tray + invoke_handler · ~290 #[tauri::command]s
+│           ├── db.rs · models.rs · crypto.rs · settings.rs · ui_state.rs · backup.rs · sync.rs · logging.rs
+│           │                                        #   SQLite (5 Tabellen) · Hash-Dedup + Prune · AES-256-GCM · Cloud-Sync (cue)
+│           ├── clipboard_watcher.rs · snippets.rs · snippet_template.rs · notes.rs · seed.rs
+│           │                                        #   Capture · Snippets + Templates + Notizen · First-Launch-Seed
+│           ├── expander.rs · auto_expand.rs · paste.rs · hotkey.rs · input_lock.rs · esc_watch.rs · keepalive.rs
+│           │                                        #   Text-Expander (4 Modi) · globale Hotkeys · Eingabesperre · Esc/Enter-Watcher
+│           ├── text_field/                          # FieldAccess-Trait + macOS-AX + Windows-UIA In-Place-Replace
+│           ├── region_picker.rs · ocr.rs · screen_record.rs · screenshot_preview.rs · screenshot_editor.rs
+│           │                                        #   OCR · Screenshots (Region/Vollbild/Fenster) · Aufnahme · Preview-HUD · Annotate
+│           ├── screen_picker.rs · color_loupe.rs    # Eyedropper + Live-Hex-Lupe
+│           ├── social_dl.rs · media_trim.rs · audio_swap.rs · md_to_pdf.rs      # Medien: Download · Trim · Audio-Swap · md→PDF
+│           ├── recolor.rs · cutout.rs · cutout_ml.rs · image_ops.rs             # Bild: Tint · Cutout (U²-Net) · Resize · Optim
+│           ├── system_commands.rs · system_stats.rs · stats_history.rs · brightness.rs · edr.rs
+│           │                                        #   kill/reboot/lock/mute · Live-Stats + Verlauf · Helligkeit + EDR/XDR
+│           ├── audio.rs · sound.rs · mic_capture.rs · wakelock.rs              # Audio-Gerät · natives cpal-Mikro · Wachhalten
+│           ├── boom/                                # systemweiter EQ — mod.rs (DSP) · macos.rs (Treiber-Bridge) · windows.rs (EqAPO)
+│           ├── hue.rs · weather.rs · shazam.rs · snitch.rs · bruno.rs · timer.rs · alarm.rs · status_toast.rs
+│           │                                        #   Inline-Panels & Integrationen (Hue · Wetter · Song-ID · Netz-Monitor …)
+│           ├── gestures/ · window_snap/ · window_palette/    # Touchpad-Gesten + Fenster-Snapping/Palette (Per-OS)
+│           ├── tracking/                            # Timesheet — os/ (aktives Fenster) · db · claude · bridge · slots · export
+│           ├── faker/ · figlet/ · sec/              # Generatoren: Fake-Daten · ASCII-Banner · Pentest-Command-Builder
+│           ├── totp_store.rs · totp_import.rs       # 2FA / TOTP-Tresor + Importer (GAuth · Aegis · 2FAS · OTPManager)
+│           ├── translate.rs · cleaner.rs · meme.rs · app_launcher.rs           # Übersetzen · Disk-Cleaner · Meme-Picker · Launcher
+│           ├── finder_selection.rs · frontmost_app.rs · osascript_util.rs      # Finder-Auswahl · touch/mkdir/terminal
+│           └── cli_dispatch.rs · desktop_shortcuts.rs        # Linux-CLI-Flag-Dispatch + gsettings-Shortcut-Install
+├── win/   ·   macos/   ·   linux/       # Per-OS-Bundle-Shells — 2-Zeilen-main.rs + tauri.conf.json + capabilities/ + icons/
+│                                        #   (macos zusätzlich: entitlements.plist · linux: .desktop + Install-Docs)
+├── boom-driver/                         # gevendorter BlackHole → „boom Audio"-Virtual-Driver (build.sh, ad-hoc-signiert)
+├── extension/                           # MV3-Browser-Extension fürs Timesheet (meldet den aktiven Tab über einen Loopback-Socket)
+├── memes/                               # Starter-Meme-Pack (Reaction-GIFs; auch die inspector-rust-memes.zip des Releases)
+├── .github/workflows/                   # ci.yml (Rust- + Frontend-Tests) · release.yml (Bundles + GitHub-Release bei v*-Tags)
+├── docs/                                # 19 Deep-Dive-Docs (Encryption · Timesheet · Figlet · Faker · Translation …)
+│   ├── screenshots/                     #   die README-Screenshot-Galerie
+│   └── *.png                            #   Brand-Artwork — ir.png · rust-juggernaut.png
+├── scripts/                             # check.sh · install-{macos,linux}.sh · gen-docs.mjs · update-badges.mjs · gen-figlet-fonts.mjs …
+├── Cargo.toml                           # Rust-Workspace — Members: core/rust-lib + {win,macos,linux}/src-tauri
+├── pnpm-workspace.yaml                  # pnpm-Workspace (core/frontend + win/macos/linux)
+└── package.json                         # Root-Scripts: dev/build:{win,macos,linux} · test · check · lint · typecheck · update-badges
 ```
 
 ## Quick Start

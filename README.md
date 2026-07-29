@@ -983,3 +983,20 @@ See [`CHANGELOG.md`](./CHANGELOG.md) — every release is documented with what w
 A private open-source side project — built on weekends and evenings, made with ❤️.
 
 Brewed and shipped from Berlin 🍻
+
+---
+
+## 🦾 From humble detective to Rust Juggernaut
+
+It started innocently. One hotkey, a clipboard manager, and a polite little detective in a fedora who just wanted to help you paste things.
+
+Then we gave him a text expander. Then OCR. Then screen recording, a system-wide EQ, 2FA, a weather forecast, a network world-map, ASCII banners, a song identifier, five hidden games and roughly ninety other commands.
+
+He kept lifting. Somewhere between the U²-Net background cutout and the EDR brightness overlay he stopped being a detective and became a *war machine*. The fedora stayed. The rest is now hydraulics, riveted plating, a fortress-grade security shield, and an unreasonable amount of gear.
+
+Ladies and gentlemen — **The Rust Juggernaut · Ultimate Armored Edition™.**
+Same one hotkey. Roughly 400 % more armor. Still under 50 MB. 🕵️‍♂️ → 🦾
+
+<div align="center">
+  <img src="docs/rust-juggernaut.png?v=1" alt="Inspector Rust, evolved into the Rust Juggernaut — Ultimate Armored Edition" width="640" />
+</div>

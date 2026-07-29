@@ -34,6 +34,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "figlet", label: "Figlet", names: ["figlet", "banner", "ascii"] },
   { id: "security", label: "Security builder", names: ["security", "sec", "nmap", "pentest"] },
   { id: "meme", label: "Meme library", names: ["meme", "memes", "gif"] },
+  { id: "weather", label: "Weather", names: ["weather", "wetter", "openweather", "forecast"] },
   { id: "timer-alarm", label: "Timer alarm", names: ["timer", "alarm", "wecker"] },
   { id: "input-lock", label: "Input lock", names: ["input lock", "freeze", "lock chord"] },
   { id: "gestures", label: "Touchpad gestures", names: ["gestures", "gesten", "touchpad", "trackpad", "tip-tap"] },

@@ -1046,6 +1046,37 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["stats"],
   },
   {
+    command: "weather",
+    aliases: ["wetter"],
+    category: CAT_INFO,
+    version_added: "0.97.0",
+    tagline: "Weather for your location — current + 5-day forecast, animated.",
+    tagline_de: "Wetter für deinen Standort — aktuell + 5-Tage-Vorschau, animiert.",
+    synopsis: "weather [city]",
+    description:
+      "Shows the current conditions plus a 5-day forecast in the preview, with a weather-appropriate animation (sun, drifting clouds, falling rain/snow, lightning, mist). With no argument it uses your IP-geolocated location; `weather berlin` overrides it with a city. Powered by OpenWeatherMap — set a free API key in Settings → Weather (or paste it into the connect card the first time). Refreshes every 10 min; press R to refresh now, ↑/↓ scroll, Esc exits.",
+    arguments: [
+      {
+        name: "city",
+        required: false,
+        description: "A city name to look up instead of your location, e.g. `weather berlin`.",
+        default: "(your IP location)",
+      },
+    ],
+    flags: [],
+    examples: [
+      { input: "weather", result: "Current conditions + 5-day forecast for where you are." },
+      { input: "weather berlin", result: "Weather for Berlin." },
+      { input: "weather new york", result: "Multi-word city names work too." },
+    ],
+    tips: [
+      "Needs a free OpenWeatherMap API key — add it in Settings → Weather, or paste it into the connect card the panel shows the first time.",
+      "Your location is resolved by IP (no GPS/permission); pass a city to override it.",
+    ],
+    caveats: ["Requires a network connection and a valid OpenWeather key."],
+    related: ["stats", "uptime"],
+  },
+  {
     command: "calendar",
     aliases: ["cal"],
     category: CAT_PROD,

@@ -30,6 +30,7 @@ mod snitch;
 mod sync;
 mod shazam;
 mod translate;
+mod weather;
 mod mic_capture;
 mod image_ops;
 mod logging;
@@ -831,6 +832,9 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_list_lights,
             commands::hue_set_light,
             commands::hue_set_all,
+            commands::weather_fetch,
+            commands::get_weather_config,
+            commands::set_weather_config,
             commands::screen_record_open_overlay,
             commands::cancel_record_overlay,
             commands::start_screen_record,

@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.97.0] — 2026-07-29
+
+### Added
+
+- **New `weather` command (alias `wetter`) — weather for your location, animated.** Shows the **current conditions + a 5-day forecast** in the preview column, each with a weather-appropriate animation: a spinning-ray sun, a moon with twinkling stars, drifting cloud puffs, falling rain/drizzle/snow, a periodic lightning flash, or drifting mist — all `prefers-reduced-motion`-guarded. With no argument it uses your **IP-geolocated** location; `weather berlin` overrides it with a city (multi-word names work). Auto-refreshes every 10 min; **R** refreshes now, ↑/↓ scroll, Esc exits.
+- **Powered by OpenWeatherMap.** Set a free API key in **Settings → Weather** (or paste it into the panel's connect card the first time); the key is stored locally and only sent to OpenWeather. Metric/imperial units are switchable (the wind readout adapts). Backend parsing/URL/icon-mapping is pure + unit-tested (10 Rust tests); the display helpers are unit-tested too (`lib/weather.ts`).
+
 ## [0.96.1] — 2026-07-29
 
 ### Fixed / Docs

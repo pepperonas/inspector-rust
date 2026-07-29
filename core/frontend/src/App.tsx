@@ -20,6 +20,7 @@ import { SnitchPanel } from "./components/SnitchPanel";
 import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
+import { WeatherPanel } from "./components/WeatherPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
   parseFigletCommand,
@@ -251,6 +252,11 @@ function App() {
   // animated uptime odometer in the right preview column.
   const [uptimeMode, setUptimeMode] = useState(false);
   const [uptimeFocus, setUptimeFocus] = useState(false);
+  // Weather mode — Enter on the `weather` row renders the current-conditions +
+  // 5-day forecast panel (animated) in the right preview column. The command
+  // arg (`weather berlin`) is a city override; empty = IP-located.
+  const [weatherMode, setWeatherMode] = useState(false);
+  const [weatherFocus, setWeatherFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
   // right preview column directly (like `sound`); Enter hands the arrow keys
   // to it (←→ month, ↑↓ year).
@@ -907,6 +913,16 @@ function App() {
     }
   }, [isUptimeCmd, uptimeMode]);
 
+  // Same auto-exit for weather mode (Enter-activated — it does network I/O, so
+  // it must not fire on every keystroke; once open, the city arg drives refetch).
+  const isWeatherCmd = parsedCommand?.spec.kind === "weather";
+  useEffect(() => {
+    if (!isWeatherCmd && weatherMode) {
+      setWeatherMode(false);
+      setWeatherFocus(false);
+    }
+  }, [isWeatherCmd, weatherMode]);
+
   // Calendar mode shows directly while `calendar`/`cal` is typed (no Enter
   // needed — like `sound`); Enter only hands it keyboard focus.
   const isCalendarCmd = parsedCommand?.spec.kind === "calendar";
@@ -1278,6 +1294,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "weather":
+        label = arg ? `Weather: ${arg}` : "Weather — your location";
+        hint = "Enter → current conditions + 5-day forecast, animated in the preview";
         break;
       case "calendar":
         label = arg ? `Calendar: ${arg}` : "Calendar — month view";
@@ -2599,11 +2619,14 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "calendar", "clean", "snitch", "shazam",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "calendar", "clean", "snitch", "shazam",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
-          commandKind === "calendar" || commandKind === "snitch" || commandKind === "shazam";
+          commandKind === "calendar" ||
+          commandKind === "snitch" ||
+          commandKind === "shazam" ||
+          commandKind === "weather";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -2971,6 +2994,11 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "weather") {
+        // Inline animated weather panel (current + 5-day) in the preview column.
+        setWeatherMode(true);
+        setWeatherFocus(true);
+        return true;
       } else if (commandKind === "calendar") {
         // Inline month-view calendar in the preview column.
         setCalendarMode(true);
@@ -3326,6 +3354,7 @@ function App() {
       !statsFocus &&
       !boomFocus &&
       !uptimeFocus &&
+      !weatherFocus &&
       !calendarFocus &&
       !cleanFocus &&
       !snitchFocus &&
@@ -3762,6 +3791,21 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : weatherMode ? (
+                  <div className="md3-pop-in h-full">
+                    <WeatherPanel
+                      focused={weatherFocus}
+                      arg={isWeatherCmd ? (parsedCommand?.arg ?? "") : ""}
+                      onInteract={() =>
+                        requestAnimationFrame(() => searchRef.current?.focus())
+                      }
+                      onExit={() => {
+                        setWeatherMode(false);
+                        setWeatherFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

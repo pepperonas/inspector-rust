@@ -77,6 +77,7 @@ export type CommandKind =
   | "shazam"
   | "boom"
   | "uptime"
+  | "weather"
   | "track"
   | "trim"
   | "calendar"
@@ -659,6 +660,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "uptime",
     description: "Live system uptime — animated to the microsecond in the preview",
     requiresArg: false,
+  },
+  {
+    kind: "weather",
+    keyword: "weather",
+    syntax: "weather [city]",
+    description:
+      "Weather for your location (or `weather berlin`) — current conditions + 5-day forecast, animated in the preview. Needs an OpenWeather API key (Settings → Weather).",
+    requiresArg: false,
+  },
+  {
+    kind: "weather",
+    keyword: "wetter",
+    syntax: "wetter [stadt]",
+    description: "Alias for weather",
+    requiresArg: false,
+    hidden: true,
   },
   {
     kind: "calendar",

@@ -2362,6 +2362,79 @@ export function hueSetAll(
   return invoke("hue_set_all", { on, brightness, hex });
 }
 
+// ── Weather (`weather` command) ─────────────────────────────────────────────
+
+/** Animation-friendly sky classification (mirrors Rust `WeatherKind`). */
+export type WeatherKind =
+  | "clear-day"
+  | "clear-night"
+  | "clouds"
+  | "drizzle"
+  | "rain"
+  | "thunderstorm"
+  | "snow"
+  | "mist";
+
+export interface WeatherCurrent {
+  temp: number;
+  feels_like: number;
+  temp_min: number;
+  temp_max: number;
+  humidity: number;
+  pressure: number;
+  /** m/s for metric. */
+  wind_speed: number;
+  wind_deg: number | null;
+  description: string;
+  icon: string;
+  kind: WeatherKind;
+  sunrise: number;
+  sunset: number;
+}
+
+export interface WeatherDaily {
+  dt: number;
+  /** `YYYY-MM-DD`. */
+  date: string;
+  temp_min: number;
+  temp_max: number;
+  icon: string;
+  kind: WeatherKind;
+  description: string;
+}
+
+export interface WeatherReport {
+  location: string;
+  lat: number;
+  lon: number;
+  current: WeatherCurrent;
+  daily: WeatherDaily[];
+  units: string;
+}
+
+export interface WeatherConfig {
+  /** An API key is stored (the key itself never crosses IPC). */
+  has_key: boolean;
+  units: string;
+}
+
+/** Sentinel from `weatherFetch` when no API key is configured. */
+export const WEATHER_NO_KEY = "weather.no_key";
+
+/** Fetch current + 5-day forecast. Empty/undefined `city` → IP-located. */
+export function weatherFetch(city?: string): Promise<WeatherReport> {
+  return invoke("weather_fetch", { city: city && city.trim() ? city.trim() : null });
+}
+export function getWeatherConfig(): Promise<WeatherConfig> {
+  return invoke("get_weather_config");
+}
+export function setWeatherConfig(
+  apiKey: string | null,
+  units: string | null,
+): Promise<void> {
+  return invoke("set_weather_config", { apiKey, units });
+}
+
 /** Screen-recording region in **physical** pixels (CSS-rect × devicePixelRatio). */
 export interface RecordRegion {
   x: number;

@@ -4764,6 +4764,43 @@ pub fn hue_set_all(
     crate::hue::set_all(&ip, &user, on, brightness, hex.as_deref())
 }
 
+// ── Weather (`weather` command, v0.97.0) ────────────────────────────────────
+
+/// Fetch current conditions + a 5-day forecast for the given city, or — when
+/// `city` is `None`/empty — for the caller's IP-geolocated location. Blocks on
+/// two OWM HTTP round-trips (runs on a Tauri worker thread, not the UI thread,
+/// like the Hue commands). `Err(weather::ERR_NO_KEY)` when unconfigured.
+#[tauri::command]
+pub fn weather_fetch(
+    db: State<'_, DbHandle>,
+    city: Option<String>,
+) -> Result<crate::weather::WeatherReport, String> {
+    crate::weather::fetch(&db, city)
+}
+
+/// The weather config for the settings UI (whether a key is stored + units).
+/// The API key itself never crosses IPC.
+#[tauri::command]
+pub fn get_weather_config(db: State<'_, DbHandle>) -> crate::weather::WeatherConfig {
+    crate::weather::config(&db)
+}
+
+/// Persist the OpenWeather API key (trimmed; empty clears it) + units.
+#[tauri::command]
+pub fn set_weather_config(
+    db: State<'_, DbHandle>,
+    api_key: Option<String>,
+    units: Option<String>,
+) -> Result<(), String> {
+    if let Some(k) = api_key {
+        crate::weather::set_api_key(&db, &k)?;
+    }
+    if let Some(u) = units {
+        crate::weather::set_units(&db, &u)?;
+    }
+    Ok(())
+}
+
 // ── Screen recording (Ctrl+Shift+R, v0.81.0) ────────────────────────────────
 
 pub const RECORD_OVERLAY_LABEL: &str = "record-overlay";

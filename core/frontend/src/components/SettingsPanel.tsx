@@ -34,7 +34,9 @@ import {
   ShieldAlert,
   Type,
   Zap,
+  CloudSun,
 } from "lucide-react";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { AboutContent } from "./AboutContent";
 import { IS_LINUX, IS_MAC } from "../lib/platform";
 import { LinuxShortcutsSettings } from "./LinuxShortcutsSettings";
@@ -57,6 +59,9 @@ import {
   brunoSetDefaults,
   getMemeDir,
   setMemeDir,
+  getWeatherConfig,
+  setWeatherConfig,
+  type WeatherConfig,
   getSnippetStorage,
   type SnippetStorage,
   getLineageHighlight,
@@ -2615,6 +2620,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           </div>
         )}
 
+        {/* Weather — OpenWeather API key + units */}
+        <div className="mt-6">
+          <WeatherSection />
+        </div>
+
         {/* Cloud sync with cue (snippets) */}
         <div className="mt-6">
           <CloudSyncSection />
@@ -4627,6 +4637,99 @@ function SecuritySection() {
 // home-relative `My Drive/media/memes`; on Windows with Google Drive in
 // streaming mode the library lives under a drive letter (e.g.
 // `G:\My Drive\media\memes`), so it's overridable here.
+function WeatherSection() {
+  const [cfg, setCfg] = useState<WeatherConfig | null>(null);
+  const [keyInput, setKeyInput] = useState("");
+  const [units, setUnits] = useState("metric");
+  const [busy, setBusy] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  useEffect(() => {
+    getWeatherConfig()
+      .then((c) => {
+        setCfg(c);
+        setUnits(c.units);
+      })
+      .catch(() => setCfg({ has_key: false, units: "metric" }));
+  }, []);
+
+  if (cfg === null) return null;
+
+  const save = async () => {
+    setBusy(true);
+    setSavedOk(false);
+    try {
+      // Empty input leaves an existing key untouched (null = don't change);
+      // typing a value replaces it.
+      await setWeatherConfig(keyInput.trim() ? keyInput.trim() : null, units);
+      setKeyInput("");
+      const c = await getWeatherConfig();
+      setCfg(c);
+      setUnits(c.units);
+      setSavedOk(true);
+    } catch (e) {
+      console.error("save weather config", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={<CloudSun size={16} className="text-[var(--color-accent)]" />}
+      id="weather"
+      title="Weather"
+      subtitle="The `weather [city]` command shows current conditions + a 5-day forecast in the preview. It uses OpenWeatherMap — paste a free API key here (or into the panel's connect card). Stored locally; only sent to OpenWeather."
+    >
+      <Row label="OpenWeather API key" help={cfg.has_key ? "A key is stored. Leave blank to keep it, or type a new one to replace it." : "Get a free key at openweathermap.org."}>
+        <input
+          type="password"
+          value={keyInput}
+          spellCheck={false}
+          autoComplete="off"
+          placeholder={cfg.has_key ? "•••••••• (stored — type to replace)" : "OpenWeather API key"}
+          onChange={(e) => {
+            setKeyInput(e.target.value);
+            setSavedOk(false);
+          }}
+          className="min-w-0 flex-1 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px]"
+        />
+      </Row>
+      <Row label="Units" help="Temperature + wind unit system.">
+        <select
+          value={units}
+          onChange={(e) => {
+            setUnits(e.target.value);
+            setSavedOk(false);
+          }}
+          className="rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 text-[12px]"
+        >
+          <option value="metric">Metric (°C, km/h)</option>
+          <option value="imperial">Imperial (°F, mph)</option>
+        </select>
+      </Row>
+      <div className="mt-3 flex items-center gap-3">
+        <button
+          onClick={() => void save()}
+          disabled={busy}
+          className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+        {!cfg.has_key && !savedOk && (
+          <button
+            onClick={() => void openUrl("https://home.openweathermap.org/api_keys")}
+            className="text-[11px] text-[var(--color-accent)] underline"
+          >
+            Get a free key ↗
+          </button>
+        )}
+      </div>
+    </Section>
+  );
+}
+
 function MemeSection() {
   const [dir, setDir] = useState<string | null>(null);
   const [saved, setSaved] = useState<string | null>(null);

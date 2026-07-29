@@ -835,7 +835,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Den laufenden Song über das Mikro erkennen.",
     synopsis: "shazam [history]",
     description:
-      "Records ~10 s from the microphone, generates a Shazam audio-signature, queries Shazam's public API, and shows the matched track (cover · title · artist · album · year) with Shazam/Spotify/YouTube links. `shazam history` opens past recognitions. Native mic capture (no webview) so playback isn't disturbed.",
+      "Records ~10 s from the microphone, generates a Shazam audio-signature, queries Shazam's public API, and shows the matched track (cover · title · artist · album · year) with Shazam/Spotify/YouTube links + lyrics. `shazam history` opens past recognitions. Native mic capture (no webview) so playback isn't disturbed. The recognition runs in the backend, so it keeps going even if you close the overlay — the match is saved to history and (if the panel is closed) pops a toast.",
     arguments: [{ name: "history", required: false, description: "Open the recognition history instead of listening.", default: "(listen)" }],
     flags: [],
     examples: [
@@ -844,8 +844,9 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "shazam", result: "R re-records, Esc exits." },
     ],
     tips: [
-      "R re-records, L opens the LYRICS of the match (in-app via lrclib.net, browser-search fallback), Enter copies “Title – Artist”.",
-      "The platform buttons are brand icons now — Shazam (blue), Spotify (green), YouTube (red) — hover for the tooltip.",
+      "R re-records, L opens the LYRICS of the match (in-app via lrclib.net, browser-search fallback; a +DE toggle shows a German translation under each line), Enter copies “Title – Artist”.",
+      "The Spotify button opens the song in the Spotify desktop app when it's installed, else the web player; Shazam (blue) / Spotify (green) / YouTube (red) are brand icons — hover for the tooltip.",
+      "Close the overlay mid-listen and the recognition keeps running in the backend — the match still lands in history and a toast shows the song.",
       "`shazam history` opens your recognized-songs list directly — with a search field over title · artist · album · genre.",
     ],
     caveats: ["Needs a microphone + network (the recognition query). No match → a clear 'no match' state."],

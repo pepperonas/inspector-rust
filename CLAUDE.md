@@ -72,6 +72,32 @@ Running Rust tests locally on Linux requires system libs:
 sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev libxcb-shape0-dev libxcb-xfixes0-dev
 ```
 
+## Documentation contract — keep every surface in sync
+
+**Whenever you add or change a feature, update ALL of the surfaces below in the same commit.** This is the single authoritative checklist (the per-command rules under *Adding a new search-bar command* are the command-specific slice of it). The recurring failure mode is a feature that ships in one surface and silently rots in another (e.g. `equalizer` was live but missing from the in-app Features tab for months) — these surfaces + their gates exist to make that impossible.
+
+The surfaces, and what each is for:
+
+| Surface | File(s) | Covers | Gate |
+|---|---|---|---|
+| **`features.txt`** | repo root | EVERY feature — one line, always current (commands, hotkeys, gestures, panels, cleaner categories, settings, animations…) | none (discipline) — but it's the human catalogue; never skip it |
+| **CommandDoc registry** | `core/frontend/src/lib/commandDocs.ts` | every `COMMANDS` search-bar command → drives inline `?` help + README matrix + Features tab | `commandDocs.test.ts` (doc exists, ≥3 examples, ≥1 tip) |
+| **Features-tab extras** | `core/frontend/src/lib/feature-extras.ts` | the hand-maintained Features-tab rows: non-command features, **hidden triggers** (games / `bpm` / `equalizer` / `2fa`), in-popup & preview actions | `feature-extras.test.ts` (every `HIDDEN_TRIGGERS` keyword has a row) |
+| **README matrix** | `README.md` / `README.de.md` (`<!-- COMMANDS:START/END -->`) | the command table, both languages — **generated, never hand-edited** | `node scripts/gen-docs.mjs --check` in `scripts/check.sh` |
+| **README prose + badges** | `README.md` / `README.de.md` | headline pitch + LOC/test badges | `scripts/update-badges.mjs` (posttest hook) |
+| **CLAUDE.md** | this file | architecture + per-module design notes + gotchas | none (discipline) |
+| **CHANGELOG.md** | repo root | user-facing Added/Changed/Fixed per version | none (discipline) |
+| **`docs/*.md`** | `docs/` | deep reference for substantial features (link from CLAUDE.md + README) | `gen-docs --check` verifies every `see_also` file exists |
+
+**Per change type — the minimum surfaces to touch:**
+
+- **New search-bar command** → the 5-step checklist under *Adding a new search-bar command* (Catalogue + Dispatch + priority/accent + **CommandDoc** + gen-docs + `features.txt`). The CommandDoc auto-populates the README matrix + Features tab + `?` help.
+- **New hidden trigger** (a game, a visualizer like `bpm`/`equalizer`, `2fa`) → add it to `feature-extras.ts` (`HIDDEN_TRIGGERS` + the matching row list) **and** `features.txt`, **and** a CLAUDE.md design note. `feature-extras.test.ts` fails by name if the trigger has no row.
+- **New in-popup / preview action, gesture, hotkey, panel, setting** → `feature-extras.ts` (in-popup actions) or the FeaturesPanel hotkeys section as fits, **plus** `features.txt`, CLAUDE.md, CHANGELOG.
+- **Behaviour change to an existing feature** → refresh its CommandDoc / `feature-extras.ts` note, its CLAUDE.md section, `features.txt` line, and add a CHANGELOG entry (e.g. the v0.96.0 shazam background/Spotify change updated the shazam CommandDoc + CLAUDE.md + `features.txt`).
+
+**Verify before committing:** `bash scripts/check.sh` (clippy + tsc + eslint + gen-docs drift) and `pnpm test` (which runs the doc gates above + recomputes badges). If a doc gate is red, a surface drifted — fix the doc, not the test.
+
 ## Architecture
 
 ### Workspace layout
@@ -96,7 +122,7 @@ All three platform shells contain only `inspector_rust_core::run(tauri::generate
 
 ### Testing & coverage
 
-**The house style: extract the pure logic, test *that* — never the OS/FFI shell.** Every module keeps its deterministic core (parsers, math, state machines, arg-builders, formatters) as free functions and unit-tests them exhaustively; the impure edge (CoreAudio/Vision/CGEvent FFI, Tauri window builds, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio, the WS bridge) is left untested because it needs a live machine and would be non-deterministic. This is why headline coverage looks low (~59 % Rust line, ~20 % frontend statements — 2026-07-29, at **2708 tests = 1107 Rust + 1601 frontend**, ~92k LOC) while the code that *can* carry a test is well-covered: **frontend `src/lib` ≈ 84 % stmt / 95 % branch**, and the pure Rust cores that live in `*/mod.rs` alongside 0 %-covered `*/macos.rs` FFI (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %, `gestures/mod.rs` 77 %). Judge a change by the coverage of the module's *pure* surface, not the workspace average.
+**The house style: extract the pure logic, test *that* — never the OS/FFI shell.** Every module keeps its deterministic core (parsers, math, state machines, arg-builders, formatters) as free functions and unit-tests them exhaustively; the impure edge (CoreAudio/Vision/CGEvent FFI, Tauri window builds, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio, the WS bridge) is left untested because it needs a live machine and would be non-deterministic. This is why headline coverage looks low (~59 % Rust line, ~20 % frontend statements — 2026-07-29, at **2714 tests = 1107 Rust + 1607 frontend**, ~92k LOC) while the code that *can* carry a test is well-covered: **frontend `src/lib` ≈ 84 % stmt / 95 % branch**, and the pure Rust cores that live in `*/mod.rs` alongside 0 %-covered `*/macos.rs` FFI (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %, `gestures/mod.rs` 77 %). Judge a change by the coverage of the module's *pure* surface, not the workspace average.
 
 - **Where tests live.** Rust: a file-final `#[cfg(test)] mod tests { use super::*; … }` per module (the badge LOC counter treats that marker as the end of source, so keep test modules at the bottom). Frontend: a sibling `src/**/<name>.test.ts(x)` using Vitest (`describe`/`it`/`expect`), happy-dom environment. **Pure data catalogues carry their own structural invariant tests** — `faker/registry.rs` (the `Args` parser + globally-unique lowercase names/aliases) and `sec/registry.rs` (cross-tool name/alias uniqueness, every preset starts with a real binary token, `writes-data → sharp`, honest tag vocabulary) both have bottom test modules on top of the behavioural tests in their `mod.rs`; a new generator/tool that breaks an invariant fails a named test rather than shipping.
 - **Test behaviour, not implementation.** No getter tests, no snapshot-as-assertion, no pure mock-verification (the one exception is `lib/ipc.test.ts`, a deliberate 29-test *contract* guard pinning each `invoke` command-name + arg shape — kept, never expanded). Cover edge cases explicitly: empty/null, boundaries, Unicode/Umlaute, and error/fallback paths.
@@ -130,7 +156,7 @@ Steps 4 + 5 are not optional: **every new custom command must have a `CommandDoc
 
 - **Trigger parsing** — `lib/commandHelp.ts::parseHelpQuery` (pure, unit-tested) turns a trailing `?` into a `HelpTarget` (`index` (+ `filter`) | a resolved `CommandDoc`), or `null` when the `?` is **literal**. **Browsable index (v0.87.2):** `?` fills the LEFT list with `help`-`ListEntry` rows (every doc; `? <text>` full-text-filtered via the pure `searchDocs` — keyword/alias fuzzy > tagline > description/tips substring), ↑/↓ browses and the preview renders the SELECTED row's doc live (`lookupDoc` in the render); Enter puts the command into the search bar (+ trailing space when its syntax takes an argument). Examples in the doc view are clickable (fill the search bar); an `← Index`-chip navigates back; a no-match filter falls back to the grouped `IndexView` with a notice. It fires ONLY for a single command-shaped token (`[a-z0-9]+`) + at most one space + a lone trailing `?`, so `?` inside a template (`faker tpl "warum? {name}"`), glob (`a?b`), URL (`…?id=1`) or after an argument (`bruno hallo?`) never triggers. `App.tsx` derives `helpTarget = parseHelpQuery(query)` and renders `<CommandHelp>` as the **highest-precedence** preview branch (above every inline panel); the index case blanks the left list.
 - **One registry, three surfaces (can't drift):** (1) inline `?` help (`components/CommandHelp.tsx`); (2) the **README command matrix** in both languages — generated by `scripts/gen-docs.mjs` between `<!-- COMMANDS:START/END -->` markers (English `tagline`, German `tagline_de ?? tagline`), **never hand-edited**; (3) the **Features tab** (`FeaturesPanel.tsx` maps `COMMAND_DOCS` at runtime).
-- **Gates:** `commandDocs.test.ts` (every non-hidden `COMMANDS` keyword has a doc; ≥3 examples; ≥1 tip/caveat; documented args/flags; real related links; no orphan/duplicate keywords), `commandHelp.test.ts` (trigger grammar + every literal-`?` collision), and `node scripts/gen-docs.mjs --check` in `scripts/check.sh` (README matrix in sync + every `see_also` file exists). The generator transpiles the zero-import registry with the bundled esbuild (no new dep). Hidden triggers (games, `opener`, `2fa`/`otp`, `bpm`) are intentionally NOT documented (they're not in `COMMANDS`).
+- **Gates:** `commandDocs.test.ts` (every non-hidden `COMMANDS` keyword has a doc; ≥3 examples; ≥1 tip/caveat; documented args/flags; real related links; no orphan/duplicate keywords), `commandHelp.test.ts` (trigger grammar + every literal-`?` collision), and `node scripts/gen-docs.mjs --check` in `scripts/check.sh` (README matrix in sync + every `see_also` file exists). The generator transpiles the zero-import registry with the bundled esbuild (no new dep). Hidden triggers (games, `2fa`/`otp`, `bpm`, `equalizer`) aren't in `COMMANDS`, so they have no CommandDoc / README-matrix / `?`-help entry — instead they're documented in the **Features tab** via `lib/feature-extras.ts` (`HIDDEN_TRIGGER_FEATURES`/`HIDDEN_GAMES`), gated by `feature-extras.test.ts` (every `HIDDEN_TRIGGERS` keyword must have a row). `opener` is the one deliberate exception — an undocumented easter egg.
 
 ### Database — five tables in one SQLite file
 

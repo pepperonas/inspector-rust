@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.1] — 2026-07-29
+
+### Fixed / Docs
+
+- **The in-app Features tab was missing recent features — and now can't drift again.** `equalizer` (a hidden trigger) had no Features-tab row for months, and the pinned-only view, lineage rails and the formatting-options hint were absent too. The hand-maintained rows now live in a data module (`lib/feature-extras.ts`) with a test (`feature-extras.test.ts`) that **fails by name if any hidden trigger has no row** — so a new game/visualizer can't ship undocumented. Added the missing rows and refreshed the Shazam command help (background continuation, Spotify-app open, +DE lyrics).
+- **A single documentation contract.** CLAUDE.md now has one authoritative checklist of every doc surface (features.txt · CommandDoc · feature-extras · README matrix/badges · CLAUDE.md · CHANGELOG · docs/) and which to touch per change type, so future features stay documented everywhere. `features.txt` gained the CRT popup animation + the equalizer beat-reaction; the Shazam status-toast is listed.
+
 ## [0.96.0] — 2026-07-29
 
 ### Added

@@ -76,7 +76,7 @@ Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)
 Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus)
 Aufräumen — `clean`: interaktiver Kategorien-Picker (Caches, Logs, Duplikate, Installer, Docker, Xcode …), s. u.
 BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start)
-Equalizer — `equalizer` (Alias `eq`): Live-Mikrofon-Spektrum-Visualizer, 28 log-skalierte vertikale Balken mit Peak-Hold-Markern; Enter pinnt (rot, Klick-außerhalb schließt nicht), Esc verlässt; teilt sich die native cpal-Aufnahme mit BPM/Disco (kein extra Permission-Flow), client-seitiges FFT via Web-Audio-AnalyserNode
+Equalizer — `equalizer` (Alias `eq`): Live-Mikrofon-Spektrum-Visualizer, 28 log-skalierte vertikale Balken mit Peak-Hold-Markern; zeigt zusätzlich live BPM + dB und reagiert auf Beats (Shockwave, Flash, Bar-Punch, Funken); Enter pinnt (rot, Klick-außerhalb schließt nicht), Esc verlässt; teilt sich die native cpal-Aufnahme mit BPM/Disco (kein extra Permission-Flow), client-seitiges FFT via Web-Audio-AnalyserNode
 Disco — `disco`: beat-reaktive Hue-Lichtsteuerung vom Mikro (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start; teilt sich die Aufnahme mit dem BPM-Detektor)
 Uptime — `uptime`: animierte Live-Anzeige mit µs-Odometer
 Netzwerk-Monitor — `snitch`: Apps mit Live-Verbindungen, Toggle blockt Internet best-effort via pf-Watcher (macOS, ein Admin-Prompt; kein echter Firewall)
@@ -118,7 +118,7 @@ Fenster-Palette — Hover über den grünen Knopf → Presets + Hex-Wabengitter 
 Touchpad-Gesten — 3-Finger-Swipe = Lautstärke (5-%-Raster), 3-Finger-Tap = Mute (Settle-basiert: sequenziell gemeldete Einzel-Touches werden zu EINEM Tap zusammengefasst — toggelt exakt einmal), Tip-Tap (1 Finger liegt, 2. tippt links/rechts) = Tab-Wechsel pro App; Palm-Rejection (opt-in)
 Keep-Alive — App startet bei Login und wird bei Absturz/Quit automatisch neu gestartet (opt-in)
 Autostart — Start bei Login (Tray/Settings)
-Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean) am Cursor-Monitor
+Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean, erkannter Song via Shazam) am Cursor-Monitor
 
 == Backup & Einstellungen ==
 Voll-Backup — Export/Import der ganzen App (Verlauf, Snippets, Notes, 2FA, Settings, Timesheet opt-in) als eine Datei
@@ -132,6 +132,7 @@ Zuletzt-gewählt überlebt Neustarts — boom merkt sich das letzte Ausgabegerä
 Popup-Verhalten — Toggle ganz oben in den Settings: „Click outside closes the popup" — aus = Overlay bleibt bei Klick außerhalb offen (Schließen per Esc — ein offenes Inline-Panel schluckt das erste Esc als Zurück, dann 2× — oder Popup-Hotkey); Esc schließt dabei auch OHNE Fokus aufs Overlay (macOS, Escape-Watcher) und wird dabei KONSUMIERT (das schließende Esc erreicht die darunterliegende App nicht; one-shot, spätere Esc gehen normal durch) — unabhängig von der Einstellung: sobald IR sichtbar ist, schluckt es das Esc (bei Einstellung AN greift das in den Momenten, in denen IR noch sichtbar ist, z. B. direkt nach dem Öffnen); wirkt sofort, persistiert
 Pin-Filter — Toggle-Button in der Clipboard-History-Toolbar: zeigt nur die angepinnten Clips (★), blendet Befehle/Snippets/Launcher aus; Suchfeld filtert weiter innerhalb der Pins; zeigt die Pin-Anzahl, leuchtet aktiv in Akzentfarbe, wird beim Schließen des Popups zurückgesetzt
 Themes — Dark/Light/System mit MD3-Expressive-Motion (u. a. gleitender Tab-Indikator, gestaffelte Listen-/Settings-Entrances, Preview-Crossfade, Fokus-Halo, atmende Empty-States, Success-Pops — alle reduced-motion-sicher)
+Popup-Animation — CRT-Röhren-Einschalt-/Ausschalt-Effekt beim Öffnen/Schließen des Popups (Punkt → Scanline → aufziehen; reduced-motion → sofort)
 Popup-Größe — Small/Medium/Large
 Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcuts
 

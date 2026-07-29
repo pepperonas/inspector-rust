@@ -827,7 +827,27 @@ starts/stops the OS source to match the config (mirrors `auto_expand`). IPC
   **lifts** (present → absent; a contact merely going *resting* is NOT a lift)
   with ≥ 2 non-palm fingers having moved ≥ `SWIPE_FINGER_MIN_MOVE_NORM`
   coherently — volume stays responsive and one stray drifting finger can't
-  hijack a tap into a swipe (the v0.85.5 half of the fix). A **TAP is
+  hijack a tap into a swipe (the v0.85.5 half of the fix). **Tap vs. swipe by
+  COHERENCE, not just magnitude (v0.99.0 — the accidental-mute-while-swiping
+  fix):** the old code let a tap finger drift up to `TAP_FINGER_MAX_MOVE_NORM`
+  (0.12) = the swipe threshold, so a *gentle* 3-finger swipe (~0.08–0.11, just
+  under the bar) fell into the tap path → an unwanted mute; and tightening the
+  magnitude gate had previously broken swipes (the overlap can't be split by
+  magnitude alone). The discriminator is now **how many fingers travelled and
+  how coherently**: `swipe_geometry` measures each non-palm finger's travel to
+  its **PEAK** (`PTrack.peak`, robust to a stale lift frame) and the directional
+  coherence `|Σvᵢ|/Σ|vᵢ|`. `decide_swipe` fires on **≥ 2 movers with coherence ≥
+  `SWIPE_COHERENCE_MIN` (0.6)** — so a weak coherent swipe is caught as volume
+  (the fix) while a divergent pinch/spread cancels out (low coherence) and never
+  becomes false volume; the effective magnitude bar drops to
+  `SWIPE_FINGER_MIN_MOVE_NORM`, so swipes get **more** reliable, not stricter.
+  `finalize_tap` then **VETOES any ≥ 2-mover gesture** (`swipe_geometry` = Some →
+  no tap → no mute), so an incoherent multi-finger movement can't mute either.
+  A genuine tap is essentially stationary — at most ONE finger drifts (< 2
+  movers) — so `three_finger_tap_survives_one_drifting_finger` is preserved
+  exactly. Tests: `weak_three_finger_swipe_is_volume_not_a_mute`,
+  `divergent_three_finger_spread_is_neither_swipe_nor_mute`,
+  `two_finger_micro_drift_stays_a_tap`. A **TAP is
   DEFERRED**: each no-movement lift opens/extends a *cluster* (`cluster_open`),
   and `PalmAwareRecognizer::tick(now)` — driven on macOS by a dedicated ~40 ms
   **settle-ticker thread** (`TICK_MS`; frames stop the instant fingers lift,

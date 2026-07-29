@@ -91,6 +91,18 @@ pub const PALM_REST_EPS_NORM: f64 = 0.03;
 /// threshold leaves slack for the outer fingers of a slightly rolling hand.
 pub const SWIPE_FINGER_MIN_MOVE_NORM: f64 = 0.06;
 
+/// Directional coherence a multi-finger movement needs to count as a **swipe**
+/// (v0.99.0). Coherence = |Σ vᵢ| / Σ |vᵢ| over the moving fingers' travel
+/// vectors — `1.0` when all fingers travel the same way, `0` when they cancel.
+/// A real 2-/3-finger swipe is near-parallel (≈ 0.9+); a pinch/rotate/spread
+/// cancels out (< 0.3). This is the KEY tap-vs-swipe discriminator: it lets the
+/// swipe threshold drop to `SWIPE_FINGER_MIN_MOVE_NORM` (so a *weak* 3-finger
+/// swipe of ~0.08 is volume, not a mis-fired tap → the accidental-mute bug)
+/// while still rejecting divergent movement. A tap where ONE finger drifts has
+/// only 1 mover, so it never reaches the ≥2-coherent-movers swipe test and
+/// stays a tap.
+pub const SWIPE_COHERENCE_MIN: f64 = 0.6;
+
 // Tip-tap (v0.91.6): ONE finger rests on the pad, a SECOND finger taps briefly
 // to its left/right → previous/next tab. (This is the one-finger posture the
 // user asked to return to; v0.84.266 had switched to a two-finger rest to dodge
@@ -825,6 +837,13 @@ struct PTrack {
     t_down: u64,
     last: (f64, f64),
     t_last: u64,
+    /// Position of MAXIMUM displacement from `start` seen so far. Swipe
+    /// direction/magnitude are read from this (not `last`), so a fast swipe
+    /// whose finger lifts at/just-past its peak — with the last tracked frame
+    /// possibly stale under sparse frame delivery — is still measured at its
+    /// true travel. `travel()` ≥ `disp()` always, so this only ever makes a
+    /// swipe MORE reliably detected, never less.
+    peak: (f64, f64),
     present: bool,
     /// Sticky size-based palm flag (once a palm, always a palm until lift).
     palm: bool,
@@ -833,6 +852,15 @@ struct PTrack {
 impl PTrack {
     fn disp(&self) -> f64 {
         (self.last.0 - self.start.0).hypot(self.last.1 - self.start.1)
+    }
+    /// Distance from `start` to the peak-displacement position (the swipe's true
+    /// travel, robust to a stale lift frame).
+    fn travel(&self) -> f64 {
+        (self.peak.0 - self.start.0).hypot(self.peak.1 - self.start.1)
+    }
+    /// Travel vector (start → peak), for the coherence/direction test.
+    fn travel_vec(&self) -> (f64, f64) {
+        (self.peak.0 - self.start.0, self.peak.1 - self.start.1)
     }
     /// Parked motionless long enough to be a resting palm heel / anchored thumb.
     fn resting(&self, now: u64) -> bool {
@@ -859,6 +887,22 @@ impl PTrack {
 ///    fingers must have moved < `TAP_FINGER_MAX_MOVE_NORM` and stayed down
 ///    ≤ `TAP_HOLD_MAX_MS` — so palm + 2-finger scroll yields `fingers == 2`,
 ///    which `map_action` ignores, and a held chord is not a tap.
+///
+/// **Tap vs. swipe by COHERENCE, not just magnitude (v0.99.0 — the accidental-
+/// mute fix).** A pure magnitude threshold can't cleanly split the two (a weak
+/// swipe and a tap-with-drift overlap): the OLD code let a tap's finger drift up
+/// to `TAP_FINGER_MAX_MOVE_NORM` (0.12) — the same as the swipe threshold — so a
+/// gentle 3-finger swipe of ~0.08–0.11 (just under the bar) fell through to the
+/// tap path → an unwanted mute. The real discriminator is **how many fingers
+/// travelled, and how coherently**: a genuine tap is essentially stationary (at
+/// most ONE finger drifts on lift); a swipe is **≥ 2 fingers travelling
+/// coherently** (`|Σvᵢ|/Σ|vᵢ| ≥ SWIPE_COHERENCE_MIN`). So `decide_swipe` fires on
+/// ≥ 2 coherent movers each ≥ `SWIPE_FINGER_MIN_MOVE_NORM` (catching the weak
+/// swipe as volume) while a divergent pinch/spread cancels out and is rejected;
+/// and `finalize_tap` VETOES any ≥ 2-mover gesture (`swipe_geometry` = Some) so
+/// it can never mute. Travel is measured to each finger's PEAK (`PTrack.peak`),
+/// robust to a stale lift frame. The one-drifting-finger tap (< 2 movers) is
+/// preserved exactly.
 ///
 /// **Swipe vs. tap separation (the mute-double-toggle fix).** A SWIPE emits
 /// immediately when a real finger LIFTS with ≥2 fingers having moved coherently.
@@ -943,6 +987,11 @@ impl PalmAwareRecognizer {
                 t.t_last = t_ms;
                 t.present = true;
                 t.palm |= palm;
+                // Track the furthest point from `start` (the swipe's true travel).
+                let d_new = (c.x - t.start.0).hypot(c.y - t.start.1);
+                if d_new > t.travel() {
+                    t.peak = (c.x, c.y);
+                }
             } else {
                 self.tracks.push(PTrack {
                     id: c.id,
@@ -950,6 +999,7 @@ impl PalmAwareRecognizer {
                     t_down: t_ms,
                     last: (c.x, c.y),
                     t_last: t_ms,
+                    peak: (c.x, c.y),
                     present: true,
                     palm,
                 });
@@ -1018,35 +1068,67 @@ impl PalmAwareRecognizer {
         self.cluster_open = false;
     }
 
-    /// Swipe decision for the just-ended segment: a swipe needs a MAJORITY of
-    /// fingers (≥ 2) moving coherently past the threshold. One drifting finger
-    /// during a tap can't trigger it. `fingers = moved_n`, so a resting palm that
-    /// lifts with a 2-finger scroll reads as 2 (→ ignored), never 3.
-    fn decide_swipe(&self, now: u64) -> Option<GestureEvent> {
-        let mut moved_n = 0usize;
-        let (mut dx, mut dy) = (0.0f64, 0.0f64);
+    /// Geometry of the just-ended movement, over the non-palm, non-resting
+    /// fingers that each **travelled** ≥ `SWIPE_FINGER_MIN_MOVE_NORM` (measured
+    /// to their peak, not their possibly-stale last frame). Returns the resultant
+    /// travel `(rx, ry)`, the number of movers `n`, and the directional coherence
+    /// `|Σvᵢ| / Σ|vᵢ|` — or `None` when fewer than two fingers moved. Shared by
+    /// the swipe decision and the tap veto so they agree on what "a swipe" is.
+    fn swipe_geometry(&self, now: u64) -> Option<(f64, f64, usize, f64)> {
+        let (mut rx, mut ry, mut sum_mag, mut n) = (0.0f64, 0.0f64, 0.0f64, 0usize);
         for t in &self.tracks {
             if t.palm || (t.present && t.resting(now)) {
                 continue;
             }
-            if t.disp() >= SWIPE_FINGER_MIN_MOVE_NORM {
-                moved_n += 1;
-                dx += t.last.0 - t.start.0;
-                dy += t.last.1 - t.start.1;
+            let m = t.travel();
+            if m >= SWIPE_FINGER_MIN_MOVE_NORM {
+                let (vx, vy) = t.travel_vec();
+                rx += vx;
+                ry += vy;
+                sum_mag += m;
+                n += 1;
             }
         }
-        if moved_n < 2 {
+        if n < 2 {
             return None;
         }
-        let avg = moved_n as f64;
-        classify_swipe(dx / avg, dy / avg, SWIPE_THRESHOLD_NORM)
-            .map(|kind| GestureEvent { kind, fingers: moved_n as u8 })
+        let rmag = rx.hypot(ry);
+        let coherence = if sum_mag > 0.0 { rmag / sum_mag } else { 0.0 };
+        Some((rx, ry, n, coherence))
+    }
+
+    /// Swipe decision for the just-ended segment: **≥ 2 fingers travelling
+    /// coherently** in one direction (`coherence ≥ SWIPE_COHERENCE_MIN`). Because
+    /// coherence — not a big magnitude — is what proves swipe intent, the per-
+    /// finger floor is just `SWIPE_FINGER_MIN_MOVE_NORM`, so a *weak* 3-finger
+    /// swipe (~0.08) is caught as volume instead of mis-firing as a tap (the
+    /// accidental-mute fix); a pinch/rotate/spread cancels out (low coherence) and
+    /// is rejected → no false volume. One drifting finger during a tap gives only
+    /// 1 mover, so it never triggers this. `fingers = n`, so a palm + 2-finger
+    /// scroll reads as 2 (→ ignored by `map_action`), never 3.
+    fn decide_swipe(&self, now: u64) -> Option<GestureEvent> {
+        let (rx, ry, n, coherence) = self.swipe_geometry(now)?;
+        if coherence < SWIPE_COHERENCE_MIN {
+            return None;
+        }
+        let avg = n as f64;
+        classify_swipe(rx / avg, ry / avg, SWIPE_FINGER_MIN_MOVE_NORM)
+            .map(|kind| GestureEvent { kind, fingers: n as u8 })
     }
 
     /// Finalise the open tap cluster: count the DISTINCT non-palm contacts that
     /// touched during it (they may have landed sequentially), and emit one Tap
     /// with that count — provided the whole cluster was brief and low-movement.
     fn finalize_tap(&self, now: u64) -> Option<GestureEvent> {
+        // Veto: a genuine tap has its fingers essentially stationary — at most
+        // ONE finger drifts on lift. So if ≥ 2 fingers actually TRAVELLED
+        // (`swipe_geometry` = Some), this was NOT a tap and must never mute: a
+        // *coherent* one is a (weak) swipe `decide_swipe` normally already fired
+        // on lift; an *incoherent* one (a pinch/spread) is nothing. Either way,
+        // no mute. The one-drifting-finger tap (< 2 movers → None) is preserved.
+        if self.swipe_geometry(now).is_some() {
+            return None;
+        }
         let mut n = 0usize;
         let mut first_down = u64::MAX;
         let mut last_up = 0u64;
@@ -1685,6 +1767,54 @@ mod tests {
                 "one finger drifting {drift} must stay a 3-finger tap, not a swipe/None",
             );
         }
+    }
+
+    /// THE accidental-mute fix: a WEAK 3-finger swipe (~0.09 travel, below the
+    /// old 0.12 magnitude threshold) must register as volume (SwipeUp) — NOT
+    /// mis-fire as a 3-finger tap/mute. Coherent ≥ 2-finger travel = a swipe,
+    /// however gentle.
+    #[test]
+    fn weak_three_finger_swipe_is_volume_not_a_mute() {
+        for (y0, y1, dir) in [
+            (0.55, 0.46, GestureKind::SwipeUp),   // 0.09 up
+            (0.46, 0.55, GestureKind::SwipeDown), // 0.09 down
+        ] {
+            let evs = palm_events(&swipe_frames(0, y0, y1, &[]));
+            assert_eq!(
+                evs,
+                vec![GestureEvent { kind: dir, fingers: 3 }],
+                "a weak coherent 3-finger swipe ({y0}->{y1}) must be volume, not a mute",
+            );
+        }
+    }
+
+    /// Three fingers moving APART (a pinch/spread) is incoherent — it must be
+    /// neither a swipe (no false volume) NOR a tap (no false mute): no event.
+    #[test]
+    fn divergent_three_finger_spread_is_neither_swipe_nor_mute() {
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.4, 0.5), rc(2, 0.5, 0.5), rc(3, 0.6, 0.5)]),
+            // f1 travels up, f3 travels down by the same amount → resultant ≈ 0.
+            (50, vec![rc(1, 0.4, 0.40), rc(2, 0.5, 0.5), rc(3, 0.6, 0.60)]),
+            (100, vec![]),
+        ]);
+        assert!(
+            evs.is_empty(),
+            "an incoherent spread must not mute or change volume: {evs:?}",
+        );
+    }
+
+    /// A light 2-finger tap where both fingers micro-drift (< the swipe floor)
+    /// stays a 2-finger tap (which `map_action` ignores) — the ≥2-movers veto
+    /// only fires for fingers that actually TRAVELLED ≥ `SWIPE_FINGER_MIN_MOVE_NORM`.
+    #[test]
+    fn two_finger_micro_drift_stays_a_tap() {
+        let evs = palm_events(&[
+            (0, vec![rc(1, 0.5, 0.5), rc(2, 0.6, 0.5)]),
+            (60, vec![rc(1, 0.5, 0.53), rc(2, 0.6, 0.53)]), // both drift 0.03 (< 0.06)
+            (100, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureEvent { kind: GestureKind::Tap, fingers: 2 }]);
     }
 
     /// THE core fix: a light 3-finger tap that the trackpad reports as three

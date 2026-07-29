@@ -116,7 +116,7 @@ Privacy — Titel/URLs verschlüsselt at rest, Denylist, Retention, CSV- + HTML-
 == System-Extras ==
 Fenster-Snapping — Fenster an Bildschirmkante ziehen → Hälften/Maximieren (opt-in, macOS)
 Fenster-Palette — Hover über den grünen Knopf → Presets + Hex-Wabengitter zum Aufziehen (opt-in, macOS)
-Touchpad-Gesten — 3-Finger-Swipe = Lautstärke (5-%-Raster), 3-Finger-Tap = Mute (Settle-basiert: sequenziell gemeldete Einzel-Touches werden zu EINEM Tap zusammengefasst — toggelt exakt einmal), Tip-Tap (1 Finger liegt, 2. tippt links/rechts) = Tab-Wechsel pro App; Palm-Rejection (opt-in)
+Touchpad-Gesten — 3-Finger-Swipe = Lautstärke (5-%-Raster), 3-Finger-Tap = Mute (Settle-basiert: sequenziell gemeldete Einzel-Touches werden zu EINEM Tap zusammengefasst — toggelt exakt einmal), Tip-Tap (1 Finger liegt, 2. tippt links/rechts) = Tab-Wechsel pro App; Palm-Rejection (opt-in). Tap-vs-Swipe per Richtungs-Kohärenz (nicht nur Magnitude): ≥2 Finger kohärent bewegt = Swipe (auch schwache ~0.08 → Lautstärke statt versehentlichem Mute), Pinch/Spreizen fällt raus, Tap ist quasi stationär (max. 1 driftender Finger) — behebt das versehentliche Muten beim Swipen ohne den Swipe zu brechen
 Keep-Alive — App startet bei Login und wird bei Absturz/Quit automatisch neu gestartet (opt-in)
 Autostart — Start bei Login (Tray/Settings)
 Status-Toasts — schwebende Bestätigungen (Timer, Wakelock, Würfel, Clean, erkannter Song via Shazam) am Cursor-Monitor

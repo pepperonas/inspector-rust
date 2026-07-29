@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.99.0] — 2026-07-30
+
+### Fixed
+
+- **3-finger tap no longer mutes by accident while you swipe.** The tap and swipe gestures overlapped: a gentle 3-finger swipe (just under the old magnitude threshold) fell through to the tap path and toggled mute — and tightening the threshold had previously broken swipes outright. The recogniser now tells them apart by **directional coherence, not just distance**: a swipe is **≥ 2 fingers travelling coherently the same way** (caught now even when weak → volume, while a pinch/spread cancels out and does nothing), and a tap is essentially stationary (at most one finger drifts). So swipes actually get **more** reliable while the accidental mutes stop. Finger travel is measured to its peak (robust to a fast lift). Three new unit tests lock it in; all existing tap/swipe/tip-tap tests still pass.
+
 ## [0.98.2] — 2026-07-29
 
 ### Changed

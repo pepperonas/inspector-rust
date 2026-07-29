@@ -157,8 +157,51 @@ pub fn upsert_clip_derived(
         conn.last_insert_rowid()
     };
 
-    prune_locked(&conn, MAX_ENTRIES)?;
+    prune_locked(&conn, effective_max_entries(&conn))?;
     Ok(id)
+}
+
+/// Settings key for the user-configurable clipboard-history cap.
+pub const KEY_MAX_ENTRIES: &str = "history.max_entries";
+/// Lower/upper bounds the cap is clamped to (the UI mirrors these).
+pub const MIN_HISTORY_ENTRIES: i64 = 50;
+pub const MAX_HISTORY_ENTRIES: i64 = 100_000;
+
+/// The effective history cap: the stored `history.max_entries` clamped to
+/// `[MIN_HISTORY_ENTRIES, MAX_HISTORY_ENTRIES]`, or the default `MAX_ENTRIES`
+/// when unset/blank/invalid. Reads the setting from the SAME connection (we
+/// already hold the lock while pruning) and is safe if the settings table is
+/// absent (e.g. a bare in-memory test DB) — it just returns the default.
+fn effective_max_entries(conn: &Connection) -> i64 {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        params![KEY_MAX_ENTRIES],
+        |r| r.get::<_, String>(0),
+    )
+    .ok()
+    .and_then(|s| s.trim().parse::<i64>().ok())
+    .map(|n| n.clamp(MIN_HISTORY_ENTRIES, MAX_HISTORY_ENTRIES))
+    .unwrap_or(MAX_ENTRIES)
+}
+
+/// The current effective cap (for the settings UI).
+pub fn max_entries(db: &DbHandle) -> i64 {
+    let conn = db.lock();
+    effective_max_entries(&conn)
+}
+
+/// Persist a new cap (clamped to the valid range) and immediately prune the
+/// history down to it. Returns the clamped value actually stored.
+pub fn set_max_entries(db: &DbHandle, max: i64) -> Result<i64> {
+    let clamped = max.clamp(MIN_HISTORY_ENTRIES, MAX_HISTORY_ENTRIES);
+    let conn = db.lock();
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+        params![KEY_MAX_ENTRIES, clamped.to_string()],
+    )?;
+    prune_locked(&conn, clamped)?;
+    Ok(clamped)
 }
 
 fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
@@ -359,6 +402,55 @@ mod tests {
             content_data: s.to_string(),
             byte_size: s.len() as i64,
         }
+    }
+
+    /// A DB with BOTH `entries` and `settings` — needed for the configurable
+    /// history-cap tests (which read/write the `settings` table).
+    fn test_db_with_settings() -> DbHandle {
+        let db = test_db();
+        db.lock()
+            .execute_batch(
+                "CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);",
+            )
+            .unwrap();
+        db
+    }
+
+    #[test]
+    fn max_entries_defaults_to_one_thousand_when_unset() {
+        let db = test_db_with_settings();
+        assert_eq!(max_entries(&db), 1000);
+    }
+
+    #[test]
+    fn set_max_entries_clamps_to_the_valid_range() {
+        let db = test_db_with_settings();
+        // Below the floor → clamped up.
+        assert_eq!(set_max_entries(&db, 5).unwrap(), MIN_HISTORY_ENTRIES);
+        assert_eq!(max_entries(&db), MIN_HISTORY_ENTRIES);
+        // Above the ceiling → clamped down.
+        assert_eq!(set_max_entries(&db, 9_999_999).unwrap(), MAX_HISTORY_ENTRIES);
+        // In range → stored verbatim.
+        assert_eq!(set_max_entries(&db, 2500).unwrap(), 2500);
+        assert_eq!(max_entries(&db), 2500);
+    }
+
+    #[test]
+    fn a_lowered_cap_prunes_immediately_keeping_the_newest() {
+        let db = test_db_with_settings();
+        // 60 clips; each upsert bumps recency, so #59 is newest, #0 oldest.
+        for i in 0..60 {
+            upsert_clip(&db, &text_clip(&format!("clip-{i}"))).unwrap();
+        }
+        assert_eq!(list(&db, 200, 0).unwrap().len(), 60);
+        // Lower the cap to the floor (50) → prune drops the 10 oldest.
+        assert_eq!(set_max_entries(&db, MIN_HISTORY_ENTRIES).unwrap(), 50);
+        let rows = list(&db, 200, 0).unwrap();
+        assert_eq!(rows.len(), 50);
+        // The oldest (clip-0..clip-9) are gone; clip-59 (newest) survives.
+        let texts: Vec<String> = rows.iter().map(|r| r.content_text.clone()).collect();
+        assert!(texts.iter().any(|t| t == "clip-59"));
+        assert!(!texts.iter().any(|t| t == "clip-0"));
     }
 
     #[test]

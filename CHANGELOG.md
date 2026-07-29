@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.98.0] — 2026-07-29
+
+### Added
+
+- **The clipboard-history limit is now configurable (Settings → Clipboard history).** It was hard-coded at 1,000; you can now set any cap from 50 to 100,000. Lowering it prunes the oldest entries immediately; pinned + noted clips still never count against it. (`history.max_entries` setting; `get_/set_history_max` IPC, backend-clamped + unit-tested.)
+
+### Fixed
+
+- **CI was red on `v0.97.0`.** The new `weather` command called `snitch::geolocate_self()`, but the `snitch` module is macOS-only — so it compiled locally yet broke the Linux CI build. IP geolocation is now self-contained in `weather.rs` (`ip_locate`), so `weather` no longer depends on any platform-gated module.
+
 ## [0.97.0] — 2026-07-29
 
 ### Added

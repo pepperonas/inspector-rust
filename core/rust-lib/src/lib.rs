@@ -835,6 +835,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::weather_fetch,
             commands::get_weather_config,
             commands::set_weather_config,
+            commands::get_history_max,
+            commands::set_history_max,
             commands::screen_record_open_overlay,
             commands::cancel_record_overlay,
             commands::start_screen_record,

@@ -4801,6 +4801,34 @@ pub fn set_weather_config(
     Ok(())
 }
 
+// ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────
+
+/// The current clipboard-history cap + its valid bounds (for the settings UI).
+#[derive(serde::Serialize)]
+pub struct HistoryLimit {
+    pub max: i64,
+    pub min: i64,
+    pub ceiling: i64,
+}
+
+#[tauri::command]
+pub fn get_history_max(db: State<'_, DbHandle>) -> HistoryLimit {
+    HistoryLimit {
+        max: crate::db::max_entries(&db),
+        min: crate::db::MIN_HISTORY_ENTRIES,
+        ceiling: crate::db::MAX_HISTORY_ENTRIES,
+    }
+}
+
+/// Set the cap (clamped) and prune immediately. Returns the stored value and
+/// emits `clipboard-changed` so the list reflects any pruning right away.
+#[tauri::command]
+pub fn set_history_max(app: AppHandle, db: State<'_, DbHandle>, max: i64) -> Result<i64, String> {
+    let stored = crate::db::set_max_entries(&db, max).map_err(map_err)?;
+    let _ = app.emit("clipboard-changed", ());
+    Ok(stored)
+}
+
 // ── Screen recording (Ctrl+Shift+R, v0.81.0) ────────────────────────────────
 
 pub const RECORD_OVERLAY_LABEL: &str = "record-overlay";

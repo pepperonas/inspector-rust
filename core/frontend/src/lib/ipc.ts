@@ -2428,6 +2428,25 @@ export function weatherFetch(city?: string): Promise<WeatherReport> {
 export function getWeatherConfig(): Promise<WeatherConfig> {
   return invoke("get_weather_config");
 }
+
+// ── Clipboard-history cap ───────────────────────────────────────────────────
+
+export interface HistoryLimit {
+  /** Current cap. */
+  max: number;
+  /** Smallest allowed cap. */
+  min: number;
+  /** Largest allowed cap. */
+  ceiling: number;
+}
+
+export function getHistoryMax(): Promise<HistoryLimit> {
+  return invoke("get_history_max");
+}
+/** Set the cap (clamped backend-side) and prune now; returns the stored value. */
+export function setHistoryMax(max: number): Promise<number> {
+  return invoke("set_history_max", { max });
+}
 export function setWeatherConfig(
   apiKey: string | null,
   units: string | null,

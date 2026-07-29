@@ -9,9 +9,11 @@
 //! which a standard free key can call; One Call 3.0 needs a separate sub). The
 //! API key lives in the settings table (`weather.api_key`), never committed.
 //!
-//! **"My location"** is resolved by IP geolocation (`snitch::geolocate_self`,
-//! keyless ip-api.com) → lat/lon → OWM; a `weather <city>` argument overrides
-//! it with an OWM `q=<city>` query.
+//! **"My location"** is resolved by IP geolocation (keyless ip-api.com, the
+//! self-contained `ip_locate`) → lat/lon → OWM; a `weather <city>` argument
+//! overrides it with an OWM `q=<city>` query. (Deliberately self-contained —
+//! `weather` is cross-platform, so it must NOT depend on the macOS-only
+//! `snitch` module, which is what broke the Linux CI in v0.97.0.)
 //!
 //! The JSON parsers (`parse_current`, `parse_forecast`), the icon→kind mapping
 //! (`owm_icon_to_kind`), and the URL builders are pure and unit-tested; the
@@ -347,6 +349,28 @@ pub fn build_url(
 
 // ── HTTP (not unit-tested; needs a live network + key) ───────────────────────
 
+/// Best-effort geolocation of this machine via ip-api.com's keyless `/json`
+/// (no IP → locates the caller). Returns `(lat, lon)`. Self-contained so the
+/// cross-platform `weather` command never depends on the macOS-only `snitch`.
+fn ip_locate() -> Option<(f64, f64)> {
+    let resp = ureq::AgentBuilder::new()
+        .timeout(HTTP_TIMEOUT)
+        .build()
+        .get("http://ip-api.com/json?fields=status,lat,lon")
+        .call()
+        .ok()?;
+    let mut body = String::new();
+    resp.into_reader()
+        .take(64 * 1024)
+        .read_to_string(&mut body)
+        .ok()?;
+    let v: Value = serde_json::from_str(&body).ok()?;
+    if v.get("status").and_then(|s| s.as_str()) != Some("success") {
+        return None;
+    }
+    Some((v.get("lat")?.as_f64()?, v.get("lon")?.as_f64()?))
+}
+
 fn get_json(url: &str) -> Result<Value, String> {
     let resp = ureq::AgentBuilder::new()
         .timeout(HTTP_TIMEOUT)
@@ -392,12 +416,9 @@ pub fn fetch(db: &DbHandle, city: Option<String>) -> Result<WeatherReport, Strin
     let loc = match city {
         Some(c) if !c.trim().is_empty() => Location::City(c.trim().to_string()),
         _ => {
-            let geo = crate::snitch::geolocate_self()
+            let (lat, lon) = ip_locate()
                 .ok_or("Couldn't determine your location (IP geolocation failed).")?;
-            Location::Coords {
-                lat: geo.lat,
-                lon: geo.lon,
-            }
+            Location::Coords { lat, lon }
         }
     };
 

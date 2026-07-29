@@ -1,7 +1,7 @@
 Inspector Rust — Feature-Liste (Stand v0.85.6)
 
 == Clipboard ==
-Clipboard-Verlauf — 1000 Einträge, SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF)
+Clipboard-Verlauf — konfigurierbares Limit (Settings → Clipboard history, 50–100.000, Standard 1000), SHA-256-Dedup, AES-256 verschlüsselt at rest (Text, Bilder, Dateien, HTML, RTF); angepinnte + mit Notiz versehene Clips zählen nicht gegen das Limit und werden nie geprunt
 Pinnen — ★ hält Clips dauerhaft oben, vom Prune ausgenommen
 Clip-Notizen — gelbe Markierung, Notiz am Clip, prune-geschützt
 Suche — Substring über den Verlauf, live beim Tippen
@@ -20,7 +20,7 @@ Capture-Pause — Erfassung über Tray anhalten
 Snippets — Kürzel→Text-Vorlagen; 27 AI-Prompts + 255 Material-Farben mitgeliefert
 Snippet direkt aus der Suche bearbeiten — ✏️ in der Vorschau oder Cmd/Ctrl+E auf der Snippet-Zeile; speichern mit Cmd/Ctrl+Enter, danach fügt Enter sofort die neue Fassung ein
 Snippet-Gruppen — Snippets in Gruppen ordnen (Filter-Chips, Gruppen anlegen/umbenennen/sortieren/löschen); vorgruppiert (AI Prompts · Colors); Gruppen sind im Backup enthalten
-Snippet-Speicheranzeige — Settings → Snippets zeigt Anzahl + belegten Platz auf der Platte (verschlüsselte Bytes); kein Limit für die Anzahl (die 1000er-Grenze gilt nur für die Clipboard-History), die Liste ist virtualisiert und bleibt auch bei Tausenden flüssig
+Snippet-Speicheranzeige — Settings → Snippets zeigt Anzahl + belegten Platz auf der Platte (verschlüsselte Bytes); kein Limit für die Anzahl (das konfigurierbare Limit gilt nur für die Clipboard-History), die Liste ist virtualisiert und bleibt auch bei Tausenden flüssig
 Expander-Hotkey (Alt+1) — Kürzel vor dem Cursor ersetzen, funktioniert auch im Terminal
 Direkt-Hotkey→Snippet — beliebige Hotkeys fest an einzelne Snippets binden
 Passive Auto-Expansion — aText-Stil: Kürzel expandiert beim Tippen ohne Hotkey (opt-in)

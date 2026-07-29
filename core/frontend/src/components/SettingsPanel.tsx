@@ -35,6 +35,7 @@ import {
   Type,
   Zap,
   CloudSun,
+  History,
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AboutContent } from "./AboutContent";
@@ -62,6 +63,9 @@ import {
   getWeatherConfig,
   setWeatherConfig,
   type WeatherConfig,
+  getHistoryMax,
+  setHistoryMax,
+  type HistoryLimit,
   getSnippetStorage,
   type SnippetStorage,
   getLineageHighlight,
@@ -1738,6 +1742,10 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         </div>
 
         {/* Clipboard privacy (v0.76.0) */}
+        <div className="mt-8">
+          <HistoryLimitSection />
+        </div>
+
         <div className="mt-8">
           <Section
             icon={<Lock size={16} className="text-[var(--color-accent)]" />}
@@ -4637,6 +4645,87 @@ function SecuritySection() {
 // home-relative `My Drive/media/memes`; on Windows with Google Drive in
 // streaming mode the library lives under a drive letter (e.g.
 // `G:\My Drive\media\memes`), so it's overridable here.
+function HistoryLimitSection() {
+  const [limit, setLimit] = useState<HistoryLimit | null>(null);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  useEffect(() => {
+    getHistoryMax()
+      .then((l) => {
+        setLimit(l);
+        setValue(String(l.max));
+      })
+      .catch(() => setLimit({ max: 1000, min: 50, ceiling: 100000 }));
+  }, []);
+
+  if (limit === null) return null;
+
+  const parsed = parseInt(value, 10);
+  const valid = Number.isFinite(parsed) && parsed >= limit.min && parsed <= limit.ceiling;
+  const dirty = valid && parsed !== limit.max;
+
+  const save = async () => {
+    if (!valid) return;
+    setBusy(true);
+    setSavedOk(false);
+    try {
+      const stored = await setHistoryMax(parsed);
+      setLimit({ ...limit, max: stored });
+      setValue(String(stored));
+      setSavedOk(true);
+    } catch (e) {
+      console.error("save history max", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Section
+      icon={<History size={16} className="text-[var(--color-accent)]" />}
+      id="clipboard-history"
+      title="Clipboard history"
+      subtitle={`How many clipboard entries to keep. Older entries beyond the limit are pruned automatically; pinned + noted clips never count against it. ${limit.min.toLocaleString()}–${limit.ceiling.toLocaleString()}, default 1,000.`}
+    >
+      <Row label="Maximum entries" help="Lowering this prunes the oldest entries immediately.">
+        <div className="flex w-full items-center gap-2">
+          <input
+            type="number"
+            min={limit.min}
+            max={limit.ceiling}
+            step={100}
+            value={value}
+            onChange={(e) => {
+              setValue(e.target.value);
+              setSavedOk(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && dirty) void save();
+              e.stopPropagation();
+            }}
+            className="w-36 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px]"
+          />
+          <button
+            onClick={() => void save()}
+            disabled={busy || !dirty}
+            className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+          {!valid && value.trim() !== "" && (
+            <span className="text-[12px] text-amber-500">
+              {limit.min.toLocaleString()}–{limit.ceiling.toLocaleString()}
+            </span>
+          )}
+        </div>
+      </Row>
+    </Section>
+  );
+}
+
 function WeatherSection() {
   const [cfg, setCfg] = useState<WeatherConfig | null>(null);
   const [keyInput, setKeyInput] = useState("");

@@ -511,53 +511,53 @@ Englisch.)
 
 | Befehl | Seit | Was er tut |
 |--------|------|------------|
+| `rmvvls` | v0.18.0 | Vokale aus dem Text entfernen → Clipboard. |
 | `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Google Translate für den Text öffnen — auto/EN↔DE und DE↔IT/ES/PL. |
-| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki`)</sub> | v0.76.0 | Web-Such-Bangs — die Suche einer Seite für die Anfrage öffnen. |
-| `rz` <sub>(alias: `resize`)</sub> | v0.84.72 | Ausgewählte Finder-Bild(er) skalieren (Lanczos3) → Nachbardateien. |
-| `optim` <sub>(alias: `optimize`)</sub> | v0.84.71 | Ausgewählte Finder-Bild(er) komprimieren → Nachbardateien. |
-| `touch` | v0.53.0 | Datei im vordersten Finder/Explorer-Ordner anlegen (opt. Inhalt). |
+| `kill` | v0.19.0 | Live-Prozess-Picker — nach Name/PID filtern, bestätigen, beenden. |
+| `lock` | v0.19.0 | Bildschirm sofort sperren. |
+| `mute` | v0.19.0 | System-Ausgabe stumm schalten (Toggle). |
+| `reboot` | v0.19.0 | Rechner neu starten (mit Bestätigung). |
+| `shutdown` | v0.19.0 | Rechner herunterfahren (mit Bestätigung). |
+| `bruno` | v0.33.0 | Netto-Rechner Deutschland — Angestellte UND Selbständige (Steuerjahr 2025). |
+| `freeze` | v0.35.0 | Eingabesperre — Tastatur + Maus bis zum Entsperr-Chord blockieren. |
+| `pwgen` | v0.40.0 | Passwort-Generator — CSPRNG, 4 Modi. |
+| `alarm` | v0.42.0 | Alarm zu einer Uhrzeit (nächstes Auftreten). |
+| `timer` | v0.42.0 | Countdown-Timer — löst bei Ablauf einen Alarm aus. |
+| `md2pdf` | v0.46.0 | Markdown → PDF (GitHub-CSS), Nachbardatei. |
+| `wakelock` <sub>(alias: `caffeine`)</sub> | v0.52.0 | Mac wachhalten — wakelock on / off (Alias caffeine). |
 | `mkdir` | v0.53.0 | Ordner im vordersten Finder/Explorer-Ordner anlegen. |
 | `terminal` | v0.53.0 | Terminal im vordersten Finder/Explorer-Ordner öffnen. |
-| `rmvvls` | v0.18.0 | Vokale aus dem Text entfernen → Clipboard. |
-| `uuid` | v0.76.0 | Zufällige v4-UUID(s) erzeugen → Clipboard. |
-| `slug` | v0.76.0 | Text sluggen (URL-sicher, klein, Bindestriche) → Clipboard. |
+| `touch` | v0.53.0 | Datei im vordersten Finder/Explorer-Ordner anlegen (opt. Inhalt). |
+| `shot` <sub>(alias: `shotfull`, `shotwin`, `shotlast`)</sub> | v0.57.0 | Screenshot — Region / Vollbild / Fenster / Wiederholen, mit Selbstauslöser. |
+| `clean` <sub>(alias: `cleanup`)</sub> | v0.60.0 | Speicher freimachen — Cache/Log/Temp + Dev-Müll, Ordner-Picker. |
+| `brightness` <sub>(alias: `bri`)</sub> | v0.62.0 | Helligkeits-Slider pro Monitor im Preview. |
+| `rnd` <sub>(alias: `random`)</sub> | v0.68.0 | Zufallszahl würfeln — in einem Status-Toast angezeigt. |
+| `meme` | v0.70.0 | Meme-Ordner durchsuchen, gewähltes GIF/Bild kopieren. |
+| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki`)</sub> | v0.76.0 | Web-Such-Bangs — die Suche einer Seite für die Anfrage öffnen. |
 | `hash` | v0.76.0 | Text als SHA-256 hashen → Clipboard (Hex). |
 | `json` | v0.76.0 | Clipboard-JSON formatieren → Clipboard. |
 | `jwt` | v0.76.0 | Clipboard-JWT dekodieren (Header + Payload) → Clipboard. |
 | `qr` | v0.76.0 | QR-Code erzeugen — Live-Vorschau, Enter kopiert das PNG. |
-| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-Art-Banner — Live-Vorschau, Hunderte Fonts durchblättern, Enter kopiert. |
-| `settings` <sub>(alias: `config`)</sub> | v0.87.1 | Öffnet den Settings-Tab — optional direkt zu einer Sektion springen. |
-| `kill` | v0.19.0 | Live-Prozess-Picker — nach Name/PID filtern, bestätigen, beenden. |
-| `reboot` | v0.19.0 | Rechner neu starten (mit Bestätigung). |
-| `shutdown` | v0.19.0 | Rechner herunterfahren (mit Bestätigung). |
-| `lock` | v0.19.0 | Bildschirm sofort sperren. |
-| `mute` | v0.19.0 | System-Ausgabe stumm schalten (Toggle). |
-| `freeze` | v0.35.0 | Eingabesperre — Tastatur + Maus bis zum Entsperr-Chord blockieren. |
-| `wakelock` <sub>(alias: `caffeine`)</sub> | v0.52.0 | Mac wachhalten — wakelock on / off (Alias caffeine). |
-| `bruno` | v0.33.0 | Netto-Rechner Deutschland — Angestellte UND Selbständige (Steuerjahr 2025). |
-| `timer` | v0.42.0 | Countdown-Timer — löst bei Ablauf einen Alarm aus. |
-| `alarm` | v0.42.0 | Alarm zu einer Uhrzeit (nächstes Auftreten). |
-| `pwgen` | v0.40.0 | Passwort-Generator — CSPRNG, 4 Modi. |
-| `faker` <sub>(alias: `fake`)</sub> | v0.84.270 | Realistische Fake-Testdaten — 70+ Generatoren, 14 Locales, viele Formate. |
-| `sec` <sub>(alias: `nmap`, `sqlmap`, `feroxbuster`, `ferox`, `john`)</sub> | v0.84.271 | Geführte Pentest-Command-Builder — nmap · sqlmap · ferox · John. |
-| `shot` <sub>(alias: `shotfull`, `shotwin`, `shotlast`)</sub> | v0.57.0 | Screenshot — Region / Vollbild / Fenster / Wiederholen, mit Selbstauslöser. |
-| `trim` | v0.84.28 | Video/Audio-Datei trimmen — verlustfrei-schnell oder frame-genau. |
-| `md2pdf` | v0.46.0 | Markdown → PDF (GitHub-CSS), Nachbardatei. |
-| `meme` | v0.70.0 | Meme-Ordner durchsuchen, gewähltes GIF/Bild kopieren. |
-| `shazam` | v0.84.250 | Den laufenden Song über das Mikro erkennen. |
-| `clean` <sub>(alias: `cleanup`)</sub> | v0.60.0 | Speicher freimachen — Cache/Log/Temp + Dev-Müll, Ordner-Picker. |
-| `brightness` <sub>(alias: `bri`)</sub> | v0.62.0 | Helligkeits-Slider pro Monitor im Preview. |
+| `slug` | v0.76.0 | Text sluggen (URL-sicher, klein, Bindestriche) → Clipboard. |
+| `uuid` | v0.76.0 | Zufällige v4-UUID(s) erzeugen → Clipboard. |
 | `sound` <sub>(alias: `audio`)</sub> | v0.80.0 | Audio-Ausgabe-Wähler + System-Lautstärke-Slider. |
-| `boom` | v0.84.143 | Systemweiter Audio-EQ + Presets + Lautstärke-Boost. |
+| `trim` | v0.84.28 | Video/Audio-Datei trimmen — verlustfrei-schnell oder frame-genau. |
 | `hue` | v0.84.40 | Philips-Hue-Lampensteuerung (lokal, nur LAN). |
 | `disco` | v0.84.43 | Hue-Lampen zum Mikro beat-syncen — läuft nach dem Schließen weiter. |
 | `stats` | v0.84.59 | Live-System-Dashboard — CPU/RAM/Akku/Sensoren/Disks/Netz + Verlauf. |
 | `uptime` | v0.84.64 | Live-animierte Uptime-Anzeige. |
-| `snitch` | v0.84.246 | Netzwerk-Monitor + Best-Effort-Per-App-Blocker + Weltkarte (macOS). |
-| `weather` <sub>(alias: `wetter`)</sub> | v0.97.0 | Wetter für deinen Standort — aktuell + 5-Tage-Vorschau, animiert. |
-| `calendar` <sub>(alias: `cal`)</sub> | v0.84.234 | Monatskalender im Preview — welcher Wochentag war das Datum? |
+| `optim` <sub>(alias: `optimize`)</sub> | v0.84.71 | Ausgewählte Finder-Bild(er) komprimieren → Nachbardateien. |
+| `rz` <sub>(alias: `resize`)</sub> | v0.84.72 | Ausgewählte Finder-Bild(er) skalieren (Lanczos3) → Nachbardateien. |
 | `track` | v0.84.77 | Zeiterfassung — Start/Stopp, opt-in, verschlüsselt (macOS). |
-| `rnd` <sub>(alias: `random`)</sub> | v0.68.0 | Zufallszahl würfeln — in einem Status-Toast angezeigt. |
+| `boom` | v0.84.143 | Systemweiter Audio-EQ + Presets + Lautstärke-Boost. |
+| `calendar` <sub>(alias: `cal`)</sub> | v0.84.234 | Monatskalender im Preview — welcher Wochentag war das Datum? |
+| `snitch` | v0.84.246 | Netzwerk-Monitor + Best-Effort-Per-App-Blocker + Weltkarte (macOS). |
+| `shazam` | v0.84.250 | Den laufenden Song über das Mikro erkennen. |
+| `faker` <sub>(alias: `fake`)</sub> | v0.84.270 | Realistische Fake-Testdaten — 70+ Generatoren, 14 Locales, viele Formate. |
+| `sec` <sub>(alias: `nmap`, `sqlmap`, `feroxbuster`, `ferox`, `john`)</sub> | v0.84.271 | Geführte Pentest-Command-Builder — nmap · sqlmap · ferox · John. |
+| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-Art-Banner — Live-Vorschau, Hunderte Fonts durchblättern, Enter kopiert. |
+| `settings` <sub>(alias: `config`)</sub> | v0.87.1 | Öffnet den Settings-Tab — optional direkt zu einer Sektion springen. |
+| `weather` <sub>(alias: `wetter`)</sub> | v0.97.0 | Wetter für deinen Standort — aktuell + 5-Tage-Vorschau, animiert. |
 
 <!-- COMMANDS:END -->
 

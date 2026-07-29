@@ -59,8 +59,23 @@ async function loadDocs() {
 // ── Render ───────────────────────────────────────────────────────────────────
 const esc = (s) => s.replace(/\|/g, "\\|");
 
+// Numeric semver key so `0.84.234` sorts AFTER `0.84.72` (not lexically).
+const versionKey = (v) => String(v).split(".").map((n) => parseInt(n, 10) || 0);
+function byVersionThenName(a, b) {
+  const va = versionKey(a.version_added);
+  const vb = versionKey(b.version_added);
+  for (let i = 0; i < Math.max(va.length, vb.length); i++) {
+    const d = (va[i] || 0) - (vb[i] || 0);
+    if (d) return d;
+  }
+  return a.command.localeCompare(b.command);
+}
+
 function renderMatrix(docs, german) {
-  const rows = docs.map((d) => {
+  // The command matrix is sorted by version (oldest → newest) so the table
+  // reads as the tool's evolution; ties break by command name. (The Features
+  // tab keeps the registry/category order — this only affects the README.)
+  const rows = [...docs].sort(byVersionThenName).map((d) => {
     const aliases =
       d.aliases.length > 0
         ? ` <sub>(alias: ${d.aliases.map((a) => `\`${a}\``).join(", ")})</sub>`

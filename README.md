@@ -512,53 +512,53 @@ alone for the whole index.
 
 | Command | Since | What it does |
 |---------|-------|--------------|
+| `rmvvls` | v0.18.0 | Strip vowels from the text → clipboard. |
 | `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Open Google Translate for the text — auto/EN↔DE and DE↔IT/ES/PL pairs. |
-| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki`)</sub> | v0.76.0 | Web-search bangs — open a site's search for the query. |
-| `rz` <sub>(alias: `resize`)</sub> | v0.84.72 | Resize the selected Finder image(s) (Lanczos3) → sibling files. |
-| `optim` <sub>(alias: `optimize`)</sub> | v0.84.71 | Compress the selected Finder image(s) → sibling files. |
-| `touch` | v0.53.0 | Create a file in the front Finder/Explorer folder (optional content). |
+| `kill` | v0.19.0 | Live process picker — filter by name/PID, confirm, terminate. |
+| `lock` | v0.19.0 | Lock the screen immediately. |
+| `mute` | v0.19.0 | Toggle system output mute. |
+| `reboot` | v0.19.0 | Reboot the machine (with confirmation). |
+| `shutdown` | v0.19.0 | Shut the machine down (with confirmation). |
+| `bruno` | v0.33.0 | German net-pay calculator — employees AND freelancers (tax year 2025). |
+| `freeze` | v0.35.0 | Input lock — block keyboard + mouse until an unlock chord. |
+| `pwgen` | v0.40.0 | Password generator — CSPRNG, 4 modes. |
+| `alarm` | v0.42.0 | Alarm at a clock time (next occurrence). |
+| `timer` | v0.42.0 | Countdown timer — fires an alarm on expiry. |
+| `md2pdf` | v0.46.0 | Markdown → PDF (GitHub CSS), sibling file. |
+| `wakelock` <sub>(alias: `caffeine`)</sub> | v0.52.0 | Keep the Mac awake — wakelock on / off (alias caffeine). |
 | `mkdir` | v0.53.0 | Create a folder in the front Finder/Explorer folder. |
 | `terminal` | v0.53.0 | Open a terminal at the front Finder/Explorer folder. |
-| `rmvvls` | v0.18.0 | Strip vowels from the text → clipboard. |
-| `uuid` | v0.76.0 | Generate random v4 UUID(s) → clipboard. |
-| `slug` | v0.76.0 | Slugify text (URL-safe, lowercase, hyphenated) → clipboard. |
+| `touch` | v0.53.0 | Create a file in the front Finder/Explorer folder (optional content). |
+| `shot` <sub>(alias: `shotfull`, `shotwin`, `shotlast`)</sub> | v0.57.0 | Screenshot — region / full-screen / window / repeat, with a self-timer. |
+| `clean` <sub>(alias: `cleanup`)</sub> | v0.60.0 | Reclaim disk space — cache/log/temp + developer junk, folder picker. |
+| `brightness` <sub>(alias: `bri`)</sub> | v0.62.0 | Per-monitor brightness sliders in the preview. |
+| `rnd` <sub>(alias: `random`)</sub> | v0.68.0 | Roll a random number — shown in a status toast. |
+| `meme` | v0.70.0 | Browse your meme folder, copy the picked GIF/image. |
+| `g` <sub>(alias: `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki`)</sub> | v0.76.0 | Web-search bangs — open a site's search for the query. |
 | `hash` | v0.76.0 | SHA-256 the text → clipboard (hex). |
 | `json` | v0.76.0 | Pretty-print the clipboard JSON → clipboard. |
 | `jwt` | v0.76.0 | Decode the clipboard JWT (header + payload) → clipboard. |
 | `qr` | v0.76.0 | Generate a QR code — preview live, Enter copies the PNG. |
-| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-art banners — live preview, browse hundreds of fonts, Enter copies. |
-| `settings` <sub>(alias: `config`)</sub> | v0.87.1 | Open the Settings tab — optionally jump straight to a section. |
-| `kill` | v0.19.0 | Live process picker — filter by name/PID, confirm, terminate. |
-| `reboot` | v0.19.0 | Reboot the machine (with confirmation). |
-| `shutdown` | v0.19.0 | Shut the machine down (with confirmation). |
-| `lock` | v0.19.0 | Lock the screen immediately. |
-| `mute` | v0.19.0 | Toggle system output mute. |
-| `freeze` | v0.35.0 | Input lock — block keyboard + mouse until an unlock chord. |
-| `wakelock` <sub>(alias: `caffeine`)</sub> | v0.52.0 | Keep the Mac awake — wakelock on / off (alias caffeine). |
-| `bruno` | v0.33.0 | German net-pay calculator — employees AND freelancers (tax year 2025). |
-| `timer` | v0.42.0 | Countdown timer — fires an alarm on expiry. |
-| `alarm` | v0.42.0 | Alarm at a clock time (next occurrence). |
-| `pwgen` | v0.40.0 | Password generator — CSPRNG, 4 modes. |
-| `faker` <sub>(alias: `fake`)</sub> | v0.84.270 | Realistic fake test data — 70+ generators, 14 locales, many formats. |
-| `sec` <sub>(alias: `nmap`, `sqlmap`, `feroxbuster`, `ferox`, `john`)</sub> | v0.84.271 | Guided pentest-command builders — nmap · sqlmap · ferox · John. |
-| `shot` <sub>(alias: `shotfull`, `shotwin`, `shotlast`)</sub> | v0.57.0 | Screenshot — region / full-screen / window / repeat, with a self-timer. |
-| `trim` | v0.84.28 | Trim a video/audio file — lossless-fast or frame-accurate. |
-| `md2pdf` | v0.46.0 | Markdown → PDF (GitHub CSS), sibling file. |
-| `meme` | v0.70.0 | Browse your meme folder, copy the picked GIF/image. |
-| `shazam` | v0.84.250 | Recognise the song playing from the mic. |
-| `clean` <sub>(alias: `cleanup`)</sub> | v0.60.0 | Reclaim disk space — cache/log/temp + developer junk, folder picker. |
-| `brightness` <sub>(alias: `bri`)</sub> | v0.62.0 | Per-monitor brightness sliders in the preview. |
+| `slug` | v0.76.0 | Slugify text (URL-safe, lowercase, hyphenated) → clipboard. |
+| `uuid` | v0.76.0 | Generate random v4 UUID(s) → clipboard. |
 | `sound` <sub>(alias: `audio`)</sub> | v0.80.0 | Audio output picker + a system volume slider. |
-| `boom` | v0.84.143 | System-wide audio EQ + presets + volume boost. |
+| `trim` | v0.84.28 | Trim a video/audio file — lossless-fast or frame-accurate. |
 | `hue` | v0.84.40 | Philips Hue lamp controller (local, LAN-only). |
 | `disco` | v0.84.43 | Beat-sync Hue lamps to the mic — keeps running after close. |
 | `stats` | v0.84.59 | Live system dashboard — CPU/mem/battery/sensors/disks/net + history. |
 | `uptime` | v0.84.64 | Live, animated uptime readout. |
-| `snitch` | v0.84.246 | Network monitor + best-effort per-app blocker + world map (macOS). |
-| `weather` <sub>(alias: `wetter`)</sub> | v0.97.0 | Weather for your location — current + 5-day forecast, animated. |
-| `calendar` <sub>(alias: `cal`)</sub> | v0.84.234 | Month-view calendar in the preview — which weekday was that date? |
+| `optim` <sub>(alias: `optimize`)</sub> | v0.84.71 | Compress the selected Finder image(s) → sibling files. |
+| `rz` <sub>(alias: `resize`)</sub> | v0.84.72 | Resize the selected Finder image(s) (Lanczos3) → sibling files. |
 | `track` | v0.84.77 | Time tracking — start/stop, opt-in, encrypted at rest (macOS). |
-| `rnd` <sub>(alias: `random`)</sub> | v0.68.0 | Roll a random number — shown in a status toast. |
+| `boom` | v0.84.143 | System-wide audio EQ + presets + volume boost. |
+| `calendar` <sub>(alias: `cal`)</sub> | v0.84.234 | Month-view calendar in the preview — which weekday was that date? |
+| `snitch` | v0.84.246 | Network monitor + best-effort per-app blocker + world map (macOS). |
+| `shazam` | v0.84.250 | Recognise the song playing from the mic. |
+| `faker` <sub>(alias: `fake`)</sub> | v0.84.270 | Realistic fake test data — 70+ generators, 14 locales, many formats. |
+| `sec` <sub>(alias: `nmap`, `sqlmap`, `feroxbuster`, `ferox`, `john`)</sub> | v0.84.271 | Guided pentest-command builders — nmap · sqlmap · ferox · John. |
+| `figlet` <sub>(alias: `banner`, `ascii`)</sub> | v0.85.0 | ASCII-art banners — live preview, browse hundreds of fonts, Enter copies. |
+| `settings` <sub>(alias: `config`)</sub> | v0.87.1 | Open the Settings tab — optionally jump straight to a section. |
+| `weather` <sub>(alias: `wetter`)</sub> | v0.97.0 | Weather for your location — current + 5-day forecast, animated. |
 
 <!-- COMMANDS:END -->
 

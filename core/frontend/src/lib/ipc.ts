@@ -1133,6 +1133,19 @@ export function shazamRecognize(samples: Int16Array): Promise<ShazamMatch | null
 export function shazamListen(seconds?: number): Promise<ShazamMatch | null> {
   return invoke("shazam_listen", { seconds });
 }
+/** Is a recognition currently running in the backend (survives panel close)? */
+export function shazamIsListening(): Promise<boolean> {
+  return invoke("shazam_is_listening");
+}
+/** Payload of the `shazam-done` event (emitted when a run finishes). */
+export interface ShazamDone {
+  matched: ShazamMatch | null;
+  error: string | null;
+}
+/** Open the matched song in Spotify — desktop app if installed, else web player. */
+export function openSpotify(url: string, title: string, artist: string): Promise<void> {
+  return invoke("open_spotify", { url, title, artist });
+}
 /** Start/stop native mic streaming (event `mic-audio`; shared by BPM + disco). */
 export function micCaptureStart(): Promise<void> {
   return invoke("mic_capture_start");

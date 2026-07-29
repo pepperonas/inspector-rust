@@ -5,6 +5,7 @@ import {
   Coffee,
   Dices,
   Moon,
+  Music,
   Sparkles,
   Timer,
   Volume,
@@ -133,8 +134,10 @@ export function StatusToast() {
           ? Sparkles
           : payload.kind === "random"
             ? Dices
-            : payload.kind === "track"
-              ? Clock
+            : payload.kind === "shazam"
+              ? Music
+              : payload.kind === "track"
+                ? Clock
               : payload.kind === "volume"
                 ? (level === 0 ? VolumeX : Volume2)
                 : payload.kind === "mute"

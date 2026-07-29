@@ -23,12 +23,15 @@ import {
 } from "lucide-react";
 import {
   shazamListen,
+  shazamIsListening,
+  openSpotify,
   shazamHistoryList,
   shazamHistoryClear,
   shazamHistoryDelete,
   shazamLyrics,
   shazamLyricsTranslated,
   type ShazamMatch,
+  type ShazamDone,
   type ShazamHistoryEntry,
   type TranslatedLyrics,
 } from "../lib/ipc";
@@ -175,6 +178,11 @@ export function ShazamPanel({
    *  list-row click path from starting a SECOND concurrent `shazam_listen`
    *  (cpal would open the input device twice). */
   const busyRef = useRef(false);
+  /** True when the panel mounted INTO an already-running background recognition
+   *  (reconnect): it shows the live state and waits for the `shazam-done`
+   *  event instead of starting its own recording. Our own `run()` sets its
+   *  result directly, so it leaves this false and ignores the event. */
+  const reconnectedRef = useRef(false);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -183,6 +191,26 @@ export function ShazamPanel({
       /* ignore */
     }
   }, []);
+
+  /** Apply a finished recognition (from the `shazam-done` event) to the view. */
+  const applyDone = useCallback(
+    (d: ShazamDone) => {
+      if (d.matched) {
+        setMatch(d.matched);
+        setPhase("result");
+        void loadHistory();
+      } else if (d.error) {
+        if (/permission|denied|NotAllowed|microphone|no audio/i.test(d.error)) setPhase("noperm");
+        else {
+          setError(d.error);
+          setPhase("error");
+        }
+      } else {
+        setPhase("nomatch");
+      }
+    },
+    [loadHistory],
+  );
 
   const run = useCallback(async () => {
     const myRun = ++runIdRef.current;
@@ -226,15 +254,47 @@ export function ShazamPanel({
 
   useEffect(() => {
     void loadHistory();
-    // `shazam history` opens the list without touching the mic; `shazam`
-    // starts listening straight away.
-    if (initialView !== "history") void run();
+    // `shazam history` opens the list without touching the mic. `shazam`
+    // starts listening — UNLESS a recognition is already running in the
+    // backend (the overlay was closed mid-listen and reopened): then reconnect
+    // to it (show live state, result arrives via `shazam-done`) instead of
+    // opening the mic a second time.
+    if (initialView !== "history") {
+      void shazamIsListening().then((busy) => {
+        if (busy) {
+          reconnectedRef.current = true;
+          setPhase("searching");
+        } else {
+          void run();
+        }
+      });
+    }
     return () => {
       runIdRef.current += 1; // invalidate in-flight run on unmount
     };
     // Run once on mount for the chosen initial view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Persistent `shazam-done` listener: applies the result of a reconnected
+  // background run (our own `run()` sets its result directly, so it clears
+  // reconnectedRef and this is a no-op for that path).
+  useEffect(() => {
+    let cancelled = false;
+    let un: (() => void) | null = null;
+    void listen<ShazamDone>("shazam-done", (e) => {
+      if (!reconnectedRef.current) return;
+      reconnectedRef.current = false;
+      applyDone(e.payload);
+    }).then((u) => {
+      if (cancelled) u();
+      else un = u;
+    });
+    return () => {
+      cancelled = true;
+      if (un) un();
+    };
+  }, [applyDone]);
 
   // Every later click on the "Identify song" / "shazam history" list row
   // bumps `viewSignal` (App.tsx) — apply it to the ALREADY-MOUNTED panel.
@@ -251,9 +311,10 @@ export function ShazamPanel({
       // shows its live state, and a match still lands in the history).
       setView("history");
       void loadHistory();
-    } else if (busyRef.current) {
-      // Already listening/recognizing — just bring the recognize view back
-      // (never start a SECOND concurrent native recording).
+    } else if (busyRef.current || reconnectedRef.current) {
+      // Already listening/recognizing (our own run, or a reconnected background
+      // run) — just bring the recognize view back, never start a SECOND
+      // concurrent native recording.
       setView("recognize");
     } else {
       void run();
@@ -492,7 +553,11 @@ export function ShazamPanel({
                 <ShazamIcon size={18} />
               </BrandButton>
             )}
-            <BrandButton title="Open in Spotify" color={SPOTIFY_GREEN} onClick={() => void openUrl(match.spotify_url)}>
+            <BrandButton
+              title="Open in Spotify (app if installed, else web)"
+              color={SPOTIFY_GREEN}
+              onClick={() => void openSpotify(match.spotify_url, match.title, match.artist)}
+            >
               <SpotifyIcon size={18} />
             </BrandButton>
             <BrandButton title="Open on YouTube" color={YT_RED} onClick={() => void openUrl(match.youtube_url)}>
@@ -764,7 +829,11 @@ export function ShazamPanel({
                       <ShazamIcon size={13} />
                     </LinkChip>
                   )}
-                  <LinkChip title="Open in Spotify" color={SPOTIFY_GREEN} onClick={() => void openUrl(e.spotify_url)}>
+                  <LinkChip
+                    title="Open in Spotify"
+                    color={SPOTIFY_GREEN}
+                    onClick={() => void openSpotify(e.spotify_url, e.title, e.artist)}
+                  >
                     <SpotifyIcon size={13} />
                   </LinkChip>
                   <LinkChip title="Open on YouTube" color={YT_RED} onClick={() => void openUrl(e.youtube_url)}>

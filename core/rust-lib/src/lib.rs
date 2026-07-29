@@ -763,6 +763,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::mic_capture_stop,
             commands::shazam_recognize,
             commands::shazam_listen,
+            commands::shazam_is_listening,
+            commands::open_spotify,
             commands::shazam_history_list,
             commands::shazam_history_delete,
             commands::shazam_history_clear,

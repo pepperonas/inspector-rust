@@ -140,6 +140,7 @@ import {
   trimOpenOverlay,
   qrCopyPng,
   showStatusToast,
+  type ShazamDone,
   trackStart,
   trackStop,
   trackStatus,
@@ -268,6 +269,13 @@ function App() {
   // history` opens the recognized-songs history. null = closed.
   const [shazamMode, setShazamMode] = useState<null | "listen" | "history">(null);
   const [shazamFocus, setShazamFocus] = useState(false);
+  // Mirror of `shazamMode` for the global `shazam-done` listener (reads the
+  // live value without re-subscribing). null = the Shazam panel is closed, so
+  // a background recognition that finished should surface as a status toast.
+  const shazamModeRef = useRef(shazamMode);
+  useEffect(() => {
+    shazamModeRef.current = shazamMode;
+  }, [shazamMode]);
   // Bumped on EVERY shazam dispatch. The mounted panel reacts to this — a
   // mode change alone can't cover the click on the row matching the current
   // mode (after the panel's internal Listen⇄History toggle the prop wouldn't
@@ -2332,6 +2340,17 @@ function App() {
   // Tray → "Settings" quick action.
   useTauriEvent("open-settings-tab", () => {
     setActiveTab("settings");
+  });
+
+  // A Shazam recognition finished. It runs in the backend, so it keeps going
+  // even after the overlay is closed — when that happens (panel closed), a
+  // match surfaces as a status toast so you see it kept listening. If the
+  // panel is open it shows the result itself (no toast).
+  useTauriEvent<ShazamDone>("shazam-done", (e) => {
+    if (shazamModeRef.current !== null) return; // panel open → it handles it
+    const m = e.payload?.matched;
+    if (!m) return; // background no-match / error: stay silent
+    void showStatusToast("shazam", true, `🎵 ${m.title}`, m.artist);
   });
 
   // Backend fires this when the OCR shortcut is pressed but the

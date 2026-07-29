@@ -5443,31 +5443,77 @@ pub fn mic_capture_stop(state: State<'_, MicCaptureState>) {
     }
 }
 
+/// Guards against a second concurrent `shazam_listen` — reopening the panel
+/// mid-recognition must not open the mic a second time. The recognition runs
+/// entirely in the backend, so it survives the panel/overlay closing.
+static SHAZAM_LISTENING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether a background recognition is currently in flight (so a freshly-opened
+/// panel can reconnect to it instead of starting a new recording).
+#[tauri::command]
+pub fn shazam_is_listening() -> bool {
+    SHAZAM_LISTENING.load(Ordering::SeqCst)
+}
+
 /// Record `seconds` from the mic **natively** (cpal, bypassing the webview so
 /// playback doesn't stutter), then recognize + persist. Emits `shazam-progress`
-/// (0..1) ~10×/s during recording. `Ok(None)` = no match. This is the primary
-/// path the panel uses; `shazam_recognize` (samples) stays for compatibility.
+/// (0..1) ~10×/s during recording and a final `shazam-done` (match/none/error)
+/// so a closed overlay's run still surfaces. `Ok(None)` = no match. The run
+/// lives in the backend, so it **keeps going even after the panel unmounts**.
 #[tauri::command]
 pub async fn shazam_listen(
     app: AppHandle,
     db: State<'_, DbHandle>,
     seconds: Option<u32>,
 ) -> Result<Option<crate::shazam::ShazamMatch>, String> {
+    // Reject a concurrent start (avoids a second cpal input stream).
+    if SHAZAM_LISTENING.swap(true, Ordering::SeqCst) {
+        return Err("shazam.busy".into());
+    }
+    // Always clear the flag when this returns, whatever the outcome.
+    struct Guard;
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            SHAZAM_LISTENING.store(false, Ordering::SeqCst);
+        }
+    }
+    let _guard = Guard;
+
     let secs = seconds.unwrap_or(10);
     let app2 = app.clone();
     // Record on a blocking worker (cpal + ~10 s wait); progress via events.
-    let samples = tauri::async_runtime::spawn_blocking(move || {
+    let rec = tauri::async_runtime::spawn_blocking(move || {
         crate::shazam::record_mic_16k(secs, move |p| {
             let _ = app2.emit("shazam-progress", p);
         })
     })
-    .await
-    .map_err(|e| e.to_string())??;
-    let result = crate::shazam::recognize(&samples)?;
-    if let Some(m) = &result {
+    .await;
+
+    // Flatten the JoinError + record/recognize errors into one Result.
+    let outcome: Result<Option<crate::shazam::ShazamMatch>, String> = match rec {
+        Err(join) => Err(join.to_string()),
+        Ok(Err(e)) => Err(e),
+        Ok(Ok(samples)) => crate::shazam::recognize(&samples),
+    };
+
+    if let Ok(Some(m)) = &outcome {
         let _ = crate::shazam::history_insert(&db, m);
     }
-    Ok(result)
+    // Announce completion so a closed panel / App-level toast can react.
+    let done = crate::shazam::ShazamDone {
+        matched: outcome.as_ref().ok().and_then(|o| o.clone()),
+        error: outcome.as_ref().err().cloned(),
+    };
+    let _ = app.emit("shazam-done", &done);
+    outcome
+}
+
+/// Open the matched song in Spotify — the desktop app if installed, else the
+/// web player. `url` is the stored Spotify link; `title`/`artist` the fallback
+/// search terms.
+#[tauri::command]
+pub fn open_spotify(url: String, title: String, artist: String) -> Result<(), String> {
+    crate::shazam::open_spotify(&url, &title, &artist)
 }
 
 /// Recent Shazam recognitions (newest first), for the panel's history view.

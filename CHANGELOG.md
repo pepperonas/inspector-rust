@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.96.0] — 2026-07-29
+
+### Added
+
+- **Shazam recognition keeps running when you close the overlay.** The record + match runs entirely in the backend, so navigating away or dismissing the panel mid-listen no longer interrupts it — it finishes, saves to history, and (when the panel is closed) pops a **status toast** with the recognized song. Reopening mid-listen now **reconnects** to the running recognition instead of opening the mic a second time (a new backend guard rejects a concurrent start; `shazam_is_listening` + a `shazam-done` event drive the reconnect).
+
+### Fixed
+
+- **The Spotify button now works — and opens the Spotify app.** It was dead whenever Shazam returned a `spotify:` app-URI (the opener couldn't handle that scheme). A new `open_spotify` command resolves the link to the right target and **opens the desktop app when installed, else the web player**; a direct track link is converted between the `spotify:` and `open.spotify.com` forms, a search link is rebuilt cleanly from the title + artist. Both the result card and the history rows use it.
+
 ## [0.95.0] — 2026-07-28
 
 ### Added

@@ -308,6 +308,17 @@ pub struct ShazamMatch {
     pub youtube_url: String,
 }
 
+/// Payload of the `shazam-done` event — emitted when a recognition finishes,
+/// so a closed panel (or App-level toast) can react to a run that kept going
+/// in the background after the overlay was dismissed.
+#[derive(Debug, Clone, Serialize)]
+pub struct ShazamDone {
+    /// The match, if one was found (already persisted to history).
+    pub matched: Option<ShazamMatch>,
+    /// The error, if recognition failed (mic/permission/network).
+    pub error: Option<String>,
+}
+
 /// Percent-encode a query for a URL (RFC-3986-ish: keep unreserved, encode the
 /// rest incl. space → %20). Pure.
 fn url_encode(s: &str) -> String {
@@ -335,6 +346,91 @@ pub fn music_links(title: &str, artist: &str, spotify_direct: &str) -> (String, 
     };
     let youtube = format!("https://www.youtube.com/results?search_query={q}");
     (spotify, youtube)
+}
+
+/// Given the stored Spotify link (a `spotify:` app URI or an
+/// `open.spotify.com` web URL, or empty) plus the track metadata, return the
+/// two forms to open it: `(app_uri, web_url)`. A **specific resource**
+/// (`track`/`album`/…) is converted between the two forms verbatim (query
+/// string stripped from the app URI); a **search** link, or an empty/unknown
+/// value, is rebuilt as a clean search for "title artist" so the encoding is
+/// always well-formed. Pure + unit-tested.
+pub fn spotify_targets(url: &str, title: &str, artist: &str) -> (String, String) {
+    let is_search = url.is_empty()
+        || url.starts_with("spotify:search:")
+        || url.contains("open.spotify.com/search/");
+    if !is_search {
+        // spotify:track:ID  ↔  https://open.spotify.com/track/ID
+        if let Some(rest) = url.strip_prefix("spotify:") {
+            return (
+                url.to_string(),
+                format!("https://open.spotify.com/{}", rest.replacen(':', "/", 1)),
+            );
+        }
+        if let Some((_, path)) = url.split_once("open.spotify.com/") {
+            let clean = path.split(['?', '#']).next().unwrap_or(path);
+            return (
+                format!("spotify:{}", clean.replacen('/', ":", 1)),
+                url.to_string(),
+            );
+        }
+    }
+    let q = url_encode(&format!("{title} {artist}"));
+    (
+        format!("spotify:search:{q}"),
+        format!("https://open.spotify.com/search/{q}"),
+    )
+}
+
+/// Is the Spotify desktop app installed? macOS checks the app bundle; on other
+/// platforms we conservatively say "no" and open the web player (always works).
+#[cfg(target_os = "macos")]
+fn spotify_installed() -> bool {
+    use std::path::Path;
+    Path::new("/Applications/Spotify.app").exists()
+        || dirs::home_dir()
+            .map(|h| h.join("Applications/Spotify.app").exists())
+            .unwrap_or(false)
+}
+#[cfg(not(target_os = "macos"))]
+fn spotify_installed() -> bool {
+    false
+}
+
+/// Open a URL/URI with the OS handler (spawned, never blocks).
+fn open_native(target: &str) -> Result<(), String> {
+    use std::process::Command;
+    #[cfg(target_os = "macos")]
+    let mut cmd = {
+        let mut c = Command::new("open");
+        c.arg(target);
+        c
+    };
+    #[cfg(target_os = "windows")]
+    let mut cmd = {
+        let mut c = Command::new("cmd");
+        c.args(["/C", "start", "", target]);
+        c
+    };
+    #[cfg(target_os = "linux")]
+    let mut cmd = {
+        let mut c = Command::new("xdg-open");
+        c.arg(target);
+        c
+    };
+    cmd.spawn().map(|_| ()).map_err(|e| format!("open failed: {e}"))
+}
+
+/// Open the matched song in Spotify: the desktop app when installed, else the
+/// web player. `url` is the stored Spotify link (`spotify:` URI or web URL);
+/// `title`/`artist` are the fallback search terms.
+pub fn open_spotify(url: &str, title: &str, artist: &str) -> Result<(), String> {
+    let (app_uri, web_url) = spotify_targets(url, title, artist);
+    if spotify_installed() {
+        open_native(&app_uri)
+    } else {
+        open_native(&web_url)
+    }
 }
 
 fn uuid_v4_upper() -> String {
@@ -1200,5 +1296,36 @@ mod tests {
         // so a query with umlauts/emoji stays a valid URL.
         assert_eq!(url_encode("ä"), "%C3%A4"); // U+00E4 = 0xC3 0xA4
         assert_eq!(url_encode("Björk"), "Bj%C3%B6rk");
+    }
+
+    #[test]
+    fn spotify_targets_converts_a_direct_track_both_ways() {
+        // From a spotify: app URI → derive the web URL.
+        let (app, web) = spotify_targets("spotify:track:6rqhFgbbKwnb9MLmUQDhG6", "x", "y");
+        assert_eq!(app, "spotify:track:6rqhFgbbKwnb9MLmUQDhG6");
+        assert_eq!(web, "https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6");
+
+        // From a web URL → derive the app URI, stripping the ?si= query.
+        let (app2, web2) = spotify_targets(
+            "https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6?si=abc123",
+            "x",
+            "y",
+        );
+        assert_eq!(app2, "spotify:track:6rqhFgbbKwnb9MLmUQDhG6");
+        assert_eq!(web2, "https://open.spotify.com/track/6rqhFgbbKwnb9MLmUQDhG6?si=abc123");
+    }
+
+    #[test]
+    fn spotify_targets_rebuilds_a_clean_search_for_search_or_empty_links() {
+        // Shazam often gives a search deep link — we rebuild it cleanly from the
+        // metadata so the encoding is well-formed (spaces → %20).
+        let (app, web) = spotify_targets("spotify:search:garbage query", "Blinding Lights", "The Weeknd");
+        assert_eq!(app, "spotify:search:Blinding%20Lights%20The%20Weeknd");
+        assert_eq!(web, "https://open.spotify.com/search/Blinding%20Lights%20The%20Weeknd");
+
+        // Empty stored link → same clean search.
+        let (app2, web2) = spotify_targets("", "Song", "Artist");
+        assert_eq!(app2, "spotify:search:Song%20Artist");
+        assert_eq!(web2, "https://open.spotify.com/search/Song%20Artist");
     }
 }

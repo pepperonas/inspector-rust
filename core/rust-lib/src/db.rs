@@ -438,9 +438,23 @@ mod tests {
     #[test]
     fn a_lowered_cap_prunes_immediately_keeping_the_newest() {
         let db = test_db_with_settings();
-        // 60 clips; each upsert bumps recency, so #59 is newest, #0 oldest.
         for i in 0..60 {
             upsert_clip(&db, &text_clip(&format!("clip-{i}"))).unwrap();
+        }
+        // `upsert_clip` stamps second-granularity timestamps, so a tight loop
+        // ties them all → the prune's ORDER BY last_used_at would be
+        // non-deterministic (flaky). Assign DISTINCT recency here so "keeps the
+        // newest" is a real, deterministic assertion: clip-59 newest, clip-0
+        // oldest. (Test-only DB has plaintext content_text — no cipher.)
+        {
+            let conn = db.lock();
+            for i in 0..60i64 {
+                conn.execute(
+                    "UPDATE entries SET last_used_at = ?1 WHERE content_text = ?2",
+                    params![1000 + i, format!("clip-{i}")],
+                )
+                .unwrap();
+            }
         }
         assert_eq!(list(&db, 200, 0).unwrap().len(), 60);
         // Lower the cap to the floor (50) → prune drops the 10 oldest.

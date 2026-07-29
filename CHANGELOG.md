@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.98.1] — 2026-07-29
+
+### Fixed
+
+- **In "click-outside doesn't close" mode, Enter now pastes the selected clip/snippet and closes the overlay.** With that setting on, the popup lingers on screen but unfocused — so the webview couldn't see Enter, and only Esc (via the native watcher) worked. The same macOS watcher now also catches Return / keypad-Enter, activates the highlighted history clip or snippet (pasting it, which closes the overlay), and consumes the key so it doesn't land as a newline in the app behind. Only active in that mode; when click-outside-closes is on, Enter is never swallowed. Pure `classify_key` decision unit-tested.
+
 ## [0.98.0] — 2026-07-29
 
 ### Added

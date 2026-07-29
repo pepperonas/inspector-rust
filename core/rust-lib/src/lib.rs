@@ -491,7 +491,12 @@ pub fn run(context: tauri::Context<Wry>) {
                             // "back" etc.) when IR has focus.
                             #[cfg(target_os = "macos")]
                             if win_for_events.is_visible().unwrap_or(false) {
-                                esc_watch::arm(&app_handle);
+                                // Only linger-mode (close_on_blur OFF) also lets
+                                // Enter paste the selected row; in ON mode the
+                                // popup auto-hides on blur, so Enter during the
+                                // brief post-show grace must never be swallowed.
+                                let lingers = !close_on_blur.load(Ordering::Relaxed);
+                                esc_watch::arm(&app_handle, lingers);
                             }
                             if !close_on_blur.load(Ordering::Relaxed) {
                                 // The popup stays open while unfocused — the

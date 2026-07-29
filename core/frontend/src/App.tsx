@@ -2288,6 +2288,15 @@ function App() {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [activeTab, combined, selected, secCat, secDef, hidePopup]);
 
+  // Enter-while-unfocused (close_on_blur OFF): the native `esc_watch` tap emits
+  // this because the webview can't see the key while another app holds focus.
+  // Activate the currently-selected row (paste the clip/snippet), exactly as a
+  // focused Enter would — the paste path hides the popup, so the overlay closes.
+  // Reads the LATEST activate(selected) via a ref so the `[]`-dep listener never
+  // goes stale as the selection changes.
+  const activateSelectedRef = useRef<() => void>(() => {});
+  useTauriEvent("popup-activate-selected", () => activateSelectedRef.current(), []);
+
   // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
   // these use `useTauriEvent` instead of the inline let-then-async
   // pattern — the hook guards against the unmount-before-listen-
@@ -3274,6 +3283,13 @@ function App() {
       }
     }
   };
+
+  // Keep the "activate the selected row" ref current for the native
+  // Enter-while-unfocused event (popup-activate-selected). Written in an effect
+  // (never during render) so it captures the latest `activate` + `selected`.
+  useEffect(() => {
+    activateSelectedRef.current = () => void activate(selected);
+  });
 
   const onSaveAsNote = async (i: number) => {
     const target = combined[i];

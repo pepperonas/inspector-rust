@@ -22,6 +22,19 @@
 //! lazily on the first arm and stays alive, gated by an `ARMED` atomic — arming
 //! after that is a store, never an FFI call.
 //!
+//! **Enter-to-paste while lingering unfocused (v0.98.1).** In `close_on_blur`
+//! OFF mode the popup stays visible but unfocused on purpose — so the webview
+//! also can't see the **Enter** that would paste the selected clip/snippet. When
+//! armed with `watch_enter = true` (only in that mode) the same tap also catches
+//! Return / keypad-Enter, emits `popup-activate-selected` to the frontend (which
+//! activates the highlighted row — pasting a clip/snippet, which itself hides the
+//! popup), and **consumes** the key so it doesn't also land in the app behind.
+//! Like the Esc path it's one-shot per arm; because a clip/snippet paste closes
+//! the popup, the very next keystroke sees a dismissed overlay, so a stray Enter
+//! can't be hijacked repeatedly. In `close_on_blur` ON mode `watch_enter` is
+//! false (the popup auto-hides on blur — there's no lingering state to serve, and
+//! Enter during the brief post-show grace must never be swallowed).
+//!
 //! Uses the same raw-FFI pattern as `input_lock.rs` / `gestures`; needs the
 //! Accessibility grant the expander already holds. Without the grant the tap
 //! creation fails silently → the feature degrades (popup closes via the
@@ -33,7 +46,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::OnceLock;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 
 type CGEventRef = *mut c_void;
 type CFMachPortRef = *mut c_void;
@@ -89,11 +102,43 @@ const EVT_TAP_DISABLED_BY_TIMEOUT: u32 = 0xFFFF_FFFE;
 const EVT_TAP_DISABLED_BY_USER_INPUT: u32 = 0xFFFF_FFFF;
 const KEYBOARD_EVENT_KEYCODE: u32 = 9;
 const KEYCODE_ESCAPE: i64 = 53;
+const KEYCODE_RETURN: i64 = 36;
+const KEYCODE_KEYPAD_ENTER: i64 = 76;
 
 static ARMED: AtomicBool = AtomicBool::new(false);
+/// Whether the armed tap should ALSO treat Enter as "activate the selected row"
+/// (only in `close_on_blur` OFF mode — see the module doc).
+static WATCH_ENTER: AtomicBool = AtomicBool::new(false);
 static THREAD_STARTED: AtomicBool = AtomicBool::new(false);
 static TAP_PORT: AtomicIsize = AtomicIsize::new(0);
 static APP: OnceLock<AppHandle> = OnceLock::new();
+
+/// What an armed tap should do with a key-down (pure decision, unit-tested).
+#[derive(Debug, PartialEq, Eq)]
+enum KeyAction {
+    /// Pass the key through unchanged.
+    Ignore,
+    /// Escape → hide the popup + consume the key.
+    Dismiss,
+    /// Enter (linger mode) → activate the selected row + consume the key.
+    ActivateSelected,
+}
+
+/// Decide what to do with a key-down given the arm state. Escape always
+/// dismisses while armed; Enter/keypad-Enter only activates when `watch_enter`
+/// (close_on_blur OFF); everything else passes through.
+fn classify_key(code: i64, armed: bool, watch_enter: bool) -> KeyAction {
+    if !armed {
+        return KeyAction::Ignore;
+    }
+    if code == KEYCODE_ESCAPE {
+        return KeyAction::Dismiss;
+    }
+    if watch_enter && (code == KEYCODE_RETURN || code == KEYCODE_KEYPAD_ENTER) {
+        return KeyAction::ActivateSelected;
+    }
+    KeyAction::Ignore
+}
 
 extern "C" fn tap_callback(
     _proxy: CGEventTapProxy,
@@ -112,20 +157,42 @@ extern "C" fn tap_callback(
         }
         EVT_KEY_DOWN if ARMED.load(Ordering::Relaxed) => {
             let code = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) };
-            if code == KEYCODE_ESCAPE {
-                // One shot per arm; hide off the tap thread (keep the
-                // callback cheap — a slow callback gets the tap disabled).
-                ARMED.store(false, Ordering::SeqCst);
-                std::thread::spawn(|| {
-                    if let Some(app) = APP.get() {
-                        tracing::info!("esc-watch: Escape while unfocused — hiding popup");
-                        crate::hotkey::hide_popup(app);
-                    }
-                });
-                // Consume this Escape: it dismissed OUR popup, so the focused
-                // app underneath must not also receive it. Returning null drops
-                // the event. (One-shot arm ⇒ every later Esc still flows on.)
-                return std::ptr::null_mut();
+            match classify_key(code, true, WATCH_ENTER.load(Ordering::Relaxed)) {
+                KeyAction::Dismiss => {
+                    // One shot per arm; hide off the tap thread (keep the
+                    // callback cheap — a slow callback gets the tap disabled).
+                    ARMED.store(false, Ordering::SeqCst);
+                    std::thread::spawn(|| {
+                        if let Some(app) = APP.get() {
+                            tracing::info!("esc-watch: Escape while unfocused — hiding popup");
+                            crate::hotkey::hide_popup(app);
+                        }
+                    });
+                    // Consume this Escape: it dismissed OUR popup, so the focused
+                    // app underneath must not also receive it. Returning null drops
+                    // the event. (One-shot arm ⇒ every later Esc still flows on.)
+                    return std::ptr::null_mut();
+                }
+                KeyAction::ActivateSelected => {
+                    // Enter while the popup lingers unfocused (close_on_blur OFF):
+                    // paste the SELECTED clip/snippet. One-shot like Esc; emit off
+                    // the tap thread so the callback stays cheap. The frontend's
+                    // `activate(selected)` pastes via the normal path, which hides
+                    // the popup — so the overlay closes like Enter-while-focused.
+                    ARMED.store(false, Ordering::SeqCst);
+                    std::thread::spawn(|| {
+                        if let Some(app) = APP.get() {
+                            tracing::info!(
+                                "esc-watch: Enter while unfocused — activating selected row"
+                            );
+                            let _ = app.emit("popup-activate-selected", ());
+                        }
+                    });
+                    // Consume it: the user meant to act on OUR overlay, not to
+                    // type a newline in the app behind it.
+                    return std::ptr::null_mut();
+                }
+                KeyAction::Ignore => {}
             }
         }
         _ => {}
@@ -168,15 +235,65 @@ fn ensure_thread() {
         .ok();
 }
 
-/// Arm the watcher: popup is visible but lost focus while click-outside-close
-/// is disabled. Lazily starts the tap thread on first use.
-pub fn arm(app: &AppHandle) {
+/// Arm the watcher: popup is visible but lost focus. Lazily starts the tap
+/// thread on first use. `watch_enter` additionally makes Return / keypad-Enter
+/// paste the selected row (only in `close_on_blur` OFF mode — see the module
+/// doc); pass `false` and only Esc is consumed.
+pub fn arm(app: &AppHandle, watch_enter: bool) {
     let _ = APP.set(app.clone());
     ensure_thread();
+    WATCH_ENTER.store(watch_enter, Ordering::SeqCst);
     ARMED.store(true, Ordering::SeqCst);
 }
 
 /// Disarm (focus regained / popup hidden). The tap stays installed but inert.
 pub fn disarm() {
     ARMED.store(false, Ordering::SeqCst);
+    WATCH_ENTER.store(false, Ordering::SeqCst);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn disarmed_ignores_every_key() {
+        for &code in &[KEYCODE_ESCAPE, KEYCODE_RETURN, KEYCODE_KEYPAD_ENTER, 0, 42] {
+            assert_eq!(classify_key(code, false, true), KeyAction::Ignore);
+            assert_eq!(classify_key(code, false, false), KeyAction::Ignore);
+        }
+    }
+
+    #[test]
+    fn escape_dismisses_while_armed_regardless_of_watch_enter() {
+        assert_eq!(classify_key(KEYCODE_ESCAPE, true, false), KeyAction::Dismiss);
+        assert_eq!(classify_key(KEYCODE_ESCAPE, true, true), KeyAction::Dismiss);
+    }
+
+    #[test]
+    fn enter_activates_only_when_watch_enter_is_on() {
+        // Return + keypad Enter both activate when watch_enter is on.
+        assert_eq!(
+            classify_key(KEYCODE_RETURN, true, true),
+            KeyAction::ActivateSelected
+        );
+        assert_eq!(
+            classify_key(KEYCODE_KEYPAD_ENTER, true, true),
+            KeyAction::ActivateSelected
+        );
+        // …and are ignored (pass through) when watch_enter is off — so Enter is
+        // never swallowed in close_on_blur ON mode / during the post-show grace.
+        assert_eq!(classify_key(KEYCODE_RETURN, true, false), KeyAction::Ignore);
+        assert_eq!(
+            classify_key(KEYCODE_KEYPAD_ENTER, true, false),
+            KeyAction::Ignore
+        );
+    }
+
+    #[test]
+    fn other_keys_pass_through_even_when_fully_armed() {
+        for &code in &[0, 4, 42, 49 /* space */, 48 /* tab */] {
+            assert_eq!(classify_key(code, true, true), KeyAction::Ignore);
+        }
+    }
 }

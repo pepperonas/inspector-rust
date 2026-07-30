@@ -369,11 +369,30 @@ export function WeatherPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // Escape exits weather from anywhere (a city name never contains Esc).
+      if (e.key === "Escape") {
+        onExit();
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      // The city is TYPED into the search field, so the search input owns the
+      // keyboard — the panel must NEVER swallow a key destined for a text input.
+      // (This was the bug: the `r`/`R` refresh shortcut ate the "r" in
+      // `weather darmstadt`, leaving "damstadt".) The panel's scroll/refresh
+      // keys therefore only fire when the user is NOT typing (e.g. clicked the
+      // panel), so every character of the city — r included — reaches the field.
+      const tgt = e.target as HTMLElement | null;
+      if (
+        tgt &&
+        (tgt.tagName === "INPUT" ||
+          tgt.tagName === "TEXTAREA" ||
+          tgt.isContentEditable)
+      ) {
+        return;
+      }
       const el = scrollRef.current;
       switch (e.key) {
-        case "Escape":
-          onExit();
-          break;
         case "ArrowDown":
           el?.scrollBy({ top: 60 });
           break;

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.99.1] — 2026-07-30
+
+### Fixed
+
+- **`weather <city>` no longer eats the letter "r" while you type the city.** After the weather panel opened, its `R`-refresh keyboard shortcut swallowed the "r" you typed into the search field — so `weather darmstadt` became `weather damstadt` and found nothing. The panel now never intercepts keys aimed at the search input (Escape still exits from anywhere); its scroll/refresh shortcuts apply only when you're not typing.
+
 ## [0.99.0] — 2026-07-30
 
 ### Fixed

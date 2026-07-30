@@ -84,6 +84,7 @@ import {
 } from "./lib/commands";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { lookupDoc } from "./lib/commandDocs";
+import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { qrPngBase64 } from "./lib/qr";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
@@ -1465,6 +1466,30 @@ function App() {
     );
   }, [query]);
 
+  // City autocomplete for `weather <partial>` (v0.100.0). While typing a city
+  // (before the panel takes focus), matching major cities surface as
+  // command-suggestion rows — Tab/→ fills `weather <City>`, Enter completes AND
+  // opens the panel (both reuse the generic command-suggestion handlers). They
+  // REPLACE the raw `weather <partial>` command row in `combined` when present,
+  // so the top (biggest) city is the default selection.
+  const weatherArg = isWeatherCmd ? (parsedCommand?.arg ?? "") : "";
+  const weatherCitySuggestionEntries: ListEntry[] = useMemo(() => {
+    if (!isWeatherCmd || weatherFocus) return [];
+    const q = weatherArg.trim();
+    if (q.length < 1) return [];
+    return matchCities(q, 6).map(
+      (c): ListEntry => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: c.name,
+          syntax: `${c.name} · ${c.country}`,
+          description: `Enter or Tab → weather in ${c.name}`,
+          completion: `weather ${c.name}`,
+        },
+      }),
+    );
+  }, [isWeatherCmd, weatherFocus, weatherArg]);
+
   // Faker catalogue rows (bare `faker` list, or fuzzy matches for a partial /
   // unknown generator). Rendered as command-suggestion rows (like the resize
   // presets): each shows the generator + a live sample, Tab/→ fills the name,
@@ -1930,7 +1955,16 @@ function App() {
       // app with the same name (typing `term` fuzzy-matches Terminal.app)
       // would outrank the `terminal` command and you'd launch the app
       // instead of opening a terminal in the current Finder folder.
-      ...(commandEntry ? [commandEntry] : []),
+      // For `weather <partial>`, the matching-city suggestions REPLACE the raw
+      // command row (whose Enter would just fetch the partial and fail), so the
+      // top city is the default selection → Enter/Tab completes it. A city not
+      // in the list yields no suggestions → the normal command row runs (and
+      // OpenWeather tries the typed name).
+      ...(weatherCitySuggestionEntries.length > 0
+        ? weatherCitySuggestionEntries
+        : commandEntry
+          ? [commandEntry]
+          : []),
       ...(snitchSubEntry ? [snitchSubEntry] : []),
       ...(shazamSubEntry ? [shazamSubEntry] : []),
       ...suggestionEntries,
@@ -1982,6 +2016,7 @@ function App() {
     totpManageEntry,
     totpAutocompleteEntries,
     resizePresetEntries,
+    weatherCitySuggestionEntries,
     fakerCatalogEntries,
     secPresetEntries,
     finderFileEntries,

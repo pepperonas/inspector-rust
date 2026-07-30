@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.100.0] — 2026-07-30
+
+### Added
+
+- **`weather` now autocompletes cities as you type.** Typing `weather darm` surfaces matching major cities (Darmstadt …) as suggestions — **Tab** (or →) fills the city into the search bar, **Enter** completes it and shows the weather. The list is a bundled, offline set of ~250 major world cities (German cities down to ~100k, plus world capitals/metros), diacritic-insensitive and ranked by population, so `weather d` surfaces the biggest D-cities first. A city not in the list still works — the typed name is sent to OpenWeather as before.
+
 ## [0.99.1] — 2026-07-30
 
 ### Fixed

@@ -1072,6 +1072,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "Needs a free OpenWeatherMap API key — add it in Settings → Weather, or paste it into the connect card the panel shows the first time.",
       "Your location is resolved by IP (no GPS/permission); pass a city to override it.",
+      "As you type a city (`weather darm`), matching major cities autocomplete — press Tab (or →) to fill it, or Enter to complete + show it.",
     ],
     caveats: ["Requires a network connection and a valid OpenWeather key."],
     related: ["stats", "uptime"],

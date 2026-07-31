@@ -7,12 +7,26 @@
  * only the ticked directories are handed to `cleaner_execute` (the file-level
  * plan never leaves the backend). Keyboard-first: ↑/↓ move · Space toggle (on a
  * category header: the whole group) · A all/none · Enter twice (arm → confirm)
- * deletes · Esc disarms, then exits. All selection math is the pure,
- * unit-tested `lib/clean-select.ts`.
+ * deletes · Esc disarms, then exits.
+ *
+ * **Background jobs (v0.101.1):** scan + execute run in the Rust backend and
+ * survive Esc / overlay-hide (same pattern as `shazam`). Reopening reconnects
+ * via `cleaner_status` + the `clean-done` event; a finished execute while the
+ * panel is closed surfaces as an App-level status toast.
+ *
+ * All selection math is the pure, unit-tested `lib/clean-select.ts`.
  */
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AlertTriangle, CheckSquare, Loader2, Sparkles, Square, Trash2 } from "lucide-react";
-import { cleanerExecute, cleanerScan, showStatusToast, type CleanPlanView } from "../lib/ipc";
+import {
+  cleanerExecute,
+  cleanerScan,
+  cleanerStatus,
+  showStatusToast,
+  type CleanDone,
+  type CleanPlanView,
+} from "../lib/ipc";
 import { formatBytes } from "../lib/commands";
 import {
   basename,
@@ -40,6 +54,19 @@ const PRESELECT_OFF = new Set([
   "simctl_unavailable",
 ]);
 
+function applyView(
+  v: CleanPlanView,
+  setView: (v: CleanPlanView) => void,
+  setRows: (r: CleanRow[]) => void,
+  setSelected: (s: Set<string>) => void,
+  setPhase: (p: Phase) => void,
+) {
+  setView(v);
+  setRows(buildRows(v));
+  setSelected(new Set(v.dirs.filter((d) => !PRESELECT_OFF.has(d.category)).map((d) => d.path)));
+  setPhase("pick");
+}
+
 export function CleanPanel({
   focused,
   onInteract,
@@ -58,6 +85,11 @@ export function CleanPanel({
   const [row, setRow] = useState(0);
   const [armed, setArmed] = useState(false);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
+  /** Bumped on unmount so in-flight invoke returns don't toast/setState. */
+  const runIdRef = useRef(0);
+  /** True when we mounted into an already-running backend job (reconnect). */
+  const reconnectedRef = useRef(false);
+
   // `~/…` display shortening — best-effort, purely cosmetic.
   const home = useMemo(() => {
     const first = view?.dirs.find((d) => d.path.startsWith("/Users/"));
@@ -65,28 +97,92 @@ export function CleanPanel({
     return m?.[1];
   }, [view]);
 
-  // Dry-run scan on mount. Read-only — nothing is deleted here.
-  useEffect(() => {
-    let cancelled = false;
+  const startScan = useCallback(() => {
+    const my = ++runIdRef.current;
+    setPhase("scanning");
+    setError("");
     cleanerScan()
       .then((v) => {
-        if (cancelled) return;
-        setView(v);
-        setRows(buildRows(v));
-        setSelected(
-          new Set(v.dirs.filter((d) => !PRESELECT_OFF.has(d.category)).map((d) => d.path)),
-        );
-        setPhase("pick");
+        if (runIdRef.current !== my) return;
+        applyView(v, setView, setRows, setSelected, setPhase);
       })
       .catch((e) => {
-        if (cancelled) return;
+        if (runIdRef.current !== my) return;
+        // Concurrent start while reconnecting — ignore; clean-done will land.
+        if (String(e).includes("clean.busy")) return;
         setError(String(e));
         setPhase("error");
       });
+  }, []);
+
+  // Mount: reconnect to an in-flight job, reuse a pending scan view, or scan.
+  useEffect(() => {
+    let cancelled = false;
+    void cleanerStatus().then((st) => {
+      if (cancelled) return;
+      if (st.phase === "scanning") {
+        reconnectedRef.current = true;
+        setPhase("scanning");
+        return;
+      }
+      if (st.phase === "executing") {
+        reconnectedRef.current = true;
+        setPhase("executing");
+        return;
+      }
+      if (st.view) {
+        applyView(st.view, setView, setRows, setSelected, setPhase);
+        return;
+      }
+      startScan();
+    });
     return () => {
       cancelled = true;
+      runIdRef.current += 1;
     };
-  }, []);
+  }, [startScan]);
+
+  // Reconnected path: apply the backend's `clean-done` (our own invoke also
+  // resolves — guarded by runId / reconnectedRef so we don't double-apply).
+  useEffect(() => {
+    let gone = false;
+    let un: (() => void) | null = null;
+    void listen<CleanDone>("clean-done", (e) => {
+      if (!reconnectedRef.current) return;
+      reconnectedRef.current = false;
+      const d = e.payload;
+      if (d.kind === "scan") {
+        if (d.view) applyView(d.view, setView, setRows, setSelected, setPhase);
+        else {
+          setError(d.error ?? "Scan failed");
+          setPhase("error");
+        }
+      } else if (d.kind === "execute") {
+        if (d.result) {
+          // Panel open again mid-execute — toast + exit like a local finish.
+          void showStatusToast(
+            "clean",
+            true,
+            "Cleaned",
+            `${formatBytes(d.result.freed_bytes)} freed${
+              d.result.errors.length ? ` · ${d.result.errors.length} skipped` : ""
+            }`,
+          );
+          onExit();
+        } else {
+          setError(d.error ?? "Cleaning failed");
+          setPhase("error");
+        }
+      }
+    }).then((u) => {
+      if (gone) u();
+      else un = u;
+    });
+    return () => {
+      gone = true;
+      if (un) un();
+    };
+  }, [onExit]);
 
   const setPaths = (paths: string[], on: boolean) => {
     setArmed(false);
@@ -121,10 +217,12 @@ export function CleanPanel({
 
   const execute = async () => {
     if (!view || selected.size === 0) return;
+    const my = ++runIdRef.current;
     setPhase("executing");
     try {
       const res = await cleanerExecute([...selected]);
-      // The toast hides the popup itself and plays the flourish.
+      // Unmounted (Esc) while deleting — App's clean-done listener toasts.
+      if (runIdRef.current !== my) return;
       await showStatusToast(
         "clean",
         true,
@@ -133,13 +231,15 @@ export function CleanPanel({
       );
       onExit();
     } catch (e) {
+      if (runIdRef.current !== my) return;
       setError(String(e));
       setPhase("error");
     }
   };
 
   // Keyboard while focused: ↑/↓ row, Space toggle, A all/none, Enter twice
-  // deletes, Esc disarms then exits.
+  // deletes, Esc disarms then exits. Esc during scan/execute closes the UI
+  // only — the backend job keeps running.
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
@@ -209,13 +309,19 @@ export function CleanPanel({
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
           <Loader2 size={28} className="animate-spin" />
           <div>Scanning caches + projects…</div>
+          <div className="text-xs">Esc closes the overlay — scan keeps running</div>
         </div>
       )}
 
       {phase === "executing" && (
         <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
           <Loader2 size={28} className="animate-spin" />
-          <div>Deleting {totals.files.toLocaleString()} files…</div>
+          <div>
+            {totals.files > 0
+              ? `Deleting ${totals.files.toLocaleString()} files…`
+              : "Deleting…"}
+          </div>
+          <div className="text-xs">Esc closes the overlay — delete keeps running</div>
         </div>
       )}
 

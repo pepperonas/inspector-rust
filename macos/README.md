@@ -48,12 +48,21 @@ The recommended path for developers who rebuild frequently is the `install-macos
 
 ### Gatekeeper (unsigned builds)
 
-Local builds are not Apple-signed. On first launch macOS will refuse to open the app:
+Release / local builds are **not Apple-notarized**. Two distinct Gatekeeper
+messages show up:
 
-- **Right-click** → **Open** → confirm **Open** in the dialog, **or**
-- **System Settings → Privacy & Security → "Open Anyway"** at the bottom.
+1. **"… is damaged and can't be opened"** — the *old* GitHub DMGs (≤ v0.100.0)
+   shipped with a broken linker-only ad-hoc signature. Fixed in v0.101.2+
+   (`scripts/pack-macos-release-dmg.sh` deep-seals the `.app` before packing).
+   If you still see this on a fresh download: drag the app to Applications,
+   then double-click **Fix Gatekeeper.command** on the DMG (or run
+   `xattr -cr /Applications/InspectorRust.app`).
+2. **"… can't be opened because the developer cannot be verified"** — expected
+   for any unsigned build. **Right-click → Open → confirm**, or
+   **System Settings → Privacy & Security → Open Anyway**.
 
-The `xattr -dr com.apple.quarantine …` command above sidesteps this for development builds.
+The `xattr -dr com.apple.quarantine …` command above also clears the download
+quarantine for development builds.
 
 ---
 

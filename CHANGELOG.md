@@ -4,6 +4,30 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.101.2] — 2026-07-31
+
+### Fixed
+
+- **macOS GitHub-release DMG no longer reported as "damaged".** CI shipped a linker-only ad-hoc signature (`Sealed Resources=none`); Gatekeeper treated it as invalid and told M1/Intel users to move the app to the Trash. Release builds now deep-sign the `.app` and rebuild the DMG (`scripts/pack-macos-release-dmg.sh`), and the DMG includes a **Fix Gatekeeper.command** helper. Also cross-compiles the Intel DMG from `macos-14` (the retired `macos-13` runner was cancelling every Intel job).
+
+## [0.101.1] — 2026-07-31
+
+### Changed
+
+- **`clean` keeps running after Esc.** Closing the overlay mid-scan or mid-delete no longer abandons the job — like `shazam`, work finishes in the backend. A closed overlay gets a status toast (`Scan ready` / `Cleaned`); reopening `clean` reconnects to an in-flight job or shows the finished scan picker.
+
+## [0.101.0] — 2026-07-31
+
+### Added
+
+- **`tokens` (alias `usage`) — Claude Code usage in the preview.** Pulls live totals, cost, projects/sessions and model breakdown from the local [Token Tracker](https://github.com/pepperonas) dashboard on port 5010. Period chips (Today / 7d / 30d / All), a cache-include toggle, and a start-hint card when the tracker isn't running. Esc exits; R refreshes.
+
+## [0.100.1] — 2026-07-31
+
+### Fixed
+
+- **`kill inspector` now lists Inspector Rust.** The process picker used to hide its own PID, so searching for the app returned nothing. Our process is included again (still behind the native confirmation before terminate). Multi-word filters also work — `kill inspector rust` matches `InspectorRust` / `inspector-rust`.
+
 ## [0.100.0] — 2026-07-30
 
 ### Added

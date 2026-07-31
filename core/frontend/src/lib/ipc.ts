@@ -1728,6 +1728,18 @@ export interface CleanResult {
   freed_bytes: number;
   errors: string[];
 }
+/** Snapshot of the in-flight / pending clean job (survives overlay close). */
+export interface CleanStatus {
+  phase: "idle" | "scanning" | "executing" | string;
+  view: CleanPlanView | null;
+}
+/** Payload of the `clean-done` event (scan or execute finished). */
+export interface CleanDone {
+  kind: "scan" | "execute" | string;
+  view: CleanPlanView | null;
+  result: CleanResult | null;
+  error: string | null;
+}
 export interface CleanerConfig {
   level: CleanerLevel;
   min_age_days: number;
@@ -1746,12 +1758,18 @@ export interface CleanerCategory {
   default_enabled: boolean;
 }
 
-/** Read-only dry-run: what would be deleted + how much. Deletes nothing. */
+/** Reconnect helper — phase + pending scan view after Esc mid-job. */
+export function cleanerStatus(): Promise<CleanStatus> {
+  return invoke("cleaner_status");
+}
+/** Read-only dry-run: what would be deleted + how much. Deletes nothing.
+ *  Survives overlay close; emits `clean-done` when finished. */
 export function cleanerScan(): Promise<CleanPlanView> {
   return invoke("cleaner_scan");
 }
 /** Delete the files under the ticked directory rows (`CleanDir.path` values).
- *  Every path is re-validated against the allowlist in the backend. */
+ *  Every path is re-validated against the allowlist in the backend.
+ *  Survives overlay close; emits `clean-done` when finished. */
 export function cleanerExecute(selected: string[]): Promise<CleanResult> {
   return invoke("cleaner_execute", { selected });
 }
@@ -2427,6 +2445,93 @@ export function weatherFetch(city?: string): Promise<WeatherReport> {
 }
 export function getWeatherConfig(): Promise<WeatherConfig> {
   return invoke("get_weather_config");
+}
+
+// ── Token usage (`tokens` command) ──────────────────────────────────────────
+
+export interface TokenUsageOverview {
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  estimated_cost: number;
+  input_cost: number;
+  output_cost: number;
+  cache_read_cost: number;
+  cache_create_cost: number;
+  sessions: number;
+  total_active_min: number;
+  avg_active_min_per_day: number;
+  active_days: number;
+  messages: number;
+  rate_limit_hits: number;
+  lines_added: number;
+  lines_removed: number;
+  lines_written: number;
+  period_from: string | null;
+  period_to: string | null;
+}
+
+export interface TokenUsageModel {
+  model: string;
+  label: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  cost: number;
+  messages: number;
+}
+
+export interface TokenUsageProject {
+  name: string;
+  total_tokens: number;
+  input_tokens: number;
+  output_tokens: number;
+  cache_read_tokens: number;
+  cache_create_tokens: number;
+  cost: number;
+  messages: number;
+  sessions: number;
+  lines_added: number;
+  lines_removed: number;
+  lines_written: number;
+  first_ts: string | null;
+  last_ts: string | null;
+}
+
+export interface TokenUsageSession {
+  id: string;
+  project: string;
+  models: string[];
+  first_ts: string;
+  last_ts: string;
+  duration_min: number;
+  active_min: number;
+  messages: number;
+  total_tokens: number;
+  cost: number;
+}
+
+export interface TokenUsageSnapshot {
+  overview: TokenUsageOverview;
+  models: TokenUsageModel[];
+  projects: TokenUsageProject[];
+  sessions: TokenUsageSession[];
+  from: string | null;
+  to: string;
+}
+
+/** Sentinel when Token Tracker isn't listening on :5010. */
+export const TOKENS_UNREACHABLE = "tokens.unreachable";
+
+/** Fetch Claude Code usage from the local Token Tracker. */
+export function tokenUsageFetch(
+  period: "today" | "7d" | "30d" | "all" = "30d",
+): Promise<TokenUsageSnapshot> {
+  return invoke("token_usage_fetch", { period });
 }
 
 // ── Clipboard-history cap ───────────────────────────────────────────────────

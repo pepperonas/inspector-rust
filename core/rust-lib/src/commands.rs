@@ -4532,6 +4532,14 @@ pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String>
 
 // ── Cleaning workflow (v0.60.0) ────────────────────────────────────────────────
 
+/// Snapshot of the in-flight / pending clean job — so a freshly-opened panel
+/// can reconnect to a scan/execute that survived Esc, or reuse a finished
+/// scan view without re-walking the disk.
+#[tauri::command]
+pub fn cleaner_status(store: State<'_, cleaner::PlanStore>) -> cleaner::CleanStatus {
+    store.status()
+}
+
 /// Read-only dry-run scan for the current cleaner config. Deletes nothing.
 ///
 /// The file-granular plan is **kept in the backend** (`PlanStore`, v0.84.264)
@@ -4540,18 +4548,48 @@ pub fn linux_web_hotkey_to_gsettings(shortcut: String) -> Result<String, String>
 /// to look at and expensive to serialise twice (out and back). `cleaner_execute`
 /// then takes just the ticked directory rows.
 ///
+/// **Survives overlay close (v0.101.1):** the walk runs to completion even if
+/// the panel unmounts; emits `clean-done` so App can toast / a reopen can
+/// reconnect. Concurrent starts return `clean.busy`.
+///
 /// **Async** (→ worker thread): the Standard level scans the whole user cache
 /// dir and the dev roots — walking that on the main thread would freeze the UI.
 #[tauri::command]
 pub async fn cleaner_scan(
+    app: AppHandle,
     db: State<'_, DbHandle>,
     store: State<'_, cleaner::PlanStore>,
 ) -> Result<cleaner::CleanPlanView, String> {
+    if !store.begin_scan() {
+        return Err(cleaner::ERR_BUSY.into());
+    }
     let cfg = cleaner::load_config(&db);
-    let plan = cleaner::scan(&cfg);
-    let view = cleaner::aggregate_dirs(&plan, &cleaner::enabled_roots_by_cat(&cfg));
-    *store.0.lock() = Some(plan);
-    Ok(view)
+    // Blocking walk off the async worker.
+    let walked = tauri::async_runtime::spawn_blocking(move || {
+        let plan = cleaner::scan(&cfg);
+        let view = cleaner::aggregate_dirs(&plan, &cleaner::enabled_roots_by_cat(&cfg));
+        (plan, view)
+    })
+    .await;
+
+    let outcome = match walked {
+        Err(join) => Err(join.to_string()),
+        Ok((plan, view)) => {
+            store.finish_scan(plan, view.clone());
+            Ok(view)
+        }
+    };
+    if outcome.is_err() {
+        store.fail_job();
+    }
+    let done = cleaner::CleanDone {
+        kind: "scan".into(),
+        view: outcome.as_ref().ok().cloned(),
+        result: None,
+        error: outcome.as_ref().err().cloned(),
+    };
+    let _ = app.emit("clean-done", &done);
+    outcome
 }
 
 /// Delete the files under the ticked directory rows of the last scan.
@@ -4562,21 +4600,41 @@ pub async fn cleaner_scan(
 /// non-symlink + per-category exclusions) before it is removed — deletion stays
 /// file-by-file, so nothing that appeared *after* the scan is ever caught up in
 /// it. Returns counts + freed bytes + per-path errors (never aborts the batch).
+///
+/// **Survives overlay close (v0.101.1):** emits `clean-done` when finished so a
+/// closed panel still gets a status toast. Concurrent starts → `clean.busy`.
 #[tauri::command]
 pub async fn cleaner_execute(
+    app: AppHandle,
     db: State<'_, DbHandle>,
     store: State<'_, cleaner::PlanStore>,
     selected: Vec<String>,
 ) -> Result<cleaner::CleanResult, String> {
+    let plan = store.begin_execute()?;
     let cfg = cleaner::load_config(&db);
-    let plan = store
-        .0
-        .lock()
-        .clone()
-        .ok_or_else(|| "no scan to execute — run the scan first".to_string())?;
-    let roots = cleaner::enabled_roots_by_cat(&cfg);
-    let chosen = cleaner::filter_by_selection(&plan, &roots, &selected);
-    Ok(cleaner::execute(&cfg, &chosen))
+    let walked = tauri::async_runtime::spawn_blocking(move || {
+        let roots = cleaner::enabled_roots_by_cat(&cfg);
+        let chosen = cleaner::filter_by_selection(&plan, &roots, &selected);
+        cleaner::execute(&cfg, &chosen)
+    })
+    .await;
+
+    let outcome = match walked {
+        Err(join) => Err(join.to_string()),
+        Ok(res) => Ok(res),
+    };
+    match &outcome {
+        Ok(_) => store.finish_execute_ok(),
+        Err(_) => store.finish_execute_err(),
+    }
+    let done = cleaner::CleanDone {
+        kind: "execute".into(),
+        view: None,
+        result: outcome.as_ref().ok().cloned(),
+        error: outcome.as_ref().err().cloned(),
+    };
+    let _ = app.emit("clean-done", &done);
+    outcome
 }
 
 #[tauri::command]
@@ -4799,6 +4857,24 @@ pub fn set_weather_config(
         crate::weather::set_units(&db, &u)?;
     }
     Ok(())
+}
+
+// ── Token usage (`tokens` command, v0.101.0) ────────────────────────────────
+
+/// Fetch Claude Code usage from the local Token Tracker (`:5010`).
+/// `period` is `"today"` | `"7d"` | `"30d"` | `"all"` (default `"30d"`).
+/// `Err(token_usage::ERR_UNREACHABLE)` when nothing is listening.
+#[tauri::command]
+pub fn token_usage_fetch(
+    period: Option<String>,
+) -> Result<crate::token_usage::Snapshot, String> {
+    let p = match period.as_deref().unwrap_or("30d") {
+        "today" => crate::token_usage::Period::Today,
+        "7d" => crate::token_usage::Period::Days7,
+        "all" => crate::token_usage::Period::All,
+        _ => crate::token_usage::Period::Days30,
+    };
+    crate::token_usage::fetch_default(p)
 }
 
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────

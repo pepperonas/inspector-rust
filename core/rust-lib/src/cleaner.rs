@@ -726,7 +726,7 @@ pub struct CleanPlan {
     pub categories: Vec<(String, String, u64)>, // (key, label, bytes)
 }
 
-#[derive(Debug, Clone, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct CleanResult {
     pub deleted: usize,
     pub freed_bytes: u64,
@@ -1727,12 +1727,129 @@ pub fn enabled_roots_by_cat(
     enabled_groups(cfg).into_iter().map(|g| (g.key, g.roots)).collect()
 }
 
-/// The scanned plan, held in the backend between `cleaner_scan` and
-/// `cleaner_execute` (Tauri-managed state). Keeping it here — instead of
-/// shipping 100k items to the webview and back — is what makes the
-/// directory-row UI cheap.
+/// Sentinel when a scan/execute is already in flight (`cleaner_scan` /
+/// `cleaner_execute` reject a concurrent start so Esc→reopen can't double-run).
+pub const ERR_BUSY: &str = "clean.busy";
+
+/// Backend phase for the `clean` job — survives the overlay closing (v0.101.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CleanPhase {
+    #[default]
+    Idle,
+    Scanning,
+    Executing,
+}
+
+impl CleanPhase {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Idle => "idle",
+            Self::Scanning => "scanning",
+            Self::Executing => "executing",
+        }
+    }
+}
+
+/// What the panel (or a reconnect) sees: phase + a pending scan view when idle.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CleanStatus {
+    /// `"idle"` | `"scanning"` | `"executing"`.
+    pub phase: String,
+    /// Aggregated view from the last successful scan, while idle and not yet
+    /// consumed by a successful execute. Lets Esc mid-scan → reopen land on
+    /// the finished picker without re-walking the disk.
+    pub view: Option<CleanPlanView>,
+}
+
+/// Payload of the `clean-done` event — emitted when a scan or execute finishes
+/// so a closed overlay still surfaces a toast / a reopened panel can reconnect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CleanDone {
+    /// `"scan"` | `"execute"`.
+    pub kind: String,
+    pub view: Option<CleanPlanView>,
+    pub result: Option<CleanResult>,
+    pub error: Option<String>,
+}
+
+/// The scanned plan + job phase, held in the backend between `cleaner_scan`
+/// and `cleaner_execute` (Tauri-managed state). Keeping the file-granular plan
+/// here — instead of shipping 100k items to the webview and back — is what
+/// makes the directory-row UI cheap. The phase + `last_view` let the job
+/// **survive Esc / overlay-hide** the same way `shazam_listen` does.
 #[derive(Default)]
-pub struct PlanStore(pub parking_lot::Mutex<Option<CleanPlan>>);
+pub struct PlanStore {
+    plan: parking_lot::Mutex<Option<CleanPlan>>,
+    phase: parking_lot::Mutex<CleanPhase>,
+    last_view: parking_lot::Mutex<Option<CleanPlanView>>,
+}
+
+impl PlanStore {
+    /// Snapshot for a freshly-opened panel (reconnect or reuse pending view).
+    pub fn status(&self) -> CleanStatus {
+        let phase = *self.phase.lock();
+        let view = if phase == CleanPhase::Idle {
+            self.last_view.lock().clone()
+        } else {
+            None
+        };
+        CleanStatus {
+            phase: phase.as_str().into(),
+            view,
+        }
+    }
+
+    /// Start a scan. Clears any pending view so a fresh walk replaces it.
+    /// Returns `false` when another job is already running.
+    pub fn begin_scan(&self) -> bool {
+        let mut phase = self.phase.lock();
+        if *phase != CleanPhase::Idle {
+            return false;
+        }
+        *phase = CleanPhase::Scanning;
+        *self.last_view.lock() = None;
+        true
+    }
+
+    pub fn finish_scan(&self, plan: CleanPlan, view: CleanPlanView) {
+        *self.plan.lock() = Some(plan);
+        *self.last_view.lock() = Some(view);
+        *self.phase.lock() = CleanPhase::Idle;
+    }
+
+    /// Abort a scan/execute back to idle (keeps any existing plan/view on
+    /// execute failure so the user can retry; scan failure has no plan yet).
+    pub fn fail_job(&self) {
+        *self.phase.lock() = CleanPhase::Idle;
+    }
+
+    /// Take the stored plan and mark executing. Err = busy or no prior scan.
+    pub fn begin_execute(&self) -> Result<CleanPlan, String> {
+        let mut phase = self.phase.lock();
+        if *phase != CleanPhase::Idle {
+            return Err(ERR_BUSY.into());
+        }
+        let plan = self
+            .plan
+            .lock()
+            .clone()
+            .ok_or_else(|| "no scan to execute — run the scan first".to_string())?;
+        *phase = CleanPhase::Executing;
+        Ok(plan)
+    }
+
+    /// Successful delete — drop the plan so the next `clean` re-scans.
+    pub fn finish_execute_ok(&self) {
+        *self.plan.lock() = None;
+        *self.last_view.lock() = None;
+        *self.phase.lock() = CleanPhase::Idle;
+    }
+
+    /// Failed delete — keep plan/view for retry.
+    pub fn finish_execute_err(&self) {
+        *self.phase.lock() = CleanPhase::Idle;
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -2410,5 +2527,84 @@ mod tests {
         assert!(orphans.contains(&"PyCharm2024.1".to_string()));
         // Unparseable dirs are never listed.
         assert!(!orphans.contains(&"notaversion".to_string()));
+    }
+
+    #[test]
+    fn plan_store_rejects_concurrent_jobs_and_reuses_view() {
+        let store = PlanStore::default();
+        assert_eq!(store.status().phase, "idle");
+        assert!(store.begin_scan());
+        assert!(!store.begin_scan()); // concurrent scan rejected
+        assert_eq!(store.status().phase, "scanning");
+        assert!(store.begin_execute().is_err()); // can't execute while scanning
+
+        let plan = CleanPlan {
+            items: vec![],
+            total_bytes: 42,
+            categories: vec![],
+        };
+        let view = CleanPlanView {
+            dirs: vec![],
+            total_bytes: 42,
+            categories: vec![],
+        };
+        store.finish_scan(plan, view.clone());
+        let st = store.status();
+        assert_eq!(st.phase, "idle");
+        assert_eq!(st.view.as_ref().map(|v| v.total_bytes), Some(42));
+
+        assert!(store.begin_execute().is_ok());
+        assert_eq!(store.status().phase, "executing");
+        assert!(!store.begin_scan()); // concurrent scan rejected
+        store.finish_execute_ok();
+        assert_eq!(store.status().phase, "idle");
+        assert!(store.status().view.is_none()); // cleared after successful delete
+    }
+
+    #[test]
+    fn clean_phase_as_str_is_stable_ipc_contract() {
+        assert_eq!(CleanPhase::Idle.as_str(), "idle");
+        assert_eq!(CleanPhase::Scanning.as_str(), "scanning");
+        assert_eq!(CleanPhase::Executing.as_str(), "executing");
+        assert_eq!(ERR_BUSY, "clean.busy");
+    }
+
+    #[test]
+    fn plan_store_hides_view_while_busy_and_fail_job_returns_idle() {
+        let store = PlanStore::default();
+        assert!(store.begin_scan());
+        // Mid-scan: status must not leak a stale view (cleared on begin_scan).
+        assert!(store.status().view.is_none());
+        assert_eq!(store.status().phase, "scanning");
+        store.fail_job();
+        assert_eq!(store.status().phase, "idle");
+        // Can start again after fail.
+        assert!(store.begin_scan());
+        store.fail_job();
+    }
+
+    #[test]
+    fn plan_store_begin_execute_without_scan_errors() {
+        let store = PlanStore::default();
+        let err = store.begin_execute().unwrap_err();
+        assert!(err.to_lowercase().contains("scan"));
+        assert_eq!(store.status().phase, "idle");
+    }
+
+    #[test]
+    fn plan_store_keeps_view_after_execute_error() {
+        let store = PlanStore::default();
+        assert!(store.begin_scan());
+        store.finish_scan(
+            CleanPlan::default(),
+            CleanPlanView {
+                dirs: vec![],
+                total_bytes: 7,
+                categories: vec![],
+            },
+        );
+        assert!(store.begin_execute().is_ok());
+        store.finish_execute_err();
+        assert_eq!(store.status().view.as_ref().map(|v| v.total_bytes), Some(7));
     }
 }

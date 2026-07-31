@@ -75,16 +75,14 @@ pub struct ProcessInfo {
     pub exe: String,
 }
 
-/// List running processes owned by the current user, sorted by memory
-/// descending so the picker surfaces the actual culprits first.
-/// Excludes kernel_task / launchd / our own process to keep the list
-/// reasonable.
+/// List running processes, sorted by memory descending so the picker
+/// surfaces the actual culprits first. Includes our own process so
+/// `kill inspector` can terminate Inspector Rust itself (v0.100.1 —
+/// previously the own PID was filtered out, which made that query empty).
 pub fn list_running_processes() -> Result<Vec<ProcessInfo>> {
     #[cfg(any(target_os = "macos", target_os = "linux", target_os = "windows"))]
     {
         use sysinfo::{ProcessRefreshKind, RefreshKind, System};
-
-        let our_pid = std::process::id();
 
         let mut sys = System::new_with_specifics(
             RefreshKind::new().with_processes(ProcessRefreshKind::everything()),
@@ -95,10 +93,6 @@ pub fn list_running_processes() -> Result<Vec<ProcessInfo>> {
             .processes()
             .iter()
             .filter_map(|(pid, proc)| {
-                let pid_u32 = pid.as_u32();
-                if pid_u32 == our_pid {
-                    return None; // never list ourselves
-                }
                 let name = proc.name().to_string_lossy().to_string();
                 if name.is_empty() {
                     return None;
@@ -108,7 +102,7 @@ pub fn list_running_processes() -> Result<Vec<ProcessInfo>> {
                     .map(|p| p.display().to_string())
                     .unwrap_or_default();
                 Some(ProcessInfo {
-                    pid: pid_u32,
+                    pid: pid.as_u32(),
                     name,
                     // bytes → MB, two-decimal precision
                     memory_mb: (proc.memory() as f64) / (1024.0 * 1024.0),
@@ -927,10 +921,9 @@ mod tests {
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     #[test]
-    fn list_returns_at_least_one_process_and_excludes_self() {
-        // Cargo test runs in a process; there's *always* at least one
-        // other live process on the system (init, launchd, etc.), so
-        // the list must be non-empty AND must not include our own PID.
+    fn list_returns_at_least_one_process_and_includes_self() {
+        // Cargo test runs in a process; the list must be non-empty AND
+        // must include our own PID so `kill inspector` can target us.
         let processes = list_running_processes().expect("list should succeed");
         assert!(
             !processes.is_empty(),
@@ -938,8 +931,8 @@ mod tests {
         );
         let our_pid = std::process::id();
         assert!(
-            processes.iter().all(|p| p.pid != our_pid),
-            "list_running_processes must exclude our own PID ({our_pid})",
+            processes.iter().any(|p| p.pid == our_pid),
+            "list_running_processes must include our own PID ({our_pid})",
         );
     }
 

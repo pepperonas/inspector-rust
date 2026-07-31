@@ -31,6 +31,7 @@ mod sync;
 mod shazam;
 mod translate;
 mod weather;
+mod token_usage;
 mod mic_capture;
 mod image_ops;
 mod logging;
@@ -742,6 +743,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_window_size_preference,
             commands::get_status_toast,
             commands::hide_status_toast,
+            commands::cleaner_status,
             commands::cleaner_scan,
             commands::cleaner_execute,
             commands::cleaner_categories,
@@ -838,6 +840,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_light,
             commands::hue_set_all,
             commands::weather_fetch,
+            commands::token_usage_fetch,
             commands::get_weather_config,
             commands::set_weather_config,
             commands::get_history_max,

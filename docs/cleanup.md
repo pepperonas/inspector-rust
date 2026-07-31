@@ -7,6 +7,13 @@ read-only dry-run scan, rendered as **directories grouped under their category**
 `core/frontend/src/components/CleanPanel.tsx` (selection math:
 `core/frontend/src/lib/clean-select.ts`).
 
+**Background jobs (v0.101.1).** Scan and execute run entirely in the Rust
+backend and **survive Esc / overlay-hide** (same pattern as `shazam`). Closing
+the panel only drops the UI; the walk/delete finishes, emits `clean-done`, and —
+when the overlay is closed — App shows a status toast (`Scan ready` /
+`Cleaned`). Reopening `clean` reconnects via `cleaner_status` (in-flight) or
+reuses the pending scan view so you don't re-walk the disk.
+
 ## Safety guarantees
 
 These are the invariants the module exists to uphold. Everything else is detail.

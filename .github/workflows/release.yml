@@ -108,8 +108,11 @@ jobs:
           - arch: aarch64
             runner: macos-14   # Apple Silicon (M-series)
             target: aarch64-apple-darwin
+          # macos-13 (last Intel hosted runner) is being retired and was
+          # cancelling every release job → no Intel DMG. Cross-compile the
+          # x86_64 target from an Apple-Silicon runner instead.
           - arch: x86_64
-            runner: macos-13   # Intel
+            runner: macos-14
             target: x86_64-apple-darwin
     runs-on: ${{ matrix.runner }}
 
@@ -140,7 +143,17 @@ jobs:
         # Pass --target to tauri so the output lands under
         # target/<triple>/release/bundle/ and the DMG filename gets an
         # arch suffix (e.g. InspectorRust_<ver>_aarch64.dmg).
+        # Bundles both app + dmg; the next step *re*-seals the .app and
+        # rebuilds the DMG — tauri alone leaves a linker-only ad-hoc
+        # signature that Gatekeeper reports as "damaged".
         run: pnpm --filter inspector-rust-macos tauri build --target ${{ matrix.target }}
+
+      - name: Seal .app + rebuild DMG
+        # Deep ad-hoc codesign (Info.plist + Resources sealed) + fresh DMG.
+        # Without this, macOS shows "InspectorRust.app is damaged and can't
+        # be opened" for every GitHub-release download. See
+        # scripts/pack-macos-release-dmg.sh.
+        run: bash scripts/pack-macos-release-dmg.sh ${{ matrix.target }}
 
       - name: Upload artifacts
         uses: softprops/action-gh-release@v2

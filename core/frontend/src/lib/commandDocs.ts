@@ -442,16 +442,16 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Live-Prozess-Picker — nach Name/PID filtern, bestätigen, beenden.",
     synopsis: "kill [-9] [pattern | pid]",
     description:
-      "Lists running processes (sorted by memory, excluding our own PID) as a live picker; the argument filters by name/exe substring or, when all-digits, by exact PID. Enter asks a native confirmation, then sends SIGTERM (or SIGKILL with `-9`; TerminateProcess on Windows).",
-    arguments: [{ name: "pattern | pid", required: false, description: "Name/exe substring, or an exact numeric PID.", default: "(show all)" }],
+      "Lists running processes (sorted by memory, including Inspector Rust itself) as a live picker; the argument filters by name/exe substring (every whitespace token must match) or, when all-digits, by exact PID. Enter asks a native confirmation, then sends SIGTERM (or SIGKILL with `-9`; TerminateProcess on Windows).",
+    arguments: [{ name: "pattern | pid", required: false, description: "Name/exe substring(s), or an exact numeric PID.", default: "(show all)" }],
     flags: [{ flag: "-9", value_type: undefined, description: "Force kill (SIGKILL) instead of SIGTERM.", default: "SIGTERM" }],
     examples: [
       { input: "kill", result: "The full process list, biggest memory first." },
-      { input: "kill slack", result: "Only processes matching 'slack'." },
+      { input: "kill inspector", result: "Inspector Rust (and any other matching process)." },
       { input: "kill -9 1234", result: "Force-kill PID 1234 (after confirming)." },
     ],
-    tips: ["Type a memory hog's name to find it fast; the list is sorted by RAM."],
-    caveats: ["Destructive — a native confirmation is required before the kill.", "Windows has no signals; `-9` and plain both map to a forced TerminateProcess."],
+    tips: ["Type a memory hog's name to find it fast; the list is sorted by RAM.", "`kill inspector rust` matches InspectorRust — every word is required, space optional in the process name."],
+    caveats: ["Destructive — a native confirmation is required before the kill.", "Windows has no signals; `-9` and plain both map to a forced TerminateProcess.", "Unfiltered list is capped at 50 (highest memory); type a pattern to find quieter processes."],
     related: ["reboot", "shutdown", "lock"],
   },
   {
@@ -863,7 +863,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Speicher freimachen — Cache/Log/Temp + Dev-Müll, Ordner-Picker.",
     synopsis: "clean",
     description:
-      "A safety-first disk cleaner: a dry-run scan renders as a checkbox list of directories (size + largest files) grouped by category. Tick what to delete, press Enter twice (arm → confirm) to sweep only the checked categories. Strict allowlist, symlinks never followed, deletion is always file-by-file with re-validation. Levels Safe/Standard/Aggressive + developer targets (stale node_modules/target, JetBrains/Xcode leftovers, Docker/brew/pnpm) in Settings → Cleaning.",
+      "A safety-first disk cleaner: a dry-run scan renders as a checkbox list of directories (size + largest files) grouped by category. Tick what to delete, press Enter twice (arm → confirm) to sweep only the checked categories. Strict allowlist, symlinks never followed, deletion is always file-by-file with re-validation. Levels Safe/Standard/Aggressive + developer targets (stale node_modules/target, JetBrains/Xcode leftovers, Docker/brew/pnpm) in Settings → Cleaning. Scan and delete keep running after Esc — reopen with `clean` to review a finished scan, or wait for the Cleaned toast.",
     arguments: [],
     flags: [],
     examples: [
@@ -871,7 +871,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "clean", result: "Space toggles a row; A toggles all; the selected row shows its 3 largest files." },
       { input: "clean", result: "Downloads dupes / old installers are offered but pre-deselected." },
     ],
-    tips: ["Configure the level + developer roots + per-category toggles in Settings → Cleaning."],
+    tips: [
+      "Configure the level + developer roots + per-category toggles in Settings → Cleaning.",
+      "Esc mid-scan or mid-delete closes the overlay only — the job finishes in the background (toast when done).",
+    ],
     caveats: ["It deletes user files — always dry-runs first and re-validates every path against a strict allowlist before deleting."],
     related: ["stats"],
     see_also: "docs/cleanup.md",
@@ -1003,6 +1006,32 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: ["Sources degrade gracefully — a missing sensor is omitted, never faked."],
     caveats: ["Fan RPM: macOS SMC / Linux hwmon only; Windows has no rootless fan API."],
     related: ["uptime", "clean", "snitch"],
+  },
+  {
+    command: "tokens",
+    aliases: ["usage"],
+    category: CAT_INFO,
+    version_added: "0.101.0",
+    tagline: "Claude Code token usage — cost, projects, sessions & models.",
+    tagline_de: "Claude-Code-Tokenverbrauch — Kosten, Projekte, Sessions & Modelle.",
+    synopsis: "tokens",
+    description:
+      "Shows your Claude Code usage from the local Token Tracker dashboard (port 5010) in the preview: totals & API-equivalent cost, projects/sessions, and model breakdown. Period chips (Today / 7d / 30d / All); toggle cache tokens on/off. Needs the Token Tracker running — otherwise a start-hint card is shown. ↑/↓ scroll, R refresh, Esc exits.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "tokens", result: "Open the usage panel (last 30 days by default)." },
+      { input: "usage", result: "Same panel via the alias." },
+      { input: "tokens", result: "Switch to Models to see Opus vs Sonnet spend." },
+    ],
+    tips: [
+      "Costs are API-equivalent estimates (cache tokens dominate) — not your Claude subscription bill.",
+      "Start Token Tracker first (LaunchAgent io.celox.token-tracker or `node server.js` in that repo).",
+    ],
+    caveats: [
+      "Requires the local Token Tracker on http://127.0.0.1:5010 — Inspector Rust does not parse ~/.claude JSONL itself.",
+    ],
+    related: ["stats", "track", "shazam"],
   },
   {
     command: "uptime",

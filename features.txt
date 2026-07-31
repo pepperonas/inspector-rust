@@ -60,7 +60,7 @@ QR-Code — `qr <text>`: Vorschau + PNG ins Clipboard
 ASCII-Art-Banner — `figlet <text>` (Alias `banner`/`ascii`): Live-Monospace-Vorschau + Font-Galerie (jede Zeile zeigt den eigenen Text im jeweiligen Font), `@font` fuzzy-sucht Hunderte gebündelte Fonts, ↑↓ blättert, Tab füllt `@font`, Enter kopiert das volle Banner, Shift+Enter kopiert es als eng zugeschnittenes PNG in Theme-Farben (Clipboard + History), Cmd/Ctrl+Shift+Enter rendert es mit transparentem Hintergrund und speichert es nach ~/Downloads (Finder-Reveal) UND kopiert es ins Clipboard; Chips für Ausrichtung/Breite/Trim/Kommentar-Wrap (`//`,`#`,`/* */`,`<!--`)/Box-Rahmen; nicht-darstellbare Zeichen werden gemeldet statt still verschluckt; Fonts komprimiert eingebettet + lazy dekomprimiert (THIRDPARTY-FONTS); RenderEngine-Trait für spätere ASCII-Styles; Settings → Figlet. Doku docs/figlet.md
 Bilder — `rz <B>x<H>` (Resize der Finder-Auswahl), `optim` (PNG/JPEG komprimieren)
 Settings per Text — `settings [sektion]` (Alias `config`): öffnet den Settings-Tab, mit Argument Sprung direkt zur Sektion (fuzzy, DE/EN: `settings cue`, `settings hotkeys`, `settings gesten`) inkl. Scroll + Highlight
-Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker mit nativer Bestätigung
+Prozesse — `kill [-9] [name|pid]`: Live-Prozess-Picker inkl. Inspector Rust selbst (`kill inspector`); Multi-Wort-Filter; native Bestätigung
 System — `reboot`, `shutdown`, `lock`, `mute`, Shift+↑/↓ = Lautstärke (5-%-Raster)
 Input-Lock — `freeze`: Tastatur+Maus sperren bis zum Entsperr-Akkord
 Wachhalten — `wakelock on/off` (Alias `caffeine`)
@@ -90,8 +90,9 @@ Helligkeit — `brightness`/`bri`: Slider pro Monitor; auf XDR-Displays über 10
 Audio-Ausgabe — `sound`/`audio`: Ausgabegerät wechseln + System-Lautstärke-Slider
 Philips Hue — `hue`: Lampen steuern (an/aus, Helligkeit, 8 Farben, Tastatur-Navigation), Bridge-Pairing lokal
 System-Stats — `stats`: CPU/RAM/Akku/Watt/Temperaturen/Lüfter/Disk/Netz, Live + Verlauf (1h–7d)
+Claude-Tokenverbrauch — `tokens` (Alias `usage`): Overview/Kosten, Projekte⇄Sessions und Modelle aus dem lokalen Token Tracker (`localhost:5010`); Zeitraum Today/7d/30d/All; Cache-Tokens ein-/ausblendbar; Hinweis-Card wenn Tracker nicht läuft
 boom — systemweiter 10-Band-EQ + Lautstärke-Boost + 20 Presets + 5 Effekte (virtueller Audio-Treiber); Idle-Gate lässt den Mac schlafen
-Clean-Picker — Verzeichnis-Zeilen (Größe absteigend) unter Kategorie-Überschriften, einzeln abwählbar; zweistufiges Enter löscht nur die Auswahl
+Clean-Picker — Verzeichnis-Zeilen (Größe absteigend) unter Kategorie-Überschriften, einzeln abwählbar; zweistufiges Enter löscht nur die Auswahl; Scan/Löschen laufen nach Esc im Hintergrund weiter (Toast bei Fertig; Reopen reconnectet)
 
 == Aufräumen (clean) im Detail ==
 Kategorien — eigener Cache, OS-Temp, Browser-Caches, komplettes ~/Library/Caches, Logs (inkl. System/PM2/npm/Editor), Editor-Caches (VS Code/Cursor), Dev-Caches (npm/pnpm/Gradle/Maven/Cargo/rustup/uv/Android/NuGet), Xcode (DerivedData + iOS DeviceSupport), Duplikate in Downloads (SHA-256, Ältestes bleibt), alte Installer, Papierkorb, Docker-Build-Cache (via docker builder prune)

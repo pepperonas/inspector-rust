@@ -78,6 +78,7 @@ export type CommandKind =
   | "boom"
   | "uptime"
   | "weather"
+  | "tokens"
   | "track"
   | "trim"
   | "calendar"
@@ -674,6 +675,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "wetter",
     syntax: "wetter [stadt]",
     description: "Alias for weather",
+    requiresArg: false,
+    hidden: true,
+  },
+  {
+    kind: "tokens",
+    keyword: "tokens",
+    syntax: "tokens",
+    description:
+      "Claude Code token usage — cost, projects, sessions & models from the local Token Tracker",
+    requiresArg: false,
+  },
+  {
+    kind: "tokens",
+    keyword: "usage",
+    syntax: "usage",
+    description: "Alias for tokens",
     requiresArg: false,
     hidden: true,
   },

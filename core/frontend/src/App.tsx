@@ -21,6 +21,7 @@ import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
 import { WeatherPanel } from "./components/WeatherPanel";
+import { TokensPanel } from "./components/TokensPanel";
 import { RandomPanel } from "./components/RandomPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
@@ -79,9 +80,11 @@ import {
   TRANSLATE_LANGS,
   SEARCH_BANGS,
   fuzzyScore,
+  formatBytes,
   type CommandKind,
   type ParsedCommand,
 } from "./lib/commands";
+import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
 import { lookupDoc } from "./lib/commandDocs";
 import { matchCities } from "./lib/cities";
@@ -144,6 +147,7 @@ import {
   qrCopyPng,
   showStatusToast,
   type ShazamDone,
+  type CleanDone,
   trackStart,
   trackStop,
   trackStatus,
@@ -259,6 +263,8 @@ function App() {
   // arg (`weather berlin`) is a city override; empty = IP-located.
   const [weatherMode, setWeatherMode] = useState(false);
   const [weatherFocus, setWeatherFocus] = useState(false);
+  const [tokensMode, setTokensMode] = useState(false);
+  const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
   // right preview column directly (like `sound`); Enter hands the arrow keys
   // to it (←→ month, ↑↓ year).
@@ -269,6 +275,12 @@ function App() {
   // (not while-typing) because the scan walks the whole cache dir.
   const [cleanMode, setCleanMode] = useState(false);
   const [cleanFocus, setCleanFocus] = useState(false);
+  // Mirror of `cleanMode` for the global `clean-done` listener (scan/execute
+  // survive Esc — toast when the panel is closed).
+  const cleanModeRef = useRef(cleanMode);
+  useEffect(() => {
+    cleanModeRef.current = cleanMode;
+  }, [cleanMode]);
   // Snitch mode — `snitch` (app blocker) / `snitch map` (world map). Enter
   // opens; the arg picks which view. macOS-only command.
   const [snitchMode, setSnitchMode] = useState<null | "apps" | "map">(null);
@@ -689,41 +701,21 @@ function App() {
 
   const killTargetEntries: ListEntry[] = useMemo(() => {
     if (!isKillMode || !killArgs) return [];
-    const pattern = killArgs.pattern.toLowerCase();
-    // A pure-number arg is treated as a PID: `kill 1234` surfaces exactly that
-    // process (still shown with its name + the confirm dialog before killing).
-    const pidQuery = /^\d+$/.test(killArgs.pattern.trim())
-      ? Number(killArgs.pattern.trim())
-      : null;
-    const filtered = pattern
-      ? processSnapshot
-          .filter(
-            (p) =>
-              (pidQuery !== null && p.pid === pidQuery) ||
-              p.name.toLowerCase().includes(pattern) ||
-              p.exe.toLowerCase().includes(pattern),
-          )
-          // Exact PID match floats to the top so Enter targets it immediately.
-          .sort((a, b) =>
-            pidQuery === null
-              ? 0
-              : Number(b.pid === pidQuery) - Number(a.pid === pidQuery),
-          )
-      : processSnapshot;
-    // Cap at 50 visible — anything more is noise; the user should
-    // refine the pattern.
-    return filtered.slice(0, 50).map(
-      (p): ListEntry => ({
-        kind: "kill-target",
-        data: {
-          pid: p.pid,
-          name: p.name,
-          memory_mb: p.memory_mb,
-          exe: p.exe,
-          force: killArgs.force,
-        },
-      }),
-    );
+    // Cap at KILL_LIST_CAP — anything more is noise; refine the pattern.
+    return filterKillProcesses(processSnapshot, killArgs.pattern)
+      .slice(0, KILL_LIST_CAP)
+      .map(
+        (p): ListEntry => ({
+          kind: "kill-target",
+          data: {
+            pid: p.pid,
+            name: p.name,
+            memory_mb: p.memory_mb,
+            exe: p.exe,
+            force: killArgs.force,
+          },
+        }),
+      );
   }, [isKillMode, killArgs, processSnapshot]);
 
   // Meme mode — `meme [query]` takes over the list with the meme library,
@@ -924,6 +916,13 @@ function App() {
       setWeatherFocus(false);
     }
   }, [isWeatherCmd, weatherMode]);
+  const isTokensCmd = parsedCommand?.spec.kind === "tokens";
+  useEffect(() => {
+    if (!isTokensCmd && tokensMode) {
+      setTokensMode(false);
+      setTokensFocus(false);
+    }
+  }, [isTokensCmd, tokensMode]);
 
   // Random mode shows the rolled number directly in the preview while `rnd`/
   // `random` is typed (like `calendar`); a Roll-again button re-rolls, Enter
@@ -1312,6 +1311,11 @@ function App() {
       case "weather":
         label = arg ? `Weather: ${arg}` : "Weather — your location";
         hint = "Enter → current conditions + 5-day forecast, animated in the preview";
+        break;
+      case "tokens":
+        label = "Claude Code token usage";
+        hint =
+          "Enter → cost, projects, sessions & models from the local Token Tracker";
         break;
       case "calendar":
         label = arg ? `Calendar: ${arg}` : "Calendar — month view";
@@ -2432,6 +2436,35 @@ function App() {
     void showStatusToast("shazam", true, `🎵 ${m.title}`, m.artist);
   });
 
+  // Clean scan/execute finished. Jobs run in the backend and survive Esc —
+  // when the panel is closed, surface a status toast (scan ready / cleaned /
+  // failed). Open panel handles the result itself (no toast duplication).
+  useTauriEvent<CleanDone>("clean-done", (e) => {
+    if (cleanModeRef.current) return;
+    const d = e.payload;
+    if (!d) return;
+    if (d.kind === "execute" && d.result) {
+      const skipped = d.result.errors.length
+        ? ` · ${d.result.errors.length} skipped`
+        : "";
+      void showStatusToast(
+        "clean",
+        true,
+        "Cleaned",
+        `${formatBytes(d.result.freed_bytes)} freed${skipped}`,
+      );
+    } else if (d.kind === "scan" && d.view) {
+      void showStatusToast(
+        "clean",
+        true,
+        "Scan ready",
+        `${formatBytes(d.view.total_bytes)} · type clean to review`,
+      );
+    } else if (d.error && d.kind === "execute") {
+      void showStatusToast("clean", false, "Clean failed", d.error);
+    }
+  });
+
   // Backend fires this when the OCR shortcut is pressed but the
   // Screen Recording TCC grant is missing. Switch to Settings (which
   // shows the Permissions overview) and surface a banner so the
@@ -2678,7 +2711,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "calendar", "clean", "snitch", "shazam",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3058,6 +3091,11 @@ function App() {
         setWeatherMode(true);
         setWeatherFocus(true);
         return true;
+      } else if (commandKind === "tokens") {
+        // Inline Claude Code usage from the local Token Tracker.
+        setTokensMode(true);
+        setTokensFocus(true);
+        return true;
       } else if (commandKind === "calendar") {
         // Inline month-view calendar in the preview column.
         setCalendarMode(true);
@@ -3422,6 +3460,7 @@ function App() {
       !boomFocus &&
       !uptimeFocus &&
       !weatherFocus &&
+      !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
       !snitchFocus &&
@@ -3873,6 +3912,17 @@ function App() {
                       onExit={() => {
                         setWeatherMode(false);
                         setWeatherFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : tokensMode ? (
+                  <div className="md3-pop-in h-full">
+                    <TokensPanel
+                      focused={tokensFocus}
+                      onExit={() => {
+                        setTokensMode(false);
+                        setTokensFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

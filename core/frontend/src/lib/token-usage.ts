@@ -22,7 +22,7 @@ export function formatYmd(d: Date): string {
 
 /**
  * Inclusive local-date window for a period chip, matching Token Tracker's
- * `getPeriodRange` (7d = today − 6 … today).
+ * `getPeriodRange` (`7d`/`30d` = today − N calendar days).
  */
 export function periodRange(
   period: TokenPeriod,
@@ -31,7 +31,7 @@ export function periodRange(
   const to = formatYmd(today);
   if (period === "today") return { from: to, to };
   if (period === "all") return { from: null, to };
-  const daysBack = period === "7d" ? 6 : 29;
+  const daysBack = period === "7d" ? 7 : 30;
   const from = new Date(today.getFullYear(), today.getMonth(), today.getDate() - daysBack);
   return { from: formatYmd(from), to };
 }

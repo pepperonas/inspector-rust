@@ -525,7 +525,7 @@ alone for the whole index.
 | Command | Since | What it does |
 |---------|-------|--------------|
 | `rmvvls` | v0.18.0 | Strip vowels from the text → clipboard. |
-| `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Open Google Translate for the text — auto/EN↔DE and DE↔IT/ES/PL pairs. |
+| `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Live translate in the preview — Enter copies, ⇧Enter opens Google Translate. |
 | `kill` | v0.19.0 | Live process picker — filter by name/PID, confirm, terminate. |
 | `lock` | v0.19.0 | Lock the screen immediately. |
 | `mute` | v0.19.0 | Toggle system output mute. |

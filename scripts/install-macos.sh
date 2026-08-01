@@ -346,6 +346,16 @@ echo "     through the steps; takes ~30 seconds)"
 
 cd "${REPO_ROOT}"
 
+# Re-use a just-finished release bundle (e.g. after a prior failed install
+# step). Skips the multi-minute LTO rebuild.
+if [[ "${IR_SKIP_BUILD:-0}" == "1" ]]; then
+  if [[ ! -d "${BUILD_OUT}" ]]; then
+    echo "✘ IR_SKIP_BUILD=1 but build output missing: ${BUILD_OUT}" >&2
+    exit 1
+  fi
+  echo "▸ IR_SKIP_BUILD=1 — reusing ${BUILD_OUT}"
+else
+
 # Self-heal missing dependencies. A disk cleaner (or `cargo clean`'s sibling
 # habit of nuking node_modules in "inactive" projects) can wipe node_modules,
 # which makes the Tauri CLI vanish → `tauri build` dies with "command not found".
@@ -362,7 +372,11 @@ echo "▸ Building boom Audio driver…"
 bash "${SCRIPT_DIR:-$(cd "$(dirname "$0")" && pwd)}/../boom-driver/build.sh" || echo "  (driver build failed — boom in-app install will be unavailable)"
 
 echo "▸ Building InspectorRust.app (release, --bundles app)…"
-pnpm --filter inspector-rust-macos tauri build --bundles app
+# Cursor sandboxes may export CARGO_TARGET_DIR into a temp cache — that makes
+# BUILD_OUT (repo target/) miss the real bundle. Always build into repo target/.
+env -u CARGO_TARGET_DIR pnpm --filter inspector-rust-macos tauri build --bundles app
+
+fi # IR_SKIP_BUILD
 
 if [[ ! -d "${BUILD_OUT}" ]]; then
   echo "✘ build output missing: ${BUILD_OUT}" >&2
@@ -420,7 +434,11 @@ fi
 DRIVER_SRC="${REPO_ROOT}/boom-driver/build/boom-driver.driver"
 if [[ -d "${DRIVER_SRC}" ]]; then
   rm -rf "${INSTALL_PATH}/Contents/Resources/boom-driver.driver"
+  # Strip provenance/quarantine xattrs — they make `cp` into /Applications fail
+  # with "Operation not permitted" on recent macOS.
+  xattr -cr "${DRIVER_SRC}" 2>/dev/null || true
   cp -R "${DRIVER_SRC}" "${INSTALL_PATH}/Contents/Resources/boom-driver.driver"
+  xattr -cr "${INSTALL_PATH}/Contents/Resources/boom-driver.driver" 2>/dev/null || true
   echo "▸ Bundled boom Audio driver into Resources"
 else
   echo "  ⚠ boom driver not built (${DRIVER_SRC}) — in-app boom install unavailable"

@@ -524,7 +524,7 @@ Englisch.)
 | Befehl | Seit | Was er tut |
 |--------|------|------------|
 | `rmvvls` | v0.18.0 | Vokale aus dem Text entfernen → Clipboard. |
-| `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Google Translate für den Text öffnen — auto/EN↔DE und DE↔IT/ES/PL. |
+| `tr` <sub>(alias: `tren`, `trde`, `trde2it`, `trit2de`, `trde2sp`, `trsp2de`, `trde2pl`, `trpl2de`)</sub> | v0.18.0 | Live-Übersetzung in der Preview — Enter kopiert, ⇧Enter öffnet Google Translate. |
 | `kill` | v0.19.0 | Live-Prozess-Picker — nach Name/PID filtern, bestätigen, beenden. |
 | `lock` | v0.19.0 | Bildschirm sofort sperren. |
 | `mute` | v0.19.0 | System-Ausgabe stumm schalten (Toggle). |

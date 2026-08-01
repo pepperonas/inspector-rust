@@ -20,16 +20,16 @@ describe("periodRange", () => {
     });
   });
 
-  it("7d is inclusive of today (today − 6)", () => {
+  it("7d is inclusive of today (today − 7, matching tracker)", () => {
     expect(periodRange("7d", today)).toEqual({
-      from: "2026-07-25",
+      from: "2026-07-24",
       to: "2026-07-31",
     });
   });
 
-  it("30d is inclusive (today − 29)", () => {
+  it("30d is inclusive (today − 30, matching tracker)", () => {
     expect(periodRange("30d", today)).toEqual({
-      from: "2026-07-02",
+      from: "2026-07-01",
       to: "2026-07-31",
     });
   });
@@ -177,11 +177,11 @@ describe("displayTokens / displayCost edge cases", () => {
 
   it("periodRange crosses month / year boundaries", () => {
     expect(periodRange("7d", new Date(2026, 0, 3))).toEqual({
-      from: "2025-12-28",
+      from: "2025-12-27",
       to: "2026-01-03",
     });
     expect(periodRange("30d", new Date(2026, 0, 10))).toEqual({
-      from: "2025-12-12",
+      from: "2025-12-11",
       to: "2026-01-10",
     });
   });

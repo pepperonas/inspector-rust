@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.101.5] — 2026-08-01
+
+### Changed
+
+- **`tr*` Enter copies the translation.** Enter puts the live result on the clipboard (and closes the popup); **Shift+Enter** opens Google Translate in the browser. Click the source or target box in the preview to copy that side.
+
+## [0.101.4] — 2026-07-31
+
+### Added
+
+- **`shazam` lyrics: Copy button (+ `C`).** While viewing lyrics (Original or +DE), copy the visible text to the clipboard — bilingual copies as orig/DE pairs.
+
+### Fixed
+
+- **`tokens` opens fast and Today=0 is explained.** Fetches overview/models/projects **in parallel** (was sequential ~15 s); sessions load lazily only when that sub-view is open; default period is **Today**. A zero-token today with real usage yesterday shows yesterday’s totals plus a one-tap jump to 7d — Cursor/Composer traffic is not in the Token Tracker (Claude Code JSONL only). Period windows match the tracker (`7d`/`30d` = today−7/30).
+
 ## [0.101.2] — 2026-07-31
 
 ### Fixed

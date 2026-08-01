@@ -50,16 +50,19 @@ pub enum Period {
 
 /// Inclusive local-date window for a [`Period`], relative to `today`.
 /// Returns `(from, to)` where `from` is `None` for [`Period::All`].
+///
+/// Windows match Token Tracker's `getPeriodRange` in `public/js/app.js`:
+/// `7d` / `30d` = `now − N·86400000` (N calendar days back), **not** N−1.
 pub fn period_range(period: Period, today: NaiveDate) -> (Option<String>, String) {
     let to = today.format("%Y-%m-%d").to_string();
     match period {
         Period::Today => (Some(to.clone()), to),
         Period::Days7 => {
-            let from = today - chrono::Duration::days(6);
+            let from = today - chrono::Duration::days(7);
             (Some(from.format("%Y-%m-%d").to_string()), to)
         }
         Period::Days30 => {
-            let from = today - chrono::Duration::days(29);
+            let from = today - chrono::Duration::days(30);
             (Some(from.format("%Y-%m-%d").to_string()), to)
         }
         Period::All => (None, to),
@@ -152,6 +155,16 @@ pub struct SessionRow {
     pub cost: f64,
 }
 
+/// Compact prior-day strip (shown when `today` has no Claude Code tokens yet).
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct DayPeek {
+    pub date: String,
+    pub total_tokens: i64,
+    pub estimated_cost: f64,
+    pub messages: i64,
+    pub sessions: i64,
+}
+
 /// One refetch payload for the panel (overview + the three list tabs).
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct Snapshot {
@@ -162,6 +175,11 @@ pub struct Snapshot {
     /// Echo of the requested window (local YYYY-MM-DD).
     pub from: Option<String>,
     pub to: String,
+    /// When period is Today: yesterday's daily totals (if any), for the empty-state hint.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prior_day: Option<DayPeek>,
+    /// `true` when `sessions` was populated (lazy — skipped on the fast path).
+    pub sessions_loaded: bool,
 }
 
 // ── Parsers (pure) ──────────────────────────────────────────────────────────
@@ -305,18 +323,39 @@ pub fn parse_sessions(v: &Value) -> Vec<SessionRow> {
         .collect()
 }
 
+/// Pick the row for `date` from `/api/daily` (array of day objects).
+pub fn day_peek_from_daily(v: &Value, date: &str) -> Option<DayPeek> {
+    let arr = v.as_array()?;
+    for d in arr {
+        if str_of(d, "date") != date {
+            continue;
+        }
+        let input = i64_of(d, "inputTokens");
+        let output = i64_of(d, "outputTokens");
+        let cache_read = i64_of(d, "cacheReadTokens");
+        let cache_create = i64_of(d, "cacheCreateTokens");
+        return Some(DayPeek {
+            date: date.to_string(),
+            total_tokens: input + output + cache_read + cache_create,
+            estimated_cost: f64_of(d, "cost"),
+            messages: i64_of(d, "messages"),
+            sessions: i64_of(d, "sessions"),
+        });
+    }
+    None
+}
+
 // ── HTTP ────────────────────────────────────────────────────────────────────
 
-fn get_json(url: &str) -> Result<Value, String> {
-    let resp = ureq::AgentBuilder::new()
-        .timeout(HTTP_TIMEOUT)
-        .build()
-        .get(url)
-        .call()
-        .map_err(|e| match e {
-            ureq::Error::Transport(_) => ERR_UNREACHABLE.to_string(),
-            other => other.to_string(),
-        })?;
+fn http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().timeout(HTTP_TIMEOUT).build()
+}
+
+fn get_json(agent: &ureq::Agent, url: &str) -> Result<Value, String> {
+    let resp = agent.get(url).call().map_err(|e| match e {
+        ureq::Error::Transport(_) => ERR_UNREACHABLE.to_string(),
+        other => other.to_string(),
+    })?;
     let mut body = String::new();
     resp.into_reader()
         .take(8 * 1024 * 1024)
@@ -325,30 +364,144 @@ fn get_json(url: &str) -> Result<Value, String> {
     serde_json::from_str(&body).map_err(|e| e.to_string())
 }
 
-/// Fetch a full panel snapshot for `period` from the tracker at `base_url`.
-pub fn fetch(base_url: &str, period: Period) -> Result<Snapshot, String> {
+/// Fetch a panel snapshot. Endpoints run **in parallel** (sequential was ~15 s
+/// on a warm tracker; parallel lands around a single round-trip).
+///
+/// `include_sessions` is opt-in — the 30d/all sessions payload is hundreds of
+/// KB and multi-second alone; the panel only needs it for the Sessions list.
+pub fn fetch(
+    base_url: &str,
+    period: Period,
+    include_sessions: bool,
+) -> Result<Snapshot, String> {
     let today = Local::now().date_naive();
     let (from, to) = period_range(period, today);
-    let from_ref = from.as_deref();
+    let from_owned = from.clone();
+    let to_owned = to.clone();
+    let base = base_url.trim_end_matches('/').to_string();
 
-    let overview_v = get_json(&build_url(base_url, "/api/overview", from_ref, &to))?;
-    let models_v = get_json(&build_url(base_url, "/api/models", from_ref, &to))?;
-    let projects_v = get_json(&build_url(base_url, "/api/projects", from_ref, &to))?;
-    let sessions_v = get_json(&build_url(base_url, "/api/sessions", from_ref, &to))?;
+    let overview_url = build_url(&base, "/api/overview", from.as_deref(), &to);
+    let models_url = build_url(&base, "/api/models", from.as_deref(), &to);
+    let projects_url = build_url(&base, "/api/projects", from.as_deref(), &to);
+    let sessions_url = if include_sessions {
+        Some(build_url(&base, "/api/sessions", from.as_deref(), &to))
+    } else {
+        None
+    };
+    // Cheap daily peek so a zero-token "today" can still show yesterday.
+    let prior_url = if period == Period::Today {
+        let yday = (today - chrono::Duration::days(1))
+            .format("%Y-%m-%d")
+            .to_string();
+        Some((
+            yday.clone(),
+            build_url(&base, "/api/daily", Some(&yday), &to),
+        ))
+    } else {
+        None
+    };
+
+    let overview_r = std::sync::Mutex::new(None);
+    let models_r = std::sync::Mutex::new(None);
+    let projects_r = std::sync::Mutex::new(None);
+    let sessions_r = std::sync::Mutex::new(None);
+    let prior_r = std::sync::Mutex::new(None);
+    let err: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+
+    // Borrow Mutexes by ref inside `scope` (no `move`) so we can `into_inner`
+    // after joins. First error wins — later failures are noise.
+    std::thread::scope(|scope| {
+        scope.spawn(|| match get_json(&http_agent(), &overview_url) {
+            Ok(v) => *overview_r.lock().unwrap() = Some(v),
+            Err(e) => {
+                let mut slot = err.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some(e);
+                }
+            }
+        });
+        scope.spawn(|| match get_json(&http_agent(), &models_url) {
+            Ok(v) => *models_r.lock().unwrap() = Some(v),
+            Err(e) => {
+                let mut slot = err.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some(e);
+                }
+            }
+        });
+        scope.spawn(|| match get_json(&http_agent(), &projects_url) {
+            Ok(v) => *projects_r.lock().unwrap() = Some(v),
+            Err(e) => {
+                let mut slot = err.lock().unwrap();
+                if slot.is_none() {
+                    *slot = Some(e);
+                }
+            }
+        });
+        if let Some(ref url) = sessions_url {
+            scope.spawn(|| match get_json(&http_agent(), url) {
+                Ok(v) => *sessions_r.lock().unwrap() = Some(v),
+                Err(e) => {
+                    let mut slot = err.lock().unwrap();
+                    if slot.is_none() {
+                        *slot = Some(e);
+                    }
+                }
+            });
+        }
+        if let Some((ref yday, ref url)) = prior_url {
+            // Prior-day is best-effort — don't fail the whole panel.
+            scope.spawn(|| {
+                if let Ok(v) = get_json(&http_agent(), url) {
+                    *prior_r.lock().unwrap() = day_peek_from_daily(&v, yday);
+                }
+            });
+        }
+    });
+
+    if let Some(e) = err.into_inner().unwrap() {
+        return Err(e);
+    }
+
+    let overview_v = overview_r
+        .into_inner()
+        .unwrap()
+        .ok_or_else(|| ERR_UNREACHABLE.to_string())?;
+    let models_v = models_r
+        .into_inner()
+        .unwrap()
+        .ok_or_else(|| ERR_UNREACHABLE.to_string())?;
+    let projects_v = projects_r
+        .into_inner()
+        .unwrap()
+        .ok_or_else(|| ERR_UNREACHABLE.to_string())?;
+
+    let sessions = if include_sessions {
+        let v = sessions_r
+            .into_inner()
+            .unwrap()
+            .ok_or_else(|| ERR_UNREACHABLE.to_string())?;
+        parse_sessions(&v)
+    } else {
+        Vec::new()
+    };
+    let prior_day = prior_r.into_inner().unwrap();
 
     Ok(Snapshot {
         overview: parse_overview(&overview_v),
         models: parse_models(&models_v),
         projects: parse_projects(&projects_v),
-        sessions: parse_sessions(&sessions_v),
-        from,
-        to,
+        sessions,
+        from: from_owned,
+        to: to_owned,
+        prior_day,
+        sessions_loaded: include_sessions,
     })
 }
 
-/// Convenience: fetch from the default local tracker URL.
-pub fn fetch_default(period: Period) -> Result<Snapshot, String> {
-    fetch(DEFAULT_BASE_URL, period)
+/// Convenience: fetch from the default local tracker URL (sessions lazy).
+pub fn fetch_default(period: Period, include_sessions: bool) -> Result<Snapshot, String> {
+    fetch(DEFAULT_BASE_URL, period, include_sessions)
 }
 
 #[cfg(test)]
@@ -363,13 +516,14 @@ mod tests {
             period_range(Period::Today, today),
             (Some("2026-07-31".into()), "2026-07-31".into())
         );
+        // Matches tracker app.js: now − 7·86400000 → Jul 24
         assert_eq!(
             period_range(Period::Days7, today),
-            (Some("2026-07-25".into()), "2026-07-31".into())
+            (Some("2026-07-24".into()), "2026-07-31".into())
         );
         assert_eq!(
             period_range(Period::Days30, today),
-            (Some("2026-07-02".into()), "2026-07-31".into())
+            (Some("2026-07-01".into()), "2026-07-31".into())
         );
         assert_eq!(
             period_range(Period::All, today),
@@ -507,11 +661,11 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2026, 3, 5).unwrap();
         assert_eq!(
             period_range(Period::Days7, today),
-            (Some("2026-02-27".into()), "2026-03-05".into())
+            (Some("2026-02-26".into()), "2026-03-05".into())
         );
         assert_eq!(
             period_range(Period::Days30, today),
-            (Some("2026-02-04".into()), "2026-03-05".into())
+            (Some("2026-02-03".into()), "2026-03-05".into())
         );
     }
 
@@ -520,7 +674,7 @@ mod tests {
         let today = NaiveDate::from_ymd_opt(2024, 3, 1).unwrap();
         assert_eq!(
             period_range(Period::Days7, today),
-            (Some("2024-02-24".into()), "2024-03-01".into())
+            (Some("2024-02-23".into()), "2024-03-01".into())
         );
     }
 
@@ -646,5 +800,39 @@ mod tests {
         assert_eq!(DEFAULT_BASE_URL, "http://127.0.0.1:5010");
         assert_eq!(ERR_UNREACHABLE, "tokens.unreachable");
         assert_eq!(SESSION_CAP, 80);
+    }
+
+    #[test]
+    fn day_peek_from_daily_picks_matching_row() {
+        let v = json!([
+            {
+                "date": "2026-07-30",
+                "inputTokens": 10,
+                "outputTokens": 20,
+                "cacheReadTokens": 100,
+                "cacheCreateTokens": 5,
+                "cost": 1.5,
+                "messages": 9,
+                "sessions": 2
+            },
+            {
+                "date": "2026-07-31",
+                "inputTokens": 0,
+                "outputTokens": 0,
+                "cacheReadTokens": 0,
+                "cacheCreateTokens": 0,
+                "cost": 0,
+                "messages": 6,
+                "sessions": 6
+            }
+        ]);
+        let peek = day_peek_from_daily(&v, "2026-07-30").unwrap();
+        assert_eq!(peek.date, "2026-07-30");
+        assert_eq!(peek.total_tokens, 135);
+        assert!((peek.estimated_cost - 1.5).abs() < 1e-9);
+        assert_eq!(peek.messages, 9);
+        assert_eq!(peek.sessions, 2);
+        assert!(day_peek_from_daily(&v, "2026-07-29").is_none());
+        assert!(day_peek_from_daily(&json!({}), "2026-07-30").is_none());
     }
 }

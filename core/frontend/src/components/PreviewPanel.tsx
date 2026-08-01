@@ -145,9 +145,9 @@ const LANG_NAMES: Record<string, string> = {
 };
 
 /**
- * Live-translation preview for the `tr*` commands (v0.93.0). Shows the debounced
- * keyless result inline; the "Enter opens Google Translate" browser fallback is
- * always offered and never depends on the live lookup succeeding.
+ * Live-translation preview for the `tr*` commands (v0.93.0; Enter=copy v0.101.5).
+ * Enter copies the translation; ⇧Enter opens Google Translate. Click either
+ * language box to copy that side's text.
  */
 function TranslatePreview({
   kind,
@@ -165,6 +165,18 @@ function TranslatePreview({
     live?.status === "ok" && live.detectedSource
       ? (LANG_NAMES[live.detectedSource] ?? live.detectedSource)
       : null;
+  const [copiedSide, setCopiedSide] = useState<"src" | "tgt" | null>(null);
+
+  const copySide = async (side: "src" | "tgt", value: string) => {
+    if (!value) return;
+    try {
+      await clipboardWriteText(value);
+      setCopiedSide(side);
+      window.setTimeout(() => setCopiedSide(null), 1200);
+    } catch {
+      /* ignore */
+    }
+  };
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-y-auto p-4">
@@ -178,21 +190,55 @@ function TranslatePreview({
         </div>
       ) : (
         <>
-          <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
-            <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
-              {detected ?? srcName}
+          <button
+            type="button"
+            onClick={() => void copySide("src", text)}
+            title="Click to copy source text"
+            className="group w-full rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-left transition-colors hover:border-[var(--color-accent)]/50"
+          >
+            <div className="flex items-center justify-between">
+              <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                {detected ?? srcName}
+              </div>
+              <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
+                {copiedSide === "src" ? (
+                  <><Check size={11} /> Copied</>
+                ) : (
+                  <><Copy size={11} /> Copy</>
+                )}
+              </span>
             </div>
             <div className="mt-1 text-[13px] leading-snug">{text}</div>
-          </div>
+          </button>
 
-          <div className="rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4">
+          <button
+            type="button"
+            onClick={() => {
+              if (live?.status === "ok") void copySide("tgt", live.text);
+            }}
+            disabled={live?.status !== "ok"}
+            title={
+              live?.status === "ok"
+                ? "Click to copy translation"
+                : "Translation not ready yet"
+            }
+            className="group w-full rounded-xl border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/5 p-4 text-left transition-colors hover:border-[var(--color-accent)] disabled:cursor-default disabled:hover:border-[var(--color-accent)]/40"
+          >
             <div className="flex items-center justify-between">
               <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
                 {tgtName}
               </div>
-              {live?.status === "loading" && (
+              {live?.status === "loading" ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--color-muted)]" />
-              )}
+              ) : live?.status === "ok" ? (
+                <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
+                  {copiedSide === "tgt" ? (
+                    <><Check size={11} /> Copied</>
+                  ) : (
+                    <><Copy size={11} /> Copy</>
+                  )}
+                </span>
+              ) : null}
             </div>
             {live?.status === "ok" ? (
               <>
@@ -203,23 +249,24 @@ function TranslatePreview({
               </>
             ) : live?.status === "error" ? (
               <div className="mt-1 text-[12px] text-[var(--color-muted)]">
-                Live translation unavailable — press Enter to open Google Translate.
+                Live translation unavailable — press ⇧⏎ to open Google Translate.
               </div>
             ) : (
               <div className="mt-1 text-[13px] italic text-[var(--color-muted)]">
                 {live?.status === "loading" ? "Translating…" : "…"}
               </div>
             )}
-          </div>
+          </button>
         </>
       )}
 
       <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
-        ⏎ Enter opens Google Translate in the browser
+        ⏎ copies translation · ⇧⏎ opens Google Translate · click a box to copy
       </div>
     </div>
   );
 }
+
 
 export function PreviewPanel({
   entry,

@@ -581,10 +581,10 @@ function App() {
   // ── Live translation preview (v0.93.0) ────────────────────────────────────
   // When a `tr*` command is being typed, fetch the translation in the
   // background (debounced + cached) and show it in the preview — no need to
-  // press Enter. Enter still opens Google Translate in the browser (the
-  // untouched fallback); a failed fetch (timeout/rate-limit/network) simply
-  // leaves that fallback as the only path. Backed by `translate_text` (Google
-  // gtx → MyMemory, both keyless).
+  // press Enter. Enter copies the translation to the clipboard; Shift+Enter
+  // opens Google Translate in the browser. A failed fetch (timeout/rate-limit/
+  // network) leaves Shift+Enter as the browser fallback. Backed by
+  // `translate_text` (Google gtx → MyMemory, both keyless).
   type LiveTranslation =
     | { status: "loading" }
     | { status: "ok"; text: string; provider: string; detectedSource: string }
@@ -1068,8 +1068,7 @@ function App() {
       case "translate-pl-de": {
         const pair = TRANSLATE_LANGS[spec.kind]!;
         label = `Translate to ${pair.target}: "${arg}"`;
-        const from = pair.sl === "auto" ? "auto-detect" : pair.sl;
-        hint = `Opens Google Translate (${from} → ${pair.tl}) in your browser`;
+        hint = "⏎ copies translation · ⇧⏎ opens Google Translate";
         break;
       }
       case "websearch": {
@@ -2722,8 +2721,44 @@ function App() {
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
-        await openUrl(translateUrl(commandKind, arg));
-        await hidePopup();
+        // Enter → copy the live translation; ⇧Enter → open Google Translate.
+        if (shiftKey) {
+          await openUrl(translateUrl(commandKind, arg));
+          await hidePopup();
+          return true;
+        }
+        const pair = TRANSLATE_LANGS[commandKind];
+        const src = arg.trim();
+        if (!pair || !src) return true;
+        const cacheKey = `${pair.sl}|${pair.tl}|${src}`;
+        let out: string | null =
+          liveTranslation?.status === "ok" ? liveTranslation.text : null;
+        if (!out) {
+          out = translateCacheRef.current.get(cacheKey)?.text ?? null;
+        }
+        if (!out) {
+          try {
+            const r = await translateText(src, pair.sl, pair.tl);
+            out = r.text;
+            translateCacheRef.current.set(cacheKey, {
+              text: r.text,
+              provider: r.provider,
+              detectedSource: r.detected_source ?? "",
+            });
+          } catch (e) {
+            setPasteError("other");
+            console.error("translate copy failed", e);
+            return true;
+          }
+        }
+        try {
+          const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+          await writeText(out);
+          await hidePopup();
+        } catch (e) {
+          setPasteError("other");
+          console.error("translate clipboard write failed", e);
+        }
       } else if (commandKind === "websearch") {
         const bang = SEARCH_BANGS[keyword ?? ""];
         if (!bang) {

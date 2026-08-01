@@ -2515,6 +2515,14 @@ export interface TokenUsageSession {
   cost: number;
 }
 
+export interface TokenUsageDayPeek {
+  date: string;
+  total_tokens: number;
+  estimated_cost: number;
+  messages: number;
+  sessions: number;
+}
+
 export interface TokenUsageSnapshot {
   overview: TokenUsageOverview;
   models: TokenUsageModel[];
@@ -2522,6 +2530,10 @@ export interface TokenUsageSnapshot {
   sessions: TokenUsageSession[];
   from: string | null;
   to: string;
+  /** Yesterday's totals when period is `today` (empty-state hint). */
+  prior_day?: TokenUsageDayPeek | null;
+  /** Whether `sessions` was populated (lazy). */
+  sessions_loaded: boolean;
 }
 
 /** Sentinel when Token Tracker isn't listening on :5010. */
@@ -2529,9 +2541,13 @@ export const TOKENS_UNREACHABLE = "tokens.unreachable";
 
 /** Fetch Claude Code usage from the local Token Tracker. */
 export function tokenUsageFetch(
-  period: "today" | "7d" | "30d" | "all" = "30d",
+  period: "today" | "7d" | "30d" | "all" = "today",
+  includeSessions = false,
 ): Promise<TokenUsageSnapshot> {
-  return invoke("token_usage_fetch", { period });
+  return invoke("token_usage_fetch", {
+    period,
+    includeSessions,
+  });
 }
 
 // ── Clipboard-history cap ───────────────────────────────────────────────────

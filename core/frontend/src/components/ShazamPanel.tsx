@@ -36,6 +36,7 @@ import {
   type TranslatedLyrics,
 } from "../lib/ipc";
 import { filterShazamHistory } from "../lib/shazam-filter";
+import { formatBilingualForCopy } from "../lib/shazam-lyrics";
 import { listen } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
@@ -333,6 +334,34 @@ export function ShazamPanel({
     }
   }, [match]);
 
+  /** Clipboard text for the currently visible lyrics variant, or null if none. */
+  const lyricsClipboardText = useCallback((): string | null => {
+    if (lyricsMode === "orig") {
+      return lyrics.status === "ok" && lyrics.text ? lyrics.text : null;
+    }
+    if (translated.status === "ok" && translated.data) {
+      const t = formatBilingualForCopy(
+        translated.data.segments,
+        translated.data.src_lang,
+      );
+      return t || null;
+    }
+    return null;
+  }, [lyricsMode, lyrics, translated]);
+
+  const copyLyrics = useCallback(async () => {
+    const text = lyricsClipboardText();
+    if (!text) return;
+    try {
+      const { writeText } = await import("@tauri-apps/plugin-clipboard-manager");
+      await writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* ignore */
+    }
+  }, [lyricsClipboardText]);
+
   const clearHistory = useCallback(async () => {
     try {
       await shazamHistoryClear();
@@ -439,6 +468,12 @@ export function ShazamPanel({
         phase !== "searching"
       ) {
         void run();
+      } else if (
+        (e.key === "c" || e.key === "C") &&
+        view === "lyrics" &&
+        lyricsClipboardText()
+      ) {
+        void copyLyrics();
       } else {
         return;
       }
@@ -447,7 +482,19 @@ export function ShazamPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, phase, view, match, lyricsBack, copyTitle, run, onExit, openLyrics]);
+  }, [
+    focused,
+    phase,
+    view,
+    match,
+    lyricsBack,
+    copyTitle,
+    copyLyrics,
+    lyricsClipboardText,
+    run,
+    onExit,
+    openLyrics,
+  ]);
 
   return (
     <div className="flex h-full flex-col gap-3 overflow-hidden p-3 text-sm">
@@ -652,23 +699,34 @@ export function ShazamPanel({
               <div className="truncate text-xs font-semibold text-[var(--color-fg)]">{lyricsMeta.title}</div>
               <div className="truncate text-[11px] text-[var(--color-muted)]">{lyricsMeta.artist}</div>
             </div>
-            {/* Original ⇄ +DE toggle */}
-            <div className="ml-auto flex shrink-0 items-center rounded-lg border border-[var(--color-border)] p-0.5 text-[11px]">
+            {/* Original ⇄ +DE toggle + copy */}
+            <div className="ml-auto flex shrink-0 items-center gap-1">
+              <div className="flex items-center rounded-lg border border-[var(--color-border)] p-0.5 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => switchLyricsMode("orig")}
+                  className={`rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "orig" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
+                  title="Original lyrics"
+                >
+                  Original
+                </button>
+                <button
+                  type="button"
+                  onClick={() => switchLyricsMode("bi")}
+                  className={`flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "bi" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
+                  title="German translation under each line"
+                >
+                  <Languages size={11} /> +DE
+                </button>
+              </div>
               <button
                 type="button"
-                onClick={() => switchLyricsMode("orig")}
-                className={`rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "orig" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
-                title="Original lyrics"
+                onClick={() => void copyLyrics()}
+                disabled={!lyricsClipboardText()}
+                className="flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[11px] font-semibold text-[var(--color-fg)] hover:bg-[var(--color-surface)] disabled:cursor-not-allowed disabled:opacity-40"
+                title="Copy lyrics to clipboard (C)"
               >
-                Original
-              </button>
-              <button
-                type="button"
-                onClick={() => switchLyricsMode("bi")}
-                className={`flex items-center gap-1 rounded-md px-2 py-0.5 font-semibold ${lyricsMode === "bi" ? "bg-[var(--color-surface)] text-[var(--color-fg)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]"}`}
-                title="German translation under each line"
-              >
-                <Languages size={11} /> +DE
+                <Copy size={11} /> {copied ? "Copied!" : "Copy"}
               </button>
             </div>
           </div>
@@ -871,7 +929,7 @@ export function ShazamPanel({
         {view === "recognize"
           ? `Records ~${RECORD_SECONDS}s from the mic · R = again · L = lyrics · Esc to exit`
           : view === "lyrics"
-            ? "Esc = back"
+            ? "C = copy lyrics · Esc = back"
             : "History is stored locally · Esc to exit"}
       </div>
     </div>

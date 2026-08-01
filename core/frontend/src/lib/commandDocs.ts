@@ -71,23 +71,25 @@ export const COMMAND_DOCS: CommandDoc[] = [
     aliases: ["tren", "trde", "trde2it", "trit2de", "trde2sp", "trsp2de", "trde2pl", "trpl2de"],
     category: CAT_WEB,
     version_added: "0.18.0",
-    tagline: "Open Google Translate for the text — auto/EN↔DE and DE↔IT/ES/PL pairs.",
-    tagline_de: "Google Translate für den Text öffnen — auto/EN↔DE und DE↔IT/ES/PL.",
+    tagline: "Live translate in the preview — Enter copies, ⇧Enter opens Google Translate.",
+    tagline_de: "Live-Übersetzung in der Preview — Enter kopiert, ⇧Enter öffnet Google Translate.",
     synopsis: "tr <text>   ·   tren|trde <text>   ·   trde2it|trit2de|trde2sp|trsp2de|trde2pl|trpl2de <text>",
     description:
-      "Opens Google Translate in your browser with the text pre-filled. The keyword picks the language pair: `tr` auto-detects the source and translates to German; `tren` forces English→German, `trde` German→English; the `tr<a>2<b>` forms are fixed pairs between German and Italian/Spanish/Polish. Frontend-only — it builds a translate.google.com URL and opens it via the system browser; nothing is sent from the app itself.",
+      "Shows a live translation in the preview while you type (keyless Google gtx → MyMemory). Enter copies the result to the clipboard; Shift+Enter opens Google Translate in the browser with the text pre-filled. Click the source or target box to copy that side. The keyword picks the language pair: `tr` auto-detects → German; `tren` English→German, `trde` German→English; the `tr<a>2<b>` forms are fixed pairs between German and Italian/Spanish/Polish.",
     arguments: [{ name: "text", required: true, description: "The text to translate (rest of the line).", default: undefined }],
     flags: [],
     examples: [
-      { input: "tr Feierabend", result: "Google Translate opens, auto-detects German → English/target." },
-      { input: "tren cheerful", result: "English → German (cheerful → fröhlich)." },
+      { input: "tr Feierabend", result: "Live DE→EN (or auto); Enter copies the English result." },
+      { input: "tren cheerful", result: "English → German; ⇧Enter opens Google Translate." },
       { input: "trde2it Guten Morgen", result: "German → Italian (buongiorno)." },
     ],
     tips: [
       "`tr` auto-detects the source language, so it's the one to reach for when unsure.",
-      "The whole rest of the line is the text — quotes aren't needed.",
+      "Click either language box in the preview to copy that text without leaving the popup.",
     ],
-    caveats: ["Opens the browser (a network request happens there, in your browser — not from Inspector Rust)."],
+    caveats: [
+      "Live translate and ⇧Enter both send the text to an external provider (Google / MyMemory / Google Translate in the browser).",
+    ],
     related: ["g"],
   },
   {
@@ -1016,17 +1018,18 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Claude-Code-Tokenverbrauch — Kosten, Projekte, Sessions & Modelle.",
     synopsis: "tokens",
     description:
-      "Shows your Claude Code usage from the local Token Tracker dashboard (port 5010) in the preview: totals & API-equivalent cost, projects/sessions, and model breakdown. Period chips (Today / 7d / 30d / All); toggle cache tokens on/off. Needs the Token Tracker running — otherwise a start-hint card is shown. ↑/↓ scroll, R refresh, Esc exits.",
+      "Shows your Claude Code usage from the local Token Tracker dashboard (port 5010) in the preview: totals & API-equivalent cost, projects/sessions, and model breakdown. Opens on Today (fast parallel fetch); period chips Today / 7d / 30d / All; sessions load only when that list is opened; toggle cache tokens on/off. Needs the Token Tracker running — otherwise a start-hint card is shown. ↑/↓ scroll, R refresh, Esc exits.",
     arguments: [],
     flags: [],
     examples: [
-      { input: "tokens", result: "Open the usage panel (last 30 days by default)." },
+      { input: "tokens", result: "Open the usage panel on Today (fast)." },
       { input: "usage", result: "Same panel via the alias." },
       { input: "tokens", result: "Switch to Models to see Opus vs Sonnet spend." },
     ],
     tips: [
       "Costs are API-equivalent estimates (cache tokens dominate) — not your Claude subscription bill.",
       "Start Token Tracker first (LaunchAgent io.celox.token-tracker or `node server.js` in that repo).",
+      "A zero Today with yesterday’s totals shown means no Claude Code JSONL yet — Cursor/Composer isn’t tracked.",
     ],
     caveats: [
       "Requires the local Token Tracker on http://127.0.0.1:5010 — Inspector Rust does not parse ~/.claude JSONL itself.",

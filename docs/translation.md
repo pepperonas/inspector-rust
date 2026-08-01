@@ -1,8 +1,8 @@
 # Translation — live preview for the `tr*` commands
 
-The `tr*` search-bar commands translate a phrase without leaving the popup: the result appears **in the preview while you type**, and <kbd>Enter</kbd> still opens Google Translate in the browser for the full editor.
+The `tr*` search-bar commands translate a phrase without leaving the popup: the result appears **in the preview while you type**. <kbd>Enter</kbd> copies the translation to the clipboard; <kbd>Shift</kbd>+<kbd>Enter</kbd> opens Google Translate in the browser. Click either language box to copy that side.
 
-Landed in **v0.93.0**.
+Landed in **v0.93.0** (live preview); Enter=copy / click-to-copy in **v0.101.5**.
 
 ---
 
@@ -31,7 +31,7 @@ tren enhancement
 │ Verbesserung                            │
 │ via google                              │
 │                                         │
-│ ⏎ Enter opens Google Translate          │
+│ ⏎ copies · ⇧⏎ Google Translate · click to copy │
 └─────────────────────────────────────────┘
 ```
 
@@ -73,7 +73,7 @@ trait Provider {
 1. **`GoogleGtx`** — `translate.googleapis.com/translate_a/single?client=gtx&dt=t`. Supports every source including `auto`.
 2. **`MyMemory`** — `api.mymemory.translated.net/get?langpair=<sl>|<tl>`. `supports_source` returns `false` for `auto`, so it is **skipped**, not attempted and counted as a failure.
 
-Each attempt has a **2.5 s** timeout (`TIMEOUT`) — this drives a live preview, so a hanging provider must fall through quickly rather than freeze the panel. If everything fails the error surfaces in the panel and <kbd>Enter</kbd> still works.
+Each attempt has a **2.5 s** timeout (`TIMEOUT`) — this drives a live preview, so a hanging provider must fall through quickly rather than freeze the panel. If everything fails the error surfaces in the panel and <kbd>Shift</kbd>+<kbd>Enter</kbd> still opens Google Translate.
 
 ### Adding a provider
 
@@ -111,13 +111,13 @@ The response parsers are pure and tested against real captured payloads:
 | **Debounce** | 350 ms after the last keystroke. Typing a sentence produces one request, not one per character. |
 | **Cache** | A per-session `Map` keyed by `sl|tl|text`. Re-typing, deleting back and retyping, or switching away and back resolves **instantly** with no network call. |
 | **Staleness** | A monotonic sequence ref. A slow response for an older query is discarded, so fast typing always settles on the latest text — never on whichever request happened to return last. |
-| **States** | `loading` (spinner) · `ok` (text + `via <provider>`) · `error` (falls back to the Enter hint). |
+| **States** | `loading` (spinner) · `ok` (text + `via <provider>`) · `error` (hint stays visible). |
 
-`PreviewPanel` renders `TranslatePreview` for any translate kind: source → target header (showing the *detected* language for `tr`), the source text, the translation, and — **in every state, including success** — the line
+`PreviewPanel` renders `TranslatePreview` for any translate kind: source → target header (showing the *detected* language for `tr`), clickable source/target boxes (copy that side), and the footer
 
-> ⏎ Enter opens Google Translate in the browser
+> ⏎ copies translation · ⇧⏎ opens Google Translate · click a box to copy
 
-The live preview is strictly additive. It never removes the browser route, which stays the answer for long text, alternative phrasings, or when the providers are unreachable.
+<kbd>Enter</kbd> copies the live result; <kbd>Shift</kbd>+<kbd>Enter</kbd> opens Google Translate for long text, alternative phrasings, or when the providers are unreachable.
 
 ---
 

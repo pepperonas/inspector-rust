@@ -4862,19 +4862,22 @@ pub fn set_weather_config(
 // ── Token usage (`tokens` command, v0.101.0) ────────────────────────────────
 
 /// Fetch Claude Code usage from the local Token Tracker (`:5010`).
-/// `period` is `"today"` | `"7d"` | `"30d"` | `"all"` (default `"30d"`).
+/// `period` is `"today"` | `"7d"` | `"30d"` | `"all"` (default `"today"`).
+/// `include_sessions` (default false) loads the heavy sessions list — only
+/// needed for the Sessions sub-tab.
 /// `Err(token_usage::ERR_UNREACHABLE)` when nothing is listening.
 #[tauri::command]
 pub fn token_usage_fetch(
     period: Option<String>,
+    include_sessions: Option<bool>,
 ) -> Result<crate::token_usage::Snapshot, String> {
-    let p = match period.as_deref().unwrap_or("30d") {
+    let p = match period.as_deref().unwrap_or("today") {
         "today" => crate::token_usage::Period::Today,
         "7d" => crate::token_usage::Period::Days7,
         "all" => crate::token_usage::Period::All,
         _ => crate::token_usage::Period::Days30,
     };
-    crate::token_usage::fetch_default(p)
+    crate::token_usage::fetch_default(p, include_sessions.unwrap_or(false))
 }
 
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────

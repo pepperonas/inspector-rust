@@ -18,6 +18,7 @@ import {
   TOKENS_UNREACHABLE,
   type TokenUsageSnapshot,
   type TokenUsageOverview,
+  type TokenUsageDayPeek,
 } from "../lib/ipc";
 import {
   TOKEN_PERIODS,
@@ -40,7 +41,7 @@ export function TokensPanel({
   focused: boolean;
   onExit: () => void;
 }) {
-  const [period, setPeriod] = useState<TokenPeriod>("30d");
+  const [period, setPeriod] = useState<TokenPeriod>("today");
   const [tab, setTab] = useState<Tab>("overview");
   const [listMode, setListMode] = useState<ListMode>("projects");
   const [includeCache, setIncludeCache] = useState(true);
@@ -51,14 +52,30 @@ export function TokensPanel({
   const alive = useRef(true);
   const seq = useRef(0);
 
-  const load = useCallback(async (p: TokenPeriod) => {
+  const load = useCallback(async (p: TokenPeriod, includeSessions: boolean) => {
     const my = ++seq.current;
     setLoading(true);
     setError(null);
     try {
-      const s = await tokenUsageFetch(p);
+      const s = await tokenUsageFetch(p, includeSessions);
       if (!alive.current || my !== seq.current) return;
-      setSnap(s);
+      setSnap((prev) => {
+        // Keep previously loaded sessions when a fast refresh omits them.
+        if (
+          !includeSessions &&
+          prev &&
+          prev.sessions_loaded &&
+          prev.from === s.from &&
+          prev.to === s.to
+        ) {
+          return {
+            ...s,
+            sessions: prev.sessions,
+            sessions_loaded: true,
+          };
+        }
+        return s;
+      });
     } catch (e) {
       if (!alive.current || my !== seq.current) return;
       const msg = e instanceof Error ? e.message : String(e);
@@ -71,11 +88,18 @@ export function TokensPanel({
 
   useEffect(() => {
     alive.current = true;
-    void load(period);
+    void load(period, false);
     return () => {
       alive.current = false;
     };
   }, [period, load]);
+
+  // Lazy-load the heavy sessions list only when that sub-view is selected.
+  useEffect(() => {
+    if (tab !== "projects" || listMode !== "sessions") return;
+    if (!snap || snap.sessions_loaded || loading) return;
+    void load(period, true);
+  }, [tab, listMode, snap, loading, period, load]);
 
   useEffect(() => {
     if (!focused) return;
@@ -96,7 +120,7 @@ export function TokensPanel({
       }
       if (e.key === "r" || e.key === "R") {
         e.preventDefault();
-        void load(period);
+        void load(period, listMode === "sessions");
         return;
       }
       if (e.key === "ArrowDown" || e.key === "PageDown") {
@@ -109,7 +133,7 @@ export function TokensPanel({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [focused, onExit, load, period]);
+  }, [focused, onExit, load, period, listMode]);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-2 p-3 text-[13px]">
@@ -121,7 +145,7 @@ export function TokensPanel({
         </div>
         <button
           type="button"
-          onClick={() => void load(period)}
+          onClick={() => void load(period, listMode === "sessions")}
           className="md3-press rounded-md p-1 text-[color:var(--color-muted)] hover:bg-[color:var(--color-surface)]"
           title="Refresh (R)"
           aria-label="Refresh"
@@ -177,7 +201,7 @@ export function TokensPanel({
         {error === TOKENS_UNREACHABLE ? (
           <UnreachableCard />
         ) : error ? (
-          <ErrorCard message={error} onRetry={() => void load(period)} />
+          <ErrorCard message={error} onRetry={() => void load(period, false)} />
         ) : loading && !snap ? (
           <div className="flex h-32 items-center justify-center text-[color:var(--color-muted)]">
             <Loader2 size={18} className="animate-spin" />
@@ -186,8 +210,11 @@ export function TokensPanel({
           tab === "overview" ? (
             <OverviewTab
               o={snap.overview}
+              period={period}
+              priorDay={snap.prior_day ?? null}
               includeCache={includeCache}
               onToggleCache={() => setIncludeCache((v) => !v)}
+              onShowPeriod={setPeriod}
             />
           ) : tab === "projects" ? (
             <ProjectsTab
@@ -195,6 +222,7 @@ export function TokensPanel({
               listMode={listMode}
               onListMode={setListMode}
               includeCache={includeCache}
+              loadingSessions={loading && listMode === "sessions" && !snap.sessions_loaded}
             />
           ) : (
             <ModelsTab snap={snap} includeCache={includeCache} />
@@ -247,17 +275,46 @@ function ErrorCard({
 
 function OverviewTab({
   o,
+  period,
+  priorDay,
   includeCache,
   onToggleCache,
+  onShowPeriod,
 }: {
   o: TokenUsageOverview;
+  period: TokenPeriod;
+  priorDay: TokenUsageDayPeek | null;
   includeCache: boolean;
   onToggleCache: () => void;
+  onShowPeriod: (p: TokenPeriod) => void;
 }) {
   const tokens = displayTokens(o, includeCache);
   const cost = displayCost(o, includeCache);
+  const emptyToday =
+    period === "today" && tokens === 0 && (priorDay?.total_tokens ?? 0) > 0;
   return (
     <div className="flex flex-col gap-3">
+      {emptyToday && priorDay && (
+        <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-[12px] leading-relaxed text-[color:var(--color-fg)]">
+          <div className="font-medium">No Claude Code tokens yet today</div>
+          <p className="mt-0.5 text-[color:var(--color-muted)]">
+            Cursor / Composer chats aren’t in the Token Tracker — only Claude
+            Code JSONL is. Yesterday ({priorDay.date}):{" "}
+            <span className="font-medium text-[color:var(--color-fg)]">
+              {formatTokens(priorDay.total_tokens)}
+            </span>{" "}
+            · {formatCost(priorDay.estimated_cost)}.
+          </p>
+          <button
+            type="button"
+            onClick={() => onShowPeriod("7d")}
+            className="md3-press mt-1.5 rounded-md bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-white"
+          >
+            Show last 7 days
+          </button>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2">
         <Kpi label="Tokens" value={formatTokens(tokens)} />
         <Kpi label="Cost" value={formatCost(cost)} accent />
@@ -367,11 +424,13 @@ function ProjectsTab({
   listMode,
   onListMode,
   includeCache,
+  loadingSessions,
 }: {
   snap: TokenUsageSnapshot;
   listMode: ListMode;
   onListMode: (m: ListMode) => void;
   includeCache: boolean;
+  loadingSessions?: boolean;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -427,6 +486,10 @@ function ProjectsTab({
             ))
           )}
         </ul>
+      ) : loadingSessions ? (
+        <div className="flex h-20 items-center justify-center text-[color:var(--color-muted)]">
+          <Loader2 size={16} className="animate-spin" />
+        </div>
       ) : (
         <ul className="flex flex-col gap-1">
           {snap.sessions.length === 0 ? (

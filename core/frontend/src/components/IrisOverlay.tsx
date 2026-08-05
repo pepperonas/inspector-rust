@@ -3,11 +3,11 @@ import { listen } from "@tauri-apps/api/event";
 import { irisStatus } from "../lib/ipc";
 import {
   makeBlobs,
+  type IrisBurst,
   makeBurst,
   burstGapMs,
   burstIntensity,
   BURST_MAX,
-  type IrisBurst,
 } from "../lib/iris";
 
 /**
@@ -26,14 +26,17 @@ import {
  *    its `iris-breathe` keyframes are never defined anywhere in that repo). It
  *    comes from `spawnIrisWord()`, which fires an element on a randomised gap
  *    that snaps in hard, holds, then fades while growing. `iris-burst-pop`
- *    below is that curve verbatim — `0% → 18% → 62% → 100%`, scale
- *    `.66 → 1.05 → 1 → 1.16`, on the same `cubic-bezier(.2,0,0,1)`. The attack
- *    lands at 18 % of ~1.5 s ≈ 270 ms; that is the whole "impulsive" quality.
+ *    keeps that shape but deliberately diverges from the verbatim
+ *    `0/18/62/100` envelope (v0.102.3): the attack strobes, the hold
+ *    shimmers, and the fade begins earlier and drops steeply first — see the
+ *    keyframes comment. The reference's `cubic-bezier(0.2,0,0,1)` stays.
  *
  * Departures from the reference, all deliberate:
  *
  * * **No lettering.** The reference bursts are the word "IRIS" in a variable
- *   display face; here each impulse is a soft, rotated light cloud instead.
+ *   display face; here each impulse is a rotated, multi-lobed light flare —
+ *   1–3 overlapping gradients, so the outline is irregular but every edge is
+ *   a falloff (v0.102.3; the v0.102.2 clip-path shards were too harsh).
  * * **Level-reactive cadence.** The reference fires blind at 1.7–4.8 s for as
  *   long as the flag is set. Here the gap interpolates toward 0.42–1.2 s and
  *   the impulses grow brighter, bigger and shorter the further over the
@@ -43,9 +46,11 @@ import {
  * * The palette is the reference's `IRIS_TINTS`, warm-graded red → salmon →
  *   amber → near-white, which is what keeps it from reading as one flat red.
  *
- * No text is ever drawn, and `makeBlobs` is unit-tested to keep the edge field
- * out of the middle of the screen. The bursts *do* cross the centre, but they
- * are translucent (peak ≤ 0.78, unit-tested) and short-lived.
+ * No text is ever drawn, and BOTH layers keep the middle of the screen clear:
+ * `makeBlobs` for the field and `edgePosition` for the impulses (each
+ * unit-tested — quadratically rim-biased, never deeper than 24 % from an
+ * edge). That, plus a translucent peak (≤ 0.82) and short lives, is what
+ * keeps the machine usable while iris is lit.
  */
 
 /** Trough/peak of the strip's breathe — `BRI_TROUGH / BRI_PEAK` in hue_warn.py. */
@@ -115,34 +120,38 @@ const CSS = `
   position:absolute;
   left:var(--x); top:var(--y);
   width:var(--size); height:calc(var(--size) * var(--aspect));
-  clip-path:var(--clip);
+  border-radius:50%;
   mix-blend-mode:screen;
   will-change:transform, opacity;
   opacity:0;
-  /* A hot core that falls off fast — with the clip-path doing the silhouette,
-     the gradient only has to supply brightness, not shape. */
-  background:radial-gradient(ellipse 62% 120% at 50% 50%,
-    #fff 0%,
-    var(--tint) 26%,
-    color-mix(in srgb, var(--tint) 45%, transparent) 62%,
-    transparent 92%);
+  /* The silhouette is 1-3 overlapping radial gradients (inline background,
+     built per burst) — irregular, but every edge is a falloff. The blur only
+     feathers what the gradients already soften. */
   filter:blur(var(--bblur));
   animation:iris-burst-pop var(--life) ${EASE} forwards;
 }
-/* The reference envelope (attack → hold → out while growing) with a strobing
-   attack laid over it: the 18/62/100 anchors and the .66→1.05→1→1.16 scale are
-   unchanged, but the opacity stutters on the way in instead of ramping
-   smoothly. That flicker is the whole difference between "a glow appears" and
-   "something goes off". */
+/* Livelier than the reference's plain 18/62/100 envelope, on purpose:
+   - the attack strobes (first hit at 4 %, two stutters behind it),
+   - the hold SHIMMERS instead of sitting still (36/46 % dip and recover —
+     the same trick as the reference's GRAD font-axis pulse: apparent
+     intensity moves while the geometry barely does),
+   - the fade starts earlier (~56 %) and drops steeply first (72 % is already
+     down to ~14 %), then trails out while growing — a progressive out, so the
+     screen clears fast but the impulse doesn't just pop off.
+   The impulse also turns slightly over its life (--rotd): a still flare reads
+   frozen, a turning one reads alive. */
 @keyframes iris-burst-pop{
-  0%   { opacity:0;                          transform:translate(-50%,-50%) rotate(var(--rot)) scale(.66) }
-  5%   { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.09) }
-  9%   { opacity:calc(var(--peak) * .18);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.04) }
-  13%  { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.07) }
-  18%  { opacity:calc(var(--peak) * .42);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.05) }
-  24%  { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.02) }
-  62%  { opacity:calc(var(--peak) * .82);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1) }
-  100% { opacity:0;                          transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.16) }
+  0%   { opacity:0;                        transform:translate(-50%,-50%) rotate(var(--rot)) scale(.62) }
+  4%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.1) }
+  8%   { opacity:calc(var(--peak) * .25);  transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.05) }
+  12%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .1)) scale(1.07) }
+  18%  { opacity:calc(var(--peak) * .5);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .2)) scale(1.04) }
+  24%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .3)) scale(1.02) }
+  36%  { opacity:calc(var(--peak) * .8);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .45)) scale(1.01) }
+  46%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .55)) scale(1) }
+  56%  { opacity:calc(var(--peak) * .45);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .7)) scale(1.03) }
+  72%  { opacity:calc(var(--peak) * .14);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .85)) scale(1.1) }
+  100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.2) }
 }
 
 /* One short beat on ignite, so arming itself lands. */
@@ -187,6 +196,18 @@ const PALETTE = {
     c2: "rgba(122,18,18,.12)",
   },
 } as const;
+
+/** The soft, multi-lobed body of one impulse: each lobe is a white-hot core
+ *  falling through the tint into transparency — the requested Verlauf. Lobes
+ *  overlap into an irregular outline with no hard edge anywhere. */
+function burstBackground(b: IrisBurst): string {
+  return b.lobes
+    .map(
+      (l) =>
+        `radial-gradient(circle at ${l.cx}% ${l.cy}%, rgba(255,255,255,.9) 0%, ${b.tint} ${Math.round(l.r * 0.3)}%, color-mix(in srgb, ${b.tint} 38%, transparent) ${Math.round(l.r * 0.64)}%, transparent ${l.r}%)`,
+    )
+    .join(", ");
+}
 
 export function IrisOverlay() {
   const [over, setOver] = useState(false);
@@ -366,9 +387,9 @@ export function IrisOverlay() {
               "--life": `${b.life}s`,
               "--peak": b.peak,
               "--rot": `${b.rot}deg`,
-              "--tint": b.tint,
-              "--clip": b.clip,
+              "--rotd": `${b.rotDrift}deg`,
               "--bblur": `${b.blur}px`,
+              background: burstBackground(b),
             } as React.CSSProperties
           }
         />

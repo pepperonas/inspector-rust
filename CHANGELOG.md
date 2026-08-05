@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.3] — 2026-08-06
+
+### Changed
+
+- **`iris` impulses: soft flares at the rim, faster progressive fade.** The v0.102.2 clip-path shards were too harsh — each impulse is now a multi-lobed light flare (1–3 overlapping gradients: white-hot core falling through the tint into transparency), so the outline stays irregular but every edge is a falloff. Impulses spawn **only in a 24 % edge band**, quadratically biased against the rim — the middle of the screen is now genuinely clear for *both* layers (unit-tested), not merely translucent. The envelope deliberately diverges from the verbatim reference now: strobing attack, a **shimmering hold** (the counterpart of the reference's GRAD font-axis pulse), and a fade that starts earlier and drops steeply first (at 72 % of the life it is already down to ~14 %), plus a slight rotation drift over each impulse's life. Lives shortened overall (flares ≤ 1.6 s, streaks ≤ 0.75 s) — the fade-out is most of what lingers over the screen.
+
 ## [0.102.2] — 2026-08-05
 
 ### Fixed

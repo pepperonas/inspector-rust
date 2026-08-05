@@ -2,7 +2,9 @@ import { describe, it, expect } from "vitest";
 import {
   makeBlobs,
   irisAction,
-  makeShardPath,
+  edgePosition,
+  makeBurstLobes,
+  BURST_EDGE_DEPTH,
   burstIntensity,
   burstGapMs,
   makeBurst,
@@ -476,74 +478,117 @@ describe("irisAction — the toggle contract", () => {
   });
 });
 
-describe("makeShardPath", () => {
-  it("emits a valid CSS polygon", () => {
-    const p = makeShardPath(Math.random, 7);
-    expect(p.startsWith("polygon(")).toBe(true);
-    expect(p.endsWith(")")).toBe(true);
-    expect(p.split(",").length).toBe(7);
-  });
-
-  it("keeps every vertex inside the element box", () => {
-    // A vertex outside 0–100 % would clip the shard flat against one side and
-    // lose the spiky silhouette entirely.
-    for (let i = 0; i < 100; i++) {
-      const nums = makeShardPath(Math.random, 7)
-        .replace("polygon(", "")
-        .replace(")", "")
-        .split(/[,\s]+/)
-        .filter(Boolean)
-        .map((t) => parseFloat(t));
-      expect(nums.length).toBe(14);
-      for (const n of nums) {
-        expect(Number.isFinite(n)).toBe(true);
-        expect(n).toBeGreaterThanOrEqual(0);
-        expect(n).toBeLessThanOrEqual(100);
-      }
+describe("edgePosition", () => {
+  it("always lands inside the edge band, on screen", () => {
+    for (let i = 0; i < 500; i++) {
+      const { x, y } = edgePosition(Math.random);
+      expect(x).toBeGreaterThanOrEqual(0);
+      expect(x).toBeLessThanOrEqual(100);
+      expect(y).toBeGreaterThanOrEqual(0);
+      expect(y).toBeLessThanOrEqual(100);
+      const depth = Math.min(x, y, 100 - x, 100 - y);
+      expect(depth).toBeLessThanOrEqual(BURST_EDGE_DEPTH);
     }
   });
 
-  it("honours the requested vertex count", () => {
-    expect(makeShardPath(() => 0.5, 5).split(",").length).toBe(5);
-    expect(makeShardPath(() => 0.5, 9).split(",").length).toBe(9);
+  it("keeps the middle of the screen clear — the usability guarantee", () => {
+    // This is the promise that lets iris run while you keep working. With a
+    // 24 % band, nothing can ever spawn inside the central 26–74 box.
+    for (let i = 0; i < 500; i++) {
+      const { x, y } = edgePosition(Math.random);
+      const inCentre = x > 25 && x < 75 && y > 25 && y < 75;
+      expect(inCentre, `(${x.toFixed(1)}, ${y.toFixed(1)}) is over the centre`).toBe(false);
+    }
   });
 
-  it("alternates reach, so the outline spikes instead of bulging", () => {
-    // Even vertices reach out (~0.46–0.52 of the box), odd ones stay in
-    // (~0.18–0.34). Without that contrast it is a blob again.
-    const pts = makeShardPath(() => 0.5, 8)
-      .replace("polygon(", "").replace(")", "")
-      .split(",")
-      .map((p) => p.trim().split(/\s+/).map(parseFloat));
-    const radius = ([x, y]: number[]) => Math.hypot(x - 50, y - 50);
-    const evens = pts.filter((_, i) => i % 2 === 0).map(radius);
-    const odds = pts.filter((_, i) => i % 2 === 1).map(radius);
-    expect(Math.min(...evens)).toBeGreaterThan(Math.max(...odds));
+  it("clusters against the rim rather than filling the band evenly", () => {
+    // Quadratic bias: P(depth < ¼·band) = 0.5, P(depth > ¾·band) ≈ 0.13 —
+    // a factor ~3.7. Requiring 2× leaves generous statistical head-room.
+    let nearRim = 0;
+    let deep = 0;
+    for (let i = 0; i < 4000; i++) {
+      const { x, y } = edgePosition(Math.random);
+      const depth = Math.min(x, y, 100 - x, 100 - y);
+      if (depth < BURST_EDGE_DEPTH * 0.25) nearRim++;
+      if (depth > BURST_EDGE_DEPTH * 0.75) deep++;
+    }
+    expect(nearRim).toBeGreaterThan(deep * 2);
   });
 
-  it("gives every impulse its own silhouette", () => {
-    expect(makeShardPath(Math.random)).not.toBe(makeShardPath(Math.random));
+  it("uses all four edges", () => {
+    const sides = new Set<string>();
+    for (let i = 0; i < 400; i++) {
+      const { x, y } = edgePosition(Math.random);
+      const d = Math.min(x, y, 100 - x, 100 - y);
+      sides.add(d === y ? "top" : d === 100 - y ? "bottom" : d === x ? "left" : "right");
+    }
+    expect(sides.size).toBe(4);
   });
 });
 
-describe("makeBurst — sharpened impulses", () => {
-  it("keeps the blur small enough for the edges to survive", () => {
-    // Heavy blur is exactly what made v0.102.1 read as drifting bubbles.
+describe("makeBurstLobes", () => {
+  it("gives a streak exactly one lobe and a flare one to three", () => {
+    expect(makeBurstLobes(() => 0.9, true).length).toBe(1);
+    const counts = new Set<number>();
+    for (let i = 0; i < 300; i++) {
+      const n = makeBurstLobes(Math.random, false).length;
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(3);
+      counts.add(n);
+    }
+    // The variety is the point — multi-lobe flares must actually occur.
+    expect(counts.size).toBeGreaterThan(1);
+  });
+
+  it("puts the main lobe at the centre so the flare has a body", () => {
+    const [main] = makeBurstLobes(() => 0.2, false);
+    expect(main.cx).toBe(50);
+    expect(main.cy).toBe(50);
+    expect(main.r).toBeGreaterThan(50);
+  });
+
+  it("keeps every lobe inside the element box", () => {
     for (let i = 0; i < 200; i++) {
-      expect(makeBurst(i, Math.random(), Math.random).blur).toBeLessThanOrEqual(6);
+      for (const l of makeBurstLobes(Math.random, false)) {
+        expect(l.cx).toBeGreaterThanOrEqual(0);
+        expect(l.cx).toBeLessThanOrEqual(100);
+        expect(l.cy).toBeGreaterThanOrEqual(0);
+        expect(l.cy).toBeLessThanOrEqual(100);
+        expect(l.r).toBeGreaterThan(0);
+        expect(l.r).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+});
+
+describe("makeBurst — soft flares (v0.102.3)", () => {
+  it("spawns only inside the edge band, never over the centre", () => {
+    for (let i = 0; i < 300; i++) {
+      const b = makeBurst(i, Math.random(), Math.random);
+      const inCentre = b.x > 25 && b.x < 75 && b.y > 25 && b.y < 75;
+      expect(inCentre).toBe(false);
     }
   });
 
-  it("carries a clip path and a usable aspect ratio", () => {
+  it("keeps the feathering blur modest — the gradients do the softness", () => {
+    for (let i = 0; i < 200; i++) {
+      const b = makeBurst(i, Math.random(), Math.random);
+      expect(b.blur).toBeGreaterThan(0);
+      expect(b.blur).toBeLessThanOrEqual(8);
+    }
+  });
+
+  it("carries lobes and a usable aspect ratio instead of a clip path", () => {
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, Math.random(), Math.random);
-      expect(b.clip.startsWith("polygon(")).toBe(true);
+      expect(b.lobes.length).toBeGreaterThanOrEqual(1);
       expect(b.aspect).toBeGreaterThan(0);
       expect(b.aspect).toBeLessThanOrEqual(1);
+      expect("clip" in b).toBe(false);
     }
   });
 
-  it("mixes thin streaks with broader shards", () => {
+  it("mixes thin streaks with broader flares", () => {
     const kinds = new Set(
       Array.from({ length: 200 }, (_, i) => makeBurst(i, 0.5, Math.random).streak),
     );
@@ -551,22 +596,35 @@ describe("makeBurst — sharpened impulses", () => {
     expect(kinds.has(false)).toBe(true);
   });
 
-  it("makes streaks thinner and shorter-lived than shards", () => {
+  it("makes streaks thinner and shorter-lived than flares", () => {
     const streaks: number[] = [];
-    const shards: number[] = [];
+    const flares: number[] = [];
     for (let i = 0; i < 400; i++) {
       const b = makeBurst(i, 0, Math.random);
-      (b.streak ? streaks : shards).push(b.life);
+      (b.streak ? streaks : flares).push(b.life);
       if (b.streak) expect(b.aspect).toBeLessThan(0.25);
       else expect(b.aspect).toBeGreaterThan(0.5);
     }
     const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
-    expect(avg(streaks)).toBeLessThan(avg(shards));
+    expect(avg(streaks)).toBeLessThan(avg(flares));
   });
 
-  it("uses the full rotation circle, not a narrow wedge", () => {
-    const rots = Array.from({ length: 300 }, (_, i) => makeBurst(i, 0.5, Math.random).rot);
+  it("uses the full rotation circle plus a bounded life drift", () => {
+    const rots: number[] = [];
+    for (let i = 0; i < 300; i++) {
+      const b = makeBurst(i, 0.5, Math.random);
+      rots.push(b.rot);
+      expect(Math.abs(b.rotDrift)).toBeLessThanOrEqual(14);
+    }
     expect(Math.min(...rots)).toBeLessThan(30);
     expect(Math.max(...rots)).toBeGreaterThan(330);
+  });
+
+  it("fades out fast: no flare lives past 1.6 s, no streak past 0.75 s", () => {
+    // "Fade out schneller" — the lives ARE the lingering; pin them.
+    for (let i = 0; i < 400; i++) {
+      const b = makeBurst(i, 0, Math.random);
+      expect(b.life).toBeLessThanOrEqual(b.streak ? 0.75 : 1.6);
+    }
   });
 });

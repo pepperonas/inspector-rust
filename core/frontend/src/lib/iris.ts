@@ -223,9 +223,14 @@ export const BURST_MAX = 3;
  *  amber → near-white), which is what keeps it from reading as one flat red. */
 export const BURST_TINTS = ["#ff5252", "#ff8a80", "#ffd684", "#fff1ee"] as const;
 
+/** How deep into the screen (in % of the viewport) an impulse may sit from
+ *  its nearest edge. Everything inside the remaining centre box stays clear —
+ *  that is the usability guarantee, and it is unit-tested. */
+export const BURST_EDGE_DEPTH = 24;
+
 export type IrisBurst = {
   id: number;
-  /** Position, % of viewport — full-screen spread like the reference. */
+  /** Position, % of viewport — always inside the edge band, see `edgePosition`. */
   x: number;
   y: number;
   /** Long-axis length in vmax. */
@@ -236,36 +241,61 @@ export type IrisBurst = {
   life: number;
   /** Peak opacity of the hold phase. */
   peak: number;
-  /** Rotation, deg — the same shard reads differently at every angle. */
+  /** Base rotation, deg. */
   rot: number;
+  /** Slow rotation drift over the impulse's life, deg — a still flare reads
+   *  frozen; a slightly turning one reads alive. */
+  rotDrift: number;
   tint: string;
-  /** `clip-path` polygon giving the impulse hard, angular edges. */
-  clip: string;
-  /** Gaussian blur in px. Small by design — see `makeBurst`. */
+  /** Overlapping gradient lobes — irregular silhouette WITHOUT hard edges. */
+  lobes: BurstLobe[];
+  /** Feathering blur in px. The gradients do the softness; this only smooths. */
   blur: number;
-  /** A thin, fast sliver rather than a broad shard. */
+  /** A thin, fast sliver rather than a broad flare. */
   streak: boolean;
 };
 
+/** One soft gradient lobe of an impulse, in % of the element box. */
+export type BurstLobe = { cx: number; cy: number; r: number };
+
 /**
- * An irregular, spiky polygon as a CSS `clip-path`, in % of the element box.
- *
- * This is what turns the impulse from a soft cloud into something with edges.
- * Radii alternate long/short so the outline spikes instead of bulging, and
- * every vertex is jittered, so no two impulses share a silhouette.
+ * A position inside the edge band: uniform along the perimeter, quadratically
+ * biased toward the rim (`rand()² · depth` — most impulses hug the edge, a few
+ * reach further in, none ever past [`BURST_EDGE_DEPTH`]). This replaces the
+ * v0.102.2 full-screen spread: the impulses now live where the constant field
+ * lives, and the middle of the screen stays genuinely clear.
  */
-export function makeShardPath(rand: () => number, points = 7): string {
-  const clamp = (v: number) => (v < 0 ? 0 : v > 100 ? 100 : v);
-  const pts: string[] = [];
-  for (let i = 0; i < points; i++) {
-    const angle = (i / points) * Math.PI * 2 + (rand() - 0.5) * 0.5;
-    // Alternating reach is what makes it read as a shard, not a blob.
-    const reach = (i % 2 === 0 ? 0.46 + rand() * 0.06 : 0.18 + rand() * 0.16);
-    const x = 50 + Math.cos(angle) * reach * 100;
-    const y = 50 + Math.sin(angle) * reach * 100;
-    pts.push(`${clamp(x).toFixed(1)}% ${clamp(y).toFixed(1)}%`);
+export function edgePosition(rand: () => number): { x: number; y: number } {
+  const side = (rand() * 4) | 0;
+  const along = 4 + rand() * 92;
+  const depth = rand() * rand() * BURST_EDGE_DEPTH;
+  switch (side) {
+    case 0:
+      return { x: along, y: depth };
+    case 1:
+      return { x: along, y: 100 - depth };
+    case 2:
+      return { x: depth, y: along };
+    default:
+      return { x: 100 - depth, y: along };
   }
-  return `polygon(${pts.join(", ")})`;
+}
+
+/**
+ * The lobes of one impulse: a main body at the centre plus up to two smaller
+ * satellites at random offsets. Overlapping soft gradients give an irregular
+ * outline without a single hard edge — this is what replaced the v0.102.2
+ * `clip-path` shards ("nicht so harte Kanten, eher einen Verlauf"). A streak
+ * stays single-lobed; it is already a sliver.
+ */
+export function makeBurstLobes(rand: () => number, streak: boolean): BurstLobe[] {
+  const lobes: BurstLobe[] = [{ cx: 50, cy: 50, r: 52 + rand() * 12 }];
+  if (streak) return lobes;
+  const extra = (rand() * 3) | 0; // 0..2 satellites
+  for (let i = 0; i < extra; i++) {
+    lobes.push({ cx: 22 + rand() * 56, cy: 22 + rand() * 56, r: 18 + rand() * 22 });
+  }
+  return lobes;
 }
 
 /** How far over the threshold we are, as 0..1 over [`BURST_SPAN_DB`] dB. */
@@ -298,22 +328,23 @@ export function makeBurst(id: number, intensity: number, rand: () => number): Ir
   // A third of the impulses are thin, fast slivers. Mixing two silhouettes is
   // what keeps a volley from looking like one effect repeating.
   const streak = rand() < 0.36;
+  const { x, y } = edgePosition(rand);
   return {
     id,
-    x: 8 + rand() * 84,
-    y: 10 + rand() * 80,
-    size: (26 + rand() * 42) * (0.92 + t * 0.4) * (streak ? 1.45 : 1),
+    x,
+    y,
+    size: (22 + rand() * 30) * (0.92 + t * 0.4) * (streak ? 1.35 : 1),
     aspect: streak ? 0.08 + rand() * 0.12 : 0.55 + rand() * 0.35,
-    // Slivers are gone fast — that snap is most of the "energetic" read.
-    life: (streak ? 0.42 + rand() * 0.34 : 1.15 + rand() * 0.95) * (1 - t * 0.28),
+    // Shorter than the reference's 1.15–2.10 s on purpose — the fade-out is
+    // most of what lingers over the screen, and it was asked to go faster.
+    life: (streak ? 0.42 + rand() * 0.3 : 0.9 + rand() * 0.7) * (1 - t * 0.28),
     peak: Math.min(0.82, 0.3 + rand() * 0.2 + t * 0.24),
     rot: rand() * 360,
+    rotDrift: (rand() * 2 - 1) * 14,
     tint: BURST_TINTS[Math.min(BURST_TINTS.length - 1, (rand() * BURST_TINTS.length) | 0)],
-    clip: makeShardPath(rand, streak ? 5 : 7),
-    // Deliberately tiny. Heavy blur is exactly what made the first version
-    // read as drifting bubbles; the edges have to survive for the impulse to
-    // look like a flash rather than fog.
-    blur: streak ? 0.5 + rand() * 1.5 : 2 + rand() * 4,
+    lobes: makeBurstLobes(rand, streak),
+    // Small: the gradients already carry the softness, this only feathers.
+    blur: streak ? 1.5 + rand() * 2.5 : 3 + rand() * 5,
     streak,
   };
 }

@@ -158,6 +158,44 @@ export function makeBlobs(rand: () => number): IrisBlob[] {
   });
 }
 
+/** What pressing Enter on an `iris …` row should actually do. */
+export type IrisAction =
+  | { kind: "arm"; threshold?: number }
+  | { kind: "retune"; threshold: number }
+  | { kind: "disarm" }
+  | { kind: "none" };
+
+/**
+ * Resolve a typed argument against the **live** armed state.
+ *
+ * Kept pure and separate from `App.tsx` because this is where the toggle got
+ * it wrong once already (v0.102.1: `iris 55` then `iris` left it armed — the
+ * panel had taken keyboard focus, so the second Enter never reached the
+ * dispatcher at all). The rules:
+ *
+ * - a bare `iris` is a **toggle**, so it is the one input whose meaning
+ *   depends on the current state;
+ * - `iris 0` only ever disarms, and is a no-op when already off;
+ * - an explicit number never disarms — it arms, or retunes a running session.
+ *   Disarming on a number would make `iris 55` unusable as "set it to 55".
+ *
+ * `active` must come from the **backend** (`iris_status`), not from React
+ * state: the popup can be reopened long after the session was armed, and an
+ * external change must not desync the toggle.
+ */
+export function irisAction(arg: IrisArg, active: boolean): IrisAction {
+  switch (arg.kind) {
+    case "off":
+      return active ? { kind: "disarm" } : { kind: "none" };
+    case "toggle":
+      return active ? { kind: "disarm" } : { kind: "arm" };
+    case "on":
+      return active
+        ? { kind: "retune", threshold: arg.threshold }
+        : { kind: "arm", threshold: arg.threshold };
+  }
+}
+
 // ─── Bursts ──────────────────────────────────────────────────────────────
 //
 // The punch of the raspi5 dB-analysis page does NOT come from its background
@@ -190,16 +228,45 @@ export type IrisBurst = {
   /** Position, % of viewport — full-screen spread like the reference. */
   x: number;
   y: number;
-  /** Diameter in vmax. */
+  /** Long-axis length in vmax. */
   size: number;
+  /** Short axis as a fraction of `size`. A streak is a thin sliver. */
+  aspect: number;
   /** Animation duration, seconds. */
   life: number;
   /** Peak opacity of the hold phase. */
   peak: number;
-  /** Rotation, deg — an ellipse reads differently at every angle. */
+  /** Rotation, deg — the same shard reads differently at every angle. */
   rot: number;
   tint: string;
+  /** `clip-path` polygon giving the impulse hard, angular edges. */
+  clip: string;
+  /** Gaussian blur in px. Small by design — see `makeBurst`. */
+  blur: number;
+  /** A thin, fast sliver rather than a broad shard. */
+  streak: boolean;
 };
+
+/**
+ * An irregular, spiky polygon as a CSS `clip-path`, in % of the element box.
+ *
+ * This is what turns the impulse from a soft cloud into something with edges.
+ * Radii alternate long/short so the outline spikes instead of bulging, and
+ * every vertex is jittered, so no two impulses share a silhouette.
+ */
+export function makeShardPath(rand: () => number, points = 7): string {
+  const clamp = (v: number) => (v < 0 ? 0 : v > 100 ? 100 : v);
+  const pts: string[] = [];
+  for (let i = 0; i < points; i++) {
+    const angle = (i / points) * Math.PI * 2 + (rand() - 0.5) * 0.5;
+    // Alternating reach is what makes it read as a shard, not a blob.
+    const reach = (i % 2 === 0 ? 0.46 + rand() * 0.06 : 0.18 + rand() * 0.16);
+    const x = 50 + Math.cos(angle) * reach * 100;
+    const y = 50 + Math.sin(angle) * reach * 100;
+    pts.push(`${clamp(x).toFixed(1)}% ${clamp(y).toFixed(1)}%`);
+  }
+  return `polygon(${pts.join(", ")})`;
+}
 
 /** How far over the threshold we are, as 0..1 over [`BURST_SPAN_DB`] dB. */
 export function burstIntensity(
@@ -228,15 +295,26 @@ export function burstGapMs(intensity: number, rand: () => number): number {
  *  which is what makes a loud room feel urgent rather than merely busy. */
 export function makeBurst(id: number, intensity: number, rand: () => number): IrisBurst {
   const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+  // A third of the impulses are thin, fast slivers. Mixing two silhouettes is
+  // what keeps a volley from looking like one effect repeating.
+  const streak = rand() < 0.36;
   return {
     id,
     x: 8 + rand() * 84,
     y: 10 + rand() * 80,
-    size: (26 + rand() * 42) * (0.92 + t * 0.4),
-    life: (1.15 + rand() * 0.95) * (1 - t * 0.28),
-    peak: Math.min(0.78, 0.26 + rand() * 0.2 + t * 0.24),
-    rot: rand() * 40 - 20,
+    size: (26 + rand() * 42) * (0.92 + t * 0.4) * (streak ? 1.45 : 1),
+    aspect: streak ? 0.08 + rand() * 0.12 : 0.55 + rand() * 0.35,
+    // Slivers are gone fast — that snap is most of the "energetic" read.
+    life: (streak ? 0.42 + rand() * 0.34 : 1.15 + rand() * 0.95) * (1 - t * 0.28),
+    peak: Math.min(0.82, 0.3 + rand() * 0.2 + t * 0.24),
+    rot: rand() * 360,
     tint: BURST_TINTS[Math.min(BURST_TINTS.length - 1, (rand() * BURST_TINTS.length) | 0)],
+    clip: makeShardPath(rand, streak ? 5 : 7),
+    // Deliberately tiny. Heavy blur is exactly what made the first version
+    // read as drifting bubbles; the edges have to survive for the impulse to
+    // look like a flash rather than fog.
+    blur: streak ? 0.5 + rand() * 1.5 : 2 + rand() * 4,
+    streak,
   };
 }
 

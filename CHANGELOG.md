@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.2] — 2026-08-05
+
+### Fixed
+
+- **`iris` could not be switched off again.** `iris 55` armed it, but a following bare `iris` left it running. Arming handed the calibration panel keyboard focus, and that focus disables the list navigation — so the second Enter never reached the dispatcher at all. The panel now takes **no** keyboard focus, and the toggle resolves against the **live backend state** (`iris_status`) instead of React state, so a popup reopened long after arming still flips the right way.
+
+### Changed
+
+- **The threshold is edited in the search bar.** With no keyboard focus to hand over, `iris 60` retunes a running session live (debounced) — the same "the argument drives it" model `weather` uses. This replaces the old ←/→ retune, which was what required the focus in the first place.
+- **Sharper, flashier impulses.** The soft clouds are gone: each impulse is now a hard-edged shard cut by a generated `clip-path` polygon — spiky, jittered, never twice the same silhouette — and about a third of them are thin, fast streaks that are gone in ~0.4 s. Blur dropped from 14 px to 0.5–6 px so the edges survive, the core is white-hot, rotation uses the full circle, and the attack **stutters**: the opacity strobes through five steps on the way in instead of ramping smoothly, over the reference's unchanged 18/62/100 envelope. The constant edge field is muted further and its falloff tightened, so it reads as a taut rim behind the impulses rather than fog.
+
 ## [0.102.1] — 2026-08-05
 
 ### Changed
@@ -12,7 +23,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Added
 
-- **Test coverage for the whole `iris` signal path.** `mic_capture::chunk_rms` — until now the one completely untested module, and the entry point of the chain — is pinned against known waveforms (silence, square, sine ≈ 1/√2, DC offset, a lone spike in 1024 samples). `iris.rs` gained the persistence contract against an in-memory DB: an unset, blank, garbage or hand-edited-out-of-band threshold falls back or clamps instead of arming at a nonsense level, and `set_threshold` stores the clamped value rather than leaving a poisoned row. Plus a simulated 25 Hz frame feed asserting a transient lights **exactly once** and goes dark cleanly, and matching constant assertions on both sides of the language boundary so the TS mirror can't drift from the Rust source of truth. Suite: **2923 tests** (1183 Rust + 1740 frontend).
+- **Test coverage for the whole `iris` signal path.** `mic_capture::chunk_rms` — until now the one completely untested module, and the entry point of the chain — is pinned against known waveforms (silence, square, sine ≈ 1/√2, DC offset, a lone spike in 1024 samples). `iris.rs` gained the persistence contract against an in-memory DB: an unset, blank, garbage or hand-edited-out-of-band threshold falls back or clamps instead of arming at a nonsense level, and `set_threshold` stores the clamped value rather than leaving a poisoned row. Plus a simulated 25 Hz frame feed asserting a transient lights **exactly once** and goes dark cleanly, and matching constant assertions on both sides of the language boundary so the TS mirror can't drift from the Rust source of truth. Suite: **2940 tests** (1183 Rust + 1757 frontend).
 
 ### Fixed
 

@@ -98,9 +98,9 @@ const CSS = `
   position:absolute; inset:0;
   background:radial-gradient(circle at 50% 50%,
     var(--c0)  0%,
-    var(--c1) 36%,
-    var(--c2) 62%,
-    transparent 76%);
+    var(--c1) 30%,
+    var(--c2) 52%,
+    transparent 68%);
   filter:blur(var(--blur));
   animation:iris-drift var(--dur) ease-in-out infinite alternate;
   animation-delay:var(--del);
@@ -114,26 +114,35 @@ const CSS = `
 .iris-burst{
   position:absolute;
   left:var(--x); top:var(--y);
-  width:var(--size); height:calc(var(--size) * .74);
-  border-radius:50%;
+  width:var(--size); height:calc(var(--size) * var(--aspect));
+  clip-path:var(--clip);
   mix-blend-mode:screen;
   will-change:transform, opacity;
   opacity:0;
-  background:radial-gradient(closest-side at 50% 50%,
-    var(--tint) 0%,
-    color-mix(in srgb, var(--tint) 62%, transparent) 30%,
-    color-mix(in srgb, var(--tint) 24%, transparent) 58%,
-    transparent 78%);
-  filter:blur(14px);
+  /* A hot core that falls off fast — with the clip-path doing the silhouette,
+     the gradient only has to supply brightness, not shape. */
+  background:radial-gradient(ellipse 62% 120% at 50% 50%,
+    #fff 0%,
+    var(--tint) 26%,
+    color-mix(in srgb, var(--tint) 45%, transparent) 62%,
+    transparent 92%);
+  filter:blur(var(--bblur));
   animation:iris-burst-pop var(--life) ${EASE} forwards;
 }
-/* The reference curve, verbatim: hard attack with overshoot at 18 %, a hold
-   through 62 %, then out while still growing. */
+/* The reference envelope (attack → hold → out while growing) with a strobing
+   attack laid over it: the 18/62/100 anchors and the .66→1.05→1→1.16 scale are
+   unchanged, but the opacity stutters on the way in instead of ramping
+   smoothly. That flicker is the whole difference between "a glow appears" and
+   "something goes off". */
 @keyframes iris-burst-pop{
-  0%  { opacity:0;           transform:translate(-50%,-50%) rotate(var(--rot)) scale(.66) }
-  18% { opacity:var(--peak); transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.05) }
-  62% { opacity:var(--peak); transform:translate(-50%,-50%) rotate(var(--rot)) scale(1) }
-  100%{ opacity:0;           transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.16) }
+  0%   { opacity:0;                          transform:translate(-50%,-50%) rotate(var(--rot)) scale(.66) }
+  5%   { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.09) }
+  9%   { opacity:calc(var(--peak) * .18);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.04) }
+  13%  { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.07) }
+  18%  { opacity:calc(var(--peak) * .42);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.05) }
+  24%  { opacity:var(--peak);                transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.02) }
+  62%  { opacity:calc(var(--peak) * .82);    transform:translate(-50%,-50%) rotate(var(--rot)) scale(1) }
+  100% { opacity:0;                          transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.16) }
 }
 
 /* One short beat on ignite, so arming itself lands. */
@@ -158,7 +167,7 @@ const CSS = `
   .iris-blob-i{ animation:none; opacity:.8 }
   .iris-flash{ display:none }
   /* The reference's own reduced-motion fallback is opacity-only — same here. */
-  .iris-burst{ animation:iris-burst-fade var(--life) ${EASE} forwards; filter:blur(18px) }
+  .iris-burst{ animation:iris-burst-fade var(--life) ${EASE} forwards }
   @keyframes iris-burst-fade{
     0%{opacity:0} 20%{opacity:var(--peak)} 70%{opacity:var(--peak)} 100%{opacity:0}
   }
@@ -168,14 +177,14 @@ const CSS = `
 /** Muted relative to v0.102.0: the field is now the backdrop, not the show. */
 const PALETTE = {
   hot: {
-    c0: "rgba(255,146,86,.62)",
-    c1: "rgba(255,72,48,.40)",
-    c2: "rgba(176,26,22,.22)",
+    c0: "rgba(255,168,96,.58)",
+    c1: "rgba(255,72,48,.34)",
+    c2: "rgba(176,26,22,.14)",
   },
   deep: {
-    c0: "rgba(255,74,58,.58)",
-    c1: "rgba(206,30,26,.38)",
-    c2: "rgba(122,18,18,.20)",
+    c0: "rgba(255,86,64,.54)",
+    c1: "rgba(206,30,26,.32)",
+    c2: "rgba(122,18,18,.12)",
   },
 } as const;
 
@@ -353,10 +362,13 @@ export function IrisOverlay() {
               "--x": `${b.x}%`,
               "--y": `${b.y}%`,
               "--size": `${b.size}vmax`,
+              "--aspect": b.aspect,
               "--life": `${b.life}s`,
               "--peak": b.peak,
               "--rot": `${b.rot}deg`,
               "--tint": b.tint,
+              "--clip": b.clip,
+              "--bblur": `${b.blur}px`,
             } as React.CSSProperties
           }
         />

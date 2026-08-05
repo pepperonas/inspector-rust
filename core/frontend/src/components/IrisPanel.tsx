@@ -1,14 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Siren } from "lucide-react";
-import { irisSetThreshold, irisStatus } from "../lib/ipc";
-import {
-  formatSpl,
-  meterFraction,
-  clampThreshold,
-  METER_MIN_SPL,
-  METER_MAX_SPL,
-} from "../lib/iris";
+import { irisStatus } from "../lib/ipc";
+import { formatSpl, meterFraction, METER_MIN_SPL, METER_MAX_SPL } from "../lib/iris";
 
 /**
  * Calibration panel for the `iris` command, rendered in the right preview
@@ -20,30 +14,21 @@ import {
  *
  * Live levels come from the `iris-level` event, which only streams while the
  * capture is running — hence this panel is only ever shown for an *armed*
- * session. Leaving it (Esc) does **not** disarm; monitoring is a background
- * job by design. Type `iris` again (or `iris 0`) to switch it off.
+ * session. Monitoring is a background job, so closing the popup does not
+ * disarm; `iris` again (or `iris 0`) plus Enter switches it off.
+ *
+ * **This panel deliberately takes no keyboard focus.** An earlier version gave
+ * it focus on arm so ←/→ could retune — which disabled the list navigation, so
+ * the second Enter never reached the dispatcher and the toggle appeared dead
+ * (v0.102.2). The threshold is edited in the search bar instead (`iris 60`,
+ * applied live and debounced), which is both more discoverable and keeps Enter
+ * doing exactly one thing.
  */
-const STEP = 1;
-
-export function IrisPanel({
-  focused,
-  onExit,
-}: {
-  focused: boolean;
-  onExit: () => void;
-}) {
+export function IrisPanel() {
   const [spl, setSpl] = useState<number | null>(null);
   const [over, setOver] = useState(false);
   const [threshold, setThreshold] = useState<number | null>(null);
   const [peak, setPeak] = useState(0);
-  // Latest threshold without re-subscribing the key handler on every change.
-  // Synced in an effect — assigning during render is what `react-hooks/refs`
-  // forbids (and would double-run under StrictMode).
-  const thrRef = useRef<number | null>(null);
-  useEffect(() => {
-    thrRef.current = threshold;
-  }, [threshold]);
-
   useEffect(() => {
     let alive = true;
     irisStatus()
@@ -71,32 +56,6 @@ export function IrisPanel({
     };
   }, []);
 
-  // ←/→ retune live. Only while focused, so the arrows still drive the list
-  // when the panel is merely visible.
-  useEffect(() => {
-    if (!focused) return;
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement | null;
-      const tag = t?.tagName;
-      const typing =
-        tag === "INPUT" || tag === "TEXTAREA" || t?.isContentEditable === true;
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onExit();
-        return;
-      }
-      if (typing) return;
-      if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
-        e.preventDefault();
-        const cur = thrRef.current ?? 55;
-        const next = clampThreshold(cur + (e.key === "ArrowRight" ? STEP : -STEP));
-        setThreshold(next);
-        irisSetThreshold(next).catch(() => {});
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit]);
 
   const thr = threshold ?? 55;
   const level = meterFraction(spl ?? METER_MIN_SPL);
@@ -162,14 +121,15 @@ export function IrisPanel({
 
       <div className="rounded-lg bg-[var(--color-surface)] p-3 text-xs leading-relaxed text-[var(--color-muted)]">
         <div className="mb-1 font-medium text-[var(--color-fg)]">
-          {focused ? "←/→ verschiebt die Schwelle" : "Enter gibt die Pfeiltasten hierher"}
+          Schwelle ändern: Zahl in der Suchzeile tippen
         </div>
         Überschreitet der Pegel die Schwelle, glimmen die Bildschirmränder rot —
         auf allen Monitoren, klick-durchlässig, ohne Fokus zu stehlen. Die
         Überwachung läuft weiter, wenn du dieses Fenster schließt.
         <div className="mt-1">
+          <span className="font-mono">iris 60</span> stellt live nach ·
           Ausschalten: <span className="font-mono">iris</span> oder{" "}
-          <span className="font-mono">iris 0</span>.
+          <span className="font-mono">iris 0</span> + Enter.
         </div>
       </div>
     </div>

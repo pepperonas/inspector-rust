@@ -21,8 +21,8 @@ import { SnitchPanel } from "./components/SnitchPanel";
 import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
-import { parseIrisArg, irisRowLabel } from "./lib/iris";
-import { irisStart, irisStop, irisStatus } from "./lib/ipc";
+import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
+import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
 import { WeatherPanel } from "./components/WeatherPanel";
 import { TokensPanel } from "./components/TokensPanel";
 import { RandomPanel } from "./components/RandomPanel";
@@ -259,7 +259,6 @@ function App() {
   // ever shown while armed, because the live level it plots streams solely
   // during capture — typing `iris` must never open the microphone by itself.
   const [irisMode, setIrisMode] = useState(false);
-  const [irisFocus, setIrisFocus] = useState(false);
   const [irisActive, setIrisActive] = useState(false);
   // boom mode — Enter on the `boom` row renders the audio-enhancement controller
   // (EQ / presets / boost) in the right preview column.
@@ -906,9 +905,23 @@ function App() {
   useEffect(() => {
     if (!isIrisCmd && irisMode) {
       setIrisMode(false);
-      setIrisFocus(false);
     }
   }, [isIrisCmd, irisMode]);
+
+  // While armed, the number typed in the search bar retunes the live session
+  // (debounced) — the same "the argument drives it" model as `weather`. This
+  // replaces the old ←/→ retune, which required giving the panel keyboard
+  // focus and was exactly what broke the toggle.
+  const irisArg = isIrisCmd ? (parsedCommand?.arg ?? "") : "";
+  useEffect(() => {
+    if (!isIrisCmd || !irisActive) return;
+    const a = parseIrisArg(irisArg);
+    if (a.kind !== "on") return;
+    const t = setTimeout(() => {
+      void irisSetThreshold(a.threshold).catch(() => undefined);
+    }, 300);
+    return () => clearTimeout(t);
+  }, [isIrisCmd, irisActive, irisArg]);
 
   // Keep the armed/disarmed flag honest so the command row can say which way
   // Enter will flip. Re-read whenever the `iris` command comes into view.
@@ -2639,7 +2652,6 @@ function App() {
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
     setIrisMode(false);
-    setIrisFocus(false);
     // Prime the shell to the CRT power-off END state (a collapsed bright dot)
     // WHILE hidden — so the OS `show()` (which reveals the window before the
     // window-shown handler runs) shows the dark tube + dot, never a flash of
@@ -3157,25 +3169,39 @@ function App() {
         setHueFocus(true);
         return true;
       } else if (commandKind === "iris") {
-        // Toggle semantics: `iris 0` and a bare `iris` on an armed session both
-        // disarm; anything else arms (or retunes) and opens the calibrator.
-        const a = parseIrisArg(arg);
-        const wantsOff = a.kind === "off" || (a.kind === "toggle" && irisActive);
-        if (wantsOff) {
-          await irisStop();
-          setIrisActive(false);
-          setIrisMode(false);
-          setIrisFocus(false);
-          setQuery("");
-          // Hides the popup + plays the flourish, so no separate hidePopup().
-          await showStatusToast("iris", false, "Iris aus", "Mikrofon-Überwachung beendet");
-          return true;
-        }
+        // Resolve against the LIVE backend state, never against React state:
+        // the popup may have been reopened long after arming, and an external
+        // change must not desync the toggle. (v0.102.2: the previous version
+        // also handed the panel keyboard focus on arm, which disabled the list
+        // nav — so the second Enter never even reached here and `iris 55`
+        // followed by `iris` left it armed.)
+        const live = await irisStatus().catch(() => null);
+        const action = irisAction(parseIrisArg(arg), !!live?.active);
         try {
-          await irisStart(a.kind === "on" ? a.threshold : undefined);
-          setIrisActive(true);
-          setIrisMode(true);
-          setIrisFocus(true);
+          switch (action.kind) {
+            case "disarm":
+              await irisStop();
+              setIrisActive(false);
+              setIrisMode(false);
+              setQuery("");
+              // Hides the popup + plays the flourish, so no separate hidePopup().
+              await showStatusToast("iris", false, "Iris aus", "Mikrofon-Überwachung beendet");
+              break;
+            case "retune":
+              await irisSetThreshold(action.threshold);
+              setIrisActive(true);
+              setIrisMode(true);
+              break;
+            case "arm":
+              await irisStart(action.threshold);
+              setIrisActive(true);
+              setIrisMode(true);
+              break;
+            case "none":
+              setIrisActive(false);
+              setIrisMode(false);
+              break;
+          }
         } catch (e) {
           await showStatusToast("iris", false, "Iris fehlgeschlagen", String(e));
         }
@@ -3566,7 +3592,6 @@ function App() {
       !soundFocus &&
       !hueFocus &&
       !statsFocus &&
-      !irisFocus &&
       !boomFocus &&
       !uptimeFocus &&
       !weatherFocus &&
@@ -3977,15 +4002,7 @@ function App() {
                   </div>
                 ) : irisMode ? (
                   <div className="md3-pop-in h-full">
-                    <IrisPanel
-                      focused={irisFocus}
-                      onExit={() => {
-                        // Leaves the panel only — monitoring stays armed.
-                        setIrisMode(false);
-                        setIrisFocus(false);
-                        requestAnimationFrame(() => searchRef.current?.focus());
-                      }}
-                    />
+                    <IrisPanel />
                   </div>
                 ) : statsMode ? (
                   <div className="md3-pop-in h-full">

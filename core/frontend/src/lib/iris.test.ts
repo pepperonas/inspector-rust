@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   makeBlobs,
+  irisAction,
+  makeShardPath,
   burstIntensity,
   burstGapMs,
   makeBurst,
@@ -259,11 +261,16 @@ describe("makeBurst", () => {
   });
 
   it("produces a usable, finite animation in every field", () => {
+    // Bounds updated with the sharpened look (v0.102.2): rotation is now the
+    // full circle rather than the old ±20° (a shard reads differently at every
+    // angle, an ellipse barely did), and the shortest streak at full intensity
+    // is ~0.30 s — a flash, by design.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, Math.random(), Math.random);
-      expect(b.life).toBeGreaterThan(0.4);
+      expect(b.life).toBeGreaterThan(0.25);
       expect(b.size).toBeGreaterThan(0);
-      expect(Math.abs(b.rot)).toBeLessThanOrEqual(20);
+      expect(b.rot).toBeGreaterThanOrEqual(0);
+      expect(b.rot).toBeLessThan(360);
     }
   });
 });
@@ -421,5 +428,145 @@ describe("makeBurst — further invariants", () => {
     const a = makeBurst(1, 0.5, Math.random);
     const b = makeBurst(2, 0.5, Math.random);
     expect(a.x === b.x && a.y === b.y && a.size === b.size).toBe(false);
+  });
+});
+
+describe("irisAction — the toggle contract", () => {
+  // The exact sequence the user reported broken in v0.102.1:
+  // `iris 55` armed it, then a bare `iris` left it running.
+  it("a bare iris after arming with a number disarms", () => {
+    expect(irisAction(parseIrisArg("55"), false)).toEqual({ kind: "arm", threshold: 55 });
+    expect(irisAction(parseIrisArg(""), true)).toEqual({ kind: "disarm" });
+  });
+
+  it("a bare iris arms when nothing is running", () => {
+    expect(irisAction(parseIrisArg(""), false)).toEqual({ kind: "arm" });
+  });
+
+  it("iris 0 disarms a running session and is a no-op otherwise", () => {
+    expect(irisAction(parseIrisArg("0"), true)).toEqual({ kind: "disarm" });
+    expect(irisAction(parseIrisArg("0"), false)).toEqual({ kind: "none" });
+  });
+
+  it("an explicit number never disarms — it retunes", () => {
+    // Otherwise `iris 55` would be unusable as "set the threshold to 55"
+    // whenever a session happened to be running.
+    expect(irisAction(parseIrisArg("70"), true)).toEqual({ kind: "retune", threshold: 70 });
+  });
+
+  it("toggling twice returns to the starting state", () => {
+    let active = false;
+    for (const expected of ["arm", "disarm", "arm", "disarm"]) {
+      const a = irisAction(parseIrisArg(""), active);
+      expect(a.kind).toBe(expected);
+      active = a.kind === "arm";
+    }
+  });
+
+  it("garbage falls back to the toggle rather than arming at a wrong level", () => {
+    expect(irisAction(parseIrisArg("zzz"), true)).toEqual({ kind: "disarm" });
+    expect(irisAction(parseIrisArg("zzz"), false)).toEqual({ kind: "arm" });
+  });
+
+  it("clamps a retune the same way arming does", () => {
+    expect(irisAction(parseIrisArg("999"), true)).toEqual({
+      kind: "retune",
+      threshold: MAX_THRESHOLD_SPL,
+    });
+  });
+});
+
+describe("makeShardPath", () => {
+  it("emits a valid CSS polygon", () => {
+    const p = makeShardPath(Math.random, 7);
+    expect(p.startsWith("polygon(")).toBe(true);
+    expect(p.endsWith(")")).toBe(true);
+    expect(p.split(",").length).toBe(7);
+  });
+
+  it("keeps every vertex inside the element box", () => {
+    // A vertex outside 0–100 % would clip the shard flat against one side and
+    // lose the spiky silhouette entirely.
+    for (let i = 0; i < 100; i++) {
+      const nums = makeShardPath(Math.random, 7)
+        .replace("polygon(", "")
+        .replace(")", "")
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map((t) => parseFloat(t));
+      expect(nums.length).toBe(14);
+      for (const n of nums) {
+        expect(Number.isFinite(n)).toBe(true);
+        expect(n).toBeGreaterThanOrEqual(0);
+        expect(n).toBeLessThanOrEqual(100);
+      }
+    }
+  });
+
+  it("honours the requested vertex count", () => {
+    expect(makeShardPath(() => 0.5, 5).split(",").length).toBe(5);
+    expect(makeShardPath(() => 0.5, 9).split(",").length).toBe(9);
+  });
+
+  it("alternates reach, so the outline spikes instead of bulging", () => {
+    // Even vertices reach out (~0.46–0.52 of the box), odd ones stay in
+    // (~0.18–0.34). Without that contrast it is a blob again.
+    const pts = makeShardPath(() => 0.5, 8)
+      .replace("polygon(", "").replace(")", "")
+      .split(",")
+      .map((p) => p.trim().split(/\s+/).map(parseFloat));
+    const radius = ([x, y]: number[]) => Math.hypot(x - 50, y - 50);
+    const evens = pts.filter((_, i) => i % 2 === 0).map(radius);
+    const odds = pts.filter((_, i) => i % 2 === 1).map(radius);
+    expect(Math.min(...evens)).toBeGreaterThan(Math.max(...odds));
+  });
+
+  it("gives every impulse its own silhouette", () => {
+    expect(makeShardPath(Math.random)).not.toBe(makeShardPath(Math.random));
+  });
+});
+
+describe("makeBurst — sharpened impulses", () => {
+  it("keeps the blur small enough for the edges to survive", () => {
+    // Heavy blur is exactly what made v0.102.1 read as drifting bubbles.
+    for (let i = 0; i < 200; i++) {
+      expect(makeBurst(i, Math.random(), Math.random).blur).toBeLessThanOrEqual(6);
+    }
+  });
+
+  it("carries a clip path and a usable aspect ratio", () => {
+    for (let i = 0; i < 100; i++) {
+      const b = makeBurst(i, Math.random(), Math.random);
+      expect(b.clip.startsWith("polygon(")).toBe(true);
+      expect(b.aspect).toBeGreaterThan(0);
+      expect(b.aspect).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("mixes thin streaks with broader shards", () => {
+    const kinds = new Set(
+      Array.from({ length: 200 }, (_, i) => makeBurst(i, 0.5, Math.random).streak),
+    );
+    expect(kinds.has(true)).toBe(true);
+    expect(kinds.has(false)).toBe(true);
+  });
+
+  it("makes streaks thinner and shorter-lived than shards", () => {
+    const streaks: number[] = [];
+    const shards: number[] = [];
+    for (let i = 0; i < 400; i++) {
+      const b = makeBurst(i, 0, Math.random);
+      (b.streak ? streaks : shards).push(b.life);
+      if (b.streak) expect(b.aspect).toBeLessThan(0.25);
+      else expect(b.aspect).toBeGreaterThan(0.5);
+    }
+    const avg = (a: number[]) => a.reduce((x, y) => x + y, 0) / a.length;
+    expect(avg(streaks)).toBeLessThan(avg(shards));
+  });
+
+  it("uses the full rotation circle, not a narrow wedge", () => {
+    const rots = Array.from({ length: 300 }, (_, i) => makeBurst(i, 0.5, Math.random).rot);
+    expect(Math.min(...rots)).toBeLessThan(30);
+    expect(Math.max(...rots)).toBeGreaterThan(330);
   });
 });

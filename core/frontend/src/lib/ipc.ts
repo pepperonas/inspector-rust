@@ -2949,3 +2949,34 @@ export function linuxApplyDesktopShortcuts(
 export function linuxWebHotkeyToGsettings(shortcut: string): Promise<string> {
   return invoke("linux_web_hotkey_to_gsettings", { shortcut });
 }
+
+// ------------------------------------------------------------------- iris
+
+/** Live state of the `iris` mic-triggered screen vignette. */
+export type IrisStatus = {
+  active: boolean;
+  /** SPL on the disco-controller convention (`dBFS + 90`). */
+  threshold_spl: number;
+  over: boolean;
+  min_spl: number;
+  max_spl: number;
+};
+
+/** Arm iris. Omit the threshold to reuse the last saved one. Returns the
+ *  clamped threshold actually applied. */
+export function irisStart(thresholdSpl?: number): Promise<number> {
+  return invoke("iris_start", { thresholdSpl });
+}
+
+export function irisStop(): Promise<void> {
+  return invoke("iris_stop");
+}
+
+export function irisStatus(): Promise<IrisStatus> {
+  return invoke("iris_status");
+}
+
+/** Retune a running session (or persist for the next arm). */
+export function irisSetThreshold(thresholdSpl: number): Promise<number> {
+  return invoke("iris_set_threshold", { thresholdSpl });
+}

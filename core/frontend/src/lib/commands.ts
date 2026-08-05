@@ -27,6 +27,7 @@ import { MEME_ENABLED } from "./meme";
 import { CURRENT_PLATFORM, type Platform } from "./platform";
 
 export type CommandKind =
+  | "iris"
   | "translate-en"
   | "translate-de"
   | "translate-auto"
@@ -653,6 +654,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "shazam [history]",
     description:
       "Identify the song playing (records ~10 s from the mic) · `shazam history` opens your recognized-songs history",
+    requiresArg: false,
+  },
+  {
+    kind: "iris",
+    keyword: "iris",
+    syntax: "iris [dB]",
+    description:
+      "Red glow along the screen edges whenever the microphone exceeds a loudness threshold. `iris 55` arms it at 55 dB (SPL), a bare `iris` toggles, `iris 0` switches it off.",
     requiresArg: false,
   },
   {

@@ -5715,6 +5715,53 @@ pub async fn translate_text(
         .map_err(|e| format!("translate task: {e}"))?
 }
 
+// ------------------------------------------------------------------- iris
+
+/// Arm the mic-triggered screen vignette. `threshold_spl` omitted → reuse the
+/// last saved threshold (or the raspi5-parity default of 55 SPL).
+///
+/// `async` on purpose: it builds one overlay window per monitor, and building a
+/// webview window from a *sync* command blocks the main thread and deadlocks.
+#[tauri::command]
+pub async fn iris_start(
+    app: tauri::AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::iris::IrisState>,
+    threshold_spl: Option<f32>,
+) -> Result<f32, String> {
+    crate::iris::start(&app, &db, &state, threshold_spl)
+}
+
+/// Disarm and tear the overlays down. Idempotent.
+#[tauri::command]
+pub async fn iris_stop(
+    app: tauri::AppHandle,
+    state: State<'_, crate::iris::IrisState>,
+) -> Result<(), String> {
+    crate::iris::stop(&app, &state);
+    Ok(())
+}
+
+/// Current state + the threshold that a bare `iris` would arm with.
+#[tauri::command]
+pub async fn iris_status(
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::iris::IrisState>,
+) -> Result<crate::iris::IrisStatus, String> {
+    Ok(crate::iris::status(&state, &db))
+}
+
+/// Retune a running session (or just persist for the next arm). Returns the
+/// clamped value actually applied.
+#[tauri::command]
+pub async fn iris_set_threshold(
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::iris::IrisState>,
+    threshold_spl: f32,
+) -> Result<f32, String> {
+    Ok(crate::iris::set_threshold(&state, &db, threshold_spl))
+}
+
 #[cfg(test)]
 mod project_map_tests {
     use super::parse_project_map;

@@ -39,6 +39,35 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          # This job is the SOLE owner of the release body — the other jobs
+          # upload files only, so nothing races or clobbers it. The macOS
+          # note therefore lives here rather than in the macOS job: that one
+          # is a 2-leg matrix (aarch64 + x86_64) and would append the same
+          # text twice. GitHub prepends `body` to the generated notes, so
+          # this lands at the top of the release page — exactly where people
+          # are standing when they download the DMG and hit "damaged".
+          body: |
+            ### macOS: first launch says "damaged"? The download is fine.
+
+            The DMG is ad-hoc signed but **not notarized** (that needs a paid
+            Apple Developer ID). macOS quarantines every such download and
+            shows the misleading *"InspectorRust.app is damaged and can't be
+            opened"* instead of the usual unidentified-developer prompt.
+            **Right-click → Open does _not_ clear this one.**
+
+            Drag the app to Applications, then run this once:
+
+            ```bash
+            xattr -dr com.apple.quarantine /Applications/InspectorRust.app
+            ```
+
+            The app then launches normally, for good. To convince yourself the
+            bundle is intact, run `codesign --verify --deep --strict /Applications/InspectorRust.app`
+            — silence means the signature is valid and nothing is corrupted.
+            The mounted DMG also carries these instructions as
+            **! READ ME FIRST.txt**.
+
+            ---
           files: |
             target/release/inspector-rust.exe
             target/release/bundle/msi/*.msi

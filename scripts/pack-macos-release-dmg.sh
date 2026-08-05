@@ -107,6 +107,55 @@ osascript -e 'display notification "Quarantine cleared — launching Inspector R
 EOF
 chmod +x "${STAGE}/Fix Gatekeeper.command"
 
+# Plain-text rescue note. The `.command` helper above inherits the DMG's
+# quarantine bit too, so double-clicking IT is *also* refused by Gatekeeper
+# ("no usable signature") — the very users who need it are the ones who
+# can't run it. A .txt has no such gate: TextEdit opens a quarantined text
+# file without a prompt. The leading "!" makes Finder sort it first, so the
+# instructions are the first thing visible in the mounted volume.
+cat > "${STAGE}/! READ ME FIRST.txt" <<'EOF'
+Inspector Rust — macOS first launch
+===================================
+
+If macOS says:
+
+    "InspectorRust.app is damaged and can't be opened.
+     You should move it to the Trash."
+
+...the download is NOT damaged and the app is NOT broken.
+
+This app is ad-hoc signed but not notarized by Apple (notarization
+requires a paid Apple Developer account). macOS flags every such app
+downloaded from the internet with a "quarantine" marker, and shows that
+misleading "damaged" wording instead of the usual "unidentified
+developer" prompt. Right-click -> Open does NOT clear it.
+
+FIX — two steps
+---------------
+
+1. Drag InspectorRust.app into the Applications folder.
+
+2. Open Terminal (Cmd+Space, type "Terminal") and run this one line:
+
+       xattr -dr com.apple.quarantine /Applications/InspectorRust.app
+
+   Then launch the app normally. You only ever do this once.
+
+The bundled "Fix Gatekeeper.command" does exactly the same thing, but
+macOS may refuse to run it for the same quarantine reason - if it is
+blocked, use the Terminal line above.
+
+Verifying the download (optional)
+---------------------------------
+
+The app carries a valid, sealed ad-hoc signature. You can confirm the
+bundle is intact:
+
+    codesign --verify --deep --strict /Applications/InspectorRust.app
+
+Silence means the signature is valid and nothing is corrupted.
+EOF
+
 # Volume icon (best-effort) — Tauri ships one when the dmg step ran.
 if [[ -f "${APP}/Contents/Resources/icon.icns" ]]; then
   cp "${APP}/Contents/Resources/icon.icns" "${STAGE}/.VolumeIcon.icns" 2>/dev/null || true

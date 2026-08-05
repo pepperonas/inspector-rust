@@ -32,6 +32,7 @@ mod shazam;
 mod translate;
 mod weather;
 mod token_usage;
+mod iris;
 mod mic_capture;
 mod image_ops;
 mod logging;
@@ -223,6 +224,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(color_loupe::LoupeState::default());
             app.manage(alarm::AlarmState::default());
             app.manage(commands::MicCaptureState::default());
+            app.manage(iris::IrisState::default());
             app.manage(tracking::TrackerState::default());
             // Restore the last tracking state: if a session was still active
             // when the app last closed (crash / quit / update), resume it so
@@ -841,6 +843,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_all,
             commands::weather_fetch,
             commands::token_usage_fetch,
+            commands::iris_start,
+            commands::iris_stop,
+            commands::iris_status,
+            commands::iris_set_threshold,
             commands::get_weather_config,
             commands::set_weather_config,
             commands::get_history_max,

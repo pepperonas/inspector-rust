@@ -35,19 +35,62 @@ impl Drop for MicStream {
     }
 }
 
+/// What a capture does with each drained ~40 ms chunk.
+pub enum Sink {
+    /// Emit base64 LE-`i16` mono PCM as `{rate, b64}` on this Tauri event —
+    /// the BPM detector / disco path, which needs the samples themselves.
+    Pcm(&'static str),
+    /// Call back with the chunk's linear RMS (0..1). Used by `iris`, which
+    /// only needs a loudness figure: shipping base64 PCM 25×/s over IPC just
+    /// to square-and-average it in the webview would be pure waste, and the
+    /// threshold decision belongs in one place (Rust) anyway.
+    Level(Box<dyn Fn(f32) + Send>),
+}
+
+impl Sink {
+    fn label(&self) -> &'static str {
+        match self {
+            Sink::Pcm(ev) => ev,
+            Sink::Level(_) => "level",
+        }
+    }
+}
+
 /// Start capturing the default input device and emitting `event` (~25×/s).
 pub fn start(app: AppHandle, event: &'static str) -> MicStream {
+    start_with(app, Sink::Pcm(event))
+}
+
+/// Start a level-only capture: `on_rms` is called ~25×/s with the linear RMS
+/// of each chunk. No IPC, no base64 — see [`Sink::Level`].
+pub fn start_level(app: AppHandle, on_rms: impl Fn(f32) + Send + 'static) -> MicStream {
+    start_with(app, Sink::Level(Box::new(on_rms)))
+}
+
+/// Shared entry point: spawns the worker thread that owns the cpal stream
+/// (`cpal::Stream` isn't `Send`, so it must never leave that thread).
+pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
     let stop = Arc::new(AtomicBool::new(false));
     let stop2 = stop.clone();
     std::thread::spawn(move || {
-        if let Err(e) = run(app, event, stop2) {
-            tracing::warn!("mic_capture[{event}]: {e}");
+        let label = sink.label();
+        if let Err(e) = run(app, sink, stop2) {
+            tracing::warn!("mic_capture[{label}]: {e}");
         }
     });
     MicStream { stop }
 }
 
-fn run(app: AppHandle, event: &'static str, stop: Arc<AtomicBool>) -> Result<(), String> {
+/// Root-mean-square of a mono chunk (linear amplitude, 0..1).
+fn chunk_rms(chunk: &[f32]) -> f32 {
+    if chunk.is_empty() {
+        return 0.0;
+    }
+    let sum: f64 = chunk.iter().map(|&s| (s as f64) * (s as f64)).sum();
+    (sum / chunk.len() as f64).sqrt() as f32
+}
+
+fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let host = cpal::default_host();
@@ -117,14 +160,108 @@ fn run(app: AppHandle, event: &'static str, stop: Arc<AtomicBool>) -> Result<(),
         if chunk.is_empty() {
             continue;
         }
-        let mut bytes = Vec::with_capacity(chunk.len() * 2);
-        for &s in &chunk {
-            let v = (s.clamp(-1.0, 1.0) as f64 * if s < 0.0 { 32768.0 } else { 32767.0 }) as i16;
-            bytes.extend_from_slice(&v.to_le_bytes());
+        match &sink {
+            Sink::Level(on_rms) => on_rms(chunk_rms(&chunk)),
+            Sink::Pcm(event) => {
+                let mut bytes = Vec::with_capacity(chunk.len() * 2);
+                for &s in &chunk {
+                    let v =
+                        (s.clamp(-1.0, 1.0) as f64 * if s < 0.0 { 32768.0 } else { 32767.0 }) as i16;
+                    bytes.extend_from_slice(&v.to_le_bytes());
+                }
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                let _ = app.emit(event, serde_json::json!({ "rate": rate, "b64": b64 }));
+            }
         }
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-        let _ = app.emit(event, serde_json::json!({ "rate": rate, "b64": b64 }));
     }
     drop(stream); // stop + release the input device
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // `chunk_rms` is the entry point of the whole `iris` chain (RMS → dBFS →
+    // SPL → lit/dark), so its numbers have to be right rather than merely
+    // plausible. The cpal stream itself needs a live machine and stays
+    // untested, per the house rule.
+
+    #[test]
+    fn an_empty_chunk_is_silent_not_nan() {
+        // Division by zero here would poison every downstream dB conversion.
+        assert_eq!(chunk_rms(&[]), 0.0);
+        assert!(chunk_rms(&[]).is_finite());
+    }
+
+    #[test]
+    fn digital_silence_is_zero() {
+        assert_eq!(chunk_rms(&[0.0; 512]), 0.0);
+    }
+
+    #[test]
+    fn a_full_scale_square_wave_is_one() {
+        let buf: Vec<f32> = (0..256).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        assert!((chunk_rms(&buf) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_full_scale_sine_is_one_over_root_two() {
+        let n = 4096;
+        let buf: Vec<f32> = (0..n)
+            .map(|i| (std::f32::consts::TAU * 8.0 * i as f32 / n as f32).sin())
+            .collect();
+        let expected = 1.0 / 2f32.sqrt();
+        assert!(
+            (chunk_rms(&buf) - expected).abs() < 1e-3,
+            "got {}, want {expected}",
+            chunk_rms(&buf)
+        );
+    }
+
+    #[test]
+    fn rms_scales_linearly_with_amplitude() {
+        let base: Vec<f32> = (0..1024)
+            .map(|i| (std::f32::consts::TAU * 4.0 * i as f32 / 1024.0).sin())
+            .collect();
+        let quiet: Vec<f32> = base.iter().map(|s| s * 0.25).collect();
+        let full = chunk_rms(&base);
+        assert!((chunk_rms(&quiet) - full * 0.25).abs() < 1e-4);
+    }
+
+    #[test]
+    fn a_dc_offset_counts_as_level() {
+        // RMS is not mean-removed: a stuck-at-0.5 input reads 0.5, not 0. Worth
+        // pinning — a DC-biased interface would otherwise look silent if this
+        // ever "helpfully" subtracted the mean.
+        assert!((chunk_rms(&[0.5; 128]) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sign_does_not_matter() {
+        assert!((chunk_rms(&[0.3; 64]) - chunk_rms(&[-0.3; 64])).abs() < 1e-6);
+    }
+
+    #[test]
+    fn a_single_loud_sample_barely_moves_a_quiet_chunk() {
+        // One spike in 1024 samples must not read as a loud chunk — this is
+        // what keeps a click from tripping the iris threshold on its own.
+        let mut buf = vec![0.0f32; 1024];
+        buf[0] = 1.0;
+        assert!(chunk_rms(&buf) < 0.032, "{}", chunk_rms(&buf));
+    }
+
+    #[test]
+    fn the_result_is_never_negative_or_nan() {
+        for buf in [vec![0.0; 8], vec![-1.0; 8], vec![0.7, -0.2, 0.1, -0.9]] {
+            let r = chunk_rms(&buf);
+            assert!(r >= 0.0 && r.is_finite(), "{r}");
+        }
+    }
+
+    #[test]
+    fn sink_labels_identify_the_mode_in_logs() {
+        assert_eq!(Sink::Pcm("mic-audio").label(), "mic-audio");
+        assert_eq!(Sink::Level(Box::new(|_| {})).label(), "level");
+    }
 }

@@ -55,6 +55,9 @@ const TrimOverlay = React.lazy(() =>
 const ColorLoupe = React.lazy(() =>
   import("./components/ColorLoupe").then((m) => ({ default: m.ColorLoupe })),
 );
+const IrisOverlay = React.lazy(() =>
+  import("./components/IrisOverlay").then((m) => ({ default: m.IrisOverlay })),
+);
 const AlarmOverlay = React.lazy(() =>
   import("./components/AlarmOverlay").then((m) => ({ default: m.AlarmOverlay })),
 );
@@ -73,6 +76,7 @@ function Mount() {
   if (label === "color-loupe") return <ColorLoupe />;
   if (label === "alarm-overlay") return <AlarmOverlay />;
   if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
+  if (label.startsWith("iris-overlay-")) return <IrisOverlay />;
   if (label === "snap-overlay") return <SnapOverlay />;
   if (label === "window-palette") return <WindowPalette />;
   return <App />;

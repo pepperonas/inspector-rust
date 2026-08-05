@@ -11,8 +11,7 @@ import {
   Volume,
   Volume1,
   Volume2,
-  VolumeX,
-} from "lucide-react";
+  VolumeX, Siren } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -126,8 +125,10 @@ export function StatusToast() {
   const muted = payload.kind === "mute" && on;
 
   const Icon =
-    payload.kind === "timer"
-      ? Timer
+    payload.kind === "iris"
+      ? Siren
+      : payload.kind === "timer"
+        ? Timer
       : payload.kind === "alarm"
         ? AlarmClock
         : payload.kind === "clean"

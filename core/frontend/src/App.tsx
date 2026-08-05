@@ -13,6 +13,7 @@ import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
 import { CleanPanel } from "./components/CleanPanel";
@@ -20,6 +21,8 @@ import { SnitchPanel } from "./components/SnitchPanel";
 import { SnitchMapPanel } from "./components/SnitchMapPanel";
 import { ShazamPanel } from "./components/ShazamPanel";
 import { UptimePanel } from "./components/UptimePanel";
+import { parseIrisArg, irisRowLabel } from "./lib/iris";
+import { irisStart, irisStop, irisStatus } from "./lib/ipc";
 import { WeatherPanel } from "./components/WeatherPanel";
 import { TokensPanel } from "./components/TokensPanel";
 import { RandomPanel } from "./components/RandomPanel";
@@ -250,6 +253,14 @@ function App() {
   // just routes Esc to the panel; there's no selection model.
   const [statsMode, setStatsMode] = useState(false);
   const [statsFocus, setStatsFocus] = useState(false);
+  // Iris mode — the mic-triggered red screen vignette. Unlike the other inline
+  // panels this one is a TOGGLE: Enter arms it (and opens the calibration
+  // panel), Enter on an already-armed session disarms it. The panel is only
+  // ever shown while armed, because the live level it plots streams solely
+  // during capture — typing `iris` must never open the microphone by itself.
+  const [irisMode, setIrisMode] = useState(false);
+  const [irisFocus, setIrisFocus] = useState(false);
+  const [irisActive, setIrisActive] = useState(false);
   // boom mode — Enter on the `boom` row renders the audio-enhancement controller
   // (EQ / presets / boost) in the right preview column.
   const [boomMode, setBoomMode] = useState(false);
@@ -889,6 +900,31 @@ function App() {
     }
   }, [isStatsCmd, statsMode]);
 
+  // Same auto-exit for iris mode (the panel, not the monitoring — that keeps
+  // running in the background on purpose).
+  const isIrisCmd = parsedCommand?.spec.kind === "iris";
+  useEffect(() => {
+    if (!isIrisCmd && irisMode) {
+      setIrisMode(false);
+      setIrisFocus(false);
+    }
+  }, [isIrisCmd, irisMode]);
+
+  // Keep the armed/disarmed flag honest so the command row can say which way
+  // Enter will flip. Re-read whenever the `iris` command comes into view.
+  useEffect(() => {
+    if (!isIrisCmd) return;
+    let alive = true;
+    irisStatus()
+      .then((st) => {
+        if (alive) setIrisActive(!!st?.active);
+      })
+      .catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [isIrisCmd]);
+
   // Same auto-exit for boom mode.
   const isBoomCmd = parsedCommand?.spec.kind === "boom";
   useEffect(() => {
@@ -1294,6 +1330,14 @@ function App() {
         hint =
           "Enter → lamp controls in the preview: all-lamps switch + brightness + colour";
         break;
+      case "iris": {
+        const a = parseIrisArg(arg);
+        label = irisRowLabel(a, irisActive);
+        hint = irisActive
+          ? "Enter → Schwelle ändern · Ränder glimmen rot, wenn das Mikro sie überschreitet"
+          : "Enter → Mikro überwachen; Bildschirmränder glimmen rot über der Schwelle";
+        break;
+      }
       case "stats":
         label = "Live system stats";
         hint =
@@ -1398,7 +1442,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -2591,6 +2635,11 @@ function App() {
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
     // popup, and the next open must start on the normal history view.
     setTotpMode(false);
+    // The calibration panel is transient like the other view modes. The
+    // monitoring itself is NOT stopped here — running while the popup is
+    // closed is the entire point of the command.
+    setIrisMode(false);
+    setIrisFocus(false);
     // Prime the shell to the CRT power-off END state (a collapsed bright dot)
     // WHILE hidden — so the OS `show()` (which reveals the window before the
     // window-shown handler runs) shows the dark tube + dot, never a flash of
@@ -2710,14 +2759,15 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
           commandKind === "calendar" ||
           commandKind === "snitch" ||
           commandKind === "shazam" ||
-          commandKind === "weather";
+          commandKind === "weather" ||
+          commandKind === "iris";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3106,6 +3156,30 @@ function App() {
         setHueMode(true);
         setHueFocus(true);
         return true;
+      } else if (commandKind === "iris") {
+        // Toggle semantics: `iris 0` and a bare `iris` on an armed session both
+        // disarm; anything else arms (or retunes) and opens the calibrator.
+        const a = parseIrisArg(arg);
+        const wantsOff = a.kind === "off" || (a.kind === "toggle" && irisActive);
+        if (wantsOff) {
+          await irisStop();
+          setIrisActive(false);
+          setIrisMode(false);
+          setIrisFocus(false);
+          setQuery("");
+          // Hides the popup + plays the flourish, so no separate hidePopup().
+          await showStatusToast("iris", false, "Iris aus", "Mikrofon-Überwachung beendet");
+          return true;
+        }
+        try {
+          await irisStart(a.kind === "on" ? a.threshold : undefined);
+          setIrisActive(true);
+          setIrisMode(true);
+          setIrisFocus(true);
+        } catch (e) {
+          await showStatusToast("iris", false, "Iris fehlgeschlagen", String(e));
+        }
+        return true;
       } else if (commandKind === "stats") {
         // Inline live system-stats panel in the preview column (read-only).
         setStatsMode(true);
@@ -3492,6 +3566,7 @@ function App() {
       !soundFocus &&
       !hueFocus &&
       !statsFocus &&
+      !irisFocus &&
       !boomFocus &&
       !uptimeFocus &&
       !weatherFocus &&
@@ -3896,6 +3971,18 @@ function App() {
                       onExit={() => {
                         setHueMode(false);
                         setHueFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : irisMode ? (
+                  <div className="md3-pop-in h-full">
+                    <IrisPanel
+                      focused={irisFocus}
+                      onExit={() => {
+                        // Leaves the panel only — monitoring stays armed.
+                        setIrisMode(false);
+                        setIrisFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

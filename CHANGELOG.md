@@ -4,6 +4,30 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.1] — 2026-08-05
+
+### Changed
+
+- **`iris` now fires impulses, like the dB-analysis page it was ported from.** The first port copied only the reference's background wash and missed the mechanism that actually gives it character: `spawnIrisWord()` — discrete bursts on a randomised gap, each snapping in hard, holding, then fading while it grows. That curve is now ported verbatim (`0% → 18% → 62% → 100%`, scale `.66 → 1.05 → 1 → 1.16`, same easing), so the attack lands ~270 ms in; the drifting edge field is muted to a backdrop behind it. Bursts are soft rotated light clouds in the reference's warm palette (red → salmon → amber → near-white), spread across the whole screen but translucent (peak ≤ 0.78) and short-lived. **Going past the reference:** the cadence is level-reactive — the gap tightens from 1.7–4.8 s toward 0.42–1.2 s and impulses grow brighter, bigger and shorter the further over the threshold the room is, while never settling into a fixed beat at any volume.
+
+### Added
+
+- **Test coverage for the whole `iris` signal path.** `mic_capture::chunk_rms` — until now the one completely untested module, and the entry point of the chain — is pinned against known waveforms (silence, square, sine ≈ 1/√2, DC offset, a lone spike in 1024 samples). `iris.rs` gained the persistence contract against an in-memory DB: an unset, blank, garbage or hand-edited-out-of-band threshold falls back or clamps instead of arming at a nonsense level, and `set_threshold` stores the clamped value rather than leaving a poisoned row. Plus a simulated 25 Hz frame feed asserting a transient lights **exactly once** and goes dark cleanly, and matching constant assertions on both sides of the language boundary so the TS mirror can't drift from the Rust source of truth. Suite: **2923 tests** (1183 Rust + 1740 frontend).
+
+### Fixed
+
+- **`iris` no longer crashes the app when armed.** `iris_start`/`iris_stop` are `async`, so they run on a tokio worker — and they called AppKit window APIs (`set_visible_on_all_workspaces`, `setCanHide:`, `orderFrontRegardless`, `close()`) directly from there. macOS 26's WindowManagement hard-asserts the main thread, killing the process with `EXC_BREAKPOINT` and **no** `crash.log` (it is not a Rust panic, so the panic hook never sees it). The window work is now bounced through `run_on_main_thread`, the pattern already used by the snap overlay and `md_to_pdf`.
+
+## [0.102.0] — 2026-08-04
+
+### Added
+
+- **`iris [dB]` — microphone level watch with a red screen-edge glow.** Watches the default mic in the background; while the level exceeds your threshold, a field of drifting red light blobs breathes around the edges of **every** screen. Click-through, never focused, no text — the machine stays fully usable. `iris 55` arms at 55 dB, a bare `iris` toggles, `iris 0` switches off; the threshold persists. Enter also opens a live meter with a threshold marker so you can calibrate against your actual room (←/→ retune live); leaving that panel does **not** disarm — monitoring is a background job by design. Threshold unit is SPL on the raspi5/disco-controller convention (`dBFS + 90`, default 55 = its `warn_thr`), so values are portable between the two. Eight blobs sit jittered off the corners and edge midpoints, each with its own size, palette and drift period; the periods are mutually incommensurate so the motion has no visible loop, and overlaps screen-blend into moving hot spots. Arming pulls the lights inward like an aperture closing (spring overshoot, corner-first, under one brief flash); disarming lets them drift back out like embers, edge-first. Palette and rhythm come from the raspi5 dB-analysis `over-iris` wash; the middle of the screen always stays clear. Hysteresis (2 dB) plus a 400 ms minimum hold — which the purely level-triggered original lacks — keep it from strobing at the threshold. On macOS the overlays are exempted from the app-wide hide (`setCanHide:NO`), so the warning stays visible with the popup closed, and shown with `orderFrontRegardless` so arming never steals focus.
+
+### Fixed
+
+- **macOS "app is damaged" — correctly diagnosed and documented.** The v0.101.2 seal fixed a real but *different* problem (a linker-only signature); the shipped v0.101.5 DMG is properly sealed and `codesign --verify --deep --strict` passes on it. The remaining cause is that the app is **ad-hoc signed and not notarized**, so macOS quarantines the download and reports it as *damaged* — `syspolicy_check` confirms `Notary Ticket Missing (Fatal)`. **Right-click → Open does not clear this**, and the bundled `Fix Gatekeeper.command` inherits the same quarantine bit, so Gatekeeper refuses to run the rescue helper too. The DMG now ships a plain-text **`! READ ME FIRST.txt`** (sorts first; a `.txt` opens without a Gatekeeper gate) and the GitHub release body leads with the one-time fix `xattr -dr com.apple.quarantine /Applications/InspectorRust.app`. Both READMEs corrected — they claimed the message only affected releases ≤0.100.0, which was wrong; it affects every unnotarized release. A warning-free download still requires a paid Apple Developer ID + notarization.
+
 ## [0.101.5] — 2026-08-01
 
 ### Changed

@@ -966,6 +966,44 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["disco", "boom"],
   },
   {
+    command: "iris",
+    aliases: [],
+    category: CAT_AV,
+    version_added: "0.102.0",
+    tagline: "Red screen-edge glow whenever the microphone gets too loud.",
+    tagline_de: "Rotes Glimmen an den Bildschirmrändern, sobald das Mikrofon zu laut wird.",
+    synopsis: "iris [dB]   ·   iris 0",
+    description:
+      "Watches the default microphone in the background and lights a field of drifting red blobs around the edges of every screen while the level exceeds your threshold — a peripheral 'you are being loud' signal that needs no glance at a window. The overlays are click-through and never take focus, and no text is drawn, so the machine stays fully usable. Short, punchy impulses fire across the screen on an irregular beat over a muted drifting edge field — the burst curve is ported verbatim from the raspi5 dB-analysis page (hard ~270 ms attack, brief hold, then fade while growing) in its warm red-to-amber palette. The louder the room, the tighter the cadence and the stronger the impulse, without ever settling into a fixed beat. The threshold is SPL on the disco-controller convention (dBFS + 90), so a value that works on raspi5 means the same here.",
+    arguments: [
+      {
+        name: "dB",
+        required: false,
+        description:
+          "Threshold in SPL (30-100). Omit to toggle using the last saved value; 0 switches monitoring off.",
+        default: "55 (the raspi5 warn_thr default)",
+      },
+    ],
+    flags: [],
+    examples: [
+      { input: "iris 55", result: "Arms monitoring at 55 dB and opens the live calibration meter." },
+      { input: "iris", result: "Toggles: arms with the last threshold, or disarms a running session." },
+      { input: "iris 0", result: "Switches monitoring off explicitly." },
+      { input: "iris 72,5", result: "Arms at 72.5 dB — a comma decimal works too." },
+    ],
+    tips: [
+      "While the calibration panel is focused, ←/→ move the threshold live and the meter shows your room against it — far quicker than guessing a number.",
+      "Leaving the panel with Esc does NOT disarm: monitoring keeps running with the popup closed, which is the whole point. Use `iris` again or `iris 0` to stop it.",
+      "The threshold is persisted, so a bare `iris` re-arms at the value you last tuned.",
+    ],
+    caveats: [
+      "Monitoring never auto-starts after an app restart — opening the microphone silently at login would be a nasty surprise.",
+      "A hysteresis of 2 dB plus a 400 ms minimum hold keeps the vignette from flickering at the threshold, so it stays lit slightly longer than the raw level would suggest.",
+      "The vignette may not draw over an app running in native macOS fullscreen.",
+    ],
+    related: ["sound", "boom", "disco"],
+  },
+  {
     command: "disco",
     aliases: [],
     category: CAT_AV,

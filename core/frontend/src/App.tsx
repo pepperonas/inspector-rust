@@ -908,18 +908,36 @@ function App() {
     }
   }, [isIrisCmd, irisMode]);
 
-  // While armed, the number typed in the search bar retunes the live session
-  // (debounced) — the same "the argument drives it" model as `weather`. This
-  // replaces the old ←/→ retune, which required giving the panel keyboard
-  // focus and was exactly what broke the toggle.
+  // The number typed in the search bar drives the session LIVE (debounced):
+  // `iris 50` arms the moment you stop typing — no Enter (v0.102.4, explicit
+  // request; supersedes the earlier "typing never opens the mic" rule for the
+  // number-carrying form) — and editing 50 → 55 retunes the running session,
+  // so the meter's threshold marker follows what you type.
+  //
+  // Deliberately asymmetric: only a VALID POSITIVE NUMBER acts live. A bare
+  // `iris`, `iris 0` or garbage never live-arm and never live-disarm — the
+  // transient states while editing a number (`iris 5`, an empty arg) must not
+  // kill the session, and a bare `iris` that auto-armed would make the Enter
+  // toggle unusable (typing it would instantly re-arm). Disarming stays on
+  // Enter. The 350 ms debounce also keeps the transient `iris 5` of a fast
+  // "50" from ever being applied.
   const irisArg = isIrisCmd ? (parsedCommand?.arg ?? "") : "";
   useEffect(() => {
-    if (!isIrisCmd || !irisActive) return;
+    if (!isIrisCmd) return;
     const a = parseIrisArg(irisArg);
     if (a.kind !== "on") return;
     const t = setTimeout(() => {
-      void irisSetThreshold(a.threshold).catch(() => undefined);
-    }, 300);
+      if (irisActive) {
+        void irisSetThreshold(a.threshold).catch(() => undefined);
+      } else {
+        irisStart(a.threshold)
+          .then(() => {
+            setIrisActive(true);
+            setIrisMode(true);
+          })
+          .catch(() => undefined);
+      }
+    }, 350);
     return () => clearTimeout(t);
   }, [isIrisCmd, irisActive, irisArg]);
 
@@ -930,7 +948,12 @@ function App() {
     let alive = true;
     irisStatus()
       .then((st) => {
-        if (alive) setIrisActive(!!st?.active);
+        if (!alive) return;
+        setIrisActive(!!st?.active);
+        // A session armed earlier (even before this popup opened) shows its
+        // live meter as soon as `iris` is typed — no mic side-effect, the
+        // capture is already running.
+        if (st?.active) setIrisMode(true);
       })
       .catch(() => {});
     return () => {
@@ -1347,8 +1370,8 @@ function App() {
         const a = parseIrisArg(arg);
         label = irisRowLabel(a, irisActive);
         hint = irisActive
-          ? "Enter → Schwelle ändern · Ränder glimmen rot, wenn das Mikro sie überschreitet"
-          : "Enter → Mikro überwachen; Bildschirmränder glimmen rot über der Schwelle";
+          ? "läuft — getippte Zahl stellt live nach · `iris` ohne Zahl + Enter schaltet aus"
+          : "Zahl tippen startet sofort (ohne Enter) · Ränder blitzen rot über der Schwelle";
         break;
       }
       case "stats":

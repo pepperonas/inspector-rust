@@ -196,7 +196,8 @@ describe("burstIntensity", () => {
 });
 
 describe("burstGapMs", () => {
-  it("uses the reference cadence when barely over the threshold", () => {
+  it("uses the calm cadence when barely over the threshold", () => {
+    // (No longer the literal reference values — tightened in v0.102.4.)
     expect(burstGapMs(0, () => 0)).toBeCloseTo(BURST_GAP_CALM[0], 5);
     expect(burstGapMs(0, () => 1)).toBeCloseTo(BURST_GAP_CALM[1], 5);
   });
@@ -236,10 +237,12 @@ describe("makeBurst", () => {
     }
   });
 
-  it("never exceeds a translucent peak — it must not black out the screen", () => {
+  it("never becomes fully opaque — bright flash, screen still usable", () => {
+    // Bound raised 0.78 → 0.95 in the v0.102.4 aggressiveness pass ("noch
+    // aufblitzender"): a flash may get close to solid, but never IS solid.
     for (let i = 0; i < 200; i++) {
       const b = makeBurst(i, 1, Math.random);
-      expect(b.peak).toBeLessThanOrEqual(0.78);
+      expect(b.peak).toBeLessThanOrEqual(0.95);
       expect(b.peak).toBeGreaterThan(0);
     }
   });
@@ -269,7 +272,9 @@ describe("makeBurst", () => {
     // is ~0.30 s — a flash, by design.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, Math.random(), Math.random);
-      expect(b.life).toBeGreaterThan(0.25);
+      // Floor lowered with the v0.102.4 shorter lives (fastest loud streak
+      // ≈ 0.23 s — deliberately a blink).
+      expect(b.life).toBeGreaterThan(0.2);
       expect(b.size).toBeGreaterThan(0);
       expect(b.rot).toBeGreaterThanOrEqual(0);
       expect(b.rot).toBeLessThan(360);
@@ -411,10 +416,12 @@ describe("makeBurst — further invariants", () => {
   });
 
   it("stays translucent even at the calmest setting", () => {
+    // Calm band 0.40–0.65 since v0.102.4 (was 0.30–0.50) — brighter baseline,
+    // still clearly see-through.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, 0, Math.random);
-      expect(b.peak).toBeGreaterThan(0.2);
-      expect(b.peak).toBeLessThan(0.5);
+      expect(b.peak).toBeGreaterThan(0.35);
+      expect(b.peak).toBeLessThan(0.66);
     }
   });
 
@@ -620,11 +627,12 @@ describe("makeBurst — soft flares (v0.102.3)", () => {
     expect(Math.max(...rots)).toBeGreaterThan(330);
   });
 
-  it("fades out fast: no flare lives past 1.6 s, no streak past 0.75 s", () => {
+  it("fades out fast: no flare lives past 1.3 s, no streak past 0.6 s", () => {
     // "Fade out schneller" — the lives ARE the lingering; pin them.
+    // Tightened again in v0.102.4.
     for (let i = 0; i < 400; i++) {
       const b = makeBurst(i, 0, Math.random);
-      expect(b.life).toBeLessThanOrEqual(b.streak ? 0.75 : 1.6);
+      expect(b.life).toBeLessThanOrEqual(b.streak ? 0.6 : 1.3);
     }
   });
 });

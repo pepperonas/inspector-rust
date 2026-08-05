@@ -974,7 +974,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Rotes Glimmen an den Bildschirmrändern, sobald das Mikrofon zu laut wird.",
     synopsis: "iris [dB]   ·   iris 0",
     description:
-      "Watches the default microphone in the background and lights a field of drifting red blobs around the edges of every screen while the level exceeds your threshold — a peripheral 'you are being loud' signal that needs no glance at a window. The overlays are click-through and never take focus, and no text is drawn, so the machine stays fully usable. Soft, punchy light flares fire along the edges of the screen on an irregular beat over a muted drifting field — strobing attack, shimmering hold, fast progressive fade, in the raspi5 dB-analysis page's warm red-to-amber palette; the middle of the screen always stays clear. The louder the room, the tighter the cadence and the stronger the impulse, without ever settling into a fixed beat. The threshold is SPL on the disco-controller convention (dBFS + 90), so a value that works on raspi5 means the same here.",
+      "Watches the default microphone in the background and lights a field of drifting red blobs around the edges of every screen while the level exceeds your threshold — a peripheral 'you are being loud' signal that needs no glance at a window. The overlays are click-through and never take focus, and no text is drawn, so the machine stays fully usable. Soft, punchy light flares fire along the edges of the screen on an irregular beat over a muted drifting field — strobing attack, shimmering hold, fast progressive fade, in the raspi5 dB-analysis page's warm red-to-amber palette; the middle of the screen always stays clear. Typing a number arms it immediately — no Enter — and editing the number retunes the running session live, marker included. The louder the room, the tighter the cadence and the stronger the impulse, without ever settling into a fixed beat. The threshold is SPL on the disco-controller convention (dBFS + 90), so a value that works on raspi5 means the same here.",
     arguments: [
       {
         name: "dB",
@@ -986,13 +986,13 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     flags: [],
     examples: [
-      { input: "iris 55", result: "Arms monitoring at 55 dB and opens the live calibration meter." },
+      { input: "iris 55", result: "Arms at 55 dB the moment you stop typing — no Enter — and shows the live meter." },
       { input: "iris", result: "Toggles: arms with the last threshold, or disarms a running session." },
       { input: "iris 0", result: "Switches monitoring off explicitly." },
       { input: "iris 72,5", result: "Arms at 72.5 dB — a comma decimal works too." },
     ],
     tips: [
-      "While the calibration panel is focused, ←/→ move the threshold live and the meter shows your room against it — far quicker than guessing a number.",
+      "Edit the number in the search bar to retune live — type `iris 50`, watch the meter, nudge to `iris 55`; every change applies without Enter and the threshold marker follows.",
       "Leaving the panel with Esc does NOT disarm: monitoring keeps running with the popup closed, which is the whole point. Use `iris` again or `iris 0` to stop it.",
       "The threshold is persisted, so a bare `iris` re-arms at the value you last tuned.",
     ],

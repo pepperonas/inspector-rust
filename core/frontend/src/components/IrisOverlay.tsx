@@ -49,7 +49,7 @@ import {
  * No text is ever drawn, and BOTH layers keep the middle of the screen clear:
  * `makeBlobs` for the field and `edgePosition` for the impulses (each
  * unit-tested — quadratically rim-biased, never deeper than 24 % from an
- * edge). That, plus a translucent peak (≤ 0.82) and short lives, is what
+ * edge). That, plus a never-opaque peak (≤ 0.95) and blink-short lives, is what
  * keeps the machine usable while iris is lit.
  */
 
@@ -130,8 +130,10 @@ const CSS = `
   filter:blur(var(--bblur));
   animation:iris-burst-pop var(--life) ${EASE} forwards;
 }
-/* Livelier than the reference's plain 18/62/100 envelope, on purpose:
-   - the attack strobes (first hit at 4 %, two stutters behind it),
+/* Livelier than the reference's plain 18/62/100 envelope, on purpose
+   (hardened again in v0.102.4 — "aggressiver, aufblitzender"):
+   - the attack strobes HARD (first hit at 3 %, dips to 8/15 % of peak — real
+     near-dark flashes, not a soft stutter),
    - the hold SHIMMERS instead of sitting still (36/46 % dip and recover —
      the same trick as the reference's GRAD font-axis pulse: apparent
      intensity moves while the geometry barely does),
@@ -141,17 +143,17 @@ const CSS = `
    The impulse also turns slightly over its life (--rotd): a still flare reads
    frozen, a turning one reads alive. */
 @keyframes iris-burst-pop{
-  0%   { opacity:0;                        transform:translate(-50%,-50%) rotate(var(--rot)) scale(.62) }
-  4%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.1) }
-  8%   { opacity:calc(var(--peak) * .25);  transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.05) }
-  12%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .1)) scale(1.07) }
-  18%  { opacity:calc(var(--peak) * .5);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .2)) scale(1.04) }
-  24%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .3)) scale(1.02) }
-  36%  { opacity:calc(var(--peak) * .8);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .45)) scale(1.01) }
-  46%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .55)) scale(1) }
-  56%  { opacity:calc(var(--peak) * .45);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .7)) scale(1.03) }
-  72%  { opacity:calc(var(--peak) * .14);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .85)) scale(1.1) }
-  100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.2) }
+  0%   { opacity:0;                        transform:translate(-50%,-50%) rotate(var(--rot)) scale(.5) }
+  3%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.14) }
+  6%   { opacity:calc(var(--peak) * .08);  transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.06) }
+  10%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .1)) scale(1.1) }
+  14%  { opacity:calc(var(--peak) * .15);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .18)) scale(1.05) }
+  19%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .26)) scale(1.06) }
+  30%  { opacity:calc(var(--peak) * .75);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .4)) scale(1.02) }
+  40%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .5)) scale(1) }
+  50%  { opacity:calc(var(--peak) * .4);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .64)) scale(1.04) }
+  68%  { opacity:calc(var(--peak) * .1);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .84)) scale(1.12) }
+  100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.24) }
 }
 
 /* One short beat on ignite, so arming itself lands. */
@@ -204,7 +206,7 @@ function burstBackground(b: IrisBurst): string {
   return b.lobes
     .map(
       (l) =>
-        `radial-gradient(circle at ${l.cx}% ${l.cy}%, rgba(255,255,255,.9) 0%, ${b.tint} ${Math.round(l.r * 0.3)}%, color-mix(in srgb, ${b.tint} 38%, transparent) ${Math.round(l.r * 0.64)}%, transparent ${l.r}%)`,
+        `radial-gradient(circle at ${l.cx}% ${l.cy}%, rgba(255,255,255,.96) 0%, ${b.tint} ${Math.round(l.r * 0.24)}%, color-mix(in srgb, ${b.tint} 38%, transparent) ${Math.round(l.r * 0.58)}%, transparent ${Math.round(l.r * 0.94)}%)`,
     )
     .join(", ");
 }

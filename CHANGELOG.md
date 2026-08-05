@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.4] — 2026-08-06
+
+### Changed
+
+- **`iris` arms as you type — no Enter.** Typing `iris 50` starts monitoring the moment you stop typing (~350 ms debounce) and opens the live meter; editing the number (50 → 55) retunes the running session directly, and the meter's threshold marker follows. Deliberately asymmetric: only a valid positive number acts live — a bare `iris`, `iris 0` or garbage never live-arm and never live-disarm, so the transient states while editing a number can't kill the session, and the Enter toggle stays usable (a bare `iris` that auto-armed would instantly re-arm what you are trying to switch off). Typing `iris` while a background session runs now also brings up the live meter (no mic side-effect — the capture is already running). This supersedes the earlier "typing never opens the microphone" rule for the number-carrying form, on explicit request.
+- **More aggressive flashing.** The attack strobes near-dark (dips to 8 %/15 % of peak instead of 25 %/50 %, first hit at 3 %), peaks reach up to 0.95 (calm baseline 0.40–0.65, never fully opaque), lives are blink-short (flares ≤ 1.3 s, streaks ≤ 0.6 s), the cadence tightens to 1.2–3.4 s calm / 0.3–0.85 s loud, up to 4 impulses at once, and the white core burns hotter.
+
 ## [0.102.3] — 2026-08-06
 
 ### Changed

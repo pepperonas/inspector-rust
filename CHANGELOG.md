@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.5] — 2026-08-06
+
+### Changed
+
+- **`iris`: full strobe.** The impulse never settles into a hold any more — it flickers between its peak and near-black (3–15 % of peak) for its **entire** life, with one last half-strength flare before dying while growing. Each spawn tick now fires a **volley** of 1–3 simultaneous impulses (louder = more), the cadence tightens to 0.7–2.2 s calm / 0.14–0.45 s loud, peaks reach 0.98 (calm baseline 0.50–0.75; never fully opaque — that cap is what separates "strobe" from "screen takeover"), lives shrink to a blink (flares ≤ 1.0 s, streaks ≤ 0.45 s), and up to 6 impulses can be airborne at once. Also fixed a latently flaky life-floor test that only passed while the RNG missed the true minimum.
+
 ## [0.102.4] — 2026-08-06
 
 ### Changed

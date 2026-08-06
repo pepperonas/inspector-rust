@@ -207,10 +207,10 @@ export function irisAction(arg: IrisArg, active: boolean): IrisAction {
 /** Cadence right at the threshold. Tightened from the reference's 1700–4800 ms
  *  in the v0.102.4 aggressiveness pass; the principle stays its own — "a fixed
  *  beat reads mechanical … wide spread, so it never settles into a rhythm". */
-export const BURST_GAP_CALM: readonly [number, number] = [1200, 3400];
+export const BURST_GAP_CALM: readonly [number, number] = [700, 2200];
 /** Cadence when the level is far over. The reference has no such mode — it
  *  fires blind — this is the level-reactive extension. */
-export const BURST_GAP_LOUD: readonly [number, number] = [300, 850];
+export const BURST_GAP_LOUD: readonly [number, number] = [140, 450];
 /** dB above the threshold that counts as "as loud as it gets". */
 export const BURST_SPAN_DB = 25;
 /** Concurrent burst cap. The reference uses 2 and — importantly — counts the
@@ -218,7 +218,7 @@ export const BURST_SPAN_DB = 25;
  *  moment one `animationend` fails to arrive (a throttled tab is enough) and
  *  then blocks spawning forever, silently. The React port keeps the same
  *  property by capping on the length of the live array. */
-export const BURST_MAX = 4;
+export const BURST_MAX = 6;
 /** The reference's `IRIS_TINTS` — deliberately warm-graded (red → salmon →
  *  amber → near-white), which is what keeps it from reading as one flat red. */
 export const BURST_TINTS = ["#ff5252", "#ff8a80", "#ffd684", "#fff1ee"] as const;
@@ -298,6 +298,20 @@ export function makeBurstLobes(rand: () => number, streak: boolean): BurstLobe[]
   return lobes;
 }
 
+/**
+ * How many impulses one spawn tick fires (v0.102.5 "mehr Strobo!"). Calm ticks
+ * mostly fire one, sometimes two; a loud room fires two to three at once —
+ * simultaneous multi-point flashes are what makes a volley read as strobing
+ * rather than as a sequence.
+ */
+export function volleySize(intensity: number, rand: () => number): number {
+  const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+  let n = 1;
+  if (rand() < 0.35 + 0.4 * t) n++;
+  if (t > 0.6 && rand() < 0.35) n++;
+  return n;
+}
+
 /** How far over the threshold we are, as 0..1 over [`BURST_SPAN_DB`] dB. */
 export function burstIntensity(
   spl: number,
@@ -333,20 +347,20 @@ export function makeBurst(id: number, intensity: number, rand: () => number): Ir
     id,
     x,
     y,
-    size: (24 + rand() * 32) * (0.92 + t * 0.45) * (streak ? 1.4 : 1),
+    size: (26 + rand() * 34) * (0.92 + t * 0.45) * (streak ? 1.4 : 1),
     aspect: streak ? 0.08 + rand() * 0.12 : 0.55 + rand() * 0.35,
     // Short on purpose — a flash, not a glow. The fade-out is most of what
     // lingers over the screen, and each pass has asked for less of it.
-    life: (streak ? 0.32 + rand() * 0.24 : 0.7 + rand() * 0.55) * (1 - t * 0.28),
+    life: (streak ? 0.25 + rand() * 0.2 : 0.55 + rand() * 0.45) * (1 - t * 0.25),
     // Bright: calm 0.40–0.65, loud up to the 0.95 cap. Never fully opaque —
     // that is what keeps the screen usable through a flash.
-    peak: Math.min(0.95, 0.4 + rand() * 0.25 + t * 0.3),
+    peak: Math.min(0.98, 0.5 + rand() * 0.25 + t * 0.28),
     rot: rand() * 360,
     rotDrift: (rand() * 2 - 1) * 14,
     tint: BURST_TINTS[Math.min(BURST_TINTS.length - 1, (rand() * BURST_TINTS.length) | 0)],
     lobes: makeBurstLobes(rand, streak),
     // Small: the gradients already carry the softness, this only feathers.
-    blur: streak ? 1 + rand() * 1.8 : 2.5 + rand() * 4,
+    blur: streak ? 0.8 + rand() * 1.4 : 2 + rand() * 3.5,
     streak,
   };
 }

@@ -4,6 +4,7 @@ import {
   irisAction,
   edgePosition,
   makeBurstLobes,
+  volleySize,
   BURST_EDGE_DEPTH,
   burstIntensity,
   burstGapMs,
@@ -238,11 +239,13 @@ describe("makeBurst", () => {
   });
 
   it("never becomes fully opaque — bright flash, screen still usable", () => {
-    // Bound raised 0.78 → 0.95 in the v0.102.4 aggressiveness pass ("noch
-    // aufblitzender"): a flash may get close to solid, but never IS solid.
+    // Cap raised again to 0.98 in v0.102.5 ("deutlich aggressiver"): a flash
+    // may get within a hair of solid, but never IS solid — this line is the
+    // last thing standing between "strobe" and "screen takeover", never relax
+    // it to 1.0.
     for (let i = 0; i < 200; i++) {
       const b = makeBurst(i, 1, Math.random);
-      expect(b.peak).toBeLessThanOrEqual(0.95);
+      expect(b.peak).toBeLessThanOrEqual(0.98);
       expect(b.peak).toBeGreaterThan(0);
     }
   });
@@ -272,9 +275,11 @@ describe("makeBurst", () => {
     // is ~0.30 s — a flash, by design.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, Math.random(), Math.random);
-      // Floor lowered with the v0.102.4 shorter lives (fastest loud streak
-      // ≈ 0.23 s — deliberately a blink).
-      expect(b.life).toBeGreaterThan(0.2);
+      // Floor matches the true v0.102.5 minimum (0.25 × 0.75 = 0.1875 for a
+      // loud streak — deliberately a blink). Kept strictly below that value:
+      // an over-tight floor here was latent flakiness, red only when the RNG
+      // happened to hit the corner.
+      expect(b.life).toBeGreaterThan(0.18);
       expect(b.size).toBeGreaterThan(0);
       expect(b.rot).toBeGreaterThanOrEqual(0);
       expect(b.rot).toBeLessThan(360);
@@ -299,10 +304,12 @@ describe("cross-language contract", () => {
   });
 
   it("keeps the concurrency cap small enough to stay readable", () => {
-    // The reference caps at 2; more than a handful on screen at once stops
-    // reading as discrete impulses.
+    // The reference caps at 2. v0.102.5 fires volleys of up to 3 per tick, so
+    // the cap is 6 — one full volley of headroom while another is mid-flight.
+    // Past ~8 the screen stops reading as discrete impulses and becomes one
+    // continuous shimmer, which is the opposite of a strobe.
     expect(BURST_MAX).toBeGreaterThan(0);
-    expect(BURST_MAX).toBeLessThanOrEqual(5);
+    expect(BURST_MAX).toBeLessThanOrEqual(8);
   });
 });
 
@@ -416,12 +423,12 @@ describe("makeBurst — further invariants", () => {
   });
 
   it("stays translucent even at the calmest setting", () => {
-    // Calm band 0.40–0.65 since v0.102.4 (was 0.30–0.50) — brighter baseline,
-    // still clearly see-through.
+    // Calm band 0.50–0.75 since v0.102.5 — bright even at rest, still
+    // see-through.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, 0, Math.random);
-      expect(b.peak).toBeGreaterThan(0.35);
-      expect(b.peak).toBeLessThan(0.66);
+      expect(b.peak).toBeGreaterThan(0.45);
+      expect(b.peak).toBeLessThan(0.76);
     }
   });
 
@@ -627,12 +634,43 @@ describe("makeBurst — soft flares (v0.102.3)", () => {
     expect(Math.max(...rots)).toBeGreaterThan(330);
   });
 
-  it("fades out fast: no flare lives past 1.3 s, no streak past 0.6 s", () => {
+  it("fades out fast: no flare lives past 1.0 s, no streak past 0.45 s", () => {
     // "Fade out schneller" — the lives ARE the lingering; pin them.
-    // Tightened again in v0.102.4.
+    // Tightened again in v0.102.5.
     for (let i = 0; i < 400; i++) {
       const b = makeBurst(i, 0, Math.random);
-      expect(b.life).toBeLessThanOrEqual(b.streak ? 0.6 : 1.3);
+      expect(b.life).toBeLessThanOrEqual(b.streak ? 0.45 : 1.0);
     }
+  });
+});
+
+describe("volleySize", () => {
+  it("always fires at least one and never more than three", () => {
+    for (let i = 0; i < 500; i++) {
+      const n = volleySize(Math.random(), Math.random);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(n).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("a calm room never fires a triple", () => {
+    for (let i = 0; i < 300; i++) {
+      expect(volleySize(0, Math.random)).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("fires bigger volleys the louder it gets", () => {
+    const avg = (t: number) => {
+      let sum = 0;
+      for (let i = 0; i < 3000; i++) sum += volleySize(t, Math.random);
+      return sum / 3000;
+    };
+    // Expected means: ~1.35 calm vs ~2.1 loud — a wide, stable gap.
+    expect(avg(1)).toBeGreaterThan(avg(0) + 0.4);
+  });
+
+  it("clamps a nonsense intensity instead of misfiring", () => {
+    expect(volleySize(-5, () => 0.99)).toBe(1);
+    expect(volleySize(99, () => 0)).toBe(3);
   });
 });

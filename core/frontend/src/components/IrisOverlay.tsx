@@ -7,6 +7,7 @@ import {
   makeBurst,
   burstGapMs,
   burstIntensity,
+  volleySize,
   BURST_MAX,
 } from "../lib/iris";
 
@@ -130,30 +131,28 @@ const CSS = `
   filter:blur(var(--bblur));
   animation:iris-burst-pop var(--life) ${EASE} forwards;
 }
-/* Livelier than the reference's plain 18/62/100 envelope, on purpose
-   (hardened again in v0.102.4 — "aggressiver, aufblitzender"):
-   - the attack strobes HARD (first hit at 3 %, dips to 8/15 % of peak — real
-     near-dark flashes, not a soft stutter),
-   - the hold SHIMMERS instead of sitting still (36/46 % dip and recover —
-     the same trick as the reference's GRAD font-axis pulse: apparent
-     intensity moves while the geometry barely does),
-   - the fade starts earlier (~56 %) and drops steeply first (72 % is already
-     down to ~14 %), then trails out while growing — a progressive out, so the
-     screen clears fast but the impulse doesn't just pop off.
-   The impulse also turns slightly over its life (--rotd): a still flare reads
-   frozen, a turning one reads alive. */
+/* v0.102.5: a FULL-LIFE STROBE TRAIN ("deutlich aggressiver, mehr Strobo").
+   The impulse no longer settles into a hold at all — it flickers between its
+   peak and near-black (3-15 % of peak) for its whole life, with one last
+   half-strength flare at 74 % before dying while growing. The reference's
+   cubic-bezier(0.2,0,0,1) easing and the die-while-growing exit remain; the
+   18/62/100 envelope is long gone. Slight rotation drift (--rotd) throughout. */
 @keyframes iris-burst-pop{
   0%   { opacity:0;                        transform:translate(-50%,-50%) rotate(var(--rot)) scale(.5) }
-  3%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.14) }
-  6%   { opacity:calc(var(--peak) * .08);  transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.06) }
-  10%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .1)) scale(1.1) }
-  14%  { opacity:calc(var(--peak) * .15);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .18)) scale(1.05) }
-  19%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .26)) scale(1.06) }
-  30%  { opacity:calc(var(--peak) * .75);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .4)) scale(1.02) }
-  40%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .5)) scale(1) }
-  50%  { opacity:calc(var(--peak) * .4);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .64)) scale(1.04) }
-  68%  { opacity:calc(var(--peak) * .1);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .84)) scale(1.12) }
-  100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.24) }
+  2%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.16) }
+  5%   { opacity:calc(var(--peak) * .03);  transform:translate(-50%,-50%) rotate(var(--rot)) scale(1.08) }
+  8%   { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .08)) scale(1.12) }
+  11%  { opacity:calc(var(--peak) * .05);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .12)) scale(1.06) }
+  15%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .18)) scale(1.08) }
+  19%  { opacity:calc(var(--peak) * .08);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .24)) scale(1.04) }
+  24%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .3)) scale(1.05) }
+  30%  { opacity:calc(var(--peak) * .1);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .38)) scale(1.02) }
+  36%  { opacity:var(--peak);              transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .46)) scale(1.03) }
+  44%  { opacity:calc(var(--peak) * .15);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .56)) scale(1) }
+  52%  { opacity:calc(var(--peak) * .92);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .66)) scale(1.04) }
+  62%  { opacity:calc(var(--peak) * .12);  transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .78)) scale(1.08) }
+  74%  { opacity:calc(var(--peak) * .5);   transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd) * .88)) scale(1.14) }
+  100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.3) }
 }
 
 /* One short beat on ignite, so arming itself lands. */
@@ -304,10 +303,18 @@ export function IrisOverlay() {
         // Cap on the live array length, never on a separate counter: a counter
         // drifts the moment one `animationend` fails to arrive and then blocks
         // spawning forever, silently. (Learned the hard way in the reference.)
-        if (prev.length >= BURST_MAX) return prev;
-        const b = makeBurst(++seqRef.current, intensity, Math.random);
-        window.setTimeout(() => drop(b.id), b.life * 1000 + BURST_REAP_MARGIN_MS);
-        return [...prev, b];
+        // Each tick fires a VOLLEY (1-3, louder = more): simultaneous
+        // multi-point flashes are what reads as strobing.
+        const room = BURST_MAX - prev.length;
+        if (room <= 0) return prev;
+        const n = Math.min(room, volleySize(intensity, Math.random));
+        const fresh: IrisBurst[] = [];
+        for (let i = 0; i < n; i++) {
+          const b = makeBurst(++seqRef.current, intensity, Math.random);
+          window.setTimeout(() => drop(b.id), b.life * 1000 + BURST_REAP_MARGIN_MS);
+          fresh.push(b);
+        }
+        return [...prev, ...fresh];
       });
       schedule();
     };

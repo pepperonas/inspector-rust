@@ -378,6 +378,43 @@ export function makeBurst(id: number, intensity: number, rand: () => number): Ir
   };
 }
 
+// ─── Beat matching ───────────────────────────────────────────────────────
+//
+// The backend runs one BeatDetector (beat.rs — the ported, field-proven
+// BpmAnalyzer core) on the iris capture and emits one `iris-beat` event per
+// kick onset. While beats are flowing, the overlays fire their volleys ON
+// those events; the random cadence degrades to a watchdog. One detector, one
+// event → every monitor flashes on the same beat.
+
+/** How long after the last onset the chain stays beat-driven. Two seconds
+ *  bridges a breakdown/fill without falling back to random mid-song, yet a
+ *  stopped track hands back to the fallback quickly. */
+export const BEAT_HOLD_MS = 2500;
+
+/** Is the chain currently beat-driven? (Pure — the component passes the ms
+ *  since the last `iris-beat`.) */
+export function beatDriven(msSinceBeat: number): boolean {
+  return Number.isFinite(msSinceBeat) && msSinceBeat >= 0 && msSinceBeat <= BEAT_HOLD_MS;
+}
+
+/** Volley size for a BEAT — at least a pair, and a strong kick over a loud
+ *  room fires the full four. Never below the random cadence's own sizing:
+ *  a beat must always hit at least as hard as chance would. */
+export function beatVolley(strength: number, intensity: number, rand: () => number): number {
+  const s = strength < 0 ? 0 : strength > 1 ? 1 : strength;
+  let n = 2;
+  if (rand() < 0.25 + 0.55 * s) n++;
+  if (s > 0.5 && rand() < 0.3 + 0.4 * (intensity < 0 ? 0 : intensity > 1 ? 1 : intensity)) n++;
+  return n;
+}
+
+/** Whether a beat carries the full-rim flash. Scales with the KICK's own
+ *  salience, not the room level — the flash belongs to the hit. */
+export function beatFlash(strength: number, rand: () => number): boolean {
+  const s = strength < 0 ? 0 : strength > 1 ? 1 : strength;
+  return rand() < 0.35 + 0.55 * s;
+}
+
 /** Label for the command row — the row has to say which way it will flip. */
 export function irisRowLabel(arg: IrisArg, active: boolean): string {
   switch (arg.kind) {

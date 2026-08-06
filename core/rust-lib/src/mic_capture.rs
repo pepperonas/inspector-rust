@@ -17,6 +17,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 
+/// Callback for [`Sink::Chunks`]: one drained mono chunk + the device rate.
+pub type ChunkFn = Box<dyn Fn(&[f32], u32) + Send>;
+
 /// A running capture; drop or `stop()` to end it (the worker thread owns the
 /// cpal stream — `cpal::Stream` isn't `Send`, so it never leaves that thread).
 pub struct MicStream {
@@ -40,18 +43,19 @@ pub enum Sink {
     /// Emit base64 LE-`i16` mono PCM as `{rate, b64}` on this Tauri event —
     /// the BPM detector / disco path, which needs the samples themselves.
     Pcm(&'static str),
-    /// Call back with the chunk's linear RMS (0..1). Used by `iris`, which
-    /// only needs a loudness figure: shipping base64 PCM 25×/s over IPC just
-    /// to square-and-average it in the webview would be pure waste, and the
-    /// threshold decision belongs in one place (Rust) anyway.
-    Level(Box<dyn Fn(f32) + Send>),
+    /// Call back with each drained mono chunk + the device sample rate.
+    /// Used by `iris`, which needs the samples themselves (RMS for the
+    /// threshold + the beat detector): shipping base64 PCM 25×/s over IPC
+    /// just to analyse it in a webview would be pure waste, and the
+    /// decisions belong in one place (Rust) anyway.
+    Chunks(ChunkFn),
 }
 
 impl Sink {
     fn label(&self) -> &'static str {
         match self {
             Sink::Pcm(ev) => ev,
-            Sink::Level(_) => "level",
+            Sink::Chunks(_) => "chunks",
         }
     }
 }
@@ -61,10 +65,14 @@ pub fn start(app: AppHandle, event: &'static str) -> MicStream {
     start_with(app, Sink::Pcm(event))
 }
 
-/// Start a level-only capture: `on_rms` is called ~25×/s with the linear RMS
-/// of each chunk. No IPC, no base64 — see [`Sink::Level`].
-pub fn start_level(app: AppHandle, on_rms: impl Fn(f32) + Send + 'static) -> MicStream {
-    start_with(app, Sink::Level(Box::new(on_rms)))
+/// Start an analysis capture: `on_chunk` is called ~25×/s with each drained
+/// mono chunk and the device sample rate. No IPC, no base64 — see
+/// [`Sink::Chunks`].
+pub fn start_chunks(
+    app: AppHandle,
+    on_chunk: impl Fn(&[f32], u32) + Send + 'static,
+) -> MicStream {
+    start_with(app, Sink::Chunks(Box::new(on_chunk)))
 }
 
 /// Shared entry point: spawns the worker thread that owns the cpal stream
@@ -82,7 +90,7 @@ pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
 }
 
 /// Root-mean-square of a mono chunk (linear amplitude, 0..1).
-fn chunk_rms(chunk: &[f32]) -> f32 {
+pub(crate) fn chunk_rms(chunk: &[f32]) -> f32 {
     if chunk.is_empty() {
         return 0.0;
     }
@@ -161,7 +169,7 @@ fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> 
             continue;
         }
         match &sink {
-            Sink::Level(on_rms) => on_rms(chunk_rms(&chunk)),
+            Sink::Chunks(on_chunk) => on_chunk(&chunk, rate),
             Sink::Pcm(event) => {
                 let mut bytes = Vec::with_capacity(chunk.len() * 2);
                 for &s in &chunk {
@@ -262,6 +270,6 @@ mod tests {
     #[test]
     fn sink_labels_identify_the_mode_in_logs() {
         assert_eq!(Sink::Pcm("mic-audio").label(), "mic-audio");
-        assert_eq!(Sink::Level(Box::new(|_| {})).label(), "level");
+        assert_eq!(Sink::Chunks(Box::new(|_, _| {})).label(), "chunks");
     }
 }

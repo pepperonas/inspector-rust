@@ -64,6 +64,12 @@ pub const OVERLAY_LABEL_PREFIX: &str = "iris-overlay-";
 const SETTING_THRESHOLD: &str = "iris.threshold_spl";
 pub const EVENT_OVER: &str = "iris-over";
 pub const EVENT_LEVEL: &str = "iris-level";
+/// One event per detected beat onset — `{ strength, bpm, confidence }`. The
+/// overlays fire their volleys on THIS instead of the random cadence while
+/// beats are flowing, which is what makes the strobe land on the music. One
+/// detector in Rust, one event to every overlay window → all monitors flash
+/// on the same beat.
+pub const EVENT_BEAT: &str = "iris-beat";
 
 // ---------------------------------------------------------------- pure core
 
@@ -369,7 +375,20 @@ pub fn start(
     let stream = {
         let app = app.clone();
         let shared = shared.clone();
-        crate::mic_capture::start_level(app.clone(), move |rms| {
+        // The beat detector is created lazily on the first chunk — the device
+        // sample rate is only known then. Mutex, not RefCell: the callback is
+        // `Fn` and runs on the capture worker thread.
+        let detector: Mutex<Option<crate::beat::BeatDetector>> = Mutex::new(None);
+        crate::mic_capture::start_chunks(app.clone(), move |chunk, rate| {
+            // Beat detection first — onsets are sparse and cheap to emit.
+            {
+                let mut det = detector.lock();
+                let d = det.get_or_insert_with(|| crate::beat::BeatDetector::new(rate));
+                for onset in d.feed(chunk) {
+                    let _ = app.emit(EVENT_BEAT, onset);
+                }
+            }
+            let rms = crate::mic_capture::chunk_rms(chunk);
             let spl_now = dbfs_to_spl(rms_to_dbfs(rms, -120.0));
             let (spl, over, threshold, edge, emit_level) = {
                 let mut s = shared.lock();

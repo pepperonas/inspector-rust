@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.103.0] — 2026-08-06
+
+### Added
+
+- **`iris` strobes on the beat.** A beat detector now runs on the iris microphone capture — a faithful Rust port of the field-proven `BpmAnalyzer` core (the `bpm` detector / disco engine / raspi5 disco-controller lineage): energy onsets on the kick band (30–100 Hz), the SuperFlux lagged-peak gate against ghost onsets from kick decay and room echo, the 3 s calibration gate against the startup false-onset burst, a 300 ms refractory, and an IOI-median tempo with confidence. Each detected kick fires a volley **on the hit** — at least a pair, up to four for a hard kick over a loud room — and the full-rim flash follows the kick's own salience. Detection happens once in Rust and fans out as one `iris-beat` event, so **every monitor flashes on the same beat**. The random cadence stays as a watchdog: 2.5 s without an onset (music stopped, noise without rhythm) and the previous behaviour takes back over seamlessly. Onset timing verified deterministic in tests: synthetic 120/80 BPM kick tracks read within ±4 BPM, land within ~40 ms of the true beats, and steady tones, silence and the calibration window all stay quiet.
+
 ## [0.102.6] — 2026-08-06
 
 ### Changed

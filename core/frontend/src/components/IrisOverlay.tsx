@@ -9,6 +9,9 @@ import {
   burstIntensity,
   volleySize,
   volleyFlash,
+  beatDriven,
+  beatVolley,
+  beatFlash,
   BURST_MAX,
 } from "../lib/iris";
 
@@ -224,6 +227,9 @@ export function IrisOverlay() {
   /** Live 0..1 loudness above the threshold, read by the scheduler without
    *  re-subscribing it on every level event (those arrive ~10×/s). */
   const intensityRef = useRef(0);
+  /** `performance.now()` of the last `iris-beat` — the random cadence checks
+   *  this and stands down while beats are flowing. */
+  const lastBeatRef = useRef(-Infinity);
   const timerRef = useRef<number | null>(null);
   const seqRef = useRef(0);
   const aliveRef = useRef(true);
@@ -303,18 +309,18 @@ export function IrisOverlay() {
       setBursts((prev) => prev.filter((b) => b.id !== id));
     };
 
-    const spawn = () => {
+    // Shared volley spawner. `want` bursts, cap-limited; `flash` re-keys the
+    // full-rim flash element.
+    const fire = (want: number, flash: boolean) => {
       const intensity = intensityRef.current;
       setBursts((prev) => {
         // Cap on the live array length, never on a separate counter: a counter
         // drifts the moment one `animationend` fails to arrive and then blocks
         // spawning forever, silently. (Learned the hard way in the reference.)
-        // Each tick fires a VOLLEY (1-3, louder = more): simultaneous
-        // multi-point flashes are what reads as strobing.
         const room = BURST_MAX - prev.length;
         if (room <= 0) return prev;
-        const n = Math.min(room, volleySize(intensity, Math.random));
-        if (volleyFlash(intensity, Math.random)) setFlashKey((k) => k + 1);
+        const n = Math.min(room, want);
+        if (flash) setFlashKey((k) => k + 1);
         const fresh: IrisBurst[] = [];
         for (let i = 0; i < n; i++) {
           const b = makeBurst(++seqRef.current, intensity, Math.random);
@@ -323,6 +329,15 @@ export function IrisOverlay() {
         }
         return [...prev, ...fresh];
       });
+    };
+
+    const spawn = () => {
+      // While beats are flowing, the random cadence is only a WATCHDOG —
+      // the `iris-beat` listener below does the actual firing, ON the music.
+      if (!beatDriven(performance.now() - lastBeatRef.current)) {
+        const intensity = intensityRef.current;
+        fire(volleySize(intensity, Math.random), volleyFlash(intensity, Math.random));
+      }
       schedule();
     };
 
@@ -332,6 +347,22 @@ export function IrisOverlay() {
         burstGapMs(intensityRef.current, Math.random),
       );
     };
+
+    // Beat-driven path: one volley per detected kick, scaled by the kick's
+    // salience — this is what locks the strobe to the music. The event is
+    // emitted once in Rust, so every monitor's overlay fires on the same beat.
+    const unBeat = listen<{ strength: number; bpm: number | null; confidence: number }>(
+      "iris-beat",
+      (e) => {
+        const p = e.payload;
+        if (!p) return;
+        lastBeatRef.current = performance.now();
+        fire(
+          beatVolley(p.strength, intensityRef.current, Math.random),
+          beatFlash(p.strength, Math.random),
+        );
+      },
+    );
 
     // The reference deliberately does not spawn on arm, because a one-tick poll
     // dropout re-armed it constantly. Our `over` is edge-triggered in Rust with
@@ -344,6 +375,7 @@ export function IrisOverlay() {
         clearTimeout(timerRef.current);
         timerRef.current = null;
       }
+      unBeat.then((f) => f()).catch(() => {});
     };
   }, [over]);
 

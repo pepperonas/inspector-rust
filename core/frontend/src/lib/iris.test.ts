@@ -6,6 +6,10 @@ import {
   makeBurstLobes,
   volleySize,
   volleyFlash,
+  beatDriven,
+  beatVolley,
+  beatFlash,
+  BEAT_HOLD_MS,
   BURST_EDGE_DEPTH,
   burstIntensity,
   burstGapMs,
@@ -700,5 +704,63 @@ describe("volleyFlash", () => {
   it("clamps nonsense intensities", () => {
     expect(volleyFlash(-9, () => 0.5)).toBe(false);
     expect(volleyFlash(99, () => 0.5)).toBe(true);
+  });
+});
+
+describe("beatDriven", () => {
+  it("holds beat mode through a fill, releases after the hold", () => {
+    expect(beatDriven(0)).toBe(true);
+    expect(beatDriven(BEAT_HOLD_MS)).toBe(true);
+    expect(beatDriven(BEAT_HOLD_MS + 1)).toBe(false);
+  });
+
+  it("a never-seen beat (Infinity) is not beat-driven", () => {
+    expect(beatDriven(Infinity)).toBe(false);
+    expect(beatDriven(NaN)).toBe(false);
+    expect(beatDriven(-5)).toBe(false);
+  });
+});
+
+describe("beatVolley", () => {
+  it("always fires at least a pair — a beat must land harder than chance", () => {
+    for (let i = 0; i < 400; i++) {
+      const n = beatVolley(Math.random(), Math.random(), Math.random);
+      expect(n).toBeGreaterThanOrEqual(2);
+      expect(n).toBeLessThanOrEqual(4);
+    }
+  });
+
+  it("a weak kick never fires the full four", () => {
+    for (let i = 0; i < 300; i++) {
+      expect(beatVolley(0.2, 1, Math.random)).toBeLessThanOrEqual(3);
+    }
+  });
+
+  it("stronger kicks fire bigger volleys on average", () => {
+    const avg = (str: number) => {
+      let sum = 0;
+      for (let i = 0; i < 3000; i++) sum += beatVolley(str, 0.5, Math.random);
+      return sum / 3000;
+    };
+    expect(avg(1)).toBeGreaterThan(avg(0.1) + 0.3);
+  });
+
+  it("clamps nonsense strengths", () => {
+    expect(beatVolley(-9, 0, () => 0.99)).toBe(2);
+    expect(beatVolley(99, 1, () => 0)).toBe(4);
+  });
+});
+
+describe("beatFlash", () => {
+  it("scales with the kick's salience and never fires always", () => {
+    const rate = (str: number) => {
+      let hits = 0;
+      for (let i = 0; i < 4000; i++) if (beatFlash(str, Math.random)) hits++;
+      return hits / 4000;
+    };
+    expect(rate(1)).toBeGreaterThan(rate(0) + 0.3);
+    // Cap 0.9: even the hardest kick leaves room for a non-flash volley.
+    expect(beatFlash(1, () => 0.95)).toBe(false);
+    expect(beatFlash(0, () => 0.1)).toBe(true);
   });
 });

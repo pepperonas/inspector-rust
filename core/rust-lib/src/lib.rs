@@ -32,6 +32,7 @@ mod shazam;
 mod translate;
 mod weather;
 mod token_usage;
+mod beat;
 mod iris;
 mod mic_capture;
 mod image_ops;

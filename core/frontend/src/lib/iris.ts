@@ -207,10 +207,10 @@ export function irisAction(arg: IrisArg, active: boolean): IrisAction {
 /** Cadence right at the threshold. Tightened from the reference's 1700–4800 ms
  *  in the v0.102.4 aggressiveness pass; the principle stays its own — "a fixed
  *  beat reads mechanical … wide spread, so it never settles into a rhythm". */
-export const BURST_GAP_CALM: readonly [number, number] = [700, 2200];
+export const BURST_GAP_CALM: readonly [number, number] = [550, 1700];
 /** Cadence when the level is far over. The reference has no such mode — it
  *  fires blind — this is the level-reactive extension. */
-export const BURST_GAP_LOUD: readonly [number, number] = [140, 450];
+export const BURST_GAP_LOUD: readonly [number, number] = [110, 380];
 /** dB above the threshold that counts as "as loud as it gets". */
 export const BURST_SPAN_DB = 25;
 /** Concurrent burst cap. The reference uses 2 and — importantly — counts the
@@ -218,7 +218,7 @@ export const BURST_SPAN_DB = 25;
  *  moment one `animationend` fails to arrive (a throttled tab is enough) and
  *  then blocks spawning forever, silently. The React port keeps the same
  *  property by capping on the length of the live array. */
-export const BURST_MAX = 6;
+export const BURST_MAX = 7;
 /** The reference's `IRIS_TINTS` — deliberately warm-graded (red → salmon →
  *  amber → near-white), which is what keeps it from reading as one flat red. */
 export const BURST_TINTS = ["#ff5252", "#ff8a80", "#ffd684", "#fff1ee"] as const;
@@ -308,8 +308,21 @@ export function volleySize(intensity: number, rand: () => number): number {
   const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
   let n = 1;
   if (rand() < 0.35 + 0.4 * t) n++;
-  if (t > 0.6 && rand() < 0.35) n++;
+  if (t > 0.5 && rand() < 0.45) n++;
+  if (t > 0.8 && rand() < 0.3) n++;
   return n;
+}
+
+/**
+ * Whether this volley additionally fires the full-rim flash — the whole edge
+ * of the screen blinking with the volley is what pushes the effect from
+ * "impulses appear" to "the screen itself is strobing". Probability rises
+ * with loudness; the centre-weighted transparency of the flash keeps the
+ * middle readable even mid-blink.
+ */
+export function volleyFlash(intensity: number, rand: () => number): boolean {
+  const t = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+  return rand() < 0.22 + 0.4 * t;
 }
 
 /** How far over the threshold we are, as 0..1 over [`BURST_SPAN_DB`] dB. */
@@ -347,14 +360,14 @@ export function makeBurst(id: number, intensity: number, rand: () => number): Ir
     id,
     x,
     y,
-    size: (26 + rand() * 34) * (0.92 + t * 0.45) * (streak ? 1.4 : 1),
+    size: (30 + rand() * 40) * (0.92 + t * 0.45) * (streak ? 1.5 : 1),
     aspect: streak ? 0.08 + rand() * 0.12 : 0.55 + rand() * 0.35,
     // Short on purpose — a flash, not a glow. The fade-out is most of what
     // lingers over the screen, and each pass has asked for less of it.
     life: (streak ? 0.25 + rand() * 0.2 : 0.55 + rand() * 0.45) * (1 - t * 0.25),
     // Bright: calm 0.40–0.65, loud up to the 0.95 cap. Never fully opaque —
     // that is what keeps the screen usable through a flash.
-    peak: Math.min(0.98, 0.5 + rand() * 0.25 + t * 0.28),
+    peak: Math.min(0.98, 0.55 + rand() * 0.25 + t * 0.25),
     rot: rand() * 360,
     rotDrift: (rand() * 2 - 1) * 14,
     tint: BURST_TINTS[Math.min(BURST_TINTS.length - 1, (rand() * BURST_TINTS.length) | 0)],

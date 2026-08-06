@@ -5,7 +5,11 @@
 //!
 //! Threading: the tap runs on a dedicated `CFRunLoop` thread (like
 //! `input_lock`/`gestures`). Window/overlay ops are marshalled to the main
-//! thread via `run_on_main_thread`; AX calls are thread-safe and run inline.
+//! thread via `run_on_main_thread`. AX *reads* run inline on the tap thread;
+//! the AX frame *setter* is ALSO bounced to the main thread — for other apps'
+//! windows it is a thread-safe MIG call, but for a window of our OWN process
+//! (dragged screenshot pin, popup) AX short-circuits in-process into AppKit,
+//! which macOS 26 hard-asserts onto the main thread (silent EXC_BREAKPOINT).
 //! Requires **Accessibility** (`expander::accessibility_granted`).
 
 use super::{classify_zone, cocoa_rect_to_topleft, zone_rect, Rect, SnapZone};
@@ -386,7 +390,21 @@ extern "C" fn tap_callback(
             tracing::debug!("snap: mouseup dragging={was_dragging} cancelled={cancelled} target={target:?}");
             if was_dragging && !cancelled {
                 if let Some(rect) = target {
-                    snap_focused_window(rect);
+                    // ⚠️ On the MAIN thread, not inline on this tap thread.
+                    // For windows of OTHER apps the AX setter is a thread-safe
+                    // out-of-process MIG call and inline was fine for years —
+                    // but when the focused window belongs to OUR OWN process
+                    // (a dragged screenshot pin, the popup), AX short-circuits
+                    // in-process straight into AppKit, and macOS 26's
+                    // WindowManagement hard-asserts the main thread:
+                    // EXC_BREAKPOINT, no Rust panic, no crash.log — the app
+                    // just vanishes. Field crash 2026-08-06, same family as
+                    // the iris overlay-build crash (see iris.rs).
+                    if let Some(app) = app_handle() {
+                        let _ = app.run_on_main_thread(move || snap_focused_window(rect));
+                    } else {
+                        snap_focused_window(rect);
+                    }
                 }
             }
         }

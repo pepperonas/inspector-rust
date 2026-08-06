@@ -925,15 +925,30 @@ function App() {
   useEffect(() => {
     if (!isIrisCmd) return;
     const a = parseIrisArg(irisArg);
-    if (a.kind !== "on") return;
     const t = setTimeout(() => {
-      if (irisActive) {
-        void irisSetThreshold(a.threshold).catch(() => undefined);
-      } else {
-        irisStart(a.threshold)
+      if (a.kind === "on") {
+        if (irisActive) {
+          void irisSetThreshold(a.threshold).catch(() => undefined);
+        } else {
+          irisStart(a.threshold)
+            .then(() => {
+              setIrisActive(true);
+              setIrisMode(true);
+            })
+            .catch(() => undefined);
+        }
+      } else if (irisActive) {
+        // Deleting the number down to a bare `iris` (or typing `iris 0`)
+        // disarms LIVE too (v0.102.6, explicit request — supersedes the
+        // v0.102.4 asymmetry that reserved disarm for Enter). Quietly: no
+        // toast, no popup-hide — the user is mid-typing. The 350 ms debounce
+        // still keeps a fast "select number, type new number" edit from
+        // bouncing through a disarm. After a live-disarm the row label flips
+        // to "scharfschalten", so an Enter re-arming is announced, not a trap.
+        irisStop()
           .then(() => {
-            setIrisActive(true);
-            setIrisMode(true);
+            setIrisActive(false);
+            setIrisMode(false);
           })
           .catch(() => undefined);
       }

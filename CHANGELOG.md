@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.102.6] — 2026-08-06
+
+### Changed
+
+- **`iris`: deleting the number switches off — live.** Editing the query down to a bare `iris` (or `iris 0`) now disarms the running session while you type, no Enter — the exact mirror of the live arming. Quietly: no toast, no popup-hide. The 350 ms debounce keeps a fast "replace the number" edit from bouncing through a disarm; after a live-disarm the row label flips to "scharfschalten", so an Enter re-arming is announced, not a trap. (Supersedes the v0.102.4 rule that reserved disarming for Enter.)
+- **`iris`: another dominance step.** A **full-rim flash** now fires on a share of volleys (probability rises with loudness, capped — a constant flash is not a flash), volleys reach 4 impulses, up to 7 airborne, flares ~15 % larger, calm peaks 0.55–0.80, cadence 0.55–1.7 s calm / 0.11–0.38 s loud, and the constant edge field is brighter.
+
+### Fixed
+
+- **Window snapping no longer crashes the app when the snapped window is Inspector Rust's own.** Dropping a dragged window onto a snap zone applied the AX frame **inline on the event-tap thread**. For other apps' windows that is a thread-safe out-of-process call and worked for years — but when the focused window belongs to our own process (a dragged screenshot pin, the popup), AX short-circuits in-process straight into AppKit, and macOS 26's WindowManagement hard-asserts the main thread: `EXC_BREAKPOINT`, no Rust panic, no `crash.log` — the app silently vanishes (field crash 2026-08-06, diagnosed from the `.ips` report; same family as the v0.102.2 iris overlay-build crash). The frame-set is now bounced through `run_on_main_thread`. The window palette's twin AX setter was audited and is safe — it runs inside a sync command, which already executes on the main thread.
+
 ## [0.102.5] — 2026-08-06
 
 ### Changed

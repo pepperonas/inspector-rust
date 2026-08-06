@@ -5,6 +5,7 @@ import {
   edgePosition,
   makeBurstLobes,
   volleySize,
+  volleyFlash,
   BURST_EDGE_DEPTH,
   burstIntensity,
   burstGapMs,
@@ -423,12 +424,12 @@ describe("makeBurst — further invariants", () => {
   });
 
   it("stays translucent even at the calmest setting", () => {
-    // Calm band 0.50–0.75 since v0.102.5 — bright even at rest, still
+    // Calm band 0.55–0.80 since v0.102.6 — dominant even at rest, still
     // see-through.
     for (let i = 0; i < 100; i++) {
       const b = makeBurst(i, 0, Math.random);
-      expect(b.peak).toBeGreaterThan(0.45);
-      expect(b.peak).toBeLessThan(0.76);
+      expect(b.peak).toBeGreaterThan(0.5);
+      expect(b.peak).toBeLessThan(0.81);
     }
   });
 
@@ -645,11 +646,11 @@ describe("makeBurst — soft flares (v0.102.3)", () => {
 });
 
 describe("volleySize", () => {
-  it("always fires at least one and never more than three", () => {
+  it("always fires at least one and never more than four", () => {
     for (let i = 0; i < 500; i++) {
       const n = volleySize(Math.random(), Math.random);
       expect(n).toBeGreaterThanOrEqual(1);
-      expect(n).toBeLessThanOrEqual(3);
+      expect(n).toBeLessThanOrEqual(4);
     }
   });
 
@@ -671,6 +672,33 @@ describe("volleySize", () => {
 
   it("clamps a nonsense intensity instead of misfiring", () => {
     expect(volleySize(-5, () => 0.99)).toBe(1);
-    expect(volleySize(99, () => 0)).toBe(3);
+    expect(volleySize(99, () => 0)).toBe(4);
+  });
+});
+
+describe("volleyFlash", () => {
+  it("fires more often the louder it gets, and always sometimes", () => {
+    const rate = (t: number) => {
+      let hits = 0;
+      for (let i = 0; i < 4000; i++) if (volleyFlash(t, Math.random)) hits++;
+      return hits / 4000;
+    };
+    const calm = rate(0);
+    const loud = rate(1);
+    // Expected: ~0.22 calm vs ~0.62 loud.
+    expect(calm).toBeGreaterThan(0.1);
+    expect(calm).toBeLessThan(0.35);
+    expect(loud).toBeGreaterThan(calm + 0.2);
+  });
+
+  it("never fires on every volley — a constant flash is not a flash", () => {
+    // Probability caps at 0.62; rand() >= that must stay possible.
+    expect(volleyFlash(1, () => 0.99)).toBe(false);
+    expect(volleyFlash(0, () => 0.01)).toBe(true);
+  });
+
+  it("clamps nonsense intensities", () => {
+    expect(volleyFlash(-9, () => 0.5)).toBe(false);
+    expect(volleyFlash(99, () => 0.5)).toBe(true);
   });
 });

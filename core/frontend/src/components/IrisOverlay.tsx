@@ -8,6 +8,7 @@ import {
   burstGapMs,
   burstIntensity,
   volleySize,
+  volleyFlash,
   BURST_MAX,
 } from "../lib/iris";
 
@@ -155,14 +156,17 @@ const CSS = `
   100% { opacity:0;                        transform:translate(-50%,-50%) rotate(calc(var(--rot) + var(--rotd))) scale(1.3) }
 }
 
-/* One short beat on ignite, so arming itself lands. */
+/* The full-rim flash: fired on ignite AND on a share of volleys (louder =
+   more often) — the whole screen edge blinking with the impulses is what
+   makes the effect dominate. Centre-weighted transparency keeps the middle
+   readable even mid-blink. */
 .iris-flash{
   position:absolute; inset:0;
   background:radial-gradient(ellipse 120% 120% at 50% 50%,
-    rgba(255,120,90,0) 34%,
-    rgba(255,90,64,.20) 72%,
-    rgba(255,70,55,.42) 100%);
-  animation:iris-flash .38s ${EASE} 1 both;
+    rgba(255,120,90,0) 30%,
+    rgba(255,90,64,.30) 68%,
+    rgba(255,70,55,.58) 100%);
+  animation:iris-flash .32s ${EASE} 1 both;
   mix-blend-mode:screen;
 }
 @keyframes iris-flash{
@@ -187,14 +191,14 @@ const CSS = `
 /** Muted relative to v0.102.0: the field is now the backdrop, not the show. */
 const PALETTE = {
   hot: {
-    c0: "rgba(255,168,96,.58)",
-    c1: "rgba(255,72,48,.34)",
-    c2: "rgba(176,26,22,.14)",
+    c0: "rgba(255,168,96,.7)",
+    c1: "rgba(255,72,48,.42)",
+    c2: "rgba(176,26,22,.18)",
   },
   deep: {
-    c0: "rgba(255,86,64,.54)",
-    c1: "rgba(206,30,26,.32)",
-    c2: "rgba(122,18,18,.12)",
+    c0: "rgba(255,86,64,.66)",
+    c1: "rgba(206,30,26,.4)",
+    c2: "rgba(122,18,18,.16)",
   },
 } as const;
 
@@ -213,6 +217,8 @@ function burstBackground(b: IrisBurst): string {
 export function IrisOverlay() {
   const [over, setOver] = useState(false);
   const [rise, setRise] = useState(0);
+  // Bumped when a volley carries the full-rim flash, so the element re-keys.
+  const [flashKey, setFlashKey] = useState(0);
   const [bursts, setBursts] = useState<IrisBurst[]>([]);
   const overRef = useRef(false);
   /** Live 0..1 loudness above the threshold, read by the scheduler without
@@ -308,6 +314,7 @@ export function IrisOverlay() {
         const room = BURST_MAX - prev.length;
         if (room <= 0) return prev;
         const n = Math.min(room, volleySize(intensity, Math.random));
+        if (volleyFlash(intensity, Math.random)) setFlashKey((k) => k + 1);
         const fresh: IrisBurst[] = [];
         for (let i = 0; i < n; i++) {
           const b = makeBurst(++seqRef.current, intensity, Math.random);
@@ -404,7 +411,7 @@ export function IrisOverlay() {
         />
       ))}
 
-      {over && <div key={rise} className="iris-flash" />}
+      {over && <div key={`${rise}-${flashKey}`} className="iris-flash" />}
     </div>
   );
 }

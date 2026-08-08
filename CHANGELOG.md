@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.103.1] — 2026-08-08
+
+### Fixed
+
+- **Window snapping maximize actually applies on release.** Dragging to the top edge showed the fullscreen preview, but releasing often left the window unchanged — mouse-up re-resolved the focused AX window *after* hiding the full-screen overlay, which could clear focus so the snap silently no-oped. The dragged window is now retained at mouse-down (same pattern as the window palette) and applied on release.
+
 ## [0.103.0] — 2026-08-06
 
 ### Added

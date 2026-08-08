@@ -180,8 +180,8 @@ pub(crate) fn screen_for_cursor(cursor: (f64, f64), screens: &[Rect]) -> Option<
 
 // ── Accessibility window move/resize ─────────────────────────────────────────
 
-/// The focused window of the frontmost app (caller releases). The dragged
-/// window is the frontmost/focused one.
+/// The focused window of the frontmost app (caller releases). At mouse-down of
+/// a titlebar drag this is the window being dragged.
 unsafe fn focused_window() -> Option<AXUIElementRef> {
     let sw = AXUIElementCreateSystemWide();
     if sw.is_null() {
@@ -206,33 +206,71 @@ unsafe fn focused_window() -> Option<AXUIElementRef> {
     Some(win as AXUIElementRef)
 }
 
-/// Move + resize the focused window to `rect` (top-left coords). Position is set
-/// **before and after** size so an app that clamps size still lands at the zone
-/// origin; a fixed-size window simply ignores the size set (→ move-only), which
-/// is the desired behaviour for non-resizable windows.
-fn snap_focused_window(rect: Rect) {
+/// Move + resize `win` to `rect` (top-left coords). Position is set **before and
+/// after** size so an app that clamps size still lands at the zone origin; a
+/// fixed-size window simply ignores the size set (→ move-only). Caller retains
+/// ownership of `win` (does not release it).
+fn snap_window(win: AXUIElementRef, rect: Rect) {
     unsafe {
-        let Some(win) = focused_window() else {
-            tracing::debug!("window-snap: no focused window to snap");
-            return;
-        };
         let set_pos = |w: AXUIElementRef| {
             let p = CGPoint { x: rect.x, y: rect.y };
             let v = AXValueCreate(KAX_VALUE_CGPOINT, &p as *const _ as *const c_void);
             let a = cfstr("AXPosition");
-            AXUIElementSetAttributeValue(w, a, v);
+            let rc = AXUIElementSetAttributeValue(w, a, v);
+            if rc != 0 {
+                tracing::debug!("window-snap: AXPosition set failed rc={rc}");
+            }
             CFRelease(a);
             CFRelease(v as CFTypeRef);
         };
         set_pos(win);
-        let s = CGSize { width: rect.w, height: rect.h };
+        let s = CGSize {
+            width: rect.w,
+            height: rect.h,
+        };
         let sv = AXValueCreate(KAX_VALUE_CGSIZE, &s as *const _ as *const c_void);
         let sa = cfstr("AXSize");
-        AXUIElementSetAttributeValue(win, sa, sv);
+        let rc = AXUIElementSetAttributeValue(win, sa, sv);
+        if rc != 0 {
+            tracing::debug!("window-snap: AXSize set failed rc={rc}");
+        }
         CFRelease(sa);
         CFRelease(sv as CFTypeRef);
         set_pos(win);
-        CFRelease(win as CFTypeRef);
+    }
+}
+
+/// Retain the focused AX window for this drag (window-palette `TARGET_WIN`
+/// pattern). We must NOT re-resolve focus at mouse-up: hiding the full-screen
+/// maximize overlay can steal/clear focus, so a fresh `AXFocusedWindow` then
+/// returns None / the wrong window and the snap silently no-ops while the
+/// preview looked correct.
+fn capture_drag_win() {
+    release_drag_win();
+    unsafe {
+        if let Some(win) = focused_window() {
+            // `focused_window` already returns a +1 (Copy rule); store as-is.
+            DRAG_WIN.store(win as isize, Ordering::SeqCst);
+            tracing::debug!("window-snap: captured drag window");
+        } else {
+            tracing::debug!("window-snap: no focused window at drag start");
+        }
+    }
+}
+
+fn release_drag_win() {
+    let prev = DRAG_WIN.swap(0, Ordering::SeqCst);
+    if prev != 0 {
+        unsafe { CFRelease(prev as CFTypeRef) };
+    }
+}
+
+fn take_drag_win() -> Option<AXUIElementRef> {
+    let w = DRAG_WIN.swap(0, Ordering::SeqCst);
+    if w == 0 {
+        None
+    } else {
+        Some(w as AXUIElementRef)
     }
 }
 
@@ -243,6 +281,9 @@ static DRAGGING: AtomicBool = AtomicBool::new(false);
 static CANCELLED: AtomicBool = AtomicBool::new(false);
 static TAP_PORT: AtomicIsize = AtomicIsize::new(0);
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
+/// Retained `AXUIElementRef` of the window being dragged (as isize). Captured
+/// at mouse-down; applied at mouse-up. Mirrors window_palette's `TARGET_WIN`.
+static DRAG_WIN: AtomicIsize = AtomicIsize::new(0);
 static SCREENS: Mutex<Vec<Rect>> = Mutex::new(Vec::new());
 static CURRENT_ZONE: Mutex<Option<SnapZone>> = Mutex::new(None);
 static CURRENT_TARGET: Mutex<Option<Rect>> = Mutex::new(None);
@@ -355,10 +396,17 @@ extern "C" fn tap_callback(
             let s = screens_topleft();
             tracing::debug!("snap: mousedown, {} screen(s); first={:?}", s.len(), s.first());
             *SCREENS.lock() = s;
+            // Pin the window NOW — at mouse-up focus may already be gone
+            // (especially after hiding a full-screen maximize overlay).
+            capture_drag_win();
         }
         EVT_LEFT_MOUSE_DRAGGED => {
             if !DRAGGING.load(Ordering::Relaxed) || CANCELLED.load(Ordering::Relaxed) {
                 return event;
+            }
+            // Late capture if mousedown missed focus (rare; belt-and-braces).
+            if DRAG_WIN.load(Ordering::SeqCst) == 0 {
+                capture_drag_win();
             }
             let p = unsafe { CGEventGetLocation(event) };
             let cursor = (p.x, p.y);
@@ -386,10 +434,14 @@ extern "C" fn tap_callback(
             let cancelled = CANCELLED.swap(false, Ordering::Relaxed);
             let target = CURRENT_TARGET.lock().take();
             *CURRENT_ZONE.lock() = None;
+            let win = take_drag_win();
             update_overlay(None);
-            tracing::debug!("snap: mouseup dragging={was_dragging} cancelled={cancelled} target={target:?}");
+            tracing::debug!(
+                "snap: mouseup dragging={was_dragging} cancelled={cancelled} target={target:?} win={}",
+                win.is_some()
+            );
             if was_dragging && !cancelled {
-                if let Some(rect) = target {
+                if let (Some(rect), Some(win)) = (target, win) {
                     // ⚠️ On the MAIN thread, not inline on this tap thread.
                     // For windows of OTHER apps the AX setter is a thread-safe
                     // out-of-process MIG call and inline was fine for years —
@@ -400,12 +452,25 @@ extern "C" fn tap_callback(
                     // EXC_BREAKPOINT, no Rust panic, no crash.log — the app
                     // just vanishes. Field crash 2026-08-06, same family as
                     // the iris overlay-build crash (see iris.rs).
+                    // Apply to the RETAINED window from mouse-down — do not
+                    // re-query AXFocusedWindow (overlay hide can clear it).
+                    // Carry the AX ref as isize so the closure is `Send`.
+                    let win_ptr = win as isize;
                     if let Some(app) = app_handle() {
-                        let _ = app.run_on_main_thread(move || snap_focused_window(rect));
+                        let _ = app.run_on_main_thread(move || {
+                            let win = win_ptr as AXUIElementRef;
+                            snap_window(win, rect);
+                            unsafe { CFRelease(win as CFTypeRef) };
+                        });
                     } else {
-                        snap_focused_window(rect);
+                        snap_window(win, rect);
+                        unsafe { CFRelease(win as CFTypeRef) };
                     }
+                } else if let Some(win) = win {
+                    unsafe { CFRelease(win as CFTypeRef) };
                 }
+            } else if let Some(win) = win {
+                unsafe { CFRelease(win as CFTypeRef) };
             }
         }
         // Esc during a drag → cancel the pending snap + hide the overlay.
@@ -417,6 +482,7 @@ extern "C" fn tap_callback(
             CANCELLED.store(true, Ordering::Relaxed);
             *CURRENT_ZONE.lock() = None;
             *CURRENT_TARGET.lock() = None;
+            release_drag_win();
             update_overlay(None);
         }
         _ => {}
@@ -480,6 +546,7 @@ pub fn set_active(app: &tauri::AppHandle, enabled: bool) {
         if rl != 0 {
             unsafe { CFRunLoopStop(rl as CFRunLoopRef) };
         }
+        release_drag_win();
         update_overlay(None);
     }
 }

@@ -971,13 +971,16 @@ macOS-gated); `apply(app,db,state)` starts/stops the monitor (mirrors
   `CGRect` `Encode`) → top-left; on drag it classifies the zone for the screen
   under the cursor and drives a **transparent click-through Tauri overlay**
   (`snap-overlay` window, `SnapOverlay.tsx`) sized to the zone via
-  `LogicalPosition/Size` on the main thread; on up it moves+resizes the
-  **frontmost focused window** via AX (`AXUIElementCreateSystemWide` →
-  `kAXFocusedApplication` → `kAXFocusedWindow`, set `kAXPosition` then `kAXSize`
-  then position again — a fixed-size window just ignores the resize → move-only).
-  **Esc** cancels (a `CANCELLED` flag the upcoming mouse-up checks). Needs
-  **Accessibility** (`expander::accessibility_granted`); without it the tap
-  doesn't install. macOS only.
+  `LogicalPosition/Size` on the main thread; on down it also **retains the
+  focused AX window** (`DRAG_WIN`, same pattern as window_palette's
+  `TARGET_WIN`); on up it moves+resizes **that retained window** on the main
+  thread (set `kAXPosition` then `kAXSize` then position again — a fixed-size
+  window just ignores the resize → move-only). Re-querying `AXFocusedWindow` at
+  mouse-up used to silently no-op maximize: hiding the full-screen preview
+  overlay could clear focus before the AX set ran (v0.103.1). **Esc** cancels
+  (a `CANCELLED` flag the upcoming mouse-up checks). Needs **Accessibility**
+  (`expander::accessibility_granted`); without it the tap doesn't install.
+  macOS only.
 
 ### Window palette — Moom-style hover palette (`window_palette/`, v0.84.138)
 

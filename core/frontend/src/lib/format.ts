@@ -28,8 +28,41 @@ export function formatBytes(n: number): string {
   return `${(n / 1024 / 1024).toFixed(1)} MB`;
 }
 
+/// Hard bound on how far the flattener scans. This runs per VISIBLE ROW per
+/// keystroke, and a clip can be megabytes (pasted logs/JSON) — the old
+/// whole-string `replace(/\s+/g, …)` allocated the full clip twice for an
+/// 80-char label, which made typing visibly lag behind on log-heavy
+/// histories. 64k covers any leading-whitespace run a real clip has before
+/// its first `max` visible characters.
+const TRUNCATE_SCAN_CAP = 65536;
+
+const WS = /\s/;
+
 export function truncateOneLine(text: string, max = 120): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  return flat.slice(0, max - 1) + "…";
+  // Incremental scan: build the collapsed prefix and stop as soon as `max`
+  // visible chars are known — O(max + skipped whitespace), never O(clip).
+  let out = "";
+  let lastWasSpace = true; // swallows leading whitespace
+  const end = Math.min(text.length, TRUNCATE_SCAN_CAP);
+  let i = 0;
+  for (; i < end && out.length <= max; i++) {
+    const c = text[i];
+    if (WS.test(c)) {
+      if (!lastWasSpace) {
+        out += " ";
+        lastWasSpace = true;
+      }
+    } else {
+      out += c;
+      lastWasSpace = false;
+    }
+  }
+  const flat = out.trimEnd();
+  // Ellipsis when the collapsed WHOLE string would exceed `max`: either the
+  // prefix already overflowed, or we stopped early with real content still
+  // ahead (bounded lookahead — a pathological multi-KB whitespace tail just
+  // loses its ellipsis, nothing more).
+  const more = flat.length > max || (i < text.length && /\S/.test(text.slice(i, i + 256)));
+  if (!more) return flat;
+  return flat.slice(0, Math.max(0, max - 1)) + "…";
 }

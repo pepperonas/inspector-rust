@@ -1745,7 +1745,14 @@ pub fn show_popup(app: &AppHandle) -> Result<()> {
     let window = app
         .get_webview_window(POPUP_LABEL)
         .context("popup window not found")?;
-    show_and_position(&window)
+    show_and_position(&window)?;
+    // Same event the toggle's show branch emits: the frontend's reset/focus/
+    // refresh contract must hold for EVERY show path (tray, CLI dispatch,
+    // permission banners) — previously those opened without it, so the
+    // search bar wasn't focused and (since the v0.105 visibility gate) the
+    // history refresh would have stayed parked.
+    let _ = app.emit("window-shown", ());
+    Ok(())
 }
 
 pub fn hide_popup(app: &AppHandle) {

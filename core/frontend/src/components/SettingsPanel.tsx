@@ -982,15 +982,35 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   }, []);
   useEffect(() => {
     if (finderAutomation === null || finderAutomation === true) return;
-    const id = window.setInterval(async () => {
+    // Backoff, not a fixed 1 s beat (v0.105.0): this probe is NOT a cheap
+    // flag read — it runs a real AppleScript against Finder (subprocess +
+    // Apple Event, 2 s watchdog). A user who declined the Automation grant
+    // used to fork an osascript every second for as long as the Settings tab
+    // was open. 2 s → ×1.5 → capped at 30 s; the panel remounts per tab
+    // switch, so re-opening Settings starts fresh at 2 s again.
+    let alive = true;
+    let delay = 2000;
+    let id = 0;
+    const probe = async () => {
       try {
         const ok = await getFinderAutomationStatus();
-        if (ok) setFinderAutomation(true);
+        if (!alive) return;
+        if (ok) {
+          setFinderAutomation(true);
+          return;
+        }
       } catch {
         /* ignore — keep polling */
       }
-    }, 1000);
-    return () => window.clearInterval(id);
+      if (!alive) return;
+      delay = Math.min(30_000, delay * 1.5);
+      id = window.setTimeout(() => void probe(), delay);
+    };
+    id = window.setTimeout(() => void probe(), delay);
+    return () => {
+      alive = false;
+      window.clearTimeout(id);
+    };
   }, [finderAutomation]);
 
   // ── "Set up permissions" — one click chains both grants. ─────────────

@@ -278,6 +278,21 @@ export function SnitchMapPanel({
     setZoomLabel(1);
   }, []);
 
+  // Cached basemap (v0.105.0): the land-dot pass is ~15–20k beginPath/arc/
+  // fill calls at zoom 1 — redrawing it 60×/s pinned a core while the map
+  // just SAT there (nothing moves in the basemap unless the view or theme
+  // changes). It renders into this offscreen canvas keyed on
+  // (size, view, colour) and the frame loop blits it; during a pan/zoom ease
+  // the key changes per frame (same cost as before, transient), at rest the
+  // whole pass collapses to one drawImage.
+  const basemapRef = useRef<{ key: string; cv: HTMLCanvasElement } | null>(null);
+  // Theme colours via getComputedStyle = a forced style resolution — read
+  // once a second instead of 4× per frame (theme switches still land within
+  // a second).
+  const colorsRef = useRef<{ accent: string; muted: string; fg: string; surface: string } | null>(
+    null,
+  );
+
   // ── Canvas render loop ──
   useEffect(() => {
     let raf = 0;
@@ -307,10 +322,15 @@ export function SnitchMapPanel({
             const c = centerCur.current;
 
             ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-            const accent = readColor(wrap, "--color-accent", "#b3c5ff");
-            const muted = readColor(wrap, "--color-muted", "#8a8a99");
-            const fg = readColor(wrap, "--color-fg", "#e8e8ee");
-            const surface = readColor(wrap, "--color-surface", "#1c1c22");
+            if (!colorsRef.current || t % 60 === 0) {
+              colorsRef.current = {
+                accent: readColor(wrap, "--color-accent", "#b3c5ff"),
+                muted: readColor(wrap, "--color-muted", "#8a8a99"),
+                fg: readColor(wrap, "--color-fg", "#e8e8ee"),
+                surface: readColor(wrap, "--color-surface", "#1c1c22"),
+              };
+            }
+            const { accent, muted, fg, surface } = colorsRef.current;
             ctx.clearRect(0, 0, cssW, cssH);
 
             const sx = (fx: number) => (fx - c.cx) * cssW * zoom + cssW / 2;
@@ -320,27 +340,46 @@ export function SnitchMapPanel({
               return { x: sx(p.fx), y: sy(p.fy) };
             };
 
-            // Land dots — culled to the visible fractional window.
-            const half = 0.5 / zoom;
-            const colMin = Math.max(0, Math.floor((c.cx - half) * WORLD_MASK_W) - 1);
-            const colMax = Math.min(WORLD_MASK_W, Math.ceil((c.cx + half) * WORLD_MASK_W) + 1);
-            const rowMin = Math.max(0, Math.floor((c.cy - half) * WORLD_MASK_H) - 1);
-            const rowMax = Math.min(WORLD_MASK_H, Math.ceil((c.cy + half) * WORLD_MASK_H) + 1);
-            const cell = (cssW * zoom) / WORLD_MASK_W;
-            const r = clamp(cell * 0.42, 0.6, 2.6);
-            ctx.fillStyle = muted;
-            ctx.globalAlpha = 0.22;
-            for (let row = rowMin; row < rowMax; row++) {
-              const yy = sy((row + 0.5) / WORLD_MASK_H);
-              for (let col = colMin; col < colMax; col++) {
-                if (isLand(col, row)) {
-                  ctx.beginPath();
-                  ctx.arc(sx((col + 0.5) / WORLD_MASK_W), yy, r, 0, Math.PI * 2);
-                  ctx.fill();
-                }
+            // Land dots — from the cache, re-rendered only when the view /
+            // size / colour actually changed.
+            const baseKey = `${canvas.width}x${canvas.height}|${zoom.toFixed(4)}|${c.cx.toFixed(5)}|${c.cy.toFixed(5)}|${muted}`;
+            let base = basemapRef.current;
+            if (!base || base.key !== baseKey) {
+              const cv = base?.cv ?? document.createElement("canvas");
+              if (cv.width !== canvas.width || cv.height !== canvas.height) {
+                cv.width = canvas.width;
+                cv.height = canvas.height;
               }
+              const bctx = cv.getContext("2d");
+              if (bctx) {
+                bctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+                bctx.clearRect(0, 0, cssW, cssH);
+                // Culled to the visible fractional window.
+                const half = 0.5 / zoom;
+                const colMin = Math.max(0, Math.floor((c.cx - half) * WORLD_MASK_W) - 1);
+                const colMax = Math.min(WORLD_MASK_W, Math.ceil((c.cx + half) * WORLD_MASK_W) + 1);
+                const rowMin = Math.max(0, Math.floor((c.cy - half) * WORLD_MASK_H) - 1);
+                const rowMax = Math.min(WORLD_MASK_H, Math.ceil((c.cy + half) * WORLD_MASK_H) + 1);
+                const cell = (cssW * zoom) / WORLD_MASK_W;
+                const r = clamp(cell * 0.42, 0.6, 2.6);
+                bctx.fillStyle = muted;
+                bctx.globalAlpha = 0.22;
+                for (let row = rowMin; row < rowMax; row++) {
+                  const yy = sy((row + 0.5) / WORLD_MASK_H);
+                  for (let col = colMin; col < colMax; col++) {
+                    if (isLand(col, row)) {
+                      bctx.beginPath();
+                      bctx.arc(sx((col + 0.5) / WORLD_MASK_W), yy, r, 0, Math.PI * 2);
+                      bctx.fill();
+                    }
+                  }
+                }
+                bctx.globalAlpha = 1;
+              }
+              base = { key: baseKey, cv };
+              basemapRef.current = base;
             }
-            ctx.globalAlpha = 1;
+            ctx.drawImage(base.cv, 0, 0, base.cv.width, base.cv.height, 0, 0, cssW, cssH);
 
             const home = homeRef.current ? toXY(homeRef.current) : null;
             const pulse = 0.5 + 0.5 * Math.sin(t / 20);

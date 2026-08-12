@@ -140,3 +140,18 @@ describe("formatAbsolute", () => {
     expect(() => formatAbsolute(-1000)).not.toThrow();
   });
 });
+
+describe("truncateOneLine — large-clip fast path (v0.105)", () => {
+  it("labels a multi-megabyte clip correctly without scanning it all", () => {
+    const huge = "start of the log " + "x".repeat(2_000_000);
+    const r = truncateOneLine(huge, 80);
+    expect(r).toHaveLength(80);
+    expect(r.startsWith("start of the log x")).toBe(true);
+    expect(r.endsWith("…")).toBe(true);
+  });
+
+  it("still finds content after a long leading-whitespace run", () => {
+    const padded = " ".repeat(10_000) + "payload";
+    expect(truncateOneLine(padded, 80)).toBe("payload");
+  });
+});

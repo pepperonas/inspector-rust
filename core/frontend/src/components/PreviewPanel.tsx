@@ -299,6 +299,16 @@ export function PreviewPanel({
   liveTranslation,
   onTotpAdd,
 }: Props) {
+  // Stable identity of the selected CLIP for the memos below. `[entry]` deps
+  // were an identity trap: App rebuilds `combined` per keystroke, so the SAME
+  // selected clip arrives in a fresh `{kind, data}` wrapper every key — the
+  // memos re-ran each time (a forced-style-recalc getComputedStyle + multi-KB
+  // template for html clips, a JSON.parse for files clips) despite their
+  // comment claiming otherwise. Clip content is immutable per id (rows are
+  // hash-keyed), so (kind-narrowed) id + type is the true dependency.
+  const clipId = entry?.kind === "clip" ? entry.data.id : null;
+  const clipType = entry?.kind === "clip" ? entry.data.content_type : null;
+
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
     try {
@@ -306,15 +316,15 @@ export function PreviewPanel({
     } catch {
       return null;
     }
-  }, [entry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId, clipType]);
 
   // The themed HTML `srcDoc` is expensive to build (a `getComputedStyle` +
-  // template assembly). It depends only on the selected entry, so memoise it
-  // keyed on `entry` — recompute only when the selection truly changes, not on
-  // every parent render (toast/focus/etc.). Hooks must run unconditionally, so
-  // compute here (top level) and consume in the branches below. (The image
-  // `src` is now fetched on demand by <ImagePreview> — the slim history list
-  // omits image blobs, so they aren't in `entry.data.content_data` anymore.)
+  // template assembly). Memoised on the clip's stable identity (see above),
+  // so it truly recomputes only when the selection changes. Hooks must run
+  // unconditionally, so compute here (top level) and consume in the branches
+  // below. (The image `src` is fetched on demand by <ImagePreview> — the slim
+  // history list omits image blobs.)
   const htmlSrcDoc = useMemo<string | null>(() => {
     if (entry?.kind !== "clip" || entry.data.content_type !== "html") return null;
     const cs = getComputedStyle(document.documentElement);
@@ -356,7 +366,8 @@ export function PreviewPanel({
         color: ${muted} !important;
       }
     </style></head><body>${entry.data.content_data}</body></html>`;
-  }, [entry]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [clipId, clipType]);
 
   if (!entry) {
     return (
@@ -1220,9 +1231,11 @@ export function PreviewPanel({
     return (
       <div className="flex h-full flex-col p-4">
         {meta}
-        <pre className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
-          {clip.content_text}
-        </pre>
+        <CappedPre
+          key={clip.id}
+          text={clip.content_text}
+          className="flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5"
+        />
         <div className="mt-2 text-[11px] text-[var(--color-muted)]">
           RTF formatting will be preserved on paste.
         </div>
@@ -1238,15 +1251,42 @@ export function PreviewPanel({
   return (
     <div className="flex h-full flex-col p-4">
       {meta}
-      <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5">
-        {clip.content_data}
-      </pre>
+      <CappedPre
+        key={clip.id}
+        text={clip.content_data}
+        className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5"
+      />
       <SmartActionsBar text={clip.content_text} />
       {(() => {
         const social = detectSocial(clip.content_text);
         return social ? <SocialDownloadBar target={social} /> : null;
       })()}
       <TransformBar text={clip.content_text} sourceId={clip.id} />
+    </div>
+  );
+}
+
+/** Above this many characters the text preview renders a capped slice with an
+ *  explicit "show all" opt-in — WebKit lays out the WHOLE wrapped text node,
+ *  so arrowing onto a multi-MB log clip froze the popup for hundreds of ms.
+ *  Callers key this on the clip id, so the opt-in resets per clip. Paste and
+ *  the transforms are untouched — they always use the full content. */
+const PREVIEW_TEXT_CAP = 200_000;
+
+function CappedPre({ text, className }: { text: string; className: string }) {
+  const [showAll, setShowAll] = useState(false);
+  if (showAll || text.length <= PREVIEW_TEXT_CAP) {
+    return <pre className={className}>{text}</pre>;
+  }
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <pre className={className}>{text.slice(0, PREVIEW_TEXT_CAP)}</pre>
+      <button
+        onClick={() => setShowAll(true)}
+        className="mt-1 self-start rounded border border-[var(--color-border)] px-2 py-0.5 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+      >
+        Show all ({text.length.toLocaleString()} chars) — may take a moment
+      </button>
     </div>
   );
 }

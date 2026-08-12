@@ -46,6 +46,17 @@ describe("computeLineage", () => {
     expect(rails.get(30)).toEqual([{ lane: 0, color: LINEAGE_COLORS[0], node: true }]);
   });
 
+  it("a copy of a copy of a copy is ONE family on one lane", () => {
+    // 4-deep chain, newest first: 10 ← 20 ← 30 ← 40. Deep parent chains are
+    // exactly where union-find path compression runs — the family must not
+    // split into separate lanes/colours halfway down the chain.
+    const rails = computeLineage([clip(10, 20), clip(20, 30), clip(30, 40), clip(40)]);
+    for (const id of [10, 20, 30, 40]) {
+      expect(rails.get(id)).toEqual([{ lane: 0, color: LINEAGE_COLORS[0], node: true }]);
+    }
+    expect(laneCount(rails)).toBe(1);
+  });
+
   it("draws a lone node when the source is no longer in the list", () => {
     // The original was pruned/deleted — the copy still shows it is a copy.
     const rails = computeLineage([clip(10, 999), clip(20)]);

@@ -114,6 +114,23 @@ describe("parseFakerCommand", () => {
     }
   });
 
+  it("tpl without quotes treats the whole rest as the template", () => {
+    // Nobody should NEED quotes for a quick one-liner — the unquoted rest
+    // is the template verbatim (a trailing count only works with quotes).
+    const r = parseFakerCommand("tpl {name} <{email}>", CAT, DEF);
+    expect(r.kind).toBe("spec");
+    if (r.kind === "spec") {
+      expect(r.spec.mode).toBe("template");
+      expect(r.spec.template).toBe("{name} <{email}>");
+    }
+  });
+
+  it("bare tpl shows the usage hint instead of an empty template", () => {
+    const r = parseFakerCommand("tpl", CAT, DEF);
+    expect(r.kind).toBe("suggestion");
+    if (r.kind === "suggestion") expect(r.message).toContain("faker tpl");
+  });
+
   it("clamps n to [1, 10000]", () => {
     const big = parseFakerCommand("email 99999", CAT, DEF);
     expect(big.kind === "spec" && big.spec.n).toBe(10000);

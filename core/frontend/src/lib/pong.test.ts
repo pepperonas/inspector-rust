@@ -272,6 +272,13 @@ describe("botBehavior — rubber-band AI (v0.38.0+)", () => {
     const move = botBehavior({ ...baseBall, botScore: 0, playerScore: 2 });
     expect(move.maxSpeed).toBeGreaterThan(12);
   });
+  it("bot behind by exactly 1 → between baseline and full sweat", () => {
+    // The rubber band is a LADDER, not a cliff: one point down must be
+    // harder than tied but not yet the losing-badly tier.
+    const move = botBehavior({ ...baseBall, botScore: 1, playerScore: 2 });
+    expect(move.maxSpeed).toBeGreaterThan(9.5);
+    expect(move.maxSpeed).toBeLessThan(12);
+  });
   it("player one-away-from-winning → HARDCORE override", () => {
     // Even with a huge bot lead, player on match point flips to hardcore.
     const move = botBehavior({ ...baseBall, botScore: 4, playerScore: WIN_SCORE - 1 });

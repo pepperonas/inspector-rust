@@ -561,4 +561,131 @@ mod tests {
         );
         assert_ne!(dedup_key("A", "b", "JBSWY3DP"), dedup_key("A", "b", "MZXW6YTB"));
     }
+
+    // ── DB layer (in-memory; crypto is a passthrough in the test process) ──
+
+    fn mem_db() -> DbHandle {
+        let db: DbHandle = std::sync::Arc::new(parking_lot::Mutex::new(
+            rusqlite::Connection::open_in_memory().unwrap(),
+        ));
+        init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn add_normalises_secret_and_algorithm_and_trims_fields() {
+        let db = mem_db();
+        let e = add(&db, "  GitHub ", " me@example.com ", "jbsw y3dp-ehpk 3pxp", 6, 30, "sha256")
+            .unwrap();
+        assert_eq!(e.issuer, "GitHub");
+        assert_eq!(e.account, "me@example.com");
+        assert_eq!(e.algorithm, "SHA256");
+        // The stored secret is the normalised base32 (public view via the
+        // dedup-key set — the raw secret never leaves the store otherwise).
+        let keys = existing_keys(&db).unwrap();
+        assert!(keys.contains(&dedup_key("github", "me@example.com", "JBSWY3DPEHPK3PXP")));
+    }
+
+    #[test]
+    fn add_rejects_empty_fields_and_invalid_base32() {
+        let db = mem_db();
+        assert!(add(&db, "  ", "a", "JBSWY3DP", 6, 30, "SHA1").is_err());
+        assert!(add(&db, "X", "a", "   ", 6, 30, "SHA1").is_err());
+        // Fail fast at insert time, not at first code generation: 0/1/8/9
+        // aren't in the RFC 4648 base32 alphabet.
+        assert!(add(&db, "X", "a", "10189", 6, 30, "SHA1").is_err());
+        assert!(list(&db).unwrap().is_empty(), "a rejected add must not persist");
+    }
+
+    #[test]
+    fn update_with_blank_secret_keeps_the_current_one() {
+        // THE edit-form contract: the list never exposes the secret, so the
+        // form submits it blank — that must mean "keep", never "clear".
+        let db = mem_db();
+        let e = add(&db, "GitHub", "me", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        update(&db, e.id, "GitHub Inc", "me", "", 8, 30, "SHA1").unwrap();
+        let keys = existing_keys(&db).unwrap();
+        assert!(
+            keys.contains(&dedup_key("github inc", "me", SEED_SHA1)),
+            "blank secret on edit must keep the stored secret"
+        );
+        let rows = list(&db).unwrap();
+        assert_eq!(rows[0].issuer, "GitHub Inc");
+        assert_eq!(rows[0].digits, 8, "the other fields still update");
+    }
+
+    #[test]
+    fn update_with_a_new_secret_replaces_it() {
+        let db = mem_db();
+        let e = add(&db, "GitHub", "me", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        update(&db, e.id, "GitHub", "me", "mzxw 6ytb", 6, 30, "SHA1").unwrap();
+        let keys = existing_keys(&db).unwrap();
+        assert!(keys.contains(&dedup_key("github", "me", "MZXW6YTB")));
+        assert!(!keys.contains(&dedup_key("github", "me", SEED_SHA1)));
+    }
+
+    #[test]
+    fn update_rejects_missing_id_empty_issuer_and_bad_secret() {
+        let db = mem_db();
+        let e = add(&db, "GitHub", "me", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        assert!(update(&db, e.id + 999, "X", "a", "", 6, 30, "SHA1").is_err());
+        assert!(update(&db, e.id, "   ", "a", "", 6, 30, "SHA1").is_err());
+        assert!(update(&db, e.id, "X", "a", "not base32 0189", 6, 30, "SHA1").is_err());
+        // Nothing was half-applied by the rejected updates.
+        assert_eq!(list(&db).unwrap()[0].issuer, "GitHub");
+    }
+
+    #[test]
+    fn set_order_drives_the_list_and_new_entries_append() {
+        let db = mem_db();
+        let a = add(&db, "A", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        let b = add(&db, "B", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        let c = add(&db, "C", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        set_order(&db, &[c.id, a.id, b.id]).unwrap();
+        let ids: Vec<i64> = list(&db).unwrap().iter().map(|e| e.id).collect();
+        assert_eq!(ids, vec![c.id, a.id, b.id]);
+        // A new entry lands at the END of the manual order, not amid it.
+        let d = add(&db, "D", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        let ids: Vec<i64> = list(&db).unwrap().iter().map(|e| e.id).collect();
+        assert_eq!(ids, vec![c.id, a.id, b.id, d.id]);
+    }
+
+    #[test]
+    fn remove_duplicates_normalises_and_keeps_the_oldest() {
+        let db = mem_db();
+        let keep = add(&db, "GitHub", "me", "JBSWY3DP", 6, 30, "SHA1").unwrap();
+        // Same entry modulo case + pretty-printed secret → duplicate.
+        add(&db, "github", " ME ", "jbsw-y3dp", 6, 30, "SHA1").unwrap();
+        // Same issuer+account but a DIFFERENT secret → distinct account, kept.
+        let other = add(&db, "GitHub", "me", "MZXW6YTB", 6, 30, "SHA1").unwrap();
+        assert_eq!(remove_duplicates(&db).unwrap(), 1);
+        let ids: Vec<i64> = list(&db).unwrap().iter().map(|e| e.id).collect();
+        assert_eq!(ids, vec![keep.id, other.id]);
+        // Idempotent — a second pass finds nothing.
+        assert_eq!(remove_duplicates(&db).unwrap(), 0);
+    }
+
+    #[test]
+    fn delete_all_reports_the_count() {
+        let db = mem_db();
+        add(&db, "A", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        add(&db, "B", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        assert_eq!(delete_all(&db).unwrap(), 2);
+        assert!(list(&db).unwrap().is_empty());
+        assert_eq!(delete_all(&db).unwrap(), 0);
+    }
+
+    #[test]
+    fn current_codes_all_respects_each_entrys_config() {
+        let db = mem_db();
+        let six = add(&db, "Six", "", SEED_SHA1, 6, 30, "SHA1").unwrap();
+        let eight = add(&db, "Eight", "", SEED_SHA256, 8, 30, "SHA256").unwrap();
+        let codes = current_codes_all(&db).unwrap();
+        assert_eq!(codes.len(), 2);
+        let by_id: std::collections::HashMap<i64, &TotpCode> =
+            codes.iter().map(|(id, c)| (*id, c)).collect();
+        assert_eq!(by_id[&six.id].code.len(), 6);
+        assert_eq!(by_id[&eight.id].code.len(), 8);
+        assert!(by_id[&six.id].code.chars().all(|c| c.is_ascii_digit()));
+    }
 }

@@ -42,6 +42,12 @@ describe("parseFigletCommand — token classification (order-agnostic)", () => {
     expect(parseFigletCommand("x --comment=slashes").opts.comment).toBe("slashes");
     expect(parseFigletCommand("x --comment=bogus").opts.comment).toBeUndefined();
   });
+  it("--left selects left alignment, and the LAST align flag wins", () => {
+    expect(parseFigletCommand("x --left").opts.align).toBe("left");
+    // Contradicting flags: the user's most recent word is their intent.
+    expect(parseFigletCommand("x --center --left").opts.align).toBe("left");
+    expect(parseFigletCommand("x --left --right").opts.align).toBe("right");
+  });
   it("keeps an UNKNOWN --token as literal text", () => {
     expect(parseFigletCommand("--> go").text).toBe("--> go");
     expect(parseFigletCommand("--widht=5 hi").text).toBe("--widht=5 hi");

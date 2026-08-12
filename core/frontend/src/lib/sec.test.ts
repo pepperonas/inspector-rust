@@ -254,6 +254,26 @@ describe("parseSecCommand", () => {
     expect(r.kind === "built" && r.command).toBe("nmap -sV -sC -T5 10.0.0.5");
   });
 
+  it("a bare --flag (no value following) sets its field to 'true'", () => {
+    // Trailing bare flag …
+    const a = parseSecCommand("nmap", "service 10.0.0.5 --ports", CAT, DEF);
+    expect(a.kind === "built" && a.command).toBe("nmap -sV -sC -p true 10.0.0.5");
+    // … and a bare flag directly followed by ANOTHER flag must not eat it.
+    const b = parseSecCommand("nmap", "service 10.0.0.5 --ports --timing=4", CAT, DEF);
+    expect(b.kind === "built" && b.command).toBe("nmap -sV -sC -p true -T4 10.0.0.5");
+  });
+
+  it("surplus positional tokens are dropped, never crash the builder", () => {
+    // Positional slots are the preset's REQUIRED fields only (service: just
+    // `target`); optional fields are flag-only. Extra bare tokens therefore
+    // have no slot — they must vanish silently, not corrupt the command.
+    const r = parseSecCommand("nmap", "service a b c d", CAT, DEF);
+    expect(r.kind).toBe("built");
+    if (r.kind === "built") {
+      expect(r.command).toBe("nmap -sV -sC a");
+    }
+  });
+
   it("missing target → placeholder, no crash", () => {
     const r = parseSecCommand("nmap", "service", CAT, DEF);
     expect(r.kind).toBe("built");

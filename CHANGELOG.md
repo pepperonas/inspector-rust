@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.105.0] — 2026-08-13
+
+Performance + bug audit (4 parallel review passes over the whole codebase, every adopted finding re-verified at the source; DB claims EXPLAIN-verified).
+
+### Fixed
+
+- **The app can no longer freeze on network commands.** ~10 IPC commands (`hue_*`, `weather`, `tokens`, `stats`, the backup family, `terminal`) ran blocking work — up to 12 s of network timeouts — synchronously ON the main thread; a stale Hue bridge IP froze the whole app per arrow-keypress, and via the text-expander's event tap those stalls even paused system-wide keystroke delivery. All converted to the async worker pattern.
+- **Ctrl+Space-close behaves like every other dismiss.** The toggle hotkey's hide path skipped the `popup-hidden` event (stale tab/query/overlay on the next open), skipped returning focus to the previous app (macOS), and could leave the Esc watcher armed (one swallowed global Esc).
+- **The mic no longer records invisibly after click-away.** An unpinned BPM detector / equalizer now exits when the popup hides; a pinned one still deliberately survives.
+- **Snippet body search works again.** It had silently matched AES ciphertext since encryption-at-rest landed (v0.47.0) — body matches were impossible. Now a decrypt-filter in Rust; ranking abbreviation > title > body.
+- A hung iTerm2 can no longer wedge the `terminal` command (osascript watchdog, 8 s cap).
+- Tray/CLI/permission-banner opens now fire the same reset/focus/refresh as the hotkey (they previously skipped `window-shown`).
+
+### Changed (performance)
+
+- History list: composite DB index (was a full scan + temp sort of up to 100k rows on every copy), prune only on genuine inserts (backup restore was O(N²)), decryption moved off the DB lock, and no more refetch-per-copy while the popup is hidden.
+- Typing latency: row labels no longer flatten entire multi-MB clips per keystroke; the text preview caps huge clips with a "Show all" opt-in (was a multi-hundred-ms layout freeze); the HTML preview no longer rebuilds its themed frame per keystroke.
+- `snitch map` no longer pins a CPU core while idle (basemap rendered once into an offscreen canvas and blitted; theme colours read 1×/s instead of 240×/s).
+- Clipboard privacy exclude-list check is now a native NSWorkspace read instead of an osascript fork per copy; the Settings Finder-Automation probe backs off instead of forking osascript every second.
+
 ## [0.104.0] — 2026-08-12
 
 ### Added

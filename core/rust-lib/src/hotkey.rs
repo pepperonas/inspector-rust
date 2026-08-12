@@ -1725,7 +1725,12 @@ pub fn toggle_popup(app: &AppHandle) -> Result<()> {
     let visible = window.is_visible().unwrap_or(false);
     tracing::info!(visible, "toggle_popup");
     if visible {
-        let _ = window.hide();
+        // Through hide_popup, NOT a bare window.hide() (the pre-v0.105 bug):
+        // the bare hide skipped the "popup-hidden" event (stale tab/query/
+        // overlay on the next open), skipped macOS app.hide() (focus not
+        // returned to the previously active app), and left the unfocused-Esc
+        // watcher armed (it could swallow one global Esc keystroke).
+        hide_popup(app);
         return Ok(());
     }
 

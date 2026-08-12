@@ -191,28 +191,55 @@ pub fn get_by_id(db: &DbHandle, id: i64) -> Result<Option<Snippet>> {
     .map_err(Into::into)
 }
 
-/// Match abbreviation prefix first, then body/title contains — up to 10 results.
+/// Match abbreviation prefix first, then title contains, then BODY contains —
+/// up to 10 results.
+///
+/// The body pass runs in Rust over decrypted rows: the body column is
+/// AES-encrypted at rest, so the historical `LOWER(s.body) LIKE` matched
+/// CIPHERTEXT — body search silently never worked since encryption landed
+/// (v0.47.0), and the expression was pure scan weight. (The unit tests never
+/// caught it because crypto is a passthrough in the test process — SQL saw
+/// plaintext there.) Decrypt-and-filter over the full set is ~1 ms at the
+/// realistic table size (~300 seeded + user rows, short text bodies), and it
+/// only runs when the plaintext passes left slots open.
 pub fn find_by_query(db: &DbHandle, query: &str) -> Result<Vec<Snippet>> {
+    const LIMIT: usize = 10;
     if query.is_empty() {
         return Ok(vec![]);
     }
     let q = query.to_lowercase();
     let prefix = format!("{}%", q);
     let contains = format!("%{}%", q);
-    let conn = db.lock();
-    let sql = format!(
-        r#"SELECT {SNIPPET_COLS} {SNIPPET_FROM}
-        WHERE LOWER(s.abbreviation) LIKE ?1
-           OR LOWER(s.title)        LIKE ?2
-           OR LOWER(s.body)         LIKE ?2
-        ORDER BY
-            CASE WHEN LOWER(s.abbreviation) LIKE ?1 THEN 0 ELSE 1 END,
-            s.abbreviation ASC
-        LIMIT 10"#
-    );
-    let mut stmt = conn.prepare(&sql)?;
-    let rows = stmt.query_map(params![prefix, contains], row_to_snippet)?;
-    rows.collect::<rusqlite::Result<Vec<_>>>().map_err(Into::into)
+    // Pass 1 — the plaintext columns (SQL, indexed-ish, historical ranking:
+    // abbreviation prefix outranks title contains).
+    let mut out: Vec<Snippet> = {
+        let conn = db.lock();
+        let sql = format!(
+            r#"SELECT {SNIPPET_COLS} {SNIPPET_FROM}
+            WHERE LOWER(s.abbreviation) LIKE ?1
+               OR LOWER(s.title)        LIKE ?2
+            ORDER BY
+                CASE WHEN LOWER(s.abbreviation) LIKE ?1 THEN 0 ELSE 1 END,
+                s.abbreviation ASC
+            LIMIT 10"#
+        );
+        let mut stmt = conn.prepare(&sql)?;
+        let rows = stmt.query_map(params![prefix, contains], row_to_snippet)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    // Pass 2 — body matches fill the remaining slots (weakest signal last).
+    if out.len() < LIMIT {
+        let seen: std::collections::HashSet<i64> = out.iter().map(|s| s.id).collect();
+        for s in list_all(db)? {
+            if out.len() >= LIMIT {
+                break;
+            }
+            if !seen.contains(&s.id) && s.body.to_lowercase().contains(&q) {
+                out.push(s);
+            }
+        }
+    }
+    Ok(out)
 }
 
 
@@ -940,6 +967,42 @@ mod tests {
         let db = test_db();
         create(&db, "mfg", "", "x", None).unwrap();
         assert!(find_by_exact_abbreviation(&db, "nope").unwrap().is_none());
+    }
+
+    #[test]
+    fn find_by_query_matches_the_body() {
+        // The restored feature (v0.105): body search is a Rust decrypt-filter,
+        // because SQL LIKE only ever saw ciphertext in production.
+        let db = test_db();
+        create(&db, "sig", "Signatur", "Mit freundlichen Grüßen aus Berlin", None).unwrap();
+        let hits = find_by_query(&db, "berlin").unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].abbreviation, "sig");
+    }
+
+    #[test]
+    fn find_by_query_ranks_prefix_over_title_over_body() {
+        let db = test_db();
+        // All three match "gruss" — via body, title, and abbreviation prefix.
+        // Deliberately ordered so the OLD ranking (title+body tied, sorted by
+        // abbreviation) would put the body row FIRST — the new ranking must
+        // not: abbreviation prefix > title contains > body contains.
+        create(&db, "aaa", "", "gruss im body", None).unwrap();
+        create(&db, "zzz", "Der Gruss im Titel", "x", None).unwrap();
+        create(&db, "grussformel", "", "x", None).unwrap();
+        let hits = find_by_query(&db, "gruss").unwrap();
+        let abbrevs: Vec<&str> = hits.iter().map(|s| s.abbreviation.as_str()).collect();
+        assert_eq!(abbrevs, vec!["grussformel", "zzz", "aaa"]);
+    }
+
+    #[test]
+    fn find_by_query_caps_at_ten_and_rejects_empty() {
+        let db = test_db();
+        for i in 0..12 {
+            create(&db, &format!("ab{i:02}"), "", "das suchwort steckt im body", None).unwrap();
+        }
+        assert_eq!(find_by_query(&db, "suchwort").unwrap().len(), 10);
+        assert!(find_by_query(&db, "").unwrap().is_empty());
     }
 
     #[test]

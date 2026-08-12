@@ -211,7 +211,9 @@ export type ListEntry =
   | { kind: "bpm"; data: BpmTriggerView }
   | { kind: "equalizer"; data: EqualizerTriggerView }
   | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
-  | { kind: "totp-manage"; data: { label: string } }
+  // mode "add" (v0.104.0, `2fa add [issuer]`) opens the overlay straight on
+  // the Add form, `issuer` pre-filled; absent/"list" is the classic manager.
+  | { kind: "totp-manage"; data: { label: string; mode?: "list" | "add"; issuer?: string } }
   | { kind: "totp"; data: TotpListView }
   | { kind: "meme"; data: MemeEntry }
   | { kind: "figlet-font"; data: FigletFontView }

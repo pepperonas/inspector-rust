@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.104.0] — 2026-08-12
+
+### Added
+
+- **`2fa add [issuer]` — straight to the add form.** The TOTP overlay's Add tab (Issuer · Login · Base32 secret) existed but was easy to miss. Typing `2fa` now surfaces **`2fa add`** as a visible sub-row (the `snitch map` / `shazam history` pattern) and Enter opens the overlay **directly on the add form**; an optional argument pre-fills the Issuer (`2fa add GitHub`, focus jumps to the Account field). `otp add` works too; `2fa addepar` stays an issuer search — `add` must be its own word. The 2fa preview also carries a subtle **"＋ Add account"** button as a mouse path to the same form.
+
 ## [0.103.1] — 2026-08-08
 
 ### Fixed

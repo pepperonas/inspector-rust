@@ -24,6 +24,7 @@ import {
   parseTimerArg,
   parseOtpQuery,
   is2faTrigger,
+  parse2faAdd,
   isBpmTrigger,
   isEqualizerTrigger,
   isFlappyTrigger,
@@ -1160,6 +1161,32 @@ describe("is2faTrigger", () => {
     expect(is2faTrigger("otp amazon")).toBe(false);
     expect(is2faTrigger("otpfoo")).toBe(false);
     expect(is2faTrigger("hello")).toBe(false);
+  });
+});
+
+describe("parse2faAdd", () => {
+  it("matches `2fa add` / `otp add` with no prefill", () => {
+    expect(parse2faAdd("2fa add")).toEqual({ issuer: "" });
+    expect(parse2faAdd("otp add")).toEqual({ issuer: "" });
+    expect(parse2faAdd("  2FA  ADD  ")).toEqual({ issuer: "" });
+    // The autocomplete's trailing space (completion "2fa add ") must match too.
+    expect(parse2faAdd("2fa add ")).toEqual({ issuer: "" });
+  });
+  it("captures a trailing argument as the issuer prefill", () => {
+    expect(parse2faAdd("2fa add GitHub")).toEqual({ issuer: "GitHub" });
+    expect(parse2faAdd("otp add Amazon Web Services")).toEqual({
+      issuer: "Amazon Web Services",
+    });
+    expect(parse2faAdd("2fa add  Hostinger ")).toEqual({ issuer: "Hostinger" });
+  });
+  it("requires `add` as its own token — issuer searches stay untouched", () => {
+    // A company merely STARTING with "add" is an issuer search, not the form.
+    expect(parse2faAdd("2fa addepar")).toBeNull();
+    expect(parse2faAdd("otp adde")).toBeNull();
+    expect(parse2faAdd("2fa")).toBeNull();
+    expect(parse2faAdd("otp")).toBeNull();
+    expect(parse2faAdd("2fa amazon")).toBeNull();
+    expect(parse2faAdd("hello add")).toBeNull();
   });
 });
 

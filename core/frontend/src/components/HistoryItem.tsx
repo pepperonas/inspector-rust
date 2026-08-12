@@ -669,7 +669,9 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ List, Add, Import, Export · Esc to exit
+              {entry.data.mode === "add"
+                ? "⏎ Opens the add form (Issuer · Login · Secret) · Esc to exit"
+                : "⏎ List, Add, Import, Export · Esc to exit"}
             </span>
           </span>
         ) : isTotp && entry.kind === "totp" ? (

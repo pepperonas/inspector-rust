@@ -65,7 +65,7 @@ export const NON_COMMAND_FEATURES: FeatureRow[] = [
 
 /** Hidden triggers — an exact word, deliberately NOT in autocomplete/`COMMANDS`. */
 export const HIDDEN_TRIGGER_FEATURES: FeatureRow[] = [
-  { name: "2FA manager", trigger: "2fa", keyword: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export. Just type to filter the list; Enter copies the top match's code." },
+  { name: "2FA manager", trigger: "2fa", keyword: "2fa", typed: true, note: "Full TOTP overlay — list / add / import / export. Just type to filter the list; Enter copies the top match's code. `2fa add [issuer]` (or the preview's ＋ button) jumps straight to the add form: Issuer · Login · Base32 secret." },
   { name: "TOTP code", trigger: "otp <issuer> · 2fa <issuer>", keyword: "otp", typed: true, note: "e.g. otp ama or 2fa hosti → live code for the matching provider, Enter copies it." },
   { name: "BPM detector", trigger: "bpm", keyword: "bpm", typed: true, note: "Press Enter — taps your mic, shows live BPM. Enter again pins it (click-outside won't close; visualizer turns red)." },
   {

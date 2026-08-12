@@ -51,6 +51,12 @@ interface Props {
   /** Hide the whole popup (animated) — used by Enter-copies-top-match so the
    *  copied code is immediately pasteable. Falls back to a toast-only copy. */
   onHidePopup?: () => Promise<void>;
+  /** `2fa add` / the preview's "＋ Add account" button (v0.104.0): open
+   *  straight on the Add form instead of the list. Consumed once at mount —
+   *  the overlay is freshly mounted per open, so a plain initializer works. */
+  initialTab?: "list" | "add";
+  /** Pre-fill for the Add form's Issuer field (`2fa add GitHub`). */
+  initialIssuer?: string;
 }
 
 type Tab = "list" | "add" | "import";
@@ -67,8 +73,8 @@ function importSummary(
   return `${r.added} entr${r.added === 1 ? "y" : "ies"} imported${src}${skip}${fail}.`;
 }
 
-export function TotpOverlay({ onExit, onHidePopup }: Props) {
-  const [tab, setTab] = useState<Tab>("list");
+export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? "list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
   const [codes, setCodes] = useState<Map<number, TotpCode>>(new Map());
   // Bumped on every 1s tick; used to drive the smooth countdown ring.
@@ -83,7 +89,7 @@ export function TotpOverlay({ onExit, onHidePopup }: Props) {
 
   // Add/Edit-form state. `editingId != null` → the Add tab is an Edit form.
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [addIssuer, setAddIssuer] = useState("");
+  const [addIssuer, setAddIssuer] = useState(initialIssuer ?? "");
   const [addAccount, setAddAccount] = useState("");
   const [addSecret, setAddSecret] = useState("");
   const [addAdvanced, setAddAdvanced] = useState(false);
@@ -991,7 +997,11 @@ function AddTab(props: {
           onChange={(e) => props.setIssuer(e.target.value)}
           placeholder="Amazon, GitHub, …"
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-[13px] focus:border-[var(--color-accent)] focus:outline-none"
-          autoFocus
+          // Pre-filled via `2fa add <issuer>` → jump straight to the next
+          // field instead (autoFocus only applies at mount, which is fine:
+          // the AddTab mounts per tab switch / per overlay open). The Edit
+          // form keeps its historical issuer focus.
+          autoFocus={!props.issuer || props.editing}
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">
@@ -1002,6 +1012,7 @@ function AddTab(props: {
           onChange={(e) => props.setAccount(e.target.value)}
           placeholder="user@example.com"
           className="rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1.5 text-[13px] focus:border-[var(--color-accent)] focus:outline-none"
+          autoFocus={!!props.issuer && !props.editing}
         />
       </label>
       <label className="flex flex-col gap-1 text-[12px]">

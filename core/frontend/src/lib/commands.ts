@@ -1228,6 +1228,21 @@ export function is2faTrigger(query: string): boolean {
 }
 
 /**
+ * `2fa add` / `otp add` → open the TOTP overlay straight on the Add form
+ * (v0.104.0). An optional trailing argument pre-fills the Issuer field
+ * (`2fa add GitHub` → `{ issuer: "GitHub" }`). Requires the literal word
+ * `add` as its own token — `2fa addepar` stays an issuer search (the word
+ * boundary is the space, so a company whose name merely starts with "add"
+ * never gets hijacked into the form). Callers must check this BEFORE
+ * `parseOtpQuery`, which would otherwise read `add` as an issuer query.
+ */
+export function parse2faAdd(query: string): { issuer: string } | null {
+  const m = query.trim().match(/^(?:otp|2fa)\s+add(?:\s+(.+))?$/i);
+  if (!m) return null;
+  return { issuer: (m[1] ?? "").trim() };
+}
+
+/**
  * `otp <query>` / `2fa <query>` → autocomplete trigger for TOTP entries.
  * Returns the trimmed query portion (so `otp ama` / `2fa ama` → `"ama"`)
  * when the input is either keyword followed by a non-empty query;

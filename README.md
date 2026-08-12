@@ -64,7 +64,7 @@
 
   ### 🧰 Tech stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **2967 unit tests (1192 Rust + 1775 frontend).** MIT-licensed.
+  Tauri 2 (WebView2 / WKWebView) · Rust workspace (`core/rust-lib` shared, 2-line per-OS bundle shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · brightness via CoreGraphics/GDI gamma + DDC/CI (`ddc-hi`). **2970 unit tests (1192 Rust + 1778 frontend).** MIT-licensed.
 
   <!-- ── Headline metrics — XXL hero badges ────────────────────── -->
   <p>
@@ -72,8 +72,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~98k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 1192 Rust + 1775 frontend, all passing">
-      <img src="https://img.shields.io/badge/unit%20tests-2967%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit tests — 1192 Rust + 1778 frontend, all passing">
+      <img src="https://img.shields.io/badge/unit%20tests-2970%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -95,7 +95,7 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-2967%20(1192%20Rust%20%2B%201775%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-2970%20(1192%20Rust%20%2B%201778%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
@@ -163,7 +163,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-1192%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-1775%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-1778%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -269,7 +269,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-2967%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-2970%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-284-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-33-blueviolet?style=flat-square)](#)
@@ -628,7 +628,7 @@ alone for the whole index.
 | **App-name in screenshot filenames** *(v0.32.0+)* | Automatic | `osascript`-captured frontmost-app name baked into the saved filename: `Safari-20260524-153012.png`. Edited variants get `-edited` suffix |
 | Power-command autocomplete (fuzzy command matching) | Type a partial keyword (`tre`, `rm`, `reb`, `bru`, `tim`, `pw`, …) → suggestion row | core |
 | **Markdown → PDF** *(v0.46.0+, macOS)* | `Ctrl+Shift+M` with `.md` files selected in Finder | Automation → Finder |
-| **2FA / TOTP manager** *(v0.47.0+)* | Type `2fa` or `otp` → Enter opens the TOTP vault: live codes + countdown, **add / edit (incl. secret) / delete, drag-reorder (⠿ handle), remove-duplicates / clear-all**. Import by paste **or drag-and-drop a file** (Google Authenticator migration · Aegis · 2FAS · OTPManager · otpauth), deduped on import. **Type-to-filter the list** — fuzzy issuer/account match, top hit ringed, Enter copies its code + hides the popup, Esc clears the filter first. `otp <issuer>` / `2fa <issuer>` autocomplete a code inline. Secrets AES-encrypted, never cross IPC | core |
+| **2FA / TOTP manager** *(v0.47.0+)* | Type `2fa` or `otp` → Enter opens the TOTP vault: live codes + countdown, **add / edit (incl. secret) / delete, drag-reorder (⠿ handle), remove-duplicates / clear-all**. **`2fa add [issuer]`** *(v0.104.0)* jumps straight to the add form (Issuer · Login · Base32 secret), the argument pre-filling the issuer — also reachable via a subtle ＋ button in the preview. Import by paste **or drag-and-drop a file** (Google Authenticator migration · Aegis · 2FAS · OTPManager · otpauth), deduped on import. **Type-to-filter the list** — fuzzy issuer/account match, top hit ringed, Enter copies its code + hides the popup, Esc clears the filter first. `otp <issuer>` / `2fa <issuer>` autocomplete a code inline. Secrets AES-encrypted, never cross IPC | core |
 | **OTP autocomplete** *(v0.47.0+)* | Type `otp <issuer>` or `2fa <issuer>` (e.g. `2fa hosti` → Hostinger) → live 30-second countdown + Enter copies the current code | core |
 | **BPM detector** | Type `bpm` → Enter starts live beat detection via microphone; **Enter again pins it** (click-outside won't close; visualizer turns red) | Microphone *(macOS)* |
 | **Features tab** | History · Snippets · Notes · **Features** · Settings tabs; Features tab lists all shortcuts and capabilities with live hotkey display | core |
@@ -919,7 +919,7 @@ Full feature reference: [`docs/notes.md`](./docs/notes.md). Backup file schema a
 Inspector Rust keeps its **pure logic** — parsers, math, state machines, arg-builders, formatters — as free functions and unit-tests them exhaustively (behaviour, edge cases, error paths), while the impure OS/FFI edge (CoreAudio/Vision/CGEvent FFI, Tauri windows, `ffmpeg`/`yt-dlp`/`osascript` spawns, Web Audio) is left to manual/integration testing because it needs a live machine. So the code that *can* carry a deterministic test is well-covered — **frontend `src/lib` ≈ 83 % stmt / 95 % branch** (measured 2026-07-19), and the pure Rust cores that sit next to their 0 %-covered FFI shells (e.g. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — even though the headline workspace average looks modest.
 
 ```bash
-pnpm test               # frontend unit tests (vitest + happy-dom) — 1775 tests
+pnpm test               # frontend unit tests (vitest + happy-dom) — 1778 tests
 cargo test --workspace  # Rust unit tests — 1192 tests
 ```
 

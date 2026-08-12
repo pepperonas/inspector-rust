@@ -59,6 +59,7 @@ import {
   isSpaceInvadersTrigger,
   isGetShakyTrigger,
   is2faTrigger,
+  parse2faAdd,
   isBpmTrigger,
   isEqualizerTrigger,
   isOpenerTrigger,
@@ -315,6 +316,14 @@ function App() {
   // — same fullscreen-takeover pattern but with its own polling
   // lifecycle for live TOTP codes).
   const [totpMode, setTotpMode] = useState(false);
+  // Where the overlay opens: `2fa` → the list, `2fa add [issuer]` / the
+  // preview's "＋ Add account" button → straight on the Add form (issuer
+  // pre-filled). Consumed once at TotpOverlay mount — the overlay only
+  // mounts when totpMode flips true, so no signal/key dance is needed.
+  const [totpInitial, setTotpInitial] = useState<{
+    tab: "list" | "add";
+    issuer: string;
+  }>({ tab: "list", issuer: "" });
   // Cached TOTP entries + live codes for the `otp <query>` autocomplete.
   // Polled while the popup is visible so codes stay current in the list.
   const [totpEntries, setTotpEntries] = useState<import("./lib/totp").TotpEntry[]>([]);
@@ -1911,18 +1920,62 @@ function App() {
 
   // 2FA management trigger — exact `2fa` surfaces a "TOTP management"
   // row; Enter takes over the popup with the full <TotpOverlay />.
+  // `2fa add [issuer]` (v0.104.0) makes the primary row the ADD form
+  // instead — Enter opens the overlay straight on Add, issuer pre-filled.
+  const totpAddParsed = useMemo(() => parse2faAdd(query), [query]);
   const totpManageEntry: ListEntry | null = useMemo(() => {
+    if (totpAddParsed) {
+      return {
+        kind: "totp-manage",
+        data: {
+          label: totpAddParsed.issuer
+            ? `2FA · Add "${totpAddParsed.issuer}"`
+            : "2FA · Add new account",
+          mode: "add",
+          issuer: totpAddParsed.issuer,
+        },
+      };
+    }
     if (!is2faTrigger(query)) return null;
     return {
       kind: "totp-manage",
-      data: { label: "2FA · Manage TOTP" },
+      data: { label: "2FA · Manage TOTP", mode: "list" },
     };
-  }, [query]);
+  }, [query, totpAddParsed]);
+
+  // `2fa` has two entry points (manager + add form). Surface the OTHER as a
+  // visible sub-row so `2fa add` is discoverable without knowing the keyword
+  // (same pattern as snitchSubEntry / shazamSubEntry). Enter runs it.
+  const totpSubEntry: ListEntry | null = useMemo(() => {
+    if (totpAddParsed) {
+      return {
+        kind: "command-suggestion",
+        data: {
+          keyword: "2fa",
+          syntax: "2fa",
+          description: "Manage TOTP entries (list · import · export)",
+          completion: "2fa",
+        },
+      };
+    }
+    if (!is2faTrigger(query)) return null;
+    return {
+      kind: "command-suggestion",
+      data: {
+        keyword: "2fa add",
+        syntax: "2fa add [issuer]",
+        description: "Add a new 2FA account (issuer · login · secret)",
+        completion: "2fa add ",
+      },
+    };
+  }, [query, totpAddParsed]);
 
   // `otp <query>` autocomplete: fuzzy-match against issuer/account.
   // We poll codes once a second while at least one TOTP row is in
-  // the list, so the displayed codes stay current.
-  const otpQuery = parseOtpQuery(query);
+  // the list, so the displayed codes stay current. Suppressed while the
+  // query is the `add` sub-command — `parseOtpQuery` would read the word
+  // `add` (and any prefill after it) as an issuer search.
+  const otpQuery = totpAddParsed ? null : parseOtpQuery(query);
   useEffect(() => {
     if (otpQuery === null) return;
     let cancelled = false;
@@ -2078,6 +2131,7 @@ function App() {
       ...(bpmEntry ? [bpmEntry] : []),
       ...(equalizerEntry ? [equalizerEntry] : []),
       ...(totpManageEntry ? [totpManageEntry] : []),
+      ...(totpSubEntry ? [totpSubEntry] : []),
       ...totpAutocompleteEntries,
       ...resizePresetEntries,
       ...fakerCatalogEntries,
@@ -2112,6 +2166,7 @@ function App() {
     bpmEntry,
     equalizerEntry,
     totpManageEntry,
+    totpSubEntry,
     totpAutocompleteEntries,
     resizePresetEntries,
     weatherCitySuggestionEntries,
@@ -3340,7 +3395,12 @@ function App() {
       }
       // 2FA management overlay — Enter swaps the popup body for the
       // TOTP manager (list / add / import / export). Esc returns.
+      // mode "add" (`2fa add [issuer]`) lands straight on the Add form.
       if (target.kind === "totp-manage") {
+        setTotpInitial({
+          tab: target.data.mode === "add" ? "add" : "list",
+          issuer: target.data.issuer ?? "",
+        });
         setTotpMode(true);
         return;
       }
@@ -3422,6 +3482,21 @@ function App() {
         // without running (handled by the global keydown effect below).
         // Anything still needing an argument (or pwgen, which shows a live
         // preview) yields `false` from dispatchCommand → fill the input.
+        // The 2fa sub-rows aren't catalogue commands (hidden trigger), so
+        // parseCommand can't run them — dispatch them here: `2fa add` opens
+        // the overlay straight on the Add form (its Issuer field is
+        // autofocused, so typing there IS the prefill), `2fa` on the list.
+        {
+          const addCompletion = parse2faAdd(target.data.completion);
+          if (addCompletion || is2faTrigger(target.data.completion)) {
+            setTotpInitial({
+              tab: addCompletion ? "add" : "list",
+              issuer: addCompletion?.issuer ?? "",
+            });
+            setTotpMode(true);
+            return;
+          }
+        }
         const parsed = parseCommand(target.data.completion);
         if (
           parsed &&
@@ -3755,7 +3830,12 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
-          <TotpOverlay onExit={exitTotp} onHidePopup={hidePopup} />
+          <TotpOverlay
+            onExit={exitTotp}
+            onHidePopup={hidePopup}
+            initialTab={totpInitial.tab}
+            initialIssuer={totpInitial.issuer}
+          />
         </div>
       </div>
     );
@@ -4218,6 +4298,10 @@ function App() {
                       setFigletOptsOverride((prev) => ({ ...prev, ...patch }))
                     }
                     liveTranslation={liveTranslation}
+                    onTotpAdd={(issuer) => {
+                      setTotpInitial({ tab: "add", issuer: issuer ?? "" });
+                      setTotpMode(true);
+                    }}
                     snippetCategories={snippetCategories}
                     snippetEditing={
                       current?.kind === "snippet" && snippetEditingId === current.data.id

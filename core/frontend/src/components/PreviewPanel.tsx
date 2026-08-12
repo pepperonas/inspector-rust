@@ -4,7 +4,7 @@ import { drawQr } from "../lib/qr";
 import { STATE_LABELS, brunoSelfAssumptions } from "../lib/bruno";
 import {
   AudioLines, Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
-  Pencil, Phone, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
+  Pencil, Phone, Plus, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
 import { FakerPreview } from "./FakerPreview";
@@ -96,6 +96,10 @@ interface Props {
    *  the keyless Google/MyMemory lookup, rendered directly in the preview. The
    *  "Enter opens Google Translate" browser fallback stays regardless. */
   liveTranslation?: PreviewLiveTranslation | null;
+  /** The 2fa preview's subtle "＋ Add account" button (v0.104.0) — App.tsx
+   *  opens the TOTP overlay straight on the Add form (issuer pre-filled when
+   *  the selected row carries one). */
+  onTotpAdd?: (issuer?: string) => void;
 }
 
 /** The live-translation state passed down from App.tsx. */
@@ -293,6 +297,7 @@ export function PreviewPanel({
   figletOpts,
   onFigletOptsChange,
   liveTranslation,
+  onTotpAdd,
 }: Props) {
   const parsedFiles = useMemo<string[] | null>(() => {
     if (!entry || entry.kind !== "clip" || entry.data.content_type !== "files") return null;
@@ -818,6 +823,7 @@ export function PreviewPanel({
   }
 
   if (entry.kind === "totp-manage") {
+    const addMode = entry.data.mode === "add";
     return (
       <div className="flex h-full flex-col gap-4 p-4">
         <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
@@ -827,11 +833,34 @@ export function PreviewPanel({
           <Zap size={36} className="text-[var(--color-accent)] opacity-80" />
           <div className="text-[14px] font-semibold">{entry.data.label}</div>
           <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
-            Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the full
-            overlay: all entries with live code + countdown, add new
-            entries, import (otpauth://, Google Authenticator Migration,
-            Aegis JSON, 2FAS JSON), export.
+            {addMode ? (
+              <>
+                Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open
+                the add form directly: Issuer / Service
+                {entry.data.issuer ? <> (pre-filled: <b>{entry.data.issuer}</b>)</> : null},
+                Account / Login, and the Base32 secret from your provider&apos;s
+                2FA setup page.
+              </>
+            ) : (
+              <>
+                Press <kbd className="rounded bg-[var(--color-bg)] px-1 font-[var(--font-mono)] text-[11px]">↩</kbd> to open the full
+                overlay: all entries with live code + countdown, add new
+                entries, import (otpauth://, Google Authenticator Migration,
+                Aegis JSON, 2FAS JSON), export.
+              </>
+            )}
           </div>
+          {onTotpAdd && !addMode && (
+            // Subtle secondary path to the add form — the discoverable
+            // sibling of the `2fa add` sub-command (v0.104.0).
+            <button
+              onClick={() => onTotpAdd(entry.data.issuer)}
+              className="flex items-center gap-1.5 rounded border border-[var(--color-border)] px-2.5 py-1 text-[11px] text-[var(--color-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)]"
+            >
+              <Plus size={12} />
+              Add account
+            </button>
+          )}
           <div className="text-[10px] text-[var(--color-muted)]">
             Secrets are AES-GCM encrypted in the SQLite DB;
             key is stored in the OS credential store.

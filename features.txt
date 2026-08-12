@@ -34,6 +34,7 @@ Notizen — dauerhafte Lesezeichen aus Clips, kategorisierbar, nie geprunt
 2FA-Manager — `2fa`/`otp`: Live-Codes mit Countdown, Add/Edit/Delete, Drag-Sortierung
 Import — Google Authenticator, Aegis, 2FAS, OTPManager, otpauth-URIs (Paste oder Datei-Drop), dedupliziert
 OTP-Autocomplete — `otp <anbieter>` / `2fa <anbieter>`: Enter kopiert den aktuellen Code
+Schnell-Anlegen — `2fa add [issuer]` (sichtbare Sub-Zeile bei `2fa`) oder ＋-Button in der Preview: öffnet direkt das Add-Formular (Issuer · Login · Secret), Issuer optional vorbefüllt
 Type-to-Filter — im Overlay einfach lostippen, Enter kopiert den Top-Treffer
 
 == Globale Hotkeys ==

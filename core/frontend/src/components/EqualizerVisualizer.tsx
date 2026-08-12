@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { AudioLines, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { setSuppressHide } from "../lib/ipc";
 import { warmContext } from "../lib/warm-audio";
@@ -182,6 +183,30 @@ export function EqualizerVisualizer({ onExit }: Props) {
     return () => window.removeEventListener("keydown", onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onExit]);
+
+  // The popup hid with the visualizer UNPINNED: exit — otherwise
+  // `equalizerMode` survived the hide, the native mic kept recording
+  // invisibly, and the next open showed the equalizer instead of the search
+  // UI. A PINNED visualizer deliberately survives (same contract as the BPM
+  // detector; pinning also suppresses the focus-loss hide).
+  const onExitRef = useRef(onExit);
+  useEffect(() => {
+    onExitRef.current = onExit;
+  }, [onExit]);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen("popup-hidden", () => {
+      if (!pinnedRef.current) onExitRef.current();
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Safety: clear suppress_hide if the visualizer unmounts while pinned.
   useEffect(

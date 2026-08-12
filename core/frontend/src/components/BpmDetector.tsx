@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { listen } from "@tauri-apps/api/event";
 import { Mic, MicOff, Pin, RefreshCw, X } from "lucide-react";
 import { BpmAnalyzer } from "../lib/bpm";
 import { setSuppressHide } from "../lib/ipc";
@@ -186,6 +187,31 @@ export function BpmDetector({ onExit }: Props) {
     return () => window.removeEventListener("keydown", onKey, true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onExit]);
+
+  // The popup hid with the detector UNPINNED (click-away / toggle hotkey):
+  // exit. Without this, `bpmMode` survived the hide — the native mic capture
+  // kept recording invisibly in the background and the next open showed the
+  // detector instead of the search UI. A PINNED detector deliberately
+  // survives (that is the pin's whole point; pinning also suppresses the
+  // focus-loss hide, so for it this only fires on the explicit toggle-close).
+  const onExitRef = useRef(onExit);
+  useEffect(() => {
+    onExitRef.current = onExit;
+  }, [onExit]);
+  useEffect(() => {
+    let cancelled = false;
+    let unlisten: (() => void) | undefined;
+    void listen("popup-hidden", () => {
+      if (!pinnedRef.current) onExitRef.current();
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, []);
 
   // Safety: clear suppress_hide if the detector unmounts while pinned.
   useEffect(

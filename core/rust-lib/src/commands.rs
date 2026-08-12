@@ -1861,9 +1861,13 @@ pub fn paste_note_formatted(
 /// history when sharing snippets with a colleague. Defaults to *all true*
 /// if invoked without the flags (legacy callers). If `password` is
 /// provided, the backup is encrypted with AES-256-GCM + Argon2id.
+/// All backup commands are `async` + `spawn_blocking`: a full export decrypts
+/// every row (multi-MB image blobs included) + optionally runs Argon2id, an
+/// import replays it row by row — as sync commands that beachballed the whole
+/// app on the MAIN thread for the duration of a photo-heavy restore.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn export_backup(
+pub async fn export_backup(
     db: State<'_, DbHandle>,
     include_history: Option<bool>,
     include_snippets: Option<bool>,
@@ -1881,7 +1885,12 @@ pub fn export_backup(
         include_settings: include_settings.unwrap_or(true),
         include_timesheet: include_timesheet.unwrap_or(false),
     };
-    backup::export_json_maybe_encrypted(&db, opts, password.as_deref()).map_err(map_err)
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        backup::export_json_maybe_encrypted(&db, opts, password.as_deref()).map_err(map_err)
+    })
+    .await
+    .map_err(|e| format!("backup task: {e}"))?
 }
 
 /// Convenience: build the backup JSON and write it directly to `path`.
@@ -1889,7 +1898,7 @@ pub fn export_backup(
 /// `export_backup`.
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
-pub fn save_backup_to_file(
+pub async fn save_backup_to_file(
     db: State<'_, DbHandle>,
     path: String,
     include_history: Option<bool>,
@@ -1908,33 +1917,48 @@ pub fn save_backup_to_file(
         include_settings: include_settings.unwrap_or(true),
         include_timesheet: include_timesheet.unwrap_or(false),
     };
-    let json = backup::export_json_maybe_encrypted(&db, opts, password.as_deref())
-        .map_err(map_err)?;
-    std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
-    Ok(json.len())
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let json = backup::export_json_maybe_encrypted(&db, opts, password.as_deref())
+            .map_err(map_err)?;
+        std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
+        Ok(json.len())
+    })
+    .await
+    .map_err(|e| format!("backup task: {e}"))?
 }
 
 /// Read a backup JSON file from `path` and merge it into the live database.
 /// If the file is encrypted (detected automatically), the `password` parameter
 /// is required. Returns import counts.
 #[tauri::command]
-pub fn import_backup(
+pub async fn import_backup(
     db: State<'_, DbHandle>,
     path: String,
     password: Option<String>,
 ) -> Result<BackupImportResult, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {path}: {e}"))?;
-    backup::import_json_maybe_encrypted(&db, &json, password.as_deref()).map_err(map_err)
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let json = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {path}: {e}"))?;
+        backup::import_json_maybe_encrypted(&db, &json, password.as_deref()).map_err(map_err)
+    })
+    .await
+    .map_err(|e| format!("backup task: {e}"))?
 }
 
 /// Check if a backup file is encrypted. The frontend uses this to decide
 /// whether to prompt for a password before importing.
 #[tauri::command]
-pub fn is_backup_encrypted(path: String) -> Result<bool, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {path}: {e}"))?;
-    Ok(backup::is_encrypted(&json))
+pub async fn is_backup_encrypted(path: String) -> Result<bool, String> {
+    // async — reads the whole (possibly large) backup file.
+    tauri::async_runtime::spawn_blocking(move || {
+        let json = std::fs::read_to_string(&path)
+            .map_err(|e| format!("read {path}: {e}"))?;
+        Ok(backup::is_encrypted(&json))
+    })
+    .await
+    .map_err(|e| format!("backup task: {e}"))?
 }
 
 // ── Passive auto-expansion (aText-style, v0.56.0) ──────────────────────────────
@@ -3804,12 +3828,18 @@ pub fn finder_mkdir(name: String) -> Result<String, String> {
 /// `terminal` — open the user's terminal at the frontmost file-manager
 /// window's folder: iTerm2/Terminal.app on macOS, Windows Terminal / PowerShell
 /// / cmd on Windows (Explorer folder, or Desktop when none is open). Returns
-/// the directory opened.
+/// the directory opened. `async` + `spawn_blocking` — the macOS path shells
+/// out to osascript/`open` (a hung Finder or slow iTerm cold-launch must not
+/// sit on the main thread).
 #[tauri::command]
-pub fn finder_open_terminal() -> Result<String, String> {
+pub async fn finder_open_terminal() -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
-        crate::finder_selection::open_terminal().map(|p| p.display().to_string())
+        tauri::async_runtime::spawn_blocking(|| {
+            crate::finder_selection::open_terminal().map(|p| p.display().to_string())
+        })
+        .await
+        .map_err(|e| format!("terminal task: {e}"))?
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -4718,11 +4748,15 @@ pub fn get_uptime_secs() -> u64 {
 
 /// One live snapshot of system stats for the `stats` command (CPU / memory /
 /// disks / network / temps / fans / battery). Blocks ~200 ms (CPU sample
-/// window) — Tauri runs sync commands off the main thread, so the popup UI
-/// stays responsive; the frontend polls this on an interval.
+/// window) — `async` + `spawn_blocking`, because a sync `#[tauri::command]`
+/// runs ON the main thread (the documented deadlock trap): with the stats
+/// panel polling every 1.5 s the old sync form stalled the UI ~13 % of the
+/// time it was open. The frontend polls this on an interval.
 #[tauri::command]
-pub fn get_system_stats() -> crate::system_stats::SystemStats {
-    crate::system_stats::gather()
+pub async fn get_system_stats() -> Result<crate::system_stats::SystemStats, String> {
+    tauri::async_runtime::spawn_blocking(crate::system_stats::gather)
+        .await
+        .map_err(|e| format!("stats task: {e}"))
 }
 
 /// Downsampled system-stats history over the last `range_secs` seconds (for the
@@ -4739,24 +4773,36 @@ pub fn get_stats_history(
 
 /// Connection status: do we have a bridge IP + paired username, and does the
 /// bridge answer? Drives the connect-vs-control branch in the Hue panel.
+///
+/// EVERY network-touching hue command below is `async` + `spawn_blocking`: a
+/// sync `#[tauri::command]` runs ON the main thread, and a stale bridge IP
+/// (router reboot, DHCP change) froze the whole app for the 5 s `ureq`
+/// timeout — per ←/→ keypress on the brightness slider in the worst case.
 #[tauri::command]
-pub fn hue_status(db: State<'_, DbHandle>) -> crate::hue::HueStatus {
-    let bridge_ip = crate::hue::bridge_ip(&db);
-    let user = crate::hue::username(&db);
-    let paired = bridge_ip.is_some() && user.is_some();
-    // "connected" = we can actually list lights right now.
-    let connected = match (&bridge_ip, &user) {
-        (Some(ip), Some(u)) => crate::hue::list_lights(ip, u).is_ok(),
-        _ => false,
-    };
-    crate::hue::HueStatus { connected, bridge_ip, paired }
+pub async fn hue_status(db: State<'_, DbHandle>) -> Result<crate::hue::HueStatus, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let bridge_ip = crate::hue::bridge_ip(&db);
+        let user = crate::hue::username(&db);
+        let paired = bridge_ip.is_some() && user.is_some();
+        // "connected" = we can actually list lights right now.
+        let connected = match (&bridge_ip, &user) {
+            (Some(ip), Some(u)) => crate::hue::list_lights(ip, u).is_ok(),
+            _ => false,
+        };
+        crate::hue::HueStatus { connected, bridge_ip, paired }
+    })
+    .await
+    .map_err(|e| format!("hue task: {e}"))
 }
 
 /// Best-effort local SSDP discovery of a bridge IP (no cloud). May take ~3 s;
 /// the frontend calls it on a button press, not on mount.
 #[tauri::command]
-pub fn hue_discover() -> Option<String> {
-    crate::hue::discover_bridge()
+pub async fn hue_discover() -> Result<Option<String>, String> {
+    tauri::async_runtime::spawn_blocking(crate::hue::discover_bridge)
+        .await
+        .map_err(|e| format!("hue task: {e}"))
 }
 
 /// Persist a manually-entered bridge IP (discovery fallback).
@@ -4769,12 +4815,17 @@ pub fn hue_set_bridge_ip(db: State<'_, DbHandle>, ip: String) -> Result<(), Stri
 /// On success the created username is stored; the IP is stored too. Returns the
 /// `hue.link_button` sentinel if the button wasn't pressed.
 #[tauri::command]
-pub fn hue_pair(db: State<'_, DbHandle>, ip: String) -> Result<(), String> {
-    let ip = ip.trim().to_string();
-    let user = crate::hue::pair(&ip)?;
-    settings::set(&db, crate::hue::KEY_BRIDGE_IP, &ip).map_err(map_err)?;
-    settings::set(&db, crate::hue::KEY_USERNAME, &user).map_err(map_err)?;
-    Ok(())
+pub async fn hue_pair(db: State<'_, DbHandle>, ip: String) -> Result<(), String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let ip = ip.trim().to_string();
+        let user = crate::hue::pair(&ip)?;
+        settings::set(&db, crate::hue::KEY_BRIDGE_IP, &ip).map_err(map_err)?;
+        settings::set(&db, crate::hue::KEY_USERNAME, &user).map_err(map_err)?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| format!("hue task: {e}"))?
 }
 
 /// Forget the stored bridge + username (re-pair from scratch).
@@ -4792,48 +4843,68 @@ fn hue_creds(db: &DbHandle) -> Result<(String, String), String> {
 
 /// List all lamps with their current state.
 #[tauri::command]
-pub fn hue_list_lights(db: State<'_, DbHandle>) -> Result<Vec<crate::hue::HueLight>, String> {
-    let (ip, user) = hue_creds(&db)?;
-    crate::hue::list_lights(&ip, &user)
+pub async fn hue_list_lights(db: State<'_, DbHandle>) -> Result<Vec<crate::hue::HueLight>, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ip, user) = hue_creds(&db)?;
+        crate::hue::list_lights(&ip, &user)
+    })
+    .await
+    .map_err(|e| format!("hue task: {e}"))?
 }
 
 /// Set a single lamp: on/off, optional brightness %, optional hex colour.
 #[tauri::command]
-pub fn hue_set_light(
+pub async fn hue_set_light(
     db: State<'_, DbHandle>,
     id: String,
     on: bool,
     brightness: Option<u8>,
     hex: Option<String>,
 ) -> Result<(), String> {
-    let (ip, user) = hue_creds(&db)?;
-    crate::hue::set_light(&ip, &user, &id, on, brightness, hex.as_deref())
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ip, user) = hue_creds(&db)?;
+        crate::hue::set_light(&ip, &user, &id, on, brightness, hex.as_deref())
+    })
+    .await
+    .map_err(|e| format!("hue task: {e}"))?
 }
 
 /// Set **all** lamps at once (group 0): on/off, optional brightness %, colour.
 #[tauri::command]
-pub fn hue_set_all(
+pub async fn hue_set_all(
     db: State<'_, DbHandle>,
     on: bool,
     brightness: Option<u8>,
     hex: Option<String>,
 ) -> Result<(), String> {
-    let (ip, user) = hue_creds(&db)?;
-    crate::hue::set_all(&ip, &user, on, brightness, hex.as_deref())
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let (ip, user) = hue_creds(&db)?;
+        crate::hue::set_all(&ip, &user, on, brightness, hex.as_deref())
+    })
+    .await
+    .map_err(|e| format!("hue task: {e}"))?
 }
 
 // ── Weather (`weather` command, v0.97.0) ────────────────────────────────────
 
 /// Fetch current conditions + a 5-day forecast for the given city, or — when
-/// `city` is `None`/empty — for the caller's IP-geolocated location. Blocks on
-/// two OWM HTTP round-trips (runs on a Tauri worker thread, not the UI thread,
-/// like the Hue commands). `Err(weather::ERR_NO_KEY)` when unconfigured.
+/// `city` is `None`/empty — for the caller's IP-geolocated location. Two OWM
+/// HTTP round-trips (+ an IP-geolocate without a city) at a 6 s timeout each —
+/// `async` + `spawn_blocking`, because as a sync command this ran on the MAIN
+/// thread and an unreachable network froze the entire app for up to ~12 s.
+/// `Err(weather::ERR_NO_KEY)` when unconfigured.
 #[tauri::command]
-pub fn weather_fetch(
+pub async fn weather_fetch(
     db: State<'_, DbHandle>,
     city: Option<String>,
 ) -> Result<crate::weather::WeatherReport, String> {
-    crate::weather::fetch(&db, city)
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::weather::fetch(&db, city))
+        .await
+        .map_err(|e| format!("weather task: {e}"))?
 }
 
 /// The weather config for the settings UI (whether a key is stored + units).
@@ -4867,7 +4938,7 @@ pub fn set_weather_config(
 /// needed for the Sessions sub-tab.
 /// `Err(token_usage::ERR_UNREACHABLE)` when nothing is listening.
 #[tauri::command]
-pub fn token_usage_fetch(
+pub async fn token_usage_fetch(
     period: Option<String>,
     include_sessions: Option<bool>,
 ) -> Result<crate::token_usage::Snapshot, String> {
@@ -4877,7 +4948,14 @@ pub fn token_usage_fetch(
         "all" => crate::token_usage::Period::All,
         _ => crate::token_usage::Period::Days30,
     };
-    crate::token_usage::fetch_default(p, include_sessions.unwrap_or(false))
+    // async + spawn_blocking — the tracker joins a thread::scope of HTTP
+    // requests (4 s timeout each; the 30d sessions payload is multi-second),
+    // which as a sync command blocked the main thread for the whole join.
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::token_usage::fetch_default(p, include_sessions.unwrap_or(false))
+    })
+    .await
+    .map_err(|e| format!("token-usage task: {e}"))?
 }
 
 // ── Clipboard-history cap (configurable, v0.98.0) ───────────────────────────

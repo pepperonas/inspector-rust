@@ -63,6 +63,20 @@ pub fn open(path: &PathBuf) -> Result<DbHandle> {
     // rail between the derived copy and its original.
     let _ = conn.execute("ALTER TABLE entries ADD COLUMN derived_from INTEGER", []);
     let _ = conn.execute("ALTER TABLE entries ADD COLUMN derived_kind TEXT", []);
+    // Perf index (v0.105.0) — created AFTER the column migrations above (a
+    // pre-v0.76 DB gains `pinned` only there; putting it in the first batch
+    // would fail the whole open on such a DB). It serves BOTH hot paths,
+    // EXPLAIN-verified: the list's two-column ORDER BY becomes `SCAN … USING
+    // INDEX` with early exit at LIMIT (was full SCAN + TEMP B-TREE of up to
+    // 100k rows to return 1000, on every copy and popup open), and
+    // prune_locked's subquery becomes an indexed `SEARCH (pinned=?)` instead
+    // of a table walk. A partial `WHERE pinned=0 AND note IS NULL` index was
+    // measured to add nothing over this one — the planner picks the composite
+    // either way — so we don't pay its per-insert write amplification.
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_pinned_recency
+            ON entries(pinned DESC, last_used_at DESC);",
+    )?;
     // Timesheet (time-tracking) tables — same idempotent CREATE-IF-NOT-EXISTS
     // convention; never crash an existing DB.
     crate::tracking::db::init_schema(&conn)
@@ -154,10 +168,14 @@ pub fn upsert_clip_derived(
                 derived_kind,
             ],
         )?;
-        conn.last_insert_rowid()
+        let id = conn.last_insert_rowid();
+        // Prune only on a GENUINE insert — a recency bump cannot grow the
+        // table, so the old unconditional prune made every hash-dedup copy
+        // pay a settings query + a prune pass for nothing.
+        prune_locked(&conn, effective_max_entries(&conn))?;
+        id
     };
 
-    prune_locked(&conn, effective_max_entries(&conn))?;
     Ok(id)
 }
 
@@ -267,23 +285,23 @@ pub fn set_lineage_if_absent(
 }
 
 pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
-    let conn = db.lock();
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT id, content_type, content_text, content_data, hash,
-               byte_size, created_at, last_used_at, pinned, note,
-               derived_from, derived_kind
-        FROM entries
-        ORDER BY pinned DESC, last_used_at DESC
-        LIMIT ?1 OFFSET ?2
-        "#,
-    )?;
-    let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_entry)?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r?);
-    }
-    Ok(out)
+    // Fetch raw under the lock, decrypt after dropping it (see row_to_entry).
+    let raw: Vec<ClipEntry> = {
+        let conn = db.lock();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, content_type, content_text, content_data, hash,
+                   byte_size, created_at, last_used_at, pinned, note,
+                   derived_from, derived_kind
+            FROM entries
+            ORDER BY pinned DESC, last_used_at DESC
+            LIMIT ?1 OFFSET ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_entry)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    Ok(raw.into_iter().map(decrypt_entry).collect())
 }
 
 /// Like [`list`], but **omits the `content_data` blob for `image` rows**
@@ -300,24 +318,23 @@ pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>
 /// `list` (full, with image data) is still used by the backup export, which
 /// genuinely needs every byte.
 pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
-    let conn = db.lock();
-    let mut stmt = conn.prepare(
-        r#"
-        SELECT id, content_type, content_text,
-               CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
-               hash, byte_size, created_at, last_used_at, pinned, note,
-               derived_from, derived_kind
-        FROM entries
-        ORDER BY pinned DESC, last_used_at DESC
-        LIMIT ?1 OFFSET ?2
-        "#,
-    )?;
-    let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_entry)?;
-    let mut out = Vec::new();
-    for r in rows {
-        out.push(r?);
-    }
-    Ok(out)
+    let raw: Vec<ClipEntry> = {
+        let conn = db.lock();
+        let mut stmt = conn.prepare(
+            r#"
+            SELECT id, content_type, content_text,
+                   CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
+                   hash, byte_size, created_at, last_used_at, pinned, note,
+                   derived_from, derived_kind
+            FROM entries
+            ORDER BY pinned DESC, last_used_at DESC
+            LIMIT ?1 OFFSET ?2
+            "#,
+        )?;
+        let rows = stmt.query_map(params![limit as i64, offset as i64], row_to_entry)?;
+        rows.collect::<rusqlite::Result<Vec<_>>>()?
+    };
+    Ok(raw.into_iter().map(decrypt_entry).collect())
 }
 
 pub fn touch(db: &DbHandle, id: i64) -> Result<()> {
@@ -331,9 +348,9 @@ pub fn touch(db: &DbHandle, id: i64) -> Result<()> {
 }
 
 pub fn get(db: &DbHandle, id: i64) -> Result<Option<ClipEntry>> {
-    let conn = db.lock();
-    let entry = conn
-        .query_row(
+    let raw = {
+        let conn = db.lock();
+        conn.query_row(
             r#"
             SELECT id, content_type, content_text, content_data, hash,
                    byte_size, created_at, last_used_at, pinned, note,
@@ -344,8 +361,9 @@ pub fn get(db: &DbHandle, id: i64) -> Result<Option<ClipEntry>> {
             params![id],
             row_to_entry,
         )
-        .optional()?;
-    Ok(entry)
+        .optional()?
+    };
+    Ok(raw.map(decrypt_entry))
 }
 
 pub fn delete(db: &DbHandle, id: i64) -> Result<()> {
@@ -928,26 +946,38 @@ mod tests {
     }
 }
 
+/// Read a row into a `ClipEntry` whose sensitive fields still hold the RAW
+/// stored (encrypted) values. Decryption happens in [`decrypt_entry`] AFTER
+/// the caller has dropped the DB lock — the AES work for a 1000-row list (or
+/// the multi-MB image blobs of a backup export) must not park every other
+/// `DbHandle` user (clipboard watcher, tracking heartbeat, stats collector)
+/// behind the mutex. Same split as `totp_store::current_codes_all`.
 fn row_to_entry(row: &rusqlite::Row<'_>) -> rusqlite::Result<ClipEntry> {
     let ct_str: String = row.get(1)?;
     let content_type = ContentType::from_str(&ct_str).unwrap_or(ContentType::Text);
-    let raw_text = row.get::<_, Option<String>>(2)?.unwrap_or_default();
-    let raw_data = row.get::<_, Option<String>>(3)?.unwrap_or_default();
     Ok(ClipEntry {
         id: row.get(0)?,
         content_type,
-        content_text: crypto::decrypt(&raw_text),
-        content_data: crypto::decrypt(&raw_data),
+        content_text: row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+        content_data: row.get::<_, Option<String>>(3)?.unwrap_or_default(),
         hash: row.get(4)?,
         byte_size: row.get(5)?,
         created_at: row.get(6)?,
         last_used_at: row.get(7)?,
         pinned: row.get::<_, i64>(8)? != 0,
-        note: row
-            .get::<_, Option<String>>(9)?
-            .map(|enc| crypto::decrypt(&enc))
-            .filter(|s| !s.is_empty()),
+        note: row.get::<_, Option<String>>(9)?,
         derived_from: row.get(10)?,
         derived_kind: row.get::<_, Option<String>>(11)?.filter(|s| !s.is_empty()),
     })
+}
+
+/// The decrypt half of [`row_to_entry`] — call it with the lock DROPPED.
+fn decrypt_entry(mut e: ClipEntry) -> ClipEntry {
+    e.content_text = crypto::decrypt(&e.content_text);
+    e.content_data = crypto::decrypt(&e.content_data);
+    e.note = e
+        .note
+        .map(|enc| crypto::decrypt(&enc))
+        .filter(|s| !s.is_empty());
+    e
 }

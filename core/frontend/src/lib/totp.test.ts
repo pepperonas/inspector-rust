@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { matchTotpEntries, type TotpEntry } from "./totp";
+import { matchTotpEntries, totpCommandRows, type TotpEntry } from "./totp";
 
 function entry(id: number, issuer: string, account: string): TotpEntry {
   return { id, issuer, account, digits: 6, period: 30, algorithm: "SHA1", created_at: 0 };
@@ -113,5 +113,43 @@ describe("matchTotpEntries", () => {
     // "ali" hits both Amazon's and Apple's accounts but no issuer → account tier;
     // both surface (order preserved: equal account-prefix scores).
     expect(matchTotpEntries("ali", all).map((e) => e.id)).toEqual([1, 2]);
+  });
+});
+
+describe("totpCommandRows", () => {
+  it("bare `2fa`/`otp` → manager row + a sub-row suggesting `2fa add`", () => {
+    for (const q of ["2fa", "otp", "  2FA  "]) {
+      const rows = totpCommandRows(q);
+      expect(rows.manage).toEqual({ label: "2FA · Manage TOTP", mode: "list" });
+      expect(rows.sub?.keyword).toBe("2fa add");
+      // Arg-taking completion carries the trailing space (type-ahead ready).
+      expect(rows.sub?.completion).toBe("2fa add ");
+    }
+  });
+
+  it("`2fa add` → add-form row (no prefill) + a sub-row back to the manager", () => {
+    const rows = totpCommandRows("2fa add");
+    expect(rows.manage).toEqual({
+      label: "2FA · Add new account",
+      mode: "add",
+      issuer: "",
+    });
+    expect(rows.sub?.keyword).toBe("2fa");
+    expect(rows.sub?.completion).toBe("2fa");
+  });
+
+  it("`2fa add <issuer>` pre-fills the issuer and shows it in the label", () => {
+    const rows = totpCommandRows("otp add GitHub");
+    expect(rows.manage?.mode).toBe("add");
+    expect(rows.manage?.issuer).toBe("GitHub");
+    expect(rows.manage?.label).toContain("GitHub");
+  });
+
+  it("issuer searches and unrelated queries yield neither row", () => {
+    // `2fa addepar` is an issuer SEARCH — the autocomplete owns it; the
+    // add form must not hijack a company whose name starts with "add".
+    for (const q of ["2fa addepar", "2fa amazon", "otp hosti", "hello", ""]) {
+      expect(totpCommandRows(q)).toEqual({ manage: null, sub: null });
+    }
   });
 });

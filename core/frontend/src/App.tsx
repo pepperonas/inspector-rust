@@ -191,7 +191,7 @@ import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBr
 import { matchSettingsSection } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
-import { matchTotpEntries } from "./lib/totp";
+import { matchTotpEntries, totpCommandRows } from "./lib/totp";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
@@ -1918,64 +1918,27 @@ function App() {
     };
   }, [query]);
 
-  // 2FA management trigger — exact `2fa` surfaces a "TOTP management"
-  // row; Enter takes over the popup with the full <TotpOverlay />.
-  // `2fa add [issuer]` (v0.104.0) makes the primary row the ADD form
-  // instead — Enter opens the overlay straight on Add, issuer pre-filled.
-  const totpAddParsed = useMemo(() => parse2faAdd(query), [query]);
-  const totpManageEntry: ListEntry | null = useMemo(() => {
-    if (totpAddParsed) {
-      return {
-        kind: "totp-manage",
-        data: {
-          label: totpAddParsed.issuer
-            ? `2FA · Add "${totpAddParsed.issuer}"`
-            : "2FA · Add new account",
-          mode: "add",
-          issuer: totpAddParsed.issuer,
-        },
-      };
-    }
-    if (!is2faTrigger(query)) return null;
-    return {
-      kind: "totp-manage",
-      data: { label: "2FA · Manage TOTP", mode: "list" },
-    };
-  }, [query, totpAddParsed]);
-
-  // `2fa` has two entry points (manager + add form). Surface the OTHER as a
-  // visible sub-row so `2fa add` is discoverable without knowing the keyword
-  // (same pattern as snitchSubEntry / shazamSubEntry). Enter runs it.
-  const totpSubEntry: ListEntry | null = useMemo(() => {
-    if (totpAddParsed) {
-      return {
-        kind: "command-suggestion",
-        data: {
-          keyword: "2fa",
-          syntax: "2fa",
-          description: "Manage TOTP entries (list · import · export)",
-          completion: "2fa",
-        },
-      };
-    }
-    if (!is2faTrigger(query)) return null;
-    return {
-      kind: "command-suggestion",
-      data: {
-        keyword: "2fa add",
-        syntax: "2fa add [issuer]",
-        description: "Add a new 2FA account (issuer · login · secret)",
-        completion: "2fa add ",
-      },
-    };
-  }, [query, totpAddParsed]);
+  // 2FA command rows — exact `2fa` surfaces the manager row + a visible
+  // `2fa add` sub-row (snitch/shazam sub-command pattern); `2fa add
+  // [issuer]` (v0.104.0) makes the ADD form the primary row instead, the
+  // sub-row pointing back at the manager. The which-rows-for-which-query
+  // logic is the pure, unit-tested `lib/totp.ts::totpCommandRows`.
+  const totpRows = useMemo(() => totpCommandRows(query), [query]);
+  const totpManageEntry: ListEntry | null = useMemo(
+    () => (totpRows.manage ? { kind: "totp-manage", data: totpRows.manage } : null),
+    [totpRows],
+  );
+  const totpSubEntry: ListEntry | null = useMemo(
+    () => (totpRows.sub ? { kind: "command-suggestion", data: totpRows.sub } : null),
+    [totpRows],
+  );
 
   // `otp <query>` autocomplete: fuzzy-match against issuer/account.
   // We poll codes once a second while at least one TOTP row is in
   // the list, so the displayed codes stay current. Suppressed while the
   // query is the `add` sub-command — `parseOtpQuery` would read the word
   // `add` (and any prefill after it) as an issuer search.
-  const otpQuery = totpAddParsed ? null : parseOtpQuery(query);
+  const otpQuery = totpRows.manage?.mode === "add" ? null : parseOtpQuery(query);
   useEffect(() => {
     if (otpQuery === null) return;
     let cancelled = false;

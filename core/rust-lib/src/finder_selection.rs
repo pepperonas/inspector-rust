@@ -577,8 +577,13 @@ pub fn open_terminal() -> Result<PathBuf, String> {
     // iTerm2 first, if installed. `open -b … <dir>` opens iTerm but does NOT
     // cd into the folder, so drive it with AppleScript: a new window + an
     // explicit `cd '<dir>'`. (Terminal.app, by contrast, honours the folder
-    // arg to `open -a` directly.)
+    // arg to `open -a` directly.) Through the run_osascript WATCHDOG like
+    // every other osascript call in this file — a raw `.status()` here had no
+    // timeout, so a hung/permission-dialog-blocked iTerm wedged the caller
+    // indefinitely (the exact scenario the watchdog exists for). iTerm cold
+    // launch can exceed the usual 2 s, hence the more generous cap.
     if iterm_installed() {
+        use crate::osascript_util::{run_osascript, OsaResult};
         let cd_cmd = format!("cd {}", sh_squote(&dir_str));
         let script = format!(
             "tell application \"iTerm\"\n\
@@ -588,12 +593,10 @@ pub fn open_terminal() -> Result<PathBuf, String> {
              end tell",
             osa_escape(&cd_cmd)
         );
-        let ok = Command::new("/usr/bin/osascript")
-            .arg("-e")
-            .arg(&script)
-            .status()
-            .map(|s| s.success())
-            .unwrap_or(false);
+        let ok = match run_osascript(&script, std::time::Duration::from_secs(8)) {
+            OsaResult::Done(out) => out.status.success(),
+            OsaResult::TimedOut | OsaResult::SpawnFailed(_) => false,
+        };
         if ok {
             return Ok(dir);
         }

@@ -33,15 +33,57 @@ fn sanitize(s: &str) -> String {
     trimmed.chars().take(40).collect()
 }
 
-/// Best-effort lookup of the currently-frontmost app's name. Returns
-/// `None` if Automation is denied, osascript isn't installed, the app
-/// name comes back empty, the call **times out** (v0.35.2+ — see
-/// `osascript_util`), or we're not on macOS. Caller treats `None` as
-/// "fall back to the generic filename / skip the related feature".
+/// Native fast path (v0.105.0): `NSWorkspace.frontmostApplication.
+/// localizedName` — no subprocess, no Automation TCC prompt, microseconds.
+/// The clipboard watcher consults [`name`] on EVERY copy once the
+/// exclude-apps list is non-empty; the osascript route forked a process +
+/// a System Events round trip per copy (~30 ms median, up to the 1.5 s
+/// watchdog when System Events is busy). Off-main-thread read is a snapshot
+/// — the same doctrine as `tracking/os/macos.rs`'s `frontmost_native`.
+#[cfg(target_os = "macos")]
+fn name_native() -> Option<String> {
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+    unsafe {
+        let ws_cls = AnyClass::get(c"NSWorkspace")?;
+        let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
+        if ws.is_null() {
+            return None;
+        }
+        let app: *mut AnyObject = msg_send![ws, frontmostApplication];
+        if app.is_null() {
+            return None;
+        }
+        let name_obj: *mut AnyObject = msg_send![app, localizedName];
+        if name_obj.is_null() {
+            return None;
+        }
+        let utf8: *const std::os::raw::c_char = msg_send![name_obj, UTF8String];
+        if utf8.is_null() {
+            return None;
+        }
+        Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
+    }
+}
+
+/// Best-effort lookup of the currently-frontmost app's name. Native
+/// NSWorkspace first; the AppleScript route stays as the fallback (it can
+/// answer in edge states where `frontmostApplication` is nil). Returns
+/// `None` if both fail, the name comes back empty, the osascript call
+/// **times out** (v0.35.2+ — see `osascript_util`), or we're not on macOS.
+/// Caller treats `None` as "fall back to the generic filename / skip the
+/// related feature".
 #[cfg(target_os = "macos")]
 pub fn name() -> Option<String> {
     use crate::osascript_util::{run_osascript, OsaResult};
     use std::time::Duration;
+
+    if let Some(native) = name_native() {
+        let clean = sanitize(&native);
+        if !clean.is_empty() {
+            return Some(clean);
+        }
+    }
 
     // `System Events` is the standard target for frontmost-app probes;
     // it's pre-installed on every macOS and exposes the process list

@@ -30,6 +30,7 @@ import {
 import {
   dayName,
   hasPrecip,
+  hourLabel,
   isNight,
   isToday,
   mpsToKmh,
@@ -569,6 +570,43 @@ export function WeatherPanel({
         />
         <Stat icon={<Gauge size={14} />} label="Pressure" value={`${c.pressure} hPa`} />
       </div>
+
+      {/* Next 12 hours — 3-hour slots from the same forecast response, labelled
+          in the LOCATION's local time (weather tokyo shows Tokyo hours). */}
+      {report.hourly.length > 0 && (
+        <div className="border-b border-[var(--color-border)] p-3">
+          <div className="mb-2 text-[11px] font-semibold uppercase tracking-[0.1em] text-[var(--color-muted)]">
+            Next 12 hours
+          </div>
+          <div className="grid grid-cols-5 gap-2">
+            {report.hourly.slice(0, 5).map((h) => (
+              <div
+                key={h.dt}
+                title={h.description}
+                className="overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]"
+              >
+                <div className="relative h-[44px]">
+                  <WeatherScene kind={h.kind} compact />
+                  {/* Rain probability — only when it actually matters. */}
+                  {h.pop >= 0.2 && (
+                    <span className="absolute right-1 top-1 z-10 rounded bg-black/35 px-1 text-[9px] font-semibold tabular-nums text-white drop-shadow">
+                      {Math.round(h.pop * 100)}%
+                    </span>
+                  )}
+                </div>
+                <div className="px-1 py-1.5 text-center">
+                  <div className="text-[10px] font-medium tabular-nums text-[var(--color-muted)]">
+                    {hourLabel(h.dt, report.tz_offset)}
+                  </div>
+                  <div className="mt-0.5 text-[12px] font-semibold tabular-nums text-[var(--color-fg)]">
+                    {roundTemp(h.temp)}°
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Forecast */}
       {forecast.length > 0 && (

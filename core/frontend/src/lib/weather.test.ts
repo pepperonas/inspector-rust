@@ -10,6 +10,7 @@ import {
   isToday,
   isNight,
   hasPrecip,
+  hourLabel,
 } from "./weather";
 import type { WeatherKind } from "./ipc";
 
@@ -87,5 +88,21 @@ describe("weather helpers", () => {
     expect(hasPrecip("thunderstorm")).toBe(true);
     expect(hasPrecip("snow")).toBe(false);
     expect(hasPrecip("clear-day")).toBe(false);
+  });
+});
+
+describe("hourLabel", () => {
+  it("labels a slot in the LOCATION's local time via tz offset", () => {
+    // 2026-08-13 12:00:00 UTC …
+    const noonUtc = Date.UTC(2026, 7, 13, 12, 0, 0) / 1000;
+    expect(hourLabel(noonUtc, 0)).toBe("12:00");
+    expect(hourLabel(noonUtc, 7200)).toBe("14:00"); // Berlin summer
+    expect(hourLabel(noonUtc, 9 * 3600)).toBe("21:00"); // Tokyo
+    expect(hourLabel(noonUtc, -5 * 3600)).toBe("07:00"); // NYC (negative offset)
+  });
+  it("pads single-digit hours and wraps across midnight", () => {
+    const late = Date.UTC(2026, 7, 13, 23, 0, 0) / 1000;
+    expect(hourLabel(late, 7200)).toBe("01:00"); // wraps to the next day
+    expect(hourLabel(Date.UTC(2026, 7, 13, 6, 0, 0) / 1000, 0)).toBe("06:00");
   });
 });

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.106.0] — 2026-08-13
+
+### Added
+
+- **`weather` shows the next 12 hours.** A strip of up to five 3-hour slots between the current conditions and the 5-day forecast — compact animated scene, temperature, and a rain-probability badge (shown from 20 %). Hours are labelled in the **searched city's** local time (`weather tokyo` shows Tokyo hours), and the data comes from the forecast response the panel already fetches — no extra request.
+
 ## [0.105.0] — 2026-08-13
 
 Performance + bug audit (4 parallel review passes over the whole codebase, every adopted finding re-verified at the source; DB claims EXPLAIN-verified).

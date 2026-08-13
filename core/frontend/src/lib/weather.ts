@@ -89,3 +89,12 @@ export function isNight(kind: WeatherKind): boolean {
 export function hasPrecip(kind: WeatherKind): boolean {
   return kind === "rain" || kind === "drizzle" || kind === "thunderstorm";
 }
+
+/** Hour label for an hourly slot, in the LOCATION's local time: the slot's
+ *  UTC seconds shifted by the report's `tz_offset`, rendered as "HH:00".
+ *  Pure — `weather tokyo` labels the strip in Tokyo hours, not the
+ *  machine's. */
+export function hourLabel(dt: number, tzOffset: number): string {
+  const h = new Date((dt + tzOffset) * 1000).getUTCHours();
+  return `${String(h).padStart(2, "0")}:00`;
+}

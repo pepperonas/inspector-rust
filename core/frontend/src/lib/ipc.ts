@@ -2421,12 +2421,28 @@ export interface WeatherDaily {
   description: string;
 }
 
+/** One 3-hour slot of the "next 12 h" strip (v0.106.0). */
+export interface WeatherHourly {
+  /** Unix seconds (UTC) of the slot start. */
+  dt: number;
+  temp: number;
+  icon: string;
+  kind: WeatherKind;
+  description: string;
+  /** Probability of precipitation, 0–1. */
+  pop: number;
+}
+
 export interface WeatherReport {
   location: string;
   lat: number;
   lon: number;
   current: WeatherCurrent;
+  /** The next ~12 hours as 3-hour slots (up to 5). */
+  hourly: WeatherHourly[];
   daily: WeatherDaily[];
+  /** The LOCATION's UTC offset in seconds (for labelling the hourly slots). */
+  tz_offset: number;
   units: string;
 }
 

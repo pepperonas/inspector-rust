@@ -124,6 +124,21 @@ pub struct DailyForecast {
     pub description: String,
 }
 
+/// One 3-hour slot of the near-term outlook (v0.106.0, the "next 12 h"
+/// strip). Same OWM `/forecast` response the daily summary is built from —
+/// no extra HTTP round trip.
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct HourlyForecast {
+    /// Unix seconds (UTC) of the slot start.
+    pub dt: i64,
+    pub temp: f64,
+    pub icon: String,
+    pub kind: WeatherKind,
+    pub description: String,
+    /// Probability of precipitation, 0.0–1.0 (OWM `pop`; 0 when absent).
+    pub pop: f64,
+}
+
 #[derive(Serialize, Clone, Debug)]
 pub struct WeatherReport {
     /// "City, CC" for the header.
@@ -131,7 +146,13 @@ pub struct WeatherReport {
     pub lat: f64,
     pub lon: f64,
     pub current: Current,
+    /// The next ~12 hours as 3-hour slots (up to 5).
+    pub hourly: Vec<HourlyForecast>,
     pub daily: Vec<DailyForecast>,
+    /// The LOCATION's UTC offset in seconds (OWM `city.timezone`) — the
+    /// frontend labels the hourly slots in the searched city's local time,
+    /// not the machine's (`weather tokyo` shows Tokyo hours).
+    pub tz_offset: i64,
     /// `metric` (°C) — the only supported unit set for now.
     pub units: String,
 }
@@ -305,6 +326,65 @@ pub fn parse_forecast(v: &Value, max: usize) -> Vec<DailyForecast> {
         .collect()
 }
 
+/// The near-term slots for the "next 12 h" strip: every `/forecast` entry
+/// whose slot is still RELEVANT (its 3-hour window hasn't fully passed —
+/// `dt + 3 h > now`), first `max` of them. Pure + deterministic: `now` is
+/// injected (unix seconds). Entries without a temperature are skipped;
+/// `pop` defaults to 0 when absent.
+pub fn parse_hourly(v: &Value, now: i64, max: usize) -> Vec<HourlyForecast> {
+    const SLOT_S: i64 = 3 * 3600;
+    let list = match v.get("list").and_then(|l| l.as_array()) {
+        Some(l) => l,
+        None => return Vec::new(),
+    };
+    let mut out = Vec::new();
+    for entry in list {
+        if out.len() >= max {
+            break;
+        }
+        let dt = match num(entry, &["dt"]) {
+            Some(d) => d as i64,
+            None => continue,
+        };
+        if dt + SLOT_S <= now {
+            continue;
+        }
+        let temp = match num(entry, &["main", "temp"]) {
+            Some(t) => t,
+            None => continue,
+        };
+        let icon = entry
+            .get("weather")
+            .and_then(|w| w.get(0))
+            .and_then(|w| w.get("icon"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("01d")
+            .to_string();
+        let description = entry
+            .get("weather")
+            .and_then(|w| w.get(0))
+            .and_then(|w| w.get("description"))
+            .and_then(|x| x.as_str())
+            .unwrap_or("")
+            .to_string();
+        out.push(HourlyForecast {
+            dt,
+            temp: (temp * 10.0).round() / 10.0,
+            kind: owm_icon_to_kind(&icon),
+            icon,
+            description,
+            pop: num(entry, &["pop"]).unwrap_or(0.0).clamp(0.0, 1.0),
+        });
+    }
+    out
+}
+
+/// The location's UTC offset in seconds from an OWM `/forecast` response
+/// (`city.timezone`); 0 when absent. Pure.
+pub fn forecast_tz_offset(v: &Value) -> i64 {
+    num(v, &["city", "timezone"]).unwrap_or(0.0) as i64
+}
+
 /// One of the two ways to name the place we want weather for.
 pub enum Location {
     Coords { lat: f64, lon: f64 },
@@ -428,18 +508,29 @@ pub fn fetch(db: &DbHandle, city: Option<String>) -> Result<WeatherReport, Strin
     let lat = num(&cur_json, &["coord", "lat"]).unwrap_or(0.0);
     let lon = num(&cur_json, &["coord", "lon"]).unwrap_or(0.0);
 
-    // Forecast is best-effort — a current-only report is still useful.
-    let daily = match get_json(&build_url(OWM_BASE, "forecast", &loc, &key, &units, lang)) {
-        Ok(fj) => parse_forecast(&fj, 6),
-        Err(_) => Vec::new(),
-    };
+    // Forecast is best-effort — a current-only report is still useful. One
+    // response feeds BOTH the daily summary and the next-12-h hourly strip.
+    let (hourly, daily, tz_offset) =
+        match get_json(&build_url(OWM_BASE, "forecast", &loc, &key, &units, lang)) {
+            Ok(fj) => {
+                let now = chrono::Utc::now().timestamp();
+                (
+                    parse_hourly(&fj, now, 5),
+                    parse_forecast(&fj, 6),
+                    forecast_tz_offset(&fj),
+                )
+            }
+            Err(_) => (Vec::new(), Vec::new(), 0),
+        };
 
     Ok(WeatherReport {
         location,
         lat,
         lon,
         current,
+        hourly,
         daily,
+        tz_offset,
         units,
     })
 }
@@ -632,5 +723,56 @@ mod tests {
         assert_eq!(hour_of("2026-07-29 12:00:00"), Some(12));
         assert_eq!(hour_of("2026-07-29 00:00:00"), Some(0));
         assert_eq!(hour_of("bad"), None);
+    }
+
+    fn hourly_fixture() -> Value {
+        // Slot starts every 3 h from t=0; "now" is injected per test.
+        json!({
+            "city": { "timezone": 7200 },
+            "list": [
+                { "dt": 0,     "main": { "temp": 10.04 }, "weather": [{ "icon": "01d", "description": "klar" }], "pop": 0.0 },
+                { "dt": 10800, "main": { "temp": 12.06 }, "weather": [{ "icon": "10d", "description": "regen" }], "pop": 0.62 },
+                { "dt": 21600, "main": { "temp": 14.0 },  "weather": [{ "icon": "04d", "description": "wolkig" }] },
+                { "dt": 32400, "weather": [{ "icon": "01d" }] },              // no temp → skipped
+                { "dt": 43200, "main": { "temp": 9.0 },   "weather": [{ "icon": "13d", "description": "schnee" }], "pop": 1.7 },
+                { "dt": 54000, "main": { "temp": 8.0 },   "weather": [{ "icon": "01n", "description": "klar" }] },
+            ]
+        })
+    }
+
+    #[test]
+    fn parse_hourly_keeps_the_running_slot_and_drops_fully_past_ones() {
+        // now = 4000 → slot dt=0 still RUNS (its 3-h window ends at 10800);
+        // it must stay — the strip's first cell is "right now".
+        let h = parse_hourly(&hourly_fixture(), 4000, 5);
+        assert_eq!(h[0].dt, 0);
+        // now = 11000 → slot 0's window has fully passed → gone.
+        let h = parse_hourly(&hourly_fixture(), 11_000, 5);
+        assert_eq!(h[0].dt, 10800);
+    }
+
+    #[test]
+    fn parse_hourly_caps_skips_templess_and_clamps_pop() {
+        let h = parse_hourly(&hourly_fixture(), 0, 5);
+        // dt=32400 has no temp → skipped; 5 usable slots remain.
+        assert_eq!(
+            h.iter().map(|s| s.dt).collect::<Vec<_>>(),
+            vec![0, 10800, 21600, 43200, 54000]
+        );
+        assert_eq!(h[0].temp, 10.0); // rounded to 1 decimal
+        assert_eq!(h[1].pop, 0.62);
+        assert_eq!(h[2].pop, 0.0); // absent → 0
+        assert_eq!(h[3].pop, 1.0); // out-of-range → clamped
+        assert_eq!(h[3].kind, WeatherKind::Snow);
+        // max is a hard cap.
+        assert_eq!(parse_hourly(&hourly_fixture(), 0, 2).len(), 2);
+    }
+
+    #[test]
+    fn parse_hourly_and_tz_handle_missing_fields() {
+        assert!(parse_hourly(&json!({}), 0, 5).is_empty());
+        assert!(parse_hourly(&json!({"list": []}), 0, 5).is_empty());
+        assert_eq!(forecast_tz_offset(&hourly_fixture()), 7200);
+        assert_eq!(forecast_tz_offset(&json!({})), 0);
     }
 }

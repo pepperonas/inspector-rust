@@ -52,3 +52,6 @@ boom-driver/build/
 # Test coverage output (vitest --coverage / cargo-llvm-cov)
 coverage/
 **/coverage/
+
+# Stray root-level screenshots (session working files — real screenshots live in docs/screenshots/)
+/*.png

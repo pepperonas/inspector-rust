@@ -375,7 +375,16 @@ pub fn update(
     let now = Utc::now().timestamp_millis();
     let (abbr, title) = (abbreviation.trim(), title.trim());
     let enc_body = crate::crypto::encrypt(body);
-    let conn = db.lock();
+    let mut conn = db.lock();
+    // ONE transaction for the whole edit (fixed 2026-08-16). The rename branch
+    // below writes a tombstone for the OLD abbreviation *before* the UPDATE —
+    // and that UPDATE can fail on the `abbreviation UNIQUE` constraint when the
+    // user renames onto a name that already exists. Un-transactioned, the
+    // tombstone survived the rejected edit: the cloud sync pushed it to cue,
+    // cue echoed it back, and the still-live snippet was deleted on the next
+    // pull. Either the whole edit lands or none of it does.
+    let tx = conn.transaction()?;
+    let conn = &tx;
     // Bump the version only on a *content* change (abbreviation / title / body).
     // A group-only edit — or a save that changed nothing — leaves it untouched.
     let current: Option<(String, String, String)> = conn
@@ -407,7 +416,7 @@ pub fn update(
                     |r| r.get(0),
                 )
                 .unwrap_or(1);
-            record_tombstone_conn(&conn, old_abbr, old_version)?;
+            record_tombstone_conn(conn, old_abbr, old_version)?;
         }
     }
     let bump = if content_changed { 1 } else { 0 };
@@ -419,13 +428,14 @@ pub fn update(
     let bumped: i64 = conn
         .query_row("SELECT version FROM snippets WHERE id = ?1", params![id], |r| r.get(0))
         .unwrap_or(1);
-    let floored = resurrect_floor_conn(&conn, abbr, bumped)?;
+    let floored = resurrect_floor_conn(conn, abbr, bumped)?;
     if floored != bumped {
         conn.execute(
             "UPDATE snippets SET version = ?1 WHERE id = ?2",
             params![floored, id],
         )?;
     }
+    tx.commit()?;
     Ok(())
 }
 
@@ -1195,5 +1205,52 @@ mod tests {
         let db: DbHandle = Arc::new(Mutex::new(conn));
         init_table(&db).unwrap(); // runs the lazy ALTER
         assert_eq!(version_of(&db, "old"), 1, "existing rows back-fill to v1");
+    }
+
+    #[test]
+    fn a_rejected_rename_leaves_no_tombstone_behind() {
+        // REGRESSION (2026-08-16): `update` wrote the rename tombstone BEFORE
+        // the UNIQUE-constrained UPDATE. When the user renamed onto a name that
+        // already exists, the edit failed (correctly) but the tombstone stayed
+        // — cloud sync pushed it, cue echoed it back, and the still-live
+        // snippet was DELETED on the next pull. The whole edit is one
+        // transaction now: it lands completely or not at all.
+        let db = test_db();
+        let keep = create(&db, "mfg", "Sign-off", "Mit freundlichen Grüßen", None).unwrap();
+        create(&db, "sig", "Other", "body", None).unwrap();
+
+        // Rename `mfg` onto the taken abbreviation `sig` → must fail.
+        assert!(update(&db, keep, "sig", "Sign-off", "Mit freundlichen Grüßen", None).is_err());
+
+        // The victim is untouched …
+        let still = get_by_id(&db, keep).unwrap().unwrap();
+        assert_eq!(still.abbreviation, "mfg");
+        // … and — the load-bearing half — no tombstone was left for it.
+        let tombstoned: i64 = db
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM snippet_tombstones WHERE abbreviation = 'mfg'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(tombstoned, 0, "a rejected rename must not tombstone the live snippet");
+    }
+
+    #[test]
+    fn a_successful_rename_still_tombstones_the_old_name() {
+        // The counterpart: the transaction must not have disarmed the feature.
+        let db = test_db();
+        let id = create(&db, "old", "T", "body", None).unwrap();
+        update(&db, id, "new", "T", "body", None).unwrap();
+        let n: i64 = db
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM snippet_tombstones WHERE abbreviation = 'old'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(n, 1, "the peer must learn the old key is gone");
     }
 }

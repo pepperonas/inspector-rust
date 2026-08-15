@@ -446,7 +446,14 @@ pub fn merge_events(db: &DbHandle, ids: &[i64]) -> rusqlite::Result<Option<i64>>
     if ids.len() < 2 {
         return Ok(ids.first().copied());
     }
-    let conn = db.lock();
+    let mut conn = db.lock();
+    // ONE transaction (2026-08-16): the loser DELETE used to auto-commit before
+    // the survivor's span UPDATE, so a failure in between left the hour
+    // shortened AND the rows gone. Worse, `track_claude_turns` has
+    // ON DELETE CASCADE — merging Claude blocks silently took their token
+    // history with them, which is why the turns are re-pointed below first.
+    let tx = conn.transaction()?;
+    let conn = &tx;
     // Load the merge set (id, started_at, ended_at).
     let placeholders = ids.iter().map(|_| "?").collect::<Vec<_>>().join(",");
     let sql = format!(
@@ -471,6 +478,14 @@ pub fn merge_events(db: &DbHandle, ids: &[i64]) -> rusqlite::Result<Option<i64>>
     let del_sql = format!("DELETE FROM track_events WHERE id IN ({del_ph})");
     let del_params: Vec<&dyn rusqlite::ToSql> =
         losers.iter().map(|i| i as &dyn rusqlite::ToSql).collect();
+    // Re-point the losers' Claude turns at the survivor BEFORE deleting them,
+    // or the FK cascade erases that project's token history.
+    let move_sql = format!(
+        "UPDATE track_claude_turns SET event_id = ?1 WHERE event_id IN ({del_ph})"
+    );
+    let mut move_params: Vec<&dyn rusqlite::ToSql> = vec![&survivor];
+    move_params.extend(losers.iter().map(|i| i as &dyn rusqlite::ToSql));
+    conn.execute(&move_sql, move_params.as_slice())?;
     conn.execute(&del_sql, del_params.as_slice())?;
     if any_open {
         conn.execute(
@@ -484,6 +499,7 @@ pub fn merge_events(db: &DbHandle, ids: &[i64]) -> rusqlite::Result<Option<i64>>
             params![survivor, min_start, end],
         )?;
     }
+    tx.commit()?;
     Ok(Some(survivor))
 }
 
@@ -494,9 +510,14 @@ pub fn set_category(db: &DbHandle, app_name: &str, category: &str) -> rusqlite::
          ON CONFLICT(app_name) DO UPDATE SET category = excluded.category",
         params![app_name, category],
     )?;
-    // Back-fill the category onto existing events for that app.
+    // Back-fill onto existing events for that app — but ONLY where the user
+    // has not already classified them by hand (2026-08-16). The unguarded
+    // UPDATE overwrote weeks of manual labels the moment a rule was created,
+    // with no undo; the sibling `delete_category_rule` is explicitly tested to
+    // preserve reviewed classifications, so this is the consistent rule.
     conn.execute(
-        "UPDATE track_events SET category = ?2 WHERE app_name = ?1",
+        "UPDATE track_events SET category = ?2 \
+         WHERE app_name = ?1 AND (category IS NULL OR category = '')",
         params![app_name, category],
     )?;
     Ok(())
@@ -1281,5 +1302,63 @@ mod tests {
         assert!(events_in_range(&db, -1, 1_000_000).unwrap().is_empty());
         assert!(active_session(&db).unwrap().is_none());
     }
-}
 
+    #[test]
+    fn merging_claude_blocks_keeps_their_token_history() {
+        // REGRESSION (2026-08-16): the losers were DELETEd before the survivor
+        // was widened, and track_claude_turns hangs off events with
+        // ON DELETE CASCADE — so merging three Claude blocks produced the right
+        // hour but silently erased two thirds of that project's token history
+        // from the "By project" view. Turns are re-pointed at the survivor now.
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let a = insert_event(&db, &ev(sid, "Claude", 0), 1_000).unwrap();
+        let b = insert_event(&db, &ev(sid, "Claude", 2_000), 3_000).unwrap();
+        insert_claude_turn(&db, a, 500, Some("opus"), Some(10), Some(20)).unwrap();
+        insert_claude_turn(&db, b, 2_500, Some("opus"), Some(30), Some(40)).unwrap();
+
+        let survivor = merge_events(&db, &[a, b]).unwrap().unwrap();
+
+        let turns: i64 = db
+            .lock()
+            .query_row("SELECT COUNT(*) FROM track_claude_turns", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(turns, 2, "no turn may be lost to the merge");
+        let on_survivor: i64 = db
+            .lock()
+            .query_row(
+                "SELECT COUNT(*) FROM track_claude_turns WHERE event_id = ?1",
+                [survivor],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(on_survivor, 2, "they must hang off the merged event");
+    }
+
+    #[test]
+    fn a_category_rule_never_overwrites_a_hand_assigned_category() {
+        // REGRESSION (2026-08-16): the back-fill was unbounded, so creating a
+        // rule for an app overwrote every category the user had reviewed by
+        // hand — no undo. Only unclassified events may be filled in.
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let reviewed = insert_event(&db, &ev(sid, "Chrome", 0), 1_000).unwrap();
+        let untouched = insert_event(&db, &ev(sid, "Chrome", 2_000), 3_000).unwrap();
+        update_event(
+            &db,
+            reviewed,
+            &EventPatch { category: Some("Research".into()), ..Default::default() },
+        )
+        .unwrap();
+
+        set_category(&db, "Chrome", "Comms").unwrap();
+
+        let cat = |id: i64| -> Option<String> {
+            db.lock()
+                .query_row("SELECT category FROM track_events WHERE id = ?1", [id], |r| r.get(0))
+                .unwrap()
+        };
+        assert_eq!(cat(reviewed).as_deref(), Some("Research"), "manual label survives");
+        assert_eq!(cat(untouched).as_deref(), Some("Comms"), "unclassified is filled in");
+    }
+}

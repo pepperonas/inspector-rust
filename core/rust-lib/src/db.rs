@@ -241,6 +241,23 @@ fn prune_locked(conn: &Connection, keep: i64) -> Result<()> {
 
 /// Pin / unpin an entry. Pinned entries float to the top of the list and are
 /// never pruned.
+/// Restore a clip's original timestamps (backup import only).
+///
+/// `upsert_clip` stamps `Utc::now()` for both, which is right for a live copy
+/// but wrong for a restore: the export is newest-first, so re-stamping made the
+/// LAST-inserted (oldest) row the most recent. On a history larger than the cap
+/// the prune then kept the user's **oldest** clips and dropped the newest, and
+/// the whole history's chronology read as "imported just now". Mirrors what
+/// `notes::append_imported` already does for notes.
+pub fn set_timestamps(db: &DbHandle, id: i64, created_at: i64, last_used_at: i64) -> Result<()> {
+    let conn = db.lock();
+    conn.execute(
+        "UPDATE entries SET created_at = ?1, last_used_at = ?2 WHERE id = ?3",
+        params![created_at, last_used_at, id],
+    )?;
+    Ok(())
+}
+
 pub fn set_pinned(db: &DbHandle, id: i64, pinned: bool) -> Result<()> {
     let conn = db.lock();
     conn.execute(

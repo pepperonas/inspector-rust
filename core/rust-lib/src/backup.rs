@@ -510,6 +510,14 @@ fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
         };
         match db::upsert_clip(db, &new_clip) {
             Ok(id) => {
+                // Restore the ORIGINAL timestamps. Without this the restore
+                // re-stamped everything with "now" in export order (newest
+                // first), so on a history bigger than the cap the prune kept
+                // the OLDEST clips and threw away the newest — and the whole
+                // chronology collapsed to the moment of import.
+                if entry.created_at > 0 || entry.last_used_at > 0 {
+                    let _ = db::set_timestamps(db, id, entry.created_at, entry.last_used_at);
+                }
                 // Restore pin + note (upsert_clip doesn't carry them).
                 if entry.pinned {
                     let _ = db::set_pinned(db, id, true);
@@ -1946,5 +1954,29 @@ mod tests {
         assert_eq!(r.timesheet_imported, 2);
         assert!(import_json_maybe_encrypted(&fresh_db(), &enc, Some("wrong")).is_err());
     }
-}
 
+    #[test]
+    fn restoring_history_preserves_the_original_timestamps() {
+        // REGRESSION (2026-08-16): `upsert_clip` stamps `now`, and the export is
+        // newest-first — so a restore made the LAST-written (oldest) clip look
+        // like the most recent. On a backup larger than the cap the prune then
+        // kept the user's OLDEST clips and discarded the newest.
+        let src = fresh_db();
+        let old = db::upsert_clip(&src, &clip("oldest")).unwrap();
+        let new = db::upsert_clip(&src, &clip("newest")).unwrap();
+        db::set_timestamps(&src, old, 1_000, 1_000).unwrap();
+        db::set_timestamps(&src, new, 9_000, 9_000).unwrap();
+
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+        let dst = fresh_db();
+        apply(&dst, serde_json::from_str(&json).unwrap()).unwrap();
+
+        // Order is by recency, so the newest clip must still come first …
+        let rows = db::list(&dst, 10, 0).unwrap();
+        assert_eq!(rows[0].content_text, "newest");
+        // … and the actual instants must survive, not be re-stamped to "now".
+        assert_eq!(rows[0].last_used_at, 9_000);
+        assert_eq!(rows[1].last_used_at, 1_000);
+        assert_eq!(rows[1].created_at, 1_000);
+    }
+}

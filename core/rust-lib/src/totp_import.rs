@@ -56,6 +56,62 @@ pub struct ImportSummary {
     pub failed: Vec<(String, String)>, // (raw, error)
 }
 
+/// How many entries the input *claims* to contain, counted straight from its
+/// own structure — independent of whether our parsers can use them.
+///
+/// This exists because every parser drops what it cannot handle with a bare
+/// `continue` (Steam/HOTP entries, secretless rows, unknown schemas). The
+/// counts reported to the user were derived from the PARSED list, so those
+/// entries vanished without a trace: an import of 20 Aegis accounts with 6
+/// unsupported ones said "14 added" and nothing else. A user who then deletes
+/// the source app has permanently lost six 2FA accounts. Comparing this
+/// against the parsed length turns that silence into a number.
+///
+/// `None` = the shape is unknown, so no honest claim can be made.
+pub fn candidate_count(input: &str) -> Option<usize> {
+    let t = input.trim_start();
+    if t.starts_with('[') {
+        // OTPManager: a bare JSON array of tokens.
+        return serde_json::from_str::<Vec<serde_json::Value>>(t)
+            .ok()
+            .map(|v| v.len());
+    }
+    if t.starts_with('{') {
+        let v: serde_json::Value = serde_json::from_str(t).ok()?;
+        // Aegis nests under db.entries; 2FAS uses a flat `services` array.
+        for path in [&["db", "entries"][..], &["services"][..]] {
+            let mut cur = &v;
+            let mut ok = true;
+            for key in path {
+                match cur.get(*key) {
+                    Some(next) => cur = next,
+                    None => {
+                        ok = false;
+                        break;
+                    }
+                }
+            }
+            if ok {
+                if let Some(arr) = cur.as_array() {
+                    return Some(arr.len());
+                }
+            }
+        }
+        return None;
+    }
+    if t.starts_with("otpauth-migration://") {
+        // The protobuf payload has to be decoded to be counted — the parser
+        // already reports its own failures, so make no claim here.
+        return None;
+    }
+    // Plain text: one otpauth:// URI per non-empty line.
+    let lines = t
+        .lines()
+        .filter(|l| l.trim().starts_with("otpauth://"))
+        .count();
+    (lines > 0).then_some(lines)
+}
+
 /// Detect the format of `input` and parse all entries from it.
 /// Never panics; format detection is best-effort, and any individual
 /// entry that fails parsing lands in `failed` instead of aborting.
@@ -910,5 +966,37 @@ mod tests {
         assert_eq!(entries[0].account, "alice");
         // "secret" → base32-encoded
         assert_eq!(entries[0].secret_base32, encode_base32_no_pad(b"secret"));
+    }
+
+    #[test]
+    fn candidate_count_exposes_entries_the_parsers_drop() {
+        // REGRESSION (2026-08-16): unsupported rows were dropped with a bare
+        // `continue` and the counts came from the PARSED list, so an import of
+        // 3 Aegis accounts with 2 unsupported ones reported "1 added" and
+        // nothing else — a user who then deletes the source app has lost two
+        // 2FA accounts for good. The number now comes from the file itself.
+        let aegis = r#"{"db":{"entries":[
+            {"type":"totp","name":"a","issuer":"i","info":{"secret":"JBSWY3DPEHPK3PXP"}},
+            {"type":"steam","name":"b","issuer":"i","info":{"secret":"JBSWY3DPEHPK3PXP"}},
+            {"type":"totp","name":"c","issuer":"i","info":{}}
+        ]}}"#;
+        assert_eq!(candidate_count(aegis), Some(3), "the file claims three entries");
+        assert_eq!(parse_aegis_json(aegis).unwrap().len(), 1, "only one is usable");
+        // → the command reports 2 as failed instead of staying silent.
+
+        // 2FAS (flat `services`) and OTPManager (bare array) are counted too.
+        assert_eq!(
+            candidate_count(r#"{"services":[{"name":"a"},{"name":"b"}]}"#),
+            Some(2)
+        );
+        assert_eq!(candidate_count(r#"[{"Issuer":"a"},{"Issuer":"b"}]"#), Some(2));
+        // One URI per line.
+        assert_eq!(
+            candidate_count("otpauth://totp/A:b?secret=JBSWY3DPEHPK3PXP\notpauth://totp/C:d?secret=JBSWY3DPEHPK3PXP"),
+            Some(2)
+        );
+        // No honest claim possible → no invented failures.
+        assert_eq!(candidate_count("{\"unknown\": 1}"), None);
+        assert_eq!(candidate_count("otpauth-migration://offline?data=xx"), None);
     }
 }

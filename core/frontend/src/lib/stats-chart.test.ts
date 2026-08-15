@@ -104,3 +104,29 @@ describe("areaPath — degenerate time extent", () => {
     expect(d.endsWith("Z")).toBe(true);
   });
 });
+
+describe("seriesExtent — flat series away from zero", () => {
+  it("pads a flat NEGATIVE series symmetrically around its value", () => {
+    // e.g. a freezer temperature parked at -18 °C: the padding is derived from
+    // |value|, so a negative constant must not invert the extent.
+    const [lo, hi] = seriesExtent([-18, -18, -18]);
+    expect(lo).toBeLessThan(-18);
+    expect(hi).toBeGreaterThan(-18);
+    expect(hi).toBeGreaterThan(lo);
+    expect(-18 - lo).toBeCloseTo(hi - -18, 6);
+  });
+
+  it("a flat series scales its padding with the magnitude", () => {
+    const [lo1, hi1] = seriesExtent([10]);
+    const [lo2, hi2] = seriesExtent([1000]);
+    expect(hi1 - lo1).toBeLessThan(hi2 - lo2);
+  });
+
+  it("a flat series still renders mid-height (the value is the midpoint)", () => {
+    for (const v of [-18, 0, 0.5, 1000]) {
+      const [lo, hi] = seriesExtent([v, v]);
+      expect((lo + hi) / 2).toBeCloseTo(v, 6);
+      expect(hi).toBeGreaterThan(lo); // never a zero-height box → no /0 later
+    }
+  });
+});

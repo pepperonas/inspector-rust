@@ -1036,6 +1036,47 @@ mod tests {
     }
 
     #[test]
+    fn preset_names_are_unique_so_gains_for_is_unambiguous() {
+        // `gains_for` returns the FIRST name match; a duplicate name would make
+        // two presets silently resolve to the same gains.
+        let ps = presets();
+        let mut seen = std::collections::HashSet::new();
+        for p in &ps {
+            assert!(seen.insert(p.name.clone()), "duplicate preset name {}", p.name);
+        }
+        // And every name round-trips through gains_for to its OWN gains.
+        for p in &ps {
+            assert_eq!(gains_for(&p.name).as_ref(), Some(&p.gains), "gains_for({}) drifted", p.name);
+        }
+    }
+
+    #[test]
+    fn every_preset_gain_stays_within_the_engine_clamp_band() {
+        // normalize() clamps band gains to ±12 dB; a catalogue gain outside that
+        // band would be silently altered by the engine — the preset must be
+        // honest about what it actually applies. Groups are the two the UI knows.
+        for p in presets() {
+            for g in p.gains {
+                assert!((-12.0..=12.0).contains(&g), "preset {} gain {g} exceeds ±12 dB", p.name);
+            }
+            assert!(
+                matches!(p.group, "Genre" | "Device"),
+                "preset {} has unknown group {}",
+                p.name,
+                p.group
+            );
+        }
+    }
+
+    #[test]
+    fn the_default_config_preset_exists_in_the_catalogue() {
+        // The default preset name must resolve — otherwise a fresh install runs a
+        // flat chain that no catalogue row highlights.
+        let def = BoomConfig::default();
+        assert!(gains_for(&def.preset).is_some(), "default preset {} missing", def.preset);
+    }
+
+    #[test]
     fn config_normalize_clamps_and_fills() {
         let mut c = BoomConfig {
             band_gains_db: vec![99.0, -99.0], // wrong length + out of range

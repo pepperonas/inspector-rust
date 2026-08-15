@@ -219,3 +219,122 @@ describe("tryEvaluate — remaining function table entries", () => {
     expect(tryEvaluate("sinh(0)")?.display).toBe("0");
   });
 });
+
+describe("tryEvaluate — modulo is FLOORED, not JS remainder", () => {
+  // `%` here is `a - b*floor(a/b)`, so the sign follows the DIVISOR. JS's own
+  // `%` keeps the dividend's sign, and a refactor to the native operator would
+  // silently change every negative result.
+  it("a negative dividend wraps into the positive range", () => {
+    expect(tryEvaluate("-1 % 3")?.display).toBe("2"); // JS `%` would say -1
+    expect(tryEvaluate("-7 % 3")?.display).toBe("2");
+  });
+
+  it("a negative divisor pulls the result negative", () => {
+    expect(tryEvaluate("10 % -3")?.display).toBe("-2"); // JS `%` would say 1
+  });
+
+  it("the `%` operator and the mod() function agree", () => {
+    for (const [a, b] of [
+      [-1, 3],
+      [10, 3],
+      [10, -3],
+      [-10, -3],
+    ]) {
+      expect(tryEvaluate(`${a} % ${b}`)?.value).toBe(tryEvaluate(`mod(${a}, ${b})`)?.value);
+    }
+  });
+});
+
+describe("tryEvaluate — the rest of the function table", () => {
+  it("maps every documented function to the right operation", () => {
+    const cases: Array<[string, number]> = [
+      ["cbrt(27)", 3],
+      ["sign(-3)", -1],
+      ["sign(0)", 0],
+      ["round(2.5)", 3],
+      ["round(-2.5)", -2], // JS rounds half UP, i.e. towards +∞
+      ["log2(8)", 3],
+      ["exp(0)", 1],
+      ["asin(1)", Math.PI / 2],
+      ["acos(1)", 0],
+      ["atan(1)", Math.PI / 4],
+      ["atan2(1, 1)", Math.PI / 4],
+      ["tan(0)", 0],
+    ];
+    for (const [expr, want] of cases) {
+      expect(tryEvaluate(expr)?.value, expr).toBeCloseTo(want, 10);
+    }
+  });
+
+  it("a function whose result is not a number yields no row", () => {
+    // NaN must never reach the list as a pasteable "result".
+    expect(tryEvaluate("sqrt(-1)")).toBeNull();
+    expect(tryEvaluate("log(-1)")).toBeNull();
+    expect(tryEvaluate("mod(1, 0)")).toBeNull();
+  });
+
+  it("a function called with no arguments yields no row (never crashes)", () => {
+    // Math.min() is Infinity, Math.abs() is NaN — all non-finite → filtered.
+    expect(tryEvaluate("min()")).toBeNull();
+    expect(tryEvaluate("max()")).toBeNull();
+    expect(tryEvaluate("abs()")).toBeNull();
+  });
+});
+
+describe("tryEvaluate — grammar edge cases a user can actually type", () => {
+  it("skips tabs and newlines as whitespace", () => {
+    expect(tryEvaluate("1\t+\n2")?.display).toBe("3");
+  });
+
+  it("unary minus binds TIGHTER than the power operator", () => {
+    // `-2^2` === `(-2)^2` === 4 (Excel's reading), NOT -(2^2) = -4 (Python/bc).
+    // The written grammar is `power := unary ('^' power)?`, so this is the
+    // grammar's own choice — pinned so a rewrite has to make it consciously.
+    expect(tryEvaluate("-2^2")?.display).toBe("4");
+    expect(tryEvaluate("0 - 2^2")?.display).toBe("-4"); // explicit binary minus
+  });
+
+  it("has no implicit multiplication", () => {
+    expect(tryEvaluate("2(3+4)")).toBeNull();
+    expect(tryEvaluate("2pi")).toBeNull();
+  });
+
+  it("handles deep nesting and stray whitespace inside parens", () => {
+    expect(tryEvaluate("( ( 1 + 2 ) * ( 3 + 4 ) )")?.display).toBe("21");
+  });
+
+  it("a trailing comma / empty argument slot is rejected", () => {
+    expect(tryEvaluate("max(1,)")).toBeNull();
+    expect(tryEvaluate("max(,1)")).toBeNull();
+  });
+
+  it("0^0 is 1 (IEEE pow), and division by a computed zero yields no row", () => {
+    expect(tryEvaluate("0^0")?.display).toBe("1");
+    expect(tryEvaluate("1/(2-2)")).toBeNull();
+  });
+});
+
+describe("tryEvaluate — the echoed expression", () => {
+  it("keeps the trimmed input verbatim, INCLUDING a forcing `=`", () => {
+    // `expression` is what the row shows + what provenance the paste carries.
+    expect(tryEvaluate("  2 + 2  ")?.expression).toBe("2 + 2");
+    expect(tryEvaluate("= 2+2")?.expression).toBe("= 2+2");
+  });
+});
+
+describe("formatResult — integer / precision boundary", () => {
+  it("prints large integers plainly below 1e16", () => {
+    expect(formatResult(1e15)).toBe("1000000000000000");
+    expect(formatResult(-1e15)).toBe("-1000000000000000");
+  });
+
+  it("switches to exponent form at 1e16 (beyond exact integer display)", () => {
+    expect(formatResult(1e16)).toMatch(/e\+?16/);
+  });
+
+  it("keeps 12 significant digits without trailing zero dust", () => {
+    expect(formatResult(1 / 3)).toBe("0.333333333333");
+    expect(formatResult(2.5)).toBe("2.5");
+    expect(formatResult(-0.25)).toBe("-0.25");
+  });
+});

@@ -186,3 +186,42 @@ describe("displayTokens / displayCost edge cases", () => {
     });
   });
 });
+
+describe("displayCost — partially populated cost rows", () => {
+  // Overview rows carry the split costs, but a backend that has not priced
+  // cache yet sends only input/output. The missing members must read as 0
+  // rather than turning the whole sum into NaN.
+  const partial = {
+    input_tokens: 10,
+    output_tokens: 20,
+    cache_read_tokens: 0,
+    cache_create_tokens: 0,
+    input_cost: 1.5,
+  };
+
+  it("treats absent cache costs as zero, with or without the toggle", () => {
+    expect(displayCost(partial, true)).toBe(1.5);
+    expect(displayCost(partial, false)).toBe(1.5);
+  });
+
+  it("adds an output cost when present but cache is still missing", () => {
+    expect(displayCost({ ...partial, output_cost: 2.5 }, true)).toBe(4);
+    expect(displayCost({ ...partial, output_cost: 2.5 }, false)).toBe(4);
+  });
+
+  it("an explicit zero input_cost still takes the split-cost path", () => {
+    // `0` is falsy — only `undefined` may fall back to the single `cost` field.
+    expect(displayCost({ ...partial, input_cost: 0, cost: 99 }, true)).toBe(0);
+  });
+
+  it("a row with no cost information at all reports 0, never NaN", () => {
+    const bare = {
+      input_tokens: 1,
+      output_tokens: 1,
+      cache_read_tokens: 0,
+      cache_create_tokens: 0,
+    };
+    expect(displayCost(bare, true)).toBe(0);
+    expect(displayCost(bare, false)).toBe(0);
+  });
+});

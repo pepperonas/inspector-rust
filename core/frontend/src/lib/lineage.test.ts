@@ -228,3 +228,47 @@ describe("derivedKindLabel", () => {
     expect(derivedKindLabel("something-new")).toBe("something-new");
   });
 });
+
+describe("computeLineage — links that point in mixed directions", () => {
+  // Rows are ordered by recency, so a rail can run either way: pasting the
+  // original bumps it back to the top, above its own copy. That means the
+  // union-find can end up merging a family whose root is discovered LAST, and
+  // must still collapse it into a single lineage (rather than two half-drawn
+  // ones sharing rows).
+  it("a chain discovered out of order is still ONE family on ONE lane", () => {
+    // row 0 = the original (id 1), row 1 = a copy of row 2, row 2 = a copy of row 0.
+    const rails = computeLineage([clip(1), clip(2, 3), clip(3, 1)]);
+    expect(rails.size).toBe(3);
+    const lanes = [1, 2, 3].map((id) => rails.get(id)!);
+    for (const r of lanes) {
+      expect(r).toHaveLength(1);
+      expect(r[0].lane).toBe(0);
+      expect(r[0].node).toBe(true); // every row is a member of the family
+    }
+    // One family → one colour for the whole run.
+    expect(new Set(lanes.map((r) => r[0].color)).size).toBe(1);
+  });
+
+  it("a longer zig-zag chain still collapses to a single lane", () => {
+    // 0←2, 2←3, 3←1, 1←(nothing): every row belongs to the same family no
+    // matter which order the edges are visited in.
+    const rails = computeLineage([clip(10), clip(11), clip(12, 10), clip(13, 12)]);
+    const all = [10, 11, 12, 13].map((id) => rails.get(id));
+    expect(all.every((r) => r && r.length === 1)).toBe(true);
+    expect(new Set(all.map((r) => r![0].lane))).toEqual(new Set([0]));
+    // Row 11 sits inside the family's span but is not itself derived → a
+    // through-line, not a node.
+    expect(rails.get(11)![0].node).toBe(false);
+    expect(rails.get(13)![0].node).toBe(true);
+  });
+
+  it("two copies of the same source, one above and one below it", () => {
+    // The span must cover both directions from the source in the middle.
+    const rails = computeLineage([clip(2, 1), clip(1), clip(3, 1)]);
+    expect(rails.size).toBe(3);
+    expect(rails.get(1)![0].node).toBe(true);
+    expect(rails.get(2)![0].node).toBe(true);
+    expect(rails.get(3)![0].node).toBe(true);
+    expect(new Set([1, 2, 3].map((id) => rails.get(id)![0].lane))).toEqual(new Set([0]));
+  });
+});

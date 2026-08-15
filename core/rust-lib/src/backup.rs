@@ -1650,6 +1650,291 @@ mod tests {
     }
 
     #[test]
+    fn a_pinned_and_noted_clip_comes_back_pinned_and_noted() {
+        // `db::upsert_clip` carries neither flag, so the restore has to re-apply
+        // both — and they are exactly the clips a user would notice losing (a
+        // pin/note is also what exempts a clip from the history cap).
+        let src = fresh_db();
+        let plain = db::upsert_clip(&src, &clip("ordinary")).unwrap();
+        let starred = db::upsert_clip(&src, &clip("keep this one")).unwrap();
+        db::set_pinned(&src, starred, true).unwrap();
+        db::set_note(&src, plain, Some("Rückruf: Müller 📞")).unwrap();
+
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+        let dst = fresh_db();
+        import_json(&dst, &json).unwrap();
+
+        let rows = db::list(&dst, 100, 0).unwrap();
+        let restored_pin = rows.iter().find(|e| e.content_text == "keep this one").unwrap();
+        let restored_note = rows.iter().find(|e| e.content_text == "ordinary").unwrap();
+        assert!(restored_pin.pinned, "the pin must survive");
+        assert!(!restored_note.pinned);
+        assert_eq!(restored_note.note.as_deref(), Some("Rückruf: Müller 📞"));
+        assert_eq!(restored_pin.note, None);
+    }
+
+    #[test]
+    fn totp_accounts_round_trip_and_a_second_restore_does_not_duplicate_them() {
+        // The `totp_entries` table has no UNIQUE constraint, so the importer
+        // must dedup itself — before it did, every restore into a non-empty DB
+        // doubled all 2FA accounts.
+        let src = fresh_db();
+        totp_store::add(&src, "GitHub", "martin", "JBSWY3DPEHPK3PXP", 6, 30, "SHA1").unwrap();
+        let backup = export(&src, ExportOptions::all()).unwrap();
+        assert_eq!(backup.totp_entries.len(), 1);
+        assert_eq!(
+            backup.totp_entries[0].secret, "JBSWY3DPEHPK3PXP",
+            "the secret travels PLAINTEXT so the file is portable across machines"
+        );
+        let json = serde_json::to_string(&backup).unwrap();
+
+        let dst = fresh_db();
+        let r = import_json(&dst, &json).unwrap();
+        assert_eq!((r.totp_imported, r.errors.len()), (1, 0));
+        let entries = totp_store::list(&dst).unwrap();
+        assert_eq!(entries.len(), 1);
+        assert_eq!((entries[0].issuer.as_str(), entries[0].account.as_str()), ("GitHub", "martin"));
+        assert_eq!((entries[0].digits, entries[0].period, entries[0].algorithm.as_str()), (6, 30, "SHA1"));
+        // Re-encrypted with the target machine's key (passthrough under test).
+        let stored: String = dst
+            .lock()
+            .query_row("SELECT secret_enc FROM totp_entries", [], |r| r.get(0))
+            .unwrap();
+        assert_eq!(crypto::decrypt(&stored), "JBSWY3DPEHPK3PXP");
+
+        // Restoring the same file again is a no-op, and still counts as imported
+        // ("the desired state already exists").
+        let r = import_json(&dst, &json).unwrap();
+        assert_eq!(r.totp_imported, 1);
+        assert_eq!(totp_store::list(&dst).unwrap().len(), 1, "no duplicate account");
+    }
+
+    #[test]
+    fn settings_are_restored_and_overwrite_whatever_the_target_had() {
+        let src = fresh_db();
+        settings::set(&src, "appearance.theme", "light").unwrap();
+        settings::set(&src, "history.max_entries", "5000").unwrap();
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+
+        let dst = fresh_db();
+        settings::set(&dst, "appearance.theme", "dark").unwrap(); // conflicting local value
+        settings::set(&dst, "sound.enabled", "false").unwrap(); // untouched by the backup
+        let r = import_json(&dst, &json).unwrap();
+
+        assert_eq!(r.settings_imported, 2);
+        assert_eq!(settings::get(&dst, "appearance.theme").unwrap().as_deref(), Some("light"));
+        assert_eq!(settings::get(&dst, "history.max_entries").unwrap().as_deref(), Some("5000"));
+        assert_eq!(
+            settings::get(&dst, "sound.enabled").unwrap().as_deref(),
+            Some("false"),
+            "keys absent from the backup are left alone"
+        );
+    }
+
+    #[test]
+    fn a_clip_that_merely_contains_the_word_encrypted_is_still_a_plaintext_backup() {
+        // `is_encrypted` short-circuits on the substring before parsing, and
+        // copying JSON is exactly what this app is for — a clip holding an
+        // encrypted-envelope snippet must not make the whole file undecodable.
+        let src = fresh_db();
+        db::upsert_clip(
+            &src,
+            &clip(r#"{"encrypted": true, "kdf": "argon2id", "ciphertext": "AAAA"}"#),
+        )
+        .unwrap();
+        let json = export_json(&src, ExportOptions::all()).unwrap();
+        assert!(json.contains("\\\"encrypted\\\""), "the substring really is in the file");
+        assert!(!is_encrypted(&json), "only a TOP-LEVEL encrypted flag counts");
+
+        let dst = fresh_db();
+        let r = import_json_maybe_encrypted(&dst, &json, None).unwrap();
+        assert_eq!(r.history_imported, 1);
+    }
+
+    #[test]
+    fn one_broken_snippet_is_reported_and_the_rest_still_import() {
+        // Import is a merge, not a transaction: a single bad row must not cost
+        // the user the other 200.
+        let db = fresh_db();
+        let json = r#"{
+            "version": 2,
+            "exported_at": 1,
+            "snippets": [
+                { "id": 0, "abbreviation": "  ", "title": "blank", "body": "x",
+                  "created_at": 1, "updated_at": 1 },
+                { "id": 0, "abbreviation": "good", "title": "T", "body": "b",
+                  "created_at": 1, "updated_at": 1 }
+            ]
+        }"#;
+        let r = import_json(&db, json).unwrap();
+        assert_eq!(r.snippets_imported, 1);
+        assert_eq!(r.errors.len(), 1);
+        assert!(r.errors[0].contains("empty abbreviation"), "{:?}", r.errors);
+        assert!(snippets::find_by_exact_abbreviation(&db, "good").unwrap().is_some());
+    }
+
+    #[test]
+    fn a_totp_entry_without_a_secret_is_reported_and_the_rest_still_import() {
+        let db = fresh_db();
+        let backup = Backup {
+            version: 2,
+            exported_at: 1,
+            history: vec![],
+            snippets: vec![],
+            snippet_categories: vec![],
+            notes: vec![],
+            totp_entries: vec![
+                TotpBackupEntry {
+                    issuer: "Broken".into(),
+                    account: "a".into(),
+                    secret: "   ".into(),
+                    digits: 6,
+                    period: 30,
+                    algorithm: "SHA1".into(),
+                    created_at: 0,
+                },
+                TotpBackupEntry {
+                    issuer: "Fine".into(),
+                    account: "b".into(),
+                    secret: "JBSWY3DPEHPK3PXP".into(),
+                    digits: 6,
+                    period: 30,
+                    algorithm: "SHA1".into(),
+                    created_at: 0,
+                },
+            ],
+            settings: HashMap::new(),
+            timesheet: None,
+        };
+        let r = import_json(&db, &serde_json::to_string(&backup).unwrap()).unwrap();
+        assert_eq!(r.totp_imported, 1);
+        assert_eq!(r.errors.len(), 1);
+        assert!(r.errors[0].contains("totp #0"), "{:?}", r.errors);
+        let got = totp_store::list(&db).unwrap();
+        assert_eq!(got.len(), 1);
+        assert_eq!(got[0].issuer, "Fine");
+    }
+
+    #[test]
+    fn the_snippet_only_import_rejects_a_newer_format_too() {
+        // Same guard as the full import — the Snippets tab accepts backup files,
+        // so it needs the same protection against a file from a newer build.
+        let db = fresh_db();
+        let bad = format!(
+            r#"{{"version": {}, "exported_at": 0, "snippets": []}}"#,
+            CURRENT_VERSION + 1
+        );
+        let err = import_snippets_json(&db, &bad).unwrap_err().to_string();
+        assert!(err.contains("newer"), "got: {err}");
+    }
+
+    #[test]
+    fn a_corrupted_encrypted_envelope_fails_with_a_reason_rather_than_a_panic() {
+        let good = encrypt_backup(r#"{"version":2,"exported_at":0}"#, "pw").unwrap();
+        let env: serde_json::Value = serde_json::from_str(&good).unwrap();
+
+        let tampered = |mutate: &dyn Fn(&mut serde_json::Value)| {
+            let mut v = env.clone();
+            mutate(&mut v);
+            decrypt_backup(&v.to_string(), "pw").unwrap_err().to_string()
+        };
+        assert!(
+            tampered(&|v| v["kdf"] = serde_json::json!("pbkdf2")).contains("KDF"),
+            "an unsupported KDF must say so"
+        );
+        assert!(tampered(&|v| v["salt"] = serde_json::json!("QUJD")).contains("salt")); // 3 bytes
+        assert!(tampered(&|v| v["nonce"] = serde_json::json!("QUJD")).contains("nonce"));
+        assert!(tampered(&|v| v["salt"] = serde_json::json!("not base64 !!")).contains("base64"));
+        // A flipped ciphertext byte is caught by the GCM tag, not silently used.
+        assert!(tampered(&|v| v["ciphertext"] = serde_json::json!("QUJDRA==")).contains("wrong password"));
+        // The untampered envelope still decrypts (the fixture is sane).
+        assert!(decrypt_backup(&good, "pw").is_ok());
+    }
+
+    #[test]
+    fn a_timesheet_event_whose_session_is_missing_is_skipped_not_fatal() {
+        // Backups can be hand-edited / partially truncated; one orphaned event
+        // must not abort the whole timesheet section.
+        let db = fresh_db();
+        let backup = Backup {
+            version: 3,
+            exported_at: 1,
+            history: vec![],
+            snippets: vec![],
+            snippet_categories: vec![],
+            notes: vec![],
+            totp_entries: vec![],
+            settings: HashMap::new(),
+            timesheet: Some(TimesheetBackup {
+                sessions: vec![TrackSessionBackup {
+                    id: 1,
+                    label: None,
+                    started_at: 1_000,
+                    ended_at: Some(2_000),
+                    status: "ended".into(),
+                }],
+                events: vec![
+                    TrackEventBackup {
+                        id: 10,
+                        session_id: 1,
+                        app_name: "Code".into(),
+                        app_id: None,
+                        window_title: None,
+                        url: None,
+                        host: None,
+                        category: None,
+                        project: None,
+                        source: "focus".into(),
+                        is_idle: false,
+                        started_at: 1_000,
+                        ended_at: Some(2_000),
+                        duration_s: Some(1),
+                    },
+                    TrackEventBackup {
+                        id: 11,
+                        session_id: 99, // never exported
+                        app_name: "Ghost".into(),
+                        app_id: None,
+                        window_title: None,
+                        url: None,
+                        host: None,
+                        category: None,
+                        project: None,
+                        source: "focus".into(),
+                        is_idle: false,
+                        started_at: 3_000,
+                        ended_at: Some(4_000),
+                        duration_s: Some(1),
+                    },
+                ],
+                // A turn hanging off the skipped event must be dropped with it.
+                claude_turns: vec![TrackClaudeTurnBackup {
+                    event_id: 11,
+                    ts: 3_500,
+                    model: None,
+                    tokens_in: Some(1),
+                    tokens_out: Some(1),
+                }],
+                categories: vec![],
+            }),
+        };
+        let r = import_json(&db, &serde_json::to_string(&backup).unwrap()).unwrap();
+        assert!(r.errors.is_empty(), "{:?}", r.errors);
+        assert_eq!(r.timesheet_imported, 1, "only the event with a known session");
+        let conn = db.lock();
+        let apps: Vec<String> = conn
+            .prepare("SELECT app_name FROM track_events")
+            .unwrap()
+            .query_map([], |r| r.get(0))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(apps, vec!["Code".to_string()]);
+        let turns: i64 = conn.query_row("SELECT COUNT(*) FROM track_claude_turns", [], |r| r.get(0)).unwrap();
+        assert_eq!(turns, 0, "an orphan's turns are dropped, never re-pointed");
+    }
+
+    #[test]
     fn encrypted_v3_roundtrip() {
         let db = fresh_db();
         seed_timesheet(&db);

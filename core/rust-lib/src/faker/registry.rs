@@ -643,4 +643,176 @@ mod tests {
             assert!(!g.description.is_empty(), "{} has no description", g.name);
         }
     }
+
+    // ── Check-digit math (the silent-failure-prone bits) ─────────────────────
+
+    /// Validate an IBAN by the ISO-13616 rule: move the first 4 chars to the
+    /// end, expand letters A→10…Z→35 into their decimal digits, and the whole
+    /// number taken mod 97 must equal 1. Mirrors the standard, not the module.
+    fn iban_mod97_is_one(iban: &str) -> bool {
+        if iban.len() < 5 {
+            return false;
+        }
+        let rearranged = format!("{}{}", &iban[4..], &iban[..4]);
+        let mut rem: u32 = 0;
+        for c in rearranged.chars() {
+            let val = if c.is_ascii_digit() {
+                c as u32 - '0' as u32
+            } else if c.is_ascii_uppercase() {
+                c as u32 - 'A' as u32 + 10
+            } else {
+                return false;
+            };
+            // A letter contributes TWO decimal digits (10..=35) — feed both.
+            if val >= 10 {
+                rem = (rem * 10 + val / 10) % 97;
+                rem = (rem * 10 + val % 10) % 97;
+            } else {
+                rem = (rem * 10 + val) % 97;
+            }
+        }
+        rem == 1
+    }
+
+    #[test]
+    fn iban_has_valid_iso13616_check_digits() {
+        use rand010::SeedableRng;
+        // The check-digit arithmetic is the kind of thing that "looks right" but
+        // silently produces IBANs that fail validation. Pin it against the real
+        // mod-97 rule across many seeds so a regression in the letter→digit
+        // expansion or the `98 - rem` step is caught.
+        for seed in 0..64u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let acct = iban(&mut rng, "DE");
+            assert!(acct.starts_with("DE"), "country prefix preserved: {acct}");
+            assert_eq!(acct.len(), 22, "a DE IBAN is 22 chars: {acct}");
+            // Check digits are always 02..=98 (two digits, never 00/01/99).
+            let check: u32 = acct[2..4].parse().expect("check digits are numeric");
+            assert!((2..=98).contains(&check), "check digits out of range: {acct}");
+            assert!(iban_mod97_is_one(&acct), "IBAN fails mod-97 validation: {acct}");
+        }
+    }
+
+    #[test]
+    fn ean13_has_a_valid_gtin_check_digit() {
+        use rand010::SeedableRng;
+        for seed in 0..64u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let code = ean13(&mut rng);
+            assert_eq!(code.len(), 13, "EAN-13 is 13 digits: {code}");
+            assert!(code.chars().all(|c| c.is_ascii_digit()), "all digits: {code}");
+            // GTIN-13: Σ dᵢ·(i even → 1, i odd → 3) ≡ 0 (mod 10).
+            let sum: u32 = code
+                .chars()
+                .enumerate()
+                .map(|(i, c)| {
+                    let d = c.to_digit(10).unwrap();
+                    if i % 2 == 0 { d } else { d * 3 }
+                })
+                .sum();
+            assert_eq!(sum % 10, 0, "invalid EAN-13 check digit: {code}");
+        }
+    }
+
+    #[test]
+    fn uuid_v4_is_canonical_with_version_and_variant_bits_set() {
+        use rand010::SeedableRng;
+        // RFC 4122 §4.4: version nibble = 4, variant nibble ∈ {8,9,a,b}, and the
+        // canonical 8-4-4-4-12 hyphenation. A bug in the bit-masking would leak a
+        // non-v4 UUID that some parsers reject.
+        for seed in 0..64u64 {
+            let mut rng = StdRng::seed_from_u64(seed);
+            let u = uuid_v4(&mut rng);
+            assert_eq!(u.len(), 36, "canonical length: {u}");
+            let b = u.as_bytes();
+            for i in [8usize, 13, 18, 23] {
+                assert_eq!(b[i], b'-', "hyphen expected at {i}: {u}");
+            }
+            for (i, c) in u.chars().enumerate() {
+                if [8, 13, 18, 23].contains(&i) {
+                    continue;
+                }
+                assert!(
+                    c.is_ascii_hexdigit() && !c.is_ascii_uppercase(),
+                    "non-lowercase-hex at {i}: {u}"
+                );
+            }
+            assert_eq!(&u[14..15], "4", "version nibble must be 4: {u}");
+            assert!(
+                matches!(&u[19..20], "8" | "9" | "a" | "b"),
+                "variant nibble must be 8/9/a/b: {u}"
+            );
+        }
+    }
+
+    // ── gen_one ↔ CATALOG referential integrity ──────────────────────────────
+
+    #[test]
+    fn gen_one_produces_a_value_for_every_catalogue_entry() {
+        use super::super::locale::Locale;
+        use rand010::SeedableRng;
+        // A catalogue name with no matching `gen_one` arm (typo, forgotten arm)
+        // would surface in the UI but silently generate nothing — this catches
+        // that drift for every scalar AND composite.
+        let mut rng = StdRng::seed_from_u64(12345);
+        for g in CATALOG {
+            assert!(
+                gen_one(g.name, &mut rng, Locale::En, &Args::default()).is_some(),
+                "catalogue generator `{}` has no gen_one arm",
+                g.name
+            );
+        }
+        // An unknown name is None — never a panic or a bogus value.
+        assert!(
+            gen_one("definitely_not_a_generator", &mut rng, Locale::En, &Args::default()).is_none()
+        );
+    }
+
+    #[test]
+    fn composite_metadata_fields_match_the_generated_record_keys() {
+        use super::super::locale::Locale;
+        use rand010::SeedableRng;
+        use std::collections::BTreeSet;
+        // The `fields` metadata drives the UI's column list; if it drifts from
+        // the JSON `gen_composite` actually emits, the UI shows phantom / missing
+        // columns. Pin the two together.
+        let mut rng = StdRng::seed_from_u64(7);
+        for g in CATALOG.iter().filter(|g| g.composite) {
+            let v = gen_composite(g.name, &mut rng, Locale::En);
+            let obj = v
+                .as_object()
+                .unwrap_or_else(|| panic!("composite {} is not a JSON object", g.name));
+            let produced: BTreeSet<&str> = obj.keys().map(String::as_str).collect();
+            let declared: BTreeSet<&str> = g.fields.iter().copied().collect();
+            assert_eq!(produced, declared, "composite {} keys drift from its metadata", g.name);
+        }
+    }
+
+    #[test]
+    fn numeric_generators_honour_the_range_argument() {
+        use super::super::locale::Locale;
+        use rand010::SeedableRng;
+        let mut rng = StdRng::seed_from_u64(99);
+        // A degenerate lo==hi range pins the value exactly, regardless of RNG.
+        assert_eq!(
+            gen_one("int", &mut rng, Locale::En, &Args::new(Some("42..42".into()))).unwrap(),
+            json!(42)
+        );
+        assert_eq!(
+            gen_one("float", &mut rng, Locale::En, &Args::new(Some("5..5".into()))).unwrap(),
+            json!(5.0)
+        );
+        // A real range stays inside the INCLUSIVE bounds across many draws.
+        for _ in 0..200 {
+            let n = gen_one("int", &mut rng, Locale::En, &Args::new(Some("10..20".into())))
+                .unwrap()
+                .as_i64()
+                .unwrap();
+            assert!((10..=20).contains(&n), "int escaped its range: {n}");
+        }
+        // bool is a JSON boolean, not a stringified one.
+        assert!(gen_one("bool", &mut rng, Locale::En, &Args::default())
+            .unwrap()
+            .is_boolean());
+    }
 }

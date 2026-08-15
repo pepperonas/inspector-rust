@@ -112,3 +112,22 @@ describe("confidenceColor", () => {
     expect(confidenceColor(1)).toEqual({ r: 16, g: 185, b: 129 });
   });
 });
+
+describe("spectrumBars — degenerate bin counts", () => {
+  it("a 1-bin spectrum yields zeros, never NaN bar heights", () => {
+    // The window walker can end up with an empty [lo,hi) slice when there are
+    // fewer bins than bars; `sum / 0` would be NaN and NaN bar heights poison
+    // every canvas path drawn from them.
+    const bars = spectrumBars(new Uint8Array(1).fill(255), 4);
+    expect(bars).toHaveLength(4);
+    expect([...bars].every(Number.isFinite)).toBe(true);
+    expect([...bars].every((v) => v >= 0 && v <= 1)).toBe(true);
+  });
+
+  it("more bars than bins still produces finite, in-range values", () => {
+    const freq = new Uint8Array(8).fill(128);
+    const bars = spectrumBars(freq, 64);
+    expect([...bars].every(Number.isFinite)).toBe(true);
+    expect([...bars].every((v) => v >= 0 && v <= 1)).toBe(true);
+  });
+});

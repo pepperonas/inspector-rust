@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.106.1] — 2026-08-15
+
+A large test pass (~400 new unit tests across the Rust core and the frontend) that flushed out four real defects — all fixed here, each pinned by a regression test.
+
+### Fixed
+
+- **Time tracking could silently stop recording.** With a retention period set, the cleanup deleted the session row of the session *currently being recorded into* once its own events aged past the cutoff. Every later write then failed a foreign-key check — the timesheet looked alive but captured nothing until the next restart. Only ended sessions are swept now.
+- **A tagged time block was badged as a guess.** The "strongest signal names the block" rule never actually fired (the first event's weaker origin was frozen in), so an explicitly tagged block could still show up as neighbour-guessed — misleading exactly when you check which rows to trust before booking.
+- **`jwt` mojibaked non-ASCII claims.** A payload with `"Jörg"` decoded as `"JÃ¶rg"` (missing UTF-8 decode after base64); Umlauts, CJK and emoji in `name`/`given_name` are common. It now uses the same decode path the clipboard's base64 transform already used.
+- **`figlet`'s font gallery had no command accent.** Typing `figlet hello` filled the list with neutral rows, so nothing signalled you were inside a command rather than browsing clips — the other whole-list pickers (`kill`, `meme`) were already rose.
+
 ## [0.106.0] — 2026-08-13
 
 ### Added

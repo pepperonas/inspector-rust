@@ -287,3 +287,42 @@ describe("shortDayLabel", () => {
     expect(shortDayLabel("2026-03-01")).not.toContain("28");
   });
 });
+
+describe("date helpers — partial / truncated date strings", () => {
+  // Every helper parses "YYYY-MM-DD" by hand and guards the month/day with
+  // `|| 1`. A truncated value (a half-written deep link, a legacy "YYYY-MM"
+  // setting) must degrade to the 1st rather than rendering "Invalid Date" or
+  // NaN-based bounds that would query the whole epoch.
+  it('a bare year behaves like its January 1st', () => {
+    expect(dayStartMs("2024")).toBe(dayStartMs("2024-01-01"));
+    expect(dayEndMs("2024")).toBe(dayEndMs("2024-01-01"));
+    expect(shiftDay("2024", 1)).toBe("2024-01-02");
+    expect(shiftDay("2024", -1)).toBe("2023-12-31");
+  });
+
+  it('a "YYYY-MM" value behaves like the 1st of that month', () => {
+    expect(dayStartMs("2024-03")).toBe(dayStartMs("2024-03-01"));
+    expect(shiftDay("2024-03", 1)).toBe("2024-03-02");
+    expect(weekBounds("2024-03")).toEqual(weekBounds("2024-03-01"));
+  });
+
+  it("weekBounds of a truncated date is still a real Mon–Sun week", () => {
+    // 2024-01-01 was a Monday.
+    expect(weekBounds("2024")).toEqual({ from: "2024-01-01", to: "2024-01-07" });
+    // 2024-03-01 was a Friday → the week runs from the preceding Monday.
+    expect(weekBounds("2024-03")).toEqual({ from: "2024-02-26", to: "2024-03-03" });
+  });
+
+  it("the day-bounds invariant survives a truncated date too", () => {
+    for (const d of ["2024", "2024-03", "2024-03-10"]) {
+      expect(dayEndMs(d)).toBe(dayStartMs(shiftDay(d, 1)));
+      expect(dayEndMs(d)).toBeGreaterThan(dayStartMs(d));
+    }
+  });
+
+  it("shortDayLabel renders a real date for a truncated input", () => {
+    const label = shortDayLabel("2024");
+    expect(label).not.toMatch(/Invalid/i);
+    expect(label).toContain("1");
+  });
+});

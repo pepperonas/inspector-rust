@@ -764,3 +764,79 @@ describe("beatFlash", () => {
     expect(beatFlash(0, () => 0.1)).toBe(true);
   });
 });
+
+describe("out-of-range inputs from the backend are clamped, not propagated", () => {
+  // `strength` arrives in the `iris-beat` event payload from Rust and
+  // `intensity` from `burstIntensity`. A NaN/negative slipping through would
+  // poison a probability (`rand() < NaN` is always false → the effect silently
+  // dies) or produce a negative volley size.
+  const seq = (...xs: number[]) => {
+    let i = 0;
+    return () => xs[i++ % xs.length];
+  };
+
+  it("beatVolley clamps a nonsense INTENSITY exactly like the 0 / 1 ends", () => {
+    // s > 0.5 is required for the intensity term to be consulted at all.
+    expect(beatVolley(1, -5, seq(0.99, 0.01))).toBe(beatVolley(1, 0, seq(0.99, 0.01)));
+    expect(beatVolley(1, 99, seq(0.99, 0.01))).toBe(beatVolley(1, 1, seq(0.99, 0.01)));
+  });
+
+  it("beatVolley stays in [2,4] for every nonsense combination", () => {
+    for (const s of [-99, -1, 0, 1, 99, NaN]) {
+      for (const i of [-99, 0, 1, 99, NaN]) {
+        const n = beatVolley(s, i, Math.random);
+        expect(Number.isInteger(n), `s=${s} i=${i}`).toBe(true);
+        expect(n).toBeGreaterThanOrEqual(2);
+        expect(n).toBeLessThanOrEqual(4);
+      }
+    }
+  });
+
+  it("beatFlash treats an out-of-range strength as the nearest end", () => {
+    expect(beatFlash(-5, () => 0.3)).toBe(beatFlash(0, () => 0.3));
+    expect(beatFlash(99, () => 0.8)).toBe(beatFlash(1, () => 0.8));
+    // …and always answers a boolean, never `undefined` from a NaN comparison.
+    for (const s of [-99, NaN, 99]) expect(typeof beatFlash(s, Math.random)).toBe("boolean");
+  });
+
+  it("makeBurst clamps a nonsense intensity to the calm / loud ends", () => {
+    const low = makeBurst(1, -5, seq(0.5, 0.2, 0.7, 0.3, 0.9, 0.1, 0.4));
+    const calm = makeBurst(1, 0, seq(0.5, 0.2, 0.7, 0.3, 0.9, 0.1, 0.4));
+    expect(low).toEqual(calm);
+    const high = makeBurst(2, 99, seq(0.5, 0.2, 0.7, 0.3, 0.9, 0.1, 0.4));
+    const loud = makeBurst(2, 1, seq(0.5, 0.2, 0.7, 0.3, 0.9, 0.1, 0.4));
+    expect(high).toEqual(loud);
+  });
+
+  it("burstIntensity is the single NaN chokepoint feeding makeBurst", () => {
+    // makeBurst's ternary clamp deliberately has no NaN arm — `NaN < 0` and
+    // `NaN > 1` are both false, so a NaN would flow straight into the geometry.
+    // It cannot happen because the ONLY producer of `intensity` is
+    // burstIntensity, which returns a finite 0..1 for every input. This test
+    // pins that division of labour: move the guard and this fails.
+    for (const [spl, thr] of [
+      [NaN, 55],
+      [60, NaN],
+      [Infinity, 55],
+      [-Infinity, 55],
+      [60, Infinity],
+    ]) {
+      const t = burstIntensity(spl, thr);
+      expect(Number.isFinite(t), `spl=${spl} thr=${thr}`).toBe(true);
+      expect(t).toBeGreaterThanOrEqual(0);
+      expect(t).toBeLessThanOrEqual(1);
+      const b = makeBurst(1, t, Math.random);
+      expect(Number.isFinite(b.life)).toBe(true);
+      expect(Number.isFinite(b.peak)).toBe(true);
+    }
+  });
+});
+
+describe("parseIrisArg — a missing argument object", () => {
+  it("treats a null/undefined arg as a bare `iris` (toggle)", () => {
+    // `dispatchCommand` can hand the parser an absent arg; the `?? ""` guard
+    // must keep that a toggle rather than throwing on `.trim()`.
+    expect(parseIrisArg(undefined as unknown as string)).toEqual({ kind: "toggle" });
+    expect(parseIrisArg(null as unknown as string)).toEqual({ kind: "toggle" });
+  });
+});

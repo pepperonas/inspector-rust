@@ -517,6 +517,110 @@ mod tests {
         assert_eq!(n.category, "New");
     }
 
+    /// An `entries` row that is NOT text — the note built from it must stay
+    /// uneditable in the body (that is what `update`'s type gate keys off).
+    fn add_image_clip(db: &DbHandle, data: &str) -> i64 {
+        let now = Utc::now().timestamp_millis();
+        let conn = db.lock();
+        conn.execute(
+            r#"
+            INSERT INTO entries (
+                content_type, content_text, content_data, hash,
+                byte_size, created_at, last_used_at
+            ) VALUES ('image', '', ?1, ?2, ?3, ?4, ?4)
+            "#,
+            params![data, format!("h-img-{data}"), 4096i64, now],
+        )
+        .unwrap();
+        conn.last_insert_rowid()
+    }
+
+    #[test]
+    fn updating_a_note_that_no_longer_exists_is_an_error() {
+        // The Notes tab can hold a stale id (deleted in another window / by
+        // "Clear all"); the caller must learn about it instead of the update
+        // silently affecting zero rows.
+        let db = test_db();
+        let err = update(&db, 4242, "t", "b", "c").unwrap_err().to_string();
+        assert!(err.contains("4242"), "the error names the missing note: {err}");
+    }
+
+    #[test]
+    fn titles_and_categories_are_trimmed_but_the_body_is_kept_verbatim() {
+        // Trimming the body would corrupt copied code/indentation — notes are
+        // storage for whatever was on the clipboard.
+        let db = test_db();
+        let body = "  indented line\n\tand a tab\n";
+        let id = create_text(&db, "  Spaced Title  ", body, "  Work  ").unwrap();
+        let n = get(&db, id).unwrap().unwrap();
+        assert_eq!(n.title, "Spaced Title");
+        assert_eq!(n.category, "Work");
+        assert_eq!(n.content_text, body, "the body must not be trimmed");
+        assert_eq!(n.byte_size, body.len() as i64);
+
+        update(&db, id, "  New  ", "  still padded  ", "  Home  ").unwrap();
+        let n = get(&db, id).unwrap().unwrap();
+        assert_eq!((n.title.as_str(), n.category.as_str()), ("New", "Home"));
+        assert_eq!(n.content_text, "  still padded  ");
+    }
+
+    #[test]
+    fn append_imported_trims_the_metadata_it_was_given() {
+        // A hand-edited backup can carry padded titles; the same normalisation
+        // the UI path applies must hold on the import path.
+        let db = test_db();
+        let n = Note {
+            id: 0,
+            content_type: ContentType::Text,
+            content_text: " body ".into(),
+            content_data: " body ".into(),
+            title: "  T  ".into(),
+            category: "  C  ".into(),
+            byte_size: 6,
+            created_at: 1,
+            updated_at: 2,
+        };
+        let id = append_imported(&db, &n).unwrap();
+        let got = get(&db, id).unwrap().unwrap();
+        assert_eq!((got.title.as_str(), got.category.as_str()), ("T", "C"));
+        assert_eq!(got.content_text, " body ", "content is preserved verbatim");
+    }
+
+    #[test]
+    fn byte_size_counts_utf8_bytes_not_characters() {
+        // The Notes tab shows this as the note's size, and it must agree with
+        // what the payload actually costs on disk — "äöü" is 6 bytes, not 3.
+        let db = test_db();
+        let id = create_text(&db, "Umlaute", "äöü", "").unwrap();
+        assert_eq!(get(&db, id).unwrap().unwrap().byte_size, 6);
+        let id = create_text(&db, "Emoji", "🦀", "").unwrap();
+        assert_eq!(get(&db, id).unwrap().unwrap().byte_size, 4);
+    }
+
+    #[test]
+    fn a_note_saved_from_an_image_clip_stays_an_image_and_keeps_its_pixels() {
+        // The two halves have to line up: `save_from_clip` copies the clip's
+        // content_type, and `update`'s editability gate keys off exactly that —
+        // so re-titling an image note can never overwrite the bitmap with the
+        // editor's (empty) text body.
+        let db = test_db();
+        let clip_id = add_image_clip(&db, "BASE64PNGDATA");
+        let note_id = save_from_clip(&db, clip_id, "  Screenshot  ", "  Shots  ")
+            .unwrap()
+            .expect("note id");
+        let n = get(&db, note_id).unwrap().unwrap();
+        assert_eq!(n.content_type, ContentType::Image);
+        assert_eq!(n.content_data, "BASE64PNGDATA");
+        assert_eq!(n.byte_size, 4096, "the clip's own size is carried over");
+        assert_eq!((n.title.as_str(), n.category.as_str()), ("Screenshot", "Shots"));
+
+        update(&db, note_id, "Renamed", "", "Shots").unwrap();
+        let n = get(&db, note_id).unwrap().unwrap();
+        assert_eq!(n.title, "Renamed");
+        assert_eq!(n.content_data, "BASE64PNGDATA", "the bitmap must survive a re-title");
+        assert_eq!(n.byte_size, 4096);
+    }
+
     #[test]
     fn notes_persist_long_unicode_titles_and_bodies() {
         let db = test_db();

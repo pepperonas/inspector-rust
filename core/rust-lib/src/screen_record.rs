@@ -1307,6 +1307,38 @@ mod tests {
     }
 
     #[test]
+    fn audio_pickers_prefer_a_named_source_but_fall_back_to_the_first() {
+        // A device explicitly named a microphone beats an earlier unnamed one…
+        let devs = vec![(0u32, "BlackHole 2ch".to_string()), (5, "USB Microphone".to_string())];
+        assert_eq!(pick_mic_index(&devs), Some(5));
+        // …but with no named mic the first device is the best-effort fallback.
+        let unnamed = vec![(7u32, "Aggregate Device".to_string())];
+        assert_eq!(pick_mic_index(&unnamed), Some(7));
+        // An empty list yields no mic (no panic on `.first()`).
+        assert_eq!(pick_mic_index(&[]), None);
+    }
+
+    #[test]
+    fn system_audio_pickers_never_fall_back_to_an_arbitrary_device() {
+        // Recording "system audio" needs a real loopback (BlackHole/Loopback/
+        // Soundflower). With none present the pick MUST be None — silently
+        // grabbing a mic or "first device" as system audio would capture the
+        // wrong source. (Contrast pick_mic_index, which does fall back.)
+        let no_loopback = vec![(0u32, "USB Microphone".to_string()), (1, "Aggregate".to_string())];
+        assert_eq!(pick_system_index(&no_loopback), None);
+        let with_loopback = vec![(0u32, "USB Microphone".to_string()), (4, "BlackHole 16ch".to_string())];
+        assert_eq!(pick_system_index(&with_loopback), Some(4));
+
+        // The Windows dshow side has the same asymmetry: a mic falls back to the
+        // first device, but system audio requires a real loopback name.
+        let win = vec!["Line In (Realtek)".to_string()];
+        assert_eq!(pick_dshow_mic(&win).as_deref(), Some("Line In (Realtek)")); // fallback
+        assert_eq!(pick_dshow_system(&win), None); // no Stereo Mix / loopback → None
+        let win_sys = vec!["Stereo Mix".to_string()];
+        assert_eq!(pick_dshow_system(&win_sys).as_deref(), Some("Stereo Mix"));
+    }
+
+    #[test]
     fn macos_none_audio_uses_an_and_crop() {
         let args = build_args_macos(RGN, 2, None, None, "/tmp/o.mp4");
         let j = args.join(" ");

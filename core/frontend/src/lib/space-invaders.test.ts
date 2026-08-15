@@ -17,6 +17,7 @@ import {
   dropFormation,
   formationExtents,
   formationWidth,
+  FORMATION_STEP_X,
   ALIEN_COLS,
   ALIEN_GAP_X,
   frameScale,
@@ -259,5 +260,72 @@ describe("formationWidth", () => {
     // Equal margin on both sides → the row is centred.
     expect(left).toBeCloseTo(fieldW - right, 5);
     expect(right - left).toBe(formationWidth());
+  });
+});
+
+describe("stepFormation — the ordinary (non-bouncing) frame", () => {
+  // The existing wall tests use a formation that is already wider than the
+  // field, so every call bounces. The common case — the formation simply
+  // marching across a roomy field — was never exercised.
+  const WIDE = formationWidth() + 400;
+
+  it("marches by one step and reports no wall", () => {
+    const aliens = createFormation(WIDE, 40);
+    const before = aliens[0].x;
+    const r = stepFormation(aliens, 1, WIDE, 1);
+    expect(r).toEqual({ dir: 1, hitWall: false });
+    expect(aliens[0].x).toBeCloseTo(before + FORMATION_STEP_X, 6);
+  });
+
+  it("scales the step with the frame time (frame-rate independence)", () => {
+    const aliens = createFormation(WIDE, 40);
+    const before = aliens[0].x;
+    stepFormation(aliens, 1, WIDE, 2); // a frame that took twice as long
+    expect(aliens[0].x).toBeCloseTo(before + FORMATION_STEP_X * 2, 6);
+  });
+
+  it("moves left when the direction is -1", () => {
+    const aliens = createFormation(WIDE, 40);
+    const before = aliens[0].x;
+    const r = stepFormation(aliens, -1, WIDE, 1);
+    expect(r.hitWall).toBe(false);
+    expect(aliens[0].x).toBeCloseTo(before - FORMATION_STEP_X, 6);
+  });
+
+  it("only living aliens move", () => {
+    const aliens = createFormation(WIDE, 40);
+    aliens[0].alive = false;
+    const deadX = aliens[0].x;
+    stepFormation(aliens, 1, WIDE, 1);
+    expect(aliens[0].x).toBe(deadX);
+  });
+});
+
+describe("stepFormation — the direction guard stops bounce-lock", () => {
+  // Each wall check is gated on the direction of travel. Without that gate a
+  // formation sitting past a margin would flip every single frame and the
+  // whole wave would be stuck vibrating against the wall.
+  it("a formation already past the RIGHT margin keeps travelling left", () => {
+    const FIELD = 800;
+    const aliens = createFormation(FIELD, 40);
+    for (const a of aliens) a.x += 200; // shove it over the right margin only
+    expect(formationExtents(aliens).right).toBeGreaterThan(FIELD - 12);
+    expect(formationExtents(aliens).left).toBeGreaterThan(12);
+
+    // Moving away from the wall it is standing in → no reversal.
+    const away = stepFormation(aliens, -1, FIELD, 1);
+    expect(away).toEqual({ dir: -1, hitWall: false });
+
+    // Moving into it → reversal.
+    const into = stepFormation(aliens, 1, FIELD, 1);
+    expect(into).toEqual({ dir: -1, hitWall: true });
+  });
+
+  it("a formation clear of both margins never reverses", () => {
+    const WIDE = formationWidth() + 400;
+    const aliens = createFormation(WIDE, 40);
+    for (let i = 0; i < 20; i++) {
+      expect(stepFormation(aliens, 1, WIDE, 1).dir).toBe(1);
+    }
   });
 });

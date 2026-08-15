@@ -689,6 +689,152 @@ mod tests {
     }
 
     #[test]
+    fn a_pull_response_may_omit_every_field_and_still_parses() {
+        // The wire shape is the contract with cue's `/api/sync/snippets`. cue
+        // omits empty collections, and an older cue build may not send
+        // `version` at all — which must read as 1, not 0 (0 would lose every
+        // merge against a local v1).
+        let empty: PullResponse = serde_json::from_str("{}").expect("bare object parses");
+        assert!(empty.groups.is_empty() && empty.snippets.is_empty() && empty.tombstones.is_empty());
+        assert!(!empty.sync_ungrouped);
+
+        let minimal: PullResponse = serde_json::from_str(
+            r#"{"snippets":[{"abbreviation":"a"}],"tombstones":[{"abbreviation":"b"}]}"#,
+        )
+        .expect("minimal rows parse");
+        let s = &minimal.snippets[0];
+        assert_eq!((s.title.as_str(), s.body.as_str(), s.category.as_str()), ("", "", ""));
+        assert_eq!(s.version, 1, "a versionless snippet is v1");
+        assert_eq!(minimal.tombstones[0].version, 1);
+        assert_eq!(minimal.tombstones[0].deleted_at_ms, 0);
+        // Unknown future fields must not break the parse.
+        assert!(serde_json::from_str::<PullResponse>(r#"{"future_flag":true}"#).is_ok());
+    }
+
+    #[test]
+    fn the_push_keeps_the_field_names_cue_reads() {
+        // Renaming any of these silently breaks sync against a running cue —
+        // the failure would look like "nothing ever arrives", not an error.
+        let v = serde_json::to_value(WireSnippet {
+            abbreviation: "a".into(),
+            title: "T".into(),
+            body: "B".into(),
+            category: "AI".into(),
+            version: 4,
+        })
+        .unwrap();
+        let mut keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["abbreviation", "body", "category", "title", "version"]);
+
+        let t = serde_json::to_value(WireTombstone {
+            abbreviation: "gone".into(),
+            version: 2,
+            deleted_at_ms: 1_700_000_000_000,
+        })
+        .unwrap();
+        let mut keys: Vec<&str> = t.as_object().unwrap().keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["abbreviation", "deleted_at_ms", "version"]);
+    }
+
+    #[test]
+    fn a_blank_url_falls_back_to_the_default_instead_of_syncing_to_nowhere() {
+        let db = test_db();
+        for blank in ["", "   ", "/", "///"] {
+            set_config(
+                &db,
+                &SyncConfig { enabled: true, url: blank.into(), token: "t".into() },
+            )
+            .unwrap();
+            assert_eq!(get_config(&db).unwrap().url, DEFAULT_URL, "input {blank:?}");
+        }
+        // Several trailing slashes are all stripped (the caller appends its own).
+        set_config(
+            &db,
+            &SyncConfig { enabled: false, url: " http://127.0.0.1:8123//  ".into(), token: String::new() },
+        )
+        .unwrap();
+        assert_eq!(get_config(&db).unwrap().url, "http://127.0.0.1:8123");
+    }
+
+    #[test]
+    fn the_status_reads_as_never_synced_when_unset_or_unparsable() {
+        // The Settings chips render this; a hand-edited/half-written value must
+        // read as "never" rather than propagate an error to the UI.
+        let db = test_db();
+        let s = get_status(&db).unwrap();
+        assert_eq!((s.last_ms, s.last_error.as_str()), (0, ""));
+
+        settings::set(&db, KEY_LAST_MS, "not-a-number").unwrap();
+        assert_eq!(get_status(&db).unwrap().last_ms, 0);
+
+        settings::set(&db, KEY_LAST_MS, "1700000000000").unwrap();
+        settings::set(&db, KEY_LAST_ERROR, "Pull fehlgeschlagen: timeout").unwrap();
+        let s = get_status(&db).unwrap();
+        assert_eq!(s.last_ms, 1_700_000_000_000);
+        assert!(s.last_error.contains("timeout"));
+    }
+
+    #[test]
+    fn a_deletion_that_arrives_before_the_snippet_keeps_it_from_landing() {
+        // Ordering race: cue may report the tombstone in one cycle and still
+        // carry the (older) snippet in the same or the next payload. Recording
+        // the tombstone even without a local copy is what stops the deleted
+        // snippet from being re-created here.
+        let db = test_db();
+        let tomb = WireTombstone { abbreviation: "ghost".into(), version: 5, deleted_at_ms: 1 };
+        let stats = apply_pull(&db, &pull(&[], true, vec![], vec![tomb])).unwrap();
+        assert!(!stats.changed(), "nothing existed locally, so nothing changed");
+        assert_eq!(snippets::tombstone_version(&db, "ghost").unwrap(), Some(5));
+
+        // The stale copy (v5 and below) must not resurrect it …
+        let stats = apply_pull(&db, &pull(&[], true, vec![wire("ghost", "x", "", 5)], vec![])).unwrap();
+        assert!(!stats.changed());
+        assert!(body_of(&db, "ghost").is_none());
+        // … but a genuinely newer one does, and clears the tombstone.
+        let stats = apply_pull(&db, &pull(&[], true, vec![wire("ghost", "back", "", 6)], vec![])).unwrap();
+        assert_eq!(stats.created, 1);
+        assert_eq!(body_of(&db, "ghost"), Some(("back".into(), 6)));
+        assert_eq!(snippets::tombstone_version(&db, "ghost").unwrap(), None);
+    }
+
+    #[test]
+    fn cue_can_move_a_snippet_out_of_its_group() {
+        // cue is the organizational master, so an empty category on a tie must
+        // UNGROUP the local copy — not be read as "no information".
+        let db = test_db();
+        apply_pull(&db, &pull(&["AI"], true, vec![wire("a", "b", "AI", 1)], vec![])).unwrap();
+        assert_eq!(
+            snippets::find_by_exact_abbreviation(&db, "a").unwrap().unwrap().category.as_deref(),
+            Some("AI")
+        );
+        let stats = apply_pull(&db, &pull(&["AI"], true, vec![wire("a", "b", "", 1)], vec![])).unwrap();
+        assert_eq!(stats.updated, 1);
+        let s = snippets::find_by_exact_abbreviation(&db, "a").unwrap().unwrap();
+        assert_eq!(s.category, None, "moved to ungrouped");
+        assert_eq!(s.version, 1, "an organizational change does not bump the version");
+    }
+
+    #[test]
+    fn tombstones_are_pushed_even_when_no_snippet_is_in_scope() {
+        // Tombstones carry no group, so they are always sent — otherwise a
+        // deletion made while the scope was narrow would never reach cue and
+        // the snippet would come back on the next pull.
+        let db = test_db();
+        let private = snippets::create_category(&db, "Privat").unwrap();
+        snippets::create(&db, "secret", "", "b", Some(private)).unwrap();
+        let id = snippets::find_by_exact_abbreviation(&db, "secret").unwrap().unwrap().id;
+        snippets::delete(&db, id).unwrap();
+
+        let (snips, tombs) = build_push(&db, &pull(&[], false, vec![], vec![])).unwrap();
+        assert!(snips.is_empty(), "nothing is in scope");
+        assert_eq!(tombs.len(), 1);
+        assert_eq!(tombs[0].abbreviation, "secret");
+        assert!(tombs[0].deleted_at_ms > 0, "the deletion is timestamped for TTL pruning");
+    }
+
+    #[test]
     fn config_roundtrip_and_url_normalisation() {
         let db = test_db();
         let cfg = SyncConfig {

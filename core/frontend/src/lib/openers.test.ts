@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 import { TOP_OPENERS, hashString, pickOpener, pickOpenerIndex } from "./openers";
 
 describe("TOP_OPENERS data set", () => {
@@ -74,5 +74,69 @@ describe("pickOpener", () => {
     const samples = ["opener", "opener ", "opener x", "opener xy", "opener xyz", "opener a"];
     const picks = samples.map((s) => pickOpener(s));
     expect(new Set(picks).size).toBeGreaterThan(1);
+  });
+});
+
+describe("TOP_OPENERS — pasteable-verbatim invariants", () => {
+  // The picked line is pasted straight into whatever field had focus (chat,
+  // DM box) via `pasteText`, and rendered as ONE list row.
+  it("no entry carries leading or trailing whitespace", () => {
+    expect(TOP_OPENERS.filter((o) => o !== o.trim())).toEqual([]);
+  });
+
+  it("no entry contains a newline (a stray \\n would send the message early)", () => {
+    expect(TOP_OPENERS.filter((o) => /[\r\n]/.test(o))).toEqual([]);
+  });
+
+  it("no entry contains a tab or a double space (single-row rendering)", () => {
+    expect(TOP_OPENERS.filter((o) => o.includes("\t") || o.includes("  "))).toEqual([]);
+  });
+
+  it("every entry is a plausible one-liner, not a truncated fragment", () => {
+    for (const o of TOP_OPENERS) {
+      expect(o.length).toBeGreaterThanOrEqual(5);
+      expect(o.length).toBeLessThanOrEqual(400);
+    }
+  });
+});
+
+describe("hashString — distribution", () => {
+  it("spreads similar seeds across many different openers", () => {
+    // Each keystroke re-rolls with the whole query as the seed. A hash that
+    // clustered (e.g. if the multiply were dropped) would make the "re-roll"
+    // feel broken while still passing the determinism tests.
+    const picks = new Set<number>();
+    for (let i = 0; i < 500; i++) picks.add(pickOpenerIndex(`opener ${i}`));
+    expect(picks.size).toBeGreaterThan(TOP_OPENERS.length / 2);
+  });
+
+  it("every seed maps to an integer index, however exotic the input", () => {
+    for (const seed of ["", " ", "opener".repeat(500), "\u{1F98A}", "\uD800", "über 🦊 世界"]) {
+      const i = pickOpenerIndex(seed);
+      expect(Number.isInteger(i)).toBe(true);
+      expect(i).toBeGreaterThanOrEqual(0);
+      expect(i).toBeLessThan(TOP_OPENERS.length);
+    }
+  });
+});
+
+describe("empty catalogue — the defensive path", () => {
+  // Both `-1` / `null` branches are unreachable with the bundled data, so the
+  // only way to prove the guard works (rather than reading `TOP_OPENERS[-1]`
+  // as undefined into the paste) is to re-import against an empty list.
+  afterEach(() => {
+    vi.doUnmock("./openers-data");
+    vi.resetModules();
+  });
+
+  it("pickOpenerIndex reports -1 and pickOpener yields null", async () => {
+    vi.doMock("./openers-data", () => ({ TOP_OPENERS: [] as string[] }));
+    vi.resetModules();
+    const mod = await import("./openers");
+    expect(mod.TOP_OPENERS).toHaveLength(0);
+    expect(mod.pickOpenerIndex("opener")).toBe(-1);
+    expect(mod.pickOpener("opener")).toBeNull();
+    // Never an `undefined` that would paste the string "undefined".
+    expect(mod.pickOpener("")).not.toBe(undefined);
   });
 });

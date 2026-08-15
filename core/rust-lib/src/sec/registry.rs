@@ -460,4 +460,63 @@ mod tests {
         assert!(JOHN_FORMATS.iter().any(|f| !f.jumbo), "no Core formats");
         assert!(JOHN_FORMATS.iter().any(|f| f.jumbo), "no Jumbo formats");
     }
+
+    /// Every field a preset lists in `p.fields` must be a real `FieldSpec` on the
+    /// owning tool — otherwise the frontend renders (or fails to render) an input
+    /// for a field that doesn't exist, and its label/placeholder/help are absent.
+    #[test]
+    fn preset_fields_are_all_declared_on_the_tool() {
+        for t in CATALOG {
+            let declared: HashSet<&str> = t.fields.iter().map(|f| f.key).collect();
+            for p in t.presets {
+                for key in p.fields {
+                    assert!(
+                        declared.contains(key),
+                        "{}::{} lists field `{key}` with no FieldSpec on the tool",
+                        t.name,
+                        p.name
+                    );
+                }
+            }
+        }
+    }
+
+    /// The other direction: every segment that EMITS a field value must have that
+    /// key in the preset's `fields` list. A segment keyed on a field missing from
+    /// `fields` would silently emit nothing (the builder drops unset optionals),
+    /// so the flag would never appear no matter what the user typed.
+    #[test]
+    fn every_field_emitting_segment_is_listed_in_the_presets_fields() {
+        for t in CATALOG {
+            for p in t.presets {
+                let listed: HashSet<&str> = p.fields.iter().copied().collect();
+                for seg in p.segments {
+                    let key = match seg {
+                        Segment::Field { key }
+                        | Segment::Flag { key, .. }
+                        | Segment::Joined { key, .. } => Some(*key),
+                        Segment::Lit { .. } => None,
+                    };
+                    if let Some(k) = key {
+                        assert!(
+                            listed.contains(k),
+                            "{}::{} emits field `{k}` but doesn't list it in `fields`",
+                            t.name,
+                            p.name
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// John's `--format` autocomplete list must have unique names — a duplicate
+    /// would show twice in the Core/Jumbo picker and make the selection ambiguous.
+    #[test]
+    fn john_format_names_are_unique() {
+        let mut seen = HashSet::new();
+        for f in JOHN_FORMATS {
+            assert!(seen.insert(f.name), "duplicate John format {}", f.name);
+        }
+    }
 }

@@ -1328,4 +1328,93 @@ mod tests {
         assert_eq!(app2, "spotify:search:Song%20Artist");
         assert_eq!(web2, "https://open.spotify.com/search/Song%20Artist");
     }
+
+    /// A history-only DB (the shazam table is the module's whole persistence).
+    fn history_db() -> DbHandle {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        std::sync::Arc::new(parking_lot::Mutex::new(conn))
+    }
+
+    fn track(title: &str, artist: &str) -> ShazamMatch {
+        ShazamMatch { title: title.into(), artist: artist.into(), ..Default::default() }
+    }
+
+    #[test]
+    fn shazam_init_schema_can_run_again_over_existing_history() {
+        let conn = rusqlite::Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let db: DbHandle = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        history_insert(&db, &track("A", "x")).unwrap();
+        {
+            let conn = db.lock();
+            init_schema(&conn).expect("second run must succeed");
+        }
+        assert_eq!(history_list(&db, 50).unwrap().len(), 1, "past recognitions survive");
+    }
+
+    #[test]
+    fn a_deduped_recognition_reports_the_row_it_kept() {
+        // The caller uses the returned id to open/link the entry, so on a dedup
+        // it must be the existing row's id — not a phantom new one.
+        let db = history_db();
+        let first = history_insert(&db, &track("Song", "Artist")).unwrap();
+        let again = history_insert(&db, &track("Song", "Artist")).unwrap();
+        assert_eq!(again, first, "re-listening returns the same row");
+        assert_eq!(history_list(&db, 50).unwrap().len(), 1);
+        // Same title, different artist → a genuinely different track.
+        let other = history_insert(&db, &track("Song", "Cover Band")).unwrap();
+        assert_ne!(other, first);
+        assert_eq!(history_list(&db, 50).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn recognitions_within_one_millisecond_still_list_newest_first() {
+        // `recognized_at` comes from the wall clock, and three inserts easily
+        // land in the same millisecond. The `id DESC` tiebreak is what keeps the
+        // list ordered — and what makes "dedup against the most recent" correct.
+        let db = history_db();
+        let a = history_insert(&db, &track("A", "x")).unwrap();
+        let b = history_insert(&db, &track("B", "x")).unwrap();
+        let c = history_insert(&db, &track("C", "x")).unwrap();
+        // Force the tie explicitly so the test can't pass by luck of the clock.
+        db.lock()
+            .execute("UPDATE shazam_history SET recognized_at = 1700000000000", [])
+            .unwrap();
+        let ids: Vec<i64> = history_list(&db, 50).unwrap().iter().map(|e| e.id).collect();
+        assert_eq!(ids, vec![c, b, a]);
+        // …and the dedup sees C as "the most recent", so re-hearing C is a no-op.
+        assert_eq!(history_insert(&db, &track("C", "x")).unwrap(), c);
+        assert_eq!(history_list(&db, 50).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_zero_limit_lists_nothing_and_deleting_an_unknown_row_is_harmless() {
+        let db = history_db();
+        history_insert(&db, &track("A", "x")).unwrap();
+        assert!(history_list(&db, 0).unwrap().is_empty());
+        history_delete(&db, 9_999).expect("deleting a stale id must not error");
+        assert_eq!(history_list(&db, 50).unwrap().len(), 1);
+        history_clear(&db).unwrap();
+        history_clear(&db).expect("clearing an empty history is fine too");
+    }
+
+    #[test]
+    fn non_ascii_titles_and_artists_survive_the_history() {
+        // Most of what this feature recognises is not ASCII.
+        let db = history_db();
+        let m = ShazamMatch {
+            title: "Où sont les femmes ? 世界".into(),
+            artist: "Björk & Sigur Rós".into(),
+            album: "Ærø – Grüße".into(),
+            ..Default::default()
+        };
+        history_insert(&db, &m).unwrap();
+        let got = history_list(&db, 1).unwrap().remove(0);
+        assert_eq!(got.title, "Où sont les femmes ? 世界");
+        assert_eq!(got.artist, "Björk & Sigur Rós");
+        assert_eq!(got.album, "Ærø – Grüße");
+        // The dedup compares the decoded strings, so the same track dedups.
+        assert_eq!(history_insert(&db, &m).unwrap(), got.id);
+    }
 }

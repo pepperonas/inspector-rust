@@ -283,3 +283,83 @@ describe("fuzzyScore", () => {
     expect(fuzzyScore(email, "xyz")).toBeNull();
   });
 });
+
+describe("parseFakerCommand — arguments without a generator", () => {
+  // The token loop assigns count/format/locale/seed first, so it is easy to
+  // type something complete-looking that still names no generator. The row must
+  // then coach rather than silently produce nothing.
+  it("a bare count is not enough", () => {
+    const r = parseFakerCommand("20", CAT, DEF);
+    expect(r.kind).toBe("suggestion");
+    if (r.kind !== "suggestion") return;
+    expect(r.message).toMatch(/generator name/i);
+    expect(r.didYouMean).toBeUndefined(); // nothing to guess at yet
+  });
+
+  it("a bare format flag is not enough", () => {
+    expect(parseFakerCommand("--json", CAT, DEF).kind).toBe("suggestion");
+    expect(parseFakerCommand("--sql=users", CAT, DEF).kind).toBe("suggestion");
+  });
+
+  it("a bare locale or seed is not enough", () => {
+    expect(parseFakerCommand("@de", CAT, DEF).kind).toBe("suggestion");
+    expect(parseFakerCommand("--seed=42", CAT, DEF).kind).toBe("suggestion");
+  });
+
+  it("adding the generator to the same flags produces a real spec", () => {
+    const r = parseFakerCommand("20 --json email", CAT, DEF);
+    expect(r.kind).toBe("spec");
+  });
+});
+
+describe("formatters — non-string field values", () => {
+  it("plain renders numbers, booleans, null and absent keys safely", () => {
+    // Generator records come from Rust as arbitrary JSON scalars; a number must
+    // print as a number and a null/missing key must be blank, never "null" or
+    // "undefined".
+    const c = compositeResult(
+      [{ age: 42, active: true, note: null, ratio: 0 }],
+      ["age", "active", "note", "ratio", "absent"],
+    );
+    expect(formatValues(c, "plain")).toBe("age: 42\nactive: true\nnote: \nratio: 0\nabsent: ");
+  });
+
+  it("plain keeps a blank line between records", () => {
+    const c = compositeResult([{ n: 1 }, { n: 2 }], ["n"]);
+    expect(formatValues(c, "plain")).toBe("n: 1\n\nn: 2");
+  });
+});
+
+describe("parseFakerCommand — an extra bare token becomes the generator arg", () => {
+  it("a trailing word after the generator is carried as `args`", () => {
+    const r = parseFakerCommand("zip 5 extra", CAT, DEF);
+    expect(r.kind).toBe("spec");
+    if (r.kind !== "spec") return;
+    expect(r.spec.generator).toBe("zip");
+    expect(r.spec.n).toBe(5);
+    expect(r.spec.args).toBe("extra");
+  });
+
+  it("only the FIRST extra token is taken; further ones are ignored", () => {
+    const r = parseFakerCommand("zip first second", CAT, DEF);
+    expect(r.kind).toBe("spec");
+    if (r.kind !== "spec") return;
+    expect(r.spec.args).toBe("first");
+  });
+
+  it("an explicit range (Rust `a..b` syntax) overrides an earlier bare token", () => {
+    const r = parseFakerCommand("int extra 1..100", CAT, DEF);
+    expect(r.kind).toBe("spec");
+    if (r.kind !== "spec") return;
+    expect(r.spec.args).toBe("1..100");
+  });
+
+  it("a hyphen range is NOT the range syntax — it is just a bare arg", () => {
+    // Ranges are Rust-shaped (`1..100` / `1..=100`); `1-100` stays a plain
+    // token so it can't silently be read as a range by the backend.
+    const r = parseFakerCommand("int 1-100", CAT, DEF);
+    expect(r.kind).toBe("spec");
+    if (r.kind !== "spec") return;
+    expect(r.spec.args).toBe("1-100");
+  });
+});

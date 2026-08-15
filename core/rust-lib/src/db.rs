@@ -931,6 +931,184 @@ mod tests {
     }
 
     #[test]
+    fn the_cap_falls_back_to_the_default_for_blank_or_unparsable_values() {
+        // The setting is a plain TEXT row, so a hand-edited DB (or a
+        // half-written value) can hold anything. Anything we cannot read as a
+        // number must land on the documented default instead of, say, 0 —
+        // which would prune the whole history on the next copy.
+        let db = test_db_with_settings();
+        for garbage in ["", "   ", "abc", "12abc", "1e3", "-", "50.5"] {
+            db.lock()
+                .execute(
+                    "INSERT INTO settings(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![KEY_MAX_ENTRIES, garbage],
+                )
+                .unwrap();
+            assert_eq!(max_entries(&db), 1000, "value {garbage:?}");
+        }
+        // A hand-edited out-of-range number is clamped, not honoured.
+        for (stored, want) in [("1", MIN_HISTORY_ENTRIES), ("-9", MIN_HISTORY_ENTRIES), ("999999999", MAX_HISTORY_ENTRIES)] {
+            db.lock()
+                .execute(
+                    "INSERT INTO settings(key, value) VALUES(?1, ?2)
+                     ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                    params![KEY_MAX_ENTRIES, stored],
+                )
+                .unwrap();
+            assert_eq!(max_entries(&db), want, "value {stored:?}");
+        }
+        // Surrounding whitespace is tolerated (the parse trims).
+        db.lock()
+            .execute(
+                "INSERT INTO settings(key, value) VALUES(?1, ?2)
+                 ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                params![KEY_MAX_ENTRIES, " 2500 "],
+            )
+            .unwrap();
+        assert_eq!(max_entries(&db), 2500);
+    }
+
+    #[test]
+    fn inserting_past_the_configured_cap_prunes_on_the_spot() {
+        // The prune runs inside `upsert_clip`, so the table can never grow past
+        // the cap between settings changes.
+        let db = test_db_with_settings();
+        set_max_entries(&db, MIN_HISTORY_ENTRIES).unwrap(); // 50
+        for i in 0..55 {
+            upsert_clip(&db, &text_clip(&format!("clip-{i}"))).unwrap();
+        }
+        assert_eq!(list(&db, 500, 0).unwrap().len(), 50);
+    }
+
+    #[test]
+    fn the_cap_counts_only_prunable_rows_so_pins_and_notes_come_on_top() {
+        // `prune_locked`'s OFFSET subquery is scoped to unpinned+unnoted rows,
+        // so "keep 2" means "keep 2 *prunable* rows" — a user with 40 pins does
+        // not lose them, and does not lose 40 slots of ordinary history either.
+        let db = test_db();
+        let mut pinned = Vec::new();
+        for i in 0..3 {
+            let id = upsert_clip(&db, &text_clip(&format!("pin-{i}"))).unwrap();
+            set_pinned(&db, id, true).unwrap();
+            pinned.push(id);
+        }
+        let noted = upsert_clip(&db, &text_clip("noted")).unwrap();
+        set_note(&db, noted, Some("keep me")).unwrap();
+        for i in 0..5 {
+            upsert_clip(&db, &text_clip(&format!("plain-{i}"))).unwrap();
+        }
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 2).unwrap();
+        }
+        let rows = list(&db, 100, 0).unwrap();
+        assert_eq!(rows.len(), 6, "3 pinned + 1 noted + 2 prunable survivors");
+        assert_eq!(rows.iter().filter(|r| r.pinned).count(), 3);
+        assert!(rows.iter().any(|r| r.id == noted));
+    }
+
+    #[test]
+    fn lowering_the_cap_never_evicts_a_pinned_or_noted_clip() {
+        let db = test_db_with_settings();
+        let ids: Vec<i64> = (0..60)
+            .map(|i| upsert_clip(&db, &text_clip(&format!("clip-{i}"))).unwrap())
+            .collect();
+        // Pin + note the two OLDEST rows — exactly the ones a cap cut would take.
+        set_pinned(&db, ids[0], true).unwrap();
+        set_note(&db, ids[1], Some("remember")).unwrap();
+        {
+            let conn = db.lock();
+            for (i, id) in ids.iter().enumerate() {
+                conn.execute(
+                    "UPDATE entries SET last_used_at = ?1 WHERE id = ?2",
+                    params![1000 + i as i64, id],
+                )
+                .unwrap();
+            }
+        }
+        set_max_entries(&db, MIN_HISTORY_ENTRIES).unwrap();
+        let rows = list(&db, 200, 0).unwrap();
+        assert_eq!(rows.len(), 52, "50 prunable + the pin + the noted row");
+        assert!(rows.iter().any(|r| r.id == ids[0]), "pinned clip survives");
+        assert!(rows.iter().any(|r| r.id == ids[1]), "noted clip survives");
+    }
+
+    #[test]
+    fn passing_no_note_clears_it_just_like_an_empty_one() {
+        // The IPC hands through whatever the note popover produced: `None` when
+        // the note was deleted, `Some("")` when the field was emptied. Both must
+        // clear the column (and re-expose the clip to pruning).
+        let db = test_db();
+        let id = upsert_clip(&db, &text_clip("x")).unwrap();
+        set_note(&db, id, Some("a note")).unwrap();
+        set_note(&db, id, None).unwrap();
+        assert_eq!(get(&db, id).unwrap().unwrap().note, None);
+        {
+            let conn = db.lock();
+            prune_locked(&conn, 0).unwrap();
+        }
+        assert!(list(&db, 10, 0).unwrap().is_empty(), "clearing re-exposes it to the prune");
+    }
+
+    #[test]
+    fn an_empty_transform_kind_reads_back_as_no_kind_at_all() {
+        // `row_to_entry` filters an empty `derived_kind` to None so the UI never
+        // renders a blank tooltip; the rail itself must still be there.
+        let db = test_db();
+        let source = upsert_clip(&db, &text_clip("src")).unwrap();
+        let derived = upsert_clip_derived(&db, &text_clip("SRC"), Some(source), Some("")).unwrap();
+        let row = get(&db, derived).unwrap().unwrap();
+        assert_eq!(row.derived_from, Some(source), "the rail survives");
+        assert_eq!(row.derived_kind, None, "an empty kind is not a kind");
+    }
+
+    #[test]
+    fn deleting_a_source_leaves_its_copy_and_cannot_re_aim_the_rail() {
+        // Deleting the original must not cascade into the derived copy (the list
+        // draws it as a lone node). The rail keeps the vanished id — which is
+        // only safe because `id INTEGER PRIMARY KEY AUTOINCREMENT` never reuses
+        // a row id, so a later clip can't inherit it and steal the lineage.
+        let db = test_db();
+        let source = upsert_clip(&db, &text_clip("Hello")).unwrap();
+        let derived = upsert_clip_derived(&db, &text_clip("HELLO"), Some(source), Some("upper")).unwrap();
+
+        delete(&db, source).unwrap();
+
+        let copy = get(&db, derived).unwrap().expect("the copy is not cascaded away");
+        assert_eq!(copy.content_text, "HELLO");
+        assert_eq!(copy.derived_from, Some(source), "the rail is kept, just dangling");
+
+        let later = upsert_clip(&db, &text_clip("a totally unrelated clip")).unwrap();
+        assert_ne!(later, source, "ids are never recycled");
+    }
+
+    #[test]
+    fn opening_a_database_creates_every_tables_module_needs() {
+        // `open` runs the core schema, the two lazy ALTERs and three foreign
+        // `init_schema`s in one go — and the composite index is created AFTER
+        // the ALTERs on purpose (a pre-v0.76 DB gains `pinned` only there).
+        // ":memory:" keeps this off the filesystem.
+        let db = open(&PathBuf::from(":memory:")).expect("open in-memory");
+        for table in ["entries", "track_sessions", "track_events", "stats_history", "shazam_history"] {
+            let n: i64 = db
+                .lock()
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    params![table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(n, 1, "missing table {table}");
+        }
+        // A freshly-opened DB has no `settings` table yet (that one belongs to
+        // settings::init_table) — the cap lookup must survive that, not blow up.
+        assert_eq!(max_entries(&db), 1000);
+        let id = upsert_clip(&db, &text_clip("works")).unwrap();
+        assert_eq!(get(&db, id).unwrap().unwrap().content_text, "works");
+    }
+
+    #[test]
     fn hash_payload_distinguishes_unicode_normalisation_forms() {
         // SHA-256 is byte-deterministic — equivalent NFC vs NFD strings
         // produce different hashes. Document that we do *not* normalise.

@@ -19,6 +19,8 @@ import {
   hitsPipe,
   initialState,
   randGapTop,
+  GROUND_H,
+  GAP_MARGIN,
   step,
   type FlappyState,
 } from "./flappy";
@@ -247,5 +249,40 @@ describe("AI autopilot", () => {
     expect(aiShouldFlap(200, 1, 150)).toBe(true); // below target, falling
     expect(aiShouldFlap(100, 1, 150)).toBe(false); // above target
     expect(aiShouldFlap(200, -5, 150)).toBe(false); // rising fast already
+  });
+});
+
+describe("randGapTop — fields too short for a proper gap", () => {
+  // A tiny popup (or a stubborn window manager) can hand the game a field
+  // shorter than GAP_MARGIN + PIPE_GAP + GAP_MARGIN. The band then inverts and
+  // a naive `lo + rng*(hi-lo)` would return values ABOVE `lo`, i.e. a gap
+  // hanging below the ground — an unplayable, instantly-fatal pipe.
+  const tooShort = GAP_MARGIN + PIPE_GAP + GAP_MARGIN + GROUND_H - 1;
+
+  it("falls back to a centred gap instead of an inverted band", () => {
+    for (const h of [10, 100, tooShort]) {
+      const g = randGapTop(h, () => 0.99);
+      expect(Number.isFinite(g)).toBe(true);
+      // Never above the top margin…
+      expect(g).toBeGreaterThanOrEqual(GAP_MARGIN);
+      // …and never dependent on the rng, since there is no band to sample.
+      expect(randGapTop(h, () => 0)).toBe(g);
+      expect(randGapTop(h, () => 1)).toBe(g);
+    }
+  });
+
+  it("a field one pixel taller than the degenerate case samples normally again", () => {
+    const ok = tooShort + 2;
+    const lo = randGapTop(ok, () => 0);
+    const hi = randGapTop(ok, () => 1);
+    expect(lo).toBe(GAP_MARGIN);
+    expect(hi).toBeGreaterThanOrEqual(lo);
+    expect(hi + PIPE_GAP).toBeLessThanOrEqual(groundY(ok));
+  });
+
+  it("always returns a whole number of pixels", () => {
+    for (const h of [10, 200, 480, 601]) {
+      expect(Number.isInteger(randGapTop(h, () => 0.37))).toBe(true);
+    }
   });
 });

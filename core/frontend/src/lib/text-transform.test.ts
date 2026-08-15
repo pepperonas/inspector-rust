@@ -177,3 +177,103 @@ describe("plain-text — no-DOM fallback (regex tag-strip)", () => {
     expect(applyTransform("plain-text", "  just text  ")).toBe("just text");
   });
 });
+
+describe("applyTransform — the word tokeniser's exact rules", () => {
+  it("a single word is passed through in the target casing", () => {
+    expect(applyTransform("camel", "Hello")).toBe("hello");
+    expect(applyTransform("snake", "Hello")).toBe("hello");
+    expect(applyTransform("kebab", "HELLO")).toBe("hello");
+  });
+
+  it("an already-camelCase input round-trips through camel", () => {
+    expect(applyTransform("camel", "helloWorldFoo")).toBe("helloWorldFoo");
+  });
+
+  it("breaks the digit→capital boundary too", () => {
+    // The tokeniser splits on ([a-z0-9])([A-Z]), so a digit ends a word.
+    expect(applyTransform("snake", "hello2World")).toBe("hello2_world");
+    expect(applyTransform("kebab", "v2Api")).toBe("v2-api");
+  });
+
+  it("keeps an acronym run as ONE word (the rule is lower→Upper only)", () => {
+    // Deliberate simplicity: there is no Upper→UpperLower rule, so
+    // "HTTPServer" is a single token. Pinned so a tokeniser rewrite is a
+    // conscious change rather than a silent one.
+    expect(applyTransform("snake", "HTTPServer")).toBe("httpserver");
+    expect(applyTransform("camel", "HTTPServer")).toBe("httpserver");
+  });
+
+  it("mixed separators collapse into one boundary", () => {
+    expect(applyTransform("snake", "hello -_ world")).toBe("hello_world");
+    expect(applyTransform("camel", "hello-world_again test")).toBe("helloWorldAgainTest");
+  });
+
+  it("input made only of separators produces an empty result", () => {
+    for (const kind of ["camel", "snake", "kebab"] as const) {
+      expect(applyTransform(kind, "   ")).toBe("");
+      expect(applyTransform(kind, "-_-")).toBe("");
+      expect(applyTransform(kind, "")).toBe("");
+    }
+  });
+
+  it("camel lower-cases the first word but Title-cases the rest", () => {
+    // `cap()` lower-cases the tail, so shouty input is normalised.
+    expect(applyTransform("camel", "HELLO WORLD")).toBe("helloWorld");
+  });
+
+  it("Umlauts survive the tokeniser unharmed", () => {
+    expect(applyTransform("snake", "grüße Welt")).toBe("grüße_welt");
+    expect(applyTransform("camel", "straße test")).toBe("straßeTest");
+  });
+});
+
+describe("applyTransform — title case details", () => {
+  it("only capitalises after whitespace, not after punctuation", () => {
+    expect(applyTransform("title", "hello-world")).toBe("Hello-world");
+    expect(applyTransform("title", "it's fine")).toBe("It's Fine");
+  });
+
+  it("preserves leading whitespace while still capitalising the first word", () => {
+    expect(applyTransform("title", "  hello")).toBe("  Hello");
+  });
+
+  it("capitalises Umlaut initials", () => {
+    expect(applyTransform("title", "über alles")).toBe("Über Alles");
+  });
+});
+
+describe("applyTransform — decode robustness on real clipboard content", () => {
+  it("base64-decode tolerates the whitespace a copied blob carries", () => {
+    // Copying base64 out of a terminal/mail very often brings a newline along.
+    expect(applyTransform("base64-decode", "  aGVsbG8=\n")).toBe("hello");
+  });
+
+  it("base64 round-trips the empty string", () => {
+    expect(applyTransform("base64-encode", "")).toBe("");
+    expect(applyTransform("base64-decode", "")).toBe("");
+  });
+
+  it("url-decode leaves `+` as a literal plus (it is not a space here)", () => {
+    // decodeURIComponent is not form-decoding — pinning it stops someone
+    // "fixing" it into unescape/replace and corrupting real URLs.
+    expect(applyTransform("url-decode", "a+b")).toBe("a+b");
+    expect(applyTransform("url-encode", "a+b")).toBe("a%2Bb");
+  });
+
+  it("url-encode leaves the RFC-3986 unreserved set alone", () => {
+    expect(applyTransform("url-encode", "aZ0-_.!~*'()")).toBe("aZ0-_.!~*'()");
+  });
+});
+
+describe("applyTransform — idempotence where it is expected", () => {
+  it("case + vowel transforms are stable when applied twice", () => {
+    for (const kind of ["upper", "lower", "remove-vowels", "snake", "kebab"] as const) {
+      const once = applyTransform(kind, "Hello Wörld Foo");
+      expect(applyTransform(kind, once)).toBe(once);
+    }
+  });
+
+  it("remove-vowels leaves y and ß (they are not in the vowel set)", () => {
+    expect(applyTransform("remove-vowels", "syzygy Straße")).toBe("syzygy Strß");
+  });
+});

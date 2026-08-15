@@ -392,3 +392,56 @@ describe("presetFlagHelp", () => {
     expect(presetFlagHelp({ ...FEROX, flag_help: [] }, dir)).toEqual([]);
   });
 });
+
+describe("parseSecCommand — the resolved wordlist handed to the preview", () => {
+  // The preview shows an existence hint for the wordlist that will ACTUALLY be
+  // used. That is the typed one if present, else the Settings default — the
+  // hint would otherwise point at nothing while the built command runs fine.
+  const withDefault: SecDefaults = { ...DEF, wordlist: "/usr/share/rockyou.txt" };
+
+  it("falls back to the Settings wordlist when none was typed", () => {
+    const p = parseSecCommand("john", "wordlist hashes.txt", CAT, withDefault);
+    expect(p.kind).toBe("built");
+    if (p.kind !== "built") return;
+    expect(p.values.wordlist).toBe("/usr/share/rockyou.txt");
+    expect(p.command).toContain("--wordlist=/usr/share/rockyou.txt");
+  });
+
+  it("a typed wordlist wins over the Settings default", () => {
+    const p = parseSecCommand("john", "wordlist --wordlist=/tmp/mine.txt hashes.txt", CAT, withDefault);
+    expect(p.kind).toBe("built");
+    if (p.kind !== "built") return;
+    expect(p.values.wordlist).toBe("/tmp/mine.txt");
+  });
+
+  it("an empty typed value still falls back (`--wordlist=` sets nothing)", () => {
+    // Note: the tokeniser splits on whitespace and has no quoting, so this —
+    // not `--wordlist="  "` — is what an "I typed the flag but no path" looks
+    // like in practice.
+    const p = parseSecCommand("john", "wordlist --wordlist= hashes.txt", CAT, withDefault);
+    expect(p.kind).toBe("built");
+    if (p.kind !== "built") return;
+    expect(p.values.wordlist).toBe("/usr/share/rockyou.txt");
+  });
+
+  it("with no default and nothing typed the field stays unset", () => {
+    const p = parseSecCommand("john", "wordlist hashes.txt", CAT, DEF);
+    expect(p.kind).toBe("built");
+    if (p.kind !== "built") return;
+    expect(p.values.wordlist ?? "").toBe("");
+  });
+});
+
+describe("parseSecCommand — a keyword that is not in the catalogue", () => {
+  it("declines quietly (not-command) instead of guessing, when not via `sec`", () => {
+    // Reachable if the command keyword list and the tool catalogue ever drift
+    // apart: the row must fall back to a normal search, not crash or suggest.
+    expect(parseSecCommand("notatool", "", CAT, DEF)).toEqual({ kind: "not-command" });
+    expect(parseSecCommand("notatool", "some args", CAT, DEF)).toEqual({ kind: "not-command" });
+  });
+
+  it("but `sec <unknown>` is an explicit request, so it suggests", () => {
+    const p = parseSecCommand("sec", "notatool", CAT, DEF);
+    expect(p.kind).toBe("suggestion");
+  });
+});

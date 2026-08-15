@@ -516,4 +516,38 @@ mod tests {
         // Monotonic timestamps preserved.
         assert!(pts.windows(2).all(|w| w[0].ts <= w[1].ts));
     }
+
+    #[test]
+    fn init_schema_can_run_again_over_existing_history() {
+        // It runs on every `db::open`; a second pass must keep the collected
+        // series rather than error out (or recreate the table empty).
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        let db: DbHandle = std::sync::Arc::new(parking_lot::Mutex::new(conn));
+        insert(&db, 100, &sample(1.0, None));
+        {
+            let conn = db.lock();
+            init_schema(&conn).expect("second run must succeed");
+        }
+        assert_eq!(query(&db, 0).len(), 1, "existing samples survive");
+    }
+
+    #[test]
+    fn a_sensor_that_disappears_mid_window_leaves_a_hole_not_a_flat_line() {
+        // Unplugging the charger stops the power readings. Each bucket averages
+        // only what it actually has, so the chart's power line ends where the
+        // data ends instead of carrying the last value forward.
+        let rows = [
+            row(5, 10.0, Some(20.0)),
+            row(6, 12.0, Some(22.0)),
+            row(55, 30.0, None),
+            row(56, 32.0, None),
+        ];
+        // Range 0..100 with 2 buckets → width 50: rows 5/6 in bucket 0, 55/56 in 1.
+        let pts = downsample(&rows, 0, 100, 2);
+        assert_eq!(pts.len(), 2);
+        assert_eq!(pts[0].power, Some(21.0));
+        assert_eq!(pts[1].power, None, "the later bucket must not inherit the earlier average");
+        assert!((pts[1].cpu - 31.0).abs() < 1e-9, "the always-present metrics keep averaging");
+    }
 }

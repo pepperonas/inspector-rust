@@ -199,16 +199,58 @@ pub fn migrate_table(
 /// fresh key on first run and stores it in the keychain (and writes a
 /// keyfile copy as a fallback so a future keychain-unavailable session
 /// can still open the DB).
+/// What a key store answered. The distinction between [`Absent`](KeyLookup::Absent)
+/// and [`Failed`](KeyLookup::Failed) is the whole point: minting a fresh key is
+/// only ever correct when the store genuinely holds nothing.
+enum KeyLookup {
+    Found(Box<[u8; KEY_LEN]>),
+    /// The store works and definitely has no key (first run on this machine).
+    Absent,
+    /// We could not find out — access denied, locked keychain, I/O error, or a
+    /// value that is present but unreadable/corrupt.
+    Failed(String),
+}
+
+/// Resolve the at-rest key.
+///
+/// ⚠️ SAFETY-CRITICAL (fixed 2026-08-16). This function is one wrong `?` away
+/// from destroying every encrypted row the user owns. It previously treated
+/// "the keychain said no entry" and "the keychain read FAILED" as the same
+/// `None` — so a denied keychain prompt (routine after the app is re-signed)
+/// plus an unreadable keyfile made it mint a brand-new key and overwrite the
+/// last copy of the real one. Clipboard history, snippet bodies, notes and
+/// **every TOTP secret** would then be undecryptable forever, silently: the
+/// permissive `decrypt` just hands back the raw `v1:…` blob.
+///
+/// The rule now: **mint only when BOTH stores report genuine absence.** Any
+/// read failure aborts with an error — the caller refuses to start rather than
+/// replace a key it could not read.
 fn load_or_create_key(data_dir: &Path) -> Result<[u8; KEY_LEN]> {
-    if let Some(k) = read_keychain() {
+    let from_chain = read_keychain();
+    if let KeyLookup::Found(k) = from_chain {
         // Keep the keyfile in sync so the fallback always works.
         let _ = write_keyfile(data_dir, &k);
-        return Ok(k);
+        return Ok(*k);
     }
 
-    if let Some(k) = read_keyfile(data_dir) {
+    let from_file = read_keyfile(data_dir);
+    if let KeyLookup::Found(k) = from_file {
         let _ = write_keychain(&k);
-        return Ok(k);
+        return Ok(*k);
+    }
+
+    // Neither store produced a key. Minting is safe ONLY if both are certain
+    // they never had one; otherwise we would be overwriting a key that exists
+    // but is momentarily unreadable.
+    for (store, res) in [("keychain", &from_chain), ("keyfile", &from_file)] {
+        if let KeyLookup::Failed(why) = res {
+            return Err(anyhow!(
+                "refusing to create a new encryption key: the {store} could not be read ({why}). \
+                 A key may already exist — replacing it would make all encrypted data \
+                 (clipboard history, snippets, notes, 2FA secrets) permanently unreadable. \
+                 Grant access (or restore the key) and start again."
+            ));
+        }
     }
 
     // First run on this machine — mint a fresh key and persist it.
@@ -221,11 +263,32 @@ fn load_or_create_key(data_dir: &Path) -> Result<[u8; KEY_LEN]> {
     Ok(key)
 }
 
-fn read_keychain() -> Option<[u8; KEY_LEN]> {
-    let entry = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).ok()?;
-    let secret = entry.get_password().ok()?;
-    let bytes = B64.decode(secret.as_bytes()).ok()?;
-    bytes.try_into().ok()
+fn read_keychain() -> KeyLookup {
+    let entry = match keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER) {
+        Ok(e) => e,
+        Err(e) => return KeyLookup::Failed(format!("entry: {e}")),
+    };
+    let secret = match entry.get_password() {
+        Ok(s) => s,
+        // The ONLY answer that means "there is nothing here".
+        Err(keyring::Error::NoEntry) => return KeyLookup::Absent,
+        Err(e) => return KeyLookup::Failed(e.to_string()),
+    };
+    decode_key(secret.as_bytes(), "keychain value")
+}
+
+/// Decode a stored (base64) key. A value that exists but does not decode is
+/// `Failed`, never `Absent` — it is evidence a key WAS set here.
+fn decode_key(raw: &[u8], what: &str) -> KeyLookup {
+    let decoded = match B64.decode(raw) {
+        Ok(d) => d,
+        Err(e) => return KeyLookup::Failed(format!("{what} is not valid base64: {e}")),
+    };
+    let len = decoded.len();
+    match <[u8; KEY_LEN]>::try_from(decoded) {
+        Ok(k) => KeyLookup::Found(Box::new(k)),
+        Err(_) => KeyLookup::Failed(format!("{what} is {len} bytes, expected {KEY_LEN}")),
+    }
 }
 
 fn write_keychain(key: &[u8; KEY_LEN]) -> Result<()> {
@@ -242,11 +305,15 @@ fn keyfile_path(data_dir: &Path) -> std::path::PathBuf {
     data_dir.join(KEYFILE_NAME)
 }
 
-fn read_keyfile(data_dir: &Path) -> Option<[u8; KEY_LEN]> {
+fn read_keyfile(data_dir: &Path) -> KeyLookup {
     let path = keyfile_path(data_dir);
-    let bytes = std::fs::read(&path).ok()?;
-    let decoded = B64.decode(&bytes).ok()?;
-    decoded.try_into().ok()
+    match std::fs::read(&path) {
+        Ok(bytes) => decode_key(&bytes, "keyfile"),
+        // Not there = genuinely absent. Anything else (permissions, I/O) is a
+        // failure: the file may exist and hold the only copy of the key.
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => KeyLookup::Absent,
+        Err(e) => KeyLookup::Failed(format!("{}: {e}", path.display())),
+    }
 }
 
 fn write_keyfile(data_dir: &Path, key: &[u8; KEY_LEN]) -> Result<()> {
@@ -467,5 +534,69 @@ mod tests {
             .query_row("SELECT other FROM t WHERE id = 2", [], |r| r.get(0))
             .unwrap();
         assert_eq!(s2, None);
+    }
+
+    // ── Key resolution: the "never mint over an existing key" guarantee ──────
+    //
+    // These pin the 2026-08-16 fix. The old code collapsed "no entry" and
+    // "read failed" into one `None`, so a denied keychain prompt plus an
+    // unreadable keyfile minted a NEW key and overwrote the last copy of the
+    // real one — silently making all encrypted data unreadable forever.
+
+    #[test]
+    fn a_key_that_exists_but_does_not_decode_is_a_failure_not_an_absence() {
+        // Evidence a key WAS stored here. Reporting `Absent` would licence
+        // minting a replacement — the exact data-loss path.
+        for bad in [
+            &b"not base64 !!"[..],
+            &b""[..],                       // empty file
+            B64.encode([0u8; 16]).as_bytes(), // right encoding, wrong length
+        ] {
+            assert!(
+                matches!(decode_key(bad, "keyfile"), KeyLookup::Failed(_)),
+                "unreadable stored key must be Failed, never Absent",
+            );
+        }
+        // A well-formed key of the right length is the only Found case.
+        assert!(matches!(
+            decode_key(B64.encode([7u8; KEY_LEN]).as_bytes(), "keyfile"),
+            KeyLookup::Found(k) if *k == [7u8; KEY_LEN]
+        ));
+    }
+
+    #[test]
+    fn a_missing_keyfile_is_absent_but_an_unreadable_one_is_a_failure() {
+        let dir = std::env::temp_dir().join(format!("ir-keytest-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let _ = std::fs::remove_file(keyfile_path(&dir));
+        // Genuinely nothing there → first-run, minting is allowed.
+        assert!(matches!(read_keyfile(&dir), KeyLookup::Absent));
+        // Present but corrupt → must NOT be mistaken for a first run.
+        std::fs::write(keyfile_path(&dir), b"garbage").unwrap();
+        assert!(matches!(read_keyfile(&dir), KeyLookup::Failed(_)));
+        // Round-trip of a real key.
+        write_keyfile(&dir, &[3u8; KEY_LEN]).unwrap();
+        assert!(matches!(read_keyfile(&dir), KeyLookup::Found(k) if *k == [3u8; KEY_LEN]));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn load_or_create_refuses_to_replace_a_key_it_could_not_read() {
+        // THE regression: an existing-but-unreadable keyfile must abort, and —
+        // the load-bearing half — must be left byte-for-byte intact so the
+        // user can still recover it.
+        let dir = std::env::temp_dir().join(format!("ir-keyfail-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let corrupt = b"this is not a key";
+        std::fs::write(keyfile_path(&dir), corrupt).unwrap();
+
+        let err = load_or_create_key(&dir).unwrap_err().to_string();
+        assert!(err.contains("refusing to create a new encryption key"), "got: {err}");
+        assert_eq!(
+            std::fs::read(keyfile_path(&dir)).unwrap(),
+            corrupt,
+            "the unreadable key must survive the failed start — it may be recoverable",
+        );
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

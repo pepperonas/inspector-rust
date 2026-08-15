@@ -133,9 +133,17 @@ pub fn run(context: tauri::Context<Wry>) {
             // every subsequent insert/select runs through the cipher.
             // The data dir is the same parent as the DB file.
             if let Some(data_dir) = db_path.parent() {
-                if let Err(e) = crypto::init(data_dir) {
-                    tracing::warn!("crypto init failed: {e:#} — DB will be plaintext");
-                }
+                // HARD failure, deliberately (2026-08-16). This used to warn and
+                // carry on — which meant a machine that could not read its own
+                // key silently wrote every new clip, snippet body and TOTP
+                // secret to disk IN THE CLEAR while showing the existing rows
+                // as `v1:…` garbage. Both halves of that are worse than not
+                // starting: the user is not told, and the damage accumulates.
+                // `crypto::init` now only errors when a key store failed to
+                // answer (never on a genuine first run), so refusing to start
+                // is the safe reading of "something is wrong with your key".
+                crypto::init(data_dir)
+                    .map_err(|e| format!("at-rest encryption could not be initialised: {e:#}"))?;
             }
 
             let db_handle = db::open(&db_path)?;

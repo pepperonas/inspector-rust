@@ -414,7 +414,7 @@
 | **Windows 11 / 10** | [`InspectorRust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
 | **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
-| **macOS Intel** | — | Build from source: [`macos/README.md`](./macos/README.md) |
+| **macOS Intel** | — | Not buildable: the ONNX Runtime dependency ships no Intel-macOS binary — [details](./macos/README.md#apple-silicon-only-x86_64-does-not-build) |
 | **Linux (Ubuntu/Debian)** | Build from source — see [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
 
 > **macOS Gatekeeper note.** Releases are ad-hoc-signed, **not Apple-notarized**. A DMG downloaded from GitHub is quarantined by the browser, and macOS then claims the app is **"damaged and can't be opened"** — it isn't; right-click → **Open** does *not* help against that particular wording. Move the app to Applications, then clear the marker once:

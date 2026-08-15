@@ -4,12 +4,28 @@ This directory contains the macOS-specific Tauri shell for Inspector Rust. The s
 
 ## Prerequisites (macOS)
 
-- [Rust toolchain](https://rustup.rs/) (Apple Silicon: `aarch64-apple-darwin`; Intel: `x86_64-apple-darwin`) — with `clippy`: `rustup component add clippy`
+- [Rust toolchain](https://rustup.rs/) (`aarch64-apple-darwin`) — with `clippy`: `rustup component add clippy`
 - [Node.js](https://nodejs.org/) 20+ and [pnpm](https://pnpm.io/) 10+
 - **Xcode Command Line Tools** — `xcode-select --install`
 - macOS 10.15 (Catalina) or newer
 
 No DMG-specific tooling is required — Tauri's `bundle_dmg.sh` runs out of the box on macOS.
+
+### Apple Silicon only (x86_64 does not build)
+
+`x86_64-apple-darwin` **cannot be built at all** right now, natively or
+cross-compiled: the ML background cut-out depends on `ort` (ONNX Runtime), and
+`ort-sys` 2.0.0-rc.12 ships prebuilt binaries for exactly one Apple target —
+its `build/download/dist.txt` lists `aarch64-apple-darwin` and nothing else for
+macOS. The build script hard-errors with *"ort does not provide prebuilt
+binaries for the target x86_64-apple-darwin"*. This is why the release workflow
+builds arm64 only; it is a dependency limitation, not a missing matrix entry.
+
+Bringing Intel back needs one of: `ort`'s `load-dynamic` plus an x86_64
+`libonnxruntime.dylib` bundled into the `.app`; feature-gating `cutout_ml.rs`
+off for x86_64 (Intel then has every feature except the ML cut-out); or
+building ONNX Runtime from source. See the note in
+[`.github/workflows/release.yml`](../.github/workflows/release.yml).
 
 ## Build
 

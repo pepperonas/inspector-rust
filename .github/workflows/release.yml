@@ -126,9 +126,7 @@ jobs:
             target/release/bundle/appimage/*.AppImage
 
   build-macos:
-    # Matrix: ship a DMG for Apple Silicon AND Intel Macs. Each runner
-    # builds natively for its own arch — no cross-compile snags with
-    # native deps (the ort/ONNX prebuilt binaries are arch-specific).
+    # Apple Silicon only — see the x86_64 note below before re-adding Intel.
     name: Build & Release (macOS ${{ matrix.arch }})
     strategy:
       fail-fast: false
@@ -137,12 +135,35 @@ jobs:
           - arch: aarch64
             runner: macos-14   # Apple Silicon (M-series)
             target: aarch64-apple-darwin
-          # macos-13 (last Intel hosted runner) is being retired and was
-          # cancelling every release job → no Intel DMG. Cross-compile the
-          # x86_64 target from an Apple-Silicon runner instead.
-          - arch: x86_64
-            runner: macos-14
-            target: x86_64-apple-darwin
+          #
+          # ── Why there is no x86_64 (Intel) job ────────────────────────────
+          # It is not "temporarily broken" — it is impossible with the current
+          # ONNX Runtime dependency, and it never once produced an artifact.
+          #
+          # `ort-sys` 2.0.0-rc.12 ships prebuilt ONNX Runtime binaries for
+          # exactly ONE Apple target: its own `build/download/dist.txt` lists
+          # `aarch64-apple-darwin` and nothing else for macOS (pyke dropped
+          # Intel macOS). So the build script hard-errors:
+          #     "ort does not provide prebuilt binaries for the target
+          #      x86_64-apple-darwin"
+          # The `download-binaries` default cannot satisfy it, and the
+          # xcframework fallback explicitly bails for non-arm Apple targets.
+          #
+          # Evidence it never worked: every release back to v0.100.0 carries
+          # only `*_aarch64.dmg`, while every release RUN was red — the Intel
+          # job failed each time and `fail-fast: false` let the real artifacts
+          # upload around it. A permanently failing job that ships nothing is
+          # worse than no job: it trains you to ignore red releases.
+          #
+          # To actually support Intel, one of these is required (each is a
+          # deliberate piece of work, not a matrix line):
+          #   a) `ort` with `load-dynamic` + bundle an x86_64
+          #      libonnxruntime.dylib into the .app (upstream still publishes
+          #      onnxruntime-osx-x86_64-*.tgz) and sign it with the bundle;
+          #   b) feature-gate `cutout_ml.rs` off for x86_64 so the Intel build
+          #      compiles without `ort` at all — Intel users then get every
+          #      feature except the ML background cut-out;
+          #   c) build ONNX Runtime from source in CI (slow, high maintenance).
     runs-on: ${{ matrix.runner }}
 
     steps:

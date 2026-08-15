@@ -48,7 +48,13 @@ export function decodeJwt(token: string): string {
     // base64url → base64, pad, decode, parse.
     const b64 = part.replace(/-/g, "+").replace(/_/g, "/");
     const padded = b64 + "=".repeat((4 - (b64.length % 4)) % 4);
-    const json = atob(padded);
+    // `atob` yields LATIN-1 bytes, so a UTF-8 payload has to be decoded — the
+    // plain `atob` this used to do mojibaked every non-ASCII claim ("Jörg" →
+    // "JÃ¶rg"), and `name`/`given_name` carry Umlauts all the time. Same
+    // Uint8Array + TextDecoder path `text-transform.ts::base64Decode` uses;
+    // the two were silently inconsistent.
+    const bin = atob(padded);
+    const json = new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
     return JSON.parse(json);
   };
   const header = decodePart(parts[0]);

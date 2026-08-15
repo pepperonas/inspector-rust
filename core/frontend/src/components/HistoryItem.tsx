@@ -169,6 +169,10 @@ export const HistoryItem = memo(function HistoryItem({
     isTotp ||
     isKillTarget ||
     isMeme ||
+    // figlet's font gallery is a whole-list takeover exactly like kill/meme —
+    // it was left out when `figlet` landed (v0.85.0), so `figlet hello` filled
+    // the list with neutral rows and gave no signal you were in a command.
+    isFiglet ||
     isSocial ||
     // Calculator / converter results: highlighted + animated like a command
     // (v0.84.27) — typing an expression should feel as "active" as a keyword.

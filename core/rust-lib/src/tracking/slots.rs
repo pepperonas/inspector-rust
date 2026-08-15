@@ -389,8 +389,20 @@ pub fn build_slots(events: &[Resolved], params: &SlotParams) -> Vec<Slot> {
             if let Some(d) = &r.detail {
                 *self.per_detail.entry(d.clone()).or_default() += s;
             }
+            // UPGRADE the stored origin, don't just keep the first one: every
+            // event of a project shares the key `p:<project>`, so a plain
+            // `or_insert` froze whichever event happened to come first and the
+            // "strongest origin names the slot" rule below could never fire —
+            // a block containing an explicitly TAGGED event was still badged
+            // as a guess (Neighbour), which is exactly the badge the user
+            // reads to decide what to double-check before booking.
             self.project_by_key
                 .entry(r.key())
+                .and_modify(|(_, o)| {
+                    if r.origin.rank() > o.rank() {
+                        *o = r.origin;
+                    }
+                })
                 .or_insert_with(|| (r.project.clone(), r.origin));
             self.ids.push(r.id);
             self.active_s += s;
@@ -844,6 +856,24 @@ mod tests {
     }
 
     #[test]
+    fn the_strongest_origin_in_a_slot_names_it() {
+        // REGRESSION (found 2026-08-15): every event of one project shares the
+        // key `p:<project>`, so keeping the FIRST origin per key froze the
+        // weakest one and the "strongest wins" rule below could never fire —
+        // a block containing an explicitly tagged event was still badged as a
+        // guess, and that badge is what the user reads to decide which rows to
+        // double-check before booking.
+        let evs = vec![
+            with_title(ev(1, 0, 600, "Safari", None), "alpha docs"), // guessed
+            ev(2, 600, 1200, "Cursor", Some("alpha")),               // explicitly tagged
+        ];
+        let resolved = infer_projects(&evs, &["alpha".to_string()], &SlotParams::default());
+        let slots = build_slots(&resolved, &SlotParams::default());
+        assert_eq!(slots.len(), 1, "one contiguous project block");
+        assert_eq!(slots[0].origin, Origin::Tagged, "the tag outranks the guess");
+    }
+
+    #[test]
     fn a_title_token_assigns_the_project() {
         let evs = vec![with_title(ev(1, 0, 10, "Cursor", None), "slots.rs — inspector-rust")];
         let known = vec!["inspector-rust".to_string()];
@@ -1078,4 +1108,112 @@ mod tests {
     fn an_empty_day_yields_no_slots() {
         assert!(build_slots(&[], &SlotParams::default()).is_empty());
     }
+
+    #[test]
+    fn a_gap_wider_than_the_bridge_splits_even_the_same_project() {
+        // Same project on both sides, but 20 minutes of nothing in between (no
+        // idle event was recorded — the machine was simply not used). Bridging
+        // that would book 20 minutes nobody worked.
+        let evs = vec![
+            ev(1, 0, 60, "Cursor", Some("alpha")),
+            ev(2, 80, 140, "Cursor", Some("alpha")),
+        ];
+        let slots = build_slots(&infer_projects(&evs, &[], &SlotParams::default()), &SlotParams::default());
+        assert_eq!(slots.len(), 2, "the unexplained gap must not be booked");
+        assert_eq!(slots[0].span_s, secs(0, 60));
+        assert_eq!(slots[1].span_s, secs(80, 140));
+        // A gap *within* the bridge (5 min) is one slot again.
+        let evs = vec![
+            ev(1, 0, 60, "Cursor", Some("alpha")),
+            ev(2, 64, 124, "Cursor", Some("alpha")),
+        ];
+        let slots = build_slots(&infer_projects(&evs, &[], &SlotParams::default()), &SlotParams::default());
+        assert_eq!(slots.len(), 1);
+    }
+
+    #[test]
+    fn a_short_idle_dip_is_bridged_but_never_counted_as_worked_time() {
+        // `active_s` is what the slot actually measured; `span_s` is the booked
+        // wall clock. The dip belongs to the span, not to the measurement.
+        let evs = vec![
+            ev(1, 0, 60, "Cursor", Some("alpha")),
+            idle(2, 60, 62),
+            ev(3, 62, 120, "Cursor", Some("alpha")),
+        ];
+        let slots = build_slots(&infer_projects(&evs, &[], &SlotParams::default()), &SlotParams::default());
+        assert_eq!(slots.len(), 1);
+        assert_eq!(slots[0].active_s, secs(0, 60) + secs(62, 120), "the 2 idle minutes are not work");
+        assert_eq!(slots[0].span_s, secs(0, 120));
+        assert_eq!(slots[0].event_ids, vec![1, 3], "the idle event is not part of the audit trail");
+    }
+
+    #[test]
+    fn the_description_drops_a_title_that_only_repeats_the_label_and_caps_the_rest() {
+        // Only the three heaviest titles make the line, an echo of the label is
+        // noise, and a very long title is truncated so the timesheet row stays
+        // readable.
+        let long = "x".repeat(80);
+        let details = vec![
+            ("alpha".to_string(), 500), // echoes the label → dropped
+            ("slots.rs".to_string(), 400),
+            (long.clone(), 300),
+            ("mod.rs".to_string(), 200), // 4th by weight → outside the cap
+        ];
+        let d = build_description("alpha", &details);
+        assert!(d.starts_with("alpha — "));
+        assert!(d.contains("slots.rs"));
+        assert!(!d.contains("mod.rs"), "only the top three details are considered");
+        assert!(d.contains(&"x".repeat(60)) && !d.contains(&"x".repeat(61)), "titles cap at 60 chars");
+        // A label match is case-insensitive, and with nothing left the label
+        // alone is the description (never a dangling em dash).
+        assert_eq!(build_description("Alpha", &[("alpha".into(), 1)]), "Alpha");
+        assert_eq!(build_description("Mail", &[]), "Mail");
+    }
+
+    #[test]
+    fn known_projects_ignores_blank_names_that_would_match_everything() {
+        // An event tagged with "" or "   " must never become a project token —
+        // `tokens_of` would yield nothing and `all()` over an empty token list
+        // is vacuously true, i.e. it would claim every window title.
+        let evs = vec![
+            ev(1, 0, 1, "A", Some("   ")),
+            ev(2, 1, 2, "B", Some("")),
+            ev(3, 2, 3, "C", Some("alpha")),
+        ];
+        let k = known_projects(&evs, &["".to_string(), "  ".to_string()]);
+        assert_eq!(k, vec!["alpha".to_string()]);
+    }
+
+    #[test]
+    fn snapping_drops_a_slot_that_rounding_collapsed_into_its_neighbour() {
+        // Two blocks that both round onto the same quarter hour: the earlier one
+        // keeps the slot, the later one would start where it ends — a zero (or
+        // negative) length booking, which must be removed rather than emitted.
+        let mut slots = vec![
+            slot_at(T0, T0 + 14 * 60_000, "alpha"),   // → 00:00–00:15
+            slot_at(T0 + 15 * 60_000, T0 + 16 * 60_000, "beta"), // → 00:15–00:15
+        ];
+        snap_slots(&mut slots, 15);
+        assert_eq!(slots.len(), 1, "the collapsed slot is dropped");
+        assert_eq!(slots[0].label, "alpha");
+        assert_eq!(slots[0].span_s, 15 * 60, "span_s is recomputed from the snapped bounds");
+    }
+
+    /// A bare slot for the snapping tests (the fields snapping touches).
+    fn slot_at(start_ms: i64, end_ms: i64, label: &str) -> Slot {
+        Slot {
+            start_ms,
+            end_ms,
+            project: Some(label.to_string()),
+            label: label.to_string(),
+            description: label.to_string(),
+            origin: Origin::Tagged,
+            apps: Vec::new(),
+            event_ids: Vec::new(),
+            active_s: (end_ms - start_ms) / 1000,
+            span_s: (end_ms - start_ms) / 1000,
+            confidence: 1.0,
+        }
+    }
 }
+

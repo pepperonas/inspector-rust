@@ -670,8 +670,18 @@ pub fn prune_before(db: &DbHandle, cutoff_ms: i64, exclude: Option<i64>) -> rusq
         "DELETE FROM track_events WHERE started_at < ?1 AND id != ?2",
         params![cutoff_ms, ex],
     )?;
+    // Only ENDED sessions may be swept. The unscoped form deleted any
+    // event-less session — including the one currently being recorded into:
+    // with retention enabled, a resumed session whose events all aged past the
+    // cutoff lost its own row, and because `init_schema` turns foreign keys ON,
+    // every later `open_event` for that session_id failed with FOREIGN KEY
+    // constraint failed. Tracking then LOOKED alive (no error surfaces to the
+    // user) while recording nothing until the next restart. `resume_if_active`
+    // prunes with exclude=None right before resuming, so it was reachable.
     conn.execute(
-        "DELETE FROM track_sessions WHERE id NOT IN (SELECT DISTINCT session_id FROM track_events)",
+        "DELETE FROM track_sessions \
+         WHERE status = 'ended' \
+           AND id NOT IN (SELECT DISTINCT session_id FROM track_events)",
         [],
     )?;
     Ok(n)
@@ -923,6 +933,344 @@ mod tests {
         assert_eq!(evs[0].category.as_deref(), Some("Comms"));
     }
 
+    /// Count helper for the tables without a typed reader.
+    fn count(db: &DbHandle, table: &str) -> i64 {
+        db.lock()
+            .query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))
+            .unwrap()
+    }
+
+    fn session_row(db: &DbHandle, id: i64) -> Option<(String, Option<i64>)> {
+        db.lock()
+            .query_row(
+                "SELECT status, ended_at FROM track_sessions WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .unwrap()
+    }
+
+    #[test]
+    fn init_schema_can_run_again_on_an_existing_database() {
+        // It runs on every `db::open`, so a second call over live data must be
+        // a no-op rather than an error (or a wipe).
+        let conn = Connection::open_in_memory().unwrap();
+        init_schema(&conn).unwrap();
+        conn.execute(
+            "INSERT INTO track_sessions (label, started_at, ended_at, status) VALUES ('x', 1, NULL, 'active')",
+            [],
+        )
+        .unwrap();
+        init_schema(&conn).expect("second run must succeed");
+        let n: i64 = conn.query_row("SELECT COUNT(*) FROM track_sessions", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 1, "existing rows must survive re-initialisation");
+    }
+
+    #[test]
+    fn prune_before_deletes_old_events_together_with_their_claude_turns() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let old = insert_event(&db, &ev(sid, "Code", 1_000), 2_000).unwrap();
+        insert_claude_turn(&db, old, 1_500, Some("opus"), Some(10), Some(20)).unwrap();
+        let recent = insert_event(&db, &ev(sid, "Code", 50_000), 60_000).unwrap();
+        insert_claude_turn(&db, recent, 55_000, Some("opus"), Some(1), Some(2)).unwrap();
+
+        assert_eq!(prune_before(&db, 10_000, None).unwrap(), 1);
+
+        let left = events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(left.len(), 1);
+        assert_eq!(left[0].id, recent);
+        assert_eq!(count(&db, "track_claude_turns"), 1, "the old event's turns go with it");
+    }
+
+    #[test]
+    fn prune_before_removes_sessions_it_emptied_and_keeps_the_populated_ones() {
+        let db = test_db();
+        let old_session = start_session(&db, Some("last month"), 0).unwrap();
+        insert_event(&db, &ev(old_session, "Code", 1_000), 2_000).unwrap();
+        // A month-old session is ENDED in reality (`end_stale_sessions` closes
+        // every leftover on the next resume) — and only ended sessions may be
+        // swept, see the live-session test below.
+        end_session(&db, old_session, 2_000).unwrap();
+        let live_session = start_session(&db, Some("today"), 100_000).unwrap();
+        insert_event(&db, &ev(live_session, "Code", 100_000), 110_000).unwrap();
+
+        prune_before(&db, 50_000, None).unwrap();
+
+        assert!(session_row(&db, old_session).is_none(), "an emptied session is cleaned up");
+        assert!(session_row(&db, live_session).is_some(), "a session with events stays");
+    }
+
+    #[test]
+    fn prune_before_never_deletes_the_session_that_is_still_recording() {
+        // REGRESSION (found 2026-08-15): the session sweep was unscoped, so a
+        // session whose events had all aged past the cutoff lost its own row —
+        // including the one being recorded into. With foreign keys ON, every
+        // later open_event on that id then failed and tracking silently
+        // recorded NOTHING until the next app restart. Reachable because
+        // `resume_if_active` prunes (exclude=None) right before resuming.
+        let db = test_db();
+        let live = start_session(&db, Some("resumed"), 0).unwrap();
+        insert_event(&db, &ev(live, "Code", 1_000), 2_000).unwrap();
+
+        prune_before(&db, 50_000, None).unwrap();
+
+        assert!(
+            session_row(&db, live).is_some(),
+            "an ACTIVE session must survive even once the prune emptied it"
+        );
+        // The load-bearing half: it can still be recorded into.
+        assert!(
+            insert_event(&db, &ev(live, "Code", 60_000), 61_000).is_ok(),
+            "recording into the surviving session must not hit a FK error"
+        );
+    }
+
+    #[test]
+    fn end_stale_sessions_closes_every_other_session_at_its_last_known_moment() {
+        // Unclean shutdowns (and older builds) leave several "active" rows; on
+        // resume exactly one may stay open, and the others must be closed at a
+        // truthful time — never at "now", which would invent hours of work.
+        let db = test_db();
+        let with_events = start_session(&db, None, 1_000).unwrap();
+        insert_event(&db, &ev(with_events, "Code", 1_000), 4_000).unwrap();
+        let empty = start_session(&db, None, 5_000).unwrap();
+        let resumed = start_session(&db, None, 9_000).unwrap();
+
+        assert_eq!(end_stale_sessions(&db, Some(resumed)).unwrap(), 2);
+
+        assert_eq!(session_row(&db, with_events).unwrap(), ("ended".into(), Some(4_000)));
+        assert_eq!(session_row(&db, empty).unwrap(), ("ended".into(), Some(5_000)));
+        assert_eq!(active_session(&db).unwrap().unwrap().id, resumed);
+    }
+
+    #[test]
+    fn finalize_all_open_events_closes_danglers_from_every_session() {
+        // The per-session variant only reaches the resumed session; a crash of
+        // an older build can leave open rows elsewhere, and an open row is
+        // counted up to *now* by the day report — overlapping everything after.
+        let db = test_db();
+        let a = start_session(&db, None, 0).unwrap();
+        let b = start_session(&db, None, 0).unwrap();
+        let dangling_a = open_event(&db, &ev(a, "Code", 1_000)).unwrap();
+        let dangling_b = open_event(&db, &ev(b, "Safari", 2_000)).unwrap();
+        let closed = insert_event(&db, &ev(b, "Mail", 3_000), 9_000).unwrap();
+
+        assert_eq!(finalize_all_open_events(&db).unwrap(), 2);
+
+        let evs = events_in_range(&db, -1, 1_000_000).unwrap();
+        let by_id = |id: i64| evs.iter().find(|e| e.id == id).unwrap();
+        assert_eq!((by_id(dangling_a).ended_at, by_id(dangling_a).duration_s), (Some(1_000), Some(0)));
+        assert_eq!((by_id(dangling_b).ended_at, by_id(dangling_b).duration_s), (Some(2_000), Some(0)));
+        assert_eq!(by_id(closed).duration_s, Some(6), "an already-closed event is untouched");
+        assert_eq!(finalize_all_open_events(&db).unwrap(), 0, "second run finds nothing");
+    }
+
+    #[test]
+    fn close_event_clamps_a_backwards_clock_and_refuses_to_reopen_the_books() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = open_event(&db, &ev(sid, "Code", 10_000)).unwrap();
+        // Clock skew / a DST jump: the end lands before the start.
+        close_event(&db, eid, 5_000).unwrap();
+        let e = events_in_range(&db, -1, 1_000_000).unwrap().remove(0);
+        assert_eq!(e.ended_at, Some(5_000));
+        assert_eq!(e.duration_s, Some(0), "never a negative duration");
+
+        // A second close is ignored (the `ended_at IS NULL` guard) — unlike the
+        // heartbeat, which deliberately keeps moving a live event's end.
+        close_event(&db, eid, 90_000).unwrap();
+        let e = events_in_range(&db, -1, 1_000_000).unwrap().remove(0);
+        assert_eq!(e.ended_at, Some(5_000), "a closed event stays closed where it was");
+    }
+
+    #[test]
+    fn merging_a_still_open_event_leaves_the_survivor_open() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let a = open_event(&db, &ev(sid, "Code", 0)).unwrap();
+        close_event(&db, a, 10_000).unwrap();
+        let b = open_event(&db, &ev(sid, "Code", 10_000)).unwrap(); // still running
+
+        assert_eq!(merge_events(&db, &[a, b]).unwrap(), Some(a));
+        let evs = events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!(evs[0].started_at, 0, "spans from the earliest start");
+        assert_eq!(evs[0].ended_at, None, "and is still open, so the heartbeat keeps it growing");
+        assert_eq!(evs[0].duration_s, None);
+    }
+
+    #[test]
+    fn merge_never_deletes_anything_when_fewer_than_two_rows_are_selected() {
+        // A stale id in the selection (the row was deleted in another view)
+        // must not turn "merge these two" into "delete the good one".
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let a = insert_event(&db, &ev(sid, "Code", 0), 10_000).unwrap();
+
+        assert_eq!(merge_events(&db, &[]).unwrap(), None);
+        assert_eq!(merge_events(&db, &[a]).unwrap(), Some(a));
+        assert_eq!(merge_events(&db, &[a, 9_999]).unwrap(), Some(a));
+        let evs = events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.len(), 1);
+        assert_eq!((evs[0].started_at, evs[0].ended_at), (0, Some(10_000)));
+    }
+
+    #[test]
+    fn events_in_range_takes_overlaps_but_not_merely_touching_neighbours() {
+        // Half-open [from, to): the day report must not count an event twice on
+        // two consecutive days, and must still show a block that spans midnight.
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let before = insert_event(&db, &ev(sid, "Ends at from", 0), 1_000).unwrap();
+        let spanning = insert_event(&db, &ev(sid, "Spans", 500), 3_000).unwrap();
+        let inside = insert_event(&db, &ev(sid, "Inside", 1_200), 1_800).unwrap();
+        let after = insert_event(&db, &ev(sid, "Starts at to", 2_000), 2_500).unwrap();
+        let open = open_event(&db, &ev(sid, "Open since before", 900)).unwrap();
+
+        let ids: Vec<i64> = events_in_range(&db, 1_000, 2_000)
+            .unwrap()
+            .into_iter()
+            .map(|e| e.id)
+            .collect();
+        assert!(ids.contains(&spanning) && ids.contains(&inside) && ids.contains(&open));
+        assert!(!ids.contains(&before), "an event ending exactly at `from` is outside");
+        assert!(!ids.contains(&after), "an event starting exactly at `to` is outside");
+    }
+
+    #[test]
+    fn cleanup_spares_claude_turns_and_events_that_are_still_running() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let mut claude = ev(sid, "Claude", 0);
+        claude.source = "claude".into();
+        let claude_id = insert_event(&db, &claude, 3_000).unwrap(); // 3 s, but claude
+        let running = open_event(&db, &ev(sid, "Code", 4_000)).unwrap(); // no end yet
+        insert_event(&db, &ev(sid, "Finder", 5_000), 8_000).unwrap(); // 3 s fragment
+
+        assert_eq!(cleanup_day(&db, -1, 1_000_000, 15, None).unwrap(), 1);
+        let ids: Vec<i64> = events_in_range(&db, -1, 1_000_000).unwrap().iter().map(|e| e.id).collect();
+        assert!(ids.contains(&claude_id), "short Claude turns are real work");
+        assert!(ids.contains(&running), "an event without an end is not a fragment yet");
+    }
+
+    #[test]
+    fn claude_tokens_are_summed_per_project_only_for_claude_turns_in_range() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let mut tagged = ev(sid, "Claude", 0);
+        tagged.source = "claude".into();
+        tagged.project = Some("alpha".into());
+        let tagged_id = insert_event(&db, &tagged, 10_000).unwrap();
+        insert_claude_turn(&db, tagged_id, 1_000, Some("opus"), Some(10), Some(20)).unwrap();
+        insert_claude_turn(&db, tagged_id, 2_000, Some("opus"), Some(1), Some(2)).unwrap();
+        insert_claude_turn(&db, tagged_id, 99_000, Some("opus"), Some(500), Some(500)).unwrap(); // out of range
+
+        let mut untagged = ev(sid, "Claude", 0);
+        untagged.source = "claude".into();
+        let untagged_id = insert_event(&db, &untagged, 10_000).unwrap();
+        insert_claude_turn(&db, untagged_id, 1_500, None, Some(7), None).unwrap();
+
+        // A focus event that somehow carries a turn is NOT Claude usage.
+        let focus_id = insert_event(&db, &ev(sid, "Code", 0), 10_000).unwrap();
+        insert_claude_turn(&db, focus_id, 1_500, None, Some(999), Some(999)).unwrap();
+
+        let map = claude_tokens_by_project(&db, 0, 50_000).unwrap();
+        assert_eq!(map.get("alpha"), Some(&(11, 22)));
+        assert_eq!(map.get("(unknown)"), Some(&(7, 0)), "a missing tokens_out counts as 0");
+        assert_eq!(map.len(), 2, "only source='claude' events contribute");
+    }
+
+    #[test]
+    fn deleting_a_category_rule_leaves_already_categorised_events_alone() {
+        // Documented behaviour: the rule only decides what NEW events get; past
+        // bookings keep the classification the user already reviewed.
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = insert_event(&db, &ev(sid, "Slack", 0), 1_000).unwrap();
+        set_category(&db, "Slack", "Comms").unwrap();
+        assert_eq!(category_for_app(&db, "Slack").unwrap().as_deref(), Some("Comms"));
+
+        delete_category_rule(&db, "Slack").unwrap();
+
+        assert_eq!(category_for_app(&db, "Slack").unwrap(), None);
+        assert_eq!(category_for_app(&db, "Never seen").unwrap(), None);
+        let e = events_in_range(&db, -1, 1_000_000).unwrap().remove(0);
+        assert_eq!(e.id, eid);
+        assert_eq!(e.category.as_deref(), Some("Comms"), "the event keeps its category");
+    }
+
+    #[test]
+    fn projects_can_be_assigned_in_bulk_and_cleared_with_an_empty_name() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let a = insert_event(&db, &ev(sid, "Code", 0), 1_000).unwrap();
+        let b = insert_event(&db, &ev(sid, "Code", 1_000), 2_000).unwrap();
+
+        assert_eq!(set_project_for_events(&db, &[a, b], Some("alpha")).unwrap(), 2);
+        assert_eq!(distinct_projects(&db).unwrap(), vec!["alpha".to_string()]);
+
+        assert_eq!(set_project_for_events(&db, &[a], Some("")).unwrap(), 1);
+        let evs = events_in_range(&db, -1, 1_000_000).unwrap();
+        assert_eq!(evs.iter().find(|e| e.id == a).unwrap().project, None);
+        assert_eq!(evs.iter().find(|e| e.id == b).unwrap().project.as_deref(), Some("alpha"));
+
+        assert_eq!(set_project_for_events(&db, &[], Some("alpha")).unwrap(), 0, "no ids, no writes");
+    }
+
+    #[test]
+    fn distinct_categories_unions_the_rules_with_what_events_actually_carry() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = insert_event(&db, &ev(sid, "Cursor", 0), 1_000).unwrap();
+        // A category that exists only on an event (assigned by hand)…
+        update_event(&db, eid, &EventPatch { category: Some("Deep work".into()), ..Default::default() })
+            .unwrap();
+        // …and one that exists only as a rule (no event of that app yet).
+        set_category(&db, "Zoom", "Meetings").unwrap();
+
+        assert_eq!(
+            distinct_categories(&db).unwrap(),
+            vec!["Deep work".to_string(), "Meetings".to_string()],
+            "rules ∪ events, deduped and sorted"
+        );
+    }
+
+    #[test]
+    fn manual_entries_attach_to_the_running_session_while_tracking() {
+        let db = test_db();
+        let sid = start_session(&db, Some("work"), 1_000).unwrap();
+        assert_eq!(manual_session_id(&db, 2_000).unwrap(), sid);
+        assert_eq!(count(&db, "track_sessions"), 1, "no container session is created");
+        // Once tracking stops, manual entries get their own reusable container.
+        end_session(&db, sid, 3_000).unwrap();
+        let container = manual_session_id(&db, 4_000).unwrap();
+        assert_ne!(container, sid);
+        assert_eq!(manual_session_id(&db, 5_000).unwrap(), container);
+    }
+
+    #[test]
+    fn a_manual_entry_ending_before_it_starts_gets_a_zero_duration() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = insert_event(&db, &ev(sid, "Code", 10_000), 5_000).unwrap();
+        let e = events_in_range(&db, -1, 1_000_000).unwrap().remove(0);
+        assert_eq!(e.id, eid);
+        assert_eq!(e.duration_s, Some(0));
+    }
+
+    #[test]
+    fn moving_only_the_start_recomputes_the_duration_from_the_stored_end() {
+        let db = test_db();
+        let sid = start_session(&db, None, 0).unwrap();
+        let eid = insert_event(&db, &ev(sid, "Code", 60_000), 120_000).unwrap(); // 60 s
+        update_event(&db, eid, &EventPatch { started_at: Some(0), ..Default::default() }).unwrap();
+        let e = events_in_range(&db, -1, 1_000_000).unwrap().remove(0);
+        assert_eq!((e.started_at, e.ended_at), (0, Some(120_000)));
+        assert_eq!(e.duration_s, Some(120), "the duration follows the edited bounds");
+    }
+
     #[test]
     fn clear_all_wipes_everything() {
         let db = test_db();
@@ -934,3 +1282,4 @@ mod tests {
         assert!(active_session(&db).unwrap().is_none());
     }
 }
+

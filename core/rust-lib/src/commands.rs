@@ -668,8 +668,21 @@ pub fn track_distinct_projects(db: State<'_, DbHandle>) -> Result<Vec<String>, S
     crate::tracking::db::distinct_projects(&db).map_err(map_err)
 }
 
+/// Wipe all timesheet data. **Stops tracking first** (2026-08-16): the wipe
+/// deletes `track_sessions`, and with foreign keys ON a still-running session
+/// whose row just vanished makes every later `open_event` fail — silently,
+/// because the run loop swallows the error while `status()` keeps reporting
+/// `active: true`. The user would see a green REC LED recording nothing for
+/// the rest of the day. Same class as the `prune_before` regression; every
+/// other timesheet mutation already guards on `TrackerState`.
 #[tauri::command]
-pub fn track_clear_all(db: State<'_, DbHandle>) -> Result<(), String> {
+pub fn track_clear_all(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    state: State<'_, crate::tracking::TrackerState>,
+) -> Result<(), String> {
+    // Ignore "wasn't running" — the point is that it is not running after.
+    let _ = crate::tracking::stop(&app, &db, &state);
     crate::tracking::db::clear_all(&db).map_err(map_err)
 }
 
@@ -2078,13 +2091,21 @@ pub fn get_boom_config(db: State<'_, DbHandle>) -> crate::boom::BoomConfig {
 
 /// Persist the boom config (and, in phase 1b, push it to the live DSP engine).
 #[tauri::command]
-pub fn set_boom_config(
-    db: State<'_, DbHandle>,
+/// `async` — `boom::apply` starts/stops the CoreAudio bridge, which can block
+/// on the engine lock while the idle gate is mid-probe (up to ~2.4 s). On the
+/// main thread that froze the whole UI on a slider drag.
+pub async fn set_boom_config(
+    app: AppHandle,
     config: crate::boom::BoomConfig,
 ) -> Result<crate::boom::BoomConfig, String> {
-    config.save(&db).map_err(map_err)?;
-    crate::boom::apply(&db); // start/stop the engine + push DSP params
-    Ok(crate::boom::BoomConfig::load(&db))
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        config.save(&db).map_err(map_err)?;
+        crate::boom::apply(&db); // start/stop the engine + push DSP params
+        Ok(crate::boom::BoomConfig::load(&db))
+    })
+    .await
+    .map_err(|e| format!("boom task: {e}"))?
 }
 
 // ── Window palette (Moom-style hover palette) ─────────────────────────────────
@@ -2202,15 +2223,21 @@ pub fn get_gesture_config(db: State<'_, DbHandle>) -> gestures::GestureConfig {
 /// Persist a new gesture config and (re)start or stop the OS capture source to
 /// match. Returns the now-effective config.
 #[tauri::command]
-pub fn set_gesture_config(
+/// `async` — `gestures::apply` stops the capture source, which joins its
+/// run-loop thread. On the main thread a slow (or wedged) join froze the UI.
+pub async fn set_gesture_config(
     app: AppHandle,
-    db: State<'_, DbHandle>,
-    g: State<'_, gestures::GestureState>,
     config: gestures::GestureConfig,
 ) -> Result<gestures::GestureConfig, String> {
-    config.save(&db).map_err(map_err)?;
-    gestures::apply(&app, &db, &g);
-    Ok(gestures::GestureConfig::load(&db))
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        let g = app.state::<gestures::GestureState>();
+        config.save(&db).map_err(map_err)?;
+        gestures::apply(&app, &db, &g);
+        Ok(gestures::GestureConfig::load(&db))
+    })
+    .await
+    .map_err(|e| format!("gesture task: {e}"))?
 }
 
 // ── Text expander ────────────────────────────────────────────────────────────
@@ -2779,6 +2806,7 @@ pub fn totp_import(
             });
         }
     };
+    let parsed_len = parsed.len();
     // Skip entries already present (same issuer+account+secret) so re-importing
     // the same export doesn't create duplicates. The set also dedups within this
     // one import (an export containing the same entry twice).
@@ -2808,6 +2836,14 @@ pub fn totp_import(
             }
         }
     }
+    // Entries the PARSER dropped (Steam/HOTP, secretless rows, unknown
+    // sub-schemas) never reached the loop above — they used to disappear
+    // without a number, so an import that lost six accounts still reported
+    // success. Count them against what the file itself claims to hold.
+    let unsupported = crate::totp_import::candidate_count(&input)
+        .map(|c| c.saturating_sub(parsed_len))
+        .unwrap_or(0);
+    failed += unsupported;
     Ok(TotpImportResult { added, skipped, failed, error: None })
 }
 
@@ -2874,10 +2910,24 @@ pub fn trigger_expand_at_cursor(app: AppHandle) -> Result<(), String> {
 /// Same main-thread requirement as `trigger_expand_at_cursor`. Uses a
 /// blocking `mpsc` to ferry the result back from the main-thread closure
 /// to the IPC handler thread.
+/// ⚠️ MUST stay `async`. As a sync command this ran ON the main thread and
+/// then blocked on `rx.recv()` — while the only sender is a closure that a
+/// worker posts back via `run_on_main_thread`, i.e. work the parked main
+/// thread would have to pump itself. `tx` is cloned into that closure, so the
+/// channel never even disconnects: clicking Settings → "Diagnose" froze the
+/// whole app (tray, hotkeys, popup) permanently, force-quit only — and via the
+/// auto-expand event tap on the main run loop, system-wide keystroke delivery
+/// with it. `spawn_blocking` keeps the main thread free to run the closure.
 #[tauri::command]
-pub fn diagnose_expand_at_cursor(
+pub async fn diagnose_expand_at_cursor(
     app: AppHandle,
 ) -> Result<expander::DiagnoseResult, String> {
+    tauri::async_runtime::spawn_blocking(move || diagnose_expand_blocking(app))
+        .await
+        .map_err(|e| format!("diagnose task: {e}"))?
+}
+
+fn diagnose_expand_blocking(app: AppHandle) -> Result<expander::DiagnoseResult, String> {
     hotkey::hide_popup(&app);
     let app2 = app.clone();
     let (tx, rx) = std::sync::mpsc::channel();
@@ -5178,21 +5228,30 @@ pub async fn start_screen_record(
 }
 
 /// Pause the active recording (finalises the current segment). Synchronous
-/// so the finalize-wait (up to 5 s) runs on Tauri's blocking thread pool.
+/// ⚠️ `async` + `spawn_blocking`, like every recorder command: the
+/// finalize-wait polls the ffmpeg child for up to 5 s. The old doc claimed
+/// "synchronous so it runs on Tauri's blocking thread pool" — the exact
+/// opposite of how Tauri works (a sync command runs ON the main thread), so
+/// pausing froze the UI for the whole wait.
 #[tauri::command]
-pub fn pause_screen_record(
-    state: State<'_, crate::screen_record::RecordState>,
-) -> Result<(), String> {
-    crate::screen_record::pause(&state)
+pub async fn pause_screen_record(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::screen_record::pause(&app.state::<crate::screen_record::RecordState>())
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))?
 }
 
-/// Resume a paused recording (starts a fresh segment). Synchronous so device
-/// re-listing + spawn runs on a blocking thread.
+/// Resume a paused recording (starts a fresh segment). `async` — resuming
+/// re-runs the ffmpeg device listing (~0.5 s), which is why the sibling
+/// `start_screen_record` has always been async.
 #[tauri::command]
-pub fn resume_screen_record(
-    state: State<'_, crate::screen_record::RecordState>,
-) -> Result<(), String> {
-    crate::screen_record::resume(&state)
+pub async fn resume_screen_record(app: AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::screen_record::resume(&app.state::<crate::screen_record::RecordState>())
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))?
 }
 
 fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
@@ -5233,12 +5292,20 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
 /// Synchronous (not `async`) so Tauri runs it on a blocking thread automatically
 /// — `finalize_child` can take up to 5 s, and a non-async command won't starve
 /// the async runtime's worker pool.
+/// ⚠️ `async` — by far the heaviest of the three: `stop` finalises the last
+/// segment (up to 5 s), concatenates the segments, and then runs the
+/// audio-sync pass, which is a **full AAC re-encode of the whole recording**.
+/// As a sync command that ran on the main thread, so stopping a 20-minute
+/// capture froze the UI (and, through the auto-expand event tap on the main
+/// run loop, system-wide keystroke delivery) for the entire re-encode.
 #[tauri::command]
-pub fn stop_screen_record(
-    app: AppHandle,
-    state: State<'_, crate::screen_record::RecordState>,
-) -> Result<String, String> {
-    let path = crate::screen_record::stop(&state)?;
+pub async fn stop_screen_record(app: AppHandle) -> Result<String, String> {
+    let app2 = app.clone();
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        crate::screen_record::stop(&app2.state::<crate::screen_record::RecordState>())
+    })
+    .await
+    .map_err(|e| format!("record task: {e}"))??;
     if let Some(w) = app.get_webview_window(RECORD_STOP_LABEL) {
         let _ = w.close();
     }

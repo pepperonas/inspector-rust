@@ -91,8 +91,16 @@ extern "C" {
     fn CFArrayGetCount(arr: CFArrayRef) -> isize;
     fn CFArrayGetValueAtIndex(arr: CFArrayRef, idx: isize) -> *const c_void;
     fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-    fn CFRunLoopRun();
+    // (No `CFRunLoopRun` — the capture thread deliberately uses the BOUNDED
+    // `CFRunLoopRunInMode` below so its exit can't depend on a `CFRunLoopStop`
+    // landing in the right window. See `capture_thread`.)
     fn CFRunLoopStop(rl: CFRunLoopRef);
+    /// Bounded run — returns after `seconds` even with no input source firing.
+    /// This is what makes the capture thread's exit independent of a
+    /// `CFRunLoopStop` landing at exactly the right moment (see `capture_thread`).
+    fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after_source_handled: bool)
+        -> i32;
+    static kCFRunLoopDefaultMode: CFStringRef;
     fn CFMachPortCreateRunLoopSource(
         allocator: *mut c_void,
         port: CFMachPortRef,
@@ -505,8 +513,18 @@ fn capture_thread() {
     *MT_DEVICES.lock() = devices.iter().map(|&d| d as isize).collect();
 
     tracing::info!("gestures(mac): entering run loop (waiting for finger frames)");
-    // Blocks here delivering callbacks until CFRunLoopStop (from stop()).
-    unsafe { CFRunLoopRun() };
+    // BOUNDED run loop, deliberately (fixed 2026-08-16). The old `CFRunLoopRun()`
+    // blocked until a `CFRunLoopStop` from `stop()` — but `stop()` can read
+    // `RUN_LOOP` *before* it is published above, or fire `CFRunLoopStop` in the
+    // window before the loop is actually running. Either way the stop is lost,
+    // the loop then runs forever, and `stop()`'s unconditional `join()` hangs —
+    // on the main thread, because `set_gesture_config` reached it. Waking every
+    // `RL_SLICE_S` to re-check `RUNNING` removes the dependency on that signal
+    // entirely: a missed stop now costs at most one slice instead of the app.
+    const RL_SLICE_S: f64 = 0.25;
+    while RUNNING.load(Ordering::SeqCst) {
+        unsafe { CFRunLoopRunInMode(kCFRunLoopDefaultMode, RL_SLICE_S, false) };
+    }
     tracing::info!("gestures(mac): run loop exited");
     RUN_LOOP.store(0, Ordering::SeqCst);
 }

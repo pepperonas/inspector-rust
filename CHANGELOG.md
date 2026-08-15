@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.108.0] — 2026-08-16
+
+A four-front bug hunt (data integrity, concurrency/lifecycle, the untested OS/FFI shells, and an adversarial re-read of the last three releases). 26 defects found, the 13 most serious fixed here — each with a regression test that reproduces the trigger, not just the symptom. The self-review of v0.105–v0.107 came back clean.
+
+### Fixed — data loss
+
+- **The app could destroy every encrypted thing it owns.** If the keychain read *failed* (a denied prompt after re-signing is the routine case) and the keyfile was unreadable, the app treated it as "first run", minted a fresh key and overwrote the last copy of the real one — leaving clipboard history, snippet bodies, notes and **every 2FA secret** permanently undecryptable, with no error shown. A new key is now only ever created when both stores confirm they are genuinely empty; anything else refuses to start rather than replace a key it could not read. Relatedly, a failed encryption setup no longer degrades to writing your data to disk in the clear.
+- **Renaming a snippet onto an existing abbreviation could delete it.** The rejected edit still left a deletion marker behind, which cloud sync faithfully carried out on the next round trip. The whole edit is one transaction now.
+- **Restoring a backup discarded the original timestamps**, so restoring a history larger than your cap kept the *oldest* clips and threw away the newest, with everything re-dated to the moment of import.
+- **2FA imports hid what they dropped.** Entries the parser can't use (Steam/HOTP, secretless rows) vanished from the count — "14 added" out of 20, no mention of the other six. Delete the source app and they were gone. They are reported now.
+- **Merging time entries erased their Claude token history** (a cascade fired before the merge completed), and **creating a category rule overwrote every category you had assigned by hand**. Both fixed; manual labels are preserved.
+- **Clearing timesheet data mid-session** deleted the running session's own row, after which tracking silently recorded nothing while still showing a green REC indicator. It stops tracking first now.
+
+### Fixed — freezes and stuck input
+
+- **Settings → "Diagnose" froze the app permanently** (force-quit only): the command waited on the main thread for work only the main thread could perform.
+- **A failed keystroke could leave Cmd, Option or Shift held down system-wide** — every later keypress a shortcut, every click a modified click, until you physically tapped the key. Modifiers are now released on every path, including failure.
+- **Stopping a screen recording froze the UI for the whole re-encode** (a 20-minute capture froze it for a long time); pause/resume, the boom audio settings and the gesture settings had the same problem. All moved off the main thread.
+- **Toggling touchpad gestures twice in quick succession could hang the app** on a thread that never exited. The capture loop no longer depends on a stop signal arriving in the right window.
+
 ## [0.107.0] — 2026-08-15
 
 ### Changed

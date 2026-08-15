@@ -1106,22 +1106,35 @@ fn cmd_modifier() -> Key {
     Key::Control
 }
 
+/// ⚠️ Held modifiers are released on EVERY path, including failure. A `?` out
+/// of the middle of this chord used to leave Option **and** Shift latched down
+/// system-wide: every following keystroke produced a different glyph and every
+/// click became a shift-click, until the user physically tapped both keys. See
+/// the same guarantee in `paste::send_paste_shortcut`.
 fn select_previous_word() -> Result<()> {
     let mut e = enigo_lock()?;
     let modifier = word_modifier();
     e.key(modifier, Press)
         .map_err(|err| anyhow!("modifier press: {err:?}"))?;
-    e.key(Key::Shift, Press)
-        .map_err(|err| anyhow!("shift press: {err:?}"))?;
-    e.key(Key::LeftArrow, Press)
-        .map_err(|err| anyhow!("left press: {err:?}"))?;
-    e.key(Key::LeftArrow, Release)
-        .map_err(|err| anyhow!("left release: {err:?}"))?;
-    e.key(Key::Shift, Release)
-        .map_err(|err| anyhow!("shift release: {err:?}"))?;
-    e.key(modifier, Release)
-        .map_err(|err| anyhow!("modifier release: {err:?}"))?;
-    Ok(())
+    let inner = (|| -> Result<()> {
+        e.key(Key::Shift, Press)
+            .map_err(|err| anyhow!("shift press: {err:?}"))?;
+        let arrows = (|| -> Result<()> {
+            e.key(Key::LeftArrow, Press)
+                .map_err(|err| anyhow!("left press: {err:?}"))?;
+            e.key(Key::LeftArrow, Release)
+                .map_err(|err| anyhow!("left release: {err:?}"))?;
+            Ok(())
+        })();
+        let shift_up = e
+            .key(Key::Shift, Release)
+            .map_err(|err| anyhow!("shift release: {err:?}"));
+        arrows.and(shift_up)
+    })();
+    let mod_up = e
+        .key(modifier, Release)
+        .map_err(|err| anyhow!("modifier release: {err:?}"));
+    inner.and(mod_up)
 }
 
 fn send_copy() -> Result<()> {
@@ -1261,18 +1274,24 @@ pub fn auto_undo_inject(delete_chars: usize, restore_text: &str) -> Result<()> {
     Ok(())
 }
 
+/// Cmd/Ctrl + `letter`. The modifier is released unconditionally — see
+/// `select_previous_word` for why a `?` mid-chord is a machine-wide hazard.
 fn send_modified_letter(letter: char) -> Result<()> {
     let mut e = enigo_lock()?;
     let m = cmd_modifier();
     e.key(m, Press)
         .map_err(|err| anyhow!("modifier press: {err:?}"))?;
-    e.key(Key::Unicode(letter), Press)
-        .map_err(|err| anyhow!("letter press: {err:?}"))?;
-    e.key(Key::Unicode(letter), Release)
-        .map_err(|err| anyhow!("letter release: {err:?}"))?;
-    e.key(m, Release)
-        .map_err(|err| anyhow!("modifier release: {err:?}"))?;
-    Ok(())
+    let tapped = (|| -> Result<()> {
+        e.key(Key::Unicode(letter), Press)
+            .map_err(|err| anyhow!("letter press: {err:?}"))?;
+        e.key(Key::Unicode(letter), Release)
+            .map_err(|err| anyhow!("letter release: {err:?}"))?;
+        Ok(())
+    })();
+    let mod_up = e
+        .key(m, Release)
+        .map_err(|err| anyhow!("modifier release: {err:?}"));
+    tapped.and(mod_up)
 }
 
 #[cfg(test)]

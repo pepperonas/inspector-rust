@@ -142,17 +142,26 @@ fn send_paste_shortcut() -> Result<()> {
     #[cfg(not(target_os = "macos"))]
     let modifier = Key::Control;
 
+    // ⚠️ The modifier release must run on EVERY path. `?`-propagating out of
+    // the middle of a chord leaves Cmd (or Ctrl) latched DOWN system-wide —
+    // every later keystroke becomes a shortcut and every click a Cmd-click,
+    // until the user physically taps the key. A synthesized chord is not a
+    // place for early returns: press, do the work fallibly, release
+    // unconditionally, then report.
     enigo
         .key(modifier, Press)
         .map_err(|e| anyhow!("modifier press: {e:?}"))?;
-    enigo
-        .key(Key::Unicode('v'), Press)
-        .map_err(|e| anyhow!("v press: {e:?}"))?;
-    enigo
-        .key(Key::Unicode('v'), Release)
-        .map_err(|e| anyhow!("v release: {e:?}"))?;
-    enigo
+    let tapped = (|| -> Result<()> {
+        enigo
+            .key(Key::Unicode('v'), Press)
+            .map_err(|e| anyhow!("v press: {e:?}"))?;
+        enigo
+            .key(Key::Unicode('v'), Release)
+            .map_err(|e| anyhow!("v release: {e:?}"))?;
+        Ok(())
+    })();
+    let released = enigo
         .key(modifier, Release)
-        .map_err(|e| anyhow!("modifier release: {e:?}"))?;
-    Ok(())
+        .map_err(|e| anyhow!("modifier release: {e:?}"));
+    tapped.and(released)
 }

@@ -259,9 +259,25 @@ export const EXIT_MS = 130;
 // reduced-motion` → the caller skips it (instant show / plain settle).
 
 /** Duration (ms) of the TV power-on. */
-export const CRT_ON_MS = 440;
-/** Duration (ms) of the TV power-off — the popup stays visible this long on close. */
-export const CRT_OFF_MS = 340;
+/// Duration (ms) of the TV power-on.
+///
+/// PERCEIVED-LATENCY BUDGET (v0.107.0). The native window is on screen ~20 ms
+/// after the hotkey (measured: 17–38 ms for position+show+focus), so what the
+/// user experiences as "the popup is slow" was almost entirely this animation:
+/// at 440 ms with the old curve the shell was a 1 %-height scanline for the
+/// first 150 ms and only reached full height at ~360 ms. Nothing was readable
+/// until then, even though the search field already accepted keystrokes.
+///
+/// The rule now: **legible before ~120 ms** (inside the window where a UI still
+/// reads as instant), with only the phosphor settle running past it. The CRT
+/// identity — dot → scanline → picture — is unchanged, it just plays at the
+/// speed of a real tube instead of a slow-motion one.
+export const CRT_ON_MS = 190;
+/// Duration (ms) of the TV power-off — the popup stays visible this long on
+/// close, because `hidePopup` AWAITS it before the hide IPC. It must stay
+/// below `CRT_ON_MS` (pinned by a test): once you have decided to leave, any
+/// wait is pure cost. Halved alongside the power-on in v0.107.0.
+export const CRT_OFF_MS = 150;
 /** Residual scale for the "scanline runs to a dot" pinch. */
 const CRT_DOT_X = 0.02;
 const CRT_DOT_Y = 0.012;
@@ -311,9 +327,13 @@ export function playCrtOn(el: HTMLElement | null): void {
   el.getAnimations?.().forEach((a) => a.cancel());
   const anim = el.animate(
     [
-      { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.6)", opacity: 1, offset: 0, easing: "cubic-bezier(0.2, 0.75, 0.3, 1)" },
-      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.2)", opacity: 1, offset: 0.34, easing: "cubic-bezier(0.15, 0.65, 0.45, 1)" },
-      { transform: "scaleX(1) scaleY(1.06)", filter: "brightness(1.25)", opacity: 1, offset: 0.82, easing: "ease-out" },
+      // Offsets are front-loaded: the width snap costs 22 % (~42 ms) and full
+      // height lands at 62 % (~118 ms) — everything after that is the
+      // brightness settle, which you can already read through. The old curve
+      // spent 34 % on the scanline and only opened up at 82 %.
+      { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.6)", opacity: 1, offset: 0, easing: "cubic-bezier(0.2, 0.85, 0.25, 1)" },
+      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.2)", opacity: 1, offset: 0.22, easing: "cubic-bezier(0.12, 0.7, 0.3, 1)" },
+      { transform: "scaleX(1) scaleY(1.045)", filter: "brightness(1.2)", opacity: 1, offset: 0.62, easing: "ease-out" },
       { transform: "scaleX(1) scaleY(1)", filter: "brightness(1)", opacity: 1, offset: 1 },
     ],
     { duration: CRT_ON_MS, easing: "linear", fill: "forwards" },

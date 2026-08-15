@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.107.0] — 2026-08-15
+
+### Changed
+
+- **Ctrl+Space feels instant now.** Measurement first: the native window is already on screen ~20 ms after the hotkey (17–38 ms for position + show + focus), so the "slow popup" was never the backend — it was the opening animation. The CRT power-on kept the shell as a 1 %-height scanline for the first 150 ms and only reached full height at ~360 ms, with the row cascade still rippling until ~470 ms. The tube now opens in **190 ms with the picture legible at ~120 ms**, the row ripple finishes with it, and the animation starts a frame earlier (no `requestAnimationFrame` detour). The look is unchanged — dot → scanline → picture, just at the speed of a real tube. Dismissing got the same treatment (340 → 150 ms), since the popup deliberately stays visible for that animation before it hides.
+- A test now pins the latency budget itself (power-on ≤ 200 ms, legible ≤ 120 ms, dismiss faster than open), so a future flourish cannot quietly grow past it — the rule that caught the dismiss timing when the open was sped up.
+- The Rust show path logs its phases (position / show / focus) at debug level, so the next latency question is answered with numbers instead of guesses.
+
 ## [0.106.1] — 2026-08-15
 
 A large test pass (~400 new unit tests across the Rust core and the frontend) that flushed out four real defects — all fixed here, each pinned by a regression test.

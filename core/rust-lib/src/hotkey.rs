@@ -1793,6 +1793,12 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
     // show()). Tauri's set_position queues onto the event loop → applies after
     // show → the popup flashes on the previous monitor then jumps. Only fall back
     // to the Tauri path if the native call fails.
+    // Per-phase timing (v0.107.0). This is THE latency the user feels, and a
+    // single "shown" breadcrumb only ever told us the total (measured 17–38 ms
+    // — the spread was the interesting part). DEBUG level, so it costs two
+    // `Instant::now()` calls on the hot path and nothing else:
+    //   RUST_LOG=inspector_rust_core::hotkey=debug
+    let t_pos = std::time::Instant::now();
     #[cfg(target_os = "macos")]
     let positioned = position_popup_native_macos(window);
     #[cfg(not(target_os = "macos"))]
@@ -1804,19 +1810,29 @@ fn show_and_position(window: &WebviewWindow) -> Result<()> {
             }
         }
     }
+    let position_us = t_pos.elapsed().as_micros();
 
     // Arm the grace + focus-received flag before show() so every Focused event
     // that fires during the show/set_focus sequence is evaluated correctly.
     mark_shown();
 
+    let t_show = std::time::Instant::now();
     window.show()?;
+    let show_us = t_show.elapsed().as_micros();
     // On Windows, force the foreground via the AttachThreadInput trick so the
     // popup reliably activates (a background-process SetForegroundWindow is
     // otherwise blocked); elsewhere a plain set_focus is correct.
+    let t_focus = std::time::Instant::now();
     #[cfg(target_os = "windows")]
     force_foreground(window);
     #[cfg(not(target_os = "windows"))]
     window.set_focus()?;
+    tracing::debug!(
+        position_us,
+        show_us,
+        focus_us = t_focus.elapsed().as_micros(),
+        "show_and_position phases"
+    );
     Ok(())
 }
 

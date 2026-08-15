@@ -980,20 +980,23 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+/* Timings halved in v0.107.0: this cascade ran UNDER the CRT power-on, so the
+   two stacked — the last row only settled ~470 ms after the hotkey, which is
+   what made the popup feel slow to arrive. Now the whole ripple is done at
+   ~215 ms, just after the tube has opened up (~118 ms). Still a ripple, not a
+   load. */
 .md3-list-enter [data-vlist] > * {
-  animation: md3-row-in 260ms var(--md3-standard, ease-out) backwards;
+  animation: md3-row-in 150ms var(--md3-standard, ease-out) backwards;
 }
 .md3-list-enter [data-vlist] > *:nth-child(1)  { animation-delay: 0ms; }
-.md3-list-enter [data-vlist] > *:nth-child(2)  { animation-delay: 22ms; }
-.md3-list-enter [data-vlist] > *:nth-child(3)  { animation-delay: 44ms; }
-.md3-list-enter [data-vlist] > *:nth-child(4)  { animation-delay: 66ms; }
-.md3-list-enter [data-vlist] > *:nth-child(5)  { animation-delay: 88ms; }
-.md3-list-enter [data-vlist] > *:nth-child(6)  { animation-delay: 110ms; }
-.md3-list-enter [data-vlist] > *:nth-child(7)  { animation-delay: 132ms; }
-.md3-list-enter [data-vlist] > *:nth-child(8)  { animation-delay: 154ms; }
-.md3-list-enter [data-vlist] > *:nth-child(9)  { animation-delay: 176ms; }
-.md3-list-enter [data-vlist] > *:nth-child(10) { animation-delay: 198ms; }
-.md3-list-enter [data-vlist] > *:nth-child(n+11) { animation-delay: 210ms; }
+.md3-list-enter [data-vlist] > *:nth-child(2)  { animation-delay: 11ms; }
+.md3-list-enter [data-vlist] > *:nth-child(3)  { animation-delay: 22ms; }
+.md3-list-enter [data-vlist] > *:nth-child(4)  { animation-delay: 33ms; }
+.md3-list-enter [data-vlist] > *:nth-child(5)  { animation-delay: 44ms; }
+.md3-list-enter [data-vlist] > *:nth-child(6)  { animation-delay: 55ms; }
+.md3-list-enter [data-vlist] > *:nth-child(7)  { animation-delay: 62ms; }
+.md3-list-enter [data-vlist] > *:nth-child(8)  { animation-delay: 66ms; }
+.md3-list-enter [data-vlist] > *:nth-child(n+9) { animation-delay: 66ms; }
 
 /* 3 — preview crossfade on selection change (restarted via class toggle in
    App.tsx so the panel never remounts — remounting would refetch images). */

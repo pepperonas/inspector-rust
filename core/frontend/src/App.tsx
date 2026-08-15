@@ -45,7 +45,7 @@ import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
-import { playCrtOn, playCrtOff, primeCrtHidden, CRT_OFF_MS } from "./lib/md3-motion";
+import { playCrtOn, playCrtOff, primeCrtHidden, CRT_ON_MS, CRT_OFF_MS } from "./lib/md3-motion";
 import { detectSocial } from "./lib/social";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
@@ -2477,7 +2477,7 @@ function App() {
     // popup OPEN (never per keystroke). The class is removed after the
     // animation so later virtualizer updates render instantly.
     setListEntrance(true);
-    window.setTimeout(() => setListEntrance(false), 650);
+    window.setTimeout(() => setListEntrance(false), CRT_ON_MS + 120);
     // Reconcile the footer keep-awake LED to the true state on every open.
     // `wakelock on` / `caffeine on` hide the popup before the footer can
     // observe the `wakelock-changed` event, so re-fetch here — guarantees
@@ -2486,13 +2486,17 @@ function App() {
     void wakelockGet()
       .then((v) => setWakelockActive(v))
       .catch(() => undefined);
+    // CRT TV power-ON — the popup's signature open: a bright dot blooms out
+    // of the tube, snaps into a scanline, and the shell stretches out of it.
+    // Re-played on every open; no-op under prefers-reduced-motion.
+    // Started SYNCHRONOUSLY, not inside the rAF below (v0.107.0): WAAPI does
+    // not need a frame boundary, and waiting for one delayed the whole reveal
+    // by a full frame (~8–16 ms) on the single path where latency is felt
+    // most. Focus keeps its rAF — the input must exist and be laid out.
+    playCrtOn(shellRef.current);
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
-      // CRT TV power-ON — the popup's signature open: a bright dot blooms out
-      // of the tube, snaps into a scanline, and the shell stretches out of it.
-      // Re-played on every open; no-op under prefers-reduced-motion.
-      playCrtOn(shellRef.current);
     });
   });
 

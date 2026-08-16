@@ -142,8 +142,24 @@ pub fn run(context: tauri::Context<Wry>) {
                 // `crypto::init` now only errors when a key store failed to
                 // answer (never on a genuine first run), so refusing to start
                 // is the safe reading of "something is wrong with your key".
-                crypto::init(data_dir)
-                    .map_err(|e| format!("at-rest encryption could not be initialised: {e:#}"))?;
+                if let Err(e) = crypto::init(data_dir) {
+                    // An Accessory app (no dock icon) that aborts launch shows
+                    // the user NOTHING — the refusal to start must be visible,
+                    // or "the app is broken" is indistinguishable from "your
+                    // key needs attention". Blocking native dialog, then abort.
+                    app.dialog()
+                        .message(format!(
+                            "Inspector Rust will not start: {e:#}\n\nYour data is safe — \
+                             nothing was changed. Grant keychain access (or restore the \
+                             .dbkey file) and launch again."
+                        ))
+                        .title("Encryption key unavailable")
+                        .kind(MessageDialogKind::Error)
+                        .blocking_show();
+                    return Err(
+                        format!("at-rest encryption could not be initialised: {e:#}").into()
+                    );
+                }
             }
 
             let db_handle = db::open(&db_path)?;

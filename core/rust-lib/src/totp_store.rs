@@ -389,9 +389,13 @@ pub fn generate_at(
 /// pretty-printed secrets. RFC 4648 base32 doesn't allow them so
 /// totp-rs would reject the raw input.
 pub fn normalise_secret(input: &str) -> String {
+    // `=` padding is stripped too (2026-08-16): base32 decodes identically
+    // with or without it, but the dedup key compared the strings VERBATIM —
+    // so a padded export (some apps) and an unpadded one (Google
+    // Authenticator) of the SAME account imported as two separate entries.
     input
         .chars()
-        .filter(|c| !c.is_whitespace() && *c != '-')
+        .filter(|c| !c.is_whitespace() && *c != '-' && *c != '=')
         .collect::<String>()
         .to_ascii_uppercase()
 }
@@ -560,6 +564,18 @@ mod tests {
             dedup_key("github", "me", "JBSW-Y3DP"),
         );
         assert_ne!(dedup_key("A", "b", "JBSWY3DP"), dedup_key("A", "b", "MZXW6YTB"));
+    }
+
+    #[test]
+    fn padded_and_unpadded_exports_of_the_same_secret_are_one_account() {
+        // REGRESSION (2026-08-16): base32 decodes identically with or without
+        // `=` padding, but the dedup key compared verbatim — importing a
+        // padded export next to an unpadded one duplicated every account.
+        assert_eq!(
+            dedup_key("GitHub", "me", "MZXW6YQ=="),
+            dedup_key("GitHub", "me", "MZXW6YQ"),
+        );
+        assert_eq!(normalise_secret("mzxw 6yq=="), "MZXW6YQ");
     }
 
     // ── DB layer (in-memory; crypto is a passthrough in the test process) ──

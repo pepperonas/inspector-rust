@@ -128,18 +128,29 @@ pub fn init_schema(conn: &Connection) -> rusqlite::Result<()> {
     )
 }
 
+// Failures here are LOGGED, never silent (fixed 2026-08-16). The old bare
+// `let _ =` swallowed every DB error, which broke the project's own rule
+// ("never render a failed poll as 'no data'"): a failing write, a prune that
+// never ran on a table written every 60 s, and a failing read all looked
+// identical to an empty history. A once-a-minute warn is cheap; debugging a
+// silently empty chart is not.
+
 fn insert(db: &DbHandle, ts: i64, s: &StatsSample) {
     let conn = db.lock();
-    let _ = conn.execute(
+    if let Err(e) = conn.execute(
         "INSERT INTO stats_history (ts, cpu, mem, net_rx, net_tx, power, cpu_temp, battery)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![ts, s.cpu, s.mem, s.net_rx, s.net_tx, s.power, s.cpu_temp, s.battery],
-    );
+    ) {
+        tracing::warn!("stats_history: insert failed: {e}");
+    }
 }
 
 fn prune(db: &DbHandle, before_ts: i64) {
     let conn = db.lock();
-    let _ = conn.execute("DELETE FROM stats_history WHERE ts < ?1", params![before_ts]);
+    if let Err(e) = conn.execute("DELETE FROM stats_history WHERE ts < ?1", params![before_ts]) {
+        tracing::warn!("stats_history: retention prune failed: {e}");
+    }
 }
 
 fn query(db: &DbHandle, since_ts: i64) -> Vec<Row> {
@@ -149,7 +160,10 @@ fn query(db: &DbHandle, since_ts: i64) -> Vec<Row> {
          FROM stats_history WHERE ts >= ?1 ORDER BY ts ASC",
     ) {
         Ok(s) => s,
-        Err(_) => return Vec::new(),
+        Err(e) => {
+            tracing::warn!("stats_history: query prepare failed: {e}");
+            return Vec::new();
+        }
     };
     let mapped = stmt.query_map(params![since_ts], |r| {
         Ok(Row {
@@ -165,7 +179,10 @@ fn query(db: &DbHandle, since_ts: i64) -> Vec<Row> {
     });
     match mapped {
         Ok(iter) => iter.filter_map(|r| r.ok()).collect(),
-        Err(_) => Vec::new(),
+        Err(e) => {
+            tracing::warn!("stats_history: query failed: {e}");
+            Vec::new()
+        }
     }
 }
 

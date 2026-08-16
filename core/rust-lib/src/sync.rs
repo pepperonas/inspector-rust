@@ -223,16 +223,36 @@ pub fn apply_pull(db: &DbHandle, pull: &PullResponse) -> anyhow::Result<ApplySta
         let _ = snippets::category_id_for_name(db, name)?;
     }
 
+    let scope_groups: std::collections::HashSet<&str> =
+        pull.groups.iter().map(String::as_str).collect();
     for ts in &pull.tombstones {
         match snippets::find_by_exact_abbreviation(db, &ts.abbreviation)? {
-            Some(local) if local.version <= ts.version => {
-                // snippets::delete records a local tombstone at local.version;
-                // raise it to the remote version so the floor is right.
-                snippets::delete(db, local.id)?;
-                snippets::record_tombstone(db, &ts.abbreviation, ts.version)?;
-                stats.deleted += 1;
+            Some(local) => {
+                // Scope gate (fixed 2026-08-16): cue deliberately echoes ALL
+                // tombstones (the push sends them unfiltered), but a snippet
+                // whose group is NOT part of the sync scope was never synced —
+                // deleting it because an unrelated, long-dead snippet once
+                // shared its abbreviation destroys purely local data. Only
+                // in-scope snippets may be deleted by a remote tombstone.
+                let in_scope = match &local.category {
+                    Some(name) => scope_groups.contains(name.as_str()),
+                    None => pull.sync_ungrouped,
+                };
+                if !in_scope {
+                    stats.kept_local += 1;
+                    continue;
+                }
+                if local.version <= ts.version {
+                    // snippets::delete records a local tombstone at
+                    // local.version; raise it to the remote version so the
+                    // floor is right.
+                    snippets::delete(db, local.id)?;
+                    snippets::record_tombstone(db, &ts.abbreviation, ts.version)?;
+                    stats.deleted += 1;
+                } else {
+                    stats.kept_local += 1; // local edit beat the deletion
+                }
             }
-            Some(_) => stats.kept_local += 1, // local edit beat the deletion
             None => snippets::record_tombstone(db, &ts.abbreviation, ts.version)?,
         }
     }
@@ -851,5 +871,42 @@ mod tests {
         let fresh = test_db();
         let got = get_config(&fresh).unwrap();
         assert_eq!((got.enabled, got.url.as_str(), got.token.as_str()), (false, DEFAULT_URL, ""));
+    }
+
+    #[test]
+    fn a_tombstone_never_deletes_a_snippet_outside_the_sync_scope() {
+        // REGRESSION (2026-08-16): the push deliberately sends ALL tombstones
+        // and cue echoes them back — but apply_pull also DELETED on them
+        // unfiltered. A purely local snippet in a non-synced group that merely
+        // shares an abbreviation with a long-dead synced one was destroyed.
+        let db = test_db();
+        let cat = snippets::create_category(&db, "Privat").unwrap();
+        snippets::create(&db, "addr", "Meine Adresse", "privat…", Some(cat)).unwrap();
+
+        let pull: PullResponse = serde_json::from_value(serde_json::json!({
+            "groups": ["Work"],          // "Privat" is NOT in scope
+            "sync_ungrouped": false,
+            "snippets": [],
+            "tombstones": [{ "abbreviation": "addr", "version": 5 }],
+        }))
+        .unwrap();
+        let stats = apply_pull(&db, &pull).unwrap();
+
+        assert_eq!(stats.deleted, 0, "out-of-scope data must never be deleted");
+        assert!(
+            snippets::find_by_exact_abbreviation(&db, "addr").unwrap().is_some(),
+            "the private snippet survives the foreign tombstone"
+        );
+
+        // The counterpart: the SAME tombstone deletes once the group IS synced.
+        let pull2: PullResponse = serde_json::from_value(serde_json::json!({
+            "groups": ["Privat"],
+            "sync_ungrouped": false,
+            "snippets": [],
+            "tombstones": [{ "abbreviation": "addr", "version": 5 }],
+        }))
+        .unwrap();
+        let stats2 = apply_pull(&db, &pull2).unwrap();
+        assert_eq!(stats2.deleted, 1);
     }
 }

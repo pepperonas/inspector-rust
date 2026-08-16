@@ -4,6 +4,29 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.108.1] — 2026-08-16
+
+The remaining 13 findings from the bug hunt — leaks, wedges, and honesty.
+
+### Fixed — leaks
+
+- **OCR no longer leaks a copy of the image per run.** The Vision handler and request were never released and the worker thread had no autorelease pool — a day of region-OCRs grew memory by hundreds of MB. Same pool fix for the two frontmost-app readers (the timesheet ticks every 1.5 s all day; the clipboard watcher runs per copy).
+- **Superseded screenshot temp files are deleted.** Taking a shot and ignoring the floating preview left a 10–20 MB PNG in the cache forever — per shot. The pinned-preview and edit-save paths orphaned files the same way; the eyedropper's temp snapshot also survived a failed read.
+- **Touchpad gestures no longer leak a mach port + event-tap registration on every stop** — and the wake watchdog restarts gestures after every sleep/wake, so a laptop accumulated them daily. The EDR overlay also leaked a colorspace per arm.
+
+### Fixed — wedges
+
+- **A dead microphone is now noticed.** Closing the lid or unplugging a USB mic silently killed the stream while an armed `iris` kept claiming it was listening; the capture now reopens the (possibly new) input device with backoff.
+- **A lost expander dispatch no longer disables the expander for the rest of the session** (the injection guard stayed latched).
+- **The alarm respects reality:** if it cannot read the current volume it no longer forces 85 % with nothing to restore; it still overrides mute (an alarm must be heard) but now restores the mute state afterwards. And if its overlay fails to build, it falls back to a notification and stops — previously the bell looped at raised volume with no visible way to dismiss it.
+- The boom idle gate no longer blocks the instant-resume path (up to 2.4 s of dead audio when pressing play during its probe); window snapping can no longer leak a live monitoring thread per toggle; setting a timer under resource exhaustion reports an error instead of crashing the app.
+
+### Fixed — honesty
+
+- **A cloud-sync tombstone can no longer delete a snippet outside the sync scope** (a purely local group sharing an abbreviation with a long-dead synced snippet lost data).
+- **Padded and unpadded exports of the same 2FA secret import as one account**, not two.
+- Stats-history DB failures are logged instead of rendering as "no data"; a refused start over the encryption key now shows a native dialog instead of dying invisibly (the app has no dock icon — silence would read as "broken").
+
 ## [0.108.0] — 2026-08-16
 
 A four-front bug hunt (data integrity, concurrency/lifecycle, the untested OS/FFI shells, and an adversarial re-read of the last three releases). 26 defects found, the 13 most serious fixed here — each with a regression test that reproduces the trigger, not just the symptom. The self-review of v0.105–v0.107 came back clean.

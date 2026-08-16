@@ -103,6 +103,17 @@ pub const SWIPE_FINGER_MIN_MOVE_NORM: f64 = 0.06;
 /// stays a tap.
 pub const SWIPE_COHERENCE_MIN: f64 = 0.6;
 
+/// Early swipe emission (v0.110.0): a swipe used to emit only when a finger
+/// LIFTED — the whole remainder of the motion after the threshold was pure
+/// wait. A swipe whose ≥ 3 movers have each travelled this far (2× the lift
+/// bar) with full coherence is unambiguous mid-flight, so it emits while the
+/// fingers are still down and the rest of the gesture is consumed. The margin
+/// is deliberate: at exactly the lift bar a pinch could still be developing,
+/// and 2-finger geometries are excluded entirely (a scroll that later gains a
+/// 3rd finger must keep its at-lift decision). Weak swipes (travel between the
+/// two bars) keep the old emit-on-lift path unchanged.
+pub const EARLY_SWIPE_MIN_MOVE_NORM: f64 = 2.0 * SWIPE_FINGER_MIN_MOVE_NORM;
+
 // Tip-tap (v0.91.6): ONE finger rests on the pad, a SECOND finger taps briefly
 // to its left/right → previous/next tab. (This is the one-finger posture the
 // user asked to return to; v0.84.266 had switched to a two-finger rest to dodge
@@ -1014,6 +1025,11 @@ pub struct PalmAwareRecognizer {
     /// N-finger tap once the pad goes quiet. Swipes are NOT deferred (they emit
     /// immediately, so volume stays responsive).
     cluster_open: bool,
+    /// This gesture already emitted an EARLY swipe (v0.110.0) — every later
+    /// frame of it (including the final lifts, which would re-qualify in
+    /// `decide_swipe`) is consumed. Cleared when the last non-palm contact
+    /// leaves the pad.
+    swipe_emitted: bool,
 }
 
 impl PalmAwareRecognizer {
@@ -1111,9 +1127,33 @@ impl PalmAwareRecognizer {
             self.last_contact_ms = t_ms;
         }
 
+        // EARLY swipe (v0.110.0): a decisive ≥ 3-finger coherent motion emits
+        // while the fingers are still DOWN — the action fires mid-swipe instead
+        // of after the lift. The rest of this gesture is consumed via
+        // `swipe_emitted`. Never while a tap cluster is accumulating (a lifted
+        // tap finger means this is not a clean in-flight swipe — the at-lift
+        // decision below stays the authority there).
+        if !lifted && !self.swipe_emitted && !self.cluster_open {
+            if let Some(swipe) = self.decide_swipe_at(t_ms, EARLY_SWIPE_MIN_MOVE_NORM, 3) {
+                self.swipe_emitted = true;
+                return Some(swipe);
+            }
+        }
+
         // SWIPE emits immediately on lift, whenever ≥2 non-palm fingers moved
         // coherently — even while a palm stays resting on the pad.
         if lifted {
+            if self.swipe_emitted {
+                // Already emitted mid-flight — the end-of-gesture lifts (which
+                // would re-qualify in `decide_swipe`) are consumed. When the
+                // last non-palm contact leaves, the gesture is over: reset so
+                // the next one starts clean.
+                if !self.tracks.iter().any(|t| t.present && !t.palm) {
+                    self.reset_keep_present();
+                    self.swipe_emitted = false;
+                }
+                return carried;
+            }
             if let Some(swipe) = self.decide_swipe(t_ms) {
                 self.reset_keep_present();
                 return Some(swipe);
@@ -1192,12 +1232,19 @@ impl PalmAwareRecognizer {
     /// 1 mover, so it never triggers this. `fingers = n`, so a palm + 2-finger
     /// scroll reads as 2 (→ ignored by `map_action`), never 3.
     fn decide_swipe(&self, now: u64) -> Option<GestureEvent> {
+        self.decide_swipe_at(now, SWIPE_FINGER_MIN_MOVE_NORM, 2)
+    }
+
+    /// Parameterised swipe decision shared by the at-lift path (`min_move` =
+    /// `SWIPE_FINGER_MIN_MOVE_NORM`, ≥ 2 movers) and the early in-flight path
+    /// (`EARLY_SWIPE_MIN_MOVE_NORM`, ≥ 3 movers — see the constant's doc).
+    fn decide_swipe_at(&self, now: u64, min_move: f64, min_fingers: usize) -> Option<GestureEvent> {
         let (rx, ry, n, coherence) = self.swipe_geometry(now)?;
-        if coherence < SWIPE_COHERENCE_MIN {
+        if n < min_fingers || coherence < SWIPE_COHERENCE_MIN {
             return None;
         }
         let avg = n as f64;
-        classify_swipe(rx / avg, ry / avg, SWIPE_FINGER_MIN_MOVE_NORM)
+        classify_swipe(rx / avg, ry / avg, min_move)
             .map(|kind| GestureEvent { kind, fingers: n as u8 })
     }
 
@@ -1738,6 +1785,107 @@ mod tests {
     }
 
     #[test]
+    fn decisive_swipe_emits_early_while_fingers_are_still_down() {
+        // v0.110.0: the volume action must fire MID-SWIPE. Feed only the
+        // motion frames (no lift) — the event must already be out.
+        let mut r = PalmAwareRecognizer::new();
+        let mut early = None;
+        for (i, step) in [0.0, 0.25, 0.5, 0.75, 1.0].iter().enumerate() {
+            let y = 0.8 + (0.3 - 0.8) * step;
+            let cs = vec![rc(1, 0.4, y), rc(2, 0.5, y), rc(3, 0.6, y)];
+            if let Some(e) = r.feed(i as u64 * 50, &cs) {
+                early = Some((i, e));
+                break;
+            }
+        }
+        let (frame, ev) = early.expect("no early emission before any lift");
+        assert_eq!(ev, GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 });
+        assert!(frame < 4, "emitted only at the end of the motion (frame {frame})");
+    }
+
+    #[test]
+    fn early_swipe_never_double_emits_and_resets_for_the_next_gesture() {
+        // Full gesture: motion (early emit) → more motion → lifts. Exactly ONE
+        // event; afterwards a fresh 3-finger tap must still work (state reset).
+        let mut frames = swipe_frames(0, 0.8, 0.3, &[]);
+        // A fresh 3-finger tap well after the swipe (distinct contact ids).
+        frames.push((1000, vec![rc(7, 0.4, 0.5), rc(8, 0.5, 0.5), rc(9, 0.6, 0.5)]));
+        frames.push((1060, vec![]));
+        let mut r = PalmAwareRecognizer::new();
+        let mut out = Vec::new();
+        for (t, cs) in &frames {
+            if let Some(e) = r.tick(*t) {
+                out.push(e);
+            }
+            if let Some(e) = r.feed(*t, cs) {
+                out.push(e);
+            }
+        }
+        if let Some(e) = r.tick(1060 + TAP_SETTLE_MS + 10) {
+            out.push(e);
+        }
+        assert_eq!(
+            out,
+            vec![
+                GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 },
+                GestureEvent { kind: GestureKind::Tap, fingers: 3 },
+            ],
+            "expected exactly one swipe (no lift-phase double emit) + the follow-up tap"
+        );
+    }
+
+    #[test]
+    fn weak_swipe_stays_on_the_at_lift_path() {
+        // Travel between the two bars (0.09: ≥ lift bar 0.06, < early bar
+        // 0.12): nothing mid-flight, the swipe emits on lift exactly as before.
+        let mut r = PalmAwareRecognizer::new();
+        for (i, step) in [0.0, 0.5, 1.0].iter().enumerate() {
+            let y = 0.55 + (0.46 - 0.55) * step;
+            let cs = vec![rc(1, 0.4, y), rc(2, 0.5, y), rc(3, 0.6, y)];
+            assert_eq!(r.feed(i as u64 * 50, &cs), None, "weak swipe must not emit early");
+        }
+        assert_eq!(
+            r.feed(150, &[]),
+            Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 })
+        );
+    }
+
+    #[test]
+    fn two_finger_motion_never_emits_early() {
+        // A 2-finger scroll travelling far: the early path needs ≥ 3 movers
+        // (a scroll that later gains a 3rd finger must keep its options open).
+        let mut r = PalmAwareRecognizer::new();
+        for (i, step) in [0.0, 0.25, 0.5, 0.75, 1.0].iter().enumerate() {
+            let y = 0.8 + (0.3 - 0.8) * step;
+            let cs = vec![rc(1, 0.45, y), rc(2, 0.55, y)];
+            assert_eq!(r.feed(i as u64 * 50, &cs), None, "2-finger motion emitted early");
+        }
+        // At lift it still yields the (map_action-ignored) 2-finger event.
+        assert_eq!(
+            r.feed(260, &[]),
+            Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 2 })
+        );
+    }
+
+    #[test]
+    fn early_swipe_fires_with_a_parked_palm_resting() {
+        // The parked heel must neither block the early emission nor count into
+        // the finger count.
+        let heel = rc_palm(9, 0.1, 0.9);
+        let mut r = PalmAwareRecognizer::new();
+        let mut got = None;
+        for (i, step) in [0.0, 0.25, 0.5, 0.75, 1.0].iter().enumerate() {
+            let y = 0.8 + (0.3 - 0.8) * step;
+            let cs = vec![rc(1, 0.4, y), rc(2, 0.5, y), rc(3, 0.6, y), heel];
+            if let Some(e) = r.feed(i as u64 * 50, &cs) {
+                got = Some(e);
+                break;
+            }
+        }
+        assert_eq!(got, Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }));
+    }
+
+    #[test]
     fn palm_rec_three_finger_swipe_up() {
         let evs = palm_events(&swipe_frames(0, 0.8, 0.3, &[]));
         assert_eq!(evs, vec![GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 }]);
@@ -2095,16 +2243,20 @@ mod tests {
     }
 
     #[test]
-    fn swipe_emits_on_lift_not_while_fingers_are_still_down() {
+    fn decisive_swipe_emits_in_flight_and_the_lift_is_consumed() {
+        // v0.110.0 INVERTS the old "emit only at lift" pin: a decisive
+        // ≥ 3-finger motion emits while still touching (that's the latency
+        // win), and the lift frame — which would re-qualify in decide_swipe —
+        // must then emit NOTHING (the double-emit guard).
         let mut r = PalmAwareRecognizer::new();
         assert_eq!(r.feed(0, &[rc(1, 0.4, 0.8), rc(2, 0.5, 0.8), rc(3, 0.6, 0.8)]), None);
-        // Fingers have moved well past the threshold but are still touching.
-        assert_eq!(r.feed(100, &[rc(1, 0.4, 0.4), rc(2, 0.5, 0.4), rc(3, 0.6, 0.4)]), None);
-        // Only the lift frame emits.
+        // Fingers moved well past the early bar and are still touching → emit NOW.
         assert_eq!(
-            r.feed(150, &[]),
+            r.feed(100, &[rc(1, 0.4, 0.4), rc(2, 0.5, 0.4), rc(3, 0.6, 0.4)]),
             Some(GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 })
         );
+        // The lift is consumed — no second event.
+        assert_eq!(r.feed(150, &[]), None);
     }
 
     #[test]

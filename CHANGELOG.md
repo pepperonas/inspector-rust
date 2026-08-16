@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.110.0] — 2026-08-16
+
+Gesture latency pass — actions fire mid-motion instead of after it.
+
+### Changed
+
+- **Volume swipes now fire while the swipe is still in motion.** A decisive 3-finger swipe emits as soon as its direction is unambiguous (double the recognition distance, full coherence) instead of waiting for the fingers to lift — the wait-for-lift was pure latency. Weak swipes, two-finger scrolls, taps and palm rejection behave exactly as before; a mid-flight emission consumes the rest of the gesture so nothing fires twice.
+- **Volume and mute changes apply in microseconds.** The gesture actions went through `osascript` (~300 ms per spawn; the mute toggle spawned two = ~600 ms). They now write the default output's CoreAudio volume/mute property directly — same control AppleScript writes — with the osascript route kept as fallback for devices without a volume control (HDMI). Mute drops from ~0.8 s to ~0.2 s end-to-end; the volume-slider panel benefits too.
+- The tap settle ticker runs at 24 ms (was 40), trimming average mute-tap latency; the 160 ms settle window itself is deliberately untouched — it is why sequential finger touches coalesce reliably.
+
 ## [0.109.0] — 2026-08-16
 
 Accidental-gesture hardening, phase 1 — dispatch-layer guards only, so recognition can't regress.

@@ -51,9 +51,10 @@ pub const VOLUME_RESYNC_TOLERANCE: i32 = 7;
 /// jitter: snap from `last` (our exact last command) when the live `device`
 /// level is within [`VOLUME_RESYNC_TOLERANCE`] of it, else resync to `device`
 /// (an external change happened). `last < 0` = no prior command → use `device`.
-/// Unit-tested; the macOS AppleScript in `snap_script` mirrors this in-script
-/// (which is why this fn itself has no production caller off macOS).
-#[allow(dead_code)] // reference implementation; production path runs the AppleScript mirror
+/// Unit-tested. On macOS the CoreAudio fast path calls this directly
+/// (v0.110.0); the AppleScript in `snap_script` mirrors it in-script for the
+/// fallback, and off-macOS it stays a reference implementation.
+#[allow(dead_code)] // non-macOS builds only use the AppleScript/wpctl mirrors
 pub fn snap_from(device: i32, last: i32, delta: i32) -> u8 {
     let base = if last >= 0 && (device - last).abs() <= VOLUME_RESYNC_TOLERANCE {
         last
@@ -325,6 +326,183 @@ pub fn clamp_volume(level: i32) -> u8 {
     level.clamp(0, 100) as u8
 }
 
+/// Direct CoreAudio volume/mute control for the DEFAULT output device
+/// (v0.110.0) — the gesture fast path. An `osascript` spawn costs ~300 ms on a
+/// live machine (measured; the mute toggle spawned TWO = ~600 ms), and that
+/// process-spawn latency was the single largest chunk of gesture-to-effect
+/// lag. Reading/writing `kAudioDevicePropertyVolumeScalar` directly costs
+/// microseconds and lands on the SAME control AppleScript writes (AppleScript
+/// "output volume N" maps linearly to the scalar — empirically pinned by the
+/// v0.84.213 boom finding: 40 % read back as −38.4 dB = scalar 0.4 on
+/// BlackHole's −64..0 dB linear curve), so the two paths are interchangeable
+/// and every caller keeps the osascript route as fallback for devices without
+/// a volume control (HDMI) or any CoreAudio error. Master element first,
+/// per-channel (1/2) fallback for devices that only publish channel controls.
+#[cfg(target_os = "macos")]
+pub(crate) mod ca_volume {
+    use std::os::raw::c_void;
+
+    type AudioObjectID = u32;
+    type OSStatus = i32;
+    const SYSTEM_OBJECT: AudioObjectID = 1; // kAudioObjectSystemObject
+
+    const fn fourcc(s: &[u8; 4]) -> u32 {
+        ((s[0] as u32) << 24) | ((s[1] as u32) << 16) | ((s[2] as u32) << 8) | (s[3] as u32)
+    }
+    const PROP_DEFAULT_OUTPUT: u32 = fourcc(b"dOut"); // kAudioHardwarePropertyDefaultOutputDevice
+    const PROP_VOLUME_SCALAR: u32 = fourcc(b"volm"); // kAudioDevicePropertyVolumeScalar
+    const PROP_MUTE: u32 = fourcc(b"mute"); // kAudioDevicePropertyMute
+    const SCOPE_GLOBAL: u32 = fourcc(b"glob");
+    const SCOPE_OUTPUT: u32 = fourcc(b"outp");
+    const ELEMENT_MAIN: u32 = 0;
+
+    #[repr(C)]
+    struct Addr {
+        selector: u32,
+        scope: u32,
+        element: u32,
+    }
+
+    #[link(name = "CoreAudio", kind = "framework")]
+    extern "C" {
+        fn AudioObjectGetPropertyData(
+            id: AudioObjectID,
+            addr: *const Addr,
+            qual_size: u32,
+            qual: *const c_void,
+            io_size: *mut u32,
+            out_data: *mut c_void,
+        ) -> OSStatus;
+        fn AudioObjectSetPropertyData(
+            id: AudioObjectID,
+            addr: *const Addr,
+            qual_size: u32,
+            qual: *const c_void,
+            in_size: u32,
+            in_data: *const c_void,
+        ) -> OSStatus;
+        fn AudioObjectHasProperty(id: AudioObjectID, addr: *const Addr) -> u8;
+    }
+
+    fn addr(selector: u32, scope: u32, element: u32) -> Addr {
+        Addr { selector, scope, element }
+    }
+
+    fn default_output() -> Option<AudioObjectID> {
+        let a = addr(PROP_DEFAULT_OUTPUT, SCOPE_GLOBAL, ELEMENT_MAIN);
+        let mut dev: AudioObjectID = 0;
+        let mut size = std::mem::size_of::<AudioObjectID>() as u32;
+        let st = unsafe {
+            AudioObjectGetPropertyData(
+                SYSTEM_OBJECT,
+                &a,
+                0,
+                std::ptr::null(),
+                &mut size,
+                &mut dev as *mut _ as *mut c_void,
+            )
+        };
+        (st == 0 && dev != 0).then_some(dev)
+    }
+
+    /// The elements carrying this device's volume control: master when
+    /// published, else the per-channel pair. Empty = no volume control (HDMI).
+    fn volume_elements(dev: AudioObjectID, selector: u32) -> Vec<u32> {
+        let has = |el: u32| unsafe { AudioObjectHasProperty(dev, &addr(selector, SCOPE_OUTPUT, el)) != 0 };
+        if has(ELEMENT_MAIN) {
+            vec![ELEMENT_MAIN]
+        } else {
+            [1u32, 2u32].into_iter().filter(|e| has(*e)).collect()
+        }
+    }
+
+    /// Current output volume in percent, or `None` (no device / no control).
+    pub fn read_volume() -> Option<i32> {
+        let dev = default_output()?;
+        let els = volume_elements(dev, PROP_VOLUME_SCALAR);
+        let mut sum = 0.0f32;
+        let mut n = 0u32;
+        for el in &els {
+            let a = addr(PROP_VOLUME_SCALAR, SCOPE_OUTPUT, *el);
+            let mut v: f32 = 0.0;
+            let mut size = std::mem::size_of::<f32>() as u32;
+            let st = unsafe {
+                AudioObjectGetPropertyData(dev, &a, 0, std::ptr::null(), &mut size, &mut v as *mut _ as *mut c_void)
+            };
+            if st == 0 {
+                sum += v;
+                n += 1;
+            }
+        }
+        (n > 0).then(|| ((sum / n as f32) * 100.0).round().clamp(0.0, 100.0) as i32)
+    }
+
+    /// Set the output volume (percent). `false` = no control / write refused →
+    /// caller falls back to osascript.
+    pub fn write_volume(pct: i32) -> bool {
+        let Some(dev) = default_output() else { return false };
+        let scalar = (pct.clamp(0, 100) as f32) / 100.0;
+        let els = volume_elements(dev, PROP_VOLUME_SCALAR);
+        let mut ok = false;
+        for el in &els {
+            let a = addr(PROP_VOLUME_SCALAR, SCOPE_OUTPUT, *el);
+            let st = unsafe {
+                AudioObjectSetPropertyData(
+                    dev,
+                    &a,
+                    0,
+                    std::ptr::null(),
+                    std::mem::size_of::<f32>() as u32,
+                    &scalar as *const _ as *const c_void,
+                )
+            };
+            ok |= st == 0;
+        }
+        ok
+    }
+
+    /// Current mute state, or `None` (no mute control on this device).
+    pub fn read_mute() -> Option<bool> {
+        let dev = default_output()?;
+        let els = volume_elements(dev, PROP_MUTE);
+        for el in &els {
+            let a = addr(PROP_MUTE, SCOPE_OUTPUT, *el);
+            let mut v: u32 = 0;
+            let mut size = std::mem::size_of::<u32>() as u32;
+            let st = unsafe {
+                AudioObjectGetPropertyData(dev, &a, 0, std::ptr::null(), &mut size, &mut v as *mut _ as *mut c_void)
+            };
+            if st == 0 {
+                return Some(v != 0);
+            }
+        }
+        None
+    }
+
+    /// Set the mute state. `false` = no control / refused → osascript fallback.
+    pub fn write_mute(muted: bool) -> bool {
+        let Some(dev) = default_output() else { return false };
+        let v: u32 = muted as u32;
+        let els = volume_elements(dev, PROP_MUTE);
+        let mut ok = false;
+        for el in &els {
+            let a = addr(PROP_MUTE, SCOPE_OUTPUT, *el);
+            let st = unsafe {
+                AudioObjectSetPropertyData(
+                    dev,
+                    &a,
+                    0,
+                    std::ptr::null(),
+                    std::mem::size_of::<u32>() as u32,
+                    &v as *const _ as *const c_void,
+                )
+            };
+            ok |= st == 0;
+        }
+        ok
+    }
+}
+
 /// Snap a relative volume step onto the step's grid: from `current`, move to
 /// the **next multiple of `|delta|`** in the direction of `delta`, clamped to
 /// 0–100. So stepping by ±5 from 81 gives 85 / 80, then 90 / 75, … — every
@@ -382,6 +560,9 @@ fn snap_script(delta: i32, last: i32) -> [String; 5] {
 pub fn get_system_volume() -> Option<u8> {
     #[cfg(target_os = "macos")]
     {
+        if let Some(v) = ca_volume::read_volume() {
+            return Some(clamp_volume(v));
+        }
         let out = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg("output volume of (get volume settings)")
@@ -416,10 +597,15 @@ pub fn set_system_volume(level: i32) -> Option<u8> {
     let lv = clamp_volume(level);
     #[cfg(target_os = "macos")]
     {
+        if ca_volume::write_volume(lv as i32) {
+            LAST_COMMANDED_VOLUME.store(lv as i32, Ordering::Relaxed);
+            return Some(lv);
+        }
         let _ = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg(format!("set volume output volume {lv}"))
             .status();
+        LAST_COMMANDED_VOLUME.store(lv as i32, Ordering::Relaxed);
         Some(lv)
     }
     #[cfg(target_os = "linux")]
@@ -468,25 +654,12 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     #[cfg(target_os = "macos")]
     {
         std::thread::spawn(move || {
-            // Multiple `-e` args = atomic single-process AppleScript. The step
-            // is grid-snapped from our last-commanded value (see `snap_from`)
-            // so repeated presses land on consistent multiples of the step even
-            // when the device read-back jitters. Capture the output to keep
-            // LAST_COMMANDED_VOLUME in sync (shared with the gesture path).
-            let last = LAST_COMMANDED_VOLUME.load(Ordering::Relaxed);
-            let mut cmd = std::process::Command::new("/usr/bin/osascript");
-            for line in snap_script(delta, last) {
-                cmd.arg("-e").arg(line);
-            }
-            if let Ok(out) = cmd
-                .arg("-e").arg("set volume output volume v")
-                .arg("-e").arg("return v")
-                .output()
-            {
-                if let Ok(v) = String::from_utf8_lossy(&out.stdout).trim().parse::<i32>() {
-                    LAST_COMMANDED_VOLUME.store(v.clamp(0, 100), Ordering::Relaxed);
-                }
-            }
+            // One shared implementation with the gesture path: `nudge_volume`
+            // does CoreAudio-fast-or-osascript-fallback, grid-snaps from the
+            // last-commanded base and keeps LAST_COMMANDED_VOLUME in sync
+            // (v0.110.0 — this arm previously duplicated the whole AppleScript
+            // build).
+            let _ = nudge_volume(delta);
         });
         // Placeholder — the spawned thread does the real work. The IPC
         // resolves immediately so a rapid Shift+↑ / Shift+↓ chord
@@ -546,6 +719,18 @@ pub fn nudge_volume(delta: i32) -> Option<u8> {
         // never stalls on boom Audio's jittery read-back. Store the applied
         // level back so the next step (gesture OR popup) snaps from it.
         let last = LAST_COMMANDED_VOLUME.load(Ordering::Relaxed);
+        // Fast path (v0.110.0): direct CoreAudio read→snap→write, microseconds
+        // instead of a ~300 ms osascript spawn — the volume now changes while
+        // the swipe is still in motion. Falls through to osascript when the
+        // device has no volume control or any CoreAudio call fails.
+        if let Some(dev) = ca_volume::read_volume() {
+            let v = snap_from(dev, last, delta) as i32;
+            if ca_volume::write_volume(v) {
+                LAST_COMMANDED_VOLUME.store(v, Ordering::Relaxed);
+                return Some(v as u8);
+            }
+        }
+        tracing::debug!("nudge_volume: CoreAudio path unavailable, osascript fallback");
         let mut cmd = std::process::Command::new("/usr/bin/osascript");
         for line in snap_script(delta, last) {
             cmd.arg("-e").arg(line);
@@ -578,6 +763,17 @@ pub fn nudge_volume(delta: i32) -> Option<u8> {
 pub fn toggle_system_mute() -> Result<bool> {
     #[cfg(target_os = "macos")]
     {
+        // Fast path (v0.110.0): the osascript route below spawns TWO processes
+        // (read + set ≈ 600 ms measured); CoreAudio flips the device's mute
+        // property in microseconds. Fallback covers devices without a mute
+        // control (AppleScript then mutes via the system-volume route).
+        if let Some(m) = ca_volume::read_mute() {
+            let next = !m;
+            if ca_volume::write_mute(next) {
+                return Ok(next);
+            }
+        }
+        tracing::debug!("toggle_system_mute: CoreAudio path unavailable, osascript fallback");
         let out = std::process::Command::new("/usr/bin/osascript")
             .arg("-e")
             .arg("output muted of (get volume settings)")
@@ -675,6 +871,30 @@ mod tests {
         // A normal mid-range step lands where expected.
         assert_eq!(clamp_volume(48 + 6), 54);
         assert_eq!(clamp_volume(48 - 6), 42);
+    }
+
+    #[test]
+    #[ignore] // needs a live default output device with a volume control
+    fn ca_volume_live_roundtrip_restores_state() {
+        // Non-destructive: read → write-back the same value → verify, and flip
+        // the mute twice so the machine ends exactly where it started. Run
+        // explicitly: cargo test -p inspector-rust-core --lib ca_volume -- --ignored
+        #[cfg(target_os = "macos")]
+        {
+            let Some(before) = ca_volume::read_volume() else {
+                eprintln!("no volume control on the default output — fast path would fall back");
+                return;
+            };
+            assert!(ca_volume::write_volume(before), "write-back refused");
+            let after = ca_volume::read_volume().expect("read-back failed");
+            assert!((after - before).abs() <= 1, "write-back drifted: {before} → {after}");
+            if let Some(m) = ca_volume::read_mute() {
+                assert!(ca_volume::write_mute(!m));
+                assert_eq!(ca_volume::read_mute(), Some(!m), "mute flip not observed");
+                assert!(ca_volume::write_mute(m));
+                assert_eq!(ca_volume::read_mute(), Some(m), "mute restore failed");
+            }
+        }
     }
 
     #[test]

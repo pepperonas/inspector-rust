@@ -220,7 +220,7 @@ static CAPTURE_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(N
 static TICK_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None);
 /// Tap-settle tick cadence (ms). Must be well under `TAP_SETTLE_MS` (160) so a
 /// settled cluster finalises within ~one cadence of going quiet.
-const TICK_MS: u64 = 40;
+const TICK_MS: u64 = 24; // was 40 — trims the average post-settle tap latency (v0.110.0)
 
 /// The recogniser tick loop (own thread). Finalises a deferred tap cluster once
 /// the pad has been quiet past the settle window and dispatches it through the

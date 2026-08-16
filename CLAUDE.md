@@ -843,6 +843,35 @@ and a palm graze mid-mousing fired a tab switch; drift is now measured against t
 position where the stillness window began (anchor resets with `since`).
 Unit-tested: slow-drift-then-tap must NOT fire, drift-then-settle-then-tap must.
 
+**Latency pass (v0.110.0).** Two independent lags removed: (1) **Early swipe
+emission** — a swipe used to emit only when a finger LIFTED, so the whole
+remainder of the motion after the threshold was wait; a decisive in-flight
+motion (**≥ 3 movers**, coherence ≥ `SWIPE_COHERENCE_MIN`, avg travel ≥
+`EARLY_SWIPE_MIN_MOVE_NORM` = 2× the lift bar) now emits while the fingers are
+still down, and `PalmAwareRecognizer.swipe_emitted` consumes the rest of the
+gesture (the final lifts would re-qualify in `decide_swipe` — the double-emit
+guard is pinned by `decisive_swipe_emits_in_flight_and_the_lift_is_consumed`,
+which deliberately INVERTED the old "emit only at lift" pin). 2-finger
+geometries never emit early (a scroll that later gains a 3rd finger keeps its
+at-lift decision), weak swipes (travel between the two bars) keep the at-lift
+path bit-identically, taps/palms are untouched (5 new tests). (2) **CoreAudio
+fast path for volume + mute** (`system_commands::ca_volume`, macOS): one
+osascript spawn costs ~300 ms on a live machine and the mute toggle spawned
+TWO (~600 ms) — `kAudioDevicePropertyVolumeScalar`/`Mute` on the default
+output (master element, per-channel fallback) do the same in microseconds.
+AppleScript "output volume N" maps linearly to the scalar (pinned empirically
+by the v0.84.213 boom finding: 40 % → −38.4 dB on BlackHole's linear −64..0
+curve), so the paths are interchangeable; every caller keeps osascript as
+fallback (HDMI outputs have no volume control). `nudge_volume` now calls the
+pure `snap_from` directly (its first production caller); `adjust_system_volume`'s
+worker just delegates to `nudge_volume` (the duplicated AppleScript build is
+gone); `get_/set_system_volume` (SoundPanel) use the fast path too. Verified
+live by the non-destructive `#[ignore]` test `ca_volume_live_roundtrip_restores_state`
+(`cargo test -p inspector-rust-core --lib ca_volume -- --ignored`). Plus
+`TICK_MS` 40 → 24 ms (trims average post-settle tap latency; `TAP_SETTLE_MS`
+160 deliberately untouched — the coalescing window is why taps are reliable).
+Net effect: volume reacts mid-swipe (~1 ms exec), mute ~800 → ~200 ms.
+
 **Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
 starts/stops the OS source to match the config (mirrors `auto_expand`). IPC

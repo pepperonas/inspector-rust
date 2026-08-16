@@ -168,15 +168,17 @@ pub fn editor_save(
     }
 
     // Replace the pending entry with the edited file so the preview
-    // (when re-shown) shows the new version.
+    // (when re-shown) shows the new version. The superseded ORIGINAL capture
+    // (an unsaved temp in the cache dir) is deleted — this replacement used to
+    // orphan it (fixed 2026-08-16).
     {
-        let mut cur = pending.inner().current.lock();
-        *cur = Some(Pending {
+        let old = pending.inner().current.lock().replace(Pending {
             path: dest.clone(),
             app_name,
             // Already written to ~/Downloads — must survive a later discard.
             saved: true,
         });
+        crate::screenshot_preview::discard_superseded(old);
     }
 
     // Close the editor + re-show the preview so the user sees the

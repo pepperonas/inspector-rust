@@ -52,6 +52,30 @@ pub struct PendingScreenshot {
     pub pinned: std::sync::atomic::AtomicBool,
 }
 
+/// Delete a superseded pending capture's temp PNG (fixed 2026-08-16).
+///
+/// Replacing `PendingScreenshot.current` used to just drop the old `Pending` —
+/// its file stayed in the cache dir forever. That is the HAPPY path: the shot
+/// is already on the clipboard, the user ignores the floating preview and
+/// takes the next one; each ignored 5K `shotfull` left a 10–20 MB PNG behind
+/// that only an incidental `clean` sweep ever reclaimed. Only unsaved temps
+/// inside our own cache dir are deleted — a `saved: true` entry points at a
+/// file the user owns (e.g. in Downloads) and must never be touched.
+pub fn discard_superseded(old: Option<Pending>) {
+    let Some(old) = old else { return };
+    if old.saved {
+        return;
+    }
+    let in_cache = dirs::cache_dir()
+        .map(|c| old.path.starts_with(c.join("InspectorRust")))
+        .unwrap_or(false);
+    if in_cache {
+        if let Err(e) = std::fs::remove_file(&old.path) {
+            tracing::debug!("superseded capture cleanup {}: {e}", old.path.display());
+        }
+    }
+}
+
 pub const PREVIEW_LABEL: &str = "screenshot-preview";
 
 /// Inner-window dimensions for the floating preview. ~16:10 aspect so

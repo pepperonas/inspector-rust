@@ -26,13 +26,51 @@ pub fn recognize(png_bytes: &[u8]) -> Result<String> {
 #[cfg(target_os = "macos")]
 fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
     use objc2::msg_send;
+    use objc2::rc::autoreleasepool;
+    use objc2::runtime::AnyObject;
+
+    // Autorelease pool + explicit releases (fixed 2026-08-16). This runs on a
+    // bare `std::thread::spawn` worker with NO pool, so every autoreleased
+    // object — the NSData holding a full copy of the PNG, the results NSArray,
+    // every recognised NSString — accumulated in a pool page that was never
+    // drained; and the alloc/init'd handler + request (+1 owned, and the
+    // handler retains the image data) were never released at all. Each OCR
+    // therefore leaked the handler plus a copy of the source image: a day of
+    // region-OCRs grew RSS by hundreds of MB with no way to reclaim it short
+    // of quitting. The owned objects are tracked outside the fallible closure
+    // so every early bail-out still releases them.
+    autoreleasepool(|_| unsafe {
+        let mut handler: *mut AnyObject = std::ptr::null_mut();
+        let mut request: *mut AnyObject = std::ptr::null_mut();
+        let result = recognize_in_pool(png_bytes, &mut handler, &mut request);
+        if !request.is_null() {
+            let _: () = msg_send![request, release];
+        }
+        if !handler.is_null() {
+            let _: () = msg_send![handler, release];
+        }
+        result
+    })
+}
+
+/// The fallible middle of [`recognize_impl`]. `handler`/`request` are handed
+/// back to the caller AS SOON as they are created, so the caller can release
+/// them no matter where this returns.
+#[cfg(target_os = "macos")]
+unsafe fn recognize_in_pool(
+    png_bytes: &[u8],
+    handler_out: &mut *mut objc2::runtime::AnyObject,
+    request_out: &mut *mut objc2::runtime::AnyObject,
+) -> Result<String> {
+    use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
     use std::ffi::c_void;
 
-    unsafe {
+    {
         // ── 1. Wrap the PNG bytes in an NSData ───────────────────────
         // dataWithBytes:length: copies the buffer, so `png_bytes` can
-        // safely go out of scope after this call.
+        // safely go out of scope after this call. Autoreleased — the
+        // pool in `recognize_impl` drains it.
         let nsdata_cls = AnyClass::get(c"NSData")
             .ok_or_else(|| anyhow::anyhow!("NSData class not available"))?;
         let nsdata: *mut AnyObject = msg_send![
@@ -57,6 +95,7 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
         if handler.is_null() {
             anyhow::bail!("VNImageRequestHandler init failed");
         }
+        *handler_out = handler;
 
         // ── 3. Build the VNRecognizeTextRequest ──────────────────────
         let request_cls = AnyClass::get(c"VNRecognizeTextRequest")
@@ -68,6 +107,7 @@ fn recognize_impl(png_bytes: &[u8]) -> Result<String> {
         if request.is_null() {
             anyhow::bail!("VNRecognizeTextRequest init failed");
         }
+        *request_out = request;
         // Recognition level: 0 = Accurate (slower, much better), 1 = Fast.
         // For a one-shot user-triggered OCR the latency hit is fine.
         let _: () = msg_send![request, setRecognitionLevel: 0i64];

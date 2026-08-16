@@ -47,9 +47,11 @@ fn capture_display(display_index: usize) -> Result<Vec<u8>> {
         let _ = std::fs::remove_file(&tmp);
         anyhow::bail!("screencapture exited with status {:?}", status.code());
     }
-    let bytes = std::fs::read(&tmp).context("read loupe png")?;
+    // Remove the temp UNCONDITIONALLY — `?`-ing the read first left a
+    // full-display PNG (multi-MB) in the temp dir on every failed read.
+    let bytes = std::fs::read(&tmp).context("read loupe png");
     let _ = std::fs::remove_file(&tmp);
-    Ok(bytes)
+    bytes
 }
 
 #[cfg(not(target_os = "macos"))]

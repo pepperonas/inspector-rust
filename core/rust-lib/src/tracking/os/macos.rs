@@ -89,7 +89,13 @@ unsafe fn nsstring_to_string(s: *mut objc2::runtime::AnyObject) -> Option<String
 fn frontmost_native() -> Option<FocusInfo> {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
-    let (app_name, bundle, pid) = unsafe {
+    // Autorelease pool (fixed 2026-08-16): frontmostApplication /
+    // localizedName / bundleIdentifier all return AUTORELEASED objects, and
+    // this runs every ~1.5 s on the tracker's own thread — which has no pool,
+    // so an 8-hour tracked day (~19 000 ticks) accumulated them in a page that
+    // was never drained. The AX/CF half below is manually balanced already;
+    // this covers the Cocoa half.
+    let (app_name, bundle, pid) = objc2::rc::autoreleasepool(|_| unsafe {
         let ws_cls = AnyClass::get(c"NSWorkspace")?;
         let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
         if ws.is_null() {
@@ -107,8 +113,8 @@ fn frontmost_native() -> Option<FocusInfo> {
         let bid_obj: *mut AnyObject = msg_send![app, bundleIdentifier];
         let bid = nsstring_to_string(bid_obj).filter(|s| !s.is_empty());
         let pid: i32 = msg_send![app, processIdentifier];
-        (name, bid, pid)
-    };
+        Some((name, bid, pid))
+    })?;
     let window_title = focused_window_title(pid).filter(|t| !t.is_empty());
     Some(FocusInfo { app_name, app_id: bundle, window_title })
 }

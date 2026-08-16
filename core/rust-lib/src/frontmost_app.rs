@@ -44,7 +44,11 @@ fn sanitize(s: &str) -> String {
 fn name_native() -> Option<String> {
     use objc2::msg_send;
     use objc2::runtime::{AnyClass, AnyObject};
-    unsafe {
+    // Autorelease pool: this runs per COPY (clipboard watcher, exclude-list)
+    // on the watcher's pool-less thread — same leak class as tracking's
+    // frontmost_native, fixed the same day. The owned Rust String is built
+    // inside; only the autoreleased Cocoa temporaries die with the pool.
+    objc2::rc::autoreleasepool(|_| unsafe {
         let ws_cls = AnyClass::get(c"NSWorkspace")?;
         let ws: *mut AnyObject = msg_send![ws_cls, sharedWorkspace];
         if ws.is_null() {
@@ -63,7 +67,7 @@ fn name_native() -> Option<String> {
             return None;
         }
         Some(std::ffi::CStr::from_ptr(utf8).to_string_lossy().into_owned())
-    }
+    })
 }
 
 /// Best-effort lookup of the currently-frontmost app's name. Native

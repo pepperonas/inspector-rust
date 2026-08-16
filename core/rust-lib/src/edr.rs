@@ -236,6 +236,7 @@ mod macos {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGColorSpaceCreateWithName(name: *const std::ffi::c_void) -> *const std::ffi::c_void;
+        fn CFRelease(cf: *const std::ffi::c_void);
         static kCGColorSpaceExtendedLinearDisplayP3: *const std::ffi::c_void;
     }
 
@@ -503,9 +504,13 @@ mod macos {
         if device.is_null() {
             return None;
         }
-        let ca = AnyClass::get(c"CAMetalLayer")?;
+        let Some(ca) = AnyClass::get(c"CAMetalLayer") else {
+            let _: () = msg_send![device, release]; // balance the Create +1
+            return None;
+        };
         let layer: *mut AnyObject = msg_send![ca, layer];
         if layer.is_null() {
+            let _: () = msg_send![device, release]; // balance the Create +1
             return None;
         }
         let _: () = msg_send![layer, setDevice: device];
@@ -524,6 +529,9 @@ mod macos {
         let cs = CGColorSpaceCreateWithName(kCGColorSpaceExtendedLinearDisplayP3);
         if !cs.is_null() {
             let _: () = msg_send![layer, setColorspace: cs];
+            // Balance the Create-rule +1 — setColorspace: retains its own
+            // reference. Un-released this leaked one colorspace per EDR arm.
+            CFRelease(cs);
         }
 
         // CALayer accepts a blend-mode *name string* as its compositingFilter.

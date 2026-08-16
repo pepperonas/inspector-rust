@@ -107,6 +107,8 @@ extern "C" {
         order: isize,
     ) -> CFRunLoopSourceRef;
     fn CFRunLoopAddSource(rl: CFRunLoopRef, source: CFRunLoopSourceRef, mode: CFStringRef);
+    fn CFMachPortInvalidate(port: CFMachPortRef);
+    fn CFRelease(cf: *const std::ffi::c_void);
     static kCFRunLoopCommonModes: CFStringRef;
 }
 
@@ -190,6 +192,10 @@ static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::
 /// "armed-while-≥3" flag would leak. `0` = not swallowing.
 static SWALLOW_UNTIL_MS: AtomicU64 = AtomicU64::new(0);
 static SCROLL_TAP_PORT: AtomicIsize = AtomicIsize::new(0);
+/// The tap's run-loop source (+1 from Create) — kept so `stop()` can release
+/// it. Losing this reference leaked a mach port + source per stop/start
+/// cycle, and the wake watchdog restarts the source after EVERY sleep/wake.
+static SCROLL_TAP_SOURCE: AtomicIsize = AtomicIsize::new(0);
 /// Diagnostics: scroll events dropped vs let through during a gesture window.
 static SCROLL_SWALLOWED: AtomicU32 = AtomicU32::new(0);
 static SCROLL_PASSED: AtomicU32 = AtomicU32::new(0);
@@ -453,6 +459,7 @@ unsafe fn install_scroll_tap() -> bool {
     }
     SCROLL_TAP_PORT.store(tap as isize, Ordering::SeqCst);
     let source = CFMachPortCreateRunLoopSource(std::ptr::null_mut(), tap, 0);
+    SCROLL_TAP_SOURCE.store(source as isize, Ordering::SeqCst);
     CFRunLoopAddSource(CFRunLoopGetCurrent(), source, kCFRunLoopCommonModes);
     CGEventTapEnable(tap, true);
     tracing::info!("gestures(mac): scroll-consume tap installed");
@@ -599,6 +606,23 @@ impl GestureSource for MacGestureSource {
         // recogniser.
         if let Some(h) = TICK_THREAD.lock().take() {
             let _ = h.join();
+        }
+        // Tear the tap down for real (fixed 2026-08-16): disabling is not
+        // releasing. The +1 mach port and its run-loop source leaked on every
+        // stop — and `apply()` restarts the source per settings change while
+        // the wake watchdog restarts it after every sleep/wake, so a laptop
+        // accumulated dead ports and WindowServer tap registrations daily.
+        // Released only AFTER the joins above: the callback may still fire
+        // between Enable(false) and thread exit, and it dereferences the port.
+        let source = SCROLL_TAP_SOURCE.swap(0, Ordering::SeqCst) as CFRunLoopSourceRef;
+        if !source.is_null() {
+            unsafe { CFRelease(source as *const std::ffi::c_void) };
+        }
+        if !tap.is_null() {
+            unsafe {
+                CFMachPortInvalidate(tap);
+                CFRelease(tap as *const std::ffi::c_void);
+            }
         }
         MT_DEVICES.lock().clear();
         *MT_API.lock() = None;

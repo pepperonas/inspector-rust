@@ -1285,6 +1285,29 @@ pub fn set_sound_enabled(db: State<'_, DbHandle>, enabled: bool) -> Result<(), S
     Ok(())
 }
 
+const KEY_SCREENSHOT_SOUND: &str = "sound.screenshot_style";
+
+/// The screenshot cue's shutter style: "snap" (default) | "dslr" | "switch" |
+/// "off". Reads the live in-process atomic — seeded from settings at startup
+/// and updated by every set, so it is always in sync with the DB and already
+/// normalised.
+#[tauri::command]
+pub fn get_screenshot_sound() -> String {
+    crate::sound::screenshot_style_str().to_string()
+}
+
+/// Persist + apply the screenshot shutter style, then play the newly chosen
+/// sound once as an immediate preview (unless "off" / master toggle off) —
+/// picking a sound you can't hear would be guesswork.
+#[tauri::command]
+pub fn set_screenshot_sound(db: State<'_, DbHandle>, style: String) -> Result<String, String> {
+    let style = crate::sound::normalise_screenshot_style(&style);
+    settings::set(&db, KEY_SCREENSHOT_SOUND, style).map_err(map_err)?;
+    crate::sound::set_screenshot_style(style);
+    crate::sound::play(crate::sound::Sound::Screenshot); // no-ops on Off
+    Ok(style.to_string())
+}
+
 // ── Clipboard privacy (v0.76.0) ────────────────────────────────────────
 
 #[derive(serde::Serialize, serde::Deserialize)]

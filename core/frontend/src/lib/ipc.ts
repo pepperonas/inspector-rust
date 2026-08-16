@@ -501,6 +501,18 @@ export function getSoundEnabled(): Promise<boolean> {
 
 /** Persist + apply the feedback-sound toggle (takes effect immediately,
  *  no relaunch). Backend: `commands::set_sound_enabled`. */
+/** Screenshot shutter style: "snap" (default) | "dslr" | "switch" | "off". */
+export type ScreenshotSoundStyle = "snap" | "dslr" | "switch" | "off";
+
+export function getScreenshotSound(): Promise<ScreenshotSoundStyle> {
+  return invoke("get_screenshot_sound");
+}
+
+/** Persist + apply the style; the backend plays the new sound once as preview. */
+export function setScreenshotSound(style: ScreenshotSoundStyle): Promise<ScreenshotSoundStyle> {
+  return invoke("set_screenshot_sound", { style });
+}
+
 export function setSoundEnabled(enabled: boolean): Promise<void> {
   return invoke("set_sound_enabled", { enabled });
 }

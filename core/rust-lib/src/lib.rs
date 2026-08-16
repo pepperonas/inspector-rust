@@ -305,6 +305,10 @@ pub fn run(context: tauri::Context<Wry>) {
             // Seed the in-process feedback-sound toggle from settings (default
             // on) so the hot path never has to read the DB.
             sound::set_enabled(settings::get_bool(&db_handle, "sound.enabled", true).unwrap_or(true));
+            sound::set_screenshot_style(
+                &settings::get_or(&db_handle, "sound.screenshot_style", "snap")
+                    .unwrap_or_else(|_| "snap".into()),
+            );
 
             if let Err(e) = hotkey::register(app.handle()) {
                 tracing::warn!(
@@ -764,6 +768,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_theme_preference,
             commands::get_sound_enabled,
             commands::set_sound_enabled,
+            commands::get_screenshot_sound,
+            commands::set_screenshot_sound,
             commands::get_clipboard_privacy,
             commands::set_clipboard_privacy,
             commands::get_window_size_preference,

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.111.0] — 2026-08-16
+
+### Added
+
+- **The screenshot sound is selectable** (Settings → Sounds): Snap — a sharp finger snap (the new default) — DSLR shutter (a newly synthesized mirror-slap + double-curtain shutter, added to the procedural sound-effects library first so it stays reproducible), mechanical switch click, or Off (screenshots stay silent while all other cues keep working). Picking a style plays it once as a preview.
+
 ## [0.110.0] — 2026-08-16
 
 Gesture latency pass — actions fire mid-motion instead of after it.

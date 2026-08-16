@@ -14,6 +14,15 @@
 //! default on) gates every cue. It's an in-process `AtomicBool` seeded from
 //! the settings DB at startup and updated by the `set_sound_enabled` IPC, so
 //! the hot path never touches the DB.
+//!
+//! **Screenshot sound is selectable (v0.111.0):** the `Screenshot` cue plays
+//! one of three shutter styles from the `sound-effects` archive — `snap`
+//! (sharp finger snap, the default), `dslr` (rich mirror-slap + double
+//! curtain, `screenshot_dslr` in the archive) or `switch` (mechanical switch
+//! click) — or nothing at all (`off`). Same atomic-seeded pattern as the
+//! master toggle (settings key `sound.screenshot_style`, `AtomicU8`); the
+//! per-style cache filenames are distinct so switching styles re-materialises
+//! the right WAV.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -34,6 +43,78 @@ pub fn set_enabled(enabled: bool) {
 /// Whether feedback sounds are currently enabled.
 pub fn is_enabled() -> bool {
     SOUND_ENABLED.load(Ordering::Relaxed)
+}
+
+/// Which shutter the `Screenshot` cue plays (settings key
+/// `sound.screenshot_style`). `Off` = the screenshot stays silent while every
+/// other cue keeps following the master toggle.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ScreenshotStyle {
+    Snap,
+    Dslr,
+    Switch,
+    Off,
+}
+
+/// Current screenshot style as an in-process atomic (0/1/2/3 in enum order) —
+/// same "hot path never reads the DB" pattern as the master toggle.
+static SCREENSHOT_STYLE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+/// Whitelist an arbitrary stored/IPC string to a valid style, defaulting to
+/// `"snap"` (the shipped default) on anything unknown — a hand-edited or
+/// legacy value must never disable the cue by accident.
+pub fn normalise_screenshot_style(s: &str) -> &'static str {
+    match s.trim().to_ascii_lowercase().as_str() {
+        "dslr" => "dslr",
+        "switch" => "switch",
+        "off" => "off",
+        _ => "snap",
+    }
+}
+
+/// Set the screenshot style. Called at startup from the persisted setting and
+/// by the `set_screenshot_sound` IPC.
+pub fn set_screenshot_style(style: &str) {
+    let v = match normalise_screenshot_style(style) {
+        "dslr" => 1,
+        "switch" => 2,
+        "off" => 3,
+        _ => 0,
+    };
+    SCREENSHOT_STYLE.store(v, Ordering::Relaxed);
+}
+
+/// The current screenshot style.
+pub fn screenshot_style() -> ScreenshotStyle {
+    match SCREENSHOT_STYLE.load(Ordering::Relaxed) {
+        1 => ScreenshotStyle::Dslr,
+        2 => ScreenshotStyle::Switch,
+        3 => ScreenshotStyle::Off,
+        _ => ScreenshotStyle::Snap,
+    }
+}
+
+/// The current screenshot style as its settings/IPC string.
+pub fn screenshot_style_str() -> &'static str {
+    match screenshot_style() {
+        ScreenshotStyle::Snap => "snap",
+        ScreenshotStyle::Dslr => "dslr",
+        ScreenshotStyle::Switch => "switch",
+        ScreenshotStyle::Off => "off",
+    }
+}
+
+/// The embedded asset for a given (audible) style — `None` for `Off`. Pure
+/// per-style accessor so tests never depend on the process-global atomic.
+fn screenshot_asset(style: ScreenshotStyle) -> Option<(&'static str, &'static [u8])> {
+    match style {
+        ScreenshotStyle::Snap => Some(("shutter_snap.wav", include_bytes!("../assets/shutter_snap.wav"))),
+        ScreenshotStyle::Dslr => Some(("shutter_dslr.wav", include_bytes!("../assets/shutter_dslr.wav"))),
+        ScreenshotStyle::Switch => {
+            Some(("shutter_switch.wav", include_bytes!("../assets/shutter_switch.wav")))
+        }
+        ScreenshotStyle::Off => None,
+    }
 }
 
 /// A UI feedback sound. Each variant maps to an embedded WAV + a stable
@@ -60,7 +141,13 @@ impl Sound {
         match self {
             Sound::Expand => include_bytes!("../assets/paste_mechkey.wav"),
             Sound::Ocr => include_bytes!("../assets/ocr.wav"),
-            Sound::Screenshot => include_bytes!("../assets/screenshot.wav"),
+            // Style-selected; `play` returns early on Off, and the Snap asset
+            // is the defensive fallback if this is ever reached with Off.
+            Sound::Screenshot => {
+                screenshot_asset(screenshot_style())
+                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Snap).unwrap())
+                    .1
+            }
             Sound::RecordStart => include_bytes!("../assets/record_start.wav"),
             Sound::RecordStop => include_bytes!("../assets/record_stop.wav"),
             Sound::Copy => include_bytes!("../assets/copy.wav"),
@@ -72,7 +159,11 @@ impl Sound {
         match self {
             Sound::Expand => "paste_mechkey.wav",
             Sound::Ocr => "ocr.wav",
-            Sound::Screenshot => "screenshot.wav",
+            Sound::Screenshot => {
+                screenshot_asset(screenshot_style())
+                    .unwrap_or_else(|| screenshot_asset(ScreenshotStyle::Snap).unwrap())
+                    .0
+            }
             Sound::RecordStart => "record_start.wav",
             Sound::RecordStop => "record_stop.wav",
             Sound::Copy => "copy.wav",
@@ -115,6 +206,9 @@ fn ensure_file(sound: Sound) -> Option<PathBuf> {
 /// player. Any failure is silently ignored — feedback sound is best-effort.
 pub fn play(sound: Sound) {
     if !is_enabled() {
+        return;
+    }
+    if sound == Sound::Screenshot && screenshot_style() == ScreenshotStyle::Off {
         return;
     }
     std::thread::spawn(move || {
@@ -180,37 +274,39 @@ fn play_file(_path: &std::path::Path) {}
 mod tests {
     use super::*;
 
+    /// Every embedded asset as (name, bytes) — the 5 fixed cues + the three
+    /// screenshot styles resolved through the PURE per-style accessor, so no
+    /// structural test depends on the process-global style atomic (parallel
+    /// tests mutate it).
+    fn all_assets() -> Vec<(&'static str, &'static [u8])> {
+        let mut v: Vec<(&'static str, &'static [u8])> = vec![
+            (Sound::Expand.file_name(), Sound::Expand.bytes()),
+            (Sound::Ocr.file_name(), Sound::Ocr.bytes()),
+            (Sound::RecordStart.file_name(), Sound::RecordStart.bytes()),
+            (Sound::RecordStop.file_name(), Sound::RecordStop.bytes()),
+            (Sound::Copy.file_name(), Sound::Copy.bytes()),
+        ];
+        for style in [ScreenshotStyle::Snap, ScreenshotStyle::Dslr, ScreenshotStyle::Switch] {
+            v.push(screenshot_asset(style).expect("audible style has an asset"));
+        }
+        v
+    }
+
     #[test]
     fn all_embedded_wavs_are_riff_wave() {
         // Sanity: every cue's asset is a real WAV (RIFF…WAVE) and non-trivial.
-        for sound in [
-            Sound::Expand,
-            Sound::Ocr,
-            Sound::Screenshot,
-            Sound::RecordStart,
-            Sound::RecordStop,
-            Sound::Copy,
-        ] {
-            let bytes = sound.bytes();
-            assert!(bytes.len() > 1000, "{sound:?} WAV too small");
-            assert_eq!(&bytes[0..4], b"RIFF", "{sound:?} not RIFF");
-            assert_eq!(&bytes[8..12], b"WAVE", "{sound:?} not WAVE");
+        for (name, bytes) in all_assets() {
+            assert!(bytes.len() > 1000, "{name} WAV too small");
+            assert_eq!(&bytes[0..4], b"RIFF", "{name} not RIFF");
+            assert_eq!(&bytes[8..12], b"WAVE", "{name} not WAVE");
         }
     }
 
     #[test]
     fn cue_filenames_are_unique() {
-        let names = [
-            Sound::Expand.file_name(),
-            Sound::Ocr.file_name(),
-            Sound::Screenshot.file_name(),
-            Sound::RecordStart.file_name(),
-            Sound::RecordStop.file_name(),
-            Sound::Copy.file_name(),
-        ];
         let mut seen = std::collections::HashSet::new();
-        for n in names {
-            assert!(seen.insert(n), "duplicate cue filename: {n}");
+        for (name, _) in all_assets() {
+            assert!(seen.insert(name), "duplicate cue filename: {name}");
         }
     }
 
@@ -224,48 +320,39 @@ mod tests {
         set_enabled(prev);
     }
 
-    const ALL_SOUNDS: [Sound; 6] = [
-        Sound::Expand,
-        Sound::Ocr,
-        Sound::Screenshot,
-        Sound::RecordStart,
-        Sound::RecordStop,
-        Sound::Copy,
-    ];
-
     #[test]
     fn riff_size_field_matches_payload() {
         // A truncated / corrupted asset would make the CLI players fail
         // silently at runtime — pin the RIFF chunk-size invariant here.
-        for sound in ALL_SOUNDS {
-            let bytes = sound.bytes();
+        for (name, bytes) in all_assets() {
             let declared =
                 u32::from_le_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]) as usize;
             assert_eq!(
                 declared,
                 bytes.len() - 8,
-                "{sound:?}: RIFF size field disagrees with file length"
+                "{name}: RIFF size field disagrees with file length"
             );
         }
     }
 
     #[test]
     fn wavs_carry_fmt_and_data_chunks() {
-        for sound in ALL_SOUNDS {
-            let bytes = sound.bytes();
+        for (name, bytes) in all_assets() {
             let has = |tag: &[u8]| bytes.windows(4).any(|w| w == tag);
-            assert!(has(b"fmt "), "{sound:?}: missing fmt chunk");
-            assert!(has(b"data"), "{sound:?}: missing data chunk");
+            assert!(has(b"fmt "), "{name}: missing fmt chunk");
+            assert!(has(b"data"), "{name}: missing data chunk");
         }
     }
 
     #[test]
     fn every_cue_has_distinct_audio_content() {
         // A copy-paste slip mapping two cues onto the same asset would make
-        // e.g. record-start and record-stop indistinguishable by ear.
-        for (i, a) in ALL_SOUNDS.iter().enumerate() {
-            for b in &ALL_SOUNDS[i + 1..] {
-                assert_ne!(a.bytes(), b.bytes(), "{a:?} and {b:?} share the same WAV");
+        // e.g. record-start and record-stop — or two shutter styles —
+        // indistinguishable by ear.
+        let assets = all_assets();
+        for (i, (an, ab)) in assets.iter().enumerate() {
+            for (bn, bb) in &assets[i + 1..] {
+                assert_ne!(ab, bb, "{an} and {bn} share the same WAV");
             }
         }
     }
@@ -274,36 +361,69 @@ mod tests {
     fn wav_data_chunks_are_nonempty_pcm_payloads() {
         // A zero-length data chunk would "play" as silence — the cue silently
         // stops giving feedback. Parse the declared data-chunk size directly.
-        for sound in ALL_SOUNDS {
-            let bytes = sound.bytes();
+        for (name, bytes) in all_assets() {
             let pos = bytes
                 .windows(4)
                 .position(|w| w == b"data")
-                .unwrap_or_else(|| panic!("{sound:?}: no data chunk"));
+                .unwrap_or_else(|| panic!("{name}: no data chunk"));
             let size = u32::from_le_bytes([
                 bytes[pos + 4],
                 bytes[pos + 5],
                 bytes[pos + 6],
                 bytes[pos + 7],
             ]) as usize;
-            assert!(size > 0, "{sound:?}: empty data chunk");
+            assert!(size > 0, "{name}: empty data chunk");
             assert!(
                 pos + 8 + size <= bytes.len(),
-                "{sound:?}: data chunk claims {size} B past the end of the file"
+                "{name}: data chunk claims {size} B past the end of the file"
             );
         }
     }
 
     #[test]
     fn cue_filenames_are_wav_and_path_safe() {
-        for sound in ALL_SOUNDS {
-            let name = sound.file_name();
-            assert!(name.ends_with(".wav"), "{sound:?}: player is picked for WAV");
+        for (name, _) in all_assets() {
+            assert!(name.ends_with(".wav"), "{name}: player is picked for WAV");
             // Materialised straight into the cache dir — no separators allowed.
             assert!(
                 !name.contains('/') && !name.contains('\\') && !name.contains(".."),
-                "{sound:?}: filename must be a plain leaf name"
+                "{name}: filename must be a plain leaf name"
             );
+        }
+    }
+
+    #[test]
+    fn screenshot_style_normalisation_defaults_to_snap() {
+        // Unknown / legacy / hand-edited values must fall back to the shipped
+        // default, never to silence.
+        assert_eq!(normalise_screenshot_style("snap"), "snap");
+        assert_eq!(normalise_screenshot_style("DSLR"), "dslr");
+        assert_eq!(normalise_screenshot_style(" switch "), "switch");
+        assert_eq!(normalise_screenshot_style("off"), "off");
+        assert_eq!(normalise_screenshot_style(""), "snap");
+        assert_eq!(normalise_screenshot_style("shutter"), "snap");
+        assert_eq!(normalise_screenshot_style("none"), "snap");
+    }
+
+    #[test]
+    fn screenshot_style_round_trips_through_the_atomic() {
+        let prev = screenshot_style_str().to_string();
+        for style in ["dslr", "switch", "off", "snap"] {
+            set_screenshot_style(style);
+            assert_eq!(screenshot_style_str(), style);
+        }
+        set_screenshot_style("definitely-invalid");
+        assert_eq!(screenshot_style_str(), "snap", "invalid input must land on the default");
+        set_screenshot_style(&prev);
+    }
+
+    #[test]
+    fn off_style_has_no_asset_and_audible_styles_do() {
+        assert!(screenshot_asset(ScreenshotStyle::Off).is_none());
+        for style in [ScreenshotStyle::Snap, ScreenshotStyle::Dslr, ScreenshotStyle::Switch] {
+            let (name, bytes) = screenshot_asset(style).unwrap();
+            assert!(name.starts_with("shutter_"), "style filename convention: {name}");
+            assert!(!bytes.is_empty());
         }
     }
 }

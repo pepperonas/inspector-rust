@@ -106,6 +106,9 @@ import {
   setHistoryHotkey,
   getScreenRecordingStatus,
   getSoundEnabled,
+  getScreenshotSound,
+  setScreenshotSound,
+  type ScreenshotSoundStyle,
   setSoundEnabled,
   getAlarmStyle,
   setAlarmStyle,
@@ -459,6 +462,24 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       setSoundEnabledState(!next);
     } finally {
       setSoundBusy(false);
+    }
+  };
+  // Screenshot shutter style (v0.111.0) — the backend previews on change.
+  const [shotSound, setShotSound] = useState<ScreenshotSoundStyle | null>(null);
+  useEffect(() => {
+    getScreenshotSound()
+      .then(setShotSound)
+      .catch(() => setShotSound("snap"));
+  }, []);
+  const changeShotSound = async (next: ScreenshotSoundStyle) => {
+    const previous = shotSound;
+    setShotSound(next);
+    try {
+      const applied = await setScreenshotSound(next);
+      setShotSound(applied);
+    } catch (e) {
+      console.error("screenshot sound change failed", e);
+      setShotSound(previous);
     }
   };
 
@@ -1265,6 +1286,25 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </span>
               </label>
             </Row>
+            <Row label="Screenshot sound">
+              <div className="flex flex-col gap-1 text-[12px]">
+                <select
+                  value={shotSound ?? "snap"}
+                  disabled={shotSound === null}
+                  onChange={(e) => void changeShotSound(e.target.value as ScreenshotSoundStyle)}
+                  className="w-fit rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
+                >
+                  <option value="snap">Snap — sharp finger snap (default)</option>
+                  <option value="dslr">DSLR shutter — mirror slap + double curtain</option>
+                  <option value="switch">Switch — mechanical click</option>
+                  <option value="off">Off — screenshots stay silent</option>
+                </select>
+                <span className="text-[var(--color-muted)]">
+                  Picking a style plays it once as a preview. From the
+                  procedurally synthesized sound-effects library.
+                </span>
+              </div>
+            </Row>
           </Section>
         </div>
 
@@ -1274,7 +1314,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
             icon={<Hand size={16} className="text-[var(--color-accent)]" />}
             id="gestures"
       title="Touchpad gestures"
-            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, 2-finger rest + 3rd-finger tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
+            subtitle="3-finger swipe up / down → volume up / down, 3-finger tap → mute, 1-finger rest + 2nd-finger tap → switch tabs. Off by default. macOS uses the private MultitouchSupport framework; if gestures don't fire, grant Input Monitoring (System Settings → Privacy & Security)."
           >
             <Row label="Enable gestures">
               <label className="flex cursor-pointer items-center gap-2 text-[12px]">

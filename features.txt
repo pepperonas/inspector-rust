@@ -25,7 +25,7 @@ Expander-Hotkey (Alt+1) — Kürzel vor dem Cursor ersetzen, funktioniert auch i
 Direkt-Hotkey→Snippet — beliebige Hotkeys fest an einzelne Snippets binden
 Passive Auto-Expansion — aText-Stil: Kürzel expandiert beim Tippen ohne Hotkey (opt-in)
 Platzhalter — {date}, {time}, {datetime}, {clipboard}, {cursor} werden beim Einfügen gerendert
-Feedback-Sounds — mechanischer Klick bei Expansion, Cues für OCR/Screenshot/Recording (abschaltbar)
+Feedback-Sounds — mechanischer Klick bei Expansion, Cues für OCR/Screenshot/Recording (abschaltbar); Screenshot-Sound wählbar in den Settings (Snap [Default] / DSLR-Shutter / Schalter-Klick / Aus, aus dem sound-effects-Archiv, Auswahl spielt Vorschau)
 
 == Notes ==
 Notizen — dauerhafte Lesezeichen aus Clips, kategorisierbar, nie geprunt

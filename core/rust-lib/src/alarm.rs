@@ -35,6 +35,10 @@ pub struct AlarmSession {
     child: Arc<Mutex<Option<Child>>>,
     /// The system volume before we raised it (macOS), to restore on stop.
     saved_volume: Option<u8>,
+    /// Whether output was MUTED before the alarm (macOS) — restored on stop.
+    /// The alarm deliberately overrides mute (an alarm must be heard), but a
+    /// Mac the user muted for a meeting must be muted again afterwards.
+    saved_muted: Option<bool>,
 }
 
 /// Fire the overlay alarm: raise volume, loop the sound, show the overlay.
@@ -44,7 +48,7 @@ pub fn start(app: &AppHandle, label: String) {
 
     let stop_flag = Arc::new(AtomicBool::new(false));
     let child: Arc<Mutex<Option<Child>>> = Arc::new(Mutex::new(None));
-    let saved_volume = raise_volume();
+    let (saved_volume, saved_muted) = raise_volume();
 
     spawn_loop(stop_flag.clone(), child.clone());
 
@@ -54,13 +58,15 @@ pub fn start(app: &AppHandle, label: String) {
             stop: stop_flag,
             child,
             saved_volume,
+            saved_muted,
         });
     }
 
     // Build the overlay from a worker thread so Tauri marshals the window
     // creation onto the event loop cleanly (the proven record-stop pattern).
     let app2 = app.clone();
-    std::thread::spawn(move || build_overlay(&app2));
+    let label2 = label;
+    std::thread::spawn(move || build_overlay(&app2, &label2));
 }
 
 /// Silence + dismiss the alarm: stop the loop, kill the player, restore volume,
@@ -74,7 +80,7 @@ pub fn stop(app: &AppHandle) {
         if let Some(mut c) = s.child.lock().take() {
             let _ = c.kill();
         }
-        restore_volume(s.saved_volume);
+        restore_volume(s.saved_volume, s.saved_muted);
     }
     if let Some(w) = app.get_webview_window(ALARM_OVERLAY_LABEL) {
         let _ = w.close();
@@ -177,18 +183,38 @@ fn play_once(_path: &std::path::Path) -> Option<Child> {
 // ── System volume (macOS): raise while the alarm sounds, restore after ───────
 
 #[cfg(target_os = "macos")]
-fn raise_volume() -> Option<u8> {
+fn raise_volume() -> (Option<u8>, Option<bool>) {
+    // Read BOTH halves of the state we are about to change. If the read fails
+    // (Automation denied, osascript timeout) we deliberately touch NOTHING:
+    // the old code forced 85 + unmute anyway and then had nothing to restore —
+    // a Mac muted for a meeting was left unmuted at 85 % (fixed 2026-08-16).
+    // The alarm still plays at whatever the current level is.
     let current = get_volume();
-    // Never *lower* the volume — raise to at least ALARM_VOLUME.
+    let muted = get_muted();
+    if current.is_none() {
+        tracing::warn!("alarm: could not read the output volume — leaving it untouched");
+        return (None, muted);
+    }
+    // Never *lower* the volume — raise to at least ALARM_VOLUME, and unmute
+    // (an alarm must be heard; the saved mute state is restored on stop).
     let target = current.map(|c| c.max(ALARM_VOLUME)).unwrap_or(ALARM_VOLUME);
     set_volume(target);
-    current
+    (current, muted)
 }
 
 #[cfg(target_os = "macos")]
-fn restore_volume(saved: Option<u8>) {
+fn restore_volume(saved: Option<u8>, saved_muted: Option<bool>) {
     if let Some(v) = saved {
-        set_volume(v);
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(format!("set volume output volume {}", v.min(100)))
+            .status();
+    }
+    if let Some(true) = saved_muted {
+        let _ = std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg("set volume with output muted")
+            .status();
     }
 }
 
@@ -203,6 +229,20 @@ fn get_volume() -> Option<u8> {
 }
 
 #[cfg(target_os = "macos")]
+fn get_muted() -> Option<bool> {
+    let out = std::process::Command::new("/usr/bin/osascript")
+        .arg("-e")
+        .arg("output muted of (get volume settings)")
+        .output()
+        .ok()?;
+    match String::from_utf8_lossy(&out.stdout).trim() {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn set_volume(level: u8) {
     // Set the level and ensure output isn't muted (else a muted Mac stays silent).
     let _ = std::process::Command::new("/usr/bin/osascript")
@@ -214,15 +254,15 @@ fn set_volume(level: u8) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn raise_volume() -> Option<u8> {
-    None
+fn raise_volume() -> (Option<u8>, Option<bool>) {
+    (None, None)
 }
 #[cfg(not(target_os = "macos"))]
-fn restore_volume(_saved: Option<u8>) {}
+fn restore_volume(_saved: Option<u8>, _saved_muted: Option<bool>) {}
 
 // ── Overlay window ───────────────────────────────────────────────────────────
 
-fn build_overlay(app: &AppHandle) {
+fn build_overlay(app: &AppHandle, label: &str) {
     use tauri::{WebviewUrl, WebviewWindowBuilder};
     if let Some(existing) = app.get_webview_window(ALARM_OVERLAY_LABEL) {
         let _ = existing.close();
@@ -245,7 +285,26 @@ fn build_overlay(app: &AppHandle) {
     {
         Ok(w) => w,
         Err(e) => {
-            tracing::warn!("alarm: build overlay failed: {e}");
+            // The overlay is the ONLY way to dismiss the alarm. Without this
+            // fallback a failed build (label collision after an unclean close,
+            // a transient webview failure) left the bell looping at raised
+            // volume with no visible UI and no obvious way to stop it (fixed
+            // 2026-08-16). Fall back to the legacy notification and end the
+            // alarm cleanly — volume/mute restore included.
+            tracing::warn!("alarm: build overlay failed: {e} — falling back to a notification");
+            #[cfg(target_os = "macos")]
+            {
+                let msg = label.replace('"', "'");
+                let _ = std::process::Command::new("/usr/bin/osascript")
+                    .arg("-e")
+                    .arg(format!(
+                        "display notification \"{msg}\" with title \"Inspector Rust alarm\""
+                    ))
+                    .status();
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = label;
+            stop(app);
             return;
         }
     };

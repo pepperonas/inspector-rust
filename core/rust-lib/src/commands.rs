@@ -283,10 +283,10 @@ pub fn start_timer(
     state: State<'_, crate::timer::TimerRegistry>,
     seconds: u64,
     label: String,
-) -> u64 {
-    let id = crate::timer::start(state.inner(), app.clone(), seconds, label);
+) -> Result<u64, String> {
+    let id = crate::timer::start(state.inner(), app.clone(), seconds, label)?;
     let _ = app.emit("timers-changed", ());
-    id
+    Ok(id)
 }
 
 #[tauri::command]
@@ -3433,13 +3433,18 @@ pub fn run_capture_pipeline(
         if let Some(pending) =
             app.try_state::<crate::screenshot_preview::PendingScreenshot>()
         {
-            *pending.inner().current.lock() =
-                Some(crate::screenshot_preview::Pending {
+            // `replace` hands back the superseded capture so its temp PNG can
+            // be deleted — overwriting it silently leaked one file per
+            // ignored preview (see discard_superseded).
+            let old = pending.inner().current.lock().replace(
+                crate::screenshot_preview::Pending {
                     path: temp_path.clone(),
                     app_name: captured_app_name.clone(),
                     // A fresh capture lives in the cache dir — discardable.
                     saved: false,
-                });
+                },
+            );
+            crate::screenshot_preview::discard_superseded(old);
         } else {
             tracing::warn!("PendingScreenshot state missing — preview won't work");
         }
@@ -3451,6 +3456,13 @@ pub fn run_capture_pipeline(
         }
     } else {
         tracing::info!("screenshot preview pinned — keeping existing preview, new PNG only goes to clipboard");
+        // The new capture is already on the clipboard AND in history (the
+        // history row carries the bytes itself) — with no preview to feed,
+        // its temp file has no further reader. Unstashed it was unreachable
+        // by every cleanup path, i.e. a guaranteed orphan.
+        if let Err(e) = std::fs::remove_file(&temp_path) {
+            tracing::debug!("pinned-branch capture cleanup: {e}");
+        }
     }
 
     let _ = app.emit("clipboard-changed", ());
@@ -4770,10 +4782,21 @@ pub fn set_monitor_brightness(
 
 /// Drive the EDR boost for monitor `id` to `percent` (the full slider value;
 /// ≤ 100 / 0 = off). macOS EDR-capable displays only; a no-op elsewhere.
+/// `async` (2026-08-16): the teardown fade sleeps ~150 ms while queueing its
+/// fade frames onto the main thread — as a sync command it PARKED the main
+/// thread through that loop, so none of the queued frames could render (they
+/// fired in a burst right before close, reproducing the exact white flash the
+/// fade exists to prevent) and the slider stalled. Off-main, the fade actually
+/// plays.
 #[tauri::command]
-pub fn set_edr_level(app: AppHandle, db: State<'_, DbHandle>, id: u32, percent: u16) {
-    crate::brightness::set_edr_level(&app, id, percent);
-    crate::brightness::persist_current(&db, id);
+pub async fn set_edr_level(app: AppHandle, id: u32, percent: u16) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::brightness::set_edr_level(&app, id, percent);
+        let db = app.state::<DbHandle>();
+        crate::brightness::persist_current(&db, id);
+    })
+    .await
+    .map_err(|e| format!("edr task: {e}"))
 }
 
 /// List the system audio output devices (`sound` command). Marks the default.

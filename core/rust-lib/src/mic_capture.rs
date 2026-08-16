@@ -82,8 +82,29 @@ pub fn start_with(app: AppHandle, sink: Sink) -> MicStream {
     let stop2 = stop.clone();
     std::thread::spawn(move || {
         let label = sink.label();
-        if let Err(e) = run(app, sink, stop2) {
-            tracing::warn!("mic_capture[{label}]: {e}");
+        // Session loop (fixed 2026-08-16): a cpal stream that DIES — lid
+        // closed, USB mic unplugged, input device switched — used to be
+        // invisible: err_fn only logged, the drain loop kept waking to an
+        // empty buffer forever, and consumers like an armed `iris` reported
+        // "active" while never hearing anything again. A dead stream now ends
+        // the session and a fresh one re-opens the (possibly new) default
+        // input, with backoff so a missing mic doesn't spin.
+        let mut backoff_ms: u64 = 500;
+        while !stop2.load(Ordering::SeqCst) {
+            match run(&app, &sink, &stop2) {
+                Ok(true) => break, // clean stop
+                Ok(false) => {
+                    tracing::warn!("mic_capture[{label}]: stream died — reopening the input");
+                }
+                Err(e) => tracing::warn!("mic_capture[{label}]: {e} — retrying"),
+            }
+            // Backoff, but stay responsive to stop().
+            let mut waited = 0u64;
+            while waited < backoff_ms && !stop2.load(Ordering::SeqCst) {
+                std::thread::sleep(std::time::Duration::from_millis(100));
+                waited += 100;
+            }
+            backoff_ms = (backoff_ms * 2).min(5_000);
         }
     });
     MicStream { stop }
@@ -98,7 +119,9 @@ pub(crate) fn chunk_rms(chunk: &[f32]) -> f32 {
     (sum / chunk.len() as f64).sqrt() as f32
 }
 
-fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> {
+/// One capture session. `Ok(true)` = stopped by request; `Ok(false)` = the
+/// stream died (device gone/switched) and the caller should reopen.
+fn run(app: &AppHandle, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, String> {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 
     let host = cpal::default_host();
@@ -112,7 +135,13 @@ fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> 
     let config: cpal::StreamConfig = supported.into();
 
     let buf: Arc<Mutex<Vec<f32>>> = Arc::new(Mutex::new(Vec::new()));
-    let err_fn = |e| tracing::warn!("mic_capture: cpal stream error: {e}");
+    // The death flag err_fn raises — the drain loop watches it (see start_with).
+    let dead = Arc::new(AtomicBool::new(false));
+    let dead2 = dead.clone();
+    let err_fn = move |e| {
+        tracing::warn!("mic_capture: cpal stream error: {e}");
+        dead2.store(true, Ordering::SeqCst);
+    };
 
     fn push_mono(buf: &Mutex<Vec<f32>>, samples: impl Iterator<Item = f32>, ch: usize) {
         let mut b = buf.lock();
@@ -160,6 +189,10 @@ fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> 
     stream.play().map_err(|e| format!("mic start failed: {e}"))?;
 
     while !stop.load(Ordering::SeqCst) {
+        if dead.load(Ordering::SeqCst) {
+            drop(stream);
+            return Ok(false); // stream died — ask the session loop to reopen
+        }
         std::thread::sleep(std::time::Duration::from_millis(40));
         let chunk = {
             let mut b = buf.lock();
@@ -183,7 +216,7 @@ fn run(app: AppHandle, sink: Sink, stop: Arc<AtomicBool>) -> Result<(), String> 
         }
     }
     drop(stream); // stop + release the input device
-    Ok(())
+    Ok(true)
 }
 
 #[cfg(test)]

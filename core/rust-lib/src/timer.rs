@@ -65,13 +65,16 @@ pub struct TimerRegistry {
 
 static NEXT_ID: AtomicU64 = AtomicU64::new(1);
 
-/// Start a new timer. Returns its id.
+/// Start a new timer. Returns its id, or an error if the worker thread could
+/// not be spawned — which used to be an `.expect()` that PANICKED on the main
+/// thread (timer::start is reached from a sync command): under fd/thread
+/// exhaustion, setting a timer aborted the whole app instead of reporting.
 pub fn start(
     reg: &TimerRegistry,
     app: AppHandle,
     seconds: u64,
     label: String,
-) -> TimerId {
+) -> Result<TimerId, String> {
     let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
     let stop = Arc::new(AtomicBool::new(false));
     let stop_for_worker = stop.clone();
@@ -82,7 +85,7 @@ pub fn start(
         .spawn(move || {
             run_timer(app, id, seconds, label_for_worker, stop_for_worker);
         })
-        .expect("spawn timer worker");
+        .map_err(|e| format!("could not start the timer worker: {e}"))?;
 
     let fires_at = Instant::now() + Duration::from_secs(seconds);
     reg.timers.lock().insert(
@@ -95,7 +98,7 @@ pub fn start(
             _handle: handle,
         },
     );
-    id
+    Ok(id)
 }
 
 /// Cancel an in-flight timer. No-op if `id` is unknown (already

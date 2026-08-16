@@ -636,7 +636,14 @@ fn schedule_injection(cmd: InjectCmd) {
     };
     #[cfg(target_os = "macos")]
     {
-        let _ = rt.app.run_on_main_thread(move || do_inject(cmd));
+        // A failed dispatch must clear the guard (fixed 2026-08-16): the `let
+        // _ =` discard left INJECTING latched `true` forever, and both the
+        // passive monitor's hot path AND the buffer-backed Alt+1 expansion
+        // early-return on it — one lost dispatch silently killed the whole
+        // expander for the rest of the session.
+        if rt.app.run_on_main_thread(move || do_inject(cmd)).is_err() {
+            INJECTING.store(false, Ordering::SeqCst);
+        }
     }
     #[cfg(not(target_os = "macos"))]
     {

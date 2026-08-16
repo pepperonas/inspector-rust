@@ -1062,27 +1062,60 @@ fn ensure_gate_thread() {
             if !super::gate_should_suspend(LAST_AUDIBLE_MS.load(Ordering::Relaxed), now_ms()) {
                 continue;
             }
+            // Phase 1 (UNDER the lock, fast): stop the IOProcs and mark the
+            // session suspended. Phase 2 (lock DROPPED): the 12 x 200 ms
+            // no-other-clients probe. Holding ENGINE across that probe (the
+            // pre-2026-08-16 shape) blocked gate_resume — the wake path whose
+            // whole purpose is "a client starts -> immediate resume" — for up
+            // to 2.4 s of dead audio, and set_boom_config/shutdown with it.
+            let boom_dev = {
+                let mut slot = ENGINE.lock();
+                let Some(eng) = slot.as_mut() else { continue };
+                let Some(s) = eng.session.as_mut() else { continue };
+                if !s.io_running {
+                    continue; // already suspended — the wake listener owns resume
+                }
+                unsafe { suspend_begin(s) };
+                s.boom_dev
+            };
+            // Probe without the lock: give the (possibly timer-throttled)
+            // webview a moment to park its context, then require boom Audio to
+            // be client-free.
+            let mut clean = false;
+            for _ in 0..12 {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if !unsafe { is_running_somewhere(boom_dev) } {
+                    clean = true;
+                    break;
+                }
+            }
+            if clean {
+                tracing::info!("boom: idle gate — bridge suspended (sleep assertions released)");
+                continue;
+            }
+            // Abort — but re-check under the lock first: gate_resume may have
+            // already resumed the bridge during the probe (that racing freely
+            // is exactly what dropping the lock buys).
             let mut slot = ENGINE.lock();
             let Some(eng) = slot.as_mut() else { continue };
             let Some(s) = eng.session.as_mut() else { continue };
-            if !s.io_running {
-                continue; // already suspended — the wake listener owns resume
+            if s.io_running {
+                continue; // resumed while we probed — nothing to undo
             }
-            unsafe { try_suspend(s) };
+            unsafe { suspend_abort(s) };
         });
     if spawned.is_err() {
         GATE_THREAD_ON.store(false, Ordering::SeqCst);
     }
 }
 
-/// Attempt to suspend the bridge (called with the engine lock held, after the
-/// silence window elapsed). **Audio must never be lost:** the wake listener is
-/// armed BEFORE the no-other-clients probe (a client starting in between fires
-/// it → immediate resume), and if any other client is still running on boom
-/// Audio the suspend is aborted and the bridge keeps running.
-unsafe fn try_suspend(s: &mut Session) {
+/// Phase 1 of the idle suspend (engine lock HELD — fast, no sleeps).
+/// **Audio must never be lost:** the wake listener is armed BEFORE the
+/// no-other-clients probe (a client starting in between fires it → immediate
+/// resume, now truly immediate because the probe runs without the lock).
+unsafe fn suspend_begin(s: &mut Session) {
     // Ask the webview to park its warm AudioContext — it is itself a client on
-    // boom Audio and would otherwise always fail the probe below. (The frontend
+    // boom Audio and would otherwise always fail the probe. (The frontend
     // refuses while a mic is live, i.e. bpm/disco running → probe fails → we
     // stay running. Correct: the user is actively using audio.)
     emit_frontend("warm-audio-suspend");
@@ -1090,17 +1123,12 @@ unsafe fn try_suspend(s: &mut Session) {
     AudioDeviceStop(s.real_dev, s.play_proc);
     AudioDeviceStop(s.boom_dev, s.cap_proc);
     s.io_running = false;
-    // Probe: give the (possibly timer-throttled, hidden) webview a moment to
-    // suspend its context, then require boom Audio to be client-free.
-    for _ in 0..12 {
-        std::thread::sleep(std::time::Duration::from_millis(200));
-        if !is_running_somewhere(s.boom_dev) {
-            tracing::info!("boom: idle gate — bridge suspended (sleep assertions released)");
-            return;
-        }
-    }
-    // Another process still has a running (silent) client on boom Audio — or
-    // the webview couldn't park. Never risk inaudible playback: keep running.
+}
+
+/// The failed-probe undo (engine lock HELD again, `io_running` re-checked by
+/// the caller). Another process still has a running (silent) client on boom
+/// Audio — or the webview couldn't park. Never risk inaudible playback.
+unsafe fn suspend_abort(s: &mut Session) {
     remove_running_listener(s.boom_dev);
     let a = AudioDeviceStart(s.boom_dev, s.cap_proc);
     let b = AudioDeviceStart(s.real_dev, s.play_proc);

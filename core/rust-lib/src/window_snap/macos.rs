@@ -98,7 +98,14 @@ extern "C" {
     fn CFStringCreateWithCString(a: CFAllocatorRef, s: *const i8, enc: u32) -> CFStringRef;
     fn CFRelease(cf: CFTypeRef);
     fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-    fn CFRunLoopRun();
+    // Bounded run — the tap thread re-checks RUNNING between slices instead of
+    // depending on a CFRunLoopStop landing in the window between the RUN_LOOP
+    // publish and the loop actually running (the same publish race fixed in
+    // gestures/macos.rs the same day; here a missed stop leaked a live tap
+    // thread per snapping toggle instead of hanging).
+    fn CFRunLoopRunInMode(mode: CFStringRef, seconds: f64, return_after_source_handled: bool)
+        -> i32;
+    static kCFRunLoopDefaultMode: CFStringRef;
     fn CFRunLoopStop(rl: CFRunLoopRef);
     fn CFMachPortCreateRunLoopSource(
         a: *mut c_void,
@@ -519,7 +526,9 @@ fn install_tap_thread() {
             CGEventTapEnable(tap, true);
             RUN_LOOP.store(CFRunLoopGetCurrent() as isize, Ordering::SeqCst);
             tracing::info!("window-snap: drag monitor armed");
-            CFRunLoopRun();
+            while RUNNING.load(Ordering::SeqCst) {
+                CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.25, false);
+            }
             RUN_LOOP.store(0, Ordering::SeqCst);
         })
         .ok();

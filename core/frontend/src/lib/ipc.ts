@@ -935,6 +935,11 @@ export interface GestureConfig {
   volume_step: number;
   /** Tip-tap tab switching (rest one finger, tap another left/right). */
   tiptap: boolean;
+  /** Suppress volume/mute for ~0.5 s after a keystroke (default on). */
+  typing_guard: boolean;
+  /** Per-gesture switches (default on). */
+  volume: boolean;
+  mute: boolean;
 }
 
 export function getGestureConfig(): Promise<GestureConfig> {

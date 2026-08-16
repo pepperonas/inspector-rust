@@ -820,6 +820,29 @@ monotonic-vs-wall-clock drift (`Instant` doesn't advance during sleep; > 60 s
 jump = slept) and re-`apply`s the source. `start()` also installs the fresh
 sink BEFORE its already-running early return — a stop/start overlap could
 previously leave a live capture sink-less (recognised but dispatched nothing).
+**Typing guard + per-gesture switches (v0.109.0).** Three dispatch-layer additions against
+accidental triggers (field data: 13.5 % of one week's dispatches were isolated
+one-offs — misfire candidates; 40 of 48 were volume swipes): (1) **typing guard**
+(`gestures.typing_guard`, default ON) — volume + mute actions are suppressed when the
+last hardware key-down was < `TYPING_GUARD_S` (0.5 s) ago, the libinput
+disable-while-typing model applied at DISPATCH time (recogniser untouched — the
+failure mode of a wrong veto is one swallowed gesture, never broken detection; that
+caution is deliberate, a previous recognition-layer change broke gestures entirely).
+Keystroke recency via `CGEventSourceSecondsSinceLastEventType(HID, kCGEventKeyDown)`
+— poll-free, no extra tap; pure modifiers are flags-changed events, so hotkey chords
+don't arm the guard (libinput's exemption). Tab switching is exempt (it synthesizes
+keystrokes itself). Every veto logs `gesture suppressed (typing …)` next to the
+`gesture dispatch:` chokepoint line, so the suppression rate is measurable. The pure
+`typing_guard_suppresses(action, since_s)` is unit-tested. (2) **Per-gesture
+switches** `gestures.volume` / `gestures.mute` (default ON, serde-defaulted so old
+payloads can't disable them) gate `map_action`; Settings rows appear when gestures
+are enabled. (3) **Tip-tap rest-quiet is CUMULATIVE (`Rest1.anchor`)** — the settle
+timer used to re-arm only on per-frame jumps > `TIPTAP_MAX_MOVE_NORM`, so a thumb
+mousing slowly (< 0.05/frame while covering half the pad) counted as a settled rest
+and a palm graze mid-mousing fired a tab switch; drift is now measured against the
+position where the stillness window began (anchor resets with `since`).
+Unit-tested: slow-drift-then-tap must NOT fire, drift-then-settle-then-tap must.
+
 **Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
 starts/stops the OS source to match the config (mirrors `auto_expand`). IPC

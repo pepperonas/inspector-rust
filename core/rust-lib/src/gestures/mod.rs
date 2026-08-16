@@ -164,6 +164,9 @@ pub struct GestureEvent {
 const KEY_ENABLED: &str = "gestures.enabled";
 const KEY_VOLUME_STEP: &str = "gestures.volume_step";
 const KEY_TIPTAP: &str = "gestures.tiptap";
+const KEY_TYPING_GUARD: &str = "gestures.typing_guard";
+const KEY_VOLUME: &str = "gestures.volume";
+const KEY_MUTE: &str = "gestures.mute";
 
 fn default_false() -> bool {
     false
@@ -181,6 +184,24 @@ pub struct GestureConfig {
     /// fires for people who don't want it.
     #[serde(default = "default_false")]
     pub tiptap: bool,
+    /// Typing guard / disable-while-typing (v0.109.0, default ON): volume and
+    /// mute gestures are suppressed for a short window after a real keystroke —
+    /// palms brushing the pad WHILE typing were the top misfire source (field
+    /// data: 40 of 48 isolated dispatches in one week were volume swipes).
+    /// libinput's DWT is the model; tab switching is exempt because it
+    /// synthesizes keystrokes itself and is used in rapid bursts.
+    #[serde(default = "default_true")]
+    pub typing_guard: bool,
+    /// Per-gesture switches (v0.109.0, default ON) — the honest escape hatch:
+    /// whoever is bitten by ONE gesture can turn exactly that one off.
+    #[serde(default = "default_true")]
+    pub volume: bool,
+    #[serde(default = "default_true")]
+    pub mute: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for GestureConfig {
@@ -190,6 +211,9 @@ impl Default for GestureConfig {
             fingers: DEFAULT_FINGERS,
             volume_step: DEFAULT_VOLUME_STEP,
             tiptap: false, // opt-in (see the field doc — accidental-trigger risk)
+            typing_guard: true,
+            volume: true,
+            mute: true,
         }
     }
 }
@@ -206,6 +230,10 @@ impl GestureConfig {
                 .filter(|v: &i32| *v > 0 && *v <= 50)
                 .unwrap_or(d.volume_step),
             tiptap: crate::settings::get_bool(db, KEY_TIPTAP, d.tiptap).unwrap_or(d.tiptap),
+            typing_guard: crate::settings::get_bool(db, KEY_TYPING_GUARD, d.typing_guard)
+                .unwrap_or(d.typing_guard),
+            volume: crate::settings::get_bool(db, KEY_VOLUME, d.volume).unwrap_or(d.volume),
+            mute: crate::settings::get_bool(db, KEY_MUTE, d.mute).unwrap_or(d.mute),
         }
     }
 
@@ -213,6 +241,9 @@ impl GestureConfig {
         crate::settings::set(db, KEY_ENABLED, if self.enabled { "true" } else { "false" })?;
         crate::settings::set(db, KEY_VOLUME_STEP, &self.volume_step.to_string())?;
         crate::settings::set(db, KEY_TIPTAP, if self.tiptap { "true" } else { "false" })?;
+        crate::settings::set(db, KEY_TYPING_GUARD, if self.typing_guard { "true" } else { "false" })?;
+        crate::settings::set(db, KEY_VOLUME, if self.volume { "true" } else { "false" })?;
+        crate::settings::set(db, KEY_MUTE, if self.mute { "true" } else { "false" })?;
         Ok(())
     }
 }
@@ -226,6 +257,32 @@ pub enum GestureAction {
     MuteToggle,
     NextTab,
     PrevTab,
+}
+
+/// Typing-guard window: a volume/mute gesture dispatched less than this long
+/// after a real (non-modifier) keystroke is suppressed. libinput uses 200 ms
+/// after a lone keypress and 500 ms inside a typing burst, keyed to the TOUCH
+/// start; our check runs at DISPATCH time, which sits ~200-400 ms after touch
+/// start for a recognised swipe/tap — so 500 ms here lands in the same
+/// effective touch-start window without threading timestamps through the
+/// recogniser (deliberately: the recogniser stays untouched).
+pub const TYPING_GUARD_S: f64 = 0.5;
+
+/// Whether the typing guard suppresses `action`, given the seconds since the
+/// last hardware key-down. Pure: the platform query stays at the call site.
+/// Tab actions are NEVER suppressed — tip-tap both emits keystrokes itself
+/// (it would self-suppress its own bursts) and is guarded by its own
+/// rest-quiet rule instead. Pure modifier presses don't count as key-downs at
+/// the source (macOS reports them as flags-changed, not key-down), so
+/// shift-clicks and hotkey chords don't arm the guard — the same exemption
+/// libinput makes explicitly.
+pub fn typing_guard_suppresses(action: GestureAction, since_keydown_s: f64) -> bool {
+    match action {
+        GestureAction::NextTab | GestureAction::PrevTab => false,
+        GestureAction::VolumeUp | GestureAction::VolumeDown | GestureAction::MuteToggle => {
+            since_keydown_s < TYPING_GUARD_S
+        }
+    }
 }
 
 /// Pure mapping (config-gated). Fixed bindings for now, but isolated here so a
@@ -244,13 +301,41 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
         // cluster can over-count slightly if a finger re-touches (a new contact
         // id), so `>=` keeps a genuine 3-finger tap muting rather than being
         // dropped as a "4-finger" event. A 1/2-finger tap is still ignored.
-        GestureKind::Tap => (ev.fingers >= cfg.fingers).then_some(GestureAction::MuteToggle),
+        GestureKind::Tap => {
+            (cfg.mute && ev.fingers >= cfg.fingers).then_some(GestureAction::MuteToggle)
+        }
         // Swipes need EXACTLY the configured count (a 2-finger scroll must not
         // change volume).
-        GestureKind::SwipeUp if ev.fingers == cfg.fingers => Some(GestureAction::VolumeUp),
-        GestureKind::SwipeDown if ev.fingers == cfg.fingers => Some(GestureAction::VolumeDown),
+        GestureKind::SwipeUp if cfg.volume && ev.fingers == cfg.fingers => {
+            Some(GestureAction::VolumeUp)
+        }
+        GestureKind::SwipeDown if cfg.volume && ev.fingers == cfg.fingers => {
+            Some(GestureAction::VolumeDown)
+        }
         _ => None,
     }
+}
+
+/// Seconds since the last hardware key-down (macOS). Pure modifier presses are
+/// flags-changed events, not key-downs, so they do not reset this clock.
+/// `f64::INFINITY` elsewhere / on error = the guard never fires.
+#[cfg(target_os = "macos")]
+fn seconds_since_last_keydown() -> f64 {
+    #[link(name = "CoreGraphics", kind = "framework")]
+    extern "C" {
+        fn CGEventSourceSecondsSinceLastEventType(state: u32, event_type: u32) -> f64;
+    }
+    // kCGEventSourceStateHIDSystemState = 1; kCGEventKeyDown = 10.
+    let s = unsafe { CGEventSourceSecondsSinceLastEventType(1, 10) };
+    if s.is_finite() && s >= 0.0 {
+        s
+    } else {
+        f64::INFINITY
+    }
+}
+#[cfg(not(target_os = "macos"))]
+fn seconds_since_last_keydown() -> f64 {
+    f64::INFINITY
 }
 
 /// Perform an action via the existing volume / mute pipeline + show a passive,
@@ -1178,7 +1263,12 @@ enum TtState {
     Idle,
     /// One finger resting/settling. `since` = when this rest was established
     /// (reset on movement, so a tap right after a scroll can't fire).
-    Rest1 { rest: Contact, since: u64 },
+    /// `anchor` = the rest's position when the CURRENT stillness window began:
+    /// drift is measured cumulatively against it, not frame-to-frame — a
+    /// slowly-mousing thumb moves < `TIPTAP_MAX_MOVE_NORM` per frame while
+    /// covering half the pad, and the per-frame check read that as "settled
+    /// rest", so a palm graze mid-mousing fired a tab switch (v0.109.0 fix).
+    Rest1 { rest: Contact, anchor: Contact, since: u64 },
     /// Rest + one tap finger down. `dir` is locked at tap-land time from the
     /// tap's position relative to the rest finger; `started` = when the tap
     /// landed; `rest_since` carries the rest's settle time so chained taps
@@ -1271,19 +1361,22 @@ impl TipTapRecognizer {
             // Idle / Poisoned funnel finger-count changes toward a fresh rest.
             TtState::Idle | TtState::Poisoned => match c.len() {
                 0 => (TtState::Idle, None),
-                1 => (TtState::Rest1 { rest: c[0], since: t_ms }, None),
+                1 => (TtState::Rest1 { rest: c[0], anchor: c[0], since: t_ms }, None),
                 _ => (TtState::Poisoned, None), // 2+ landing at once = scroll/swipe
             },
-            TtState::Rest1 { rest, since } => match c.len() {
+            TtState::Rest1 { rest, anchor, since } => match c.len() {
                 0 => (TtState::Idle, None),
                 1 => {
-                    // Track the rest finger; big movement (scroll) re-arms the
-                    // settle timer so a tap right after can't fire.
-                    let moved = dist(c[0], rest) > TIPTAP_MAX_MOVE_NORM;
+                    // Track the rest finger; CUMULATIVE movement since the
+                    // stillness window began (scroll, slow mousing) re-arms the
+                    // settle timer so a tap right after motion can't fire. A
+                    // frame-to-frame check is blind to slow steady motion.
+                    let drifted = dist(c[0], anchor) > TIPTAP_MAX_MOVE_NORM;
                     (
                         TtState::Rest1 {
                             rest: c[0],
-                            since: if moved { t_ms } else { since },
+                            anchor: if drifted { c[0] } else { anchor },
+                            since: if drifted { t_ms } else { since },
                         },
                         None,
                     )
@@ -1340,7 +1433,9 @@ impl TipTapRecognizer {
                 1 => (
                     // The rest finger stays down — chaining: go back to a settled
                     // Rest1 (carry `rest_since`) so a second tap can fire at once.
-                    TtState::Rest1 { rest: c[0], since: rest_since },
+                    // The anchor restarts at the current position: the rest was
+                    // still through the whole tap (TapDown's movement guard).
+                    TtState::Rest1 { rest: c[0], anchor: c[0], since: rest_since },
                     Self::tap_emit(dir, started, lift_t),
                 ),
                 2 => {
@@ -1419,6 +1514,21 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
         let app_sink = app.clone();
         let sink: GestureSink = Box::new(move |ev| {
             if let Some(action) = map_action(&ev, &cfg) {
+                // Typing guard (v0.109.0): a dispatch-layer veto, so the
+                // recogniser is untouched — the failure mode of a wrong veto is
+                // one swallowed gesture, never broken detection. Each veto logs
+                // its own line so the suppression rate is measurable against
+                // the isolated-dispatch misfire metric.
+                if cfg.typing_guard {
+                    let since = seconds_since_last_keydown();
+                    if typing_guard_suppresses(action, since) {
+                        tracing::info!(
+                            "gesture suppressed (typing {:.2}s ago): {:?} ({} fingers) → {:?}",
+                            since, ev.kind, ev.fingers, action
+                        );
+                        return;
+                    }
+                }
                 // One low-volume line per dispatched gesture action (kind +
                 // finger count) — the single chokepoint, handy for diagnosing
                 // any future gesture misfire without turning on debug.
@@ -1552,7 +1662,7 @@ mod tests {
     #[test]
     fn config_save_load_round_trip() {
         let db = test_db();
-        let cfg = GestureConfig { enabled: true, fingers: DEFAULT_FINGERS, volume_step: 7, tiptap: true };
+        let cfg = GestureConfig { enabled: true, volume_step: 7, tiptap: true, ..Default::default() };
         cfg.save(&db).unwrap();
         let loaded = GestureConfig::load(&db);
         assert!(loaded.enabled);
@@ -2489,7 +2599,7 @@ mod tests {
 
     #[test]
     fn map_action_respects_config_and_fingers() {
-        let on = GestureConfig { enabled: true, fingers: 3, volume_step: 6, tiptap: true };
+        let on = GestureConfig { enabled: true, tiptap: true, ..Default::default() };
         let off = GestureConfig { enabled: false, ..on };
         let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
         let tap = GestureEvent { kind: GestureKind::Tap, fingers: 3 };
@@ -2500,5 +2610,91 @@ mod tests {
         assert_eq!(map_action(&up, &off), None); // disabled
         assert_eq!(map_action(&two, &on), None); // wrong finger count
         assert_eq!(map_action(&left, &on), None); // unbound direction
+    }
+
+    #[test]
+    fn map_action_per_gesture_switches() {
+        // Each switch kills exactly its own gesture family, nothing else.
+        let base = GestureConfig { enabled: true, tiptap: true, ..Default::default() };
+        let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
+        let down = GestureEvent { kind: GestureKind::SwipeDown, fingers: 3 };
+        let tap = GestureEvent { kind: GestureKind::Tap, fingers: 3 };
+        let right = GestureEvent { kind: GestureKind::TipTapRight, fingers: 2 };
+
+        let no_volume = GestureConfig { volume: false, ..base };
+        assert_eq!(map_action(&up, &no_volume), None);
+        assert_eq!(map_action(&down, &no_volume), None);
+        assert_eq!(map_action(&tap, &no_volume), Some(GestureAction::MuteToggle));
+        assert_eq!(map_action(&right, &no_volume), Some(GestureAction::NextTab));
+
+        let no_mute = GestureConfig { mute: false, ..base };
+        assert_eq!(map_action(&tap, &no_mute), None);
+        assert_eq!(map_action(&up, &no_mute), Some(GestureAction::VolumeUp));
+        assert_eq!(map_action(&right, &no_mute), Some(GestureAction::NextTab));
+    }
+
+    #[test]
+    fn typing_guard_suppresses_volume_and_mute_only_within_window() {
+        use GestureAction::*;
+        // Inside the window: volume + mute suppressed, tabs never.
+        for a in [VolumeUp, VolumeDown, MuteToggle] {
+            assert!(typing_guard_suppresses(a, 0.0));
+            assert!(typing_guard_suppresses(a, TYPING_GUARD_S - 0.01));
+            // At/after the boundary: allowed again.
+            assert!(!typing_guard_suppresses(a, TYPING_GUARD_S));
+            assert!(!typing_guard_suppresses(a, 3600.0));
+        }
+        for a in [NextTab, PrevTab] {
+            assert!(!typing_guard_suppresses(a, 0.0), "tab actions are exempt: {a:?}");
+        }
+        // The error sentinel (no data) must never suppress.
+        assert!(!typing_guard_suppresses(VolumeUp, f64::INFINITY));
+    }
+
+    #[test]
+    fn gesture_config_missing_new_fields_defaults_on() {
+        // A pre-v0.109.0 frontend payload (no typing_guard/volume/mute keys)
+        // must deserialise with all three ON — never silently disable guards.
+        let cfg: GestureConfig = serde_json::from_str(
+            r#"{"enabled":true,"fingers":3,"volume_step":5,"tiptap":false}"#,
+        )
+        .unwrap();
+        assert!(cfg.typing_guard);
+        assert!(cfg.volume);
+        assert!(cfg.mute);
+    }
+
+    #[test]
+    fn tiptap_slow_drift_then_tap_does_not_fire() {
+        // The v0.109.0 misfire: a thumb mousing SLOWLY (0.02/frame — under the
+        // per-frame movement bar) covers 0.18 of the pad, then a second finger
+        // grazes the pad. Frame-to-frame checks read the mover as a settled
+        // rest and fired a tab switch; the cumulative anchor re-arms the
+        // settle timer, so the graze right after motion must NOT emit.
+        let drift: Vec<(u64, Vec<Contact>)> = (0..10)
+            .map(|i| (i * 20, vec![Contact { x: 0.30 + 0.02 * i as f64, y: 0.5 }]))
+            .collect();
+        let mut frames = drift;
+        frames.push((200, vec![Contact { x: 0.48, y: 0.5 }, Contact { x: 0.68, y: 0.5 }]));
+        frames.push((260, vec![Contact { x: 0.48, y: 0.5 }]));
+        frames.push((300, vec![Contact { x: 0.48, y: 0.5 }]));
+        frames.push((340, vec![]));
+        assert_eq!(tiptap_events(&frames), vec![], "tap right after slow motion must not fire");
+    }
+
+    #[test]
+    fn tiptap_fires_once_the_drifting_rest_settles() {
+        // Same slow drift, but the rest then holds STILL past REST_MIN before
+        // the tap lands — a deliberate tip-tap after moving the cursor must
+        // still work (the guard blocks motion, not the user).
+        let mut frames: Vec<(u64, Vec<Contact>)> = (0..10)
+            .map(|i| (i * 20, vec![Contact { x: 0.30 + 0.02 * i as f64, y: 0.5 }]))
+            .collect();
+        frames.push((300, vec![Contact { x: 0.48, y: 0.5 }])); // still ≥ REST_MIN
+        frames.push((320, vec![Contact { x: 0.48, y: 0.5 }, Contact { x: 0.68, y: 0.5 }]));
+        frames.push((380, vec![Contact { x: 0.48, y: 0.5 }]));
+        frames.push((420, vec![Contact { x: 0.48, y: 0.5 }]));
+        frames.push((500, vec![]));
+        assert_eq!(tiptap_events(&frames), vec![GestureKind::TipTapRight]);
     }
 }

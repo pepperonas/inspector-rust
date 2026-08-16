@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.109.0] — 2026-08-16
+
+Accidental-gesture hardening, phase 1 — dispatch-layer guards only, so recognition can't regress.
+
+### Added
+
+- **Typing guard (default on):** volume and mute gestures are ignored for half a second after a real keystroke — palms brushing the trackpad while typing were the most common accidental trigger (40 of 48 suspect dispatches in a week of logs). Tab switching is unaffected; modifier-only chords don't arm the guard. Every suppression is logged, so the effect is measurable.
+- **Per-gesture switches:** volume swipe, mute tap and tip-tap can now each be turned off individually in Settings → Touchpad gestures.
+
+### Fixed
+
+- **Tip-tap no longer fires right after moving the cursor.** The "resting finger must be still first" rule only caught per-frame jumps, so a thumb mousing slowly across the pad counted as a settled rest — a second finger grazing the pad then switched tabs. Stillness is now measured cumulatively; a deliberate tip-tap after the finger actually settles works unchanged.
+- The Settings description of tip-tap still explained the old two-finger-rest posture; it now matches the actual one-finger-rest gesture.
+
 ## [0.108.1] — 2026-08-16
 
 The remaining 13 findings from the bug hunt — leaks, wedges, and honesty.

@@ -470,37 +470,23 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       .then(setGestureCfg)
       .catch(() => setGestureCfg(null));
   }, []);
-  const toggleTipTap = async (next: boolean) => {
+  const patchGestures = async (patch: Partial<GestureConfig>) => {
     if (!gestureCfg) return;
     setGestureBusy(true);
-    const optimistic = { ...gestureCfg, tiptap: next };
-    setGestureCfg(optimistic);
-    try {
-      const applied = await setGestureConfig(optimistic);
-      setGestureCfg(applied);
-    } catch (e) {
-      console.error("tip-tap toggle failed", e);
-      setGestureCfg({ ...gestureCfg, tiptap: !next });
-    } finally {
-      setGestureBusy(false);
-    }
-  };
-
-  const toggleGestures = async (next: boolean) => {
-    if (!gestureCfg) return;
-    setGestureBusy(true);
-    const optimistic = { ...gestureCfg, enabled: next };
+    const previous = gestureCfg;
+    const optimistic = { ...gestureCfg, ...patch };
     setGestureCfg(optimistic); // optimistic — the IPC re-applies the source
     try {
       const applied = await setGestureConfig(optimistic);
       setGestureCfg(applied);
     } catch (e) {
-      console.error("gesture toggle failed", e);
-      setGestureCfg({ ...gestureCfg, enabled: !next });
+      console.error("gesture config change failed", e);
+      setGestureCfg(previous);
     } finally {
       setGestureBusy(false);
     }
   };
+  const toggleGestures = (next: boolean) => patchGestures({ enabled: next });
 
   // ── Timer alarm style (v0.84.76) ─────────────────────────────────────────
   const [alarmStyle, setAlarmStyleState] = useState<AlarmStyle | null>(null);
@@ -1309,23 +1295,70 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               </label>
             </Row>
             {gestureCfg?.enabled && (
-              <Row label="Tip-tap tab switch">
-                <label className="flex cursor-pointer items-center gap-2 text-[12px]">
-                  <input
-                    type="checkbox"
-                    checked={gestureCfg?.tiptap ?? true}
-                    disabled={gestureCfg === null || gestureBusy}
-                    onChange={(e) => void toggleTipTap(e.target.checked)}
-                    className="accent-[var(--color-accent)]"
-                  />
-                  <span className="text-[var(--color-muted)]">
-                    Off by default. Rest <b>two</b> fingers on the trackpad and tap a{" "}
-                    <b>third</b> to their right → next tab (Ctrl+Tab); to their left →
-                    previous tab (Ctrl+Shift+Tab). The two-finger rest is a deliberate
-                    posture, so it won't misfire during normal cursor use.
-                  </span>
-                </label>
-              </Row>
+              <>
+                <Row label="Volume swipe">
+                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                    <input
+                      type="checkbox"
+                      checked={gestureCfg?.volume ?? true}
+                      disabled={gestureBusy}
+                      onChange={(e) => void patchGestures({ volume: e.target.checked })}
+                      className="accent-[var(--color-accent)]"
+                    />
+                    <span className="text-[var(--color-muted)]">
+                      3-finger swipe up / down changes the volume.
+                    </span>
+                  </label>
+                </Row>
+                <Row label="Mute tap">
+                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                    <input
+                      type="checkbox"
+                      checked={gestureCfg?.mute ?? true}
+                      disabled={gestureBusy}
+                      onChange={(e) => void patchGestures({ mute: e.target.checked })}
+                      className="accent-[var(--color-accent)]"
+                    />
+                    <span className="text-[var(--color-muted)]">
+                      3-finger tap toggles mute. Turn this off if palm touches keep
+                      muting your audio.
+                    </span>
+                  </label>
+                </Row>
+                <Row label="Typing guard">
+                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                    <input
+                      type="checkbox"
+                      checked={gestureCfg?.typing_guard ?? true}
+                      disabled={gestureBusy}
+                      onChange={(e) => void patchGestures({ typing_guard: e.target.checked })}
+                      className="accent-[var(--color-accent)]"
+                    />
+                    <span className="text-[var(--color-muted)]">
+                      Ignore volume / mute gestures for half a second after a
+                      keystroke — palms brushing the trackpad while typing are the
+                      most common accidental trigger. Tab switching is unaffected.
+                    </span>
+                  </label>
+                </Row>
+                <Row label="Tip-tap tab switch">
+                  <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                    <input
+                      type="checkbox"
+                      checked={gestureCfg?.tiptap ?? true}
+                      disabled={gestureBusy}
+                      onChange={(e) => void patchGestures({ tiptap: e.target.checked })}
+                      className="accent-[var(--color-accent)]"
+                    />
+                    <span className="text-[var(--color-muted)]">
+                      Off by default. Rest <b>one</b> finger on the trackpad and tap a{" "}
+                      <b>second</b> to its right → next tab; to its left → previous
+                      tab. The resting finger must be still for a moment first, so
+                      taps right after moving the cursor don't misfire.
+                    </span>
+                  </label>
+                </Row>
+              </>
             )}
           </Section>
         </div>

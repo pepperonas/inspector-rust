@@ -648,6 +648,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::boom_install_driver,
             commands::boom_uninstall_driver,
             commands::boom_levels,
+            commands::boom_unmute,
             commands::get_boom_config,
             commands::set_boom_config,
             commands::list_action_hotkeys,

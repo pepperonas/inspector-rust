@@ -20,7 +20,7 @@ import {
   BOOM_BANDS,
   type BoomConfig,
   type BoomPreset,
-  toggleMute,
+  boomUnmute,
 } from "../lib/ipc";
 
 const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
@@ -379,7 +379,7 @@ export function BoomPanel({
             type="button"
             className="rounded-md bg-amber-500/20 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/30"
             onClick={() => {
-              void toggleMute()
+              void boomUnmute()
                 .then(() => setMuted(false))
                 .catch(() => {});
             }}

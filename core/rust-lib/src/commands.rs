@@ -2107,6 +2107,12 @@ pub fn boom_levels() -> crate::boom::BoomLevels {
     crate::boom::levels()
 }
 
+/// Clear the mute on both bridge devices — the boom panel's "Unmute" button.
+#[tauri::command]
+pub fn boom_unmute() -> bool {
+    crate::boom::unmute()
+}
+
 #[tauri::command]
 pub fn get_boom_config(db: State<'_, DbHandle>) -> crate::boom::BoomConfig {
     crate::boom::BoomConfig::load(&db)

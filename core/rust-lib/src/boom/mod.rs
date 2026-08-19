@@ -699,6 +699,19 @@ pub struct BoomLevels {
     pub muted: bool,
 }
 
+/// Clear the mute on both bridge devices (the panel banner's Unmute button).
+/// `true` = something was actually cleared. No-op / `false` off macOS.
+pub fn unmute() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::unmute_outputs()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// Current engine levels (zeros when not running / off macOS).
 pub fn levels() -> BoomLevels {
     #[cfg(target_os = "macos")]
@@ -712,23 +725,22 @@ pub fn levels() -> BoomLevels {
     }
 }
 
-/// Mute transparency (v0.112.0) — the pure adoption rule for a bridge
-/// (re)start. macOS-native semantics: mute belongs to the REAL output device
-/// the user hears — switching to an unmuted device gives sound. boom Audio
-/// sits in front as the permanent default, so ITS mute used to persist
-/// invisibly across boom-enable and device switches (three field incidents of
-/// "boom is on and I hear nothing"). On every bridge (re)start boom Audio
-/// adopts the real device's mute state; `None` device states are treated as
-/// audible (a device without a mute control cannot be muted). Returns
-/// `Some(target)` when boom Audio's mute must be rewritten, `None` when it
-/// already matches. Deliberately NOT applied on idle-gate resume (same
-/// device, no user-visible transition — a deliberate mute must survive).
-pub fn mute_adoption(real: Option<bool>, boom: Option<bool>) -> Option<bool> {
-    let real = real.unwrap_or(false);
-    match boom {
-        Some(b) if b != real => Some(real),
-        _ => None,
-    }
+/// Mute transparency (v0.112.1) — the pure clearing rule for a bridge
+/// (re)start: `true` = this device carries a mute that must be cleared. A
+/// mute on boom Audio (the permanent default) persisted invisibly across
+/// boom-enable and device switches — three field incidents of "boom is on
+/// and I hear nothing" were exactly that, never a broken bridge. v0.112.0
+/// first tried ADOPTING the real device's mute instead (macOS-native
+/// per-device semantics), but a live probe showed real devices carry stale
+/// master-mute reads that don't even reflect audibility (the MacBook
+/// speakers reported muted while playing sound) — so the adoption matched
+/// "both muted" and healed nothing. The honest rule: right after enabling
+/// boom or switching outputs, silence is NEVER the desired state — clear the
+/// mute on BOTH boom Audio and the real device. Deliberately NOT applied on
+/// idle-gate resume (same device, no user-visible transition — a deliberate
+/// mid-session mute must survive).
+pub fn should_clear_stale_mute(state: Option<bool>) -> bool {
+    state == Some(true)
 }
 
 // ── Windows backend — Equalizer APO config renderer (pure, cross-platform) ───
@@ -841,19 +853,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn mute_adoption_follows_the_real_device() {
-        // boom Audio must adopt the real device's mute on (re)start.
-        assert_eq!(mute_adoption(Some(false), Some(true)), Some(false), "stale mute cleared");
-        assert_eq!(mute_adoption(Some(true), Some(false)), Some(true), "deliberate device mute adopted");
-        // Already matching → no write (property writes aren't free).
-        assert_eq!(mute_adoption(Some(false), Some(false)), None);
-        assert_eq!(mute_adoption(Some(true), Some(true)), None);
-        // No mute control on the real device = audible → clear a stale mute.
-        assert_eq!(mute_adoption(None, Some(true)), Some(false));
-        assert_eq!(mute_adoption(None, Some(false)), None);
-        // boom Audio unreadable → nothing to write.
-        assert_eq!(mute_adoption(Some(true), None), None);
-        assert_eq!(mute_adoption(None, None), None);
+    fn stale_mutes_are_cleared_only_when_actually_set() {
+        // A bridge (re)start clears a set mute; an unmuted or control-less
+        // device gets no write (property writes aren't free, and writing
+        // "unmuted" to a device without a mute control would just error).
+        assert!(should_clear_stale_mute(Some(true)));
+        assert!(!should_clear_stale_mute(Some(false)));
+        assert!(!should_clear_stale_mute(None));
     }
 
 

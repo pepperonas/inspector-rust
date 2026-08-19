@@ -1061,6 +1061,11 @@ export function boomLevels(): Promise<BoomLevels> {
   return invoke("boom_levels");
 }
 
+/** Clear the mute on both bridge devices (boom panel's Unmute button). */
+export function boomUnmute(): Promise<boolean> {
+  return invoke("boom_unmute");
+}
+
 export function getBoomConfig(): Promise<BoomConfig> {
   return invoke("get_boom_config");
 }

@@ -935,17 +935,21 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
 
-    // Mute transparency (v0.112.0): boom Audio adopts the REAL device's mute
-    // on every bridge (re)start — enabling boom or switching devices must be
-    // audibility-neutral, exactly like switching outputs without boom. A stale
-    // mute on the always-default boom Audio was invisible (no HUD) and read as
-    // "boom is broken" three times in the field. Pure rule: super::mute_adoption.
-    if let Some(target) = super::mute_adoption(device_mute(real_dev), device_mute(boom_dev)) {
-        if set_device_mute(boom_dev, target) {
-            tracing::info!(
-                "boom: adopted mute={target} from '{}' (stale boom-Audio mute state replaced)",
-                device_name(real_dev)
-            );
+    // Mute transparency (v0.112.1): right after enabling boom or switching
+    // outputs, silence is never the desired state — clear a set mute on BOTH
+    // boom Audio (where keys/HUD/gestures land while boom fronts the system;
+    // it persisted invisibly and read as "boom is broken" three times in the
+    // field) and the real device (its own device-level mute is equally
+    // invisible behind boom, and a live probe showed those reads go stale).
+    // The idle-gate resume deliberately does NOT clear (same device, no
+    // user-visible transition — a deliberate mid-session mute survives).
+    for (dev, label) in [(boom_dev, "boom Audio"), (real_dev, "real output")] {
+        if super::should_clear_stale_mute(device_mute(dev)) {
+            if set_device_mute(dev, false) {
+                tracing::info!("boom: cleared stale mute on {label} '{}'", device_name(dev));
+            } else {
+                tracing::warn!("boom: could not clear mute on {label} '{}'", device_name(dev));
+            }
         }
     }
 
@@ -957,6 +961,7 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     set_default_output(boom_dev);
 
     LEVELS_BOOM_DEV.store(boom_dev, Ordering::Relaxed);
+    LEVELS_REAL_DEV.store(real_dev, Ordering::Relaxed);
     eng.session = Some(Session {
         boom_dev,
         real_dev,
@@ -992,10 +997,10 @@ pub(crate) fn driver_present() -> bool {
 /// boom Audio's mute property live (µs — the panel polls ~8 Hz) so the UI can
 /// say WHY the output is silent instead of looking broken.
 pub(crate) fn levels() -> (f32, f32, bool, bool) {
-    let muted = {
-        let dev = LEVELS_BOOM_DEV.load(Ordering::Relaxed);
+    let muted = [&LEVELS_BOOM_DEV, &LEVELS_REAL_DEV].iter().any(|a| {
+        let dev = a.load(Ordering::Relaxed);
         dev != 0 && unsafe { device_mute(dev) }.unwrap_or(false)
-    };
+    });
     (
         f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed)),
         f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed)),
@@ -1004,9 +1009,24 @@ pub(crate) fn levels() -> (f32, f32, bool, bool) {
     )
 }
 
-/// boom Audio's device id while a session runs (0 = none) — lets `levels()`
-/// read the mute property without a per-call device-list scan.
+/// boom Audio's / the real output's device ids while a session runs (0 =
+/// none) — lets `levels()` read the mute properties without a device-list
+/// scan, and `unmute_outputs()` clear them from the panel banner's button.
 static LEVELS_BOOM_DEV: AtomicU32 = AtomicU32::new(0);
+static LEVELS_REAL_DEV: AtomicU32 = AtomicU32::new(0);
+
+/// Clear the mute on both bridge devices (panel "Unmute" button). Returns
+/// whether anything was actually cleared.
+pub(crate) fn unmute_outputs() -> bool {
+    let mut cleared = false;
+    for a in [&LEVELS_BOOM_DEV, &LEVELS_REAL_DEV] {
+        let dev = a.load(Ordering::Relaxed);
+        if dev != 0 && unsafe { device_mute(dev) } == Some(true) {
+            cleared |= unsafe { set_device_mute(dev, false) };
+        }
+    }
+    cleared
+}
 
 const HAL_DIR: &str = "/Library/Audio/Plug-Ins/HAL";
 
@@ -1240,6 +1260,7 @@ fn gate_resume() {
 
 unsafe fn stop_locked(eng: &mut Engine) {
     LEVELS_BOOM_DEV.store(0, Ordering::Relaxed);
+    LEVELS_REAL_DEV.store(0, Ordering::Relaxed);
     remove_default_listener();
     // Restore the user's real output device FIRST.
     let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
@@ -1429,5 +1450,35 @@ pub(crate) fn shutdown() {
     let mut slot = ENGINE.lock();
     if let Some(eng) = slot.as_mut() {
         unsafe { stop_locked(eng) };
+    }
+}
+
+#[cfg(test)]
+mod probe_tests {
+    use super::*;
+
+    #[test]
+    #[ignore] // live probe: prints every output device's mute state
+    fn probe_device_mutes() {
+        unsafe {
+            let a = addr(PROP_DEVICES);
+            let mut size: u32 = 0;
+            assert_eq!(AudioObjectGetPropertyDataSize(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size), 0);
+            let count = size as usize / std::mem::size_of::<AudioObjectID>();
+            let mut ids = vec![0u32; count];
+            assert_eq!(AudioObjectGetPropertyData(SYSTEM_OBJECT, &a, 0, std::ptr::null(), &mut size, ids.as_mut_ptr() as *mut c_void), 0);
+            let def = default_output();
+            for id in ids {
+                if !device_has_output(id) {
+                    continue;
+                }
+                eprintln!(
+                    "dev {id}{} '{}' mute={:?}",
+                    if id == def { " (DEFAULT)" } else { "" },
+                    device_name(id),
+                    device_mute(id)
+                );
+            }
+        }
     }
 }

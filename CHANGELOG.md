@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.112.1] — 2026-08-19
+
+### Fixed
+
+- **The v0.112.0 mute heal actually heals now.** The live repro showed the "adopt the real device's mute" rule healed nothing: real output devices carry stale master-mute readings that don't even reflect audibility (the MacBook speakers reported muted while audibly playing), so the adoption saw two matching mutes and did nothing. The rule is now simpler and honest — a bridge (re)start clears a set mute on **both** boom Audio and the real device: right after enabling boom or switching outputs, silence is never the desired state. A deliberate mid-session mute still survives the idle-gate's suspend/resume, and the panel's Unmute button now clears both devices too.
+
 ## [0.112.0] — 2026-08-19
 
 Boom: no more invisible mute — the cause of every "boom is on and I hear nothing" incident.

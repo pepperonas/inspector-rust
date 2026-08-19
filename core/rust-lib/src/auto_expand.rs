@@ -483,6 +483,11 @@ impl AutoExpander {
         self.try_match(None)
     }
 
+    /// Current tracked-buffer length (diagnostics — never exposes content).
+    pub fn buffer_len(&self) -> usize {
+        self.buf.len()
+    }
+
     /// Attempt a suffix match on the current buffer. `trailing` is the
     /// delimiter that should be re-emitted after the body (delimiter mode)
     /// or `None` (immediate mode).
@@ -588,7 +593,33 @@ enum InjectCmd {
 /// triggering event should be **consumed** (dropped) — only true for the
 /// Backspace that triggers an undo. Cheap: a buffer feed + maybe scheduling
 /// a deferred injection; the slow safety checks happen in `do_inject`.
+/// Wall-clock ms of the last event the tap delivered (0 = none yet this run).
+/// Liveness evidence: distinguishes "buffer empty because something reset it"
+/// (fresh timestamp) from "buffer empty because the tap is dead / not
+/// receiving" (stale) when a hotkey expansion finds nothing.
+static LAST_TAP_EVENT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+fn wall_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+/// (Tracked-buffer length, ms since the tap last delivered ANY event —
+/// `u64::MAX` when it never has). Diagnostic surface for the hotkey path.
+pub fn tracked_state() -> (usize, u64) {
+    let len = RT
+        .get()
+        .map(|rt| rt.engine.lock().buffer_len())
+        .unwrap_or(0);
+    let last = LAST_TAP_EVENT_MS.load(Ordering::Relaxed);
+    let age = if last == 0 { u64::MAX } else { wall_ms().saturating_sub(last) };
+    (len, age)
+}
+
 fn on_event(ev: KeyEvent) -> bool {
+    LAST_TAP_EVENT_MS.store(wall_ms(), Ordering::Relaxed);
     if INJECTING.load(Ordering::SeqCst) || !RUNNING.load(Ordering::SeqCst) {
         return false;
     }
@@ -755,7 +786,15 @@ pub fn try_hotkey_expand() -> bool {
         trailing,
     } = action
     else {
-        tracing::info!("auto_expand: hotkey — no abbreviation matched in the tracked buffer");
+        // Length + tap-liveness age (never content — keystrokes are sensitive):
+        // len=0 + fresh age → something reset the buffer right before the
+        // hotkey (click / arrow / Enter); len=0 + stale age → the tap isn't
+        // receiving events at all; len>0 → typed text matched no abbreviation.
+        let (len, age) = tracked_state();
+        tracing::info!(
+            "auto_expand: hotkey — no abbreviation matched (buffer len={len}, last tap event {} ago)",
+            if age == u64::MAX { "never".to_string() } else { format!("{age}ms") }
+        );
         return false;
     };
     tracing::info!(snippet_id, backspaces, "auto_expand: hotkey expanding from buffer");
@@ -1229,6 +1268,37 @@ mod tests {
             ..Default::default()
         };
         AutoExpander::new(table(), cfg)
+    }
+
+    #[test]
+    fn track_only_mode_fills_the_buffer_and_hotkey_matching_works() {
+        // The user's common config: abbreviation HOTKEY on, auto-expansion
+        // OFF (cfg.enabled = false). The monitor then tracks only — but the
+        // buffer MUST still fill and `match_buffer_now` MUST still expand;
+        // this is the entire terminal-expansion path (v0.64.0). A regression
+        // here would make the hotkey dead everywhere the AX path can't read.
+        let cfg = AutoExpandConfig {
+            enabled: false,
+            ..Default::default()
+        };
+        let mut e = AutoExpander::new(table(), cfg);
+        for c in "addr".chars() {
+            assert_eq!(e.feed(KeyEvent::Char(c)), ExpandAction::None, "track-only never auto-fires");
+        }
+        assert_eq!(e.buffer_len(), 4, "track-only must still fill the buffer");
+        match e.match_buffer_now() {
+            ExpandAction::Expand { backspaces, trailing, .. } => {
+                assert_eq!(backspaces, 4);
+                assert_eq!(trailing, None);
+            }
+            other => panic!("hotkey match must work in track-only mode, got {other:?}"),
+        }
+        // A delimiter still clears the buffer in track-only mode (word ended).
+        let mut e2 = AutoExpander::new(table(), AutoExpandConfig { enabled: false, ..Default::default() });
+        for c in "addr ".chars() {
+            e2.feed(KeyEvent::Char(c));
+        }
+        assert_eq!(e2.buffer_len(), 0);
     }
 
     fn type_chars(e: &mut AutoExpander, s: &str) -> Vec<ExpandAction> {

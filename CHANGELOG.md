@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.112.2] — 2026-08-19
+
+### Fixed
+
+- **The "text expansion can't work in terminals" banner told a stale story.** Since v0.64.0 the abbreviation hotkey DOES work in terminals — it expands from the keys you just typed. The banner now says what actually happened and how to proceed: either nothing freshly typed was tracked (a click, arrow key, Enter or Esc right before the hotkey clears the typed-key buffer — type the abbreviation and press the hotkey immediately), or the typed word simply matches no snippet abbreviation. The no-match log line now records the buffer length and how recently the keystroke monitor last saw an event, so a genuinely dead monitor is distinguishable from an emptied buffer.
+- New regression test pins the load-bearing contract: with auto-expansion off (hotkey-only config), the keystroke monitor still fills the buffer and the hotkey still expands from it — the entire terminal path.
+
 ## [0.112.1] — 2026-08-19
 
 ### Fixed

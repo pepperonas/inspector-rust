@@ -2625,11 +2625,16 @@ function App() {
   // so the user *knows* the expansion was blocked rather than
   // wondering why nothing happened.
   const [expanderBlocked, setExpanderBlocked] = useState<
-    null | "password" | "secure_input" | "terminal"
+    null | "password" | "secure_input" | "terminal" | "terminal-empty"
   >(null);
   useTauriEvent<string>("expander-blocked", (e) => {
     const reason = e.payload;
-    if (reason === "password" || reason === "secure_input" || reason === "terminal") {
+    if (
+      reason === "password" ||
+      reason === "secure_input" ||
+      reason === "terminal" ||
+      reason === "terminal-empty"
+    ) {
       setExpanderBlocked(reason);
     }
   });
@@ -2638,7 +2643,7 @@ function App() {
     // Terminal banner gets longer dwell time — the popup just opened,
     // user needs to read the hint + decide to search vs. configure
     // a direct-slot. Password / secure-input are dismiss-and-forget.
-    const dwell = expanderBlocked === "terminal" ? 8000 : 4000;
+    const dwell = expanderBlocked.startsWith("terminal") ? 8000 : 4000;
     const id = window.setTimeout(() => setExpanderBlocked(null), dwell);
     return () => window.clearTimeout(id);
   }, [expanderBlocked]);
@@ -3926,15 +3931,23 @@ function App() {
                   suppressing synthetic input (typically because a password field is the
                   keyboard responder). Try again after leaving the secure field.
                 </>
+              ) : expanderBlocked === "terminal-empty" ? (
+                <>
+                  <b>Nothing to expand — no freshly typed abbreviation.</b> In terminals
+                  the expander works from the keys you <b>just typed</b> (it can't read
+                  the input line); a click, arrow key, Enter or Esc right before the
+                  hotkey clears that buffer. Type the abbreviation and press the hotkey
+                  immediately — or <b>type it here in the search bar</b> and press{" "}
+                  <b>⏎</b> to paste, or use a <b>Direct hotkey → snippet</b> (Settings).
+                </>
               ) : (
                 <>
-                  <b>Text expansion can't work in terminals.</b> Terminals don't expose
-                  their input line to the accessibility API, and the keystroke-cycle
-                  fallback (<code>⌥⇧←</code> select-word) becomes an ESC-sequence instead
-                  of a selection. Workarounds:{" "}
-                  <b>type the abbreviation here in the popup search bar</b> and press{" "}
-                  <b>⏎</b> to paste, OR configure a <b>Direct hotkey → snippet</b> in
-                  Settings (those bypass reading and work in any app, terminals included).
+                  <b>What you just typed matches no snippet abbreviation.</b> In
+                  terminals the expander works from the keys you just typed — the last
+                  word didn't match any abbreviation (check the exact spelling in the
+                  Snippets tab). You can also <b>type the abbreviation here in the
+                  search bar</b> and press <b>⏎</b> to paste, or use a{" "}
+                  <b>Direct hotkey → snippet</b> (Settings) — both work in any app.
                 </>
               )}
             </span>

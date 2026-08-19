@@ -1186,12 +1186,19 @@ pub fn register_expander(
                                 tracing::debug!("expander hotkey: Inspector Rust frontmost");
                             }
                             Some(expander::BlockReason::TerminalUnsupported) => {
-                                // Terminals can't be expanded into via
-                                // the AX/clipboard cycle. Open the
-                                // popup as a fallback so the user can
-                                // search + paste a snippet manually.
+                                // The AX/clipboard cycle can't run in a
+                                // terminal — but the BUFFER path (v0.64.0)
+                                // can, and it already declined above. Tell
+                                // the user WHY it declined: an empty typed
+                                // buffer (reset by a click/arrow/Enter — or
+                                // a dead tap) is a different situation than
+                                // typed text matching no abbreviation.
+                                // Open the popup as a fallback for search +
+                                // paste either way.
+                                let (len, _age) = crate::auto_expand::tracked_state();
+                                let payload = if len == 0 { "terminal-empty" } else { "terminal" };
                                 let _ = show_popup(&app_for_err);
-                                let _ = app_for_err.emit("expander-blocked", "terminal");
+                                let _ = app_for_err.emit("expander-blocked", payload);
                             }
                             None => tracing::warn!("expand_at_cursor failed: {e:#}"),
                         },

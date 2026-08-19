@@ -20,6 +20,7 @@ import {
   BOOM_BANDS,
   type BoomConfig,
   type BoomPreset,
+  toggleMute,
 } from "../lib/ipc";
 
 const EFFECTS: { key: keyof BoomConfig["effects"]; label: string }[] = [
@@ -50,6 +51,7 @@ export function BoomPanel({
   const [meterIn, setMeterIn] = useState(0);
   const [meterOut, setMeterOut] = useState(0);
   const [clip, setClip] = useState(false);
+  const [muted, setMuted] = useState(false);
   const clipTimer = useRef<number | undefined>(undefined);
   const [cfg, setCfg] = useState<BoomConfig | null>(null);
   const [presets, setPresets] = useState<BoomPreset[]>([]);
@@ -140,6 +142,7 @@ export function BoomPanel({
       setMeterIn(0);
       setMeterOut(0);
       setClip(false);
+      setMuted(false);
       return;
     }
     const id = window.setInterval(() => {
@@ -147,6 +150,7 @@ export function BoomPanel({
         .then((l) => {
           setMeterIn(l.input);
           setMeterOut(l.output);
+          setMuted(l.muted);
           if (l.clip) {
             setClip(true);
             window.clearTimeout(clipTimer.current);
@@ -363,6 +367,25 @@ export function BoomPanel({
           <Volume2 size={20} className="opacity-40" />
           <p className="text-[12px]">boom is off — audio passes through untouched.</p>
           <p className="text-[11px]">Turn it on to configure EQ, presets and effects.</p>
+        </div>
+      )}
+
+      {/* Output-muted warning (v0.112.0): a mute on boom Audio has no HUD and
+          persisted invisibly — with boom on it read as "boom is broken". */}
+      {cfg.enabled && muted && (
+        <div className="flex items-center justify-between gap-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-2 text-[11px] text-amber-300">
+          <span>Output is muted — that's why it's silent.</span>
+          <button
+            type="button"
+            className="rounded-md bg-amber-500/20 px-2 py-1 text-[11px] font-medium text-amber-200 hover:bg-amber-500/30"
+            onClick={() => {
+              void toggleMute()
+                .then(() => setMuted(false))
+                .catch(() => {});
+            }}
+          >
+            Unmute
+          </button>
         </div>
       )}
 

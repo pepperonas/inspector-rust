@@ -1048,11 +1048,13 @@ export function boomPresets(): Promise<BoomPreset[]> {
   return invoke("boom_presets");
 }
 
-/** Live level-meter readout (input/output RMS 0..1 + clip). */
+/** Live level-meter readout (input/output RMS 0..1 + clip + output-mute). */
 export interface BoomLevels {
   input: number;
   output: number;
   clip: boolean;
+  /** boom Audio's output is muted — the "why is it silent" flag. */
+  muted: boolean;
 }
 
 export function boomLevels(): Promise<BoomLevels> {

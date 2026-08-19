@@ -687,24 +687,47 @@ pub fn apply(db: &DbHandle) {
     }
 }
 
-/// Live level-meter readout (input/output RMS + clip), for the UI.
+/// Live level-meter readout (input/output RMS + clip + output-mute), for the
+/// UI. `muted` lets the panel show a "why is it silent" warning — a mute on
+/// boom Audio is otherwise invisible (no HUD) and was mistaken for a broken
+/// bridge three times in the field.
 #[derive(Debug, Clone, Copy, Default, Serialize)]
 pub struct BoomLevels {
     pub input: f32,
     pub output: f32,
     pub clip: bool,
+    pub muted: bool,
 }
 
 /// Current engine levels (zeros when not running / off macOS).
 pub fn levels() -> BoomLevels {
     #[cfg(target_os = "macos")]
     {
-        let (input, output, clip) = macos::levels();
-        BoomLevels { input, output, clip }
+        let (input, output, clip, muted) = macos::levels();
+        BoomLevels { input, output, clip, muted }
     }
     #[cfg(not(target_os = "macos"))]
     {
         BoomLevels::default()
+    }
+}
+
+/// Mute transparency (v0.112.0) — the pure adoption rule for a bridge
+/// (re)start. macOS-native semantics: mute belongs to the REAL output device
+/// the user hears — switching to an unmuted device gives sound. boom Audio
+/// sits in front as the permanent default, so ITS mute used to persist
+/// invisibly across boom-enable and device switches (three field incidents of
+/// "boom is on and I hear nothing"). On every bridge (re)start boom Audio
+/// adopts the real device's mute state; `None` device states are treated as
+/// audible (a device without a mute control cannot be muted). Returns
+/// `Some(target)` when boom Audio's mute must be rewritten, `None` when it
+/// already matches. Deliberately NOT applied on idle-gate resume (same
+/// device, no user-visible transition — a deliberate mute must survive).
+pub fn mute_adoption(real: Option<bool>, boom: Option<bool>) -> Option<bool> {
+    let real = real.unwrap_or(false);
+    match boom {
+        Some(b) if b != real => Some(real),
+        _ => None,
     }
 }
 
@@ -816,6 +839,23 @@ pub fn shutdown() {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn mute_adoption_follows_the_real_device() {
+        // boom Audio must adopt the real device's mute on (re)start.
+        assert_eq!(mute_adoption(Some(false), Some(true)), Some(false), "stale mute cleared");
+        assert_eq!(mute_adoption(Some(true), Some(false)), Some(true), "deliberate device mute adopted");
+        // Already matching → no write (property writes aren't free).
+        assert_eq!(mute_adoption(Some(false), Some(false)), None);
+        assert_eq!(mute_adoption(Some(true), Some(true)), None);
+        // No mute control on the real device = audible → clear a stale mute.
+        assert_eq!(mute_adoption(None, Some(true)), Some(false));
+        assert_eq!(mute_adoption(None, Some(false)), None);
+        // boom Audio unreadable → nothing to write.
+        assert_eq!(mute_adoption(Some(true), None), None);
+        assert_eq!(mute_adoption(None, None), None);
+    }
+
 
     #[test]
     fn version_gate_matches_14_2_minimum() {

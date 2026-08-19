@@ -145,6 +145,7 @@ const PROP_DEVICES: u32 = fourcc(b"dev#"); // kAudioHardwarePropertyDevices
 const PROP_DEVICE_UID: u32 = fourcc(b"uid "); // kAudioDevicePropertyDeviceUID
 const PROP_TAP_UID: u32 = fourcc(b"tuid"); // kAudioTapPropertyUID
 const PROP_NOMINAL_SR: u32 = fourcc(b"nsrt"); // kAudioDevicePropertyNominalSampleRate
+const PROP_MUTE: u32 = fourcc(b"mute"); // kAudioDevicePropertyMute
 const PROP_VOLUME_SCALAR: u32 = fourcc(b"volm"); // kAudioDevicePropertyVolumeScalar
 const PROP_IS_RUNNING_SOMEWHERE: u32 = fourcc(b"gone"); // kAudioDevicePropertyDeviceIsRunningSomewhere
 
@@ -681,6 +682,38 @@ unsafe fn set_device_sample_rate(dev: AudioObjectID, sr: f64) {
     }
 }
 
+/// A device's output-mute state — master element first, channel 1 fallback.
+/// `None` = the device publishes no mute control (treat as audible).
+unsafe fn device_mute(dev: AudioObjectID) -> Option<bool> {
+    for element in [ELEMENT_MAIN, 1] {
+        let a = AudioObjectPropertyAddress { selector: PROP_MUTE, scope: SCOPE_OUTPUT, element };
+        let mut v: u32 = 0;
+        let mut size = std::mem::size_of::<u32>() as u32;
+        if AudioObjectGetPropertyData(dev, &a, 0, std::ptr::null(), &mut size, &mut v as *mut _ as *mut c_void) == 0 {
+            return Some(v != 0);
+        }
+    }
+    None
+}
+
+/// Set a device's output mute (both elements best-effort). `true` on success.
+unsafe fn set_device_mute(dev: AudioObjectID, muted: bool) -> bool {
+    let v: u32 = muted as u32;
+    let mut ok = false;
+    for element in [ELEMENT_MAIN, 1, 2] {
+        let a = AudioObjectPropertyAddress { selector: PROP_MUTE, scope: SCOPE_OUTPUT, element };
+        ok |= AudioObjectSetPropertyData(
+            dev,
+            &a,
+            0,
+            std::ptr::null(),
+            std::mem::size_of::<u32>() as u32,
+            &v as *const _ as *const c_void,
+        ) == 0;
+    }
+    ok
+}
+
 /// Find an audio device by its UID (our driver → "BoomAudio_UID").
 unsafe fn find_device_by_uid(uid: &str) -> AudioObjectID {
     let a = addr(PROP_DEVICES);
@@ -902,6 +935,20 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
 
+    // Mute transparency (v0.112.0): boom Audio adopts the REAL device's mute
+    // on every bridge (re)start — enabling boom or switching devices must be
+    // audibility-neutral, exactly like switching outputs without boom. A stale
+    // mute on the always-default boom Audio was invisible (no HUD) and read as
+    // "boom is broken" three times in the field. Pure rule: super::mute_adoption.
+    if let Some(target) = super::mute_adoption(device_mute(real_dev), device_mute(boom_dev)) {
+        if set_device_mute(boom_dev, target) {
+            tracing::info!(
+                "boom: adopted mute={target} from '{}' (stale boom-Audio mute state replaced)",
+                device_name(real_dev)
+            );
+        }
+    }
+
     // Route the default output to boom Audio so apps render into it; we bridge
     // its loopback → real device. Saved + restored on stop / quit; the UID is
     // ALSO persisted so a restart after an unclean exit re-targets this device.
@@ -909,6 +956,7 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
     persist_last_output_uid(&device_uid(real_dev));
     set_default_output(boom_dev);
 
+    LEVELS_BOOM_DEV.store(boom_dev, Ordering::Relaxed);
     eng.session = Some(Session {
         boom_dev,
         real_dev,
@@ -939,15 +987,26 @@ pub(crate) fn driver_present() -> bool {
     unsafe { find_device_by_uid("BoomAudio_UID") != 0 }
 }
 
-/// Live (input RMS, output RMS, clipped-since-last-read) for the level meters.
-/// The clip flag latches then resets on read.
-pub(crate) fn levels() -> (f32, f32, bool) {
+/// Live (input RMS, output RMS, clipped-since-last-read, output-muted) for
+/// the level meters. The clip flag latches then resets on read; `muted` reads
+/// boom Audio's mute property live (µs — the panel polls ~8 Hz) so the UI can
+/// say WHY the output is silent instead of looking broken.
+pub(crate) fn levels() -> (f32, f32, bool, bool) {
+    let muted = {
+        let dev = LEVELS_BOOM_DEV.load(Ordering::Relaxed);
+        dev != 0 && unsafe { device_mute(dev) }.unwrap_or(false)
+    };
     (
         f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed)),
         f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed)),
         CLIP.swap(false, Ordering::Relaxed),
+        muted,
     )
 }
+
+/// boom Audio's device id while a session runs (0 = none) — lets `levels()`
+/// read the mute property without a per-call device-list scan.
+static LEVELS_BOOM_DEV: AtomicU32 = AtomicU32::new(0);
 
 const HAL_DIR: &str = "/Library/Audio/Plug-Ins/HAL";
 
@@ -1180,6 +1239,7 @@ fn gate_resume() {
 }
 
 unsafe fn stop_locked(eng: &mut Engine) {
+    LEVELS_BOOM_DEV.store(0, Ordering::Relaxed);
     remove_default_listener();
     // Restore the user's real output device FIRST.
     let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);

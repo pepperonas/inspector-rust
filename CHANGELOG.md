@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.112.0] — 2026-08-19
+
+Boom: no more invisible mute — the cause of every "boom is on and I hear nothing" incident.
+
+### Fixed
+
+- **A stale mute can no longer hide inside boom.** With boom active, mute lands on the virtual boom Audio device, where it used to persist invisibly across enabling boom and output-device switches — three real incidents of apparent silence were exactly this, never a broken bridge. boom Audio now adopts the real output device's mute state on every bridge (re)start (enable, crash recovery, device switch), mirroring how macOS itself treats mute as a per-device property; an intentional mute still survives the idle-gate's suspend/resume.
+- **The boom panel says WHY it's silent:** while boom runs muted, an amber "Output is muted" banner with an Unmute button appears above the level meters.
+
 ## [0.111.0] — 2026-08-16
 
 ### Added

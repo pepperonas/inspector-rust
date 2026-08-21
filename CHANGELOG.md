@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.112.3] — 2026-08-21
+
+### Changed
+
+- **The CRT power-on/off plays a touch slower, so the tube reads as a tube.** Power-on 190 → 250 ms, power-off 150 → 190 ms — the dot → scanline → picture sweep is visible again instead of flicking past. The picture still reaches full height early (118 → 140 ms, well inside the window a UI can spend before it stops feeling instant); the added time goes into the phosphor settle you can already read through. Geometry (dot size, overshoot, brightness flash) is unchanged, and the dismiss stays shorter than the summon.
+
 ## [0.112.2] — 2026-08-19
 
 ### Fixed

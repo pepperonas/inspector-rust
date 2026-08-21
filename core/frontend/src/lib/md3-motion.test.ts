@@ -477,14 +477,15 @@ describe("CRT — reduced motion + failure paths", () => {
   });
 
   it("keeps the popup inside its perceived-latency budget", () => {
-    // v0.107.0 budget. The native window is up ~20 ms after the hotkey
-    // (measured 17–38 ms in Rust), so the ENTIRE felt latency of "Ctrl+Space
-    // is slow" lives in this animation. Two hard rules:
-    //   1. the whole power-on stays inside the ~200 ms window a UI can spend
+    // v0.107.0 budget, widened once in v0.112.3 (see CRT_ON_MS). The native
+    // window is up ~20 ms after the hotkey (measured 17–38 ms in Rust), so the
+    // ENTIRE felt latency of "Ctrl+Space is slow" lives in this animation.
+    // Two hard rules:
+    //   1. the whole power-on stays inside the ~250 ms window a UI can spend
     //      before it stops reading as instant, and
     //   2. the shell reaches FULL HEIGHT (= the list becomes readable) well
     //      before that — everything after is just the phosphor settle.
-    expect(CRT_ON_MS).toBeLessThanOrEqual(200);
+    expect(CRT_ON_MS).toBeLessThanOrEqual(250);
     const el = {
       style: {} as CSSStyleDeclaration,
       getAnimations: () => [],
@@ -494,7 +495,7 @@ describe("CRT — reduced motion + failure paths", () => {
         const legible = frames.find(
           (f) => typeof f.transform === "string" && !/scaleY\(0\./.test(f.transform),
         )!;
-        expect((legible.offset as number) * CRT_ON_MS).toBeLessThanOrEqual(120);
+        expect((legible.offset as number) * CRT_ON_MS).toBeLessThanOrEqual(150);
         return { addEventListener: (_e: string, cb: () => void) => cb(), cancel: () => {} };
       },
     } as unknown as HTMLElement;

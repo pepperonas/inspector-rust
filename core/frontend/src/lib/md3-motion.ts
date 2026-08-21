@@ -268,16 +268,24 @@ export const EXIT_MS = 130;
 /// first 150 ms and only reached full height at ~360 ms. Nothing was readable
 /// until then, even though the search field already accepted keystrokes.
 ///
-/// The rule now: **legible before ~120 ms** (inside the window where a UI still
+/// The rule now: **legible before ~150 ms** (inside the window where a UI still
 /// reads as instant), with only the phosphor settle running past it. The CRT
 /// identity — dot → scanline → picture — is unchanged, it just plays at the
 /// speed of a real tube instead of a slow-motion one.
-export const CRT_ON_MS = 190;
+///
+/// v0.112.3 traded ~30 ms of that headroom back for visibility (user request:
+/// the tube should read as a tube again, "aber nur etwas"): 190 → 250 ms, with
+/// the legibility moment moving 118 → 140 ms. Both budget rules still hold and
+/// are still pinned by a test — this is a deliberate, bounded step, NOT licence
+/// to drift back toward the 440 ms original.
+export const CRT_ON_MS = 250;
 /// Duration (ms) of the TV power-off — the popup stays visible this long on
 /// close, because `hidePopup` AWAITS it before the hide IPC. It must stay
 /// below `CRT_ON_MS` (pinned by a test): once you have decided to leave, any
-/// wait is pure cost. Halved alongside the power-on in v0.107.0.
-export const CRT_OFF_MS = 150;
+/// wait is pure cost. Halved alongside the power-on in v0.107.0, nudged back up
+/// with it in v0.112.3 (150 → 190) — keeping the same proportion, so the
+/// dismiss still ends before a power-on would have.
+export const CRT_OFF_MS = 190;
 /** Residual scale for the "scanline runs to a dot" pinch. */
 const CRT_DOT_X = 0.02;
 const CRT_DOT_Y = 0.012;
@@ -327,13 +335,13 @@ export function playCrtOn(el: HTMLElement | null): void {
   el.getAnimations?.().forEach((a) => a.cancel());
   const anim = el.animate(
     [
-      // Offsets are front-loaded: the width snap costs 22 % (~42 ms) and full
-      // height lands at 62 % (~118 ms) — everything after that is the
+      // Offsets are front-loaded: the width snap costs 23 % (~58 ms) and full
+      // height lands at 56 % (~140 ms) — everything after that is the
       // brightness settle, which you can already read through. The old curve
       // spent 34 % on the scanline and only opened up at 82 %.
       { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.6)", opacity: 1, offset: 0, easing: "cubic-bezier(0.2, 0.85, 0.25, 1)" },
-      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.2)", opacity: 1, offset: 0.22, easing: "cubic-bezier(0.12, 0.7, 0.3, 1)" },
-      { transform: "scaleX(1) scaleY(1.045)", filter: "brightness(1.2)", opacity: 1, offset: 0.62, easing: "ease-out" },
+      { transform: `scaleX(1) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.2)", opacity: 1, offset: 0.23, easing: "cubic-bezier(0.12, 0.7, 0.3, 1)" },
+      { transform: "scaleX(1) scaleY(1.045)", filter: "brightness(1.2)", opacity: 1, offset: 0.56, easing: "ease-out" },
       { transform: "scaleX(1) scaleY(1)", filter: "brightness(1)", opacity: 1, offset: 1 },
     ],
     { duration: CRT_ON_MS, easing: "linear", fill: "forwards" },

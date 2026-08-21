@@ -2604,6 +2604,25 @@ export interface HistoryLimit {
 export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
+
+// ── CRT popup animation duration (v0.113.0) ─────────────────────────────────
+
+export interface CrtAnimation {
+  /** Power-on duration in ms; `0` = animation off. The power-off is derived. */
+  ms: number;
+  min: number;
+  max: number;
+  default_ms: number;
+}
+
+export function getCrtAnimation(): Promise<CrtAnimation> {
+  return invoke("get_crt_animation");
+}
+/** Persist the duration (clamped backend-side, `0` = off); returns the stored value. */
+export function setCrtAnimation(ms: number): Promise<number> {
+  return invoke("set_crt_animation", { ms });
+}
+
 /** Set the cap (clamped backend-side) and prune now; returns the stored value. */
 export function setHistoryMax(max: number): Promise<number> {
   return invoke("set_history_max", { max });

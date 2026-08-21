@@ -14,6 +14,9 @@ import {
   prefersReducedMotion,
   CRT_ON_MS,
   CRT_OFF_MS,
+  CRT_MS_MIN,
+  CRT_MS_MAX,
+  crtOffMs,
   EXIT_MS,
 } from "./md3-motion";
 
@@ -474,6 +477,53 @@ describe("CRT — reduced motion + failure paths", () => {
 
   it("the power-off is quicker than the power-on (dismiss must feel instant)", () => {
     expect(CRT_OFF_MS).toBeLessThan(CRT_ON_MS);
+  });
+
+  // ── User-configurable duration (Settings → Appearance, v0.113.0) ──────────
+
+  it("the derived power-off stays shorter than the power-on across the WHOLE range", () => {
+    // The dismiss is derived, never configured, precisely so this can't be
+    // violated: `hidePopup` awaits the power-off before the hide IPC.
+    for (let on = CRT_MS_MIN; on <= CRT_MS_MAX; on += 10) {
+      expect(crtOffMs(on)).toBeLessThan(on);
+      expect(crtOffMs(on)).toBeGreaterThan(0);
+    }
+    // At the shipped default the derivation reproduces the shipped constant.
+    expect(crtOffMs(CRT_ON_MS)).toBe(CRT_OFF_MS);
+    // 0 = off propagates to the dismiss instead of becoming a 1 ms flicker.
+    expect(crtOffMs(0)).toBe(0);
+  });
+
+  it("mirrors the backend's bounds + default (neither side may drift alone)", () => {
+    // commands.rs asserts the same three numbers in
+    // `the_default_sits_inside_its_own_bounds_and_mirrors_the_frontend`.
+    expect([CRT_ON_MS, CRT_MS_MIN, CRT_MS_MAX]).toEqual([250, 80, 900]);
+  });
+
+  it("duration 0 switches the animation off end-to-end", async () => {
+    // prime is skipped (no dot to flash), power-on settles instead of
+    // animating, power-off resolves without waiting — the same shape as
+    // reduced motion, but chosen by the user.
+    const f = fakeEl();
+    primeCrtHidden(f.el, 0);
+    expect(f.el.style.transform).toBeFalsy();
+    playCrtOn(f.el, 0);
+    expect(f.calls.length).toBe(0);
+    await expect(playCrtOff(f.el, 0)).resolves.toBeUndefined();
+    expect(f.calls.length).toBe(0);
+  });
+
+  it("a configured duration reaches the WAAPI options, keyframes unchanged", () => {
+    // The keyframe offsets are fractional, so the shape scales with the
+    // duration — a longer setting must not need a different curve.
+    const on = fakeEl();
+    playCrtOn(on.el, 640);
+    expect(on.calls[0].options.duration).toBe(640);
+    expect(on.calls[0].keyframes.map((k) => k.offset)).toEqual([0, 0.23, 0.56, 1]);
+
+    const off = fakeEl();
+    void playCrtOff(off.el, crtOffMs(640));
+    expect(off.calls[0].options.duration).toBe(486); // 640 × 0.76
   });
 
   it("keeps the popup inside its perceived-latency budget", () => {

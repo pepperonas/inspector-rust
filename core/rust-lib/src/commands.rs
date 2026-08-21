@@ -1422,6 +1422,88 @@ pub fn set_window_size_preference(
     Ok(())
 }
 
+// ── CRT popup animation duration (configurable, v0.113.0) ──────────────────
+
+/// Settings key: duration (ms) of the popup's CRT power-ON. **`0` = off**
+/// (instant show/hide, like `prefers-reduced-motion`).
+///
+/// Only the power-ON is stored. The power-OFF is DERIVED from it in the
+/// frontend (`crtOffMs`), because `hidePopup` AWAITS the power-off before the
+/// hide IPC: two independent fields would let a user make the dismiss outlast
+/// the summon, and a decided-upon dismiss must never wait. One value keeps
+/// that invariant structurally impossible to break.
+const KEY_CRT_MS: &str = "appearance.crt_ms";
+
+/// Ships-with value — mirrors `CRT_ON_MS` in `lib/md3-motion.ts` (pinned by a
+/// test on both sides so the two can't drift).
+pub const CRT_MS_DEFAULT: u32 = 250;
+/// Below this the tube is a flicker rather than an animation.
+pub const CRT_MS_MIN: u32 = 80;
+/// Ceiling. Past this the popup stops feeling instant — see the perceived-
+/// latency note on `CRT_ON_MS`; the user may go there, but not further.
+pub const CRT_MS_MAX: u32 = 900;
+/// Compile-time guard: the shipped default must sit inside its own bounds
+/// (a default outside them would be silently clamped away on first save).
+const _: () = assert!(CRT_MS_MIN <= CRT_MS_DEFAULT && CRT_MS_DEFAULT <= CRT_MS_MAX);
+
+/// Pure: stored string → effective duration. Unset / blank / garbage falls
+/// back to the default (a hand-edited DB must never wedge the popup shut or
+/// leave it animating for a minute); `0` is honoured as "off"; everything else
+/// is clamped into `[CRT_MS_MIN, CRT_MS_MAX]`.
+fn normalise_crt_ms(raw: Option<&str>) -> u32 {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        None => CRT_MS_DEFAULT,
+        Some(s) => match s.parse::<u32>() {
+            Ok(0) => 0,
+            Ok(n) => n.clamp(CRT_MS_MIN, CRT_MS_MAX),
+            Err(_) => CRT_MS_DEFAULT,
+        },
+    }
+}
+
+/// The popup's CRT animation duration + the bounds the settings UI renders
+/// (bounds come from here so they can't drift out of sync with the clamp).
+#[derive(serde::Serialize)]
+pub struct CrtAnimation {
+    /// Power-on duration in ms; `0` = animation off.
+    pub ms: u32,
+    pub min: u32,
+    pub max: u32,
+    pub default_ms: u32,
+}
+
+fn crt_animation(db: &DbHandle) -> CrtAnimation {
+    let raw = settings::get(db, KEY_CRT_MS).ok().flatten();
+    CrtAnimation {
+        ms: normalise_crt_ms(raw.as_deref()),
+        min: CRT_MS_MIN,
+        max: CRT_MS_MAX,
+        default_ms: CRT_MS_DEFAULT,
+    }
+}
+
+/// Read the CRT power-on duration (ms) plus its bounds. `0` = off.
+#[tauri::command]
+pub fn get_crt_animation(db: State<'_, DbHandle>) -> CrtAnimation {
+    crt_animation(&db)
+}
+
+/// Persist the CRT power-on duration (clamped; `0` disables the animation) and
+/// tell the popup right away — `playCrtOn` runs synchronously in the
+/// `window-shown` handler, so the frontend caches the value and cannot read it
+/// at animation time. Returns the stored value.
+#[tauri::command]
+pub fn set_crt_animation(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    ms: u32,
+) -> Result<u32, String> {
+    let stored = normalise_crt_ms(Some(&ms.to_string()));
+    settings::set(&db, KEY_CRT_MS, &stored.to_string()).map_err(map_err)?;
+    let _ = app.emit("crt-animation-changed", stored);
+    Ok(stored)
+}
+
 /// Force-format paste — bypasses the `paste.plain_text_only` setting and
 /// always uses the entry's original content type. Wired to Shift+Enter
 /// in the popup as a one-shot override for users who normally paste as
@@ -4344,6 +4426,42 @@ mod png_summary_tests {
         let long = "ä".repeat(80); // multibyte — a byte cut would panic/split
         let s = png_history_summary("figlet", &long, 1);
         assert_eq!(s, format!("[figlet · {}…]", "ä".repeat(60)));
+    }
+}
+
+#[cfg(test)]
+mod crt_animation_tests {
+    use super::{normalise_crt_ms, CRT_MS_DEFAULT, CRT_MS_MAX, CRT_MS_MIN};
+
+    #[test]
+    fn unset_blank_and_garbage_fall_back_to_the_default() {
+        // A hand-edited settings DB must never wedge the popup shut (0 would be
+        // "off", which is a legitimate choice — but only when actually written).
+        for raw in [None, Some(""), Some("   "), Some("fast"), Some("-1"), Some("1.5")] {
+            assert_eq!(normalise_crt_ms(raw), CRT_MS_DEFAULT, "raw={raw:?}");
+        }
+    }
+
+    #[test]
+    fn zero_is_honoured_as_off_and_is_not_clamped_up_to_the_minimum() {
+        assert_eq!(normalise_crt_ms(Some("0")), 0);
+    }
+
+    #[test]
+    fn everything_else_is_clamped_into_the_valid_range() {
+        assert_eq!(normalise_crt_ms(Some("1")), CRT_MS_MIN);
+        assert_eq!(normalise_crt_ms(Some("79")), CRT_MS_MIN);
+        assert_eq!(normalise_crt_ms(Some("250")), 250);
+        assert_eq!(normalise_crt_ms(Some("100000")), CRT_MS_MAX);
+        assert_eq!(normalise_crt_ms(Some(" 300 ")), 300); // whitespace tolerated
+    }
+
+    #[test]
+    fn the_default_mirrors_the_frontend() {
+        // (Default-inside-bounds is a compile-time `const _: () = assert!(…)`.)
+        // Mirrors `CRT_ON_MS` in core/frontend/src/lib/md3-motion.ts, whose test
+        // asserts the same three numbers — neither side may drift alone.
+        assert_eq!((CRT_MS_DEFAULT, CRT_MS_MIN, CRT_MS_MAX), (250, 80, 900));
     }
 }
 

@@ -775,6 +775,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_clipboard_privacy,
             commands::get_window_size_preference,
             commands::set_window_size_preference,
+            commands::get_crt_animation,
+            commands::set_crt_animation,
             commands::get_status_toast,
             commands::hide_status_toast,
             commands::cleaner_status,

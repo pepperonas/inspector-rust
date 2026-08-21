@@ -45,7 +45,7 @@ import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
-import { playCrtOn, playCrtOff, primeCrtHidden, CRT_ON_MS, CRT_OFF_MS } from "./lib/md3-motion";
+import { playCrtOn, playCrtOff, primeCrtHidden, crtOffMs, CRT_ON_MS } from "./lib/md3-motion";
 import { detectSocial } from "./lib/social";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
@@ -169,6 +169,7 @@ import {
   getBoomConfig,
   translateText,
   getLineageHighlight,
+  getCrtAnimation,
   type BrunoDefaults,
   type ProcessInfo,
 } from "./lib/ipc";
@@ -418,6 +419,12 @@ function App() {
   const [snippetRev, setSnippetRev] = useState(0);
   const searchRef = useRef<HTMLInputElement>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+  // Configured CRT power-on duration (Settings → Appearance → Popup animation;
+  // 0 = off). Held in a REF, not state: `playCrtOn` runs synchronously inside
+  // the `window-shown` handler, so the value must be readable without a render
+  // and without an await. Seeded from the setting on mount and kept fresh by
+  // the `crt-animation-changed` event (see below).
+  const crtMsRef = useRef(CRT_ON_MS);
 
   // Dismiss = the reverse of the summon (§ signature transition): play the CRT
   // TV power-OFF on the shell, *then* hide the OS window — so closing mirrors
@@ -439,12 +446,13 @@ function App() {
     hidingRef.current = true;
     const gen = showGenRef.current;
     try {
+      const offMs = crtOffMs(crtMsRef.current);
       await Promise.race([
-        playCrtOff(shellRef.current),
+        playCrtOff(shellRef.current, offMs),
         // Cap the await at the CRT power-off duration + margin so a hung
         // `finished` can't block hiding; the show-generation guard below drops
         // a straggler if the popup was re-shown meanwhile.
-        new Promise((r) => window.setTimeout(r, CRT_OFF_MS + 90)),
+        new Promise((r) => window.setTimeout(r, offMs + 90)),
       ]);
       if (showGenRef.current !== gen) return; // re-shown → stale hide, drop it
       await hidePopupRaw();
@@ -609,6 +617,23 @@ function App() {
     | { status: "ok"; text: string; provider: string; detectedSource: string }
     | { status: "error" };
   const [liveTranslation, setLiveTranslation] = useState<LiveTranslation | null>(null);
+
+  // Configured CRT duration (v0.113.0). Seeded once on mount and refreshed by
+  // the backend event, NOT re-read per open: the value is consumed
+  // synchronously by `playCrtOn`, so an in-flight read at animation time would
+  // simply arrive too late. The only writer is the Settings tab in this very
+  // webview, and it emits `crt-animation-changed` — so the ref is always
+  // current by the time the popup is shown again.
+  useEffect(() => {
+    void getCrtAnimation()
+      .then((c) => {
+        crtMsRef.current = c.ms;
+      })
+      .catch(() => undefined);
+  }, []);
+  useTauriEvent<number>("crt-animation-changed", (e) => {
+    if (typeof e.payload === "number") crtMsRef.current = e.payload;
+  });
 
   // Lineage rails in the history list (v0.93.1). Re-read whenever the History
   // tab comes back into view — the only place the setting can be changed is the
@@ -2477,7 +2502,7 @@ function App() {
     // popup OPEN (never per keystroke). The class is removed after the
     // animation so later virtualizer updates render instantly.
     setListEntrance(true);
-    window.setTimeout(() => setListEntrance(false), CRT_ON_MS + 120);
+    window.setTimeout(() => setListEntrance(false), crtMsRef.current + 120);
     // Reconcile the footer keep-awake LED to the true state on every open.
     // `wakelock on` / `caffeine on` hide the popup before the footer can
     // observe the `wakelock-changed` event, so re-fetch here — guarantees
@@ -2493,7 +2518,7 @@ function App() {
     // not need a frame boundary, and waiting for one delayed the whole reveal
     // by a full frame (~8–16 ms) on the single path where latency is felt
     // most. Focus keeps its rAF — the input must exist and be laid out.
-    playCrtOn(shellRef.current);
+    playCrtOn(shellRef.current, crtMsRef.current);
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
@@ -2721,7 +2746,7 @@ function App() {
     // WHILE hidden — so the OS `show()` (which reveals the window before the
     // window-shown handler runs) shows the dark tube + dot, never a flash of
     // full-opacity content, before `playCrtOn` blooms it. `playCrtOn` clears it.
-    primeCrtHidden(shellRef.current);
+    primeCrtHidden(shellRef.current, crtMsRef.current);
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

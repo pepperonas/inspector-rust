@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.113.0] — 2026-08-21
+
+### Added
+
+- **The CRT popup animation's duration is now a setting** — Settings → Appearance → "Popup animation": one-click presets (Off · 150 · 250 ★ · 400 · 650) plus a free millisecond field, `0` turns the animation off entirely (instant show/hide). Applies from the next open.
+- The closing animation is **derived** from the opening one (76 %, shown live under the field) rather than being a second setting: the popup waits for the power-off before it hides, so a separately configurable dismiss could be made to outlast the summon. Values above ~400 ms get an inline note that the window itself is on screen after ~20 ms — everything beyond that is the animation.
+- `settings crt` / `settings animation` (and the German `animationsdauer`) jump straight to it.
+
 ## [0.112.3] — 2026-08-21
 
 ### Changed

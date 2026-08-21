@@ -286,6 +286,31 @@ export const CRT_ON_MS = 250;
 /// with it in v0.112.3 (150 → 190) — keeping the same proportion, so the
 /// dismiss still ends before a power-on would have.
 export const CRT_OFF_MS = 190;
+
+// ── User override (Settings → Appearance → "Popup animation", v0.113.0) ─────
+// The two constants above are the DEFAULT; the effective duration comes from
+// the `appearance.crt_ms` setting, cached in App.tsx and passed into the three
+// functions below (they must stay callable synchronously from the
+// `window-shown` handler, so they can never read the setting themselves).
+
+/** Smallest configurable power-on — below this the tube is a flicker. */
+export const CRT_MS_MIN = 80;
+/** Largest configurable power-on (see the latency note on `CRT_ON_MS`). */
+export const CRT_MS_MAX = 900;
+
+/**
+ * Power-OFF duration for a given power-ON — the dismiss is **derived**, never
+ * configured separately: `hidePopup` AWAITS it before the hide IPC, so a
+ * user-set power-off could make leaving slower than arriving. Keeping the
+ * shipped proportion makes `crtOffMs(x) < x` true by construction (pinned by a
+ * test across the whole configurable range).
+ */
+export const CRT_OFF_RATIO = CRT_OFF_MS / CRT_ON_MS;
+export function crtOffMs(onMs: number): number {
+  if (onMs <= 0) return 0; // animation off
+  return Math.max(1, Math.round(onMs * CRT_OFF_RATIO));
+}
+
 /** Residual scale for the "scanline runs to a dot" pinch. */
 const CRT_DOT_X = 0.02;
 const CRT_DOT_Y = 0.012;
@@ -293,9 +318,13 @@ const CRT_DOT_Y = 0.012;
 /** The collapsed START state (a bright dot at the shell's centre). Applied to
  *  the shell WHILE the popup is hidden so the OS `show()` — which reveals the
  *  window before the JS handler runs — shows the dark tube + dot, never a flash
- *  of full-opacity content, before `playCrtOn` blooms it. */
-export function primeCrtHidden(el: HTMLElement | null): void {
-  if (!el) return;
+ *  of full-opacity content, before `playCrtOn` blooms it.
+ *
+ *  With the animation switched off (`ms <= 0`) this is a NO-OP: priming a dot
+ *  nobody will bloom would just flash it for a frame. Safe to skip because
+ *  `playCrtOn` always settles, so any stale inline style is cleared on show. */
+export function primeCrtHidden(el: HTMLElement | null, ms: number = CRT_ON_MS): void {
+  if (!el || ms <= 0) return;
   setCrtScrollbarsHidden(true); // keep the scrollbar hidden from prime through power-on
   el.style.opacity = "1";
   el.style.transform = `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`;
@@ -323,10 +352,13 @@ function clearCrtStyle(el: HTMLElement): void {
  * unavailable / reduced (the shell is left at its natural state so a primed dot
  * can't get stuck). Re-triggers on every open like `playEntrance`.
  */
-export function playCrtOn(el: HTMLElement | null): void {
+export function playCrtOn(el: HTMLElement | null, ms: number = CRT_ON_MS): void {
   if (!el) return;
   const settle = () => clearCrtStyle(el);
-  if (typeof el.animate !== "function" || prefersReducedMotion()) {
+  // `ms <= 0` = the user switched the animation off — same path as reduced
+  // motion. Settling (rather than returning early) is what clears a primed dot
+  // or a forwards-filled power-off from before the setting changed.
+  if (ms <= 0 || typeof el.animate !== "function" || prefersReducedMotion()) {
     settle();
     return;
   }
@@ -344,7 +376,7 @@ export function playCrtOn(el: HTMLElement | null): void {
       { transform: "scaleX(1) scaleY(1.045)", filter: "brightness(1.2)", opacity: 1, offset: 0.56, easing: "ease-out" },
       { transform: "scaleX(1) scaleY(1)", filter: "brightness(1)", opacity: 1, offset: 1 },
     ],
-    { duration: CRT_ON_MS, easing: "linear", fill: "forwards" },
+    { duration: ms, easing: "linear", fill: "forwards" },
   );
   anim.addEventListener(
     "finish",
@@ -362,8 +394,8 @@ export function playCrtOn(el: HTMLElement | null): void {
  * motion is unavailable / reduced. `fill: "forwards"` holds the burnt-out frame
  * until the window is actually hidden; `playCrtOn` cancels it on the next open.
  */
-export function playCrtOff(el: HTMLElement | null): Promise<void> {
-  if (!el || typeof el.animate !== "function" || prefersReducedMotion()) {
+export function playCrtOff(el: HTMLElement | null, ms: number = CRT_OFF_MS): Promise<void> {
+  if (!el || ms <= 0 || typeof el.animate !== "function" || prefersReducedMotion()) {
     return Promise.resolve();
   }
   setCrtScrollbarsHidden(true); // hide the scrollbar for the whole collapse
@@ -375,7 +407,7 @@ export function playCrtOff(el: HTMLElement | null): Promise<void> {
       { transform: `scaleX(1.04) scaleY(${CRT_DOT_Y})`, filter: "brightness(2.8)", opacity: 1, offset: 0.72, easing: "cubic-bezier(0.55, 0, 0.85, 0.35)" },
       { transform: `scaleX(${CRT_DOT_X}) scaleY(${CRT_DOT_Y})`, filter: "brightness(3)", opacity: 0, offset: 1 },
     ],
-    { duration: CRT_OFF_MS, easing: "linear", fill: "forwards" },
+    { duration: ms, easing: "linear", fill: "forwards" },
   );
   // Restore the scrollbar once collapsed (the window hides right after; the next
   // open's prime re-hides it). Keeps the class from leaking if the popup lingers.

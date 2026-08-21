@@ -39,6 +39,7 @@ import {
 } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { AboutContent } from "./AboutContent";
+import { crtOffMs } from "../lib/md3-motion";
 import { IS_LINUX, IS_MAC } from "../lib/platform";
 import { LinuxShortcutsSettings } from "./LinuxShortcutsSettings";
 import {
@@ -66,6 +67,9 @@ import {
   getHistoryMax,
   setHistoryMax,
   type HistoryLimit,
+  getCrtAnimation,
+  setCrtAnimation,
+  type CrtAnimation,
   getSnippetStorage,
   type SnippetStorage,
   getLineageHighlight,
@@ -2300,6 +2304,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               two together, like a commit graph. Purely visual — switching this
               off changes nothing about what gets copied.
             </p>
+            <CrtAnimationRow />
           </Section>
         </div>
 
@@ -4738,6 +4743,143 @@ function SecuritySection() {
 // home-relative `My Drive/media/memes`; on Windows with Google Drive in
 // streaming mode the library lives under a drive letter (e.g.
 // `G:\My Drive\media\memes`), so it's overridable here.
+/**
+ * Appearance → "Popup animation": the CRT power-on duration in ms (0 = off).
+ *
+ * Only the power-ON is user-settable — the dismiss is derived from it
+ * (`crtOffMs`), so it can never end up outlasting the summon. The bounds come
+ * from the backend (`CrtAnimation.min/max`) rather than being duplicated here,
+ * so the input can't drift out of sync with the clamp that actually persists.
+ */
+function CrtAnimationRow() {
+  const [cfg, setCfg] = useState<CrtAnimation | null>(null);
+  const [value, setValue] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [savedOk, setSavedOk] = useState(false);
+
+  useEffect(() => {
+    getCrtAnimation()
+      .then((c) => {
+        setCfg(c);
+        setValue(String(c.ms));
+      })
+      .catch(() => undefined);
+  }, []);
+
+  if (cfg === null) return null;
+
+  const parsed = parseInt(value, 10);
+  // 0 is a valid value that deliberately sits BELOW `min` — it means "off",
+  // not "as short as possible".
+  const valid =
+    Number.isFinite(parsed) && (parsed === 0 || (parsed >= cfg.min && parsed <= cfg.max));
+  const dirty = valid && parsed !== cfg.ms;
+
+  const apply = async (ms: number) => {
+    setBusy(true);
+    setSavedOk(false);
+    try {
+      const stored = await setCrtAnimation(ms);
+      setCfg({ ...cfg, ms: stored });
+      setValue(String(stored));
+      setSavedOk(true);
+    } catch (e) {
+      console.error("save crt animation", e);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const presets = [
+    { ms: 0, label: "Off" },
+    { ms: 150, label: "150" },
+    { ms: cfg.default_ms, label: `${cfg.default_ms}` },
+    { ms: 400, label: "400" },
+    { ms: 650, label: "650" },
+  ];
+
+  return (
+    <>
+      <Row label="Popup animation">
+        <div className="flex w-full flex-wrap items-center gap-2">
+          <div className="flex overflow-hidden rounded-lg border border-[var(--color-border)]">
+            {presets.map((p) => {
+              const active = cfg.ms === p.ms;
+              return (
+                <button
+                  key={p.ms}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void apply(p.ms)}
+                  title={p.ms === 0 ? "No animation — show and hide instantly" : `${p.ms} ms`}
+                  className={
+                    "border-r border-[var(--color-border)] px-2.5 py-1.5 text-[12px] transition-colors last:border-r-0 " +
+                    (active
+                      ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                      : "bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+                  }
+                >
+                  {p.label}
+                  {p.ms === cfg.default_ms && <span className="ml-1 opacity-60">★</span>}
+                </button>
+              );
+            })}
+          </div>
+          <input
+            type="number"
+            min={0}
+            max={cfg.max}
+            step={10}
+            value={value}
+            aria-label="CRT animation duration in milliseconds"
+            onChange={(e) => {
+              setValue(e.target.value);
+              setSavedOk(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && dirty) void apply(parsed);
+              e.stopPropagation();
+            }}
+            className="w-24 rounded border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-1 font-mono text-[12px]"
+          />
+          <span className="text-[12px] text-[var(--color-muted)]">ms</span>
+          <button
+            onClick={() => void apply(parsed)}
+            disabled={busy || !dirty}
+            className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] disabled:opacity-40"
+          >
+            {busy ? "Saving…" : "Save"}
+          </button>
+          {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+          {!valid && value.trim() !== "" && (
+            <span className="text-[12px] text-amber-500">
+              0 (off) or {cfg.min}–{cfg.max}
+            </span>
+          )}
+        </div>
+      </Row>
+      <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
+        {cfg.ms === 0 ? (
+          <>
+            The tube animation is off — the popup shows and hides instantly.
+          </>
+        ) : (
+          <>
+            How long the CRT tube takes to power on (dot → scanline → picture).
+            Closing derives from it and is always shorter — currently{" "}
+            <span className="font-mono">{crtOffMs(cfg.ms)} ms</span>, and the
+            popup waits for it before hiding.{" "}
+            {cfg.ms > 400 &&
+              "Past ~400 ms the popup stops feeling instant: the window itself is on screen after ~20 ms, so everything you wait for beyond that is this animation. "}
+            Applies from the next open. Ignored entirely when your system asks
+            for reduced motion.
+          </>
+        )}
+      </p>
+    </>
+  );
+}
+
 function HistoryLimitSection() {
   const [limit, setLimit] = useState<HistoryLimit | null>(null);
   const [value, setValue] = useState("");

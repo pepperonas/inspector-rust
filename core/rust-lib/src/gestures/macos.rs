@@ -184,6 +184,11 @@ static TIPTAP_REC: Mutex<Option<TipTapRecognizer>> = Mutex::new(None);
 static START: OnceLock<Instant> = OnceLock::new();
 static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
+/// Time (ms since `START`) of the most recent multitouch frame; `0` = none ever.
+/// Read by the liveness watchdog to notice a registration that went silent —
+/// see `gestures::liveness_should_rebuild`. `START` is an `Instant`, which does
+/// NOT advance while the Mac sleeps, so a wake can never look "stale" here.
+static LAST_FRAME_MS: AtomicU64 = AtomicU64::new(0);
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// The scroll tap swallows scroll-wheel events until this timestamp (ms since
 /// `START`). Each ≥3-finger multitouch frame pushes it to `now + GRACE_MS`, so
@@ -221,6 +226,25 @@ static TICK_THREAD: Mutex<Option<std::thread::JoinHandle<()>>> = Mutex::new(None
 /// Tap-settle tick cadence (ms). Must be well under `TAP_SETTLE_MS` (160) so a
 /// settled cluster finalises within ~one cadence of going quiet.
 const TICK_MS: u64 = 24; // was 40 — trims the average post-settle tap latency (v0.110.0)
+
+/// Milliseconds since the last multitouch frame, or `None` when none has EVER
+/// arrived (no trackpad, or never started) — the liveness watchdog must not
+/// "heal" a device that never existed. `START` is an `Instant`, so this does not
+/// inflate across system sleep.
+pub(crate) fn ms_since_last_frame() -> Option<u64> {
+    let last = LAST_FRAME_MS.load(Ordering::Relaxed);
+    if last == 0 {
+        return None;
+    }
+    let now = START.get()?.elapsed().as_millis() as u64;
+    Some(now.saturating_sub(last))
+}
+
+/// Whether the capture is currently armed — the liveness watchdog must never
+/// resurrect a source the user deliberately switched off.
+pub(crate) fn is_running() -> bool {
+    RUNNING.load(Ordering::Relaxed)
+}
 
 /// The recogniser tick loop (own thread). Finalises a deferred tap cluster once
 /// the pad has been quiet past the settle window and dispatches it through the
@@ -272,6 +296,7 @@ extern "C" fn frame_callback(
     // lines per gesture. Sizes included for palm-threshold field tuning
     // (fingertip ~0.5–1.5, palm heel larger — see PALM_SIZE).
     let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+    LAST_FRAME_MS.store(now.max(1), Ordering::Relaxed); // 1 = "a frame arrived"
     let prev = LAST_COUNT.swap(n as i32, Ordering::Relaxed);
     if prev != n as i32 && tracing::enabled!(tracing::Level::DEBUG) {
         let sizes = fingers

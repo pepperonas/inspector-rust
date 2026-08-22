@@ -327,26 +327,47 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
     }
 }
 
-/// Seconds since the last hardware key-down (macOS). Pure modifier presses are
-/// flags-changed events, not key-downs, so they do not reset this clock.
-/// `f64::INFINITY` elsewhere / on error = the guard never fires.
+/// Seconds since the HID system last saw `event_type`. `f64::INFINITY` on
+/// error / off macOS, i.e. "as long ago as possible" — every caller treats that
+/// as "no recent activity", so a failure can never fabricate a signal.
 #[cfg(target_os = "macos")]
-fn seconds_since_last_keydown() -> f64 {
+fn seconds_since_hid_event(event_type: u32) -> f64 {
     #[link(name = "CoreGraphics", kind = "framework")]
     extern "C" {
         fn CGEventSourceSecondsSinceLastEventType(state: u32, event_type: u32) -> f64;
     }
-    // kCGEventSourceStateHIDSystemState = 1; kCGEventKeyDown = 10.
-    let s = unsafe { CGEventSourceSecondsSinceLastEventType(1, 10) };
+    // kCGEventSourceStateHIDSystemState = 1
+    let s = unsafe { CGEventSourceSecondsSinceLastEventType(1, event_type) };
     if s.is_finite() && s >= 0.0 {
         s
     } else {
         f64::INFINITY
     }
 }
+
+/// Seconds since the last hardware key-down (macOS). Pure modifier presses are
+/// flags-changed events, not key-downs, so they do not reset this clock.
+/// `f64::INFINITY` elsewhere / on error = the guard never fires.
+#[cfg(target_os = "macos")]
+fn seconds_since_last_keydown() -> f64 {
+    seconds_since_hid_event(10) // kCGEventKeyDown
+}
 #[cfg(not(target_os = "macos"))]
 fn seconds_since_last_keydown() -> f64 {
     f64::INFINITY
+}
+
+/// Seconds since the pointer last did anything (moved, dragged, scrolled).
+/// Deliberately NOT keyboard: this answers "is a pointing device in use right
+/// now", which on a MacBook is the trackpad — and a trackpad in use MUST be
+/// producing multitouch frames. See [`liveness_should_rebuild`].
+#[cfg(target_os = "macos")]
+fn seconds_since_pointer_activity() -> f64 {
+    // kCGEventMouseMoved = 5, kCGEventLeftMouseDragged = 6, kCGEventScrollWheel = 22
+    [5u32, 6, 22]
+        .iter()
+        .map(|t| seconds_since_hid_event(*t))
+        .fold(f64::INFINITY, f64::min)
 }
 
 /// Perform an action via the existing volume / mute pipeline + show a passive,
@@ -1158,6 +1179,30 @@ impl PalmAwareRecognizer {
                 self.reset_keep_present();
                 return Some(swipe);
             }
+            // Diagnostics (v0.113.1): a THREE-plus-contact gesture that produced
+            // no swipe is exactly the shape of a "3-finger swipe stopped
+            // working" report — and it is invisible in the log otherwise, since
+            // only emitted events are logged. One line per such gesture; 1- and
+            // 2-finger use (incl. scrolls and pinches) never reaches it, so this
+            // cannot become noise. A genuine 3-finger TAP also lands here, and
+            // its numbers (movers 0, travel ~0) say so at a glance.
+            let contacts = self.tracks.iter().filter(|t| !t.palm).count();
+            if contacts >= 3 {
+                let (movers, coherence) = self
+                    .swipe_geometry(t_ms)
+                    .map(|(_, _, n, c)| (n, c))
+                    .unwrap_or((0, 0.0));
+                let travel = self
+                    .tracks
+                    .iter()
+                    .filter(|t| !t.palm)
+                    .map(|t| t.travel())
+                    .fold(0.0f64, f64::max);
+                let palms = self.tracks.len() - contacts;
+                tracing::info!(
+                    "gestures: {contacts}-contact gesture ended without a swipe                      (movers={movers}, coherence={coherence:.2} [need {SWIPE_COHERENCE_MIN}],                      max travel={travel:.3} [need {SWIPE_FINGER_MIN_MOVE_NORM}], palms={palms})"
+                );
+            }
             // No coherent movement → the lifted finger is a tap sub-segment. Keep
             // the cluster open so `tick` coalesces sequential single touches of a
             // light multi-finger tap into ONE N-finger tap.
@@ -1599,6 +1644,59 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
     }
 }
 
+// ── Liveness watchdog (v0.113.1) ───────────────────────────────────────────
+//
+// The sleep watchdog below only catches a >60 s wall/monotonic drift. The
+// MultitouchSupport registration also goes stale WITHOUT that signal — a short
+// nap, a display sleep, a lid cycle, or the trackpad being re-enumerated leave
+// the run loop happily spinning on a device that never calls back again. The
+// symptom is indistinguishable from "gestures are off" and, until now, only an
+// app restart fixed it (observed twice; the second time the process had been
+// silent for 40 min while the machine was in active use).
+//
+// So instead of guessing at every cause, watch the EFFECT: no touch frames for
+// a while *even though a pointing device is being used*. On a MacBook the
+// pointing device is the trackpad, and a trackpad in use MUST produce frames —
+// that combination means the registration is dead, not the user idle.
+
+/// No multitouch frame for this long → the registration is suspect.
+pub const LIVENESS_STALE_MS: u64 = 45_000;
+/// … but only when the pointer moved this recently. An idle Mac legitimately
+/// produces no frames for hours; rebuilding then would be pure churn.
+pub const LIVENESS_POINTER_ACTIVE_S: f64 = 12.0;
+/// Base gap between rebuild attempts.
+pub const LIVENESS_COOLDOWN_S: u64 = 60;
+/// The gap doubles after each attempt that doesn't bring frames back, capped
+/// here. This bounds the one false positive the design accepts: someone using
+/// an EXTERNAL mouse and never touching the trackpad looks exactly like a dead
+/// registration. A rebuild is cheap (~30 ms, no user-visible effect), so the
+/// trade is a few wasted re-registrations against gestures silently dying.
+pub const LIVENESS_MAX_COOLDOWN_S: u64 = 900;
+
+/// Pure: should the capture be rebuilt right now?
+///
+/// `since_frame_ms = None` means no frame has EVER arrived — the device may
+/// simply not exist (no trackpad), so we never rebuild on that; only a source
+/// that once worked and then went quiet is treated as stale.
+pub fn liveness_should_rebuild(
+    since_frame_ms: Option<u64>,
+    pointer_idle_s: f64,
+    since_rebuild_s: u64,
+    cooldown_s: u64,
+) -> bool {
+    let Some(since_frame_ms) = since_frame_ms else {
+        return false;
+    };
+    since_frame_ms >= LIVENESS_STALE_MS
+        && pointer_idle_s <= LIVENESS_POINTER_ACTIVE_S
+        && since_rebuild_s >= cooldown_s
+}
+
+/// Backoff step after an attempt that didn't restore frames.
+pub fn next_liveness_cooldown_s(current: u64) -> u64 {
+    current.saturating_mul(2).min(LIVENESS_MAX_COOLDOWN_S)
+}
+
 /// Rebuild the gesture capture after system sleep. The private
 /// MultitouchSupport registration goes stale across sleep/wake — the run loop
 /// keeps spinning but the device delivers no (or late/erratic) frames, so
@@ -1619,8 +1717,23 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
         .name("ir-gestures-wake".into())
         .spawn(move || {
             use tauri::Manager as _;
-            const TICK: std::time::Duration = std::time::Duration::from_secs(30);
+            // 15 s, not 30: the tick is also the liveness cadence, and a dead
+            // capture should heal in about a minute, not two.
+            const TICK: std::time::Duration = std::time::Duration::from_secs(15);
             const SLEPT_SLACK: std::time::Duration = std::time::Duration::from_secs(60);
+            let rebuild = |reason: &str| {
+                let (Some(db), Some(state)) = (
+                    app.try_state::<DbHandle>(),
+                    app.try_state::<GestureState>(),
+                ) else {
+                    return false;
+                };
+                tracing::info!("gestures: {reason} — rebuilding the touch capture");
+                apply(&app, &db, &state);
+                true
+            };
+            let mut cooldown_s = LIVENESS_COOLDOWN_S;
+            let mut last_rebuild: Option<std::time::Instant> = None;
             loop {
                 let mono = std::time::Instant::now();
                 let wall = std::time::SystemTime::now();
@@ -1628,17 +1741,41 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                 let mono_elapsed = mono.elapsed();
                 let wall_elapsed = wall.elapsed().unwrap_or(mono_elapsed);
                 if wall_elapsed > mono_elapsed + SLEPT_SLACK {
-                    tracing::info!(
-                        "gestures: system slept ~{}s — rebuilding the touch capture",
-                        (wall_elapsed - mono_elapsed).as_secs()
-                    );
-                    let (Some(db), Some(state)) = (
-                        app.try_state::<DbHandle>(),
-                        app.try_state::<GestureState>(),
-                    ) else {
+                    let slept = (wall_elapsed - mono_elapsed).as_secs();
+                    if rebuild(&format!("system slept ~{slept}s")) {
+                        // A fresh rebuild deserves a fresh chance: reset the
+                        // liveness backoff so a post-wake failure is retried
+                        // promptly rather than at whatever gap we'd escalated to.
+                        last_rebuild = Some(std::time::Instant::now());
+                        cooldown_s = LIVENESS_COOLDOWN_S;
+                    }
+                    continue;
+                }
+
+                // Liveness: frames stopped although a pointing device is in use.
+                #[cfg(target_os = "macos")]
+                {
+                    if !macos::is_running() {
+                        continue; // gestures off — nothing to heal
+                    }
+                    let since_frame = macos::ms_since_last_frame();
+                    if since_frame.is_some_and(|ms| ms < LIVENESS_STALE_MS) {
+                        cooldown_s = LIVENESS_COOLDOWN_S; // healthy → drop the backoff
                         continue;
-                    };
-                    apply(&app, &db, &state);
+                    }
+                    let since_rebuild_s = last_rebuild
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or(u64::MAX);
+                    let idle = seconds_since_pointer_activity();
+                    if liveness_should_rebuild(since_frame, idle, since_rebuild_s, cooldown_s) {
+                        let secs = since_frame.unwrap_or(0) / 1000;
+                        if rebuild(&format!(
+                            "no touch frames for {secs}s while the pointer was active {idle:.0}s ago (stale registration; next check in {cooldown_s}s)"
+                        )) {
+                            last_rebuild = Some(std::time::Instant::now());
+                            cooldown_s = next_liveness_cooldown_s(cooldown_s);
+                        }
+                    }
                 }
             }
         })
@@ -1648,6 +1785,50 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Liveness watchdog (v0.113.1) ─────────────────────────────────────
+
+    #[test]
+    fn liveness_rebuilds_only_when_frames_stopped_while_the_pointer_was_active() {
+        let stale = LIVENESS_STALE_MS + 1;
+        // The whole point: silent capture + a pointing device in use.
+        assert!(liveness_should_rebuild(Some(stale), 1.0, u64::MAX, LIVENESS_COOLDOWN_S));
+        // Frames still flowing → nothing wrong.
+        assert!(!liveness_should_rebuild(Some(1_000), 1.0, u64::MAX, LIVENESS_COOLDOWN_S));
+        // Nobody at the machine → no frames is the CORRECT state, not a fault.
+        assert!(!liveness_should_rebuild(Some(stale), 600.0, u64::MAX, LIVENESS_COOLDOWN_S));
+        // Just rebuilt → wait out the cooldown instead of hammering.
+        assert!(!liveness_should_rebuild(Some(stale), 1.0, 5, LIVENESS_COOLDOWN_S));
+    }
+
+    #[test]
+    fn liveness_never_fires_before_the_device_has_ever_delivered_a_frame() {
+        // A machine with no trackpad would otherwise be rebuilt forever.
+        assert!(!liveness_should_rebuild(None, 0.0, u64::MAX, LIVENESS_COOLDOWN_S));
+    }
+
+    #[test]
+    fn liveness_is_exactly_at_the_boundaries_it_documents() {
+        // Pinning the comparisons themselves: >= stale, <= active window.
+        assert!(liveness_should_rebuild(Some(LIVENESS_STALE_MS), LIVENESS_POINTER_ACTIVE_S, u64::MAX, 0));
+        assert!(!liveness_should_rebuild(Some(LIVENESS_STALE_MS - 1), 0.0, u64::MAX, 0));
+        let just_idle = LIVENESS_POINTER_ACTIVE_S + 0.1;
+        assert!(!liveness_should_rebuild(Some(LIVENESS_STALE_MS), just_idle, u64::MAX, 0));
+    }
+
+    #[test]
+    fn the_cooldown_backs_off_and_is_capped() {
+        // Bounds the churn for the accepted false positive (external mouse,
+        // trackpad legitimately untouched): a handful of retries per hour, not
+        // one per minute forever.
+        let mut c = LIVENESS_COOLDOWN_S;
+        for _ in 0..20 {
+            c = next_liveness_cooldown_s(c);
+        }
+        assert_eq!(c, LIVENESS_MAX_COOLDOWN_S);
+        assert_eq!(next_liveness_cooldown_s(LIVENESS_COOLDOWN_S), LIVENESS_COOLDOWN_S * 2);
+        assert_eq!(next_liveness_cooldown_s(u64::MAX), LIVENESS_MAX_COOLDOWN_S); // no overflow
+    }
 
     fn test_db() -> DbHandle {
         let conn = rusqlite::Connection::open_in_memory().unwrap();

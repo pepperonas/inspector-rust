@@ -817,7 +817,30 @@ toggles take effect live. **Wake watchdog (v0.84.224):** the MultitouchSupport r
 stale across system sleep (after wake: no/erratic frames until an app restart
 — "gestures stopped working"); `spawn_wake_watchdog` detects sleep via
 monotonic-vs-wall-clock drift (`Instant` doesn't advance during sleep; > 60 s
-jump = slept) and re-`apply`s the source. `start()` also installs the fresh
+jump = slept) and re-`apply`s the source. ⚠️ **That signal is not sufficient
+(v0.113.1) — the same registration also dies WITHOUT a >60 s drift** (short nap,
+display sleep, lid cycle, trackpad re-enumeration): the run loop keeps spinning
+on a device that never calls back, and only an app restart helped. Field case:
+`ir-gestures-mac` alive in `CFRunLoopRun`, zero frames for 40 min of active use.
+So the same thread also runs a **liveness watchdog** on the EFFECT rather than
+the causes: `macos::ms_since_last_frame()` (stamped by the frame callback into
+`LAST_FRAME_MS`; `None` = never a frame, so a machine without a trackpad is
+never "healed") vs `seconds_since_pointer_activity()` (min over mouseMoved /
+leftMouseDragged / scrollWheel — a trackpad IN USE must produce frames, so
+"pointer active + no frames" means dead registration, not an idle user). Pure,
+unit-tested `liveness_should_rebuild(since_frame, pointer_idle, since_rebuild,
+cooldown)` + `next_liveness_cooldown_s`; tick 30 → **15 s**. Gated on
+`macos::is_running()` so a deliberately disabled source is never resurrected,
+and rate-limited by a **doubling cooldown** (60 s → cap 900 s) that bounds the
+one accepted false positive: an EXTERNAL-mouse user never touches the trackpad
+and looks identical to a dead registration (a rebuild is ~30 ms and invisible,
+so the trade is a few wasted re-registrations against gestures silently dying).
+A sleep-triggered rebuild resets the backoff. **Diagnosability:** a gesture that
+ends with **≥ 3 non-palm contacts** and produces no swipe logs one INFO line
+with movers / coherence / max travel / palms against their thresholds — the
+exact shape of a "3-finger swipe stopped working" report, which was previously
+invisible (only emitted events are logged). 1- and 2-finger use, incl. scrolls
+and pinches, never reaches it, so it cannot become noise. `start()` also installs the fresh
 sink BEFORE its already-running early return — a stop/start overlap could
 previously leave a live capture sink-less (recognised but dispatched nothing).
 **Typing guard + per-gesture switches (v0.109.0).** Three dispatch-layer additions against

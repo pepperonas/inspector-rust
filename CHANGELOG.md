@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.113.1] — 2026-08-21
+
+### Fixed
+
+- **Touchpad gestures no longer die silently until you restart the app.** The private multitouch registration macOS hands out goes stale not just across a long sleep (already handled) but also after a short nap, a display sleep, a lid cycle or a trackpad re-enumeration — the capture keeps running on a device that never reports again, so every gesture stops working with no sign of it. A liveness watchdog now notices the actual symptom — no touch frames for 45 s *while the pointer is being used*, which on a laptop means the trackpad must be producing frames — and rebuilds the capture within about a minute. It never touches a disabled source, never fires before the device has delivered a single frame, and backs off (60 s, doubling to 15 min) so someone working purely on an external mouse can't be put on a retry treadmill.
+- A three-or-more-finger gesture that produces no swipe now leaves one diagnostic line in the log with the numbers it was judged on (movers, coherence, travel). Previously only successful gestures were logged, so "the swipe didn't fire" left no trace at all. One- and two-finger use — including scrolling and pinching — never logs.
+
 ## [0.113.0] — 2026-08-21
 
 ### Added

@@ -1163,9 +1163,13 @@ pub fn wakelock_set(
     state: State<'_, crate::wakelock::WakelockState>,
     enable: bool,
     source: Option<String>,
+    mode: Option<String>,
 ) -> bool {
-    let new_state = crate::wakelock::set_enabled(state.inner(), enable);
-    let _ = app.emit("wakelock-changed", new_state);
+    // `mode` absent → Full, the historical behaviour (every existing caller).
+    // "dark" (v0.116.0) = system awake, display free to sleep — see wakelock.rs.
+    let wl_mode = crate::wakelock::WakelockMode::from_str(mode.as_deref().unwrap_or("full"));
+    let new_state = crate::wakelock::set_enabled_with_mode(state.inner(), enable, wl_mode);
+    let _ = app.emit("wakelock-changed", wakelock_status(&state));
     // Close the popup the normal way (on macOS this also `app.hide()`s, so
     // focus returns to the prior app), then — a beat LATER — pop the
     // status flourish. Showing the overlay shortly after `app.hide()` has
@@ -1176,7 +1180,15 @@ pub fn wakelock_set(
     // both drive the identical animation/behaviour.
     let label = if source.as_deref() == Some("caffeine") { "Caffeine" } else { "Wakelock" };
     let (title, subtitle) = if new_state {
-        (format!("{label} On"), "Sleep & screen lock are paused")
+        match wl_mode {
+            crate::wakelock::WakelockMode::Dark => (
+                "Dark Wake On".to_string(),
+                "System stays awake — screen may sleep",
+            ),
+            crate::wakelock::WakelockMode::Full => {
+                (format!("{label} On"), "Sleep & screen lock are paused")
+            }
+        }
     } else {
         (format!("{label} Off"), "Normal sleep behaviour resumed")
     };
@@ -1192,9 +1204,24 @@ pub fn wakelock_set(
     new_state
 }
 
+/// Wakelock status for the footer: on + which mode. The `wakelock-changed`
+/// event carries the same shape.
+#[derive(serde::Serialize, Clone)]
+pub struct WakelockStatus {
+    pub on: bool,
+    pub mode: String,
+}
+
+fn wakelock_status(state: &State<'_, crate::wakelock::WakelockState>) -> WakelockStatus {
+    WakelockStatus {
+        on: crate::wakelock::is_enabled(state.inner()),
+        mode: crate::wakelock::current_mode(state.inner()).as_str().to_string(),
+    }
+}
+
 #[tauri::command]
-pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> bool {
-    crate::wakelock::is_enabled(state.inner())
+pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> WakelockStatus {
+    wakelock_status(&state)
 }
 
 /// Show an on-screen status toast (hide popup + animated flourish). Used

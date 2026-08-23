@@ -336,16 +336,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "wakelock",
     keyword: "wakelock",
-    syntax: "wakelock on|off",
+    syntax: "wakelock on|off|dark",
     description:
-      "Keep awake (pause sleep + screen lock). e.g. `wakelock on` / `wakelock off`",
+      "Keep awake (pause sleep + screen lock). `wakelock dark` = screen may sleep, system stays awake",
     requiresArg: true,
   },
   {
     kind: "wakelock",
     keyword: "caffeine",
-    syntax: "caffeine on|off",
-    description: "Keep awake — alias of wakelock. e.g. `caffeine on` / `caffeine off`",
+    syntax: "caffeine on|off|dark",
+    description: "Keep awake — alias of wakelock. e.g. `caffeine on` / `caffeine dark`",
     requiresArg: true,
   },
   // ── Bruno — German income-tax / net-pay calculator ────────────────
@@ -857,6 +857,29 @@ export const DEFAULT_PWGEN_LENGTH = 12;
 /** Parse a wakelock/caffeine on/off argument. Accepts on/off (the new
  *  canonical syntax) plus 1/0/true/false for leniency. Returns the
  *  desired enabled state, or `null` if unrecognised. */
+/**
+ * Full wakelock/caffeine argument grammar (v0.116.0):
+ *   `on` / `off` (+ 1/0/true/false/an/aus)   → full mode (screen forced on)
+ *   `dark`                                    → toggle dark mode
+ *   `dark on` / `dark off`                    → explicit dark mode
+ * `dark` = system stays awake while the DISPLAY may sleep (caffeinate -is) —
+ * the remote-reachability mode. `on: null` means "toggle against the current
+ * dark state" (only the dark form toggles; bare on/off stays explicit).
+ */
+export type WakelockRequest = { dark: boolean; on: boolean | null };
+
+export function parseWakelockRequest(arg: string): WakelockRequest | null {
+  const t = arg.trim().toLowerCase();
+  if (t === "dark") return { dark: true, on: null };
+  const darkArg = t.match(/^dark\s+(\S+)$/);
+  if (darkArg) {
+    const on = parseWakelockArg(darkArg[1]);
+    return on === null ? null : { dark: true, on };
+  }
+  const on = parseWakelockArg(t);
+  return on === null ? null : { dark: false, on };
+}
+
 export function parseWakelockArg(arg: string): boolean | null {
   switch (arg.trim().toLowerCase()) {
     case "on":

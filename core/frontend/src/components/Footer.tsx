@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { Moon } from "lucide-react";
 import { IS_MAC } from "../lib/platform";
 import { formatSleepCountdown, formatHolders } from "../lib/sleep-status";
 import type { SleepStatus } from "../lib/ipc";
@@ -28,6 +29,13 @@ interface Props {
    *  on, this indicator consequently shows ∞ — the two coexist on purpose
    *  (one is "what I asked for", the other "what the system is doing"). */
   sleepStatus?: SleepStatus | null;
+  /** Dark wake (v0.116.0): system awake while the DISPLAY may sleep — the
+   *  remote-reachability mode. `onDarkWakeToggle` makes the ☾ clickable;
+   *  without the handler the button isn't rendered (unit tests / cold
+   *  mounts). Coexists with `wakelockActive` (the FULL wakelock's red LED)
+   *  on purpose — they are two modes of one backend, never shown both. */
+  darkWake?: boolean;
+  onDarkWakeToggle?: () => void;
 }
 
 export function Footer({
@@ -39,6 +47,8 @@ export function Footer({
   trackingActive,
   trackingPaused,
   sleepStatus,
+  darkWake,
+  onDarkWakeToggle,
 }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
@@ -57,6 +67,7 @@ export function Footer({
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {wakelockActive && <WakelockLed />}
+        {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
         {sleepStatus && <SleepStatusLed status={sleepStatus} />}
         {trackingActive && <TrackingLed paused={!!trackingPaused} />}
         {activeTimerCount != null && activeTimerCount > 0 && (
@@ -252,5 +263,52 @@ function SleepStatusLed({ status }: { status: SleepStatus }) {
       />
       <span className="font-[var(--font-mono)] text-[10px] tracking-wider">{label}</span>
     </span>
+  );
+}
+
+/**
+ * Dark-wake toggle (v0.116.0) — the one CLICKABLE element among the footer
+ * LEDs: ☾ keeps the SYSTEM awake while the display may sleep (`caffeinate
+ * -is`), so remote connections (SSH / Claude Code) stay reachable with the
+ * screen dark. Always rendered (a toggle must be findable), muted while off,
+ * violet + "srv" label + glow while on. Clicking from the FULL wakelock
+ * switches to dark (the user explicitly wants the screen off); clicking while
+ * dark turns everything off. ⚠️ Does not survive a lid close (OS-forced
+ * clamshell sleep — no assertion prevents that).
+ */
+function DarkWakeButton({ on, onToggle }: { on: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={
+        on
+          ? "Dark Wake aktiv: System bleibt wach, Display darf schlafen — Remote-Verbindungen (SSH/Claude Code) bleiben erreichbar. Klick schaltet aus. Deckel muss offen bleiben."
+          : "Dark Wake einschalten: Display darf schlafen, System bleibt wach — Remote-Verbindungen bleiben erreichbar (caffeinate -is, ohne sudo)."
+      }
+      className={
+        "flex shrink-0 cursor-pointer items-center gap-1 rounded px-0.5 transition-colors " +
+        (on ? "text-violet-400" : "text-[var(--color-muted)] opacity-60 hover:opacity-100")
+      }
+    >
+      <Moon
+        size={11}
+        aria-hidden
+        style={
+          on
+            ? {
+                filter:
+                  "drop-shadow(0 0 3px rgba(167, 139, 250, 0.9)) drop-shadow(0 0 7px rgba(167, 139, 250, 0.5))",
+                animation: "wakelockPulse 1.6s ease-in-out infinite",
+              }
+            : undefined
+        }
+      />
+      {on && (
+        <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+          srv
+        </span>
+      )}
+    </button>
   );
 }

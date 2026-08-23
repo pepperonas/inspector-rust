@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.116.0] — 2026-08-23
+
+### Added
+
+- **Dark wake — stay reachable while the screen sleeps.** `wakelock dark` (alias `caffeine dark`; `dark on`/`dark off` explicit) keeps the SYSTEM awake while the display is free to sleep: `caffeinate -is` on macOS (no `-d`/`-u`, which pin the screen), system-only execution state without the F15 nudge on Windows, a sleep-only logind inhibitor without cursor jiggle on Linux. Remote connections — SSH, Claude Code — survive a dark screen. Does not survive closing the lid (OS-forced clamshell sleep).
+- **The footer moon toggles it with one click**: muted ☾ while off, violet ☾ `srv` with a breathing glow while on. Clicking from the full wakelock switches to dark; clicking while dark turns everything off. The red `wake` LED remains the full mode's indicator, and the system-sleep indicator consequently reads `wach ∞` with caffeinate as the named holder while dark wake runs.
+- Switching modes while active swaps the underlying assertion atomically (kill + respawn under a transition lock) — `wakelock on` → `wakelock dark` never drops the keep-awake in between.
+
 ## [0.115.0] — 2026-08-23
 
 ### Added

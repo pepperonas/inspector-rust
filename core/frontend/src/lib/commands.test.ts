@@ -8,6 +8,7 @@ import {
   fuzzyScore,
   parseAlarmArg,
   parseWakelockArg,
+  parseWakelockRequest,
   parseTrackArg,
   parseDiscoArg,
   isGetShakyTrigger,
@@ -83,6 +84,23 @@ describe("COMMANDS catalogue", () => {
       expect(isCommandAvailable(spec, "win")).toBe(true);
       expect(isCommandAvailable(spec, "linux")).toBe(true);
     }
+  });
+
+  it("parseWakelockRequest: full grammar incl. dark (v0.116.0)", () => {
+    // Bare on/off = the historical full mode, explicit.
+    expect(parseWakelockRequest("on")).toEqual({ dark: false, on: true });
+    expect(parseWakelockRequest(" OFF ")).toEqual({ dark: false, on: false });
+    // `dark` alone TOGGLES (on: null — resolved against live state by App).
+    expect(parseWakelockRequest("dark")).toEqual({ dark: true, on: null });
+    expect(parseWakelockRequest("DARK")).toEqual({ dark: true, on: null });
+    // Explicit dark on/off (with the lenient on/off vocabulary).
+    expect(parseWakelockRequest("dark on")).toEqual({ dark: true, on: true });
+    expect(parseWakelockRequest("dark off")).toEqual({ dark: true, on: false });
+    expect(parseWakelockRequest("dark 1")).toEqual({ dark: true, on: true });
+    // Garbage stays garbage — never silently a mode.
+    expect(parseWakelockRequest("darkish")).toBeNull();
+    expect(parseWakelockRequest("dark maybe")).toBeNull();
+    expect(parseWakelockRequest("")).toBeNull();
   });
 
   it("wakelock + caffeine are on/off arg commands (no more =1/=0)", () => {

@@ -182,9 +182,22 @@ export function startInputLock(): Promise<void> {
  *  "away" detection (Teams, Slack, screen savers). Resolves with the
  *  resulting state. */
 /** Toggle keep-awake. `source` ("wakelock" | "caffeine") only brands the
- *  on-screen status toast; both behave identically. */
-export function wakelockSet(enable: boolean, source?: string): Promise<boolean> {
-  return invoke("wakelock_set", { enable, source: source ?? "wakelock" });
+ *  on-screen status toast; both behave identically. `mode` (v0.116.0):
+ *  "full" (default — screen forced on, the historical behaviour) or
+ *  "dark" (screen may sleep, system stays awake — SSH/remote reachable). */
+export function wakelockSet(
+  enable: boolean,
+  source?: string,
+  mode?: "full" | "dark",
+): Promise<boolean> {
+  return invoke("wakelock_set", { enable, source: source ?? "wakelock", mode: mode ?? "full" });
+}
+
+/** Wakelock status: on + which mode ("full" | "dark"). The
+ *  `wakelock-changed` event carries the same shape. */
+export interface WakelockStatus {
+  on: boolean;
+  mode: string;
 }
 
 /** Open the user's terminal (iTerm2 if installed, else Terminal.app) at the
@@ -213,7 +226,7 @@ export function showStatusToast(
   return invoke("show_status_toast", { kind, on, title, subtitle });
 }
 
-export function wakelockGet(): Promise<boolean> {
+export function wakelockGet(): Promise<WakelockStatus> {
   return invoke("wakelock_get");
 }
 

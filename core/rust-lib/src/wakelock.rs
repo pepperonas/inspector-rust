@@ -70,6 +70,46 @@ const TICK: Duration = Duration::from_secs(60);
 #[cfg(target_os = "windows")]
 const WIN_NUDGE: Duration = Duration::from_secs(30);
 
+/// Which flavour of keep-awake is active (v0.116.0).
+///
+/// * `Full` — the historical behaviour: system awake AND display forced on
+///   (`caffeinate -disu`; the `-d`/`-u` pair pins the screen). What `wakelock
+///   on` has always meant.
+/// * `Dark` — system awake, **display free to sleep** (`caffeinate -is`; man
+///   page verified: `-i` prevents idle sleep, `-s` prevents system sleep on
+///   AC, and neither touches the display). The "server mode" for keeping
+///   remote connections (SSH / Claude Code) reachable while the screen is
+///   dark. ⚠️ Does NOT survive a lid close — clamshell sleep is forced by the
+///   OS and no caffeinate assertion prevents it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WakelockMode {
+    Full,
+    Dark,
+}
+
+impl WakelockMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            WakelockMode::Full => "full",
+            WakelockMode::Dark => "dark",
+        }
+    }
+    /// Anything unrecognised is `Full` — the historical default; a garbled
+    /// IPC arg must never silently pick the weaker (screen-off) mode.
+    pub fn from_str(s: &str) -> WakelockMode {
+        if s.eq_ignore_ascii_case("dark") { WakelockMode::Dark } else { WakelockMode::Full }
+    }
+}
+
+/// The caffeinate flag set per mode (pure — pinned by a test on every OS so
+/// the `-d`-must-be-absent-in-Dark invariant can't rot unnoticed).
+pub fn caffeinate_flags(mode: WakelockMode) -> &'static str {
+    match mode {
+        WakelockMode::Full => "-disu",
+        WakelockMode::Dark => "-is",
+    }
+}
+
 /// Tauri-managed singleton. `active` is the public toggle the IPC
 /// reports back; `stop` is a fresh AtomicBool per running worker — on
 /// each on→off transition we set it to `true`; on each off→on we
@@ -88,9 +128,16 @@ const WIN_NUDGE: Duration = Duration::from_secs(30);
 /// `caffeinate` raises a proper IOPM assertion the kernel respects.
 /// Windows + Linux fall back to the cursor-jiggle worker since they
 /// don't ship an equivalent CLI in the base install.
-#[derive(Default)]
 pub struct WakelockState {
     pub active: AtomicBool,
+    /// The mode the CURRENT (or last) activation used. Only meaningful while
+    /// `active`; guarded by `transition` for consistency with the spawn.
+    pub mode: Mutex<WakelockMode>,
+    /// Serialises every on/off/mode transition (v0.116.0). The historical CAS
+    /// only guarded the off↔on flip; a mode SWAP while active (kill child,
+    /// respawn with other flags) is a multi-step transition that needs a real
+    /// critical section.
+    pub transition: Mutex<()>,
     /// Worker-thread handle (Win/Linux only — macOS uses caffeinate
     /// instead of the jiggle loop).
     #[cfg(not(target_os = "macos"))]
@@ -110,6 +157,24 @@ pub struct WakelockState {
     pub inhibitor: Mutex<Option<std::process::Child>>,
 }
 
+impl Default for WakelockState {
+    fn default() -> Self {
+        WakelockState {
+            active: AtomicBool::new(false),
+            mode: Mutex::new(WakelockMode::Full),
+            transition: Mutex::new(()),
+            #[cfg(not(target_os = "macos"))]
+            handle: Mutex::new(None),
+            #[cfg(not(target_os = "macos"))]
+            stop: Mutex::new(None),
+            #[cfg(target_os = "macos")]
+            caffeinate: Mutex::new(None),
+            #[cfg(target_os = "linux")]
+            inhibitor: Mutex::new(None),
+        }
+    }
+}
+
 /// Toggle the wakelock. Idempotent — calling with the current state
 /// is a no-op. Returns the resulting state.
 ///
@@ -122,132 +187,167 @@ pub struct WakelockState {
 /// CAS makes the active-bit transition atomic; the loser bails
 /// without spawning, and the winning thread fully owns the side
 /// effects.
+/// Historical entry point — Full mode. Production callers go through
+/// `set_enabled_with_mode` (commands.rs passes the parsed mode); this wrapper
+/// carries the test suite's extensive transition-semantics coverage, hence
+/// the not(test) dead-code allowance.
+#[cfg_attr(not(test), allow(dead_code))]
 pub fn set_enabled(state: &WakelockState, enable: bool) -> bool {
-    let prev = !enable;
-    if state
-        .active
-        .compare_exchange(prev, enable, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {
-        // Either the value was already `enable` (no-op) or another
-        // thread is mid-transition. Either way the wanted state is
-        // already in flight; just report the latest observation.
+    set_enabled_with_mode(state, enable, WakelockMode::Full)
+}
+
+/// Mode-aware toggle (v0.116.0). Semantics:
+/// * off → on: start the platform side effects for `mode`.
+/// * on with the SAME mode: no-op.
+/// * on with the OTHER mode: **swap** — tear the current side effects down and
+///   start the new ones (macOS: kill + respawn caffeinate with the other flag
+///   set), without ever dropping `active`.
+/// * → off: tear down, mode irrelevant.
+///
+/// The whole transition runs under `state.transition` — the historical CAS
+/// guarded the plain off↔on flip, but a swap is multi-step and two racing
+/// callers could otherwise each spawn a child. With the lock, exactly one
+/// caller performs each transition; racers observe the settled state.
+pub fn set_enabled_with_mode(state: &WakelockState, enable: bool, mode: WakelockMode) -> bool {
+    let _guard = state.transition.lock();
+    let was = state.active.load(Ordering::SeqCst);
+    if enable == was {
+        if enable && *state.mode.lock() != mode {
+            // Active, but in the other mode → swap the side effects in place.
+            stop_platform(state);
+            start_platform(state, mode);
+            *state.mode.lock() = mode;
+        }
         return state.active.load(Ordering::SeqCst);
     }
-    // We won the CAS — only one caller reaches here per transition.
     if enable {
-        #[cfg(target_os = "macos")]
-        {
-            // Primary mechanism on macOS: spawn `caffeinate -disu` and
-            // keep it alive. The CLI raises a proper IOPM assertion the
-            // kernel honours, so the screen-lock / screensaver counters
-            // are paused (which is what the user actually wants — pre-
-            // 0.41.0 cursor-jiggle alone did not prevent the screen
-            // from locking on modern macOS). The worker thread is NOT
-            // started here; caffeinate covers display + system + idle.
-            //   -d  prevent display sleep
-            //   -i  prevent idle system sleep
-            //   -s  prevent system sleep on AC
-            //   -u  declare user is active (resets idle-lock counter)
-            //   -w <pid>  tie the assertion to OUR process — caffeinate exits
-            //             the moment IR exits (clean quit OR crash OR being
-            //             replaced by a reinstall). Without this the child was
-            //             reparented to launchd and kept the Mac awake forever,
-            //             unreachable by a later `caffeine off` (v0.78.0 fix).
-            let self_pid = std::process::id().to_string();
-            let child = std::process::Command::new("/usr/bin/caffeinate")
-                .args(["-disu", "-w", &self_pid])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match child {
-                Ok(c) => {
-                    *state.caffeinate.lock() = Some(c);
-                }
-                Err(e) => {
-                    tracing::error!(
-                        "wakelock: failed to spawn caffeinate ({e}). \
-                         The OS may sleep / lock as usual."
-                    );
-                    // Don't flip `active` back — the LED stays on so
-                    // the user sees *something*; logs explain the
-                    // degraded state. (Unreachable in practice:
-                    // /usr/bin/caffeinate ships with every macOS.)
-                }
-            }
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // Primary: a logind idle+sleep inhibitor. Unlike the X11 cursor
-            // jiggle (which Wayland blocks at the protocol level), this actually
-            // keeps a Wayland session from going idle / locking / sleeping, as
-            // long as the desktop honours logind inhibitors (GNOME, KDE do).
-            // Best-effort — if systemd-inhibit is missing, the jiggle worker
-            // below still helps on X11.
-            let child = std::process::Command::new("systemd-inhibit")
-                .args([
-                    "--what=idle:sleep",
-                    "--who=Inspector Rust",
-                    "--why=Keep awake",
-                    "--mode=block",
-                    "sleep",
-                    "infinity",
-                ])
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn();
-            match child {
-                Ok(c) => *state.inhibitor.lock() = Some(c),
-                Err(e) => tracing::warn!(
-                    "wakelock: systemd-inhibit unavailable ({e}); \
-                     relying on the X11 cursor jiggle (a no-op under Wayland)"
-                ),
-            }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            // Cursor-jiggle worker — primary on Windows/X11, a complement to the
-            // logind inhibitor on Linux (no-op under Wayland).
-            let stop = Arc::new(AtomicBool::new(false));
-            *state.stop.lock() = Some(stop.clone());
-            let h = std::thread::spawn(move || worker(stop));
-            *state.handle.lock() = Some(h);
-        }
+        start_platform(state, mode);
+        *state.mode.lock() = mode;
     } else {
-        #[cfg(target_os = "macos")]
-        {
-            if let Some(mut child) = state.caffeinate.lock().take() {
-                // Kill then wait — leaves no zombie. `kill()` is a
-                // no-op if the child has already exited.
-                let _ = child.kill();
-                let _ = child.wait();
+        stop_platform(state);
+    }
+    state.active.store(enable, Ordering::SeqCst);
+    enable
+}
+
+/// Start the per-platform keep-awake side effects for `mode`. Caller holds
+/// `state.transition`.
+fn start_platform(state: &WakelockState, mode: WakelockMode) {
+    #[cfg(target_os = "macos")]
+    {
+        // Primary mechanism on macOS: spawn `caffeinate` and keep it alive.
+        // The CLI raises proper IOPM assertions the kernel honours. Flags per
+        // mode via `caffeinate_flags` — Full pins the display on (`-disu`),
+        // Dark leaves the display free to sleep (`-is`).
+        //   -w <pid>  tie the assertion to OUR process — caffeinate exits
+        //             the moment IR exits (clean quit OR crash OR being
+        //             replaced by a reinstall). Without this the child was
+        //             reparented to launchd and kept the Mac awake forever,
+        //             unreachable by a later `caffeine off` (v0.78.0 fix).
+        let self_pid = std::process::id().to_string();
+        let child = std::process::Command::new("/usr/bin/caffeinate")
+            .args([caffeinate_flags(mode), "-w", &self_pid])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        match child {
+            Ok(c) => {
+                *state.caffeinate.lock() = Some(c);
             }
-        }
-        #[cfg(not(target_os = "macos"))]
-        {
-            if let Some(stop) = state.stop.lock().take() {
-                stop.store(true, Ordering::SeqCst);
-            }
-            // Let the worker exit on its own at the next 200 ms tick so
-            // we don't block the IPC for up to a minute waiting on `join`.
-            *state.handle.lock() = None;
-        }
-        #[cfg(target_os = "linux")]
-        {
-            // Release the logind inhibitor (kill the `sleep infinity` child).
-            if let Some(mut child) = state.inhibitor.lock().take() {
-                let _ = child.kill();
-                let _ = child.wait();
+            Err(e) => {
+                tracing::error!(
+                    "wakelock: failed to spawn caffeinate ({e}). \
+                     The OS may sleep / lock as usual."
+                );
+                // Don't flip `active` back — the LED stays on so the user
+                // sees *something*; logs explain the degraded state.
+                // (Unreachable in practice: /usr/bin/caffeinate ships with
+                // every macOS.)
             }
         }
     }
-    enable
+    #[cfg(target_os = "linux")]
+    {
+        // Primary: a logind inhibitor. Full blocks idle+sleep (screen stays
+        // unlocked); Dark blocks ONLY sleep — the session may go idle and the
+        // screen may lock/blank, but the machine keeps running (SSH stays up).
+        let what = match mode {
+            WakelockMode::Full => "--what=idle:sleep",
+            WakelockMode::Dark => "--what=sleep",
+        };
+        let child = std::process::Command::new("systemd-inhibit")
+            .args([
+                what,
+                "--who=Inspector Rust",
+                "--why=Keep awake",
+                "--mode=block",
+                "sleep",
+                "infinity",
+            ])
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn();
+        match child {
+            Ok(c) => *state.inhibitor.lock() = Some(c),
+            Err(e) => tracing::warn!(
+                "wakelock: systemd-inhibit unavailable ({e}); \
+                 relying on the X11 cursor jiggle (a no-op under Wayland)"
+            ),
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        // Worker thread — on Windows it holds SetThreadExecutionState (both
+        // modes) and nudges F15 (Full only); on Linux it cursor-jiggles (Full
+        // only — Dark must let the session go idle so the screen can sleep).
+        let stop = Arc::new(AtomicBool::new(false));
+        *state.stop.lock() = Some(stop.clone());
+        let h = std::thread::spawn(move || worker(stop, mode));
+        *state.handle.lock() = Some(h);
+    }
+    #[cfg(target_os = "macos")]
+    let _ = mode; // consumed by caffeinate_flags above
+}
+
+/// Tear the side effects down. Caller holds `state.transition`.
+fn stop_platform(state: &WakelockState) {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(mut child) = state.caffeinate.lock().take() {
+            // Kill then wait — leaves no zombie. `kill()` is a no-op if the
+            // child has already exited.
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        if let Some(stop) = state.stop.lock().take() {
+            stop.store(true, Ordering::SeqCst);
+        }
+        // Let the worker exit on its own at the next 200 ms tick so we don't
+        // block the IPC for up to a minute waiting on `join`.
+        *state.handle.lock() = None;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        // Release the logind inhibitor (kill the `sleep infinity` child).
+        if let Some(mut child) = state.inhibitor.lock().take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
 }
 
 pub fn is_enabled(state: &WakelockState) -> bool {
     state.active.load(Ordering::SeqCst)
+}
+
+/// The mode of the current (or most recent) activation.
+pub fn current_mode(state: &WakelockState) -> WakelockMode {
+    *state.mode.lock()
 }
 
 /// Best-effort cleanup of **orphaned** `caffeinate` processes left behind by a
@@ -294,7 +394,17 @@ pub fn cleanup_orphans() {}
 /// idle-inhibit API in the base install; a future Wayland path would
 /// use `org.freedesktop.ScreenSaver.Inhibit` over D-Bus.)
 #[cfg(target_os = "linux")]
-fn worker(stop: Arc<AtomicBool>) {
+fn worker(stop: Arc<AtomicBool>, mode: WakelockMode) {
+    if mode == WakelockMode::Dark {
+        // Dark: the sleep-only logind inhibitor (spawned in start_platform)
+        // carries the keep-awake; jiggling would reset the idle timer and
+        // keep the screen ON — the exact opposite of the mode's point. The
+        // worker just parks until stopped (keeps the teardown path uniform).
+        while !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        return;
+    }
     loop {
         // Wait TICK in 200 ms chunks so the stop signal lands within
         // 200 ms of being set instead of 60 s.
@@ -335,7 +445,28 @@ fn worker(stop: Arc<AtomicBool>) {
 /// worker must stay alive the entire time wakelock is on — engage on
 /// entry, disengage on exit, sleep in 200 ms chunks in between.
 #[cfg(target_os = "windows")]
-fn worker(stop: Arc<AtomicBool>) {
+fn worker(stop: Arc<AtomicBool>, mode: WakelockMode) {
+    if mode == WakelockMode::Dark {
+        // Dark: hold ONLY ES_SYSTEM_REQUIRED — the display idle timer keeps
+        // running (screen sleeps/locks as configured) while the system stays
+        // in the working state. Crucially NO F15 nudges: those reset the
+        // input-idle timer and would keep the screen awake.
+        let engaged = win_power::engage_system_only();
+        if !engaged {
+            tracing::warn!("wakelock(dark): SetThreadExecutionState returned 0");
+        }
+        let mut waited = Duration::ZERO;
+        while !stop.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(200));
+            waited += Duration::from_millis(200);
+            if waited >= WIN_NUDGE {
+                let _ = win_power::engage_system_only(); // cheap re-assert
+                waited = Duration::ZERO;
+            }
+        }
+        win_power::disengage();
+        return;
+    }
     let engaged = win_power::engage();
     if !engaged {
         tracing::warn!(
@@ -492,6 +623,13 @@ mod win_power {
     extern "system" {
         /// Returns the previous EXECUTION_STATE, or 0 on failure.
         fn SetThreadExecutionState(es_flags: u32) -> u32;
+    }
+
+    /// Dark mode: system stays awake, display idle timer untouched (the
+    /// screen may sleep/lock). Returns `true` when the OS accepted it.
+    pub fn engage_system_only() -> bool {
+        let prev = unsafe { SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED) };
+        prev != 0
     }
 
     /// Engage the wakelock on the calling thread. Returns `true` if
@@ -651,6 +789,80 @@ mod tests {
     /// call this so the next test starts from a clean state.
     fn cleanup(s: &WakelockState) {
         set_enabled(s, false);
+    }
+
+    // ── Dark mode (v0.116.0) ─────────────────────────────────────────
+
+    #[test]
+    fn caffeinate_flags_pin_the_display_semantics() {
+        // Full pins the display on; Dark MUST NOT carry -d (display) or -u
+        // (user-active — turns the display ON) or the mode's whole point —
+        // "screen may sleep, system stays awake" — is silently lost.
+        assert_eq!(caffeinate_flags(WakelockMode::Full), "-disu");
+        assert_eq!(caffeinate_flags(WakelockMode::Dark), "-is");
+        assert!(!caffeinate_flags(WakelockMode::Dark).contains('d'));
+        assert!(!caffeinate_flags(WakelockMode::Dark).contains('u'));
+    }
+
+    #[test]
+    fn mode_parses_leniently_and_defaults_to_full() {
+        assert_eq!(WakelockMode::from_str("dark"), WakelockMode::Dark);
+        assert_eq!(WakelockMode::from_str("DARK"), WakelockMode::Dark);
+        // Garbage must fall back to the HISTORICAL behaviour, never silently
+        // to the weaker screen-off mode.
+        for junk in ["full", "", "server", "42"] {
+            assert_eq!(WakelockMode::from_str(junk), WakelockMode::Full);
+        }
+    }
+
+    #[test]
+    fn plain_set_enabled_is_the_historical_full_mode() {
+        let s = WakelockState::default();
+        assert!(set_enabled(&s, true));
+        assert_eq!(current_mode(&s), WakelockMode::Full);
+        cleanup(&s);
+    }
+
+    #[test]
+    fn dark_activation_reports_dark_and_toggles_off_cleanly() {
+        let s = WakelockState::default();
+        assert!(set_enabled_with_mode(&s, true, WakelockMode::Dark));
+        assert!(is_enabled(&s));
+        assert_eq!(current_mode(&s), WakelockMode::Dark);
+        assert!(!set_enabled_with_mode(&s, false, WakelockMode::Dark));
+        assert!(!is_enabled(&s));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn mode_swap_while_active_replaces_the_caffeinate_child() {
+        let s = WakelockState::default();
+        set_enabled_with_mode(&s, true, WakelockMode::Full);
+        let pid_full = { s.caffeinate.lock().as_ref().map(|c| c.id()) }.expect("full child");
+        // Swap to Dark WITHOUT going through off — the old -disu child must
+        // die and a fresh -is child take its place (active never drops).
+        assert!(set_enabled_with_mode(&s, true, WakelockMode::Dark));
+        assert!(is_enabled(&s));
+        assert_eq!(current_mode(&s), WakelockMode::Dark);
+        let pid_dark = { s.caffeinate.lock().as_ref().map(|c| c.id()) }.expect("dark child");
+        assert_ne!(pid_full, pid_dark, "swap must respawn caffeinate with the other flags");
+        cleanup(&s);
+    }
+
+    #[test]
+    fn same_mode_reenable_is_a_noop() {
+        let s = WakelockState::default();
+        set_enabled_with_mode(&s, true, WakelockMode::Dark);
+        #[cfg(target_os = "macos")]
+        let before = { s.caffeinate.lock().as_ref().map(|c| c.id()) };
+        assert!(set_enabled_with_mode(&s, true, WakelockMode::Dark));
+        #[cfg(target_os = "macos")]
+        {
+            let after = { s.caffeinate.lock().as_ref().map(|c| c.id()) };
+            assert_eq!(before, after, "re-enabling the active mode must not respawn");
+        }
+        assert_eq!(current_mode(&s), WakelockMode::Dark);
+        cleanup(&s);
     }
 
     #[test]

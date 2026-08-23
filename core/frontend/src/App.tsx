@@ -75,7 +75,7 @@ import {
   parseShotDelay,
   parseRandomArg,
   randomInt,
-  parseWakelockArg,
+  parseWakelockRequest,
   parseTrackArg,
   parseDiscoArg,
   resizePresetSuggestions,
@@ -133,6 +133,7 @@ import {
   systemShutdown,
   wakelockGet,
   wakelockSet,
+  type WakelockStatus,
   launchApp,
   listApps,
   type AppEntry,
@@ -377,6 +378,18 @@ function App() {
   // System sleep status for the footer (macOS; polls only while visible).
   const sleepStatus = useSleepStatus();
   const [wakelockActive, setWakelockActive] = useState(false);
+  // Dark wake (v0.116.0): system awake, DISPLAY free to sleep — the footer's
+  // clickable ☾ toggles it. Mutually exclusive with the full wakelock (both
+  // views of the same backend state; `applyWakelockStatus` splits them). The
+  // ref mirrors the state for the toggle handlers (they run outside render).
+  const [darkWake, setDarkWake] = useState(false);
+  const darkWakeRef = useRef(false);
+  const applyWakelockStatus = useCallback((st: WakelockStatus) => {
+    const dark = st.on && st.mode === "dark";
+    setWakelockActive(st.on && !dark);
+    setDarkWake(dark);
+    darkWakeRef.current = dark;
+  }, []);
   // v0.39.0+: count of active timers, displayed in the footer next to
   // the wakelock LED. Refreshed by `timers-changed` + `timer-fired`
   // events the backend emits. Also fetched once on mount.
@@ -1296,15 +1309,21 @@ function App() {
           "Press the configured chord (Settings → Input Lock, default i+r) to unlock";
         break;
       case "wakelock": {
-        const on = parseWakelockArg(arg);
-        if (on === null) {
-          label = `wakelock: use "on" or "off" (got "${arg}")`;
-          hint = "e.g. wakelock on · wakelock off · caffeine on";
+        const req = parseWakelockRequest(arg);
+        if (req === null) {
+          label = `wakelock: use "on", "off" or "dark" (got "${arg}")`;
+          hint = "e.g. wakelock on · wakelock off · wakelock dark";
+        } else if (req.dark) {
+          const turningOn = req.on ?? !darkWake;
+          label = turningOn
+            ? "Dark wake: ON — screen may sleep, system stays awake"
+            : "Dark wake: OFF — normal sleep behaviour resumes";
+          hint = turningOn ? "Remote connections stay reachable while the display sleeps" : "";
         } else {
-          label = on
+          label = req.on
             ? "Keep awake: ON — pause sleep & screen lock"
             : "Keep awake: OFF — normal sleep behaviour resumes";
-          hint = on ? "Stays awake until you run wakelock off" : "";
+          hint = req.on ? "Stays awake until you run wakelock off" : "";
         }
         break;
       }
@@ -1530,7 +1549,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -2512,7 +2531,7 @@ function App() {
     // the status shows next time the popup opens, regardless of the keyword
     // used (or an external change). Same robustness as the timer count.
     void wakelockGet()
-      .then((v) => setWakelockActive(v))
+      .then(applyWakelockStatus)
       .catch(() => undefined);
     // CRT TV power-ON — the popup's signature open: a bright dot blooms out
     // of the tube, snaps into a scanline, and the shell stretches out of it.
@@ -2769,24 +2788,24 @@ function App() {
     let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     let eventAlreadyFired = false;
-    void listen<boolean>("wakelock-changed", (e) => {
+    void listen<WakelockStatus>("wakelock-changed", (e) => {
       if (cancelled) return;
       eventAlreadyFired = true;
-      setWakelockActive(Boolean(e.payload));
+      applyWakelockStatus(e.payload);
     }).then((u) => {
       if (cancelled) u();
       else unlisten = u;
     });
     void wakelockGet()
       .then((v) => {
-        if (!cancelled && !eventAlreadyFired) setWakelockActive(v);
+        if (!cancelled && !eventAlreadyFired) applyWakelockStatus(v);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
       unlisten?.();
     };
-  }, []);
+  }, [applyWakelockStatus]);
 
   // Timer state: count active timers (footer badge) + show a banner
   // when one fires. Both via simple useTauriEvent — no special
@@ -3101,8 +3120,8 @@ function App() {
           console.error("input lock failed", e);
         }
       } else if (commandKind === "wakelock") {
-        const on = parseWakelockArg(arg);
-        if (on === null) {
+        const req = parseWakelockRequest(arg);
+        if (req === null) {
           setPasteError("other");
           return true;
         }
@@ -3111,7 +3130,9 @@ function App() {
         // fire app.hide() on macOS and swallow that toast, so don't.
         // `source` only brands the toast (Caffeine vs Wakelock).
         const source = keyword === "caffeine" ? "caffeine" : "wakelock";
-        await wakelockSet(on, source);
+        // `wakelock dark` (no on/off) toggles against the CURRENT dark state.
+        const on = req.on ?? !darkWakeRef.current;
+        await wakelockSet(on, source, req.dark ? "dark" : "full");
       } else if (commandKind === "touch" || commandKind === "mkdir") {
         // Create a file / folder in the active file-manager window's folder
         // (Finder on macOS, Explorer on Windows). For `touch`, an optional
@@ -4377,6 +4398,13 @@ function App() {
           trackingActive={trackStatusState.active}
           trackingPaused={trackStatusState.paused}
           sleepStatus={sleepStatus}
+          darkWake={darkWake}
+          onDarkWakeToggle={() => {
+            // Click semantics: off OR full → dark on (the user wants the
+            // screen dark + system awake); dark → everything off. The backend
+            // hides the popup + shows the status toast, like the command.
+            void wakelockSet(!darkWakeRef.current, "wakelock", "dark");
+          }}
         />
       </div>
     </div>

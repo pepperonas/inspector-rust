@@ -153,3 +153,42 @@ describe("Footer — system sleep indicator", () => {
     expect(screen.getByText("wach ∞")).toBeTruthy();
   });
 });
+
+describe("Footer — dark-wake toggle", () => {
+  it("is hidden without a handler (cold mounts stay clean)", () => {
+    const { container } = render(<Footer index={0} total={1} />);
+    expect(container.querySelector("button")).toBeNull();
+  });
+
+  it("renders muted without the srv label while off, and toggles on click", () => {
+    const onToggle = vi.fn();
+    const { container } = render(
+      <Footer index={0} total={1} darkWake={false} onDarkWakeToggle={onToggle} />,
+    );
+    const btn = container.querySelector("button")!;
+    expect(btn).toBeTruthy();
+    expect(screen.queryByText("srv")).toBeNull();
+    btn.click();
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the violet srv badge while dark wake is on", () => {
+    render(<Footer index={0} total={1} darkWake={true} onDarkWakeToggle={() => {}} />);
+    expect(screen.getByText("srv")).toBeTruthy();
+  });
+
+  it("coexists with the full wakelock LED (two modes, one backend)", () => {
+    // App never sets both, but the footer must not couple them structurally.
+    render(
+      <Footer
+        index={0}
+        total={1}
+        wakelockActive={true}
+        darkWake={false}
+        onDarkWakeToggle={() => {}}
+      />,
+    );
+    expect(screen.getByText("wake")).toBeTruthy();
+    expect(screen.queryByText("srv")).toBeNull();
+  });
+});

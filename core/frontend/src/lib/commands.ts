@@ -50,6 +50,7 @@ export type CommandKind =
   | "loc"
   | "adb"
   | "disk"
+  | "clock"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -332,6 +333,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── clock — world clock ───────────────────────────────────────────
+  {
+    kind: "clock",
+    keyword: "clock",
+    syntax: "clock",
+    description: "Weltzeituhr — Live-Zeiten wichtiger Städte, per Autocomplete erweiterbar",
+    requiresArg: false,
   },
   // ── disk / daisy — DaisyDisk-style disk usage ─────────────────────
   {

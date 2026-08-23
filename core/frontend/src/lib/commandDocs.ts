@@ -1068,6 +1068,33 @@ export const COMMAND_DOCS: CommandDoc[] = [
     see_also: "docs/adb.md",
   },
   {
+    command: "clock",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.121.0",
+    tagline: "World clock — live times for the world's major cities.",
+    tagline_de: "Weltzeituhr — Live-Zeiten der wichtigsten Städte.",
+    synopsis: "clock",
+    description:
+      "A live world clock in the preview: a card per timezone with the current time (seconds ticking), the local date, a ±1-day chip when it's another calendar day there, the UTC offset, and a sun/moon wash for day vs night. Ships with a spread of major capitals; add any city via the autocomplete search (matches city, country or IANA timezone id) and remove one with the × on its card. Times come from the operating system's timezone database, so daylight-saving is always correct. Your set of clocks is saved and restored across sessions.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "clock", result: "The world-clock grid; type a city to add one." },
+      { input: "clock → \"tokio\"", result: "Autocomplete → Enter adds Tokyo." },
+      { input: "clock → \"pacific/auckland\"", result: "Any IANA zone works by typing its id." },
+    ],
+    tips: [
+      "Type a country (\"japan\") or a raw timezone id (\"asia/dubai\") — not just city names.",
+      "The ±1-day chip and UTC offset make scheduling across zones a glance, not mental math.",
+      "Your clocks persist — the set you build is there next time.",
+    ],
+    caveats: [
+      "Offsets and DST come from the OS timezone database; a very outdated macOS could lag a recent DST rule change.",
+    ],
+    related: ["calendar", "weather"],
+  },
+  {
     command: "disk",
     aliases: ["daisy"],
     category: CAT_INFO,

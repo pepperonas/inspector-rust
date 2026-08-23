@@ -1150,6 +1150,28 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── clock — world clock zone persistence (v0.121.0) ───────────────────
+
+/// Settings key for the world-clock zone list (JSON array of IANA tz ids).
+const KEY_CLOCK_ZONES: &str = "clock.zones";
+
+/// Read the persisted zone list as a raw JSON string (the frontend normalises
+/// + supplies defaults when empty). Empty string = never set.
+#[tauri::command]
+pub fn get_clock_zones(db: State<'_, DbHandle>) -> Result<String, String> {
+    Ok(settings::get(&db, KEY_CLOCK_ZONES).map_err(map_err)?.unwrap_or_default())
+}
+
+/// Persist the zone list. `zones_json` is a JSON array of tz-id strings,
+/// validated as parseable JSON before storing (a malformed value must never
+/// wedge the panel; the frontend also normalises on read).
+#[tauri::command]
+pub fn set_clock_zones(db: State<'_, DbHandle>, zones_json: String) -> Result<(), String> {
+    serde_json::from_str::<Vec<String>>(&zones_json)
+        .map_err(|e| format!("invalid zones JSON: {e}"))?;
+    settings::set(&db, KEY_CLOCK_ZONES, &zones_json).map_err(map_err)
+}
+
 // ── disk / daisy — DaisyDisk-style usage (v0.120.0) ───────────────────
 
 /// Scan a folder (or the home dir when `path` is blank) and return the

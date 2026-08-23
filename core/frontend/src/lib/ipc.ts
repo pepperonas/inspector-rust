@@ -2618,6 +2618,16 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── clock — world clock zone persistence (v0.121.0) ─────────────────────────
+
+/** Raw persisted zones JSON ("" when never set — normalise on the frontend). */
+export function getClockZones(): Promise<string> {
+  return invoke("get_clock_zones");
+}
+export function setClockZones(zonesJson: string): Promise<void> {
+  return invoke("set_clock_zones", { zonesJson });
+}
+
 // ── disk / daisy — DaisyDisk-style usage (v0.120.0) ─────────────────────────
 
 export interface DiskNode {

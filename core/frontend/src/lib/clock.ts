@@ -203,9 +203,12 @@ export function zoneTime(date: Date, tz: string): ZoneTime {
   }
 }
 
-/** Which calendar day the instant lands on in `tz` vs the local zone: -1/0/+1.
- *  Compares the yyyy-mm-dd of the instant in each zone. */
-export function dayDelta(date: Date, tz: string): number {
+/** Which calendar day the instant lands on in `tz` vs a reference zone
+ *  (default: the machine's local zone — the day-delta chip is relative to the
+ *  user's own day): -1/0/+1. `refTz` is injectable so tests can pin it to a
+ *  fixed zone (the machine's zone is unknowable in CI). Compares the
+ *  yyyy-mm-dd of the same instant in each zone. */
+export function dayDelta(date: Date, tz: string, refTz?: string): number {
   const dayIn = (z?: string) =>
     new Intl.DateTimeFormat("en-CA", {
       timeZone: z,
@@ -214,7 +217,7 @@ export function dayDelta(date: Date, tz: string): number {
       day: "2-digit",
     }).format(date);
   const there = dayIn(tz);
-  const here = dayIn(undefined); // local zone
+  const here = dayIn(refTz); // undefined → local zone
   if (there === here) return 0;
   return there > here ? 1 : -1;
 }

@@ -786,6 +786,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::loc_count,
             commands::disk_scan,
             commands::disk_trash,
+            commands::get_clock_zones,
+            commands::set_clock_zones,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

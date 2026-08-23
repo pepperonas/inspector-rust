@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.121.0] — 2026-08-24
+
+### Added
+
+- **`clock` — a world clock in the preview.** A grid of live time cards, one per timezone: current time with a ticking seconds tail, the local date, a ±1-day chip when it's another calendar day there, the UTC offset, and a warm/cool sun-moon wash for day vs night. Ships with a spread of major capitals; add any city through the autocomplete (matches on city, country or IANA timezone id — so `tokio`, `japan` and `asia/tokyo` all find Tokyo) and remove one with the × on its card. Times come from the OS timezone database, so DST is always right. Your set of clocks persists across sessions.
+
 ## [0.120.0] — 2026-08-24
 
 ### Added

@@ -1268,3 +1268,18 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
 @media (prefers-reduced-motion: reduce) {
   .disk-scan-orb { animation: none; opacity: 0.8; }
 }
+
+/* ── rickroll — lyric marquee (v0.122.0) ─────────────────────────────────────
+   The lyrics scroll right-to-left forever; the line is doubled in the DOM so
+   the -50 % loop is seamless. Reduced-motion shows a single static line. */
+@keyframes rickrollScroll {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.rickroll-marquee {
+  display: inline-block;
+  animation: rickrollScroll 18s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .rickroll-marquee { animation: none; }
+}

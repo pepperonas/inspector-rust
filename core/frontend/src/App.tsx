@@ -16,6 +16,7 @@ import { StatsPanel } from "./components/StatsPanel";
 import { LocPanel } from "./components/LocPanel";
 import { AdbPanel, type AdbView } from "./components/AdbPanel";
 import { DiskPanel } from "./components/DiskPanel";
+import { ClockPanel } from "./components/ClockPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -294,6 +295,10 @@ function App() {
   // path override; bare `disk` scans the home dir.
   const [diskMode, setDiskMode] = useState(false);
   const [diskFocus, setDiskFocus] = useState(false);
+  // clock mode (v0.121.0) — world clock. Enter-activated (the search field
+  // needs focus for autocomplete).
+  const [clockMode, setClockMode] = useState(false);
+  const [clockFocus, setClockFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1077,6 +1082,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isClockCmd = parsedCommand?.spec.kind === "clock";
+  useEffect(() => {
+    if (!isClockCmd && clockMode) {
+      setClockMode(false);
+      setClockFocus(false);
+    }
+  }, [isClockCmd, clockMode]);
   const isDiskCmd = parsedCommand?.spec.kind === "disk";
   useEffect(() => {
     if (!isDiskCmd && diskMode) {
@@ -1495,6 +1507,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "clock":
+        label = "Weltzeituhr";
+        hint = "Enter → Live-Zeiten; Städte per Autocomplete hinzufügen/entfernen";
         break;
       case "disk":
         label = arg ? `Speicher: ${arg}` : "Speicher analysieren (DaisyDisk-Stil)";
@@ -2842,6 +2858,8 @@ function App() {
     setAdbFocus(false);
     setDiskMode(false);
     setDiskFocus(false);
+    setClockMode(false);
+    setClockFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -2965,7 +2983,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3420,6 +3438,10 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "clock") {
+        setClockMode(true);
+        setClockFocus(true);
+        return true;
       } else if (commandKind === "disk") {
         setDiskMode(true);
         setDiskFocus(true);
@@ -3841,6 +3863,7 @@ function App() {
       !locFocus &&
       !adbFocus &&
       !diskFocus &&
+      !clockFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4295,6 +4318,17 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : clockMode ? (
+                  <div className="md3-pop-in h-full">
+                    <ClockPanel
+                      focused={clockFocus}
+                      onExit={() => {
+                        setClockMode(false);
+                        setClockFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

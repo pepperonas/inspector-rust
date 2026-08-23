@@ -59,6 +59,7 @@ mod screenshot_editor;
 mod screenshot_preview;
 mod seed;
 mod settings;
+mod sleep_status;
 mod snippet_template;
 mod snippets;
 mod sound;
@@ -777,6 +778,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_window_size_preference,
             commands::get_crt_animation,
             commands::set_crt_animation,
+            commands::get_sleep_status,
             commands::get_status_toast,
             commands::hide_status_toast,
             commands::cleaner_status,

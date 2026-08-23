@@ -2605,6 +2605,27 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── System sleep status (footer indicator, v0.114.0, macOS) ─────────────────
+
+export interface SleepStatus {
+  /** false on non-macOS or when `pmset` failed — hide the indicator. */
+  supported: boolean;
+  /** The ACTIVE pmset profile has `sleep 0` — idle sleep never happens. */
+  sleep_disabled: boolean;
+  /** ≥1 counted PreventUserIdleSystemSleep assertion is active. */
+  prevented: boolean;
+  /** ≥1 counted assertion has no timeout (held until its process lets go). */
+  indefinite: boolean;
+  /** Largest assertion timeout in seconds = time until sleep is possible. */
+  max_timeout_secs: number | null;
+  /** Deduplicated holder names with counts, e.g. ["caffeinate ×4", "sharingd"]. */
+  holders: string[];
+}
+
+export function getSleepStatus(): Promise<SleepStatus> {
+  return invoke("get_sleep_status");
+}
+
 // ── CRT popup animation duration (v0.113.0) ─────────────────────────────────
 
 export interface CrtAnimation {

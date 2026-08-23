@@ -1504,6 +1504,17 @@ pub fn set_crt_animation(
     Ok(stored)
 }
 
+/// System sleep status for the footer indicator (v0.114.0). Async +
+/// `spawn_blocking` because it spawns `pmset` twice — a sync command would run
+/// the subprocess ON the main thread (see the v0.105.0 audit note above the
+/// IPC checklist). Non-macOS returns `supported: false` without spawning.
+#[tauri::command]
+pub async fn get_sleep_status() -> Result<crate::sleep_status::SleepStatus, String> {
+    tauri::async_runtime::spawn_blocking(crate::sleep_status::current)
+        .await
+        .map_err(|e| format!("sleep-status task: {e}"))
+}
+
 /// Force-format paste — bypasses the `paste.plain_text_only` setting and
 /// always uses the entry's original content type. Wired to Shift+Enter
 /// in the popup as a one-shot override for users who normally paste as

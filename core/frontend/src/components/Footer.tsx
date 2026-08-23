@@ -1,4 +1,7 @@
+import { useEffect, useState } from "react";
 import { IS_MAC } from "../lib/platform";
+import { formatSleepCountdown, formatHolders } from "../lib/sleep-status";
+import type { SleepStatus } from "../lib/ipc";
 
 interface Props {
   index: number;
@@ -19,6 +22,12 @@ interface Props {
    *  surfaces (amber while idle-paused, green while recording). */
   trackingActive?: boolean;
   trackingPaused?: boolean;
+  /** System sleep status (macOS, v0.114.0) — is something OTHER than us
+   *  holding the machine awake, and for how long? Distinct from
+   *  `wakelockActive`, which is Inspector's OWN wakelock: with IR's wakelock
+   *  on, this indicator consequently shows ∞ — the two coexist on purpose
+   *  (one is "what I asked for", the other "what the system is doing"). */
+  sleepStatus?: SleepStatus | null;
 }
 
 export function Footer({
@@ -29,6 +38,7 @@ export function Footer({
   activeTimerCount,
   trackingActive,
   trackingPaused,
+  sleepStatus,
 }: Props) {
   const label = total === 0 ? "0/0" : `${index + 1}/${total}`;
   // OCR + Screenshot are the most-hidden global shortcuts — they fire
@@ -47,6 +57,7 @@ export function Footer({
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
         {wakelockActive && <WakelockLed />}
+        {sleepStatus && <SleepStatusLed status={sleepStatus} />}
         {trackingActive && <TrackingLed paused={!!trackingPaused} />}
         {activeTimerCount != null && activeTimerCount > 0 && (
           <TimerBadge count={activeTimerCount} />
@@ -151,6 +162,95 @@ function WakelockLed() {
       <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
         wake
       </span>
+    </span>
+  );
+}
+
+/**
+ * System-sleep indicator (macOS, v0.114.0): a glance answers "can I walk away
+ * and let the Mac sleep?". Three states; hidden entirely when there is nothing
+ * to say (unsupported platform, or nothing preventing sleep) — the footer must
+ * not accumulate idle chrome.
+ *
+ *  · `sleep_disabled`  → amber dot, `no-sleep` — the ACTIVE pmset profile has
+ *    `sleep 0`, so idle sleep never happens; the countdown would be a lie and
+ *    is deliberately not shown even when assertions are also active.
+ *  · prevented, timed  → `wach 4:12` — the countdown ticks down LOCALLY every
+ *    second between the ~10 s polls, parks at 0:00 (never negative; the next
+ *    poll corrects), tooltip names the holders.
+ *  · prevented, ∞      → `wach ∞` — some holder has no timeout.
+ */
+function SleepStatusLed({ status }: { status: SleepStatus }) {
+  const ticking =
+    status.supported &&
+    !status.sleep_disabled &&
+    status.prevented &&
+    !status.indefinite &&
+    status.max_timeout_secs != null;
+  // Locally ticking remainder, anchored to the moment THIS status object
+  // arrived (re-anchors per poll). Lives in an effect — render stays pure
+  // (no Date.now() during render; react-compiler lint enforces this).
+  const [remaining, setRemaining] = useState<number | null>(null);
+  useEffect(() => {
+    if (!ticking) {
+      setRemaining(null);
+      return;
+    }
+    const base = status.max_timeout_secs ?? 0;
+    const anchoredAt = Date.now();
+    setRemaining(base);
+    const id = window.setInterval(
+      () => setRemaining(base - Math.floor((Date.now() - anchoredAt) / 1000)),
+      1000,
+    );
+    return () => window.clearInterval(id);
+  }, [status, ticking]);
+
+  if (!status.supported) return null;
+
+  if (status.sleep_disabled) {
+    return (
+      <span
+        title="System-Sleep in pmset deaktiviert (sleep 0) — der Mac schläft nie von selbst."
+        className="flex shrink-0 items-center gap-1"
+      >
+        <span
+          aria-hidden
+          className="h-2 w-2 rounded-full"
+          style={{
+            backgroundColor: "rgb(245, 158, 11)",
+            boxShadow: "0 0 4px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.45)",
+          }}
+        />
+        <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+          no-sleep
+        </span>
+      </span>
+    );
+  }
+
+  if (!status.prevented) return null;
+
+  const holderNote = status.holders.length
+    ? ` Wachhalter: ${formatHolders(status.holders)}.`
+    : "";
+  const label = status.indefinite
+    ? "wach ∞"
+    : `wach ${formatSleepCountdown(remaining ?? status.max_timeout_secs ?? 0)}`;
+  const title = status.indefinite
+    ? `Der Mac wird ohne Zeitlimit wachgehalten (Assertion ohne Timeout).${holderNote}`
+    : `Der Mac wird wachgehalten — so lange noch, bis Sleep wieder möglich ist.${holderNote}`;
+  return (
+    <span title={title} className="flex shrink-0 items-center gap-1">
+      <span
+        aria-hidden
+        className="h-2 w-2 rounded-full"
+        style={{
+          backgroundColor: "rgb(56, 189, 248)", // sky — distinct from red wake / green rec
+          boxShadow: "0 0 4px rgba(56, 189, 248, 0.85), 0 0 8px rgba(56, 189, 248, 0.45)",
+        }}
+      />
+      <span className="font-[var(--font-mono)] text-[10px] tracking-wider">{label}</span>
     </span>
   );
 }

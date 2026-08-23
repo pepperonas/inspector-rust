@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.114.0] — 2026-08-23
+
+### Added
+
+- **System sleep status in the popup footer (macOS).** A small indicator answers "is my Mac being held awake — and for how long?" at a glance: amber `no-sleep` when the active pmset profile has sleep disabled (`sleep 0` — profiles differ per power source, the indicator reflects the one in effect), `wach 4:12` counting down until idle sleep is possible again (the largest assertion timeout, e.g. caffeinate's 300 s bursts; ticks every second, corrected by a 10 s poll that only runs while the popup is visible), or `wach ∞` when a holder has no timeout. The tooltip names the holders (`caffeinate ×4, sharingd`). Hidden entirely when nothing prevents sleep. powerd's always-on "display is on" assertion deliberately doesn't count — it would read "prevented" forever. Distinct from the red `wake` LED, which shows Inspector's own wakelock.
+
 ## [0.113.1] — 2026-08-21
 
 ### Fixed

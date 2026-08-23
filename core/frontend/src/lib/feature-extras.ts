@@ -90,6 +90,11 @@ export const IN_POPUP_ACTIONS: FeatureRow[] = [
   },
   { name: "Pin clip to top", trigger: "★ list action", note: "Pin a clip — floats to the top and is never pruned." },
   {
+    name: "System sleep status",
+    trigger: "footer indicator (macOS)",
+    note: "Shows whether something is holding the Mac awake: amber \"no-sleep\" when the active pmset profile has sleep 0, \"wach 4:12\" counting down until sleep is possible again (caffeinate & co), \"wach ∞\" for an indefinite holder — tooltip names the processes. Hidden when nothing prevents sleep. Distinct from the red \"wake\" LED, which is Inspector's own wakelock.",
+  },
+  {
     name: "Show only pinned clips",
     trigger: "📌 history toolbar",
     note: "Toggle the pin button in the history toolbar to collapse the list to just your pinned clips (search still filters within them). Resets when the popup closes.",

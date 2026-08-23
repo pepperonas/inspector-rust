@@ -1,8 +1,25 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { render, screen, cleanup } from "@testing-library/react";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { render, screen, cleanup, act } from "@testing-library/react";
 import { Footer } from "./Footer";
+import type { SleepStatus } from "../lib/ipc";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+/** A SleepStatus with sane defaults, overridable per test. */
+function sleep(over: Partial<SleepStatus>): SleepStatus {
+  return {
+    supported: true,
+    sleep_disabled: false,
+    prevented: false,
+    indefinite: false,
+    max_timeout_secs: null,
+    holders: [],
+    ...over,
+  };
+}
 
 describe("Footer", () => {
   it("shows 1-based counter label", () => {
@@ -63,5 +80,76 @@ describe("Footer", () => {
     render(<Footer index={0} total={1} wakelockActive={true} />);
     // The LED label is `wake` next to the red dot — easy text probe.
     expect(screen.getByText("wake")).toBeTruthy();
+  });
+});
+
+describe("Footer — system sleep indicator", () => {
+  it("is hidden without a status, when unsupported, and when nothing prevents sleep", () => {
+    const probe = () => screen.queryByText(/no-sleep|wach/);
+    render(<Footer index={0} total={1} />);
+    expect(probe()).toBeNull();
+    cleanup();
+    render(<Footer index={0} total={1} sleepStatus={sleep({ supported: false, prevented: true, indefinite: true })} />);
+    expect(probe()).toBeNull();
+    cleanup();
+    render(<Footer index={0} total={1} sleepStatus={sleep({})} />);
+    expect(probe()).toBeNull();
+  });
+
+  it("shows amber no-sleep when the active profile disables sleep — even with holders", () => {
+    // sleep 0 makes the countdown a lie (sleep never happens), so it wins.
+    render(
+      <Footer
+        index={0}
+        total={1}
+        sleepStatus={sleep({ sleep_disabled: true, prevented: true, max_timeout_secs: 300, holders: ["caffeinate ×4"] })}
+      />,
+    );
+    expect(screen.getByText("no-sleep")).toBeTruthy();
+    expect(screen.queryByText(/^wach/)).toBeNull();
+  });
+
+  it("shows a ticking countdown for a timed prevention and parks at 0:00", () => {
+    vi.useFakeTimers();
+    render(
+      <Footer
+        index={0}
+        total={1}
+        sleepStatus={sleep({ prevented: true, max_timeout_secs: 252, holders: ["caffeinate ×4", "sharingd"] })}
+      />,
+    );
+    expect(screen.getByText("wach 4:12")).toBeTruthy();
+    // The tooltip names the holders.
+    expect(screen.getByTitle(/caffeinate ×4, sharingd/)).toBeTruthy();
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    expect(screen.getByText("wach 4:10")).toBeTruthy();
+    // Long past expiry: parked at 0:00, never negative (next poll corrects).
+    act(() => {
+      vi.advanceTimersByTime(600_000);
+    });
+    expect(screen.getByText("wach 0:00")).toBeTruthy();
+  });
+
+  it("shows ∞ for an indefinite prevention", () => {
+    render(
+      <Footer index={0} total={1} sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["sharingd"] })} />,
+    );
+    expect(screen.getByText("wach ∞")).toBeTruthy();
+    expect(screen.getByTitle(/sharingd/)).toBeTruthy();
+  });
+
+  it("coexists with the app's own wakelock LED (system state ≠ IR's wakelock)", () => {
+    render(
+      <Footer
+        index={0}
+        total={1}
+        wakelockActive={true}
+        sleepStatus={sleep({ prevented: true, indefinite: true, holders: ["caffeinate"] })}
+      />,
+    );
+    expect(screen.getByText("wake")).toBeTruthy();
+    expect(screen.getByText("wach ∞")).toBeTruthy();
   });
 });

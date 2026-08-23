@@ -191,6 +191,7 @@ import { confirmDialog } from "./lib/confirm";
 import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
 import { matchSettingsSection } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
+import { useSleepStatus } from "./hooks/useSleepStatus";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { matchTotpEntries, totpCommandRows } from "./lib/totp";
 import { applyTheme, normaliseTheme } from "./lib/theme";
@@ -373,6 +374,8 @@ function App() {
   // mount; subsequently refreshed by the `wakelock-changed` event
   // emitted by the backend after every `wakelock_set` call. No
   // polling — purely event-driven.
+  // System sleep status for the footer (macOS; polls only while visible).
+  const sleepStatus = useSleepStatus();
   const [wakelockActive, setWakelockActive] = useState(false);
   // v0.39.0+: count of active timers, displayed in the footer next to
   // the wakelock LED. Refreshed by `timers-changed` + `timer-fired`
@@ -4373,6 +4376,7 @@ function App() {
           activeTimerCount={activeTimerCount}
           trackingActive={trackStatusState.active}
           trackingPaused={trackStatusState.paused}
+          sleepStatus={sleepStatus}
         />
       </div>
     </div>

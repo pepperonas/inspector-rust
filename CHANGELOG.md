@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.120.0] — 2026-08-24
+
+### Added
+
+- **`disk` (alias `daisy`) — DaisyDisk-style disk usage.** Scans a folder and draws it as a concentric sunburst: each ring a directory level, each segment sized by the space it actually occupies on disk. The centre hub shows the hovered item's size and share, a volume bar shows free space and how much of the whole disk the folder accounts for, clicking a segment zooms in (breadcrumb or Esc to go back), and a largest-files list sits below. Any segment or file can be moved to the Trash — DaisyDisk's collector — with confirmation, then the view re-scans to show the freed space. Bare `disk` scans your home folder; `disk /` the whole volume; `disk <pfad>` a specific one.
+- On-disk sizes (allocated blocks, matching the volume readout), symlinks not followed, stays on one filesystem, unreadable folders skipped. A full home scan walks 10⁵–10⁶ files in a few seconds with a live progress count. Documented on three surfaces (`disk?`, docs/disk.md, README matrix).
+
 ## [0.119.0] — 2026-08-24
 
 ### Added

@@ -49,6 +49,7 @@ export type CommandKind =
   | "wakelock"
   | "loc"
   | "adb"
+  | "disk"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -331,6 +332,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── disk / daisy — DaisyDisk-style disk usage ─────────────────────
+  {
+    kind: "disk",
+    keyword: "disk",
+    syntax: "disk [pfad]",
+    description:
+      "Speicher-Analyse à la DaisyDisk: Sunburst-Diagramm der Ordnergrößen, Drill-down, größte Dateien",
+    requiresArg: false,
+  },
+  {
+    kind: "disk",
+    keyword: "daisy",
+    syntax: "daisy [pfad]",
+    description: "Speicher-Analyse — Alias von disk (DaisyDisk-Stil).",
+    requiresArg: false,
   },
   // ── adb — Android device control ──────────────────────────────────
   {

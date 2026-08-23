@@ -15,6 +15,7 @@ import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { LocPanel } from "./components/LocPanel";
 import { AdbPanel, type AdbView } from "./components/AdbPanel";
+import { DiskPanel } from "./components/DiskPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -289,6 +290,10 @@ function App() {
   const [adbMode, setAdbMode] = useState(false);
   const [adbFocus, setAdbFocus] = useState(false);
   const [adbView, setAdbView] = useState<AdbView>("info");
+  // disk/daisy mode (v0.120.0) — DaisyDisk-style usage sunburst. The arg is a
+  // path override; bare `disk` scans the home dir.
+  const [diskMode, setDiskMode] = useState(false);
+  const [diskFocus, setDiskFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1072,6 +1077,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isDiskCmd = parsedCommand?.spec.kind === "disk";
+  useEffect(() => {
+    if (!isDiskCmd && diskMode) {
+      setDiskMode(false);
+      setDiskFocus(false);
+    }
+  }, [isDiskCmd, diskMode]);
   const isAdbCmd = parsedCommand?.spec.kind === "adb";
   useEffect(() => {
     if (!isAdbCmd && adbMode) {
@@ -1483,6 +1495,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "disk":
+        label = arg ? `Speicher: ${arg}` : "Speicher analysieren (DaisyDisk-Stil)";
+        hint = "Enter → Sunburst der Ordnergrößen, Drill-down, größte Dateien";
         break;
       case "adb": {
         const v = arg.trim().toLowerCase();
@@ -2824,6 +2840,8 @@ function App() {
     setLocFocus(false);
     setAdbMode(false);
     setAdbFocus(false);
+    setDiskMode(false);
+    setDiskFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -2947,7 +2965,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -2957,7 +2975,8 @@ function App() {
           commandKind === "weather" ||
           commandKind === "iris" ||
           commandKind === "loc" ||
-          commandKind === "adb";
+          commandKind === "adb" ||
+          commandKind === "disk";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3401,6 +3420,10 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "disk") {
+        setDiskMode(true);
+        setDiskFocus(true);
+        return true;
       } else if (commandKind === "adb") {
         // Android control panel; the arg picks the view (remote/apps/wifi).
         const view = arg.trim().toLowerCase();
@@ -3817,6 +3840,7 @@ function App() {
       !weatherFocus &&
       !locFocus &&
       !adbFocus &&
+      !diskFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4271,6 +4295,18 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : diskMode ? (
+                  <div className="md3-pop-in h-full">
+                    <DiskPanel
+                      arg={isDiskCmd ? (parsedCommand?.arg ?? "") : ""}
+                      focused={diskFocus}
+                      onExit={() => {
+                        setDiskMode(false);
+                        setDiskFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

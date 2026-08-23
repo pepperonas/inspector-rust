@@ -1150,6 +1150,84 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── disk / daisy — DaisyDisk-style usage (v0.120.0) ───────────────────
+
+/// Scan a folder (or the home dir when `path` is blank) and return the
+/// bounded sunburst view + top files + volume info. Async + `spawn_blocking`
+/// — a full `~` walk touches 10⁵–10⁶ files. Emits throttled
+/// `disk-scan-progress` events while walking so the UI can show a live count.
+#[tauri::command]
+pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::disk_usage::DiskScan, String> {
+    use std::sync::Arc;
+    let root = match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(p) => std::path::PathBuf::from(p),
+        None => dirs::home_dir().ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
+    };
+    // Disks (mount, total, free) from sysinfo — passed into the pure scanner.
+    let disks: Vec<(String, u64, u64)> = {
+        use sysinfo::Disks;
+        Disks::new_with_refreshed_list()
+            .list()
+            .iter()
+            .map(|d| {
+                (
+                    d.mount_point().to_string_lossy().into_owned(),
+                    d.total_space(),
+                    d.available_space(),
+                )
+            })
+            .collect()
+    };
+    let progress = Arc::new(crate::disk_usage::ScanProgress::default());
+
+    // Progress emitter: poll the shared counters every 200 ms until the scan
+    // signals done (a flag flipped after the blocking walk returns).
+    let done = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    {
+        let (app, progress, done) = (app.clone(), progress.clone(), done.clone());
+        std::thread::spawn(move || {
+            use std::sync::atomic::Ordering;
+            while !done.load(Ordering::Relaxed) {
+                let _ = app.emit(
+                    "disk-scan-progress",
+                    serde_json::json!({
+                        "items": progress.items.load(Ordering::Relaxed),
+                        "bytes": progress.bytes.load(Ordering::Relaxed),
+                    }),
+                );
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+        });
+    }
+
+    let result = {
+        let (progress, disks) = (progress.clone(), disks);
+        tauri::async_runtime::spawn_blocking(move || {
+            crate::disk_usage::scan(&root, &disks, &progress)
+        })
+        .await
+        .map_err(|e| format!("disk task: {e}"))?
+    };
+    done.store(true, std::sync::atomic::Ordering::Relaxed);
+    result
+}
+
+/// Move a scanned file/folder to the Trash (the DaisyDisk "collector" — free
+/// up the space you just found). macOS/Linux via the `trash` plugin path; the
+/// path must exist and is confirmed on the frontend before this is called.
+#[tauri::command]
+pub async fn disk_trash(path: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        if !p.exists() {
+            return Err("Pfad existiert nicht mehr".to_string());
+        }
+        trash::delete(p).map_err(|e| format!("In den Papierkorb fehlgeschlagen: {e}"))
+    })
+    .await
+    .map_err(|e| format!("disk task: {e}"))?
+}
+
 // ── adb — Android device control (v0.119.0) ───────────────────────────
 
 /// adb availability + connected devices in one probe. Never errors — a

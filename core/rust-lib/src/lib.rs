@@ -19,6 +19,7 @@ mod crypto;
 mod cutout;
 mod cutout_ml;
 mod db;
+mod disk_usage;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
 mod expander;
@@ -783,6 +784,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_crt_animation,
             commands::get_sleep_status,
             commands::loc_count,
+            commands::disk_scan,
+            commands::disk_trash,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

@@ -2618,6 +2618,46 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── disk / daisy — DaisyDisk-style usage (v0.120.0) ─────────────────────────
+
+export interface DiskNode {
+  name: string;
+  size: number;
+  is_dir: boolean;
+  other?: boolean;
+  child_count: number;
+  children?: DiskNode[];
+}
+export interface DiskTopFile {
+  path: string;
+  size: number;
+}
+export interface DiskScan {
+  root_path: string;
+  root_name: string;
+  total: number;
+  volume_mount: string;
+  volume_total: number;
+  volume_free: number;
+  is_volume_root: boolean;
+  tree: DiskNode;
+  top_files: DiskTopFile[];
+  items: number;
+}
+export interface DiskScanProgress {
+  items: number;
+  bytes: number;
+}
+
+/** Scan a folder (blank → home dir). Emits `disk-scan-progress` while walking. */
+export function diskScan(path: string | null): Promise<DiskScan> {
+  return invoke("disk_scan", { path });
+}
+/** Move a scanned path to the Trash (the DaisyDisk collector). */
+export function diskTrash(path: string): Promise<void> {
+  return invoke("disk_trash", { path });
+}
+
 // ── adb — Android device control (v0.119.0) ─────────────────────────────────
 
 export interface AdbDevice {

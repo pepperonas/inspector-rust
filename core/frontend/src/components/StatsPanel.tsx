@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Activity,
   Cpu,
@@ -27,6 +27,15 @@ import {
   usedPct,
 } from "../lib/format-stats";
 import { areaPath, linePath, seriesExtent } from "../lib/stats-chart";
+import {
+  STAT_TWEEN_MS,
+  tweenAt,
+  heatLevel,
+  isHot,
+  bytesFormatterFor,
+  rateFormatterFor,
+} from "../lib/stats-anim";
+import { prefersReducedMotion } from "../lib/md3-motion";
 
 /**
  * Read-only live system-stats panel rendered in the right preview column —
@@ -492,6 +501,116 @@ function Sparkline({ line, area, color }: { line: string; area: string; color: s
   );
 }
 
+// ── Value tweens (v0.115.0) ─────────────────────────────────────────────────
+//
+// Numbers and bars glide from the old to the new value instead of snapping —
+// via ONE shared rAF loop that writes inline styles / textContent through
+// refs. Deliberately NOT CSS transitions and NOT React state per frame: the
+// v0.84.62 lesson stands (`will-change`/`transition` on the bars left ~15
+// permanent compositor layers that janked scrolling), and per-frame setState
+// would re-render the whole panel 60×/s. The loop runs only while tweens are
+// active (≤ STAT_TWEEN_MS per poll), then stops — idle cost is zero.
+//
+// Writers: each animated element is written by its ref ONLY (the raspi-monitor
+// lesson — two writers on one node fight). React renders the containers; a
+// per-render `reassert` layout effect re-applies the last shown value so a
+// React reconciliation can never leave a stale frame.
+
+type TweenStep = (now: number) => boolean; // false = finished
+const TWEENS = new Set<TweenStep>();
+let tweenRaf = 0;
+function pumpTweens(now: number) {
+  for (const t of Array.from(TWEENS)) {
+    if (!t(now)) TWEENS.delete(t);
+  }
+  tweenRaf = TWEENS.size > 0 ? requestAnimationFrame(pumpTweens) : 0;
+}
+function addTween(t: TweenStep): () => void {
+  TWEENS.add(t);
+  if (!tweenRaf) tweenRaf = requestAnimationFrame(pumpTweens);
+  return () => {
+    TWEENS.delete(t);
+    if (TWEENS.size === 0 && tweenRaf) {
+      cancelAnimationFrame(tweenRaf);
+      tweenRaf = 0;
+    }
+  };
+}
+
+/**
+ * Drive `apply(v)` from the previously shown value to `target` over
+ * `STAT_TWEEN_MS`. Unchanged targets don't animate; the first value and
+ * reduced motion snap. A new target mid-tween starts from the SHOWN value
+ * (smooth handoff, no jump). Returns a stable `reassert` — call it in a
+ * no-dep layout effect so every React render re-applies the current frame.
+ */
+function useStatTween(target: number, apply: (v: number) => void): () => void {
+  const applyRef = useRef(apply);
+  // Latest-ref via effect, not a render-time write (react-hooks/refs rule;
+  // same pattern as BpmDetector's onExitRef). Declared BEFORE the target
+  // effect below so on a render where both change, the fresh `apply` is in
+  // place when the tween starts.
+  useEffect(() => {
+    applyRef.current = apply;
+  }, [apply]);
+  const shownRef = useRef<number | null>(null);
+  // Stable identity; reads the refs only when INVOKED (from a layout effect) —
+  // returning a ref's value during render would trip react-hooks/refs.
+  const reassert = useCallback(() => {
+    if (shownRef.current != null) applyRef.current(shownRef.current);
+  }, []);
+  // Mount snap BEFORE first paint: the containers render empty/unstyled and
+  // the tween effect below runs only after paint — without this, the first
+  // frame flashed an empty number / an unscaled bar.
+  const targetRef = useRef(target);
+  useEffect(() => {
+    targetRef.current = target;
+  }, [target]);
+  useLayoutEffect(() => {
+    if (shownRef.current == null) {
+      shownRef.current = targetRef.current;
+      applyRef.current(targetRef.current);
+    }
+  }, []);
+  useEffect(() => {
+    const run = (v: number) => {
+      shownRef.current = v;
+      applyRef.current(v);
+    };
+    const from = shownRef.current;
+    if (from == null || from === target || prefersReducedMotion()) {
+      run(target);
+      return;
+    }
+    const start = performance.now();
+    return addTween((now) => {
+      const t = Math.min(1, (now - start) / STAT_TWEEN_MS);
+      run(tweenAt(from, target, t));
+      return t < 1;
+    });
+  }, [target]);
+  return reassert;
+}
+
+/**
+ * A number that glides to its new value. `fmt` is read fresh each frame, so a
+ * target-locked formatter (e.g. `bytesFormatterFor(target)`) keeps unit and
+ * decimals stable for the whole run — no width wobble mid-tween.
+ */
+function TweenNum({ value, fmt }: { value: number; fmt: (v: number) => string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const fmtRef = useRef(fmt);
+  useEffect(() => {
+    fmtRef.current = fmt;
+  }, [fmt]);
+  const reassert = useStatTween(value, (v) => {
+    const el = ref.current;
+    if (el) el.textContent = fmtRef.current(v);
+  });
+  useLayoutEffect(reassert);
+  return <span ref={ref} />;
+}
+
 // ── Shared bits ─────────────────────────────────────────────────────────────
 
 /** Accent colour for a load percentage: green → amber → red. */
@@ -503,16 +622,63 @@ function loadColor(pct: number): string {
 
 function Bar({ pct, color }: { pct: number; color?: string }) {
   const p = clampPct(pct);
-  // Size via `transform: scaleX` (no layout) and **snap** to the new value each
-  // poll — no `transition`/`will-change`, which would otherwise leave ~15
-  // permanent compositor layers (one per bar) that the compositor must blend on
-  // every scroll frame → scroll jank. A stats readout doesn't need bar tweening.
+  // Sized via `transform: scaleX` (no layout), value TWEENED through the
+  // shared rAF engine — still no `transition`/`will-change` (the v0.84.62
+  // scroll-jank lesson: those left ~15 permanent compositor layers; a bounded
+  // rAF writing inline styles composits without pinning layers).
+  //
+  // HEAT: with the `loadColor` scale (no explicit `color` override — an
+  // override like the battery's charging-green is a different semantic, not
+  // load), the fill becomes a heating filament as it enters the amber band:
+  // an ember glow ramps in (`heatLevel`, 70→90 %), and at ≥90 % — exactly
+  // where `loadColor` turns red, the panel's own "ausgelastet" line — the
+  // molten-flow gradient + breathing glow + a directional heat beam radiating
+  // from the fill's tip into the empty track arm. Those animated layers are
+  // MOUNTED only while hot (usually zero on screen), so idle cost stays zero.
+  const fillRef = useRef<HTMLDivElement>(null);
+  const beamRef = useRef<HTMLDivElement>(null);
+  const colorRef = useRef(color);
+  useEffect(() => {
+    colorRef.current = color;
+  }, [color]);
+  const reassert = useStatTween(p, (v) => {
+    const fill = fillRef.current;
+    if (fill) {
+      fill.style.transform = `scaleX(${clampPct(v) / 100})`;
+      const heat = colorRef.current ? 0 : heatLevel(v);
+      fill.style.backgroundColor = colorRef.current ?? loadColor(v);
+      // Ember bleed, intensity following the tweened value through the amber
+      // band. Paint-only; cards are `contain: content`, so the repaint stays
+      // inside the card — and only hot bars pay it at all.
+      fill.style.boxShadow =
+        heat > 0
+          ? `0 0 ${(4 + 6 * heat).toFixed(1)}px rgba(239, 68, 68, ${(0.3 + 0.5 * heat).toFixed(2)})`
+          : "";
+    }
+    const beam = beamRef.current;
+    if (beam) beam.style.left = `${clampPct(v)}%`;
+  });
+  useLayoutEffect(reassert);
+  const hot = color == null && isHot(p); // from the TARGET — threshold state snaps (never lags the tween)
   return (
     <div className="relative h-1.5 w-full overflow-hidden rounded-full bg-[var(--color-border)]">
       <div
-        className="absolute inset-0 origin-left rounded-full"
-        style={{ transform: `scaleX(${p / 100})`, backgroundColor: color ?? loadColor(p) }}
+        ref={fillRef}
+        className={
+          "absolute inset-0 origin-left rounded-full" + (hot ? " stat-heat-flow" : "")
+        }
       />
+      {hot && (
+        <div
+          ref={beamRef}
+          aria-hidden
+          className="stat-heat-breathe pointer-events-none absolute inset-y-0 w-1/3"
+          style={{
+            background:
+              "linear-gradient(90deg, rgba(254, 215, 170, 0.9), rgba(239, 68, 68, 0.35) 40%, transparent)",
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -542,7 +708,7 @@ function Card({
   );
 }
 
-function Kv({ k, v }: { k: string; v: string }) {
+function Kv({ k, v }: { k: string; v: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between gap-2 text-[11px]">
       <span className="text-[var(--color-muted)]">{k}</span>
@@ -553,6 +719,16 @@ function Kv({ k, v }: { k: string; v: string }) {
 
 // ── Sections ────────────────────────────────────────────────────────────────
 
+/** A card's headline value: tweened, and glowing ember while its resource is
+ *  hot (≥90 % — `isHot` from the TARGET, so the state never lags the tween). */
+function HeadlinePct({ pct }: { pct: number }) {
+  return (
+    <span className={isHot(pct) ? "stat-heat-num stat-heat-breathe" : undefined}>
+      <TweenNum value={pct} fmt={(v) => `${v.toFixed(0)}%`} />
+    </span>
+  );
+}
+
 function CpuSection({ s }: { s: SystemStats }) {
   const cores = s.physical_cores
     ? `${s.physical_cores}C / ${s.logical_cores}T`
@@ -561,7 +737,7 @@ function CpuSection({ s }: { s: SystemStats }) {
     <Card
       icon={<Cpu size={14} />}
       title="CPU"
-      right={`${s.cpu_usage.toFixed(0)}%`}
+      right={<HeadlinePct pct={s.cpu_usage} />}
     >
       <Bar pct={s.cpu_usage} />
       <div className="mt-1.5 truncate text-[11px] text-[var(--color-muted)]">
@@ -577,16 +753,7 @@ function CpuSection({ s }: { s: SystemStats }) {
       {s.per_core.length > 1 && (
         <div className="mt-2 grid grid-cols-8 gap-1">
           {s.per_core.map((u, i) => (
-            <div
-              key={i}
-              title={`Core ${i}: ${u.toFixed(0)}%`}
-              className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
-            >
-              <div
-                className="absolute inset-0 origin-bottom"
-                style={{ transform: `scaleY(${clampPct(u) / 100})`, backgroundColor: loadColor(u) }}
-              />
-            </div>
+            <CoreCell key={i} index={i} pct={u} />
           ))}
         </div>
       )}
@@ -594,17 +761,42 @@ function CpuSection({ s }: { s: SystemStats }) {
   );
 }
 
+/** One per-core mini bar — tweened like `Bar`, but deliberately WITHOUT the
+ *  glow/beam layers: 8–10 tiny cells with animated shadows would pay paint
+ *  for little signal; `loadColor`'s red already marks a maxed core. */
+function CoreCell({ index, pct }: { index: number; pct: number }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const reassert = useStatTween(clampPct(pct), (v) => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.transform = `scaleY(${clampPct(v) / 100})`;
+    el.style.backgroundColor = loadColor(v);
+  });
+  useLayoutEffect(reassert);
+  return (
+    <div
+      title={`Core ${index}: ${pct.toFixed(0)}%`}
+      className="relative h-7 overflow-hidden rounded-sm bg-[var(--color-border)]"
+    >
+      <div ref={ref} className="absolute inset-0 origin-bottom" />
+    </div>
+  );
+}
+
 function MemorySection({ s }: { s: SystemStats }) {
   const memPct = usedPct(s.mem_used, s.mem_total);
   const swapPct = usedPct(s.swap_used, s.swap_total);
   return (
-    <Card icon={<MemoryStick size={14} />} title="Memory" right={`${memPct.toFixed(0)}%`}>
+    <Card icon={<MemoryStick size={14} />} title="Memory" right={<HeadlinePct pct={memPct} />}>
       <Bar pct={memPct} />
       <div className="mt-1 flex items-center justify-between text-[11px] text-[var(--color-muted)] tabular-nums">
         <span>
-          {humanBytes(s.mem_used)} / {humanBytes(s.mem_total)}
+          <TweenNum value={s.mem_used} fmt={bytesFormatterFor(s.mem_used)} /> /{" "}
+          {humanBytes(s.mem_total)}
         </span>
-        <span>{humanBytes(s.mem_available)} free</span>
+        <span>
+          <TweenNum value={s.mem_available} fmt={bytesFormatterFor(s.mem_available)} /> free
+        </span>
       </div>
       {s.swap_total > 0 && (
         <div className="mt-2">
@@ -633,7 +825,7 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
     <Card
       icon={<BatteryCharging size={14} />}
       title="Battery & power"
-      right={`${b.percent.toFixed(0)}%`}
+      right={<TweenNum value={b.percent} fmt={(v) => `${v.toFixed(0)}%`} />}
     >
       <Bar
         pct={b.percent}
@@ -644,7 +836,7 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
         {b.power_watts != null && (
           <span className="flex items-center gap-1 font-medium text-[var(--color-fg)] tabular-nums">
             <Zap size={12} className="text-[var(--color-accent)]" />
-            {b.power_watts.toFixed(1)} W
+            <TweenNum value={b.power_watts} fmt={(v) => `${v.toFixed(1)} W`} />
           </span>
         )}
       </div>
@@ -654,7 +846,7 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
         )}
         {b.cycle_count != null && <Kv k="Cycles" v={`${b.cycle_count}`} />}
         {b.temperature_c != null && (
-          <Kv k="Temp" v={`${b.temperature_c.toFixed(1)}°C`} />
+          <Kv k="Temp" v={<TweenNum value={b.temperature_c} fmt={(v) => `${v.toFixed(1)}°C`} />} />
         )}
         {(b.model || b.vendor) && (
           <Kv k="Model" v={b.model || b.vendor || ""} />
@@ -671,7 +863,11 @@ function SensorsSection({ s }: { s: SystemStats }) {
       {s.temps.length > 0 && (
         <div className="grid grid-cols-2 gap-x-3 gap-y-1">
           {s.temps.map((t) => (
-            <Kv key={t.label} k={t.label} v={`${t.celsius.toFixed(1)}°C`} />
+            <Kv
+              key={t.label}
+              k={t.label}
+              v={<TweenNum value={t.celsius} fmt={(v) => `${v.toFixed(1)}°C`} />}
+            />
           ))}
         </div>
       )}
@@ -685,7 +881,9 @@ function SensorsSection({ s }: { s: SystemStats }) {
               <span className="flex items-center gap-1 text-[var(--color-muted)]">
                 <Fan size={11} /> {f.label}
               </span>
-              <span className="tabular-nums">{f.rpm} rpm</span>
+              <span className="tabular-nums">
+                <TweenNum value={f.rpm} fmt={(v) => `${Math.round(v)} rpm`} />
+              </span>
             </div>
           ))}
         </div>
@@ -727,11 +925,11 @@ function NetworkSection({ s }: { s: SystemStats }) {
       <div className="flex items-center justify-between text-[12px] tabular-nums">
         <span className="flex items-center gap-1.5">
           <span className="text-[var(--color-muted)]">↓</span>
-          {humanRate(s.net_rx_per_sec)}
+          <TweenNum value={s.net_rx_per_sec} fmt={rateFormatterFor(s.net_rx_per_sec)} />
         </span>
         <span className="flex items-center gap-1.5">
           <span className="text-[var(--color-muted)]">↑</span>
-          {humanRate(s.net_tx_per_sec)}
+          <TweenNum value={s.net_tx_per_sec} fmt={rateFormatterFor(s.net_tx_per_sec)} />
         </span>
       </div>
     </Card>

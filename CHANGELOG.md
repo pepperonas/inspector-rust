@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.115.0] — 2026-08-23
+
+### Added
+
+- **The stats view animates.** Live values glide from old to new (600 ms, settled well before the next 1.5 s poll) instead of snapping — numbers, bars, per-core cells, byte/rate readouts (whose unit and decimals stay locked mid-flight, so nothing wobbles in width). Unchanged values don't move.
+- **Heat glow for maxed resources.** From 70 % (the bars' amber threshold) an ember glow ramps in; at 90 % — exactly where a bar turns red — it becomes a heating filament: a molten gradient flows through the fill, the glow breathes, a directional heat beam radiates from the bar's tip into the empty track, and the card's headline number takes on the ember tint. Charging-green battery bars deliberately stay cool (charge level isn't load).
+- All of it honours `prefers-reduced-motion` (values snap, a calm static ember remains) and none of it reintroduces the old stats-scroll jank: one shared rAF loop, ref-written styles, no `will-change`, and the animated heat layers only exist while something is actually hot.
+
 ## [0.114.0] — 2026-08-23
 
 ### Added

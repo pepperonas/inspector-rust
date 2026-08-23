@@ -1080,3 +1080,57 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
     transition: none;
   }
 }
+
+/* ── Stats panel: value tweens + heat glow (v0.115.0) ─────────────────────────
+   The heat language: a bar in loadColor's red zone (≥90 %) becomes a heating
+   filament — molten gradient slowly flowing through the fill, a soft ember
+   glow breathing around it, and a directional heat beam radiating from the
+   fill's tip into the empty track. Numbers of a hot resource glow with it.
+   PERF (the v0.84.62 lesson): none of this uses `will-change`, and the
+   animated elements EXIST only while a resource is hot — typically zero —
+   so no permanent compositor layers pile up under scrolling. Value tweens
+   are rAF-driven inline-style writes (one shared loop), not transitions. */
+@keyframes statHeatBreathe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+@keyframes statHeatFlow {
+  from { background-position: 0% 0; }
+  to   { background-position: -200% 0; }
+}
+/* Molten fill: a hot gradient wider than the bar, drifting slowly leftward —
+   heat convection, not a barber pole (hence the 3.2 s period). Colors run
+   ember-red → white-hot → ember-red so the flow reads as shimmer, and the
+   fill's right edge (the tip) stays the brightest point via the overlay. */
+.stat-heat-flow {
+  background-image: linear-gradient(
+    90deg,
+    #ef4444 0%,
+    #f97316 35%,
+    #fed7aa 50%,
+    #f97316 65%,
+    #ef4444 100%
+  );
+  background-size: 200% 100%;
+  animation: statHeatFlow 3.2s linear infinite;
+}
+/* Breathing ember glow / heat beam — mounted only while hot. */
+.stat-heat-breathe {
+  animation: statHeatBreathe 2s ease-in-out infinite;
+}
+/* A hot resource's headline number: ember tint + soft bleed, breathing in
+   sync with its bar. Colors are the loadColor red family. */
+.stat-heat-num {
+  color: #f87171;
+  text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .stat-heat-flow,
+  .stat-heat-breathe {
+    animation: none !important;
+  }
+  /* Static ember state instead: the glow layer stays at a calm mid opacity,
+     the fill keeps its gradient's first stop (background-position 0). */
+  .stat-heat-breathe { opacity: 0.7; }
+}

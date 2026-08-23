@@ -73,6 +73,13 @@ beforeEach(() => {
   live.clear();
 });
 
+/** The % readout renders one span per DIGIT since the v0.118.0 odometer —
+ *  read the joined text of the .vol-num container to assert the value. */
+function volNumText(): string {
+  const el = document.querySelector(".vol-num");
+  return el ? (el.textContent ?? "") : "";
+}
+
 describe("StatusToast — one-shot kinds", () => {
   it("renders the payload and hides itself after the hold", async () => {
     await mount(toast());
@@ -129,16 +136,16 @@ describe("StatusToast — persistent volume / mute HUD", () => {
 
   it("shows the level read-back as a percentage", async () => {
     await mount(vol("45"));
-    expect(screen.getByText("45")).toBeTruthy();
+    expect(volNumText()).toBe("45");
     expect(screen.getByText("%")).toBeTruthy();
   });
 
   it("clamps an out-of-range level into 0–100", async () => {
     await mount(vol("150"));
-    expect(screen.getByText("100")).toBeTruthy();
+    expect(volNumText()).toBe("100");
     cleanup();
     await mount(vol("-20"));
-    expect(screen.getByText("0")).toBeTruthy();
+    expect(volNumText()).toBe("0");
   });
 
   it("falls back to the raw title when the OS gave no numeric read-back", async () => {
@@ -170,7 +177,7 @@ describe("StatusToast — persistent volume / mute HUD", () => {
     await advance(400);
     await retrigger(vol("50"));
 
-    expect(screen.getByText("50")).toBeTruthy();
+    expect(volNumText()).toBe("50");
     // Same DOM node throughout — a fresh entrance would have remounted it.
     expect(document.querySelector(".vol-overlay-in")).toBe(first);
     expect(hideStatusToast).not.toHaveBeenCalled();
@@ -207,7 +214,7 @@ describe("StatusToast — persistent volume / mute HUD", () => {
 
     await retrigger(vol("60"));
     expect(document.querySelector(".vol-overlay-out")).toBeNull();
-    expect(screen.getByText("60")).toBeTruthy();
+    expect(volNumText()).toBe("60");
 
     await advance(259);
     expect(hideStatusToast).not.toHaveBeenCalled(); // the old fade did NOT hide us
@@ -239,5 +246,59 @@ describe("StatusToast — resilience", () => {
     unmount();
     await act(async () => {});
     expect(live.size).toBe(0);
+  });
+});
+
+describe("StatusToast — Klangaura (v0.118.0)", () => {
+  const vol = (title: string): Payload => toast({ kind: "volume", title, subtitle: "" });
+  const mute = (on: boolean): Payload => toast({ kind: "mute", on, title: on ? "MUTED" : "SOUND ON", subtitle: "" });
+
+  it("the FIRST reading fires no wave — there is no direction yet", async () => {
+    await mount(vol("40"));
+    expect(document.querySelector(".vol-wave")).toBeNull();
+  });
+
+  it("a louder trigger blooms waves outward + streaks the bar; quieter collapses inward", async () => {
+    await mount(vol("40"));
+    await retrigger(vol("50"));
+    expect(document.querySelector(".vol-wave-up")).toBeTruthy();
+    expect(document.querySelector(".vol-streak")).toBeTruthy();
+    await retrigger(vol("35"));
+    expect(document.querySelector(".vol-wave-down")).toBeTruthy();
+    expect(document.querySelector(".vol-wave-up")).toBeNull();
+    // The streak is a louder-only accent — never on the way down.
+    expect(document.querySelector(".vol-streak")).toBeNull();
+  });
+
+  it("a repeat at a boundary fires nothing (holding ⇧↓ at 0 must not keep collapsing)", async () => {
+    await mount(vol("0"));
+    await retrigger(vol("0"));
+    expect(document.querySelector(".vol-wave")).toBeNull();
+    expect(document.querySelector(".vol-streak")).toBeNull();
+  });
+
+  it("only CHANGED digit columns re-key (odometer), and the roll follows the direction", async () => {
+    await mount(vol("41"));
+    await retrigger(vol("45"));
+    const rolled = document.querySelectorAll(".vol-digit-up");
+    // 41 → 45: the tens column ("4") keeps its key → no replay class needed on
+    // remount semantics; at minimum the changed ones column rolls upward.
+    expect(rolled.length).toBeGreaterThanOrEqual(1);
+    expect(document.querySelector(".vol-digit-down")).toBeNull();
+  });
+
+  it("mute dips the bar, unmute rebounds — and the comet head hides while muted", async () => {
+    await mount(mute(false));
+    await retrigger(mute(true));
+    expect(document.querySelector(".vol-dip")).toBeTruthy();
+    const head = document.querySelector(".vol-head") as HTMLElement;
+    expect(head.style.opacity).toBe("0");
+    await retrigger(mute(false));
+    // Unmute: the mute-kind toast has no level read-back, so there is no bar
+    // to rebound (`showBar` is false again) — the visible bloom is the
+    // outward wave burst at the icon. (`.vol-rebound` still exists for
+    // level-carrying tracks that unmute.)
+    expect(document.querySelector(".vol-wave-up")).toBeTruthy();
+    expect(document.querySelector(".vol-dip")).toBeNull();
   });
 });

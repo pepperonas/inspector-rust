@@ -19,6 +19,7 @@ import {
   hideStatusToast,
   type StatusToast as Payload,
 } from "../lib/ipc";
+import { digitColumns, rollDirection, waveIntensity } from "../lib/volume-hud";
 
 /**
  * `status-toast` window — a brief, click-through, centred-on-screen
@@ -259,9 +260,41 @@ function VolumeOverlay({
   const { Icon, key: iconKey } = volumeIcon(level, muted, hasLevel);
   const accent = muted ? "var(--color-muted)" : "var(--color-accent)";
 
+  // "Klangaura" (v0.118.0): the direction of THIS trigger drives the sonar
+  // waves (up → outward bloom, down → inward collapse), the digit roll and
+  // the streak. Derived per tick against the previous reading via the
+  // official render-phase derived-state pattern (setState of the SAME
+  // component during render — refs during render would trip
+  // react-hooks/refs). A repeat at a boundary (holding ⇧↓ at 0) yields
+  // "none" and fires nothing.
+  const [aura, setAura] = useState<{
+    tick: number;
+    prevLevel: number | null;
+    prevMuted: boolean | null;
+    dir: ReturnType<typeof rollDirection>;
+    muteFlip: "dip" | "rebound" | null;
+  }>({ tick: -1, prevLevel: null, prevMuted: null, dir: "none", muteFlip: null });
+  if (aura.tick !== tick) {
+    setAura({
+      tick,
+      prevLevel: hasLevel ? level : aura.prevLevel,
+      prevMuted: muted,
+      dir: hasLevel ? rollDirection(aura.prevLevel, level) : "none",
+      muteFlip:
+        aura.prevMuted == null || aura.prevMuted === muted
+          ? null
+          : muted
+            ? "dip"
+            : "rebound",
+    });
+  }
+  const dir = aura.dir;
+  const muteFlip = aura.muteFlip;
+
   // rAF spring for the bar fill (scaleX), velocity-preserving across rapid
   // re-triggers. Driven imperatively (DOM) so there's no React re-render/frame.
   const fillRef = useRef<HTMLDivElement>(null);
+  const headRef = useRef<HTMLDivElement>(null);
   const initialFill = hasLevel ? level / 100 : 0.0001;
   const xRef = useRef(initialFill);
   const vRef = useRef(0);
@@ -272,9 +305,16 @@ function VolumeOverlay({
     typeof window !== "undefined" &&
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
-  // Set the initial bar width before paint (no flash to full).
+  // Set the initial bar width before paint (no flash to full). The comet head
+  // rides the fill's leading edge — positioned from the SAME spring value
+  // (left %, one writer, no CSS transition fighting the rAF).
+  const applyBar = (x: number) => {
+    const v = clamp01(x);
+    if (fillRef.current) fillRef.current.style.transform = `scaleX(${v})`;
+    if (headRef.current) headRef.current.style.left = `${v * 100}%`;
+  };
   useLayoutEffect(() => {
-    if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(xRef.current)})`;
+    applyBar(xRef.current);
   }, []);
 
   useEffect(() => {
@@ -283,7 +323,7 @@ function VolumeOverlay({
     if (reduce) {
       xRef.current = targetRef.current;
       vRef.current = 0;
-      if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(targetRef.current)})`;
+      applyBar(targetRef.current);
       return;
     }
     if (!rafRef.current) {
@@ -299,11 +339,11 @@ function VolumeOverlay({
       const a = (-stiffness * (xRef.current - targetRef.current) - damping * vRef.current) / mass;
       vRef.current += a * dt;
       xRef.current += vRef.current * dt;
-      if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(xRef.current)})`;
+      applyBar(xRef.current);
       if (Math.abs(xRef.current - targetRef.current) < 0.0005 && Math.abs(vRef.current) < 0.0005) {
         xRef.current = targetRef.current;
         vRef.current = 0;
-        if (fillRef.current) fillRef.current.style.transform = `scaleX(${clamp01(targetRef.current)})`;
+        applyBar(targetRef.current);
         rafRef.current = 0;
         return;
       }
@@ -321,13 +361,47 @@ function VolumeOverlay({
     <div className="flex h-screen w-screen items-center justify-center bg-transparent select-none">
       <div key={animKey} className={exiting ? "vol-overlay-out" : "vol-overlay-in"}>
         <div className="vol-card">
-          <span key={iconKey} className="vol-icon" style={{ color: accent }}>
-            <Icon size={30} strokeWidth={2} />
+          <span className="relative flex" style={{ color: accent }}>
+            {/* Sonar waves — replayed per trigger; direction-aware; intensity
+                is the level (loud radiates, quiet whispers). Mute collapse /
+                unmute bloom reuse the in/out shapes. None while reduced. */}
+            {!reduce && (dir !== "none" || muteFlip) && (
+              <span
+                key={`w-${tick}`}
+                aria-hidden
+                className="pointer-events-none absolute inset-0"
+                style={{ "--wave-o": String(waveIntensity(hasLevel ? level : 60)) } as React.CSSProperties}
+              >
+                <span className={`vol-wave ${dir === "down" || muteFlip === "dip" ? "vol-wave-down" : "vol-wave-up"}`} />
+                <span className={`vol-wave ${dir === "down" || muteFlip === "dip" ? "vol-wave-down" : "vol-wave-up"}`} />
+              </span>
+            )}
+            <span key={iconKey} className="vol-icon">
+              <Icon size={30} strokeWidth={2} />
+            </span>
           </span>
           <div className="vol-body">
             {hasLevel ? (
               <div className="vol-readout" style={{ color: muted ? "var(--color-muted)" : "var(--color-fg)" }}>
-                <span className="vol-num">{level}</span>
+                <span className="vol-num">
+                  {digitColumns(level).map((d, i) => (
+                    <span
+                      // Key includes the digit → only CHANGED columns replay
+                      // their roll; unchanged digits sit still (odometer).
+                      key={`${i}-${d}`}
+                      className={
+                        "vol-digit" +
+                        (reduce || dir === "none"
+                          ? ""
+                          : dir === "up"
+                            ? " vol-digit-up"
+                            : " vol-digit-down")
+                      }
+                    >
+                      {d}
+                    </span>
+                  ))}
+                </span>
                 <span className="vol-pct">%</span>
               </div>
             ) : (
@@ -336,7 +410,13 @@ function VolumeOverlay({
               </div>
             )}
             {showBar && (
-              <div className="vol-track">
+              <div
+                key={muteFlip ? `m-${tick}` : undefined}
+                className={
+                  "vol-track relative" +
+                  (reduce || !muteFlip ? "" : muteFlip === "dip" ? " vol-dip" : " vol-rebound")
+                }
+              >
                 <div
                   ref={fillRef}
                   className="vol-fill"
@@ -346,6 +426,17 @@ function VolumeOverlay({
                     transition: "background-color 220ms ease, opacity 220ms ease",
                   }}
                 />
+                {/* Comet head on the fill's leading edge (spring-driven). */}
+                <div
+                  ref={headRef}
+                  aria-hidden
+                  className="vol-head"
+                  style={{ color: accent, opacity: muted || !hasLevel ? 0 : 1 }}
+                />
+                {/* One light streak along the bar on each louder-trigger. */}
+                {!reduce && dir === "up" && !muted && (
+                  <div key={`s-${tick}`} aria-hidden className="vol-streak" />
+                )}
               </div>
             )}
           </div>

@@ -1134,3 +1134,107 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
      the fill keeps its gradient's first stop (background-position 0). */
   .stat-heat-breathe { opacity: 0.7; }
 }
+
+/* ── Volume/Mute HUD "Klangaura" (v0.118.0) ──────────────────────────────────
+   The HUD becomes a living sound object: sonar waves emanate from the speaker
+   on every louder-trigger (and collapse inward on quieter), the spring bar
+   carries a glowing comet head with a light streak on rises, the % readout
+   rolls like an odometer, and mute plays a collapse ("power dip") while
+   unmute blooms back. All transient, all in the HUD's own click-through
+   window — perf-uncritical by construction. Reduced motion disables every
+   decorative layer (the media block at the end). */
+
+/* Sonar waves: two ring arcs around the icon, replayed per trigger (key on
+   tick). Direction-aware: up = outward bloom, down = inward collapse. The
+   ring's peak opacity comes from --wave-o (waveIntensity: loud radiates,
+   quiet whispers). */
+@keyframes volWaveOut {
+  0%   { opacity: var(--wave-o, 0.8); transform: scale(0.55); }
+  100% { opacity: 0; transform: scale(1.65); }
+}
+@keyframes volWaveIn {
+  0%   { opacity: 0; transform: scale(1.55); }
+  55%  { opacity: var(--wave-o, 0.8); }
+  100% { opacity: 0; transform: scale(0.6); }
+}
+.vol-wave {
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  border: 2px solid currentColor;
+  pointer-events: none;
+}
+.vol-wave-up   { animation: volWaveOut 520ms cubic-bezier(0.2, 0.7, 0.3, 1) both; }
+.vol-wave-down { animation: volWaveIn  460ms cubic-bezier(0.4, 0, 0.6, 1) both; }
+.vol-wave:nth-child(2) { animation-delay: 110ms; }
+
+/* Comet head: a glow dot riding the fill's leading edge (positioned by the
+   SAME spring value as the fill, written per frame — one writer, no CSS
+   transition fighting the rAF). */
+.vol-head {
+  position: absolute;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  margin: -5px 0 0 -5px;
+  border-radius: 9999px;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor, 0 0 18px currentColor;
+  pointer-events: none;
+  transition: opacity 220ms ease;
+}
+
+/* Light streak: on a louder-trigger a bright sweep runs along the filled part
+   once (key on tick, only when direction is up). */
+@keyframes volStreak {
+  0%   { transform: translateX(-30%); opacity: 0; }
+  25%  { opacity: 0.85; }
+  100% { transform: translateX(105%); opacity: 0; }
+}
+.vol-streak {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.75), transparent);
+  width: 45%;
+  animation: volStreak 420ms cubic-bezier(0.3, 0, 0.4, 1) both;
+  pointer-events: none;
+}
+
+/* Rolling digits: each column slides its new digit in from the direction of
+   travel (up-trigger → digit rises in, down → falls in). Keyed per digit. */
+@keyframes volDigitUp {
+  0%   { transform: translateY(58%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+@keyframes volDigitDown {
+  0%   { transform: translateY(-58%); opacity: 0; }
+  100% { transform: translateY(0); opacity: 1; }
+}
+.vol-digit { display: inline-block; }
+.vol-digit-up   { animation: volDigitUp 200ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+.vol-digit-down { animation: volDigitDown 200ms cubic-bezier(0.2, 0.9, 0.3, 1.15) both; }
+
+/* Mute: the whole bar takes a quick power dip (squash + dim) as the sound
+   dies; unmute rebounds with a small overshoot bloom. Keyed on mute flips. */
+@keyframes volDip {
+  0%   { transform: scaleY(1); }
+  45%  { transform: scaleY(0.55); filter: brightness(0.7); }
+  100% { transform: scaleY(1); }
+}
+@keyframes volRebound {
+  0%   { transform: scaleY(0.7); }
+  60%  { transform: scaleY(1.25); }
+  100% { transform: scaleY(1); }
+}
+.vol-dip     { animation: volDip 340ms cubic-bezier(0.4, 0, 0.5, 1) both; }
+.vol-rebound { animation: volRebound 360ms cubic-bezier(0.2, 0.9, 0.3, 1.2) both; }
+
+@media (prefers-reduced-motion: reduce) {
+  .vol-wave-up, .vol-wave-down, .vol-streak,
+  .vol-digit-up, .vol-digit-down, .vol-dip, .vol-rebound {
+    animation: none !important;
+  }
+  .vol-wave { opacity: 0; }
+  .vol-streak { opacity: 0; }
+}

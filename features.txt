@@ -37,6 +37,8 @@ OTP-Autocomplete — `otp <anbieter>` / `2fa <anbieter>`: Enter kopiert den aktu
 Schnell-Anlegen — `2fa add [issuer]` (sichtbare Sub-Zeile bei `2fa`) oder ＋-Button in der Preview: öffnet direkt das Add-Formular (Issuer · Login · Secret), Issuer optional vorbefüllt
 Type-to-Filter — im Overlay einfach lostippen, Enter kopiert den Top-Treffer
 
+Volume/Mute-HUD „Klangaura" — beim 3-Finger-Swipe/Tap (und Shift+↑/↓): Sonar-Wellen aus dem Lautsprecher-Icon je Trigger (lauter = nach außen blühend, leiser = nach innen kollabierend, Intensität = Pegel), Glüh-Komet an der Federbalken-Spitze + Licht-Streak beim Lauterwerden, rollende Odometer-Ziffern (nur geänderte Stellen), Mute = Power-Dip des Balkens + Wellen-Kollaps, Unmute = Wellen-Bloom; reduced-motion = statisch wie zuvor
+
 == Globale Hotkeys ==
 Popup — Ctrl+Space (+ zweiter Verlaufs-Hotkey Ctrl+Shift+V), beide konfigurierbar
 OCR-Region — Ctrl+Shift+O: Bereich markieren → Text ins Clipboard (offline, Vision/WinRT/tesseract)

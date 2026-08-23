@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.118.0] — 2026-08-23
+
+### Changed
+
+- **The volume/mute HUD comes alive ("Klangaura").** Every 3-finger-swipe / Shift+↑↓ trigger fires sonar waves from the speaker icon — outward blooms when getting louder, inward collapses when getting quieter, intensity following the level. The spring bar carries a glowing comet head on its leading edge and flashes a light streak on each rise; the % readout rolls like an odometer (only changed digits move, in the direction of travel). Muting plays a power dip on the bar with a wave collapse; unmuting blooms back. A repeated trigger at a boundary (holding volume-down at 0) deliberately fires nothing — a wave without a change would lie. `prefers-reduced-motion` keeps the previous static behaviour.
+
 ## [0.117.0] — 2026-08-23
 
 ### Added

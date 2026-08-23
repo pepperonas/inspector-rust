@@ -2618,6 +2618,106 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── adb — Android device control (v0.119.0) ─────────────────────────────────
+
+export interface AdbDevice {
+  serial: string;
+  /** "device" | "unauthorized" | "offline" (verbatim from adb). */
+  state: string;
+  model: string;
+  wifi: boolean;
+}
+
+export interface AdbStatus {
+  found: boolean;
+  devices: AdbDevice[];
+  recording: boolean;
+}
+
+export interface AdbDashboard {
+  model: string;
+  manufacturer: string;
+  android_version: string;
+  sdk: string;
+  build_id: string;
+  uptime_secs: number;
+  battery_level: number | null;
+  battery_status: string;
+  battery_health: string;
+  battery_temp_c: number | null;
+  battery_voltage_mv: number | null;
+  mem_total_kb: number;
+  mem_used_kb: number;
+  storage_total_kb: number;
+  storage_used_kb: number;
+  wifi_ssid: string;
+  ip: string;
+  rssi_dbm: number | null;
+  resolution: string;
+  dpi: string;
+  brightness: number | null;
+  volume_media: number | null;
+}
+
+export function adbStatus(): Promise<AdbStatus> {
+  return invoke("adb_status");
+}
+export function adbDashboard(serial: string): Promise<AdbDashboard> {
+  return invoke("adb_dashboard", { serial });
+}
+/** what: brightness | volume_media/ring/alarm | wifi | bluetooth | airplane |
+ *  dnd | screen_wake/sleep/lock (the audited ADBOSS command forms). */
+export function adbSet(serial: string, what: string, value: number): Promise<void> {
+  return invoke("adb_set", { serial, what, value });
+}
+export function adbKey(serial: string, keycode: string): Promise<void> {
+  return invoke("adb_key", { serial, keycode });
+}
+export function adbText(serial: string, text: string): Promise<void> {
+  return invoke("adb_text", { serial, text });
+}
+export function adbTap(serial: string, x: number, y: number): Promise<void> {
+  return invoke("adb_tap", { serial, x, y });
+}
+export function adbSwipe(
+  serial: string,
+  x1: number,
+  y1: number,
+  x2: number,
+  y2: number,
+  durMs: number,
+): Promise<void> {
+  return invoke("adb_swipe", { serial, x1, y1, x2, y2, durMs });
+}
+/** Device screenshot → Mac clipboard + history (canonical PNG path). */
+export function adbScreenshot(serial: string): Promise<void> {
+  return invoke("adb_screenshot", { serial });
+}
+export function adbRecordStart(serial: string): Promise<void> {
+  return invoke("adb_record_start", { serial });
+}
+/** Stops, pulls to ~/Downloads and reveals; returns the local path. */
+export function adbRecordStop(): Promise<string> {
+  return invoke("adb_record_stop");
+}
+export function adbPackages(serial: string, includeSystem: boolean): Promise<string[]> {
+  return invoke("adb_packages", { serial, includeSystem });
+}
+/** action: launch | stop | clear | disable | enable | uninstall. */
+export function adbAppAction(serial: string, action: string, pkg: string): Promise<string> {
+  return invoke("adb_app_action", { serial, action, package: pkg });
+}
+/** Returns the device's WLAN IP (best-effort) for the connect step. */
+export function adbWifiTcpip(serial: string, port: number): Promise<string> {
+  return invoke("adb_wifi_tcpip", { serial, port });
+}
+export function adbWifiConnect(ipPort: string): Promise<string> {
+  return invoke("adb_wifi_connect", { ipPort });
+}
+export function adbWifiDisconnect(serial: string): Promise<void> {
+  return invoke("adb_wifi_disconnect", { serial });
+}
+
 // ── loc — lines-of-code statistics (v0.117.0) ───────────────────────────────
 
 export interface LocLanguage {

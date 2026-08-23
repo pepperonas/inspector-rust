@@ -1,5 +1,6 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
+mod adb;
 mod app_launcher;
 mod audio;
 mod audio_swap;
@@ -249,6 +250,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(cleaner::PlanStore::default());
             app.manage(screen_record::RecordState::default());
             app.manage(color_loupe::LoupeState::default());
+            app.manage(adb::AdbRecordState::default());
             app.manage(alarm::AlarmState::default());
             app.manage(commands::MicCaptureState::default());
             app.manage(iris::IrisState::default());
@@ -781,6 +783,21 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_crt_animation,
             commands::get_sleep_status,
             commands::loc_count,
+            commands::adb_status,
+            commands::adb_dashboard,
+            commands::adb_set,
+            commands::adb_key,
+            commands::adb_text,
+            commands::adb_tap,
+            commands::adb_swipe,
+            commands::adb_screenshot,
+            commands::adb_record_start,
+            commands::adb_record_stop,
+            commands::adb_packages,
+            commands::adb_app_action,
+            commands::adb_wifi_tcpip,
+            commands::adb_wifi_connect,
+            commands::adb_wifi_disconnect,
             commands::get_status_toast,
             commands::hide_status_toast,
             commands::cleaner_status,

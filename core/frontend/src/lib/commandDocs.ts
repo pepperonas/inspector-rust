@@ -1035,6 +1035,39 @@ export const COMMAND_DOCS: CommandDoc[] = [
 
   // ── Info & Monitoring ─────────────────────────────────────────────────
   {
+    command: "adb",
+    aliases: [],
+    category: CAT_SYS,
+    version_added: "0.119.0",
+    tagline: "Control your Android phone — dashboard, remote, screenshot, apps, WiFi-ADB.",
+    tagline_de: "Android-Handy steuern — Dashboard, Fernbedienung, Screenshot, Apps, WLAN-ADB.",
+    synopsis: "adb [remote|apps|wifi]",
+    description:
+      "The popup-sized companion to the ADBOSS desktop app: five views over a USB- or WiFi-connected Android device. **Info** — live dashboard (model, Android version, battery with temperature, RAM, storage, WLAN/IP/RSSI, resolution) polling every 5 s, plus device screenshot (→ Mac clipboard + history) and screen recording (→ ~/Downloads). **Steuern** — WiFi/Bluetooth/airplane/DND toggles, brightness + media-volume sliders, screen wake/sleep/lock. **Remote** — navigation keys, D-pad, send text (ASCII), tap/swipe at coordinates. **Apps** — search installed packages, launch / force-stop / clear data / uninstall (with confirmation). **WLAN** — switch a USB device to TCP/IP mode and connect wirelessly (cable off afterwards), or connect a known ip:port directly. Every device command is the battle-tested ADBOSS form; values are strictly validated before touching a shell.",
+    arguments: [
+      { name: "remote|apps|wifi", required: false, description: "Open the panel directly on that view; bare `adb` starts on the dashboard.", default: "Info" },
+    ],
+    flags: [],
+    examples: [
+      { input: "adb", result: "Dashboard + quick controls for the connected device." },
+      { input: "adb remote", result: "Remote control: keys, D-pad, text, tap/swipe." },
+      { input: "adb apps", result: "Search apps, launch/stop/uninstall." },
+      { input: "adb wifi", result: "Enable WiFi-ADB on the USB device or connect an ip:port." },
+    ],
+    tips: [
+      "One-time phone setup: Developer options → USB debugging, then confirm the RSA dialog on the phone (details: Settings → Android (adb)).",
+      "Screenshot lands straight in the Mac clipboard AND the history — paste it anywhere immediately.",
+      "WiFi flow: plug in USB once → adb wifi → \"WLAN-ADB aktivieren\" — the cable can come off.",
+    ],
+    caveats: [
+      "Needs the adb binary (brew install android-platform-tools) — the panel shows an install card if it's missing.",
+      "`input text` can only deliver ASCII — umlauts/emoji are rejected with a hint, not silently garbled.",
+      "Logcat, Bluetooth-HCI analysis and file transfer deliberately stay in ADBOSS (they need a full window).",
+    ],
+    related: ["stats", "loc"],
+    see_also: "docs/adb.md",
+  },
+  {
     command: "loc",
     aliases: [],
     category: CAT_INFO,

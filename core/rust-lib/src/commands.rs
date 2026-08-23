@@ -1150,6 +1150,163 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── adb — Android device control (v0.119.0) ───────────────────────────
+
+/// adb availability + connected devices in one probe. Never errors — a
+/// missing adb yields `found: false` (the panel renders the install card).
+#[derive(serde::Serialize)]
+pub struct AdbStatus {
+    pub found: bool,
+    pub devices: Vec<crate::adb::AdbDevice>,
+    pub recording: bool,
+}
+
+#[tauri::command]
+pub async fn adb_status(
+    state: State<'_, crate::adb::AdbRecordState>,
+) -> Result<AdbStatus, String> {
+    let recording = crate::adb::record_active(&state);
+    tauri::async_runtime::spawn_blocking(move || {
+        let found = crate::adb::adb_path().is_some();
+        let devices = if found {
+            crate::adb::list_devices().unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Ok(AdbStatus { found, devices, recording })
+    })
+    .await
+    .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_dashboard(serial: String) -> Result<crate::adb::AdbDashboard, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::dashboard(&serial))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_set(serial: String, what: String, value: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::set_control(&serial, &what, value))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_key(serial: String, keycode: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::press_key(&serial, &keycode))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_text(serial: String, text: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::input_text(&serial, &text))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_tap(serial: String, x: i64, y: i64) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::tap(&serial, x, y))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_swipe(
+    serial: String,
+    x1: i64,
+    y1: i64,
+    x2: i64,
+    y2: i64,
+    dur_ms: i64,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::swipe(&serial, x1, y1, x2, y2, dur_ms))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+/// Device screenshot → Mac clipboard + history (the qr/figlet canonical-PNG
+/// path, so the watcher fuse arms and no duplicate image row appears).
+#[tauri::command]
+pub async fn adb_screenshot(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    watcher: State<'_, WatcherState>,
+    serial: String,
+) -> Result<(), String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    let png = tauri::async_runtime::spawn_blocking(move || crate::adb::screenshot_png(&serial))
+        .await
+        .map_err(|e| format!("adb task: {e}"))??;
+    let b64 = B64.encode(&png);
+    copy_png_to_clipboard_and_history(&app, &db, &watcher, &b64, "android", "screenshot")?;
+    crate::sound::play(crate::sound::Sound::Screenshot);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn adb_record_start(
+    state: State<'_, crate::adb::AdbRecordState>,
+    serial: String,
+) -> Result<(), String> {
+    crate::adb::record_start(&state, &serial)
+}
+
+#[tauri::command]
+pub async fn adb_record_stop(
+    app: AppHandle,
+    state: State<'_, crate::adb::AdbRecordState>,
+) -> Result<String, String> {
+    let path = crate::adb::record_stop(&state)?;
+    let _ = &app; // reveal is path-only; AppHandle kept for signature parity
+    reveal_in_file_manager(&path);
+    Ok(path.display().to_string())
+}
+
+#[tauri::command]
+pub async fn adb_packages(serial: String, include_system: bool) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::list_packages(&serial, include_system))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_app_action(
+    serial: String,
+    action: String,
+    package: String,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::adb::app_action(&serial, &action, &package)
+    })
+    .await
+    .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_wifi_tcpip(serial: String, port: u16) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::wifi_enable_tcpip(&serial, port))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_wifi_connect(ip_port: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::wifi_connect(&ip_port))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
+#[tauri::command]
+pub async fn adb_wifi_disconnect(serial: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::adb::wifi_disconnect(&serial))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
+}
+
 // ── loc — lines-of-code statistics (v0.117.0) ─────────────────────────
 
 /// Count lines of code. `paths` absent/empty → the live Finder selection

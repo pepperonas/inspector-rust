@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.119.0] — 2026-08-24
+
+### Added
+
+- **`adb` — control your Android phone from the popup.** The ADBOSS companion in five views: **Info** (live dashboard — battery with temperature, RAM, storage, WLAN/IP/signal, resolution; device screenshot straight into the Mac clipboard + history; screen recording pulled to ~/Downloads), **Steuern** (WiFi/Bluetooth/airplane/DND, brightness and media-volume sliders, screen wake/sleep/lock), **Remote** (navigation keys, D-pad, send text, tap/swipe), **Apps** (search, launch, force-stop, clear data, uninstall — destructive actions confirm natively), **WLAN** (switch a USB device to WiFi-ADB with auto-detected IP — cable off afterwards). `adb remote` / `adb apps` / `adb wifi` jump straight to a view and appear as discoverable sub-rows.
+- Every device command uses the battle-tested ADBOSS invocation forms; every interpolated value passes strict validators (package names, keycodes, coordinate ranges, ip:port) and text input is POSIX-quoted correctly — the review caught that backslash-escaping inside single quotes would have been a device-shell injection vector, now test-pinned.
+- Documentation on three surfaces: `adb?` inline help, docs/adb.md, and a new expandable **Settings → Android (adb)** section with live status (binary found? device authorized?) and the one-time setup guide (USB debugging, WiFi pairing). `settings adb` deep-links to it.
+
 ## [0.118.0] — 2026-08-23
 
 ### Changed

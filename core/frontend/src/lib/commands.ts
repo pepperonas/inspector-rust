@@ -48,6 +48,7 @@ export type CommandKind =
   | "freeze"
   | "wakelock"
   | "loc"
+  | "adb"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -330,6 +331,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── adb — Android device control ──────────────────────────────────
+  {
+    kind: "adb",
+    keyword: "adb",
+    syntax: "adb [remote|apps|wifi]",
+    description:
+      "Android-Gerät steuern (ADBOSS-Companion): Dashboard, Toggles, Fernbedienung, Screenshot, Apps, WLAN-ADB",
+    requiresArg: false,
   },
   // ── loc — lines-of-code statistics ────────────────────────────────
   {

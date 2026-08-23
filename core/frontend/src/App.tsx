@@ -14,6 +14,7 @@ import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { LocPanel } from "./components/LocPanel";
+import { AdbPanel, type AdbView } from "./components/AdbPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -283,6 +284,11 @@ function App() {
   // preview column. Enter-activated: tokei walks a whole directory tree.
   const [locMode, setLocMode] = useState(false);
   const [locFocus, setLocFocus] = useState(false);
+  // adb mode (v0.119.0) — Android device control (ADBOSS companion). The arg
+  // preselects the view (`adb remote` / `adb apps` / `adb wifi`).
+  const [adbMode, setAdbMode] = useState(false);
+  const [adbFocus, setAdbFocus] = useState(false);
+  const [adbView, setAdbView] = useState<AdbView>("info");
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1066,6 +1072,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isAdbCmd = parsedCommand?.spec.kind === "adb";
+  useEffect(() => {
+    if (!isAdbCmd && adbMode) {
+      setAdbMode(false);
+      setAdbFocus(false);
+    }
+  }, [isAdbCmd, adbMode]);
   const isTokensCmd = parsedCommand?.spec.kind === "tokens";
   useEffect(() => {
     if (!isTokensCmd && tokensMode) {
@@ -1471,6 +1484,18 @@ function App() {
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
         break;
+      case "adb": {
+        const v = arg.trim().toLowerCase();
+        label = v.startsWith("remote")
+          ? "Android-Fernbedienung"
+          : v.startsWith("app")
+            ? "Android-Apps verwalten"
+            : v.startsWith("wifi") || v.startsWith("wlan")
+              ? "WLAN-ADB verbinden"
+              : "Android-Gerät steuern (adb)";
+        hint = "Enter → Dashboard, Toggles, Remote, Screenshot, Apps & WLAN-ADB im Preview";
+        break;
+      }
       case "loc":
         label = arg ? `Lines of code: ${arg}` : "Lines of code — Finder-Auswahl";
         hint = "Enter → Sprachen-Statistik (Code/Kommentare/Leerzeilen) mit Charts";
@@ -2063,6 +2088,22 @@ function App() {
   // you type `snitch` — no need to know the `map` keyword. commandEntry renders
   // the primary (blocker, or the map when the arg already targets it); this is
   // its counterpart, spliced right after it. Enter runs it; Tab autocompletes.
+  // `adb` has five views; surface the three arg-selected ones as sub-rows so
+  // `adb remote` / `adb apps` / `adb wifi` are discoverable without knowing
+  // the keywords (the snitch/shazam pattern). Only on the BARE keyword — with
+  // an arg the main row already names the target view.
+  const adbSubEntries: ListEntry[] = useMemo(() => {
+    if (!isAdbCmd || (parsedCommand?.arg ?? "").trim() !== "") return [];
+    return [
+      { keyword: "adb remote", description: "Fernbedienung: Tasten, D-Pad, Text, Tap/Swipe" },
+      { keyword: "adb apps", description: "Apps suchen, starten, stoppen, deinstallieren" },
+      { keyword: "adb wifi", description: "WLAN-ADB: kabellos verbinden (tcpip + IP)" },
+    ].map((e) => ({
+      kind: "command-suggestion" as const,
+      data: { keyword: e.keyword, syntax: e.keyword, description: e.description, completion: e.keyword },
+    }));
+  }, [isAdbCmd, parsedCommand]);
+
   const snitchSubEntry: ListEntry | null = useMemo(() => {
     if (!isSnitchCmd) return null;
     const mapMode = /\b(map|conn|show|world)/i.test(parsedCommand?.arg ?? "");
@@ -2144,6 +2185,7 @@ function App() {
           ? [commandEntry]
           : []),
       ...(snitchSubEntry ? [snitchSubEntry] : []),
+      ...adbSubEntries,
       ...(shazamSubEntry ? [shazamSubEntry] : []),
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
@@ -2183,6 +2225,7 @@ function App() {
     pinnedOnly,
     commandEntry,
     snitchSubEntry,
+    adbSubEntries,
     shazamSubEntry,
     suggestionEntries,
     socialEntry,
@@ -2779,6 +2822,8 @@ function App() {
     setTotpMode(false);
     setLocMode(false);
     setLocFocus(false);
+    setAdbMode(false);
+    setAdbFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -2902,7 +2947,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -2911,7 +2956,8 @@ function App() {
           commandKind === "shazam" ||
           commandKind === "weather" ||
           commandKind === "iris" ||
-          commandKind === "loc";
+          commandKind === "loc" ||
+          commandKind === "adb";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3355,6 +3401,21 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "adb") {
+        // Android control panel; the arg picks the view (remote/apps/wifi).
+        const view = arg.trim().toLowerCase();
+        setAdbView(
+          view.startsWith("remote")
+            ? "remote"
+            : view.startsWith("app")
+              ? "apps"
+              : view.startsWith("wifi") || view.startsWith("wlan")
+                ? "wifi"
+                : "info",
+        );
+        setAdbMode(true);
+        setAdbFocus(true);
+        return true;
       } else if (commandKind === "loc") {
         // Lines-of-code statistic for the Finder selection / typed path.
         setLocMode(true);
@@ -3755,6 +3816,7 @@ function App() {
       !uptimeFocus &&
       !weatherFocus &&
       !locFocus &&
+      !adbFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4209,6 +4271,18 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : adbMode ? (
+                  <div className="md3-pop-in h-full">
+                    <AdbPanel
+                      initialView={adbView}
+                      focused={adbFocus}
+                      onExit={() => {
+                        setAdbMode(false);
+                        setAdbFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

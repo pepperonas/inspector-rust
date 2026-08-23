@@ -21,6 +21,7 @@ import {
   Power,
   Smile,
   Sun,
+  Smartphone,
   SunMoon,
   Trash2,
   AlarmClock,
@@ -70,6 +71,8 @@ import {
   getCrtAnimation,
   setCrtAnimation,
   type CrtAnimation,
+  adbStatus,
+  type AdbStatus,
   getSnippetStorage,
   type SnippetStorage,
   getLineageHighlight,
@@ -1841,6 +1844,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         {/* Clipboard privacy (v0.76.0) */}
         <div className="mt-8">
           <HistoryLimitSection />
+        </div>
+
+        {/* Android (adb) — status + setup guide (v0.119.0) */}
+        <div className="mt-8">
+          <AdbSection />
         </div>
 
         <div className="mt-8">
@@ -4877,6 +4885,96 @@ function CrtAnimationRow() {
         )}
       </p>
     </>
+  );
+}
+
+/**
+ * Settings → "Android (adb)" (v0.119.0): live status for the `adb` command
+ * (binary found? devices? authorization state?) plus the one-time setup guide
+ * as an expandable section — the in-app documentation the command's setup
+ * card points to. Deep-link id `adb` (`settings adb`).
+ */
+function AdbSection() {
+  const [status, setStatus] = useState<AdbStatus | null>(null);
+  useEffect(() => {
+    let alive = true;
+    adbStatus()
+      .then((st) => {
+        if (alive) setStatus(st);
+      })
+      .catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, []);
+  const chip = (ok: boolean, label: string) => (
+    <span
+      className={
+        "rounded-full px-2 py-0.5 text-[11px] " +
+        (ok ? "bg-emerald-500/15 text-emerald-500" : "bg-amber-500/15 text-amber-500")
+      }
+    >
+      {ok ? "✓" : "✗"} {label}
+    </span>
+  );
+  return (
+    <Section
+      icon={<Smartphone size={16} className="text-[var(--color-accent)]" />}
+      id="adb"
+      title="Android (adb)"
+      subtitle="Grundlage des `adb`-Commands: Android-Gerät per USB/WLAN steuern — Dashboard, Fernbedienung, Screenshot, Apps, WLAN-ADB. Volle Werkzeuge (Logcat, Bluetooth-Analyse, Dateibrowser): ADBOSS."
+    >
+      <div className="flex flex-wrap items-center gap-1.5">
+        {status === null ? (
+          <span className="text-[12px] text-[var(--color-muted)]">Prüfe…</span>
+        ) : (
+          <>
+            {chip(status.found, status.found ? "adb installiert" : "adb fehlt")}
+            {chip(
+              status.devices.some((d) => d.state === "device"),
+              status.devices.length === 0
+                ? "kein Gerät"
+                : status.devices.some((d) => d.state === "device")
+                  ? `${status.devices.filter((d) => d.state === "device").length} Gerät(e) bereit`
+                  : "Gerät nicht autorisiert",
+            )}
+          </>
+        )}
+      </div>
+      {status !== null && !status.found && (
+        <p className="mt-2 text-[12px] text-[var(--color-muted)]">
+          Installieren: <code className="rounded bg-[var(--color-surface)] px-1">brew install android-platform-tools</code>
+        </p>
+      )}
+      <details className="mt-3 text-[12px]">
+        <summary className="cursor-pointer text-[var(--color-fg)]">
+          Einrichtung Schritt für Schritt (USB-Debugging + WLAN-ADB)
+        </summary>
+        <ol className="mt-2 list-decimal space-y-1.5 pl-5 text-[12px] leading-snug text-[var(--color-muted)]">
+          <li>
+            Handy: Einstellungen → Über das Telefon → 7× auf <em>Build-Nummer</em> tippen →
+            Entwickleroptionen → <strong>USB-Debugging</strong> einschalten.
+          </li>
+          <li>
+            Per USB anschließen; auf dem Handy „USB-Debugging zulassen?" bestätigen
+            (Haken bei „immer erlauben"). Vorher meldet das Panel „nicht autorisiert".
+          </li>
+          <li>
+            <code>adb</code> in die IR-Suchleiste, Enter → Dashboard. <code>adb remote</code> /{" "}
+            <code>adb apps</code> / <code>adb wifi</code> springen direkt in die Ansicht.
+          </li>
+          <li>
+            Kabellos: <code>adb wifi</code> → „WLAN-ADB aktivieren" schaltet das USB-Gerät auf
+            TCP/IP (Port 5555), erkennt die IP und verbindet — danach Kabel abziehen. Hält bis
+            zum Reboot des Handys.
+          </li>
+          <li>
+            Grenzen: Textsenden nur ASCII; Bluetooth-Toggle je nach Android-Version
+            eingeschränkt. Vollständige Referenz: <code>adb?</code> in der Suchleiste.
+          </li>
+        </ol>
+      </details>
+    </Section>
   );
 }
 

@@ -121,7 +121,7 @@ pub fn gather() -> SystemStats {
 
     let window = sysinfo::MINIMUM_CPU_UPDATE_INTERVAL.as_secs_f64().max(0.05);
     let (mut rx, mut tx) = (0u64, 0u64);
-    for (_iface, data) in networks.iter() {
+    for data in networks.values() {
         rx += data.received();
         tx += data.transmitted();
     }

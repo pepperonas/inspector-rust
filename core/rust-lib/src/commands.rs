@@ -1150,6 +1150,44 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── loc — lines-of-code statistics (v0.117.0) ─────────────────────────
+
+/// Count lines of code. `paths` absent/empty → the live Finder selection
+/// (macOS; surfaces the Automation sentinel like `get_finder_selection`).
+/// Async + `spawn_blocking` — tokei walks a whole directory tree.
+#[tauri::command]
+pub async fn loc_count(
+    paths: Option<Vec<String>>,
+    respect_ignores: Option<bool>,
+) -> Result<crate::loc::LocReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let paths: Vec<String> = match paths {
+            Some(p) if !p.is_empty() => p,
+            _ => {
+                #[cfg(target_os = "macos")]
+                {
+                    let sel = crate::finder_selection::read()?;
+                    if sel.is_empty() {
+                        // Distinct from an Automation denial — the frontend
+                        // renders "select a folder in Finder" for this one.
+                        return Err("loc.no_selection".to_string());
+                    }
+                    sel.iter().map(|p| p.display().to_string()).collect()
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    // No Explorer-selection reading yet (same gap as md2pdf) —
+                    // the explicit-path form works everywhere.
+                    return Err("loc.no_selection".to_string());
+                }
+            }
+        };
+        crate::loc::count(&paths, respect_ignores.unwrap_or(true))
+    })
+    .await
+    .map_err(|e| format!("loc task: {e}"))?
+}
+
 // ── Wakelock ──────────────────────────────────────────────────────────
 
 /// Toggle the wakelock. Returns the resulting state (`true` = active,

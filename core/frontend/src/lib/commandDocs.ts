@@ -1035,6 +1035,35 @@ export const COMMAND_DOCS: CommandDoc[] = [
 
   // ── Info & Monitoring ─────────────────────────────────────────────────
   {
+    command: "loc",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.117.0",
+    tagline: "Lines-of-code statistics for the Finder selection — per language, with charts.",
+    tagline_de: "Lines-of-Code-Statistik für die Finder-Auswahl — pro Sprache, mit Charts.",
+    synopsis: "loc [pfad]",
+    description:
+      "Counts lines of code with tokei (~200 languages, real per-language syntax knowledge — block comments, strings, nested comments, embedded languages). Bare `loc` counts the folder(s) selected in Finder; `loc <pfad>` an explicit path. The preview shows totals (files / lines / code / comments / blanks), a stacked language bar, a donut chart of language shares, and a per-language table. Comments INCLUDE documentation (doc comments, Python docstrings). By default `.gitignore` is respected (inside git repos) and hidden files are skipped — a toggle counts everything, node_modules included.",
+    arguments: [
+      { name: "pfad", required: false, description: "Explicit folder/file to count. Omit it to use the live Finder selection (macOS).", default: "Finder selection" },
+    ],
+    flags: [],
+    examples: [
+      { input: "loc", result: "Counts the folder selected in Finder — language table + charts in the preview." },
+      { input: "loc ~/claude/inspector-rust", result: "Counts an explicit path, no Finder needed." },
+      { input: "loc src", result: "Relative paths resolve against the app's working dir — prefer absolute paths." },
+    ],
+    tips: [
+      "R re-counts (e.g. after edits); the checkbox at the bottom includes ignored + hidden files.",
+      "A folder's .gitignore only filters inside a git repo — a plain folder with a .gitignore counts everything.",
+    ],
+    caveats: [
+      "Bare `loc` needs the Finder Automation permission (like Ctrl+Shift+F); `loc <pfad>` works without it.",
+      "A separate docs-vs-comments split is not reliably possible across languages — documentation counts as comments (same as IntelliJ's Statistic plugin).",
+    ],
+    related: ["stats", "uptime"],
+  },
+  {
     command: "stats",
     aliases: [],
     category: CAT_INFO,

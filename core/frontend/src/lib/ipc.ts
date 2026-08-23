@@ -2618,6 +2618,38 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── loc — lines-of-code statistics (v0.117.0) ───────────────────────────────
+
+export interface LocLanguage {
+  name: string;
+  files: number;
+  code: number;
+  comments: number;
+  blanks: number;
+  /** Share of all code lines, 0..100. */
+  code_pct: number;
+}
+
+export interface LocReport {
+  root_label: string;
+  paths: string[];
+  respected_ignores: boolean;
+  languages: LocLanguage[];
+  total_files: number;
+  total_code: number;
+  total_comments: number;
+  total_blanks: number;
+  total_lines: number;
+  inaccurate: boolean;
+}
+
+/** Count lines of code. Omitted `paths` → the live Finder selection (macOS).
+ *  Sentinels: "loc.no_selection" (nothing selected), the Finder Automation
+ *  sentinel, or a plain error string. */
+export function locCount(paths: string[] | null, respectIgnores: boolean): Promise<LocReport> {
+  return invoke("loc_count", { paths, respectIgnores });
+}
+
 // ── System sleep status (footer indicator, v0.114.0, macOS) ─────────────────
 
 export interface SleepStatus {

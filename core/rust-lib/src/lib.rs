@@ -36,6 +36,7 @@ mod beat;
 mod iris;
 mod mic_capture;
 mod image_ops;
+mod loc;
 mod logging;
 mod md_to_pdf;
 mod meme;
@@ -779,6 +780,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_crt_animation,
             commands::set_crt_animation,
             commands::get_sleep_status,
+            commands::loc_count,
             commands::get_status_toast,
             commands::hide_status_toast,
             commands::cleaner_status,

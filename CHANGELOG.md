@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.117.0] — 2026-08-23
+
+### Added
+
+- **`loc` — lines-of-code statistics.** Select a folder in Finder, type `loc`, press Enter: the preview shows per-language files / code / comment / blank counts (tokei engine, ~200 languages with real syntax knowledge — block comments, strings, embedded languages; documentation and Python docstrings count as comments, like IntelliJ's Statistic plugin), totals, a stacked language bar and a donut chart of language shares. `loc <pfad>` counts an explicit path without Finder. `.gitignore` respected by default (note: only inside git repos — that's how gitignore semantics work), toggleable to count everything; `R` re-counts.
+- Correctness is pinned by a hand-counted fixture test (exact per-line expectations for Rust comments/docs and Python docstrings) plus a gitignore-behaviour test that documents the git-repo requirement.
+
 ## [0.116.0] — 2026-08-23
 
 ### Added

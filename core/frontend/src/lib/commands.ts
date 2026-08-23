@@ -47,6 +47,7 @@ export type CommandKind =
   | "mute"
   | "freeze"
   | "wakelock"
+  | "loc"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -329,6 +330,15 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── loc — lines-of-code statistics ────────────────────────────────
+  {
+    kind: "loc",
+    keyword: "loc",
+    syntax: "loc [pfad]",
+    description:
+      "Lines of code für die Finder-Auswahl (oder einen Pfad) — pro Sprache Code/Kommentare/Leerzeilen, mit Charts",
+    requiresArg: false,
   },
   // ── Wakelock / caffeine (keep-awake) ──────────────────────────────
   // `wakelock on|off` and the `caffeine on|off` alias. The on/off arg

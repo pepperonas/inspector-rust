@@ -13,6 +13,7 @@ import { BrightnessPanel } from "./components/BrightnessPanel";
 import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
+import { LocPanel } from "./components/LocPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -277,6 +278,11 @@ function App() {
   // arg (`weather berlin`) is a city override; empty = IP-located.
   const [weatherMode, setWeatherMode] = useState(false);
   const [weatherFocus, setWeatherFocus] = useState(false);
+  // loc mode (v0.117.0) — Enter on the `loc` row counts the Finder selection
+  // (or the typed path) with tokei and renders the language statistic in the
+  // preview column. Enter-activated: tokei walks a whole directory tree.
+  const [locMode, setLocMode] = useState(false);
+  const [locFocus, setLocFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1053,6 +1059,13 @@ function App() {
       setWeatherFocus(false);
     }
   }, [isWeatherCmd, weatherMode]);
+  const isLocCmd = parsedCommand?.spec.kind === "loc";
+  useEffect(() => {
+    if (!isLocCmd && locMode) {
+      setLocMode(false);
+      setLocFocus(false);
+    }
+  }, [isLocCmd, locMode]);
   const isTokensCmd = parsedCommand?.spec.kind === "tokens";
   useEffect(() => {
     if (!isTokensCmd && tokensMode) {
@@ -1457,6 +1470,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "loc":
+        label = arg ? `Lines of code: ${arg}` : "Lines of code — Finder-Auswahl";
+        hint = "Enter → Sprachen-Statistik (Code/Kommentare/Leerzeilen) mit Charts";
         break;
       case "weather":
         label = arg ? `Weather: ${arg}` : "Weather — your location";
@@ -2760,6 +2777,8 @@ function App() {
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
     // popup, and the next open must start on the normal history view.
     setTotpMode(false);
+    setLocMode(false);
+    setLocFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -2883,7 +2902,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -2891,7 +2910,8 @@ function App() {
           commandKind === "snitch" ||
           commandKind === "shazam" ||
           commandKind === "weather" ||
-          commandKind === "iris";
+          commandKind === "iris" ||
+          commandKind === "loc";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3335,6 +3355,11 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "loc") {
+        // Lines-of-code statistic for the Finder selection / typed path.
+        setLocMode(true);
+        setLocFocus(true);
+        return true;
       } else if (commandKind === "weather") {
         // Inline animated weather panel (current + 5-day) in the preview column.
         setWeatherMode(true);
@@ -3729,6 +3754,7 @@ function App() {
       !boomFocus &&
       !uptimeFocus &&
       !weatherFocus &&
+      !locFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4183,6 +4209,18 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : locMode ? (
+                  <div className="md3-pop-in h-full">
+                    <LocPanel
+                      focused={locFocus}
+                      arg={isLocCmd ? (parsedCommand?.arg ?? "") : ""}
+                      onExit={() => {
+                        setLocMode(false);
+                        setLocFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

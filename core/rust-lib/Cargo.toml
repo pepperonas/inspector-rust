@@ -85,6 +85,7 @@ figlet-rs = "1"
 # Deflate/gzip for the compressed, lazily-decompressed FIGlet font bundle
 # (already in the lockfile transitively; pure-Rust miniz_oxide backend, no C).
 flate2 = "1"
+tokei = "14"
 
 [build-dependencies]
 # build.rs gzip-compresses each vendored .flf into OUT_DIR and generates the

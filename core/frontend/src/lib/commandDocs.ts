@@ -1068,6 +1068,37 @@ export const COMMAND_DOCS: CommandDoc[] = [
     see_also: "docs/adb.md",
   },
   {
+    command: "repo",
+    aliases: ["export"],
+    category: CAT_INFO,
+    version_added: "0.123.0",
+    tagline: "Git repository activity stats — commits, contributors, hotspots.",
+    tagline_de: "Git-Repo-Statistik — Commits, Mitwirkende, Hotspots.",
+    synopsis: "repo [url|pfad]   ·   export [url|pfad]",
+    description:
+      "Analyses a git repository's history and shows it in the preview, oriented on the repo2viz project: KPI tiles (commits, contributors, active days, longest streak, lines added/removed), a month-activity sparkline, weekday and hour-of-day charts, commit-category bars (conventional commits), and the most-active files, file types and contributors. Give a GitHub URL (read-only bare clone), a local path, or nothing — then it uses the folder selected in Finder if it's a git repo. The `export` command (or the ⬇ button / `E`) writes the same analysis as a single self-contained HTML file to ~/Downloads, named <owner>-<repo>-activity.html.",
+    arguments: [
+      { name: "url|pfad", required: false, description: "A git URL or local path. Omit to analyse the Finder-selected .git folder.", default: "Finder selection" },
+    ],
+    flags: [],
+    examples: [
+      { input: "repo https://github.com/pepperonas/inspector-rust", result: "Clones read-only and shows the activity stats." },
+      { input: "repo", result: "Analyses the folder selected in Finder (if it's a git repo)." },
+      { input: "export https://github.com/user/projekt", result: "Writes user-projekt-activity.html to ~/Downloads." },
+    ],
+    tips: [
+      "In the panel, E (or ⬇) exports the current analysis as a self-contained HTML report.",
+      "Local repos are analysed in place (no clone) — instant for your own projects.",
+      "Churn = lines added + removed; the hotspots are ranked by how often a file changed.",
+    ],
+    caveats: [
+      "A URL does a full bare clone (history + blobs for exact churn) — a very large repo takes a while.",
+      "Needs git on PATH.",
+    ],
+    related: ["loc", "disk"],
+    see_also: "docs/repo.md",
+  },
+  {
     command: "rickroll",
     aliases: [],
     category: CAT_FUN,

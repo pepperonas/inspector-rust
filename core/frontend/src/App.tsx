@@ -18,6 +18,7 @@ import { AdbPanel, type AdbView } from "./components/AdbPanel";
 import { DiskPanel } from "./components/DiskPanel";
 import { ClockPanel } from "./components/ClockPanel";
 import { RickrollPanel } from "./components/RickrollPanel";
+import { RepoPanel } from "./components/RepoPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -303,6 +304,11 @@ function App() {
   // rickroll mode (v0.122.0) — plays the video in the preview.
   const [rickMode, setRickMode] = useState(false);
   const [rickFocus, setRickFocus] = useState(false);
+  // repo mode (v0.123.0) — git activity stats (repo2viz-style). `autoExport`
+  // is set by the `export` command to write the HTML right after analysing.
+  const [repoMode, setRepoMode] = useState(false);
+  const [repoFocus, setRepoFocus] = useState(false);
+  const [repoAutoExport, setRepoAutoExport] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1086,6 +1092,14 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isRepoCmd =
+    parsedCommand?.spec.kind === "repo" || parsedCommand?.spec.kind === "repo-export";
+  useEffect(() => {
+    if (!isRepoCmd && repoMode) {
+      setRepoMode(false);
+      setRepoFocus(false);
+    }
+  }, [isRepoCmd, repoMode]);
   const isRickCmd = parsedCommand?.spec.kind === "rickroll";
   useEffect(() => {
     if (!isRickCmd && rickMode) {
@@ -1518,6 +1532,14 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "repo":
+        label = arg ? `Repo-Statistik: ${arg}` : "Repo-Statistik (Finder-.git-Ordner)";
+        hint = "Enter → Commits, Mitwirkende, Charts; E exportiert HTML";
+        break;
+      case "repo-export":
+        label = arg ? `Repo-Export: ${arg}` : "Repo → HTML nach Downloads";
+        hint = "Enter → analysiert + speichert die HTML-Auswertung in ~/Downloads";
         break;
       case "rickroll":
         label = "🎵 Never Gonna Give You Up";
@@ -2877,6 +2899,8 @@ function App() {
     setClockFocus(false);
     setRickMode(false);
     setRickFocus(false);
+    setRepoMode(false);
+    setRepoFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -3000,7 +3024,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3011,7 +3035,9 @@ function App() {
           commandKind === "iris" ||
           commandKind === "loc" ||
           commandKind === "adb" ||
-          commandKind === "disk";
+          commandKind === "disk" ||
+          commandKind === "repo" ||
+          commandKind === "repo-export";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3455,6 +3481,11 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "repo" || commandKind === "repo-export") {
+        setRepoAutoExport(commandKind === "repo-export");
+        setRepoMode(true);
+        setRepoFocus(true);
+        return true;
       } else if (commandKind === "rickroll") {
         setRickMode(true);
         setRickFocus(true);
@@ -3886,6 +3917,7 @@ function App() {
       !diskFocus &&
       !clockFocus &&
       !rickFocus &&
+      !repoFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4340,6 +4372,19 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : repoMode ? (
+                  <div className="md3-pop-in h-full">
+                    <RepoPanel
+                      arg={isRepoCmd ? (parsedCommand?.arg ?? "") : ""}
+                      autoExport={repoAutoExport}
+                      focused={repoFocus}
+                      onExit={() => {
+                        setRepoMode(false);
+                        setRepoFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

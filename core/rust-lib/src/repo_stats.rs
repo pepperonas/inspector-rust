@@ -269,7 +269,7 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
     stats.contributors = authors.len() as u64;
     stats.first_commit = first.unwrap_or_default();
     stats.last_commit = last.unwrap_or_default();
-    stats.avg_msg_len = if stats.commits > 0 { msg_len_total / stats.commits } else { 0 };
+    stats.avg_msg_len = msg_len_total.checked_div(stats.commits).unwrap_or(0);
 
     // Active days + longest streak.
     days.sort_unstable();
@@ -374,7 +374,8 @@ const T_GIT: Duration = Duration::from_secs(30);
 fn git_log(dir: &std::path::Path) -> Result<String, String> {
     let fmt = format!("{REC}%H{FLD}%aI{FLD}%aN{FLD}%aE{FLD}%s");
     let out = std::process::Command::new("git")
-        .args(["-C", &dir.to_string_lossy(), "log", "--no-merges", "--numstat", "--date=iso-strict"])
+        .current_dir(dir) // not `-C <dir>` — keeps an untrusted path out of argv
+        .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
         .arg(format!("--pretty=format:{fmt}"))
         .output()
         .map_err(|e| format!("git nicht gefunden: {e}"))?;
@@ -401,14 +402,16 @@ pub fn analyze_local(dir: &std::path::Path) -> Result<RepoStats, String> {
 /// Clone a remote read-only (bare, full history) into a temp dir, analyse, and
 /// clean up. Impure.
 pub fn analyze_remote(url: &str) -> Result<RepoStats, String> {
-    // Reject obviously non-URL junk before spawning git.
-    if !(url.contains("://") || (url.contains('@') && url.contains(':'))) {
+    // Reject obviously non-URL junk before spawning git — AND anything starting
+    // with '-', which git would parse as a flag (argv smuggling, e.g.
+    // `--upload-pack=…`). The `--` below is the belt to this suspenders.
+    if url.starts_with('-') || !(url.contains("://") || (url.contains('@') && url.contains(':'))) {
         return Err("Keine gültige Repository-URL.".into());
     }
     let tmp = std::env::temp_dir().join(format!("ir-repo-{}-{}", std::process::id(), sanitize_slug(url).chars().take(24).collect::<String>()));
     let _ = std::fs::remove_dir_all(&tmp);
     let clone = Command::new("git")
-        .args(["clone", "--bare", "--quiet", url, &tmp.to_string_lossy()])
+        .args(["clone", "--bare", "--quiet", "--", url, &tmp.to_string_lossy()])
         .output()
         .map_err(|e| format!("git nicht gefunden: {e}"))?;
     let _ = T_GIT; // (clone has no built-in timeout here; git itself will fail fast on a bad URL)
@@ -672,6 +675,16 @@ mod tests {
         assert_eq!(s.longest_streak, 2);
         // Timeline has the month.
         assert_eq!(s.by_month.iter().find(|m| m.month == "2026-08").unwrap().commits, 2);
+    }
+
+    #[test]
+    fn analyze_remote_rejects_flag_smuggling_and_junk() {
+        // argv injection: a URL that is actually a git flag must be refused
+        // BEFORE spawning git (the `--` guard is belt-and-braces on top).
+        assert!(analyze_remote("--upload-pack=touch /tmp/pwn").is_err());
+        assert!(analyze_remote("-x").is_err());
+        // Plain non-URL junk is refused too (no scheme / scp form).
+        assert!(analyze_remote("not a url").is_err());
     }
 
     #[test]

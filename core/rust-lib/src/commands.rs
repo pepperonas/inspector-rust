@@ -1150,6 +1150,72 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── repo — git activity stats (v0.123.0) ──────────────────────────────
+
+fn resolve_repo_target(target: Option<String>) -> Result<RepoTarget, String> {
+    match target.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(t) if t.contains("://") || (t.contains('@') && t.contains(':')) => {
+            Ok(RepoTarget::Remote(t.to_string()))
+        }
+        Some(t) => Ok(RepoTarget::Local(std::path::PathBuf::from(t))),
+        None => {
+            // Bare `repo` → the Finder-selected folder that is a git repo.
+            #[cfg(target_os = "macos")]
+            {
+                let sel = crate::finder_selection::read().unwrap_or_default();
+                let git = sel
+                    .into_iter()
+                    .find(|p| p.join(".git").exists());
+                match git {
+                    Some(p) => Ok(RepoTarget::Local(p)),
+                    None => Err("repo.no_target".to_string()),
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Err("repo.no_target".to_string())
+            }
+        }
+    }
+}
+
+enum RepoTarget {
+    Remote(String),
+    Local(std::path::PathBuf),
+}
+
+fn run_repo(target: RepoTarget) -> Result<crate::repo_stats::RepoStats, String> {
+    match target {
+        RepoTarget::Remote(url) => crate::repo_stats::analyze_remote(&url),
+        RepoTarget::Local(path) => crate::repo_stats::analyze_local(&path),
+    }
+}
+
+/// Analyse a repo (URL, local path, or the Finder selection when omitted).
+#[tauri::command]
+pub async fn repo_analyze(target: Option<String>) -> Result<crate::repo_stats::RepoStats, String> {
+    let t = resolve_repo_target(target)?;
+    tauri::async_runtime::spawn_blocking(move || run_repo(t))
+        .await
+        .map_err(|e| format!("repo task: {e}"))?
+}
+
+/// Analyse + write the self-contained HTML export to ~/Downloads; reveals it
+/// and returns the path.
+#[tauri::command]
+pub async fn repo_export(app: AppHandle, target: Option<String>) -> Result<String, String> {
+    let t = resolve_repo_target(target)?;
+    let path = tauri::async_runtime::spawn_blocking(move || {
+        let stats = run_repo(t)?;
+        crate::repo_stats::export_html(&stats)
+    })
+    .await
+    .map_err(|e| format!("repo task: {e}"))??;
+    let _ = &app;
+    reveal_in_file_manager(&path);
+    Ok(path.display().to_string())
+}
+
 // ── clock — world clock zone persistence (v0.121.0) ───────────────────
 
 /// Settings key for the world-clock zone list (JSON array of IANA tz ids).

@@ -52,6 +52,7 @@ mod recolor;
 mod input_lock;
 #[cfg(target_os = "macos")]
 mod esc_watch;
+mod repo_stats;
 mod region_picker;
 mod screen_picker;
 mod screen_record;
@@ -788,6 +789,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::disk_trash,
             commands::get_clock_zones,
             commands::set_clock_zones,
+            commands::repo_analyze,
+            commands::repo_export,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

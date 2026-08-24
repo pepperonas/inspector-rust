@@ -2618,6 +2618,44 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── repo — git activity stats (v0.123.0) ────────────────────────────────────
+
+export interface RepoMonth { month: string; commits: number }
+export interface RepoFile { path: string; changes: number; churn: number }
+export interface RepoExt { ext: string; commits: number; churn: number }
+export interface RepoAuthor { name: string; commits: number; churn: number }
+export interface RepoCat { cat: string; commits: number }
+export interface RepoStats {
+  name: string;
+  source: string;
+  commits: number;
+  contributors: number;
+  first_commit: string;
+  last_commit: string;
+  active_days: number;
+  insertions: number;
+  deletions: number;
+  by_weekday: number[];
+  by_hour: number[];
+  by_month: RepoMonth[];
+  top_files: RepoFile[];
+  top_exts: RepoExt[];
+  top_authors: RepoAuthor[];
+  categories: RepoCat[];
+  longest_streak: number;
+  avg_msg_len: number;
+}
+
+/** Analyse a repo. `target`: a git URL, a local path, or null for the
+ *  Finder-selected .git folder. Sentinel "repo.no_target" = nothing to scan. */
+export function repoAnalyze(target: string | null): Promise<RepoStats> {
+  return invoke("repo_analyze", { target });
+}
+/** Analyse + write the self-contained HTML to ~/Downloads; returns the path. */
+export function repoExport(target: string | null): Promise<string> {
+  return invoke("repo_export", { target });
+}
+
 // ── clock — world clock zone persistence (v0.121.0) ─────────────────────────
 
 /** Raw persisted zones JSON ("" when never set — normalise on the frontend). */

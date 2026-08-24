@@ -52,6 +52,8 @@ export type CommandKind =
   | "disk"
   | "clock"
   | "rickroll"
+  | "repo"
+  | "repo-export"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -334,6 +336,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── repo — git activity stats (repo2viz-style) ────────────────────
+  {
+    kind: "repo",
+    keyword: "repo",
+    syntax: "repo [url|pfad]",
+    description:
+      "Git-Repo-Statistik (repo2viz-Stil): Commits, Mitwirkende, Wochentag/Stunde, Dateitypen — als URL, Pfad oder Finder-.git-Ordner",
+    requiresArg: false,
+  },
+  {
+    kind: "repo-export",
+    keyword: "export",
+    syntax: "export [url|pfad]",
+    description: "Repo-Auswertung als self-contained HTML nach ~/Downloads exportieren",
+    requiresArg: false,
   },
   // ── rickroll — you know the rules ─────────────────────────────────
   {

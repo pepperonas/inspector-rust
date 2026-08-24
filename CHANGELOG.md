@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.123.0] — 2026-08-24
+
+### Added
+
+- **`repo` — git repository activity stats, oriented on repo2viz.** Give a GitHub URL (read-only bare clone), a local path, or nothing (then it analyses the folder selected in Finder if it's a git repo) and the preview shows KPI tiles (commits, contributors, active days, longest streak, lines added/removed), a month-activity sparkline, weekday and hour-of-day charts, commit-category bars, and the most-active files, file types and contributors.
+- **`export`** (or the ⬇ button / `E` in the panel) writes the same analysis as a single self-contained HTML report to ~/Downloads, named `<owner>-<repo>-activity.html` — inline styling, CSS bar charts, no external requests, dark MD3 look, like repo2viz's output.
+- The git-log parser is pure + unit-tested (weekday via Zeller's congruence, longest streak, churn, conventional-commit categories) against a synthetic log; the HTML builder escapes every embedded name (injection-safe). URL analysis full-bare-clones for exact offline churn; local repos are read in place.
+
 ## [0.122.0] — 2026-08-24
 
 ### Added

@@ -51,6 +51,7 @@ export type CommandKind =
   | "adb"
   | "disk"
   | "clock"
+  | "rickroll"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -333,6 +334,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
     platform: ["mac"],
+  },
+  // ── rickroll — you know the rules ─────────────────────────────────
+  {
+    kind: "rickroll",
+    keyword: "rickroll",
+    syntax: "rickroll",
+    description: "Never gonna give you up — spielt das Video (mit Ton) in der Preview",
+    requiresArg: false,
   },
   // ── clock — world clock ───────────────────────────────────────────
   {

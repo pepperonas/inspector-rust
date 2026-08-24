@@ -1068,6 +1068,30 @@ export const COMMAND_DOCS: CommandDoc[] = [
     see_also: "docs/adb.md",
   },
   {
+    command: "rickroll",
+    aliases: [],
+    category: CAT_FUN,
+    version_added: "0.122.0",
+    tagline: "You know the rules — and so do I.",
+    tagline_de: "Du kennst die Regeln — und ich auch.",
+    synopsis: "rickroll",
+    description:
+      "Plays Rick Astley's \"Never Gonna Give You Up\" — with sound — right in the preview column (privacy-friendly YouTube embed; the CSP is disabled so it loads). A scrolling lyric marquee runs beneath it. If a webview refuses autoplay-with-sound, one button opens it in the browser instead.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "rickroll", result: "The video autoplays (with sound) in the preview." },
+      { input: "rickroll → ↻ Nochmal", result: "Restarts the clip from the top." },
+      { input: "rickroll → Browser", result: "Opens the video on YouTube instead." },
+    ],
+    tips: [
+      "No sound? Some webviews block autoplay-with-sound — hit \"Im Browser abspielen\".",
+      "\"↻ Nochmal\" reloads the clip from the top.",
+    ],
+    caveats: ["Needs a network connection — the video streams from YouTube."],
+    related: [],
+  },
+  {
     command: "clock",
     aliases: [],
     category: CAT_INFO,

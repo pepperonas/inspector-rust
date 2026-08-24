@@ -17,6 +17,7 @@ import { LocPanel } from "./components/LocPanel";
 import { AdbPanel, type AdbView } from "./components/AdbPanel";
 import { DiskPanel } from "./components/DiskPanel";
 import { ClockPanel } from "./components/ClockPanel";
+import { RickrollPanel } from "./components/RickrollPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -299,6 +300,9 @@ function App() {
   // needs focus for autocomplete).
   const [clockMode, setClockMode] = useState(false);
   const [clockFocus, setClockFocus] = useState(false);
+  // rickroll mode (v0.122.0) — plays the video in the preview.
+  const [rickMode, setRickMode] = useState(false);
+  const [rickFocus, setRickFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1082,6 +1086,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isRickCmd = parsedCommand?.spec.kind === "rickroll";
+  useEffect(() => {
+    if (!isRickCmd && rickMode) {
+      setRickMode(false);
+      setRickFocus(false);
+    }
+  }, [isRickCmd, rickMode]);
   const isClockCmd = parsedCommand?.spec.kind === "clock";
   useEffect(() => {
     if (!isClockCmd && clockMode) {
@@ -1507,6 +1518,10 @@ function App() {
       case "uptime":
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
+        break;
+      case "rickroll":
+        label = "🎵 Never Gonna Give You Up";
+        hint = "Enter → Video mit Ton in der Preview";
         break;
       case "clock":
         label = "Weltzeituhr";
@@ -2860,6 +2875,8 @@ function App() {
     setDiskFocus(false);
     setClockMode(false);
     setClockFocus(false);
+    setRickMode(false);
+    setRickFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -2983,7 +3000,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3438,6 +3455,10 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "rickroll") {
+        setRickMode(true);
+        setRickFocus(true);
+        return true;
       } else if (commandKind === "clock") {
         setClockMode(true);
         setClockFocus(true);
@@ -3864,6 +3885,7 @@ function App() {
       !adbFocus &&
       !diskFocus &&
       !clockFocus &&
+      !rickFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4318,6 +4340,17 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : rickMode ? (
+                  <div className="md3-pop-in h-full">
+                    <RickrollPanel
+                      focused={rickFocus}
+                      onExit={() => {
+                        setRickMode(false);
+                        setRickFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.122.0] — 2026-08-24
+
+### Added
+
+- **`rickroll`** — plays Rick Astley's "Never Gonna Give You Up", with sound, right in the preview (privacy-friendly YouTube embed; a lyric marquee scrolls beneath). "↻ Nochmal" restarts it; if a webview blocks autoplay-with-sound, one button opens it in the browser. You knew what this was.
+
 ## [0.121.0] — 2026-08-24
 
 ### Added

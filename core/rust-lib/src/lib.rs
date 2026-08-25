@@ -796,6 +796,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::nosleep_status,
             commands::nosleep_set,
             commands::alias_create,
+            commands::alias_list,
+            commands::alias_delete,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

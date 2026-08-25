@@ -70,3 +70,16 @@ export function buildAliasSetups(name: string, command: string): AliasSetup[] {
     },
   ];
 }
+
+/** Search + sort for the management list: case-insensitive substring over
+ *  name AND command, always alphabetical by name. Pure. */
+export function filterAliases<T extends { name: string; command: string }>(
+  list: readonly T[],
+  term: string,
+): T[] {
+  const q = term.trim().toLowerCase();
+  const hit = q
+    ? list.filter((e) => e.name.toLowerCase().includes(q) || e.command.toLowerCase().includes(q))
+    : [...list];
+  return hit.sort((a, b) => a.name.localeCompare(b.name));
+}

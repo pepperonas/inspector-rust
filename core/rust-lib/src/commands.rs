@@ -1195,8 +1195,31 @@ pub async fn nosleep_set(
 /// with a clear message. Off the main thread — file IO + a possible process
 /// spawn.
 #[tauri::command]
-pub async fn alias_create(name: String, command: String) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::shell_alias::create(&name, &command))
+pub async fn alias_create(
+    name: String,
+    command: String,
+    overwrite: bool,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::shell_alias::create(&name, &command, overwrite)
+    })
+    .await
+    .map_err(|e| format!("alias task: {e}"))?
+}
+
+/// The aliases defined in the current user's rc file (macOS/Linux; empty on
+/// Windows — the management section is gated there).
+#[tauri::command]
+pub async fn alias_list() -> Result<Vec<crate::shell_alias::AliasEntry>, String> {
+    tauri::async_runtime::spawn_blocking(crate::shell_alias::list)
+        .await
+        .map_err(|e| format!("alias task: {e}"))?
+}
+
+/// Remove an alias from the rc file. Misses are a clear error, not a no-op.
+#[tauri::command]
+pub async fn alias_delete(name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::shell_alias::delete(&name))
         .await
         .map_err(|e| format!("alias task: {e}"))?
 }

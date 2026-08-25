@@ -2638,8 +2638,24 @@ export function nosleepSet(disable: boolean): Promise<NoSleepStatus> {
 /** `alias` — create the shell alias on THIS machine (append to rc / $PROFILE).
  *  Resolves to a human success message; rejects with a human error (duplicate,
  *  fish shell, invalid name). */
-export function aliasCreate(name: string, command: string): Promise<string> {
-  return invoke("alias_create", { name, command });
+export function aliasCreate(name: string, command: string, overwrite: boolean): Promise<string> {
+  return invoke("alias_create", { name, command, overwrite });
+}
+
+/** One alias definition from the user's shell rc file. */
+export interface AliasEntry {
+  name: string;
+  command: string;
+}
+
+/** The aliases defined in the current rc file (empty on Windows). */
+export function aliasList(): Promise<AliasEntry[]> {
+  return invoke("alias_list");
+}
+
+/** Remove an alias from the rc file; a miss rejects with a clear message. */
+export function aliasDelete(name: string): Promise<string> {
+  return invoke("alias_delete", { name });
 }
 
 // ── repo — git activity stats (v0.123.0) ────────────────────────────────────

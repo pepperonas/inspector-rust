@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.128.0] — 2026-08-25
+
+### Added
+
+- **`alias` manages existing aliases.** Below the builder, the aliases already defined in the shell rc file are listed — searchable, alphabetically sorted — with edit (fills the builder fields; the create button flips to "Aktualisieren" and replaces the definition in place) and a two-stage inline delete. Running or Tab-autocompleting the `alias` command now focuses + selects the command field directly, so typing starts immediately.
+
 ## [0.127.0] — 2026-08-25
 
 ### Added

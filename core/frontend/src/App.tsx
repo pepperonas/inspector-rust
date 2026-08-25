@@ -2522,6 +2522,14 @@ function App() {
       e.preventDefault();
       e.stopPropagation();
       setQuery(completion);
+      // `alias`: autocompleting is already the intent to build one — hand the
+      // focus straight to the panel's COMMAND field instead of parking the
+      // caret in the search bar (user request v0.128.0).
+      if (/^alias(\s|$)/.test(completion)) {
+        setAliasMode(true);
+        setAliasFocus(true);
+        return;
+      }
       requestAnimationFrame(() => {
         searchRef.current?.focus();
         const len = completion.length;

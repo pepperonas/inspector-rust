@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validAliasName, posixQuote, aliasLine, psFunction, buildAliasSetups } from "./alias";
+import { validAliasName, posixQuote, aliasLine, psFunction, buildAliasSetups, filterAliases } from "./alias";
 
 describe("validAliasName", () => {
   it("accepts shell-safe names and rejects everything a shell would parse", () => {
@@ -69,5 +69,27 @@ describe("buildAliasSetups", () => {
   it("the windows one-liner creates $PROFILE if missing", () => {
     const rows = buildAliasSetups("gs", "git status");
     expect(rows[2].command).toMatch(/Test-Path \$PROFILE.*New-Item.*Add-Content \$PROFILE/);
+  });
+});
+
+describe("filterAliases", () => {
+  const list = [
+    { name: "zz", command: "top" },
+    { name: "gs", command: "git status" },
+    { name: "gl", command: "git log" },
+  ];
+
+  it("sorts alphabetically by name and filters name OR command", () => {
+    expect(filterAliases(list, "").map((e) => e.name)).toEqual(["gl", "gs", "zz"]);
+    expect(filterAliases(list, "git").map((e) => e.name)).toEqual(["gl", "gs"]);
+    expect(filterAliases(list, "STATUS").map((e) => e.name)).toEqual(["gs"]); // case-insensitive, command hit
+    expect(filterAliases(list, "zz").map((e) => e.name)).toEqual(["zz"]);
+    expect(filterAliases(list, "nope")).toEqual([]);
+  });
+
+  it("does not mutate the input", () => {
+    const before = list.map((e) => e.name);
+    filterAliases(list, "");
+    expect(list.map((e) => e.name)).toEqual(before);
   });
 });

@@ -1131,7 +1131,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Shell-Alias geführt anlegen — Befehl je OS + direkt anlegen.",
     synopsis: "alias [name]",
     description:
-      "Opens a guided alias builder in the preview: enter the terminal command and the alias name, and the panel shows the exact one-liner that creates the alias on each OS — macOS (zsh, ~/.zshrc), Linux (bash, ~/.bashrc) and Windows (PowerShell $PROFILE, as a function so arguments are forwarded). Every row has a copy button; the current OS's row has an extra create button that appends the alias to your shell config directly (an existing alias of the same name is refused, never overwritten). Quoting is handled for you — commands containing quotes survive verbatim.",
+      "Opens a guided alias builder in the preview: enter the terminal command and the alias name, and the panel shows the exact one-liner that creates the alias on each OS — macOS (zsh, ~/.zshrc), Linux (bash, ~/.bashrc) and Windows (PowerShell $PROFILE, as a function so arguments are forwarded). Every row has a copy button; the current OS's row has an extra create button that appends the alias to your shell config directly. Below the builder, the aliases already defined in your rc file are listed — searchable, alphabetical — with edit (fills the builder; the button flips to update) and delete. Quoting is handled for you — commands containing quotes survive verbatim.",
     arguments: [
       { name: "name", required: false, description: "Pre-fills the alias-name field.", default: "—" },
     ],
@@ -1144,6 +1144,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tips: [
       "The create button writes to THIS machine's shell config (~/.zshrc here); copy the other rows for your other machines.",
       "A new alias applies in the next terminal — or after `source ~/.zshrc`.",
+      "Editing an existing alias: click its pencil in the list — the create button becomes an update.",
     ],
     caveats: [
       "Fish is refused honestly (different alias syntax) — the panel's zsh/bash lines don't apply there.",

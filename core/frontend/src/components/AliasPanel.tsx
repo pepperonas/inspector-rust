@@ -1,18 +1,19 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { TerminalSquare, Copy, Check, PlusCircle } from "lucide-react";
-import { buildAliasSetups, validAliasName, type AliasSetup } from "../lib/alias";
+import { TerminalSquare, Copy, Check, PlusCircle, Pencil, Trash2, Search, X } from "lucide-react";
+import { buildAliasSetups, validAliasName, filterAliases, type AliasSetup } from "../lib/alias";
 import { CURRENT_PLATFORM } from "../lib/platform";
-import { aliasCreate } from "../lib/ipc";
+import { aliasCreate, aliasList, aliasDelete, type AliasEntry } from "../lib/ipc";
 
 /**
- * `alias` — guided shell-alias builder (v0.127.0). Two inputs (command +
- * alias name), then one card per OS showing the exact terminal one-liner that
- * creates the alias there (macOS/zsh · Linux/bash · Windows/PowerShell), each
- * with a copy button. The current OS's card carries an extra "Anlegen" button
- * that writes the alias directly into the shell config via the `alias_create`
- * IPC (duplicate-refusing). Shows while typing (`sound` pattern) — pure UI,
- * no side effects until a button is pressed.
+ * `alias` — guided shell-alias builder + manager (v0.128.0). Top: two inputs
+ * (command + alias name) → one card per OS with the exact create one-liner
+ * (copy buttons; the current OS's card creates directly). Below: the aliases
+ * already defined in this machine's rc file — searchable, alphabetical, with
+ * edit (fills the builder; the create button flips to "Aktualisieren") and a
+ * two-stage inline delete (never `window.confirm` — the TOTP lesson).
+ * Taking focus (Enter or Tab-autocomplete on the command) selects the COMMAND
+ * field so typing starts immediately.
  */
 export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boolean; onExit: () => void }) {
   const [name, setName] = useState("");
@@ -20,10 +21,35 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
   const [copied, setCopied] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [list, setList] = useState<AliasEntry[] | null>(null);
+  const [search, setSearch] = useState("");
+  const [confirmDel, setConfirmDel] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
   const cmdRef = useRef<HTMLInputElement>(null);
+  const aliveRef = useRef(true);
 
-  // `alias gs` pre-fills the name once; focus jumps to the command field.
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
+
+  // The existing aliases from this machine's rc file (empty array on Windows).
+  const refresh = useCallback(() => {
+    aliasList()
+      .then((l) => {
+        if (aliveRef.current) setList(l);
+      })
+      .catch(() => {
+        if (aliveRef.current) setList([]);
+      });
+  }, []);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  // `alias gs` pre-fills the name once.
   const prefilledRef = useRef(false);
   useEffect(() => {
     const a = arg.trim();
@@ -33,22 +59,22 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
     }
   }, [arg]);
 
-  // Hand focus to the first empty field when the panel takes keyboard focus.
+  // Taking keyboard focus (Enter on the row / Tab-autocomplete) selects the
+  // COMMAND field — the first thing to type is what the alias should run.
   useEffect(() => {
-    if (focused) (name ? cmdRef : nameRef).current?.focus();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    if (!focused) return;
+    const el = cmdRef.current;
+    el?.focus();
+    el?.select();
   }, [focused]);
 
-  // Esc exits the panel — but never while a field would rather blur first
-  // (the global fallback blurs a focused field on the first Esc anyway; this
-  // handler only runs when the event reaches the window unconsumed).
+  // Esc: blur a focused field first (back step), then exit the panel.
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) {
-        // First Esc in a field: blur it, keep the panel.
         e.preventDefault();
         e.stopPropagation();
         (t as HTMLInputElement).blur();
@@ -66,6 +92,10 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
   const ready = nameOk && cmd.trim().length > 0;
   const setups: AliasSetup[] = ready ? buildAliasSetups(name, cmd.trim()) : [];
   const currentOs = CURRENT_PLATFORM === "mac" ? "macos" : CURRENT_PLATFORM === "win" ? "windows" : "linux";
+  // An existing name flips the create button into an update — `overwrite` is
+  // passed to the backend, whose race guard still refuses a definition that
+  // appeared since the last list refresh.
+  const exists = (list ?? []).some((e) => e.name === name.trim());
 
   const copy = (key: string, text: string) => {
     writeText(text)
@@ -80,11 +110,49 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
     if (!ready || creating) return;
     setCreating(true);
     setResult(null);
-    aliasCreate(name, cmd.trim())
-      .then((msg) => setResult({ ok: true, msg }))
-      .catch((e) => setResult({ ok: false, msg: String(e) }))
-      .finally(() => setCreating(false));
+    aliasCreate(name, cmd.trim(), exists)
+      .then((msg) => {
+        if (!aliveRef.current) return;
+        setResult({ ok: true, msg });
+        refresh();
+      })
+      .catch((e) => {
+        if (aliveRef.current) setResult({ ok: false, msg: String(e) });
+      })
+      .finally(() => {
+        if (aliveRef.current) setCreating(false);
+      });
   };
+
+  const edit = (e: AliasEntry) => {
+    setName(e.name);
+    setCmd(e.command);
+    setResult(null);
+    setConfirmDel(null);
+    requestAnimationFrame(() => {
+      cmdRef.current?.focus();
+      cmdRef.current?.select();
+    });
+  };
+
+  const remove = (aliasName: string) => {
+    aliasDelete(aliasName)
+      .then((msg) => {
+        if (!aliveRef.current) return;
+        setResult({ ok: true, msg });
+        setConfirmDel(null);
+        refresh();
+      })
+      .catch((e) => {
+        if (!aliveRef.current) return;
+        setResult({ ok: false, msg: String(e) });
+        setConfirmDel(null);
+        refresh();
+      });
+  };
+
+  const shown = filterAliases(list ?? [], search);
+  const manageable = currentOs !== "windows";
 
   const inputCls =
     "w-full rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-1.5 " +
@@ -156,9 +224,9 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                         onClick={create}
                         disabled={creating}
                         className="md3-press flex items-center gap-1 rounded-md bg-[var(--color-accent)] px-2 py-1 text-[11px] font-medium text-[var(--color-accent-fg)] disabled:opacity-50"
-                        title="Alias auf diesem System anlegen"
+                        title={exists ? "Bestehenden Alias ersetzen" : "Alias auf diesem System anlegen"}
                       >
-                        <PlusCircle size={12} /> {creating ? "Lege an…" : "Anlegen"}
+                        <PlusCircle size={12} /> {creating ? "Lege an…" : exists ? "Aktualisieren" : "Anlegen"}
                       </button>
                     )}
                     <button
@@ -178,14 +246,116 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
               </div>
             );
           })}
-          {result && (
-            <p className={"text-[11px] " + (result.ok ? "text-emerald-500" : "text-amber-500")}>{result.msg}</p>
-          )}
         </div>
       ) : (
         <p className="text-[12px] text-[var(--color-muted)]">
           Befehl und Alias eintragen — darunter erscheint für macOS, Linux und Windows der genaue
           Terminal-Befehl, der den Alias anlegt (Kopieren oder direkt auf diesem System anlegen).
+        </p>
+      )}
+
+      {result && (
+        <p className={"text-[11px] " + (result.ok ? "text-emerald-500" : "text-amber-500")}>{result.msg}</p>
+      )}
+
+      {/* ── Existing aliases ─────────────────────────────────────────── */}
+      {manageable && (
+        <div className="flex flex-col gap-2 border-t border-[var(--color-border)] pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[12px] font-medium">
+              Bestehende Aliasse{list !== null && ` (${list.length})`}
+            </span>
+          </div>
+          {(list?.length ?? 0) > 0 && (
+            <div className="relative">
+              <Search size={12} className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--color-muted)]" />
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Suchen…"
+                spellCheck={false}
+                className={inputCls + " pl-6"}
+              />
+              {search !== "" && (
+                <button
+                  type="button"
+                  onClick={() => setSearch("")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                  title="Suche leeren"
+                >
+                  <X size={12} />
+                </button>
+              )}
+            </div>
+          )}
+          {list === null ? (
+            <p className="text-[11px] text-[var(--color-muted)]">Lese Shell-Config…</p>
+          ) : list.length === 0 ? (
+            <p className="text-[11px] text-[var(--color-muted)]">Noch keine Aliasse in der Shell-Config.</p>
+          ) : shown.length === 0 ? (
+            <p className="text-[11px] text-[var(--color-muted)]">Kein Alias passt zu „{search}“.</p>
+          ) : (
+            <div className="flex flex-col">
+              {shown.map((e) => (
+                <div
+                  key={e.name}
+                  className="group flex items-center gap-2 rounded-lg px-1.5 py-1 hover:bg-[var(--color-surface)]"
+                >
+                  <code className="shrink-0 font-mono text-[12px] font-medium text-[var(--color-accent)]">
+                    {e.name}
+                  </code>
+                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-muted)]" title={e.command}>
+                    {e.command}
+                  </span>
+                  {confirmDel === e.name ? (
+                    <span className="flex shrink-0 items-center gap-1">
+                      <span className="text-[10px] text-rose-400">Löschen?</span>
+                      <button
+                        type="button"
+                        onClick={() => remove(e.name)}
+                        className="rounded p-1 text-rose-400 hover:bg-rose-500/15"
+                        title="Ja, löschen"
+                      >
+                        <Check size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDel(null)}
+                        className="rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                        title="Abbrechen"
+                      >
+                        <X size={12} />
+                      </button>
+                    </span>
+                  ) : (
+                    <span className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+                      <button
+                        type="button"
+                        onClick={() => edit(e)}
+                        className="rounded p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                        title="Bearbeiten (füllt die Felder oben)"
+                      >
+                        <Pencil size={12} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setConfirmDel(e.name)}
+                        className="rounded p-1 text-[var(--color-muted)] hover:text-rose-400"
+                        title="Löschen"
+                      >
+                        <Trash2 size={12} />
+                      </button>
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      {!manageable && (
+        <p className="border-t border-[var(--color-border)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Die Verwaltung bestehender Aliasse gibt es auf macOS/Linux (liest die Shell-Config).
         </p>
       )}
 

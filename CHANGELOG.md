@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.126.1] — 2026-08-25
+
+### Changed
+
+- **The LOC badge now counts tests too.** The README lines-of-code badge counted source only, understating the repo by ~40k lines of maintained test code — it now counts all written Rust + TS/TSX (only the generated `openers-data.ts` stays excluded): ~148k.
+
+### Fixed
+
+- **Esc while another window is focused now plays the CRT power-off.** The unfocused-popup Escape watcher used to hide the OS window directly from Rust, snapping the overlay away without the signature close animation. It now routes the dismiss through the frontend (`popup-dismiss` → `hidePopup`), like the Enter-to-paste path — with a 1.2 s native fallback so a wedged webview can never leave a zombie overlay.
+
 ## [0.126.0] — 2026-08-25
 
 ### Changed

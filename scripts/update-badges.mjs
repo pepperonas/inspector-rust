@@ -9,11 +9,12 @@
 //
 // What it computes:
 //   • Lines of code — all workspace Rust (`core/rust-lib/src` + the three
-//     2-line platform shells) with the trailing `#[cfg(test)] mod tests`
-//     blocks stripped (they are file-final by repo convention), plus every
-//     frontend `src/**/*.ts(x)` EXCLUDING `*.test.ts(x)` and the generated
-//     `openers-data.ts`. node_modules / target / dist never enter the count —
-//     only the explicit source dirs are scanned.
+//     2-line platform shells) INCLUDING the file-final `#[cfg(test)]` modules,
+//     plus every frontend `src/**/*.ts(x)` INCLUDING `*.test.ts(x)` — tests
+//     are code we write and maintain (policy change v0.126.1; the count was
+//     source-only before, which understated the repo by ~40k lines). Only the
+//     generated `openers-data.ts` is excluded. node_modules / target / dist
+//     never enter the count — only the explicit source dirs are scanned.
 //   • Test counts — from the ACTUAL runners, not by grepping `it(` / `#[test]`
 //     (which would miscount skips/todos): the summed `N passed` of every
 //     `test result:` line of `cargo test --workspace`, and the `Tests N passed`
@@ -64,8 +65,7 @@ function walk(dir, keep, out = []) {
   return out;
 }
 
-/** Rust LOC: every line up to (but not including) the file-final
- *  `#[cfg(test)]` module marker. */
+/** Rust LOC: every line, test modules included (they're maintained code). */
 function rustLoc() {
   const dirs = [
     "core/rust-lib/src",
@@ -76,17 +76,13 @@ function rustLoc() {
   let n = 0;
   for (const dir of dirs) {
     for (const file of walk(dir, (name) => name.endsWith(".rs"))) {
-      const lines = readFileSync(file, "utf8").split("\n");
-      for (const line of lines) {
-        if (/^#\[cfg\(test\)\]/.test(line)) break; // stop at the test module
-        n++;
-      }
+      n += countLines(readFileSync(file, "utf8"));
     }
   }
   return n;
 }
 
-/** Frontend LOC: all source `.ts`/`.tsx` minus tests + the generated openers. */
+/** Frontend LOC: all `.ts`/`.tsx` incl. tests, minus the generated openers. */
 function frontendLoc() {
   const dir = join(ROOT, "core/frontend/src");
   let n = 0;
@@ -94,8 +90,6 @@ function frontendLoc() {
     dir,
     (name) =>
       (name.endsWith(".ts") || name.endsWith(".tsx")) &&
-      !name.endsWith(".test.ts") &&
-      !name.endsWith(".test.tsx") &&
       name !== "openers-data.ts",
   )) {
     n += countLines(readFileSync(file, "utf8"));

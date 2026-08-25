@@ -2,8 +2,12 @@
 //!
 //! When the popup is visible on screen but another app holds keyboard focus,
 //! the webview receives no key events, so Esc couldn't close it. This module
-//! arms an active `CGEventTap` that watches for the Escape keycode, hides the
-//! popup, and **consumes** that dismissing Esc (v0.94.0) so it never leaks to
+//! arms an active `CGEventTap` that watches for the Escape keycode, dismisses
+//! the popup **via the frontend** (`popup-dismiss` event → the `hidePopup`
+//! wrapper, so the CRT power-off animation plays like every other close —
+//! v0.126.1; the old direct `hide_popup` snapped the overlay away without it;
+//! a 1.2 s native fallback still hides a wedged webview), and **consumes**
+//! that dismissing Esc (v0.94.0) so it never leaks to
 //! the focused app underneath — it was meant to close the overlay, not to also
 //! cancel a dialog / exit an editor mode / deselect in whatever app is behind
 //! it. Because the arm is **one-shot** (it disarms after the first Esc), only
@@ -46,7 +50,7 @@ use std::ffi::c_void;
 use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
 use std::sync::OnceLock;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 type CGEventRef = *mut c_void;
 type CFMachPortRef = *mut c_void;
@@ -159,13 +163,35 @@ extern "C" fn tap_callback(
             let code = unsafe { CGEventGetIntegerValueField(event, KEYBOARD_EVENT_KEYCODE) };
             match classify_key(code, true, WATCH_ENTER.load(Ordering::Relaxed)) {
                 KeyAction::Dismiss => {
-                    // One shot per arm; hide off the tap thread (keep the
+                    // One shot per arm; act off the tap thread (keep the
                     // callback cheap — a slow callback gets the tap disabled).
                     ARMED.store(false, Ordering::SeqCst);
                     std::thread::spawn(|| {
                         if let Some(app) = APP.get() {
-                            tracing::info!("esc-watch: Escape while unfocused — hiding popup");
-                            crate::hotkey::hide_popup(app);
+                            tracing::info!(
+                                "esc-watch: Escape while unfocused — dismissing via frontend"
+                            );
+                            // Route through the frontend (like the Enter path
+                            // below) so the dismiss plays the CRT power-off —
+                            // the old direct `hide_popup` snapped the overlay
+                            // away without the signature animation. WAAPI runs
+                            // fine in a visible-but-unfocused webview.
+                            let _ = app.emit("popup-dismiss", ());
+                            // Fallback: a wedged webview must not leave a
+                            // zombie overlay. The CRT power-off maxes out well
+                            // under a second (900 ms cap × 0.76 + margin), so
+                            // if the popup is still visible after 1.2 s the
+                            // frontend never acted — hide natively.
+                            std::thread::sleep(std::time::Duration::from_millis(1200));
+                            let still_visible = app
+                                .get_webview_window(crate::hotkey::POPUP_LABEL)
+                                .is_some_and(|w| w.is_visible().unwrap_or(false));
+                            if still_visible {
+                                tracing::warn!(
+                                    "esc-watch: frontend dismiss didn't hide — native fallback"
+                                );
+                                crate::hotkey::hide_popup(app);
+                            }
                         }
                     });
                     // Consume this Escape: it dismissed OUR popup, so the focused

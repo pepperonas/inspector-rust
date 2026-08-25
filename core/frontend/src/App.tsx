@@ -2656,6 +2656,15 @@ function App() {
   const activateSelectedRef = useRef<() => void>(() => {});
   useTauriEvent("popup-activate-selected", () => activateSelectedRef.current(), []);
 
+  // Esc-while-unfocused: the same native tap emits this instead of hiding the
+  // window directly from Rust (v0.126.1) — routing through `hidePopup` plays
+  // the CRT power-off like every other close (the direct hide snapped the
+  // overlay away without the signature animation). WAAPI runs fine in a
+  // visible-but-unfocused webview; the in-flight/show-generation guards in
+  // `hidePopup` apply as usual. Rust keeps a 1.2 s native fallback in case
+  // this handler never runs (wedged webview).
+  useTauriEvent("popup-dismiss", () => void hidePopup(), [hidePopup]);
+
   // Handle window-shown (hotkey): reset to history tab. v0.38.2+:
   // these use `useTauriEvent` instead of the inline let-then-async
   // pattern — the hook guards against the unmount-before-listen-

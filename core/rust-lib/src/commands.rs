@@ -1150,6 +1150,53 @@ pub fn sec_path_exists(path: String) -> bool {
     crate::sec::path_exists(&path)
 }
 
+// ── nosleep — persistent AC sleep profile (v0.124.0, macOS) ───────────
+
+/// Settings key remembering the AC sleep timeout IR overwrote, so `off` can
+/// restore it instead of guessing.
+const KEY_NOSLEEP_PREV: &str = "nosleep.prev_ac_sleep";
+
+#[tauri::command]
+pub async fn nosleep_status() -> Result<crate::nosleep::NoSleepStatus, String> {
+    tauri::async_runtime::spawn_blocking(crate::nosleep::status)
+        .await
+        .map_err(|e| format!("nosleep task: {e}"))
+}
+
+/// Toggle the persistent AC idle-sleep lock. `disable = true` → `pmset -c
+/// sleep 0` (remembering the prior timeout); `false` → restore the remembered
+/// timeout (fallback `DEFAULT_RESTORE_MIN`). One admin prompt per call.
+#[tauri::command]
+pub async fn nosleep_set(
+    db: State<'_, DbHandle>,
+    disable: bool,
+) -> Result<crate::nosleep::NoSleepStatus, String> {
+    // Remember the current AC value BEFORE disabling, so `off` restores it.
+    if disable {
+        let cur = crate::nosleep::status();
+        if let Some(v) = cur.ac_sleep {
+            if v > 0 {
+                let _ = settings::set(&db, KEY_NOSLEEP_PREV, &v.to_string());
+            }
+        }
+    }
+    let minutes = if disable {
+        0
+    } else {
+        settings::get(&db, KEY_NOSLEEP_PREV)
+            .ok()
+            .flatten()
+            .and_then(|s| s.parse::<i64>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(crate::nosleep::DEFAULT_RESTORE_MIN)
+    };
+    // The osascript admin prompt blocks → off the main thread.
+    tauri::async_runtime::spawn_blocking(move || crate::nosleep::set_ac_sleep(minutes))
+        .await
+        .map_err(|e| format!("nosleep task: {e}"))??;
+    Ok(crate::nosleep::status())
+}
+
 // ── repo — git activity stats (v0.123.0) ──────────────────────────────
 
 fn resolve_repo_target(target: Option<String>) -> Result<RepoTarget, String> {

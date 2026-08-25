@@ -1123,6 +1123,36 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: [],
   },
   {
+    command: "nosleep",
+    aliases: [],
+    category: CAT_SYS,
+    version_added: "0.124.0",
+    tagline: "Keep the Mac awake on AC — persistently (pmset profile).",
+    tagline_de: "Mac am Netzteil dauerhaft wachhalten (pmset-Profil).",
+    synopsis: "nosleep [on|off]",
+    description:
+      "Toggles the PERSISTENT AC idle-sleep profile: `pmset -c sleep 0` so the Mac never idle-sleeps on wall power, surviving reboots until you turn it off. The write goes through one admin prompt (no terminal sudo). The panel shows the live AC + battery sleep timeouts and a switch; `nosleep on` / `nosleep off` act straight away. Turning it off restores the timeout it overwrote. Different from `wakelock dark`, which is a session-only assertion that ends on the next reboot; nosleep changes the stored profile. Only the SYSTEM sleep on AC is locked — the display still sleeps normally.",
+    arguments: [
+      { name: "on|off", required: false, description: "on = never sleep on AC; off = restore the previous timeout. Omit to open the panel.", default: "panel" },
+    ],
+    flags: [],
+    examples: [
+      { input: "nosleep", result: "Opens the panel with the live AC/battery profile + a switch." },
+      { input: "nosleep on", result: "pmset -c sleep 0 (admin prompt) — never idle-sleep on AC." },
+      { input: "nosleep off", result: "Restores the previous AC sleep timeout." },
+    ],
+    tips: [
+      "For just this session without admin rights, use `wakelock dark` instead.",
+      "The footer's sleep indicator shows \"no-sleep\" while this is active.",
+      "Only system sleep is locked — your display still sleeps on its own timer.",
+    ],
+    caveats: [
+      "macOS only; writes the stored pmset profile and needs an admin prompt.",
+      "`off` restores the timeout IR overwrote, or 1 minute if none was remembered.",
+    ],
+    related: ["wakelock", "stats"],
+  },
+  {
     command: "clock",
     aliases: [],
     category: CAT_INFO,

@@ -54,6 +54,7 @@ export type CommandKind =
   | "rickroll"
   | "repo"
   | "repo-export"
+  | "nosleep"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -335,6 +336,16 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Block all keyboard / mouse input — unlock with the configured chord (default: i + r)",
     requiresArg: false,
     // Input-lock backend (CGEventTap) is macOS-only.
+    platform: ["mac"],
+  },
+  // ── nosleep — persistent AC sleep profile (macOS) ─────────────────
+  {
+    kind: "nosleep",
+    keyword: "nosleep",
+    syntax: "nosleep [on|off]",
+    description:
+      "Dauerhaftes Einschlafen am Netzteil sperren (pmset -c sleep 0, mit Admin-Prompt) — überlebt Neustarts",
+    requiresArg: false,
     platform: ["mac"],
   },
   // ── repo — git activity stats (repo2viz-style) ────────────────────

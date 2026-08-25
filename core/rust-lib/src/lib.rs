@@ -43,6 +43,7 @@ mod logging;
 mod md_to_pdf;
 mod meme;
 mod models;
+mod nosleep;
 mod notes;
 mod ocr;
 mod totp_import;
@@ -791,6 +792,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_clock_zones,
             commands::repo_analyze,
             commands::repo_export,
+            commands::nosleep_status,
+            commands::nosleep_set,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

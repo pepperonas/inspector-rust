@@ -2618,6 +2618,23 @@ export function getHistoryMax(): Promise<HistoryLimit> {
   return invoke("get_history_max");
 }
 
+// ── nosleep — persistent AC sleep profile (v0.124.0, macOS) ─────────────────
+
+export interface NoSleepStatus {
+  supported: boolean;
+  ac_sleep: number | null;
+  battery_sleep: number | null;
+  ac_disabled: boolean;
+}
+
+export function nosleepStatus(): Promise<NoSleepStatus> {
+  return invoke("nosleep_status");
+}
+/** Toggle the persistent AC sleep lock (admin prompt). Returns the new state. */
+export function nosleepSet(disable: boolean): Promise<NoSleepStatus> {
+  return invoke("nosleep_set", { disable });
+}
+
 // ── repo — git activity stats (v0.123.0) ────────────────────────────────────
 
 export interface RepoMonth { month: string; commits: number }

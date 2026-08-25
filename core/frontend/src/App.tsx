@@ -19,6 +19,7 @@ import { DiskPanel } from "./components/DiskPanel";
 import { ClockPanel } from "./components/ClockPanel";
 import { RickrollPanel } from "./components/RickrollPanel";
 import { RepoPanel } from "./components/RepoPanel";
+import { NoSleepPanel } from "./components/NoSleepPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -309,6 +310,9 @@ function App() {
   const [repoMode, setRepoMode] = useState(false);
   const [repoFocus, setRepoFocus] = useState(false);
   const [repoAutoExport, setRepoAutoExport] = useState(false);
+  // nosleep mode (v0.124.0) — persistent AC sleep-profile toggle (macOS).
+  const [nosleepMode, setNosleepMode] = useState(false);
+  const [nosleepFocus, setNosleepFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -1092,6 +1096,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isNosleepCmd = parsedCommand?.spec.kind === "nosleep";
+  useEffect(() => {
+    if (!isNosleepCmd && nosleepMode) {
+      setNosleepMode(false);
+      setNosleepFocus(false);
+    }
+  }, [isNosleepCmd, nosleepMode]);
   const isRepoCmd =
     parsedCommand?.spec.kind === "repo" || parsedCommand?.spec.kind === "repo-export";
   useEffect(() => {
@@ -1533,6 +1544,12 @@ function App() {
         label = "Live system uptime";
         hint = "Enter → uptime animated to the microsecond in the preview";
         break;
+      case "nosleep": {
+        const a = arg.trim().toLowerCase();
+        label = a === "on" ? "Dauerschlaf-Sperre EIN" : a === "off" ? "Dauerschlaf-Sperre AUS" : "Dauerschlaf-Sperre (Netzteil)";
+        hint = "Enter → pmset -c sleep 0/1 mit Admin-Prompt; überlebt Neustarts";
+        break;
+      }
       case "repo":
         label = arg ? `Repo-Statistik: ${arg}` : "Repo-Statistik (Finder-.git-Ordner)";
         hint = "Enter → Commits, Mitwirkende, Charts; E exportiert HTML";
@@ -2901,6 +2918,8 @@ function App() {
     setRickFocus(false);
     setRepoMode(false);
     setRepoFocus(false);
+    setNosleepMode(false);
+    setNosleepFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -3024,7 +3043,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3037,7 +3056,8 @@ function App() {
           commandKind === "adb" ||
           commandKind === "disk" ||
           commandKind === "repo" ||
-          commandKind === "repo-export";
+          commandKind === "repo-export" ||
+          commandKind === "nosleep";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3481,6 +3501,10 @@ function App() {
         setUptimeMode(true);
         setUptimeFocus(true);
         return true;
+      } else if (commandKind === "nosleep") {
+        setNosleepMode(true);
+        setNosleepFocus(true);
+        return true;
       } else if (commandKind === "repo" || commandKind === "repo-export") {
         setRepoAutoExport(commandKind === "repo-export");
         setRepoMode(true);
@@ -3918,6 +3942,7 @@ function App() {
       !clockFocus &&
       !rickFocus &&
       !repoFocus &&
+      !nosleepFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4372,6 +4397,18 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : nosleepMode ? (
+                  <div className="md3-pop-in h-full">
+                    <NoSleepPanel
+                      arg={isNosleepCmd ? (parsedCommand?.arg ?? "") : ""}
+                      focused={nosleepFocus}
+                      onExit={() => {
+                        setNosleepMode(false);
+                        setNosleepFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

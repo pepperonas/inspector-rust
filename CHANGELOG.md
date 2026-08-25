@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.124.0] — 2026-08-25
+
+### Added
+
+- **`nosleep` — lock idle-sleep on AC, persistently (macOS).** Toggles the stored power profile with `pmset -c sleep 0` so the Mac never idle-sleeps on wall power and it survives reboots, through a single admin prompt (no terminal sudo). The panel shows the live AC + battery sleep timeouts and a switch; `nosleep on` / `nosleep off` act immediately, and off restores the timeout it overwrote (remembered per machine). This is the persistent counterpart to `wakelock dark` (a session-only assertion) — the footer's sleep indicator reflects it, and only system sleep is locked, the display still sleeps.
+
 ## [0.123.0] — 2026-08-24
 
 ### Added

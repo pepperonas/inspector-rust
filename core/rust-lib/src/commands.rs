@@ -1172,24 +1172,15 @@ pub async fn nosleep_set(
     disable: bool,
 ) -> Result<crate::nosleep::NoSleepStatus, String> {
     // Remember the current AC value BEFORE disabling, so `off` restores it.
+    // (What's worth keeping is the pure, unit-tested `value_to_remember`.)
     if disable {
         let cur = crate::nosleep::status();
-        if let Some(v) = cur.ac_sleep {
-            if v > 0 {
-                let _ = settings::set(&db, KEY_NOSLEEP_PREV, &v.to_string());
-            }
+        if let Some(v) = crate::nosleep::value_to_remember(true, cur.ac_sleep) {
+            let _ = settings::set(&db, KEY_NOSLEEP_PREV, &v.to_string());
         }
     }
-    let minutes = if disable {
-        0
-    } else {
-        settings::get(&db, KEY_NOSLEEP_PREV)
-            .ok()
-            .flatten()
-            .and_then(|s| s.parse::<i64>().ok())
-            .filter(|v| *v > 0)
-            .unwrap_or(crate::nosleep::DEFAULT_RESTORE_MIN)
-    };
+    let remembered = settings::get(&db, KEY_NOSLEEP_PREV).ok().flatten();
+    let minutes = crate::nosleep::target_minutes(disable, remembered.as_deref());
     // The osascript admin prompt blocks → off the main thread.
     tauri::async_runtime::spawn_blocking(move || crate::nosleep::set_ac_sleep(minutes))
         .await

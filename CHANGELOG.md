@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.126.0] — 2026-08-25
+
+### Changed
+
+- **`nosleep` remember/restore is now pure + unit-tested.** The logic deciding what timeout to stash before locking and what to restore afterwards moved out of the IPC command into `value_to_remember` / `restore_minutes` / `target_minutes`, with tests pinning the tricky contract: turning off never sets `0` (which would be an invisible re-lock), a garbage/absent remembered value falls back to a real timeout, and turning off records nothing.
+
 ## [0.125.0] — 2026-08-25
 
 ### Changed

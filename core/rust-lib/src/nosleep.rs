@@ -72,6 +72,38 @@ pub fn parse_profile(out: &str) -> (Option<i64>, Option<i64>) {
     (ac, battery)
 }
 
+/// The AC timeout worth remembering before a lock overwrites it. We only stash
+/// a value when turning the lock ON *and* the current AC timeout is a real,
+/// positive minute count — an already-`0` ("never") or an unreadable profile is
+/// nothing to restore later. Pure + tested.
+pub fn value_to_remember(disable: bool, current_ac: Option<i64>) -> Option<i64> {
+    if disable {
+        current_ac.filter(|v| *v > 0)
+    } else {
+        None
+    }
+}
+
+/// The AC timeout to restore when turning the lock OFF: the remembered string
+/// if it parses to a positive minute count, else [`DEFAULT_RESTORE_MIN`]. Never
+/// returns `0` — restoring "never" would be an invisible re-lock. Pure + tested.
+pub fn restore_minutes(remembered: Option<&str>) -> i64 {
+    remembered
+        .and_then(|s| s.trim().parse::<i64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_RESTORE_MIN)
+}
+
+/// The `pmset -c sleep <N>` value for a toggle: `0` (never) when locking,
+/// otherwise the restored timeout. Pure + tested.
+pub fn target_minutes(disable: bool, remembered: Option<&str>) -> i64 {
+    if disable {
+        0
+    } else {
+        restore_minutes(remembered)
+    }
+}
+
 /// Read the current profile via `pmset -g custom`. macOS only.
 #[cfg(target_os = "macos")]
 pub fn status() -> NoSleepStatus {
@@ -176,5 +208,53 @@ AC Power:\n\
     fn a_line_before_any_section_is_ignored() {
         // Defensive: a stray `sleep 9` outside a section must not become ac/batt.
         assert_eq!(parse_profile(" sleep 9\nAC Power:\n sleep 0\n"), (Some(0), None));
+    }
+
+    #[test]
+    fn only_a_real_ac_timeout_is_remembered_and_only_when_locking() {
+        // Locking ON remembers a positive timeout so `off` can restore it.
+        assert_eq!(value_to_remember(true, Some(10)), Some(10));
+        // Already "never" (0) or an unreadable profile → nothing to restore.
+        assert_eq!(value_to_remember(true, Some(0)), None);
+        assert_eq!(value_to_remember(true, None), None);
+        // Turning OFF must never record a value (it would overwrite the real one).
+        assert_eq!(value_to_remember(false, Some(10)), None);
+        assert_eq!(value_to_remember(false, None), None);
+    }
+
+    #[test]
+    fn restore_minutes_parses_a_positive_value_or_falls_back() {
+        assert_eq!(restore_minutes(Some("15")), 15);
+        assert_eq!(restore_minutes(Some("  15 ")), 15); // whitespace tolerated
+        // Garbage / non-positive / missing → the safe fallback, never 0.
+        assert_eq!(restore_minutes(Some("0")), DEFAULT_RESTORE_MIN);
+        assert_eq!(restore_minutes(Some("-5")), DEFAULT_RESTORE_MIN);
+        assert_eq!(restore_minutes(Some("abc")), DEFAULT_RESTORE_MIN);
+        assert_eq!(restore_minutes(Some("")), DEFAULT_RESTORE_MIN);
+        assert_eq!(restore_minutes(None), DEFAULT_RESTORE_MIN);
+        // Whatever the fallback is, restoring it must keep the Mac able to sleep
+        // again — never "never" (0).
+        assert_ne!(restore_minutes(None), 0);
+    }
+
+    #[test]
+    fn target_minutes_locks_to_zero_and_restores_otherwise() {
+        // Locking → always 0 ("never"), regardless of what was remembered.
+        assert_eq!(target_minutes(true, Some("30")), 0);
+        assert_eq!(target_minutes(true, None), 0);
+        // Unlocking → the remembered timeout, or the fallback when absent.
+        assert_eq!(target_minutes(false, Some("30")), 30);
+        assert_eq!(target_minutes(false, None), DEFAULT_RESTORE_MIN);
+        // ⚠️ Unlocking must never itself set 0 — that would be an invisible re-lock.
+        assert_ne!(target_minutes(false, Some("0")), 0);
+        assert_ne!(target_minutes(false, Some("garbage")), 0);
+    }
+
+    #[test]
+    fn a_lock_then_unlock_round_trip_restores_the_original_timeout() {
+        // Simulate the command wrapper: AC was 25 min, user locks, then unlocks.
+        let remembered = value_to_remember(true, Some(25)).map(|v| v.to_string());
+        assert_eq!(target_minutes(true, remembered.as_deref()), 0); // locked → never
+        assert_eq!(target_minutes(false, remembered.as_deref()), 25); // unlocked → 25
     }
 }

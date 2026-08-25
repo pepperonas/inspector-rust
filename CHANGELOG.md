@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.128.1] — 2026-08-25
+
+### Fixed
+
+- **`alias` lists aliases from sourced files too.** The manager only read the rc file itself — aliases living in a `source`d file (e.g. `~/.claude/aliases/aliases.zsh`) were invisible. The walk now covers the whole shell-startup chain (`.zshenv` → `.zprofile` → `.zshrc`, resp. the bash trio) and follows `source`/`.` lines recursively (only under `$HOME`, depth-capped, cycle-guarded); later definitions win exactly like the live shell. Each row names its defining file, edit updates the alias IN that file (not a shadow-fighting copy in the rc), and delete sweeps every file that defines the name.
+
 ## [0.128.0] — 2026-08-25
 
 ### Added

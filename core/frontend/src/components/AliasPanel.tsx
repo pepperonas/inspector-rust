@@ -9,7 +9,8 @@ import { aliasCreate, aliasList, aliasDelete, type AliasEntry } from "../lib/ipc
  * `alias` — guided shell-alias builder + manager (v0.128.0). Top: two inputs
  * (command + alias name) → one card per OS with the exact create one-liner
  * (copy buttons; the current OS's card creates directly). Below: the aliases
- * already defined in this machine's rc file — searchable, alphabetical, with
+ * defined across the whole shell-startup chain (rc + sourced files, each row
+ * naming its defining file) — searchable, alphabetical, with
  * edit (fills the builder; the create button flips to "Aktualisieren") and a
  * two-stage inline delete (never `window.confirm` — the TOTP lesson).
  * Taking focus (Enter or Tab-autocomplete on the command) selects the COMMAND
@@ -304,9 +305,20 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
                   <code className="shrink-0 font-mono text-[12px] font-medium text-[var(--color-accent)]">
                     {e.name}
                   </code>
-                  <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-muted)]" title={e.command}>
+                  <span
+                    className="min-w-0 flex-1 truncate font-mono text-[11px] text-[var(--color-muted)]"
+                    title={`${e.command}\n${e.file}`}
+                  >
                     {e.command}
                   </span>
+                  {!e.primary && (
+                    <span
+                      className="shrink-0 rounded bg-[var(--color-surface)] px-1 py-0.5 text-[9px] text-[var(--color-muted)]"
+                      title={e.file}
+                    >
+                      {e.file.split("/").pop()}
+                    </span>
+                  )}
                   {confirmDel === e.name ? (
                     <span className="flex shrink-0 items-center gap-1">
                       <span className="text-[10px] text-rose-400">Löschen?</span>

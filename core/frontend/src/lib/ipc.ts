@@ -2642,10 +2642,14 @@ export function aliasCreate(name: string, command: string, overwrite: boolean): 
   return invoke("alias_create", { name, command, overwrite });
 }
 
-/** One alias definition from the user's shell rc file. */
+/** One alias definition from the shell-startup chain (rc + sourced files). */
 export interface AliasEntry {
   name: string;
   command: string;
+  /** Display label of the defining file, e.g. `~/.claude/aliases/aliases.zsh`. */
+  file: string;
+  /** Defined in the primary rc file (where new aliases are appended). */
+  primary: boolean;
 }
 
 /** The aliases defined in the current rc file (empty on Windows). */

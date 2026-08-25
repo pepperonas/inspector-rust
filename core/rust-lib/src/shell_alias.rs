@@ -63,6 +63,10 @@ pub fn already_defined(rc_content: &str, name: &str) -> bool {
 pub struct AliasEntry {
     pub name: String,
     pub command: String,
+    /// Display label of the defining file, e.g. `~/.claude/aliases/aliases.zsh`.
+    pub file: String,
+    /// Whether it lives in the primary rc file (where new aliases are appended).
+    pub primary: bool,
 }
 
 /// Undo shell quoting on an alias VALUE (pure): single-quoted segments are
@@ -111,30 +115,124 @@ pub fn unquote_shell(s: &str) -> String {
     out.trim_end().to_string()
 }
 
-/// All alias definitions in rc content (pure). Later definitions win, like
-/// the shell; commented-out lines don't count; unparseable names are skipped.
-pub fn parse_aliases(content: &str) -> Vec<AliasEntry> {
-    let mut out: Vec<AliasEntry> = Vec::new();
-    for line in content.lines() {
-        let t = line.trim_start();
-        let Some(rest) = t.strip_prefix("alias ") else {
-            continue;
-        };
-        let Some(eq) = rest.find('=') else { continue };
-        let name = rest[..eq].trim();
-        if !valid_name(name) {
-            continue;
-        }
-        let command = unquote_shell(rest[eq + 1..].trim());
-        match out.iter_mut().find(|e| e.name == name) {
-            Some(e) => e.command = command,
-            None => out.push(AliasEntry {
-                name: name.to_string(),
-                command,
-            }),
+/// One `alias NAME=value` line → `(name, command)` (pure). Commented-out
+/// lines and unparseable names are `None`.
+pub fn parse_alias_line(line: &str) -> Option<(String, String)> {
+    let rest = line.trim_start().strip_prefix("alias ")?;
+    let eq = rest.find('=')?;
+    let name = rest[..eq].trim();
+    if !valid_name(name) {
+        return None;
+    }
+    Some((name.to_string(), unquote_shell(rest[eq + 1..].trim())))
+}
+
+/// The path tokens a line `source`s (pure): every token following a bare
+/// `source` or `.` word — which also catches the guarded
+/// `[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh` form; flag tokens are skipped.
+/// ⚠️ Paths containing spaces don't tokenise — accepted limitation.
+pub fn source_targets(line: &str) -> Vec<String> {
+    let t = line.trim_start();
+    if t.starts_with('#') {
+        return Vec::new();
+    }
+    let toks: Vec<&str> = t.split_whitespace().collect();
+    let mut out = Vec::new();
+    for w in toks.windows(2) {
+        if (w[0] == "source" || w[0] == ".") && !w[1].starts_with('-') {
+            out.push(w[1].to_string());
         }
     }
     out
+}
+
+/// Expand a (possibly quoted) `~` / `$HOME` / `${HOME}` path token (pure).
+pub fn expand_home(token: &str, home: &std::path::Path) -> std::path::PathBuf {
+    let p = token.trim_matches('"').trim_matches('\'');
+    if p == "~" {
+        return home.to_path_buf();
+    }
+    for prefix in ["~/", "$HOME/", "${HOME}/"] {
+        if let Some(rest) = p.strip_prefix(prefix) {
+            return home.join(rest);
+        }
+    }
+    std::path::PathBuf::from(p)
+}
+
+/// Display label for a file: home-relative as `~/…`, else the full path.
+fn display_label(path: &std::path::Path, home: &std::path::Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rel) => format!("~/{}", rel.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+/// Walk the shell-startup files IN ORDER, following `source` lines (pure over
+/// an injected reader): aliases from every reachable file, later definitions
+/// winning across files exactly like the live shell. Guards: only files under
+/// `$HOME` are followed (plugin trees like /opt/homebrew stay out), depth ≤ 3,
+/// a visited set breaks cycles. Returns the entries + every visited file (the
+/// delete path sweeps all of them).
+pub fn collect_aliases(
+    seeds: &[std::path::PathBuf],
+    home: &std::path::Path,
+    read: &dyn Fn(&std::path::Path) -> Option<String>,
+) -> (Vec<AliasEntry>, Vec<std::path::PathBuf>) {
+    fn walk(
+        path: &std::path::Path,
+        home: &std::path::Path,
+        read: &dyn Fn(&std::path::Path) -> Option<String>,
+        visited: &mut Vec<std::path::PathBuf>,
+        out: &mut Vec<AliasEntry>,
+        depth: u8,
+    ) {
+        if depth > 3 || visited.iter().any(|v| v == path) {
+            return;
+        }
+        visited.push(path.to_path_buf());
+        let Some(content) = read(path) else { return };
+        let label = display_label(path, home);
+        for line in content.lines() {
+            for tok in source_targets(line) {
+                let target = expand_home(&tok, home);
+                if target.starts_with(home) {
+                    walk(&target, home, read, visited, out, depth + 1);
+                }
+            }
+            if let Some((name, command)) = parse_alias_line(line) {
+                match out.iter_mut().find(|e| e.name == name) {
+                    Some(e) => {
+                        e.command = command;
+                        e.file = label.clone();
+                    }
+                    None => out.push(AliasEntry {
+                        name,
+                        command,
+                        file: label.clone(),
+                        primary: false,
+                    }),
+                }
+            }
+        }
+    }
+    let mut visited = Vec::new();
+    let mut out = Vec::new();
+    for s in seeds {
+        walk(s, home, read, &mut visited, &mut out, 0);
+    }
+    (out, visited)
+}
+
+/// The shell-startup files to seed the walk with, in the shell's own read
+/// order (later files win) — so aliases in `.zshenv`/`.zprofile` are seen too.
+pub fn seed_files(rc: &str, home: &std::path::Path) -> Vec<std::path::PathBuf> {
+    let names: &[&str] = if rc == ".zshrc" {
+        &[".zshenv", ".zprofile", ".zshrc"]
+    } else {
+        &[".profile", ".bash_profile", ".bashrc"]
+    };
+    names.iter().map(|n| home.join(n)).collect()
 }
 
 /// Remove every definition line of `name` (pure). Returns the new content +
@@ -186,6 +284,14 @@ pub fn upsert_alias(content: &str, name: &str, command: &str) -> String {
     }
 }
 
+/// Inverse of `display_label`: `~/x` → `$HOME/x`, else the literal path.
+fn label_to_path(label: &str, home: &std::path::Path) -> std::path::PathBuf {
+    match label.strip_prefix("~/") {
+        Some(rest) => home.join(rest),
+        None => std::path::PathBuf::from(label),
+    }
+}
+
 /// Path to the current user's rc file. macOS/Linux only.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn rc_path() -> Result<(std::path::PathBuf, &'static str), String> {
@@ -197,13 +303,20 @@ fn rc_path() -> Result<(std::path::PathBuf, &'static str), String> {
     Ok((home.join(rc), rc))
 }
 
-/// List the aliases defined in the current user's rc file.
+/// List the aliases across the whole shell-startup chain — the rc file plus
+/// everything it `source`s (the fix for "my aliases live in a sourced file
+/// and weren't listed"). Each entry names its defining file.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn list() -> Result<Vec<AliasEntry>, String> {
-    let (path, _) = rc_path()?;
-    Ok(parse_aliases(
-        &std::fs::read_to_string(&path).unwrap_or_default(),
-    ))
+    let (_, rc) = rc_path()?;
+    let home = dirs::home_dir().ok_or("Kein Home-Verzeichnis gefunden.")?;
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok();
+    let (mut entries, _) = collect_aliases(&seed_files(rc, &home), &home, &read);
+    let rc_label = format!("~/{rc}");
+    for e in &mut entries {
+        e.primary = e.file == rc_label;
+    }
+    Ok(entries)
 }
 
 #[cfg(target_os = "windows")]
@@ -213,21 +326,35 @@ pub fn list() -> Result<Vec<AliasEntry>, String> {
     Ok(Vec::new())
 }
 
-/// Delete an alias from the rc file.
+/// Delete an alias from EVERY startup file that defines it — removing only
+/// the last-wins definition would silently resurrect a shadowed one.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 pub fn delete(name: &str) -> Result<String, String> {
     if !valid_name(name) {
         return Err("Ungültiger Alias-Name.".into());
     }
-    let (path, rc) = rc_path()?;
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    let (next, removed) = remove_alias(&existing, name);
-    if !removed {
-        return Err(format!("In ~/{rc} gibt es keinen Alias „{name}“."));
+    let (_, rc) = rc_path()?;
+    let home = dirs::home_dir().ok_or("Kein Home-Verzeichnis gefunden.")?;
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok();
+    let (_, visited) = collect_aliases(&seed_files(rc, &home), &home, &read);
+    let mut touched: Vec<String> = Vec::new();
+    for path in &visited {
+        let Ok(existing) = std::fs::read_to_string(path) else {
+            continue;
+        };
+        let (next, removed) = remove_alias(&existing, name);
+        if removed {
+            std::fs::write(path, next)
+                .map_err(|e| format!("Konnte {} nicht schreiben: {e}", path.display()))?;
+            touched.push(display_label(path, &home));
+        }
     }
-    std::fs::write(&path, next).map_err(|e| format!("Konnte ~/{rc} nicht schreiben: {e}"))?;
+    if touched.is_empty() {
+        return Err(format!("Kein Alias „{name}“ in den Shell-Startdateien gefunden."));
+    }
     Ok(format!(
-        "Alias „{name}“ aus ~/{rc} entfernt — gilt im nächsten Terminal."
+        "Alias „{name}“ aus {} entfernt — gilt im nächsten Terminal.",
+        touched.join(" + ")
     ))
 }
 
@@ -247,22 +374,32 @@ pub fn create(name: &str, command: &str, overwrite: bool) -> Result<String, Stri
         return Err("Befehl fehlt.".into());
     }
     let (path, rc) = rc_path()?;
-    let existing = std::fs::read_to_string(&path).unwrap_or_default();
-    if already_defined(&existing, name) {
+    let home = dirs::home_dir().ok_or("Kein Home-Verzeichnis gefunden.")?;
+    let read = |p: &std::path::Path| std::fs::read_to_string(p).ok();
+    let (entries, _) = collect_aliases(&seed_files(rc, &home), &home, &read);
+    if let Some(defined) = entries.iter().find(|e| e.name == name) {
         if !overwrite {
             // Race guard: the panel derives `overwrite` from its list — a
             // definition that appeared since the last refresh is refused,
             // never silently replaced.
             return Err(format!(
-                "In ~/{rc} existiert bereits ein Alias „{name}“ — Liste aktualisieren und über „Aktualisieren“ ersetzen."
+                "In {} existiert bereits ein Alias „{name}“ — Liste aktualisieren und über „Aktualisieren“ ersetzen.",
+                defined.file
             ));
         }
-        std::fs::write(&path, upsert_alias(&existing, name, command))
-            .map_err(|e| format!("Konnte ~/{rc} nicht schreiben: {e}"))?;
+        // Update IN the defining file (which may be a sourced one), keeping
+        // the definition's spot — not a second copy in the rc that the
+        // sourced file's line would then shadow-fight with.
+        let target = label_to_path(&defined.file, &home);
+        let existing = std::fs::read_to_string(&target).unwrap_or_default();
+        std::fs::write(&target, upsert_alias(&existing, name, command))
+            .map_err(|e| format!("Konnte {} nicht schreiben: {e}", defined.file))?;
         return Ok(format!(
-            "Alias „{name}“ in ~/{rc} aktualisiert — gilt im nächsten Terminal (oder: source ~/{rc})."
+            "Alias „{name}“ in {} aktualisiert — gilt im nächsten Terminal.",
+            defined.file
         ));
     }
+    let existing = std::fs::read_to_string(&path).unwrap_or_default();
     // Append with a leading newline guard so we never glue onto a file that
     // doesn't end in one.
     let mut out = String::new();
@@ -366,29 +503,27 @@ mod tests {
     }
 
     #[test]
-    fn parse_aliases_round_trips_what_alias_line_writes() {
+    fn parse_alias_line_round_trips_what_alias_line_writes() {
         // The list must show exactly the command the builder stored — incl.
         // the close-reopen quoting for embedded single quotes.
         for cmd in ["git status", "echo 'hi'", "printf \"%s\" x"] {
             let rc = alias_line("t", cmd);
-            let got = parse_aliases(&rc);
-            assert_eq!(got, vec![AliasEntry { name: "t".into(), command: cmd.into() }], "{cmd}");
+            assert_eq!(parse_alias_line(&rc), Some(("t".into(), cmd.into())), "{cmd}");
         }
     }
 
     #[test]
-    fn parse_aliases_handles_hand_written_forms_and_noise() {
+    fn hand_written_forms_and_noise_parse_correctly() {
         let rc = "\n# alias dead='x'\nalias ll='ls -la'  # note\nexport PATH=x\nalias g=\"git \\$1\"\nalias bare=htop\nalias ll='ls -lah'\nalias 2bad='x'\n";
-        let got = parse_aliases(rc);
-        assert_eq!(
-            got,
-            vec![
-                // Later definition wins, like the shell; trailing comment stripped.
-                AliasEntry { name: "ll".into(), command: "ls -lah".into() },
-                AliasEntry { name: "g".into(), command: "git $1".into() },
-                AliasEntry { name: "bare".into(), command: "htop".into() },
-            ]
-        );
+        let home = std::path::Path::new("/Users/t");
+        let files: std::collections::HashMap<std::path::PathBuf, String> =
+            [(home.join(".zshrc"), rc.to_string())].into_iter().collect();
+        let read = |p: &std::path::Path| files.get(p).cloned();
+        let (got, _) = collect_aliases(&seed_files(".zshrc", home), home, &read);
+        let names: Vec<(&str, &str)> = got.iter().map(|e| (e.name.as_str(), e.command.as_str())).collect();
+        // Later definition wins, like the shell; trailing comment stripped;
+        // comments + invalid names skipped.
+        assert_eq!(names, vec![("ll", "ls -lah"), ("g", "git $1"), ("bare", "htop")]);
     }
 
     #[test]
@@ -415,5 +550,87 @@ mod tests {
         // Absent → append with newline guard.
         assert_eq!(upsert_alias("export X=1", "n", "v"), "export X=1\nalias n='v'\n");
         assert_eq!(upsert_alias("", "n", "v"), "alias n='v'\n");
+    }
+
+    #[test]
+    fn source_targets_catches_plain_dot_and_guarded_forms() {
+        assert_eq!(source_targets(r#"source "$HOME/.claude/aliases/aliases.zsh""#), vec![r#""$HOME/.claude/aliases/aliases.zsh""#]);
+        assert_eq!(source_targets(". ~/env"), vec!["~/env"]);
+        // The guarded one-liner real rc files use.
+        assert_eq!(source_targets("[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh"), vec!["~/.fzf.zsh"]);
+        // Comments and flags don't source anything.
+        assert!(source_targets("# source ~/dead").is_empty());
+        assert!(source_targets("source -h").is_empty());
+        // A `source` glued into a quoted alias value doesn't tokenise as a
+        // bare `source` word → not followed.
+        assert!(source_targets("alias s='source ~/x'").is_empty());
+    }
+
+    #[test]
+    fn expand_home_handles_quotes_tilde_and_home_vars() {
+        let home = std::path::Path::new("/Users/t");
+        assert_eq!(expand_home(r#""$HOME/a/b""#, home), std::path::PathBuf::from("/Users/t/a/b"));
+        assert_eq!(expand_home("~/x", home), std::path::PathBuf::from("/Users/t/x"));
+        assert_eq!(expand_home("${HOME}/y", home), std::path::PathBuf::from("/Users/t/y"));
+        assert_eq!(expand_home("'~'", home), std::path::PathBuf::from("/Users/t"));
+        assert_eq!(expand_home("/abs/z", home), std::path::PathBuf::from("/abs/z"));
+    }
+
+    #[test]
+    fn collect_aliases_follows_source_lines_and_labels_the_defining_file() {
+        // The exact field report: yolo/celox live in a sourced file, cl in the rc.
+        let home = std::path::Path::new("/Users/t");
+        let files: std::collections::HashMap<std::path::PathBuf, &str> = [
+            (home.join(".zshrc"), "source \"$HOME/.claude/aliases/aliases.zsh\"\nalias cl='clear'\n"),
+            (home.join(".claude/aliases/aliases.zsh"), "alias yolo=\"claude --dangerously-skip-permissions\"\nalias celox=\"ssh celox\"\n"),
+        ]
+        .into_iter()
+        .collect();
+        let read = |p: &std::path::Path| files.get(p).map(|s| s.to_string());
+        let (entries, visited) = collect_aliases(&seed_files(".zshrc", home), home, &read);
+        let by_name: std::collections::HashMap<&str, &AliasEntry> =
+            entries.iter().map(|e| (e.name.as_str(), e)).collect();
+        assert_eq!(by_name["yolo"].command, "claude --dangerously-skip-permissions");
+        assert_eq!(by_name["yolo"].file, "~/.claude/aliases/aliases.zsh");
+        assert_eq!(by_name["cl"].file, "~/.zshrc");
+        // The sweep list covers both real files (plus the missing seeds).
+        assert!(visited.contains(&home.join(".claude/aliases/aliases.zsh")));
+    }
+
+    #[test]
+    fn collect_aliases_later_definition_wins_across_files_and_cycles_terminate() {
+        let home = std::path::Path::new("/Users/t");
+        let files: std::collections::HashMap<std::path::PathBuf, &str> = [
+            // a sources b, b sources a (cycle); rc redefines x AFTER sourcing.
+            (home.join(".zshrc"), "source ~/a\nalias x='from-rc'\n"),
+            (home.join("a"), "source ~/b\nalias x='from-a'\nalias only_a='1'\n"),
+            (home.join("b"), "source ~/a\nalias from_b='2'\n"),
+        ]
+        .into_iter()
+        .collect();
+        let read = |p: &std::path::Path| files.get(p).map(|s| s.to_string());
+        let (entries, _) = collect_aliases(&seed_files(".zshrc", home), home, &read);
+        let x = entries.iter().find(|e| e.name == "x").unwrap();
+        // The rc's own line comes AFTER the source → it wins, like the shell.
+        assert_eq!(x.command, "from-rc");
+        assert_eq!(x.file, "~/.zshrc");
+        assert!(entries.iter().any(|e| e.name == "only_a"));
+        assert!(entries.iter().any(|e| e.name == "from_b"));
+    }
+
+    #[test]
+    fn collect_aliases_never_follows_files_outside_home() {
+        let home = std::path::Path::new("/Users/t");
+        let files: std::collections::HashMap<std::path::PathBuf, &str> = [
+            (home.join(".zshrc"), "source /opt/homebrew/share/plugin.zsh\nalias ok='1'\n"),
+            (std::path::PathBuf::from("/opt/homebrew/share/plugin.zsh"), "alias evil='x'\n"),
+        ]
+        .into_iter()
+        .collect();
+        let read = |p: &std::path::Path| files.get(p).map(|s| s.to_string());
+        let (entries, visited) = collect_aliases(&seed_files(".zshrc", home), home, &read);
+        assert!(entries.iter().any(|e| e.name == "ok"));
+        assert!(!entries.iter().any(|e| e.name == "evil"));
+        assert!(!visited.iter().any(|p| p.starts_with("/opt")));
     }
 }

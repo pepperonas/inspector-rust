@@ -55,6 +55,7 @@ export type CommandKind =
   | "repo"
   | "repo-export"
   | "nosleep"
+  | "alias"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -347,6 +348,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Dauerhaftes Einschlafen am Netzteil sperren (pmset -c sleep 0, mit Admin-Prompt) — überlebt Neustarts",
     requiresArg: false,
     platform: ["mac"],
+  },
+  {
+    kind: "alias",
+    keyword: "alias",
+    syntax: "alias [name]",
+    description:
+      "Shell-Alias geführt anlegen — Befehl + Name eingeben, Anlege-Befehl je OS kopieren oder direkt anlegen",
+    requiresArg: false,
   },
   // ── repo — git activity stats (repo2viz-style) ────────────────────
   {

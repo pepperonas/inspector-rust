@@ -2635,6 +2635,13 @@ export function nosleepSet(disable: boolean): Promise<NoSleepStatus> {
   return invoke("nosleep_set", { disable });
 }
 
+/** `alias` — create the shell alias on THIS machine (append to rc / $PROFILE).
+ *  Resolves to a human success message; rejects with a human error (duplicate,
+ *  fish shell, invalid name). */
+export function aliasCreate(name: string, command: string): Promise<string> {
+  return invoke("alias_create", { name, command });
+}
+
 // ── repo — git activity stats (v0.123.0) ────────────────────────────────────
 
 export interface RepoMonth { month: string; commits: number }

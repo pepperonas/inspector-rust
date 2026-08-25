@@ -45,6 +45,7 @@ mod meme;
 mod models;
 mod nosleep;
 mod notes;
+mod shell_alias;
 mod ocr;
 mod totp_import;
 mod totp_store;
@@ -794,6 +795,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::repo_export,
             commands::nosleep_status,
             commands::nosleep_set,
+            commands::alias_create,
             commands::adb_status,
             commands::adb_dashboard,
             commands::adb_set,

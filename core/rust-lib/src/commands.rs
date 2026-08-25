@@ -1188,6 +1188,19 @@ pub async fn nosleep_set(
     Ok(crate::nosleep::status())
 }
 
+// ── alias — guided shell-alias creation (v0.127.0) ────────────────────
+
+/// Append the alias to the current user's shell config (rc file on
+/// macOS/Linux, `$PROFILE` via PowerShell on Windows). Duplicates are refused
+/// with a clear message. Off the main thread — file IO + a possible process
+/// spawn.
+#[tauri::command]
+pub async fn alias_create(name: String, command: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::shell_alias::create(&name, &command))
+        .await
+        .map_err(|e| format!("alias task: {e}"))?
+}
+
 // ── repo — git activity stats (v0.123.0) ──────────────────────────────
 
 fn resolve_repo_target(target: Option<String>) -> Result<RepoTarget, String> {

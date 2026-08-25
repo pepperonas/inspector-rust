@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.127.0] — 2026-08-25
+
+### Added
+
+- **`alias` — guided shell-alias builder.** Type the terminal command and the alias name in the preview and get the exact create one-liner for each OS (macOS/zsh → ~/.zshrc, Linux/bash → ~/.bashrc, Windows/PowerShell → a `$PROFILE` function so arguments forward), each with a copy button — plus a create button that appends the alias to THIS machine's shell config directly (duplicates refused, fish refused honestly, quoting handled — commands containing quotes survive verbatim).
+
 ## [0.126.1] — 2026-08-25
 
 ### Changed

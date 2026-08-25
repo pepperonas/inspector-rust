@@ -20,6 +20,7 @@ import { ClockPanel } from "./components/ClockPanel";
 import { RickrollPanel } from "./components/RickrollPanel";
 import { RepoPanel } from "./components/RepoPanel";
 import { NoSleepPanel } from "./components/NoSleepPanel";
+import { AliasPanel } from "./components/AliasPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
 import { CalendarPanel } from "./components/CalendarPanel";
@@ -313,6 +314,8 @@ function App() {
   // nosleep mode (v0.124.0) — persistent AC sleep-profile toggle (macOS).
   const [nosleepMode, setNosleepMode] = useState(false);
   const [nosleepFocus, setNosleepFocus] = useState(false);
+  const [aliasMode, setAliasMode] = useState(false);
+  const [aliasFocus, setAliasFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
   const [tokensFocus, setTokensFocus] = useState(false);
   // Calendar mode — typing `calendar`/`cal` renders the month view in the
@@ -967,6 +970,18 @@ function App() {
     }
   }, [isSoundCmd, soundMode]);
 
+  // Same show-while-typing for the alias builder (pure UI — no side effects
+  // until a button is pressed); Enter only hands it keyboard focus.
+  const isAliasCmd = parsedCommand?.spec.kind === "alias";
+  useEffect(() => {
+    if (isAliasCmd && !aliasMode) {
+      setAliasMode(true);
+    } else if (!isAliasCmd && aliasMode) {
+      setAliasMode(false);
+      setAliasFocus(false);
+    }
+  }, [isAliasCmd, aliasMode]);
+
   // Same auto-exit for hue mode.
   const isHueCmd = parsedCommand?.spec.kind === "hue";
   useEffect(() => {
@@ -1101,6 +1116,8 @@ function App() {
     if (!isNosleepCmd && nosleepMode) {
       setNosleepMode(false);
       setNosleepFocus(false);
+      setAliasMode(false);
+      setAliasFocus(false);
     }
   }, [isNosleepCmd, nosleepMode]);
   const isRepoCmd =
@@ -1548,6 +1565,11 @@ function App() {
         const a = arg.trim().toLowerCase();
         label = a === "on" ? "Dauerschlaf-Sperre EIN" : a === "off" ? "Dauerschlaf-Sperre AUS" : "Dauerschlaf-Sperre (Netzteil)";
         hint = "Enter → pmset -c sleep 0/1 mit Admin-Prompt; überlebt Neustarts";
+        break;
+      }
+      case "alias": {
+        label = arg ? `Alias anlegen: ${arg}` : "Alias anlegen (geführt)";
+        hint = "Preview: Befehl + Name → Anlege-Befehl je OS, kopieren oder direkt anlegen";
         break;
       }
       case "repo":
@@ -2929,6 +2951,8 @@ function App() {
     setRepoFocus(false);
     setNosleepMode(false);
     setNosleepFocus(false);
+    setAliasMode(false);
+    setAliasFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -3052,7 +3076,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3066,7 +3090,8 @@ function App() {
           commandKind === "disk" ||
           commandKind === "repo" ||
           commandKind === "repo-export" ||
-          commandKind === "nosleep";
+          commandKind === "nosleep" ||
+          commandKind === "alias";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
       if (isTranslateKind(commandKind)) {
@@ -3514,6 +3539,12 @@ function App() {
         setNosleepMode(true);
         setNosleepFocus(true);
         return true;
+      } else if (commandKind === "alias") {
+        // Panel is already visible (show-while-typing); Enter hands it focus
+        // so the input fields are reachable by keyboard.
+        setAliasMode(true);
+        setAliasFocus(true);
+        return true;
       } else if (commandKind === "repo" || commandKind === "repo-export") {
         setRepoAutoExport(commandKind === "repo-export");
         setRepoMode(true);
@@ -3952,6 +3983,7 @@ function App() {
       !rickFocus &&
       !repoFocus &&
       !nosleepFocus &&
+      !aliasFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4410,6 +4442,18 @@ function App() {
                       }}
                     />
                   </div>
+                ) : aliasMode ? (
+                  <div className="md3-pop-in h-full">
+                    <AliasPanel
+                      arg={isAliasCmd ? (parsedCommand?.arg ?? "") : ""}
+                      focused={aliasFocus}
+                      onExit={() => {
+                        setAliasMode(false);
+                        setAliasFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
                 ) : nosleepMode ? (
                   <div className="md3-pop-in h-full">
                     <NoSleepPanel
@@ -4418,6 +4462,8 @@ function App() {
                       onExit={() => {
                         setNosleepMode(false);
                         setNosleepFocus(false);
+                        setAliasMode(false);
+                        setAliasFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

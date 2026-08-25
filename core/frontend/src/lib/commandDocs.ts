@@ -1123,6 +1123,35 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: [],
   },
   {
+    command: "alias",
+    aliases: [],
+    category: CAT_SYS,
+    version_added: "0.127.0",
+    tagline: "Guided shell-alias builder — per-OS one-liners + direct create.",
+    tagline_de: "Shell-Alias geführt anlegen — Befehl je OS + direkt anlegen.",
+    synopsis: "alias [name]",
+    description:
+      "Opens a guided alias builder in the preview: enter the terminal command and the alias name, and the panel shows the exact one-liner that creates the alias on each OS — macOS (zsh, ~/.zshrc), Linux (bash, ~/.bashrc) and Windows (PowerShell $PROFILE, as a function so arguments are forwarded). Every row has a copy button; the current OS's row has an extra create button that appends the alias to your shell config directly (an existing alias of the same name is refused, never overwritten). Quoting is handled for you — commands containing quotes survive verbatim.",
+    arguments: [
+      { name: "name", required: false, description: "Pre-fills the alias-name field.", default: "—" },
+    ],
+    flags: [],
+    examples: [
+      { input: "alias", result: "Opens the builder with empty fields." },
+      { input: "alias gs", result: "Builder with the alias name pre-filled as gs." },
+      { input: "alias kgc", result: "Type `git gc --aggressive` as the command → per-OS create one-liners." },
+    ],
+    tips: [
+      "The create button writes to THIS machine's shell config (~/.zshrc here); copy the other rows for your other machines.",
+      "A new alias applies in the next terminal — or after `source ~/.zshrc`.",
+    ],
+    caveats: [
+      "Fish is refused honestly (different alias syntax) — the panel's zsh/bash lines don't apply there.",
+      "Windows creates a PowerShell *function* (Set-Alias can't carry arguments); runtime-unverified per house convention.",
+    ],
+    related: ["terminal", "touch"],
+  },
+  {
     command: "nosleep",
     aliases: [],
     category: CAT_SYS,

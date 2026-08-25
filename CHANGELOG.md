@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.125.0] — 2026-08-25
+
+### Changed
+
+- **The `?` help index is now sorted alphabetically by command name.** Bare `?` lists every command A→Z (was registry order), the grouped index sorts entries alphabetically within each category, and `? <text>` search results break score ties alphabetically — so the help is predictable to scan.
+
 ## [0.124.0] — 2026-08-25
 
 ### Added

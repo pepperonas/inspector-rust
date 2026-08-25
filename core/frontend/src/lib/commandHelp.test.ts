@@ -136,9 +136,16 @@ describe("parseHelpQuery — `? <term>` filtered index", () => {
 });
 
 describe("searchDocs", () => {
-  it("empty term returns every doc in registry order", () => {
-    expect(searchDocs("")).toEqual([...allDocs()]);
-    expect(searchDocs("   ")).toEqual([...allDocs()]);
+  it("empty term returns every doc sorted alphabetically by command", () => {
+    const alpha = [...allDocs()].sort((a, b) => a.command.localeCompare(b.command));
+    expect(searchDocs("")).toEqual(alpha);
+    expect(searchDocs("   ")).toEqual(alpha);
+    // Same set as the registry, just reordered.
+    expect(new Set(searchDocs("").map((d) => d.command))).toEqual(
+      new Set(allDocs().map((d) => d.command)),
+    );
+    const cmds = searchDocs("").map((d) => d.command);
+    expect(cmds).toEqual([...cmds].sort((a, b) => a.localeCompare(b)));
   });
   it("keyword matches rank first (exact > prefix)", () => {
     const kill = searchDocs("kill");

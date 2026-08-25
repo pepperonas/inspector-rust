@@ -101,13 +101,14 @@ export function allDocs(): readonly CommandDoc[] {
 /**
  * Full-text fuzzy search over the docs for `? <term>`. Ranking (best first):
  * keyword/alias fuzzy match (exact > prefix > subsequence, via the shared
- * command scorer) → tagline substring → description/tips substring. Registry
- * order breaks ties, so an empty term returns everything in index order.
- * Pure — unit-tested.
+ * command scorer) → tagline substring → description/tips substring.
+ * Alphabetical by command name breaks ties; an empty term returns every doc
+ * sorted alphabetically. Pure — unit-tested.
  */
 export function searchDocs(term: string): CommandDoc[] {
   const q = term.trim().toLowerCase();
-  if (!q) return [...COMMAND_DOCS];
+  // Bare `?` → the full index, sorted alphabetically by command name.
+  if (!q) return [...COMMAND_DOCS].sort((a, b) => a.command.localeCompare(b.command));
 
   const scored: { doc: CommandDoc; score: number }[] = [];
   for (const doc of COMMAND_DOCS) {
@@ -128,6 +129,8 @@ export function searchDocs(term: string): CommandDoc[] {
     }
     if (best !== null) scored.push({ doc, score: best });
   }
-  scored.sort((a, b) => a.score - b.score);
+  // Best score first; alphabetical by command name breaks ties (was registry
+  // order) so the `? <text>` results read predictably too.
+  scored.sort((a, b) => a.score - b.score || a.doc.command.localeCompare(b.doc.command));
   return scored.map((x) => x.doc);
 }

@@ -1449,5 +1449,7 @@ export function groupedIndex(): { category: string; docs: CommandDoc[] }[] {
     }
     g.docs.push(d);
   }
+  // Entries within each category read alphabetically by command name.
+  for (const g of groups) g.docs.sort((a, b) => a.command.localeCompare(b.command));
   return groups;
 }

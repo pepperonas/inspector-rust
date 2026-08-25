@@ -122,4 +122,11 @@ describe("commandDocs — lookup + index", () => {
     const cats = groups.map((g) => g.category);
     expect(new Set(cats).size).toBe(cats.length);
   });
+
+  it("sorts the entries within each category alphabetically by command", () => {
+    for (const g of groupedIndex()) {
+      const names = g.docs.map((d) => d.command);
+      expect(names).toEqual([...names].sort((a, b) => a.localeCompare(b)));
+    }
+  });
 });

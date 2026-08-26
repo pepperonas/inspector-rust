@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.131.0] — 2026-08-26
+
+### Fixed
+
+- **Doc text in the preview is formatted instead of showing raw Markdown.** The `?` help, the command box, the list rows and the Features tab rendered the registry strings verbatim, so users saw literal `**Info**` and backticks. All 12 render sites now go through a small tokenizer (`` `code` `` → a tinted mono chip, `**bold**` → bold) built as real React nodes. Code spans win over bold, so glob patterns like `src/**/*.ts` stay intact, `*italic*` is deliberately unsupported (a real caveat reads "PowerShell *function*"), and any unmatched marker stays literal — the round-trip invariant guarantees no text can be swallowed. The chip derives its colour from `currentColor`, so it stays legible on the white-on-rose selected row too.
+- **Doc search matches across a marker.** `searchDocs` and the Features-tab filter now search the marker-stripped text — a query like "info — live" previously missed a doc whose description reads `**Info** — live`.
+
 ## [0.130.0] — 2026-08-26
 
 ### Changed

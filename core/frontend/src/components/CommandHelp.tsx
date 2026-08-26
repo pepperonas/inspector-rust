@@ -22,6 +22,7 @@ import {
 import type { CommandDoc } from "../lib/commandDocs";
 import { groupedIndex } from "../lib/commandDocs";
 import type { HelpTarget } from "../lib/commandHelp";
+import { InlineMd } from "./InlineMd";
 
 interface Props {
   target: HelpTarget;
@@ -59,7 +60,9 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
           ← Index
         </button>
       </div>
-      <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">{doc.tagline}</p>
+      <p className="mt-0.5 text-[12px] text-[var(--color-muted)]">
+        <InlineMd text={doc.tagline} />
+      </p>
 
       {/* Synopsis */}
       <SectionLabel>Synopsis</SectionLabel>
@@ -68,7 +71,9 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
       </code>
 
       {/* Description */}
-      <p className="mt-2 text-[12px] leading-relaxed text-[var(--color-fg)]">{doc.description}</p>
+      <p className="mt-2 text-[12px] leading-relaxed text-[var(--color-fg)]">
+        <InlineMd text={doc.description} />
+      </p>
 
       {/* Arguments */}
       {doc.arguments.length > 0 && (
@@ -79,7 +84,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
               <li key={a.name} className="text-[12px] leading-snug">
                 <code className="text-[var(--color-accent)]">{a.name}</code>
                 {!a.required && <span className="ml-1 text-[10px] text-[var(--color-muted)]">optional</span>}
-                <span className="text-[var(--color-fg)]"> — {a.description}</span>
+                <span className="text-[var(--color-fg)]"> — <InlineMd text={a.description} /></span>
                 {a.default != null && (
                   <span className="text-[var(--color-muted)]"> (default: {a.default})</span>
                 )}
@@ -100,7 +105,7 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
                   {f.flag}
                   {f.value_type ? ` ${f.value_type}` : ""}
                 </code>
-                <span className="text-[var(--color-fg)]"> — {f.description}</span>
+                <span className="text-[var(--color-fg)]"> — <InlineMd text={f.description} /></span>
                 {f.default != null && (
                   <span className="text-[var(--color-muted)]"> (default: {f.default})</span>
                 )}
@@ -123,8 +128,14 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
             >
               {ex.input}
             </button>
-            <span className="text-[var(--color-muted)]"> → {ex.result}</span>
-            {ex.note && <span className="text-[var(--color-muted)] opacity-80"> ({ex.note})</span>}
+            <span className="text-[var(--color-muted)]"> → <InlineMd text={ex.result} /></span>
+            {ex.note && (
+              <span className="text-[var(--color-muted)] opacity-80">
+                {" ("}
+                <InlineMd text={ex.note} />
+                {")"}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -137,7 +148,9 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
             {doc.tips.map((t, i) => (
               <li key={i} className="flex gap-1.5 text-[12px] leading-snug">
                 <Lightbulb size={12} className="mt-0.5 shrink-0 text-[var(--color-accent)]" />
-                <span>{t}</span>
+                <span>
+                  <InlineMd text={t} />
+                </span>
               </li>
             ))}
           </ul>
@@ -152,7 +165,9 @@ function DocView({ doc, onNavigate }: { doc: CommandDoc; onNavigate: Props["onNa
             {doc.caveats.map((c, i) => (
               <li key={i} className="flex gap-1.5 text-[12px] leading-snug text-[var(--color-muted)]">
                 <AlertTriangle size={12} className="mt-0.5 shrink-0 text-amber-400" />
-                <span>{c}</span>
+                <span>
+                  <InlineMd text={c} />
+                </span>
               </li>
             ))}
           </ul>
@@ -229,7 +244,9 @@ function IndexView({ filter, onNavigate }: { filter: string; onNavigate: Props["
                 <code className="shrink-0 text-[12px] font-medium text-[var(--color-accent)]">
                   {d.command}
                 </code>
-                <span className="truncate text-[11px] text-[var(--color-muted)]">{d.tagline}</span>
+                <span className="truncate text-[11px] text-[var(--color-muted)]">
+                  <InlineMd text={d.tagline} />
+                </span>
               </button>
             ))}
           </div>

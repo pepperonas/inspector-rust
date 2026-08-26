@@ -5,6 +5,7 @@ import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
+import { InlineMd } from "./InlineMd";
 
 interface Props {
   entry: ListEntry;
@@ -517,7 +518,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              {entry.data.hint}
+              <InlineMd text={entry.data.hint} />
             </span>
           </span>
         ) : isSuggestion && entry.kind === "command-suggestion" ? (
@@ -534,7 +535,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              {entry.data.description}
+              <InlineMd text={entry.data.description} />
             </span>
           </span>
         ) : isKillTarget && entry.kind === "kill-target" ? (
@@ -574,7 +575,7 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/80" : "text-[var(--color-muted)]")
               }
             >
-              {entry.data.tagline}
+              <InlineMd text={entry.data.tagline} />
             </span>
             <span
               className={

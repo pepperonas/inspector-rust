@@ -41,6 +41,7 @@ import {
   socialDownload,
   socialYtdlpAvailable,
 } from "../lib/ipc";
+import { InlineMd } from "./InlineMd";
 
 interface Props {
   entry: ListEntry | null;
@@ -616,7 +617,7 @@ export function PreviewPanel({
         <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
           <div className="text-[14px] font-semibold leading-snug">{entry.data.label}</div>
           <div className="mt-2 text-[12px] text-[var(--color-muted)] leading-snug">
-            {entry.data.hint}
+            <InlineMd text={entry.data.hint} />
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
             ⏎ Enter to {isQr ? "copy the QR PNG" : "run"}
@@ -669,7 +670,7 @@ export function PreviewPanel({
             {entry.data.syntax}
           </div>
           <div className="mt-2 text-[12px] text-[var(--color-muted)] leading-snug">
-            {entry.data.description}
+            <InlineMd text={entry.data.description} />
           </div>
           <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
             ⏎ Enter completes into the search bar

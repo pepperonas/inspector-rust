@@ -17,6 +17,8 @@ import {
   IN_POPUP_ACTIONS,
   HIDDEN_GAMES,
 } from "../lib/feature-extras";
+import { InlineMd } from "./InlineMd";
+import { stripInlineMarkup } from "../lib/inline-md";
 
 /**
  * Features tab — a read-only, tabular catalogue of everything the app can
@@ -223,7 +225,9 @@ export function FeaturesPanel() {
             (r) =>
               r.name.toLowerCase().includes(q) ||
               r.trigger.toLowerCase().includes(q) ||
-              (r.note ?? "").toLowerCase().includes(q),
+              stripInlineMarkup(r.note ?? "")
+                .toLowerCase()
+                .includes(q),
           ),
         }))
         .filter((sec) => sec.rows.length > 0)
@@ -289,7 +293,7 @@ export function FeaturesPanel() {
                         <Chip typed={row.typed}>{row.trigger}</Chip>
                       </td>
                       <td className="px-3 py-2 text-[11px] leading-relaxed text-[var(--color-muted)]">
-                        {row.note ?? ""}
+                        <InlineMd text={row.note ?? ""} />
                       </td>
                     </tr>
                   ))}

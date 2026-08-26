@@ -14,6 +14,7 @@
 
 import { COMMAND_DOCS, lookupDoc, type CommandDoc } from "./commandDocs";
 import { commandSuggestions, fuzzyScore } from "./commands";
+import { stripInlineMarkup } from "./inline-md";
 
 export type HelpTarget =
   | { kind: "index"; filter: string } // `?` [+ search term] → the cheat-sheet
@@ -118,12 +119,16 @@ export function searchDocs(term: string): CommandDoc[] {
       if (s !== null && (best === null || s < best)) best = s;
     }
     // Name matches rank above content matches (content scores start at 1000).
-    if (best === null && doc.tagline.toLowerCase().includes(q)) best = 1000;
+    // ⚠️ Match the STRIPPED text (v0.131.0): the doc strings carry inline
+    // Markdown, so searching the raw value made a query spanning a marker
+    // ("info — live") miss a doc whose text reads `**Info** — live`.
+    const plain = (t: string) => stripInlineMarkup(t).toLowerCase();
+    if (best === null && plain(doc.tagline).includes(q)) best = 1000;
     if (
       best === null &&
-      (doc.description.toLowerCase().includes(q) ||
-        doc.tips.some((t) => t.toLowerCase().includes(q)) ||
-        doc.synopsis.toLowerCase().includes(q))
+      (plain(doc.description).includes(q) ||
+        doc.tips.some((t) => plain(t).includes(q)) ||
+        plain(doc.synopsis).includes(q))
     ) {
       best = 2000;
     }

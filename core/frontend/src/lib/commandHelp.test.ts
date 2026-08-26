@@ -157,6 +157,14 @@ describe("searchDocs", () => {
     expect(searchDocs("config")[0].command).toBe("settings");
     expect(searchDocs("caffeine")[0].command).toBe("wakelock");
   });
+
+  it("matches ACROSS an inline-Markdown marker (v0.131.0)", () => {
+    // adb's description reads `**Info** — live dashboard …`; searching the raw
+    // string made a query spanning the `**` miss it entirely.
+    const adb = allDocs().find((d) => d.command === "adb");
+    expect(adb?.description).toContain("**Info**");
+    expect(searchDocs("info — live").map((d) => d.command)).toContain("adb");
+  });
   it("full-text: tagline/description matches surface, ranked below name hits", () => {
     const hits = searchDocs("clipboard");
     expect(hits.length).toBeGreaterThan(3);

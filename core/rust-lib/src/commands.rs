@@ -1192,8 +1192,14 @@ pub async fn nosleep_set(
 
 /// Open the `x!` spectacle full-screen on the cursor's monitor.
 #[tauri::command]
-pub fn x_overlay_open(app: AppHandle) {
-    crate::xhype::open(&app);
+pub fn x_overlay_open(app: AppHandle, mode: Option<String>) {
+    crate::xhype::open(&app, mode.as_deref().unwrap_or("features"));
+}
+
+/// What the overlay should say — read once by the webview on mount.
+#[tauri::command]
+pub fn x_overlay_payload() -> crate::xhype::XPayload {
+    crate::xhype::payload()
 }
 
 /// Close it (Esc / any key, or when the piece ends).
@@ -1332,12 +1338,35 @@ pub fn set_clock_zones(db: State<'_, DbHandle>, zones_json: String) -> Result<()
 /// bounded sunburst view + top files + volume info. Async + `spawn_blocking`
 /// — a full `~` walk touches 10⁵–10⁶ files. Emits throttled
 /// `disk-scan-progress` events while walking so the UI can show a live count.
+/// The folder currently selected in Finder, if any — a directory as-is, a
+/// file as its parent. `None` when nothing usable is selected or Automation
+/// isn't granted (the caller then falls back to home).
+#[cfg(target_os = "macos")]
+fn finder_folder() -> Option<std::path::PathBuf> {
+    let sel = crate::finder_selection::read().ok()?;
+    sel.into_iter().find_map(|p| {
+        if p.is_dir() {
+            Some(p)
+        } else {
+            p.parent().filter(|d| d.is_dir()).map(|d| d.to_path_buf())
+        }
+    })
+}
+
+#[cfg(not(target_os = "macos"))]
+fn finder_folder() -> Option<std::path::PathBuf> {
+    None
+}
+
 #[tauri::command]
 pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::disk_usage::DiskScan, String> {
     use std::sync::Arc;
+    // Bare `disk` prefers the folder selected in Finder (the `touch`/`loc`
+    // convention), then falls back to home. A selected FILE resolves to its
+    // parent directory — asking for a file's disk usage means its folder.
     let root = match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
         Some(p) => std::path::PathBuf::from(p),
-        None => dirs::home_dir().ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
+        None => finder_folder().or_else(dirs::home_dir).ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
     };
     // Disks (mount, total, free) from sysinfo — passed into the pure scanner.
     let disks: Vec<(String, u64, u64)> = {

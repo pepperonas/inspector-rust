@@ -1327,7 +1327,17 @@ export function isSpaceInvadersTrigger(query: string): boolean {
  * and case-insensitive like the other hidden triggers.
  */
 export function isXTrigger(query: string): boolean {
-  return /^\s*x!\s*$/i.test(query);
+  return parseXTrigger(query) !== null;
+}
+
+/**
+ * `x!` → the app's own arsenal, `x!!` → today's headlines. Exact tokens, so
+ * neither can be reached by autocomplete. Whitespace-tolerant.
+ */
+export function parseXTrigger(query: string): "features" | "news" | null {
+  const m = /^\s*x(!{1,2})\s*$/i.exec(query);
+  if (!m) return null;
+  return m[1].length === 2 ? "news" : "features";
 }
 
 export function isBpmTrigger(query: string): boolean {

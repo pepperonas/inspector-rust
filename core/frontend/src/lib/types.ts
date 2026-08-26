@@ -217,7 +217,7 @@ export type ListEntry =
   | { kind: "app"; data: AppEntryView }
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
-  | { kind: "xhype"; data: { label: string } }
+  | { kind: "xhype"; data: { label: string; mode: "features" | "news" } }
   | { kind: "equalizer"; data: EqualizerTriggerView }
   | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
   // mode "add" (v0.104.0, `2fa add [issuer]`) opens the overlay straight on

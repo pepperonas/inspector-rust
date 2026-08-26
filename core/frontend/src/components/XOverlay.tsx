@@ -1,10 +1,13 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import {
   X_DURATION,
   PALETTE,
-  WORDS,
   actAt,
+  captionFor,
+  featureWords,
+  newsWords,
+  type XWords,
   arc,
   clamp01,
   corrupt,
@@ -15,6 +18,7 @@ import {
   noise,
   warpRadius,
 } from "../lib/xhype";
+import { COMMAND_DOCS } from "../lib/commandDocs";
 
 /**
  * `x!` — the full-screen spectacle (v0.133.0). Six acts, ~15 s, ONE canvas and
@@ -41,7 +45,39 @@ const GLYPHS = "PROFESSORprofessor01<>{}[]/\\|=+*#%&@$†‡§¶ЖДЛФ";
 export function XOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
 
+  // The backend decided the mode (and, for `x!!`, already fetched the
+  // headlines BEFORE this window was built — so there's never a black wait).
+  const [words, setWords] = useState<XWords | null>(null);
+  const sourceRef = useRef("inspector rust");
+  const [mode, setMode] = useState<"features" | "news">("features");
+
   useEffect(() => {
+    let alive = true;
+    const seed = Math.floor(Date.now() / 1000);
+    const commandCount = COMMAND_DOCS.length;
+    invoke<{ mode: string; headlines: string[] }>("x_overlay_payload")
+      .then((p) => {
+        if (!alive) return;
+        // News mode with nothing to show falls back to the showcase — the
+        // piece must always play rather than announce a network problem.
+        if (p.mode === "news" && p.headlines.length > 0) {
+          sourceRef.current = "tagesschau.de";
+          setMode("news");
+          setWords(newsWords(p.headlines, seed));
+        } else {
+          setWords(featureWords(commandCount, seed));
+        }
+      })
+      .catch(() => {
+        if (alive) setWords(featureWords(commandCount, seed));
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!words) return;
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d", { alpha: true });
@@ -133,6 +169,7 @@ export function XOverlay() {
       const w = window.innerWidth;
       const h = window.innerHeight;
       const { act, local } = cur;
+      void act;
       const k = act.key;
 
       // ── Ground ────────────────────────────────────────────────────────────
@@ -156,7 +193,7 @@ export function XOverlay() {
         ctx.fillStyle = `rgba(255,60,15,${0.12 * beat * grow})`;
         ctx.fillRect(0, 0, w, h);
         if (local > 0.82) {
-          stab(WORDS.ignition[0], w, h, Math.min(w, h) * 0.2, easeIn((local - 0.82) / 0.18), 3);
+          stab(words.ignition[0], w, h, Math.min(w, h) * 0.2, easeIn((local - 0.82) / 0.18), 3);
         }
       }
 
@@ -194,7 +231,7 @@ export function XOverlay() {
           ctx.stroke();
         }
         // Words stab past like signage on an autobahn.
-        const list = WORDS.grid;
+        const list = words.grid;
         const idx = Math.floor(local * list.length * 1.35) % list.length;
         const ph = (local * list.length * 1.35) % 1;
         stab(list[idx], w, h, Math.min(w, h) * (0.1 + ph * 0.13), arc(ph) * 0.9, 6 + ph * 22, h * 0.62);
@@ -230,7 +267,7 @@ export function XOverlay() {
             ctx.drawImage(canvas, 0, sy, w, sh, dx, sy, w, sh);
           }
         }
-        const list = WORDS.slop;
+        const list = words.slop;
         const idx = Math.floor(local * list.length) % list.length;
         const ph = (local * list.length) % 1;
         stab(
@@ -272,7 +309,7 @@ export function XOverlay() {
         fg.addColorStop(1, "rgba(255,59,15,0)");
         ctx.fillStyle = fg;
         ctx.fillRect(0, h * 0.45, w, h * 0.55);
-        const list = WORDS.burn;
+        const list = words.burn;
         const idx = Math.floor(local * list.length) % list.length;
         const ph = (local * list.length) % 1;
         stab(list[idx], w, h, Math.min(w, h) * 0.16, arc(ph) * 0.95, 4 + arc(ph) * 12, h * 0.42);
@@ -316,7 +353,7 @@ export function XOverlay() {
           ctx.arc(w / 2, h / 2, rr, 0, Math.PI * 2);
           ctx.stroke();
           // The full regalia — `stab` auto-fits it to the width.
-          stab(WORDS.nova[0], w, h, Math.min(w, h) * (0.22 + blast * 0.14), 1 - blast * 0.7, 4 + blast * 40);
+          stab(words.nova[0], w, h, Math.min(w, h) * (0.22 + blast * 0.14), 1 - blast * 0.7, 4 + blast * 40);
         }
         // ONE gated white flash at detonation — the only full-field jump.
         if (local > 0.26 && local < 0.34 && flashAllowed(lastFlash, now)) {
@@ -343,7 +380,11 @@ export function XOverlay() {
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
         // The epilogue: arrives late, quiet, and outlives the last ember.
-        stab(WORDS.void[0], w, h, Math.min(w, h) * 0.07, arc(clamp01(local * 1.15)) * 0.75, 1);
+        // The sign-off holds instead of blinking past: fade in over the
+        // first third, then stay lit while the stars die around it.
+        const signIn = easeOut(clamp01(local * 3));
+        const signOut = 1 - easeIn(clamp01((local - 0.75) / 0.25));
+        stab(words.void[0], w, h, Math.min(w, h) * 0.14, signIn * signOut * 0.92, 2);
       }
 
       // ── Post: scanlines · grain · vignette · HUD ──────────────────────────
@@ -371,7 +412,7 @@ export function XOverlay() {
       ctx.textAlign = "left";
       ctx.textBaseline = "alphabetic";
       ctx.fillStyle = "rgba(232,228,220,0.5)";
-      ctx.fillText(act.caption, 26, h - 26);
+      ctx.fillText(`${captionFor(mode, cur.index)} · ${sourceRef.current}`, 26, h - 26);
       ctx.textAlign = "right";
       ctx.fillText(`${String(Math.floor(t)).padStart(5, "0")} MS · ESC`, w - 26, h - 26);
       // Progress hairline.
@@ -382,21 +423,24 @@ export function XOverlay() {
     };
     raf = requestAnimationFrame(frame);
 
-    const onKey = (e: KeyboardEvent) => {
-      // Any key gets you out — this thing takes the whole screen.
+    // Any key OR a mouse click gets you out — this thing owns the whole
+    // screen, so every obvious "make it stop" gesture has to work.
+    const abort = (e: Event) => {
       e.preventDefault();
       done = true;
       void invoke("x_overlay_close").catch(() => undefined);
     };
-    window.addEventListener("keydown", onKey);
+    window.addEventListener("keydown", abort);
+    window.addEventListener("mousedown", abort);
 
     return () => {
       done = true;
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
-      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("keydown", abort);
+      window.removeEventListener("mousedown", abort);
     };
-  }, []);
+  }, [words, mode]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "#000", cursor: "none" }}>

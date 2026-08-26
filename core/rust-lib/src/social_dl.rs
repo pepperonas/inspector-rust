@@ -18,6 +18,7 @@ pub enum Platform {
     Instagram,
     TikTok,
     Facebook,
+    Dailymotion,
 }
 
 impl Platform {
@@ -27,6 +28,7 @@ impl Platform {
             Platform::Instagram => "Instagram",
             Platform::TikTok => "TikTok",
             Platform::Facebook => "Facebook",
+            Platform::Dailymotion => "Dailymotion",
         }
     }
 }
@@ -46,6 +48,10 @@ pub fn detect_platform(url: &str) -> Option<Platform> {
         Some(Platform::TikTok)
     } else if u.contains("facebook.com") || u.contains("fb.watch") || u.contains("fb.com") {
         Some(Platform::Facebook)
+    } else if u.contains("dailymotion.com") || u.contains("dai.ly") {
+        // `dai.ly` is Dailymotion's own short form — recognising only the long
+        // host would silently refuse half the links people actually share.
+        Some(Platform::Dailymotion)
     } else {
         None
     }
@@ -285,6 +291,22 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn detects_dailymotion_including_its_short_host() {
+        assert_eq!(
+            detect_platform("https://www.dailymotion.com/video/x7xd3st"),
+            Some(Platform::Dailymotion)
+        );
+        assert_eq!(detect_platform("https://dai.ly/x7xd3st"), Some(Platform::Dailymotion));
+        assert_eq!(
+            detect_platform("https://geo.dailymotion.com/player.html?video=x7xd3st"),
+            Some(Platform::Dailymotion)
+        );
+        assert_eq!(Platform::Dailymotion.display_name(), "Dailymotion");
+        // A lookalike host is not Dailymotion.
+        assert_eq!(detect_platform("https://notdaily.example.com/x"), None);
+    }
 
     #[test]
     fn detects_each_platform() {

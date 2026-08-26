@@ -16,7 +16,12 @@ import {
   horizonY,
   warpRadius,
   corrupt,
-  WORDS,
+  captionFor,
+  featureWords,
+  newsWords,
+  shorten,
+  shuffle,
+  FEATURES,
 } from "./xhype";
 
 describe("timeline", () => {
@@ -30,8 +35,25 @@ describe("timeline", () => {
     expect(X_DURATION).toBe(cursor);
   });
 
-  it("every act has words to show", () => {
-    for (const a of ACTS) expect(WORDS[a.key].length, a.key).toBeGreaterThan(0);
+  it("runs for 30 s", () => {
+    expect(X_DURATION).toBe(30000);
+  });
+
+  it("both modes fill every act with words", () => {
+    for (const w of [featureWords(58, 1), newsWords(["Eins", "Zwei", "Drei"], 1)]) {
+      for (const a of ACTS) {
+        expect(w[a.key].length, a.key).toBeGreaterThan(0);
+        for (const line of w[a.key]) expect(line.trim().length, a.key).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it("each mode has its own HUD captions", () => {
+    for (let i = 0; i < ACTS.length; i++) {
+      expect(captionFor("features", i).length).toBeGreaterThan(0);
+      expect(captionFor("news", i).length).toBeGreaterThan(0);
+    }
+    expect(captionFor("features", 0)).not.toBe(captionFor("news", 0));
   });
 
   it("the renderer draws NO literal word — every act reads from WORDS", () => {
@@ -42,7 +64,7 @@ describe("timeline", () => {
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "");
     expect(src).not.toMatch(/stab\(\s*["'`]/);
-    expect(src).toMatch(/WORDS\./);
+    expect(src).toMatch(/words\./);
   });
 
   it("actAt resolves each act at its boundaries", () => {
@@ -165,5 +187,99 @@ describe("corrupt", () => {
   it("is deterministic for a given seed", () => {
     expect(corrupt("MEHR", 0.6, 3)).toBe(corrupt("MEHR", 0.6, 3));
     expect(corrupt("MEHR", 0.6, 3)).not.toBe(corrupt("MEHR", 0.6, 9));
+  });
+});
+
+describe("word builders", () => {
+
+  it("names CAPABILITIES, not command keywords", () => {
+    const w = featureWords(58, 3);
+    for (const line of [...w.grid, ...w.slop, ...w.burn]) {
+      expect(FEATURES, line).toContain(line);
+    }
+    // The nova still states the real command count.
+    expect(w.nova[0]).toContain("58");
+  });
+
+  it("the capability list is usable copy: unique, short, non-empty", () => {
+    expect(FEATURES.length).toBeGreaterThanOrEqual(40); // enough to vary
+    expect(new Set(FEATURES).size).toBe(FEATURES.length);
+    for (const f of FEATURES) {
+      expect(f.trim(), f).toBe(f);
+      expect(f.length, f).toBeGreaterThan(1);
+      expect(f.length, f).toBeLessThanOrEqual(16); // fits 200px display type
+    }
+  });
+
+  it("draws a DIFFERENT set on different runs", () => {
+    const a = featureWords(58, 1);
+    const b = featureWords(58, 2);
+    expect([...a.grid, ...a.slop]).not.toEqual([...b.grid, ...b.slop]);
+  });
+
+  it("the draw varies by seed but is deterministic for one", () => {
+    expect(featureWords(58, 1)).toEqual(featureWords(58, 1));
+    expect(featureWords(58, 1).grid).not.toEqual(featureWords(58, 99).grid);
+  });
+
+  it("a zero command count still yields a playable piece", () => {
+    const w = featureWords(0, 1);
+    for (const a of ACTS) expect(w[a.key].length, a.key).toBeGreaterThan(0);
+  });
+
+  it("news uses the headlines and credits the source in the epilogue", () => {
+    const heads = ["Erste Meldung", "Zweite Meldung", "Dritte Meldung"];
+    const w = newsWords(heads, 5);
+    expect(w.void[0]).toContain("tagesschau");
+    const shown = [...w.grid, ...w.slop, ...w.burn, ...w.nova];
+    for (const line of shown) expect(heads).toContain(line);
+  });
+
+  it("does not pass the array index as a length (the .map(shorten) trap)", () => {
+    // `.map(shorten)` hands the INDEX to `shorten`'s optional `max`, which cut
+    // headline #2 down to two characters. Short headlines must survive intact
+    // no matter where they sit in the list.
+    const heads = ["Alpha Meldung", "Beta Meldung", "Gamma Meldung", "Delta Meldung"];
+    const w = newsWords(heads, 2);
+    for (const line of [...w.grid, ...w.slop, ...w.burn]) {
+      expect(line.endsWith("…"), line).toBe(false);
+      expect(heads).toContain(line);
+    }
+  });
+
+  it("no headlines → the feature showcase, never an empty stage", () => {
+    const w = newsWords([], 1);
+    for (const a of ACTS) expect(w[a.key].length, a.key).toBeGreaterThan(0);
+    expect(w.ignition[0]).toBe("INSPECTOR");
+    // Blank-only input counts as none.
+    expect(newsWords(["   ", ""], 1).ignition[0]).toBe("INSPECTOR");
+  });
+
+  it("shuffle keeps every element exactly once and is seed-stable", () => {
+    const src = [1, 2, 3, 4, 5, 6, 7, 8];
+    const a = shuffle(src, 4);
+    expect([...a].sort()).toEqual(src);
+    expect(a).toEqual(shuffle(src, 4));
+    expect(src).toEqual([1, 2, 3, 4, 5, 6, 7, 8]); // input untouched
+  });
+});
+
+describe("shorten", () => {
+  it("leaves short headlines alone", () => {
+    expect(shorten("Kurze Meldung")).toBe("Kurze Meldung");
+  });
+
+  it("cuts long ones on a word boundary, never mid-word", () => {
+    const long = "Eine ausgesprochen lange Schlagzeile ueber ein wichtiges Ereignis heute";
+    const out = shorten(long, 42);
+    expect(out.length).toBeLessThanOrEqual(43); // + the ellipsis
+    expect(out.endsWith("…")).toBe(true);
+    // The last kept word is whole — the source contains it verbatim.
+    const lastWord = out.slice(0, -1).trim().split(" ").pop()!;
+    expect(long.split(" ")).toContain(lastWord);
+  });
+
+  it("normalises whitespace", () => {
+    expect(shorten("Zwei   Woerter\n hier")).toBe("Zwei Woerter hier");
   });
 });

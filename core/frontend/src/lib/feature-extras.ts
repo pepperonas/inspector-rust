@@ -126,7 +126,14 @@ export const HIDDEN_GAMES: FeatureRow[] = [
     trigger: "x!",
     keyword: "x!",
     typed: true,
-    note: "Vollbild-Spektakel in sechs Akten (~15 s): Zündung, Raster, Slop, Brand, Nova, Leere. Jede Taste bricht ab.",
+    note: "Vollbild-Spektakel in sechs Akten (30 s) — zeigt zufällig gezogene Befehle und Eigenschaften der App selbst. Klick oder Taste bricht ab.",
+  },
+  {
+    name: "X!! (Schlagzeilen)",
+    trigger: "x!!",
+    keyword: "x!!",
+    typed: true,
+    note: "Dasselbe Stück, gefüttert mit den heutigen tagesschau-Schlagzeilen (öffentliche API, ohne Schlüssel). Ohne Netz spielt es die Eigenschaften-Fassung.",
   },
   { name: "Pong", trigger: "getshaky", keyword: "getshaky", typed: true },
   { name: "Snake — walls", trigger: "rockthebox", keyword: "rockthebox", typed: true },
@@ -143,6 +150,7 @@ export const HIDDEN_GAMES: FeatureRow[] = [
  */
 export const HIDDEN_TRIGGERS: readonly string[] = [
   "x!",
+  "x!!",
   "getshaky",
   "rockthebox",
   "rockthabox",

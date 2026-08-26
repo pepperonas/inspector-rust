@@ -799,6 +799,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::nosleep_set,
             commands::alias_create,
             commands::x_overlay_open,
+            commands::x_overlay_payload,
             commands::x_overlay_close,
             commands::alias_list,
             commands::alias_delete,

@@ -6,6 +6,7 @@ import type { ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 import { InlineMd } from "./InlineMd";
+import { platformLabel } from "../lib/social";
 
 interface Props {
   entry: ListEntry;
@@ -205,7 +206,7 @@ export const HistoryItem = memo(function HistoryItem({
       : isMeme && entry.kind === "meme"
         ? entry.data.name
         : isSocial && entry.kind === "social"
-          ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
+          ? `Download from ${platformLabel(entry.data.platform)}`
           : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype
             ? ""
             : isClown && entry.kind === "clown"
@@ -670,7 +671,9 @@ export const HistoryItem = memo(function HistoryItem({
                 (selected ? "text-white/70" : "text-[var(--color-muted)]")
               }
             >
-              ⏎ Vollbild · sechs Akte · jede Taste bricht ab
+              ⏎ Vollbild · 30 s · sechs Akte ·{" "}
+              {entry.data.mode === "news" ? "tagesschau-Schlagzeilen" : "x!! zeigt die News"} ·
+              Klick/Taste bricht ab
             </span>
           </span>
         ) : isBpm && entry.kind === "bpm" ? (

@@ -79,3 +79,24 @@ describe("detectSocial", () => {
     expect(t?.url).toBe("https://youtu.be/xyz");
   });
 });
+
+describe("dailymotion", () => {
+  it("detects the long host, the dai.ly short form and the embed host", () => {
+    for (const url of [
+      "https://www.dailymotion.com/video/x7xd3st",
+      "https://dai.ly/x7xd3st",
+      "https://geo.dailymotion.com/player.html?video=x7xd3st",
+    ]) {
+      expect(detectSocial(url), url).toEqual({ platform: "dailymotion", url });
+    }
+    expect(platformLabel("dailymotion")).toBe("Dailymotion");
+  });
+
+  it("every platform has a label — a new one must not fall through", () => {
+    // The list row used to hard-code its label chain, so an unlisted platform
+    // was silently announced as "Facebook".
+    for (const p of ["youtube", "instagram", "tiktok", "facebook", "dailymotion"] as const) {
+      expect(platformLabel(p).length, p).toBeGreaterThan(0);
+    }
+  });
+});

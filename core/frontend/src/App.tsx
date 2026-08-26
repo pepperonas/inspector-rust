@@ -69,7 +69,7 @@ import {
   is2faTrigger,
   parse2faAdd,
   isBpmTrigger,
-  isXTrigger,
+  parseXTrigger,
   isEqualizerTrigger,
   isOpenerTrigger,
   parseOtpQuery,
@@ -2201,8 +2201,18 @@ function App() {
   // `x!` — hidden full-screen spectacle. Enter-activated like the games, so a
   // stray keystroke can never black out the whole screen.
   const xhypeEntry: ListEntry | null = useMemo(() => {
-    if (!isXTrigger(query)) return null;
-    return { kind: "xhype", data: { label: "X! — Vollbild-Spektakel" } };
+    const mode = parseXTrigger(query);
+    if (!mode) return null;
+    return {
+      kind: "xhype",
+      data: {
+        label:
+          mode === "news"
+            ? "X!! — Schlagzeilen als Vollbild-Spektakel"
+            : "X! — Vollbild-Spektakel",
+        mode,
+      },
+    };
   }, [query]);
 
   const bpmEntry: ListEntry | null = useMemo(() => {
@@ -3783,7 +3793,7 @@ function App() {
         // The command hides the popup itself — calling `hidePopup()` here
         // would fire `app.hide()`, which hides the fresh overlay too (and
         // deactivates the app, so it couldn't take key focus).
-        await invoke("x_overlay_open").catch(() => undefined);
+        await invoke("x_overlay_open", { mode: target.data.mode }).catch(() => undefined);
         return;
       }
       // equalizer trigger — Enter swaps the popup body for the live

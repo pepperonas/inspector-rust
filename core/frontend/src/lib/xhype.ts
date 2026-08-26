@@ -29,14 +29,26 @@ export interface XAct {
   caption: string;
 }
 
+/** Act captions per mode — the HUD narrates whatever the piece is about. */
+const CAPTIONS: Record<XMode, readonly string[]> = {
+  features: ["I · BOOT", "II · ARSENAL", "III · DURCHSATZ", "IV · LAST", "V · VOLLGAS", "VI · IDLE"],
+  news: ["I · TICKER", "II · LAGE", "III · RAUSCHEN", "IV · BRAND", "V · SCHLAGZEILE", "VI · ARCHIV"],
+};
+
+/** Six acts over 30 s — the v0.134 proportions, doubled. */
 export const ACTS: readonly XAct[] = [
-  { key: "ignition", at: 0, dur: 1800, caption: "I · IMMATRIKULATION" },
-  { key: "grid", at: 1800, dur: 3200, caption: "II · REGELSTUDIENZEIT" },
-  { key: "slop", at: 5000, dur: 3200, caption: "III · PEER REVIEW" },
-  { key: "burn", at: 8200, dur: 3200, caption: "IV · DISPUTATION" },
-  { key: "nova", at: 11400, dur: 2000, caption: "V · BERUFUNG" },
-  { key: "void", at: 13400, dur: 1800, caption: "VI · EMERITIERUNG" },
+  { key: "ignition", at: 0, dur: 3600, caption: "I" },
+  { key: "grid", at: 3600, dur: 6400, caption: "II" },
+  { key: "slop", at: 10000, dur: 6400, caption: "III" },
+  { key: "burn", at: 16400, dur: 6400, caption: "IV" },
+  { key: "nova", at: 22800, dur: 4000, caption: "V" },
+  { key: "void", at: 26800, dur: 3200, caption: "VI" },
 ];
+
+/** The HUD caption for an act in a given mode. */
+export function captionFor(mode: XMode, index: number): string {
+  return CAPTIONS[mode][index] ?? ACTS[index]?.caption ?? "";
+}
 
 /** Total runtime in ms. */
 export const X_DURATION = ACTS[ACTS.length - 1].at + ACTS[ACTS.length - 1].dur;
@@ -101,21 +113,94 @@ export const PALETTE = {
   bone: "#e8e4dc",
 } as const;
 
+export type XMode = "features" | "news";
+export type XWords = Readonly<Record<XAct["key"], readonly string[]>>;
+
 /**
- * ONE sentence, stammered across the six acts — the pauses ARE the rhythm.
- * It builds through the grid, drowns in the review flood, survives the
- * defence, and detonates into full academic regalia at the nova; the void
- * gets the quiet epilogue. The `..` are load-bearing: they're the beat the
- * piece stutters on.
+ * What the app can DO, in single words — the `x!` showcase names capabilities,
+ * not command keywords: "REPO" or "SNITCH" tell a stranger nothing, "RIPPER"
+ * and "FIREWALL" do. Curated on purpose (this is editorial copy, not a
+ * restatement of the command registry — see the registry invariant in
+ * CLAUDE.md for why that distinction matters), and long enough that two runs
+ * rarely draw the same set.
+ *
+ * When a genuinely new capability ships, add its word here.
  */
-export const WORDS: Readonly<Record<XAct["key"], readonly string[]>> = {
-  ignition: ["ich.."],
-  grid: ["werde..", "JETZT..", "ich.. werde.. jetzt.."],
-  slop: ["professor", "PROFESSOR", "prof..?", "PROFESSOR"],
-  burn: ["PROFESSOR", "HABILITIERT"],
-  nova: ["PROF. DR. H.C. MULT."],
-  void: ["…emeritiert."],
-};
+export const FEATURES: readonly string[] = [
+  "TRANSLATOR", "CALCULATOR", "CONVERTER", "RIPPER", "SECTOOLS",
+  "SCREENSHOTS", "RECORDER", "TEXTSCANNER", "COLORPICKER", "EYEDROPPER",
+  "QR-CODES", "PASSWORDS", "AUTHENTICATOR", "SNIPPETS", "EXPANDER",
+  "CLIPBOARD", "TIMESHEET", "EQUALIZER", "BPM-DETEKTOR", "SHAZAM",
+  "WELTZEIT", "WETTER", "DISKUSAGE", "CODEZÄHLER", "REPO-STATS",
+  "ANDROID", "HUE-LICHT", "HELLIGKEIT", "TRIMMER", "CLEANER",
+  "FIREWALL", "SYSTEMSTATS", "UPTIME", "ALIAS-BUILDER", "KALENDER",
+  "TIMER", "ALARM", "WACHHALTER", "PROZESS-KILLER", "TESTDATEN",
+  "ASCII-ART", "MARKDOWN→PDF", "BACKUP", "NOTIZEN", "LAUNCHER",
+  "FENSTER-SNAP", "GESTEN", "IRIS", "DISCO", "FREISTELLER",
+  "OPTIMIERER", "RESIZER", "NETTOLOHN", "WELTKARTE", "DATEIMANAGER",
+  "OCR", "AUDIO-SWAP", "EMOJI-TEXT", "SUCHMASCHINEN", "TASTENKÜRZEL",
+];
+
+/** Fisher-Yates with the deterministic `noise` — a shuffle you can seed. */
+export function shuffle<T>(items: readonly T[], seed: number): T[] {
+  const out = [...items];
+  for (let i = out.length - 1; i > 0; i--) {
+    const j = Math.floor(noise(i, seed) * (i + 1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
+}
+
+/**
+ * `x!` — a randomised tour through what the app can do. `commandCount` is the
+ * live registry size (passed in, so this stays pure) and only feeds the nova's
+ * tally; the words themselves come from [`FEATURES`]. A fresh seed per run
+ * means a different eleven capabilities each time.
+ */
+export function featureWords(commandCount: number, seed: number): XWords {
+  const f = shuffle(FEATURES, seed);
+  const at = (i: number) => f[i % f.length] ?? "INSPECTOR";
+  return {
+    ignition: ["INSPECTOR"],
+    grid: [at(0), at(1), at(2), at(3)],
+    slop: [at(4), at(5), at(6), at(7)],
+    burn: [at(8), at(9)],
+    nova: [commandCount > 0 ? `${commandCount} BEFEHLE` : "ALLES AN BORD"],
+    void: ["⌃ SPACE"],
+  };
+}
+
+/**
+ * `x!!` — today's headlines. Only HEADLINES (short factual statements) with
+ * the source named in the HUD; never article text. Long ones are shortened
+ * on a word boundary so 200px type stays legible.
+ */
+export function newsWords(headlines: readonly string[], seed: number): XWords {
+  const hs = shuffle(
+    headlines.filter((h) => h.trim().length > 0).map((h) => shorten(h)),
+    seed,
+  );
+  if (hs.length === 0) return featureWords(0, seed);
+  const at = (i: number) => hs[i % hs.length];
+  return {
+    ignition: ["HEUTE.."],
+    grid: [at(0), at(1), at(2)],
+    slop: [at(3), at(4), at(5), at(6)],
+    burn: [at(7), at(8)],
+    nova: [at(0)],
+    void: ["…tagesschau.de"],
+  };
+}
+
+/** Trim a headline to something a display face can carry: cut on a word
+ *  boundary, never mid-word, and only when it's genuinely long. Pure. */
+export function shorten(text: string, max = 42): string {
+  const t = text.replace(/\s+/g, " ").trim();
+  if (t.length <= max) return t;
+  const cut = t.slice(0, max);
+  const sp = cut.lastIndexOf(" ");
+  return (sp > max * 0.5 ? cut.slice(0, sp) : cut).trim() + "…";
+}
 
 /** Corrupt a word with combining marks — the "AI slop" texture. `amount` 0..1
  *  scales how many marks pile on. Pure + deterministic. */

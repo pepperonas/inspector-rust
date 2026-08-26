@@ -4,6 +4,28 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.137.0] — 2026-08-26
+
+### Changed
+
+- **`x!` names what the app DOES, not what its commands are called.** The showcase drew raw command keywords — `REPO`, `SNITCH` and the like tell a stranger nothing. It now runs a curated list of ~60 capability words (TRANSLATOR, RIPPER, SECTOOLS, FIREWALL, AUTHENTICATOR …), freshly shuffled per run, so every launch names a different eleven. The sign-off is set properly too: `⌃ SPACE` instead of the lowercase `…strg+leertaste.`, twice the size, fading in and HOLDING while the stars die rather than blinking past.
+
+## [0.136.0] — 2026-08-26
+
+### Added
+
+- **Dailymotion downloads.** A Dailymotion link in a clip or the search bar now offers video/audio download like the other platforms, including the `dai.ly` short form and the `geo.dailymotion.com` embed host. Fixed alongside: the history row built its "Download from …" label from a hard-coded chain, so any platform beyond the four it knew was announced as "Facebook" — it uses the shared label map now.
+
+## [0.135.0] — 2026-08-26
+
+### Added
+
+- **`x!!` plays today's headlines.** The same piece, fed by tagesschau's official key-less API — headlines only, source credited in the HUD, never article text. They're fetched BEFORE the window is built, so a slow network can't leave a black full-screen rectangle sitting there; with no connection it falls back to the showcase rather than announcing an error.
+
+### Changed
+
+- **`x!` now shows off the app itself** — a randomised draw from the LIVE command registry plus a few claims, so it can never go stale as commands come and go. Both modes run **30 seconds** (the v0.134 proportions, doubled), each with its own HUD captions, and a **mouse click** aborts alongside any key.
+
 ## [0.134.0] — 2026-08-26
 
 ### Changed

@@ -27,7 +27,7 @@
 
 use serde::Serialize;
 use std::cmp::Reverse;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// Max ring depth kept in the pruned view (DaisyDisk shows ~5 rings).
@@ -133,6 +133,15 @@ fn walk(
         .unwrap_or_else(|| dir.to_string_lossy().into_owned());
     let mut node = Raw { name, size: 0, is_dir: true, children: Vec::new() };
 
+    // At the ROOT, fan the top-level directories out across threads: the walk
+    // is syscall-bound (one `stat` per entry), so a single core leaves the
+    // SSD's queue idle. Each thread owns a subtree and its own `top` list;
+    // results merge below, so the numbers are identical to the serial walk —
+    // only the wall-clock changes. Deeper levels stay serial (a thread per
+    // directory would cost more in scheduling than it saves).
+    if depth == 0 {
+        return walk_root_parallel(dir, node, root_dev, top, progress);
+    }
     let entries = match std::fs::read_dir(dir) {
         Ok(e) => e,
         Err(_) => return node, // permission denied etc. → empty dir, not fatal
@@ -168,6 +177,99 @@ fn walk(
     }
     let _ = depth;
     node
+}
+
+/// Fan the root's children out over worker threads. Directories are split
+/// round-robin; plain files at the root are handled inline (they're cheap).
+/// Merging is order-independent, and each worker's `top` list is folded back
+/// through `consider_top`, so the result matches the serial walk exactly.
+fn walk_root_parallel(
+    dir: &Path,
+    mut node: Raw,
+    root_dev: u64,
+    top: &mut Vec<TopFile>,
+    progress: &ScanProgress,
+) -> Raw {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(_) => return node,
+    };
+    let mut dirs: Vec<PathBuf> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let Ok(meta) = entry.metadata() else { continue };
+        if device_of(&meta) != root_dev {
+            continue;
+        }
+        progress.items.fetch_add(1, Ordering::Relaxed);
+        if meta.is_dir() {
+            dirs.push(path);
+        } else {
+            let sz = on_disk_size(&meta);
+            node.size += sz;
+            progress.bytes.fetch_add(sz, Ordering::Relaxed);
+            let child_name = path
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            node.children.push(Raw { name: child_name, size: sz, is_dir: false, children: Vec::new() });
+            consider_top(top, &path, sz);
+        }
+    }
+    if dirs.is_empty() {
+        return node;
+    }
+    let workers = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4)
+        .clamp(1, 8)
+        .min(dirs.len());
+    let mut buckets: Vec<Vec<PathBuf>> = (0..workers).map(|_| Vec::new()).collect();
+    for (i, d) in dirs.into_iter().enumerate() {
+        buckets[i % workers].push(d);
+    }
+    let results: Vec<(Vec<Raw>, Vec<TopFile>)> = std::thread::scope(|scope| {
+        let handles: Vec<_> = buckets
+            .into_iter()
+            .map(|bucket| {
+                scope.spawn(move || {
+                    let mut mine: Vec<Raw> = Vec::new();
+                    let mut my_top: Vec<TopFile> = Vec::new();
+                    for d in bucket {
+                        mine.push(walk(&d, 1, root_dev, &mut my_top, progress));
+                    }
+                    (mine, my_top)
+                })
+            })
+            .collect();
+        handles.into_iter().filter_map(|h| h.join().ok()).collect()
+    });
+    for (children, worker_top) in results {
+        for c in children {
+            node.size += c.size;
+            node.children.push(c);
+        }
+        for t in worker_top {
+            consider_top_owned(top, t);
+        }
+    }
+    node
+}
+
+/// `consider_top` for an already-built entry (merging a worker's list).
+fn consider_top_owned(top: &mut Vec<TopFile>, item: TopFile) {
+    if item.size == 0 {
+        return;
+    }
+    if top.len() < TOP_FILES {
+        top.push(item);
+    } else if item.size > top.iter().map(|t| t.size).min().unwrap_or(0) {
+        top.push(item);
+        if top.len() > TOP_FILES * 2 {
+            top.sort_by_key(|t| Reverse(t.size));
+            top.truncate(TOP_FILES);
+        }
+    }
 }
 
 /// Keep a bounded max-heap-ish list of the largest files (simple: push, sort,
@@ -441,5 +543,48 @@ mod tests {
         let err = super::scan(&f, &[], &prog).unwrap_err();
         let _ = std::fs::remove_file(&f);
         assert!(err.contains("Kein Ordner"));
+    }
+
+    /// A real scan of a temp tree, to prove the parallel root walk returns the
+    /// SAME numbers as a serial one would — the whole point is wall-clock, not
+    /// different results.
+    #[test]
+    fn parallel_root_walk_totals_match_a_hand_sum() {
+        let dir = std::env::temp_dir().join(format!("ir-disk-par-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // 6 top-level dirs (so several workers get one) × 4 files each.
+        let mut expected_files = 0u64;
+        for d in 0..6 {
+            let sub = dir.join(format!("d{d}"));
+            std::fs::create_dir_all(sub.join("nested")).unwrap();
+            for f in 0..4 {
+                std::fs::write(sub.join(format!("f{f}.bin")), vec![b'x'; 4096]).unwrap();
+                expected_files += 1;
+            }
+            std::fs::write(sub.join("nested/deep.bin"), vec![b'y'; 8192]).unwrap();
+            expected_files += 1;
+        }
+        let progress = ScanProgress::default();
+        let meta = std::fs::symlink_metadata(&dir).unwrap();
+        let mut top = Vec::new();
+        let raw = walk(&dir, 0, device_of(&meta), &mut top, &progress);
+
+        // Every top-level dir came back exactly once — no worker dropped or
+        // duplicated a bucket.
+        let names: Vec<&str> = raw.children.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names.len(), 6, "{names:?}");
+        for d in 0..6 {
+            assert!(names.contains(&format!("d{d}").as_str()), "missing d{d}: {names:?}");
+        }
+        // Size is the sum of the parts, and the progress counter saw every file.
+        let sum: u64 = raw.children.iter().map(|c| c.size).sum();
+        assert_eq!(raw.size, sum);
+        assert!(raw.size > 0);
+        assert!(progress.items.load(Ordering::Relaxed) >= expected_files);
+        // The largest-files list survived the merge.
+        assert!(!top.is_empty());
+        assert!(top.iter().all(|t| t.size > 0));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

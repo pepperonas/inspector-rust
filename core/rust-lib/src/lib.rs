@@ -45,6 +45,7 @@ mod meme;
 mod models;
 mod nosleep;
 mod notes;
+mod media_name;
 mod shell_alias;
 mod ocr;
 mod totp_import;

@@ -58,8 +58,9 @@ pub enum DlMode {
     Audio,
 }
 
-/// Build the yt-dlp argv. `--print after_move:filepath` prints the final path on
-/// stdout; `--` ends option parsing so a `-…` URL can't smuggle a flag. Pure.
+/// Build the yt-dlp argv. The `--print after_move:…` marker line carries the
+/// final path + naming metadata on stdout; `--` ends option parsing so a `-…`
+/// URL can't smuggle a flag. Pure.
 pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &str) -> Vec<String> {
     let mut a: Vec<String> = vec![];
     match mode {
@@ -94,7 +95,10 @@ pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &s
         "--ffmpeg-location".into(),
         ffmpeg_dir.into(),
         "--print".into(),
-        "after_move:filepath".into(),
+        // One marker line, unit-separator-delimited: final path + the metadata
+        // the smart renamer needs (`|` defaults keep absent fields EMPTY, not
+        // "NA"). Parsed by `run_ytdlp`; `media_name::smart_stem` does the rest.
+        "after_move:IRMETA\u{1f}%(filepath)s\u{1f}%(artist,creator|)s\u{1f}%(track|)s\u{1f}%(title|)s\u{1f}%(uploader|)s\u{1f}%(release_year|)s".into(),
         "-o".into(),
         out_template.into(),
         "--".into(),
@@ -143,20 +147,89 @@ pub fn looks_stale_or_rate_limited(stderr: &str) -> bool {
         || l.contains("please report this issue on https://github.com/yt-dlp")
 }
 
-/// Run yt-dlp once. On success returns the produced file path (from
-/// `--print after_move:filepath`); on failure returns the full stderr.
-fn run_ytdlp(yt: &Path, args: &[String]) -> Result<PathBuf, String> {
+/// Parse the `IRMETA`-marked print line into (path, naming metadata). Pure.
+fn parse_meta_line(stdout: &str) -> Option<(PathBuf, crate::media_name::MediaMeta)> {
+    let line = stdout
+        .lines()
+        .rev()
+        .find(|l| l.trim_start().starts_with("IRMETA\u{1f}"))?;
+    let parts: Vec<&str> = line.trim_start().split('\u{1f}').collect();
+    if parts.len() < 7 {
+        return None;
+    }
+    Some((
+        PathBuf::from(parts[1].trim()),
+        crate::media_name::MediaMeta {
+            artist: parts[2].trim().to_string(),
+            track: parts[3].trim().to_string(),
+            title: parts[4].trim().to_string(),
+            uploader: parts[5].trim().to_string(),
+            release_year: parts[6].trim().to_string(),
+        },
+    ))
+}
+
+/// Run yt-dlp once. On success returns the produced file path + the naming
+/// metadata from the marker line; on failure returns the full stderr.
+fn run_ytdlp(
+    yt: &Path,
+    args: &[String],
+) -> Result<(PathBuf, Option<crate::media_name::MediaMeta>), String> {
     let out = Command::new(yt).args(args).output().map_err(|e| format!("yt-dlp: {e}"))?;
     if !out.status.success() {
         return Err(String::from_utf8_lossy(&out.stderr).into_owned());
     }
-    String::from_utf8_lossy(&out.stdout)
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    if let Some((p, meta)) = parse_meta_line(&stdout) {
+        if p.is_file() {
+            return Ok((p, Some(meta)));
+        }
+    }
+    // Fallback: an older yt-dlp / unexpected output — last non-empty line.
+    stdout
         .lines()
         .rev()
         .find(|l| !l.trim().is_empty())
         .map(|l| PathBuf::from(l.trim()))
         .filter(|p| p.is_file())
+        .map(|p| (p, None))
         .ok_or_else(|| "download produced no file".into())
+}
+
+/// Rename the downloaded file to its smart library name (`Artist - Track
+/// (Edition).ext`) — or at least strip the ` [videoid]` tail. Best-effort:
+/// any failure keeps the original path (a finished download must never be
+/// lost to a rename).
+fn smart_rename(path: PathBuf, meta: Option<&crate::media_name::MediaMeta>) -> PathBuf {
+    let Some(stem) = path.file_stem().map(|s| s.to_string_lossy().into_owned()) else {
+        return path;
+    };
+    let ext = path.extension().map(|e| e.to_string_lossy().into_owned());
+    let target_stem = meta
+        .and_then(crate::media_name::smart_stem)
+        .unwrap_or_else(|| crate::media_name::strip_id_suffix(&stem));
+    if target_stem.is_empty() || target_stem == stem {
+        return path;
+    }
+    let Some(dir) = path.parent() else { return path };
+    let with_ext = |s: &str| match &ext {
+        Some(e) => dir.join(format!("{s}.{e}")),
+        None => dir.join(s),
+    };
+    // Collision-safe: never overwrite an existing file.
+    let mut target = with_ext(&target_stem);
+    let mut n = 2;
+    while target.exists() {
+        target = with_ext(&format!("{target_stem} ({n})"));
+        n += 1;
+        if n > 50 {
+            return path;
+        }
+    }
+    match std::fs::rename(&path, &target) {
+        Ok(()) => target,
+        Err(_) => path,
+    }
 }
 
 /// Download `url` (video or audio) into `dir`. Returns the produced file path.
@@ -176,14 +249,14 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
     let base = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy());
 
     match run_ytdlp(&yt, &base) {
-        Ok(p) => Ok(p),
+        Ok((p, meta)) => Ok(smart_rename(p, meta.as_ref())),
         Err(stderr) if is_bot_block(&stderr) => {
             // Retry with each browser's cookies; first success wins.
             for br in COOKIE_BROWSERS {
                 let mut args = vec!["--cookies-from-browser".to_string(), (*br).to_string()];
                 args.extend(base.iter().cloned());
-                if let Ok(p) = run_ytdlp(&yt, &args) {
-                    return Ok(p);
+                if let Ok((p, meta)) = run_ytdlp(&yt, &args) {
+                    return Ok(smart_rename(p, meta.as_ref()));
                 }
             }
             Err(format!(

@@ -18,14 +18,42 @@ import rickrollMp4 from "../assets/rickroll.mp4";
 export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [blocked, setBlocked] = useState(false);
+  const [srcUrl, setSrcUrl] = useState<string | null>(null);
   const reduce = prefersReducedMotion();
 
-  // Unmuted autoplay attempt — the opening Enter/click is the user gesture.
+  // ⚠️ Play from a BLOB, not the asset URL (v0.128.3 — "super laggy" field
+  // report): WKWebView's media loader streams via Range requests, which the
+  // embedded-asset custom protocol serves poorly → constant stutter. Fetching
+  // the 5 MB once and handing the video an object URL gives the decoder full
+  // random access from memory. Revoked on unmount (the media element is torn
+  // down with it); a fetch failure falls back to the direct asset URL.
   useEffect(() => {
+    let alive = true;
+    let url: string | null = null;
+    fetch(rickrollMp4)
+      .then((r) => r.blob())
+      .then((b) => {
+        if (!alive) return;
+        url = URL.createObjectURL(b.type ? b : new Blob([b], { type: "video/mp4" }));
+        setSrcUrl(url);
+      })
+      .catch(() => {
+        if (alive) setSrcUrl(rickrollMp4);
+      });
+    return () => {
+      alive = false;
+      if (url) URL.revokeObjectURL(url);
+    };
+  }, []);
+
+  // Unmuted autoplay attempt once the blob is ready — the opening Enter/click
+  // is the user gesture.
+  useEffect(() => {
+    if (!srcUrl) return;
     const v = videoRef.current;
     if (!v) return;
     v.play().catch(() => setBlocked(true));
-  }, []);
+  }, [srcUrl]);
 
   const restart = () => {
     const v = videoRef.current;
@@ -70,13 +98,19 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
         className="relative overflow-hidden rounded-xl border border-[var(--color-border)] bg-black"
         style={{ aspectRatio: "16 / 9" }}
       >
-        <video
-          ref={videoRef}
-          src={rickrollMp4}
-          controls
-          playsInline
-          className="absolute inset-0 h-full w-full"
-        />
+        {srcUrl ? (
+          <video
+            ref={videoRef}
+            src={srcUrl}
+            controls
+            playsInline
+            className="absolute inset-0 h-full w-full"
+          />
+        ) : (
+          <div className="absolute inset-0 flex items-center justify-center text-[12px] text-[var(--color-muted)]">
+            Lade Clip…
+          </div>
+        )}
       </div>
 
       {/* Lyric marquee. */}

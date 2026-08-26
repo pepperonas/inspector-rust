@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.129.0] — 2026-08-26
+
+### Changed
+
+- **Social downloads get library-style names.** Instead of yt-dlp's `Title [videoid].m4a`, audio AND video downloads are renamed to `Artist - Track (Edition).ext`: YouTube's music metadata (artist/track) wins when present, otherwise the title is split at its first dash and junk brackets (`Official Video`, `Lyric Video`, `4K`, `Visualizer`, …) are dropped while real editions survive (`Live in Paris`, `Acoustic`, `feat. X`, a year — and a kept `Remastered` without a year picks up the release year); no separator → the cleaned channel name (` - Topic`/`VEVO`/`Official` stripped) becomes the artist. Collision-safe, best-effort (a rename failure never loses the download), and without any metadata at least the ` [videoid]` tail is stripped.
+
+## [0.128.3] — 2026-08-26
+
+### Fixed
+
+- **`rickroll` playback is smooth.** The clip stuttered because WKWebView streams media via Range requests, which the embedded-asset protocol serves poorly — the panel now fetches the 5 MB once into a Blob and plays from an object URL (full random access from memory, revoked on unmount, direct-URL fallback on fetch failure).
+
 ## [0.128.2] — 2026-08-26
 
 ### Fixed

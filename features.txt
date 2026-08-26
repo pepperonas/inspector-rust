@@ -87,7 +87,7 @@ Zufall — `rnd` / `random`: würfelt eine Zahl und zeigt sie direkt im Preview 
 Vokale — `rmvvls <text>`: Vokale entfernen → Clipboard
 Meme-Picker — `meme [suche]`: GIF/Bild-Bibliothek durchsuchen, animiert kopieren
 Video-Trim — `trim`: Datei kürzen (lossless oder frame-genau)
-Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus)
+Social-Download — YouTube/Instagram/TikTok/Facebook-URL erkannt → Video/Audio laden (yt-dlp, Tab wechselt Modus); Dateien heißen `Interpret - Track (Edition).ext` (Musik-Metadaten > Titel-Split > bereinigter Kanalname; Junk-Klammern raus, echte Editionen wie Live/Remaster/feat./Jahr bleiben, Remaster ohne Jahr bekommt das Release-Jahr)
 Aufräumen — `clean`: interaktiver Kategorien-Picker (Caches, Logs, Duplikate, Installer, Docker, Xcode …), s. u.
 BPM-Detektor — `bpm`: Live-Mikrofon-Tempoerkennung mit AAA-Visualizer, Enter pinnt (native Aufnahme via cpal → keine Wiedergabe-Aussetzer beim Start)
 Equalizer — `equalizer` (Alias `eq`): Live-Mikrofon-Spektrum-Visualizer, 28 log-skalierte vertikale Balken mit Peak-Hold-Markern; zeigt zusätzlich live BPM + dB und reagiert auf Beats (Shockwave, Flash, Bar-Punch, Funken); Enter pinnt (rot, Klick-außerhalb schließt nicht), Esc verlässt; teilt sich die native cpal-Aufnahme mit BPM/Disco (kein extra Permission-Flow), client-seitiges FFT via Web-Audio-AnalyserNode

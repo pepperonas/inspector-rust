@@ -19,7 +19,7 @@
 //!   Dock on top. Raising `NSWindow.level` covers them without the slow
 //!   native-fullscreen Space transition.
 
-use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
+use tauri::{AppHandle, Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub const X_LABEL: &str = "x-overlay";
 
@@ -52,6 +52,22 @@ fn build_on_main(app: &AppHandle) {
         .unwrap_or_else(|| monitors[0].clone());
     let (pos, size) = (*m.position(), *m.size());
 
+    // ⚠️ Hide the popup WINDOW ourselves — never `hotkey::hide_popup`, which
+    // ends in `app.hide()` (`NSApp.hide(nil)`). That hides EVERY window this
+    // process owns, so the overlay we're about to build vanished with it and
+    // the user had to summon it again (field report). It also deactivates the
+    // app, which would stop the overlay taking key focus — and this piece
+    // needs focus, since any key aborts it. Same lesson as the iris overlays,
+    // approached from the other side: they set `setCanHide:NO` to survive the
+    // app-hide; here we simply don't fire one.
+    #[cfg(target_os = "macos")]
+    crate::esc_watch::disarm();
+    if let Some(popup) = app.get_webview_window(crate::hotkey::POPUP_LABEL) {
+        let _ = popup.hide();
+    }
+    // Let the frontend drop its transient state, exactly as a normal hide would.
+    let _ = app.emit("popup-hidden", ());
+
     let built = WebviewWindowBuilder::new(app, X_LABEL, WebviewUrl::App("index.html".into()))
         .title("X")
         .inner_size(size.width as f64, size.height as f64)
@@ -73,6 +89,7 @@ fn build_on_main(app: &AppHandle) {
             let _ = w.set_position(tauri::PhysicalPosition::new(pos.x, pos.y));
             let _ = w.set_size(tauri::PhysicalSize::new(size.width, size.height));
             raise_above_menu_bar(&w);
+            exempt_from_app_hide(&w);
             let _ = w.show();
             let _ = w.set_focus();
         }
@@ -106,3 +123,24 @@ fn raise_above_menu_bar(win: &tauri::WebviewWindow) {
 
 #[cfg(not(target_os = "macos"))]
 fn raise_above_menu_bar(_win: &tauri::WebviewWindow) {}
+
+/// macOS: exempt the overlay from `NSApp.hide(nil)`. We avoid firing one
+/// ourselves (see `build_on_main`), but any other path that hides the app —
+/// a status toast finishing, a stray `hide_popup` — must not take the piece
+/// down mid-play. Same flag the iris overlays use.
+#[cfg(target_os = "macos")]
+fn exempt_from_app_hide(win: &tauri::WebviewWindow) {
+    use objc2::msg_send;
+    use objc2::runtime::AnyObject;
+    if let Ok(ns) = win.ns_window() {
+        let w = ns as *mut AnyObject;
+        if !w.is_null() {
+            unsafe {
+                let _: () = msg_send![w, setCanHide: false];
+            }
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn exempt_from_app_hide(_win: &tauri::WebviewWindow) {}

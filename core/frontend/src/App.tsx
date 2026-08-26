@@ -3780,8 +3780,10 @@ function App() {
       // x! — the full-screen spectacle runs in its OWN window (it covers the
       // whole panel, menu bar included), so the popup just gets out of the way.
       if (target.kind === "xhype") {
+        // The command hides the popup itself — calling `hidePopup()` here
+        // would fire `app.hide()`, which hides the fresh overlay too (and
+        // deactivates the app, so it couldn't take key focus).
         await invoke("x_overlay_open").catch(() => undefined);
-        await hidePopup();
         return;
       }
       // equalizer trigger — Enter swaps the popup body for the live

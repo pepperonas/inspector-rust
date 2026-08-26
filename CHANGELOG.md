@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.133.1] — 2026-08-26
+
+### Fixed
+
+- **`x!` now plays the moment you press Enter.** The spectacle opened and was immediately hidden again — the popup's normal dismiss ends in `app.hide()` on macOS, which hides *every* window this process owns, the fresh overlay included (and deactivates the app, so it couldn't take key focus either). The command now hides the popup window itself instead of firing an app-hide, and the overlay is additionally exempted from any app-hide via `setCanHide:NO`.
+
 ## [0.133.0] — 2026-08-26
 
 ### Fixed

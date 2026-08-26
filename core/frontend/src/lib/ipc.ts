@@ -189,8 +189,14 @@ export function wakelockSet(
   enable: boolean,
   source?: string,
   mode?: "full" | "dark",
+  keepPopup?: boolean,
 ): Promise<boolean> {
-  return invoke("wakelock_set", { enable, source: source ?? "wakelock", mode: mode ?? "full" });
+  return invoke("wakelock_set", {
+    enable,
+    source: source ?? "wakelock",
+    mode: mode ?? "full",
+    keepPopup: keepPopup ?? false,
+  });
 }
 
 /** Wakelock status: on + which mode ("full" | "dark"). The

@@ -1599,6 +1599,7 @@ pub fn wakelock_set(
     enable: bool,
     source: Option<String>,
     mode: Option<String>,
+    keep_popup: Option<bool>,
 ) -> bool {
     // `mode` absent → Full, the historical behaviour (every existing caller).
     // "dark" (v0.116.0) = system awake, display free to sleep — see wakelock.rs.
@@ -1627,15 +1628,20 @@ pub fn wakelock_set(
     } else {
         (format!("{label} Off"), "Normal sleep behaviour resumed")
     };
-    crate::status_toast::announce(
-        &app,
-        crate::status_toast::StatusToast {
-            kind: "wakelock".into(),
-            on: new_state,
-            title,
-            subtitle: subtitle.into(),
-        },
-    );
+    let toast = crate::status_toast::StatusToast {
+        kind: "wakelock".into(),
+        on: new_state,
+        title,
+        subtitle: subtitle.into(),
+    };
+    if keep_popup.unwrap_or(false) {
+        // Footer toggle (v0.129.1): the user is mid-session in the popup —
+        // keep it open, still pop the flourish (the `wakelock-changed` event
+        // above already updated the footer LED + tooltip).
+        crate::status_toast::announce_keeping_popup(&app, toast);
+    } else {
+        crate::status_toast::announce(&app, toast);
+    }
     new_state
 }
 

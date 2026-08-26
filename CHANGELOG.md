@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.130.0] — 2026-08-26
+
+### Changed
+
+- **A fully typed panel command shows its content directly in the preview.** Typing the complete keyword (`clock`, `stats`, `weather`, `hue`, `adb`, `tokens`, `snitch`, `uptime`, `brightness`, `boom`, `rickroll`, bare `nosleep`, …) renders the panel immediately — no Enter needed; Enter only hands over keyboard focus. Heavy scans (`disk`, `loc`, `repo`, `clean`) and microphone commands (`shazam`, bare `iris`) deliberately stay Enter-activated.
+- **The footer's dark-wake toggle keeps the popup open.** Toggling ☾ in the footer no longer closes the overlay: the status-toast flourish still pops (over the popup, click-through), and the LED + tooltip update live via the `wakelock-changed` event. The typed `wakelock`/`caffeine` command keeps the historical hide-then-toast flow, and the toast's hide path never `app.hide()`s while the popup is visible.
+
 ## [0.129.0] — 2026-08-26
 
 ### Changed

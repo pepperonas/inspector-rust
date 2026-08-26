@@ -951,7 +951,11 @@ function App() {
   // `brightness` command (e.g. the user cleared / retyped the search field).
   const isBrightnessCmd = parsedCommand?.spec.kind === "brightness";
   useEffect(() => {
-    if (!isBrightnessCmd && brightnessMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isBrightnessCmd && !brightnessMode) {
+      setBrightnessMode(true);
+    } else if (!isBrightnessCmd && brightnessMode) {
       setBrightnessMode(false);
       setBrightnessFocus(false);
     }
@@ -985,7 +989,11 @@ function App() {
   // Same auto-exit for hue mode.
   const isHueCmd = parsedCommand?.spec.kind === "hue";
   useEffect(() => {
-    if (!isHueCmd && hueMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isHueCmd && !hueMode) {
+      setHueMode(true);
+    } else if (!isHueCmd && hueMode) {
       setHueMode(false);
       setHueFocus(false);
     }
@@ -994,7 +1002,11 @@ function App() {
   // Same auto-exit for stats mode.
   const isStatsCmd = parsedCommand?.spec.kind === "stats";
   useEffect(() => {
-    if (!isStatsCmd && statsMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isStatsCmd && !statsMode) {
+      setStatsMode(true);
+    } else if (!isStatsCmd && statsMode) {
       setStatsMode(false);
       setStatsFocus(false);
     }
@@ -1080,7 +1092,11 @@ function App() {
   // Same auto-exit for boom mode.
   const isBoomCmd = parsedCommand?.spec.kind === "boom";
   useEffect(() => {
-    if (!isBoomCmd && boomMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isBoomCmd && !boomMode) {
+      setBoomMode(true);
+    } else if (!isBoomCmd && boomMode) {
       setBoomMode(false);
       setBoomFocus(false);
     }
@@ -1089,17 +1105,24 @@ function App() {
   // Same auto-exit for uptime mode.
   const isUptimeCmd = parsedCommand?.spec.kind === "uptime";
   useEffect(() => {
-    if (!isUptimeCmd && uptimeMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isUptimeCmd && !uptimeMode) {
+      setUptimeMode(true);
+    } else if (!isUptimeCmd && uptimeMode) {
       setUptimeMode(false);
       setUptimeFocus(false);
     }
   }, [isUptimeCmd, uptimeMode]);
 
-  // Same auto-exit for weather mode (Enter-activated — it does network I/O, so
-  // it must not fire on every keystroke; once open, the city arg drives refetch).
+  // Weather shows while fully typed (v0.130.0) — ONE debounced fetch for the
+  // complete keyword is fine; the city arg drives the panel's refetch, and
+  // the city autocomplete rows keep working until Enter hands focus over.
   const isWeatherCmd = parsedCommand?.spec.kind === "weather";
   useEffect(() => {
-    if (!isWeatherCmd && weatherMode) {
+    if (isWeatherCmd && !weatherMode) {
+      setWeatherMode(true);
+    } else if (!isWeatherCmd && weatherMode) {
       setWeatherMode(false);
       setWeatherFocus(false);
     }
@@ -1112,14 +1135,17 @@ function App() {
     }
   }, [isLocCmd, locMode]);
   const isNosleepCmd = parsedCommand?.spec.kind === "nosleep";
+  // Show-while-fully-typed — but ONLY the bare form: the panel acts on an
+  // `on`/`off` arg immediately (admin prompt!), so those stay Enter-only.
+  const nosleepBare = isNosleepCmd && (parsedCommand?.arg ?? "").trim() === "";
   useEffect(() => {
-    if (!isNosleepCmd && nosleepMode) {
+    if (nosleepBare && !nosleepMode) {
+      setNosleepMode(true);
+    } else if (!isNosleepCmd && nosleepMode) {
       setNosleepMode(false);
       setNosleepFocus(false);
-      setAliasMode(false);
-      setAliasFocus(false);
     }
-  }, [isNosleepCmd, nosleepMode]);
+  }, [nosleepBare, isNosleepCmd, nosleepMode]);
   const isRepoCmd =
     parsedCommand?.spec.kind === "repo" || parsedCommand?.spec.kind === "repo-export";
   useEffect(() => {
@@ -1130,14 +1156,22 @@ function App() {
   }, [isRepoCmd, repoMode]);
   const isRickCmd = parsedCommand?.spec.kind === "rickroll";
   useEffect(() => {
-    if (!isRickCmd && rickMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isRickCmd && !rickMode) {
+      setRickMode(true);
+    } else if (!isRickCmd && rickMode) {
       setRickMode(false);
       setRickFocus(false);
     }
   }, [isRickCmd, rickMode]);
   const isClockCmd = parsedCommand?.spec.kind === "clock";
   useEffect(() => {
-    if (!isClockCmd && clockMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isClockCmd && !clockMode) {
+      setClockMode(true);
+    } else if (!isClockCmd && clockMode) {
       setClockMode(false);
       setClockFocus(false);
     }
@@ -1151,14 +1185,22 @@ function App() {
   }, [isDiskCmd, diskMode]);
   const isAdbCmd = parsedCommand?.spec.kind === "adb";
   useEffect(() => {
-    if (!isAdbCmd && adbMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isAdbCmd && !adbMode) {
+      setAdbMode(true);
+    } else if (!isAdbCmd && adbMode) {
       setAdbMode(false);
       setAdbFocus(false);
     }
   }, [isAdbCmd, adbMode]);
   const isTokensCmd = parsedCommand?.spec.kind === "tokens";
   useEffect(() => {
-    if (!isTokensCmd && tokensMode) {
+    // Show-while-fully-typed (v0.130.0): the complete keyword already
+    // renders the panel in the preview; Enter only hands it keyboard focus.
+    if (isTokensCmd && !tokensMode) {
+      setTokensMode(true);
+    } else if (!isTokensCmd && tokensMode) {
       setTokensMode(false);
       setTokensFocus(false);
     }
@@ -1200,12 +1242,21 @@ function App() {
 
   // Snitch mode auto-exits when the query is no longer the `snitch` command.
   const isSnitchCmd = parsedCommand?.spec.kind === "snitch";
+  // Show-while-fully-typed (v0.130.0): the arg picks the view exactly like
+  // the dispatch branch does; Enter only hands over keyboard focus.
+  const snitchView: null | "apps" | "map" = isSnitchCmd
+    ? /\b(map|conn|show|world)/i.test(parsedCommand?.arg ?? "")
+      ? "map"
+      : "apps"
+    : null;
   useEffect(() => {
-    if (!isSnitchCmd && snitchMode) {
+    if (snitchView && snitchMode !== snitchView) {
+      setSnitchMode(snitchView);
+    } else if (!snitchView && snitchMode) {
       setSnitchMode(null);
       setSnitchFocus(false);
     }
-  }, [isSnitchCmd, snitchMode]);
+  }, [snitchView, snitchMode]);
 
   // Shazam mode auto-exits when the query is no longer the `shazam` command
   // (Enter-activated — it opens the mic, not shown while typing).
@@ -4761,9 +4812,12 @@ function App() {
           darkWake={darkWake}
           onDarkWakeToggle={() => {
             // Click semantics: off OR full → dark on (the user wants the
-            // screen dark + system awake); dark → everything off. The backend
-            // hides the popup + shows the status toast, like the command.
-            void wakelockSet(!darkWakeRef.current, "wakelock", "dark");
+            // screen dark + system awake); dark → everything off. keepPopup:
+            // the user is mid-session in the popup — it STAYS OPEN, the toast
+            // flourish still pops, and the LED/tooltip update via the
+            // `wakelock-changed` event (v0.130.0). The typed `wakelock`
+            // command keeps the historical hide-then-toast flow.
+            void wakelockSet(!darkWakeRef.current, "wakelock", "dark", true);
           }}
         />
       </div>

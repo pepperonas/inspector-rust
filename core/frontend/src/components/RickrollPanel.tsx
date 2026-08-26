@@ -55,6 +55,19 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
     v.play().catch(() => setBlocked(true));
   }, [srcUrl]);
 
+  // Show-while-typing (v0.130.0) means the mount attempt can run WITHOUT a
+  // user gesture and get blocked — the Enter that hands focus over IS the
+  // gesture, so try again then.
+  useEffect(() => {
+    if (!focused) return;
+    const v = videoRef.current;
+    if (v && v.paused) {
+      v.play()
+        .then(() => setBlocked(false))
+        .catch(() => setBlocked(true));
+    }
+  }, [focused]);
+
   const restart = () => {
     const v = videoRef.current;
     if (!v) return;

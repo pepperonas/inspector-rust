@@ -181,6 +181,20 @@ pub fn announce(app: &AppHandle, toast: StatusToast) {
     });
 }
 
+/// Announce `toast` while the popup STAYS OPEN (v0.129.1 — the footer's
+/// dark-wake toggle): the app is active (the user just clicked inside the
+/// popup), so the fresh toast window orders on-screen directly — no app-hide
+/// settle dance needed. The toast is click-through + transient, so briefly
+/// overlapping the popup is fine; `hide()`'s popup-visible guard keeps the
+/// later toast-hide from `app.hide()`-ing the popup away.
+pub fn announce_keeping_popup(app: &AppHandle, toast: StatusToast) {
+    let app2 = app.clone();
+    let _ = app.run_on_main_thread(move || {
+        let app3 = app2.clone();
+        show(&app3, toast);
+    });
+}
+
 /// Hide (not close) the toast window so the next toast re-shows instantly.
 /// On macOS this also fires `app.hide()` to return key focus to whatever
 /// app was frontmost before the popup opened — deferred to here (rather
@@ -198,7 +212,14 @@ pub fn hide(app: &AppHandle) {
             .try_state::<LatestToast>()
             .and_then(|s| s.0.lock().as_ref().map(|t| matches!(t.kind.as_str(), "volume" | "mute")))
             .unwrap_or(false);
-        if !passive {
+        // Never `app.hide()` while the POPUP is on screen (v0.129.1): the
+        // footer's dark-wake toggle announces its toast with the popup kept
+        // open — an app-hide here would close it out from under the user.
+        let popup_visible = app
+            .get_webview_window(crate::hotkey::POPUP_LABEL)
+            .map(|w| w.is_visible().unwrap_or(false))
+            .unwrap_or(false);
+        if !passive && !popup_visible {
             let _ = app.hide();
         }
     }

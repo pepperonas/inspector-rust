@@ -1188,6 +1188,20 @@ pub async fn nosleep_set(
     Ok(crate::nosleep::status())
 }
 
+// ── x! — the full-screen spectacle (v0.133.0) ─────────────────────────
+
+/// Open the `x!` spectacle full-screen on the cursor's monitor.
+#[tauri::command]
+pub fn x_overlay_open(app: AppHandle) {
+    crate::xhype::open(&app);
+}
+
+/// Close it (Esc / any key, or when the piece ends).
+#[tauri::command]
+pub fn x_overlay_close(app: AppHandle) {
+    crate::xhype::close(&app);
+}
+
 // ── alias — guided shell-alias creation (v0.127.0) ────────────────────
 
 /// Append the alias to the current user's shell config (rc file on

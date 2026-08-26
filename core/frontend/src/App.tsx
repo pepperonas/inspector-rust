@@ -69,6 +69,7 @@ import {
   is2faTrigger,
   parse2faAdd,
   isBpmTrigger,
+  isXTrigger,
   isEqualizerTrigger,
   isOpenerTrigger,
   parseOtpQuery,
@@ -98,6 +99,7 @@ import {
 } from "./lib/commands";
 import { filterKillProcesses, KILL_LIST_CAP } from "./lib/kill-filter";
 import { parseHelpQuery, searchDocs, type HelpTarget } from "./lib/commandHelp";
+import { clownAll, parseClownArg } from "./lib/clown";
 import { lookupDoc } from "./lib/commandDocs";
 import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
@@ -206,6 +208,7 @@ import { matchTotpEntries, totpCommandRows } from "./lib/totp";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
+import { invoke } from "@tauri-apps/api/core";
 
 type Tab = "history" | "snippets" | "notes" | "timesheet" | "features" | "settings";
 
@@ -850,6 +853,53 @@ function App() {
     );
   }, [isMemeMode, memeArg, memeLibrary]);
 
+  // ── Clown-mode: whole-list style gallery (like meme/figlet) ──────────
+  // `clown <text>` lists every style with a live sample; bare `clown` falls
+  // back to the CLIPBOARD so long text doesn't have to be retyped. The
+  // transforms are pure + deterministic, so the list is stable while typing.
+  const isClownMode = parsedCommand?.spec.kind === "clown";
+  const clownParsed = useMemo(
+    () => parseClownArg(isClownMode ? (parsedCommand?.arg ?? "") : ""),
+    [isClownMode, parsedCommand],
+  );
+  const [clownClipboard, setClownClipboard] = useState("");
+  useEffect(() => {
+    // Only read the clipboard when there's no text to work with — never
+    // pre-emptively, and never while the user is typing an argument.
+    if (!isClownMode || clownParsed.text !== "") {
+      setClownClipboard("");
+      return;
+    }
+    let cancelled = false;
+    import("@tauri-apps/plugin-clipboard-manager")
+      .then(({ readText }) => readText())
+      .then((t) => {
+        if (!cancelled) setClownClipboard((t ?? "").trim());
+      })
+      .catch(() => {
+        if (!cancelled) setClownClipboard("");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isClownMode, clownParsed.text]);
+
+  const clownText = clownParsed.text || clownClipboard;
+  const clownEntries: ListEntry[] = useMemo(() => {
+    if (!isClownMode || clownText === "") return [];
+    const all = clownAll(clownText).map(
+      ({ style, output }): ListEntry => ({
+        kind: "clown",
+        data: { key: style.key, name: style.name, hint: style.hint, output },
+      }),
+    );
+    // `clown hi @leet` floats that style to the top (figlet's @font model).
+    const sel = clownParsed.style;
+    if (!sel) return all;
+    const idx = all.findIndex((e) => e.kind === "clown" && e.data.key === sel);
+    return idx <= 0 ? all : [all[idx], ...all.slice(0, idx), ...all.slice(idx + 1)];
+  }, [isClownMode, clownText, clownParsed.style]);
+
   // ── Figlet-mode: whole-list font gallery (like meme/kill) ────────────
   // The left list becomes font rows (each a live sample of the text); the big
   // banner of the selected font renders in the preview. Enter copies it.
@@ -1344,6 +1394,7 @@ function App() {
     // kill / meme take over the whole list, not a single command row.
     if (parsedCommand.spec.kind === "kill") return null;
     if (parsedCommand.spec.kind === "meme") return null;
+    if (parsedCommand.spec.kind === "clown") return null;
     const { spec, arg } = parsedCommand;
     let label: string;
     let hint: string;
@@ -2147,6 +2198,13 @@ function App() {
   // bpm trigger — exact `bpm` (whitespace + case tolerant) surfaces
   // a "Detect BPM" row at the top. Enter activates → bpmMode = true →
   // <BpmDetector /> takes over the popup body.
+  // `x!` — hidden full-screen spectacle. Enter-activated like the games, so a
+  // stray keystroke can never black out the whole screen.
+  const xhypeEntry: ListEntry | null = useMemo(() => {
+    if (!isXTrigger(query)) return null;
+    return { kind: "xhype", data: { label: "X! — Vollbild-Spektakel" } };
+  }, [query]);
+
   const bpmEntry: ListEntry | null = useMemo(() => {
     if (!isBpmTrigger(query)) return null;
     return {
@@ -2317,6 +2375,7 @@ function App() {
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
+    if (isClownMode) return clownEntries;
     if (helpTarget?.kind === "index") return helpEntries;
     if (isFigletMode) return figletEntries;
     // Pinned-only browser: just the pinned clips (still query-filtered), and
@@ -2356,6 +2415,7 @@ function App() {
       // Terminal.app beating `terminal`). Custom commands ALWAYS have priority.
       ...(brunoEntry ? [brunoEntry] : []),
       ...(pwgenEntry ? [pwgenEntry] : []),
+      ...(xhypeEntry ? [xhypeEntry] : []),
       ...(bpmEntry ? [bpmEntry] : []),
       ...(equalizerEntry ? [equalizerEntry] : []),
       ...(totpManageEntry ? [totpManageEntry] : []),
@@ -2377,6 +2437,8 @@ function App() {
     killTargetEntries,
     isMemeMode,
     memeEntries,
+    isClownMode,
+    clownEntries,
     isFigletMode,
     figletEntries,
     helpTarget,
@@ -2393,6 +2455,7 @@ function App() {
     brunoEntry,
     pwgenEntry,
     bpmEntry,
+    xhypeEntry,
     equalizerEntry,
     totpManageEntry,
     totpSubEntry,
@@ -3714,6 +3777,13 @@ function App() {
         setBpmMode(true);
         return;
       }
+      // x! — the full-screen spectacle runs in its OWN window (it covers the
+      // whole panel, menu bar included), so the popup just gets out of the way.
+      if (target.kind === "xhype") {
+        await invoke("x_overlay_open").catch(() => undefined);
+        await hidePopup();
+        return;
+      }
       // equalizer trigger — Enter swaps the popup body for the live
       // spectrum visualizer (same mic + pin/Esc behaviour as bpm).
       if (target.kind === "equalizer") {
@@ -3864,6 +3934,10 @@ function App() {
         // so focus snaps to whichever app takes it (Preview, etc.).
         await openUrl(`file://${target.data.path}`);
         await hidePopup();
+      } else if (target.kind === "clown") {
+        // Paste the transformed text (and keep it in history like the other
+        // generators). `pasteGenerated` hides the popup itself.
+        await pasteGenerated(target.data.output, true);
       } else if (target.kind === "meme") {
         // Copy the meme file to the clipboard (animation preserved), then
         // hide so the user can paste it wherever they were.

@@ -54,10 +54,27 @@ describe("parseHelpQuery — leading `?<command>` (no space)", () => {
     expect(doc("?weather")).toBe("weather");
     expect(doc("?kill")).toBe("kill");
   });
-  it("resolves hidden aliases + prefixes too", () => {
+  it("resolves hidden aliases exactly", () => {
     expect(doc("?cal")).toBe("calendar"); // hidden alias
-    expect(doc("?sni")).toBe("snitch"); // prefix
-    expect(doc("?bright")).toBe("brightness");
+    expect(doc("?repo")).toBe("repo");
+  });
+
+  it("a PREFIX filters the index — `?re` behaves like `? re` (v0.133.0)", () => {
+    // Field report: `? re` listed the matches but `?re` jumped into one doc.
+    // The space after the `?` must not change the outcome.
+    expect(parseHelpQuery("?re")).toEqual(parseHelpQuery("? re"));
+    expect(parseHelpQuery("?re")).toEqual({ kind: "index", filter: "re" });
+    expect(parseHelpQuery("?sni")).toEqual({ kind: "index", filter: "sni" });
+    // …and that filter really does surface the commands you'd expect.
+    const hits = searchDocs("re").map((d) => d.command);
+    expect(hits).toContain("repo");
+    expect(hits).toContain("reboot");
+  });
+
+  it("the TRAILING form keeps prefix resolution (a different intent)", () => {
+    // `sni?` = "help for THIS command"; `?sni` = "search the docs".
+    expect(doc("sni?")).toBe("snitch");
+    expect(doc("bright?")).toBe("brightness");
   });
   it("is case-insensitive + whitespace-tolerant", () => {
     expect(doc("?SNITCH")).toBe("snitch");

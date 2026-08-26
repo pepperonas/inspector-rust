@@ -243,7 +243,11 @@ export function HistoryList({
                                                   ? `fig-${entry.data.name}`
                                                   : entry.kind === "help"
                                                     ? `help-${entry.data.command}`
-                                                    : `c-${entry.data.id}`;
+                                                    : entry.kind === "clown"
+                                                      ? `clown-${entry.data.key}`
+                                                      : entry.kind === "xhype"
+                                                        ? "xhype"
+                                                        : `c-${entry.data.id}`;
               return (
                 <HistoryItem
                   rails={

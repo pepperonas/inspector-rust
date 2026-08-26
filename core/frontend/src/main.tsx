@@ -2,6 +2,7 @@ import React, { Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./styles.css";
+import { XOverlay } from "./components/XOverlay";
 
 // Inspector Rust runs in many Tauri windows depending on what the user is
 // doing. The default `popup` window is the clipboard browser (`<App />`);
@@ -75,6 +76,7 @@ function Mount() {
   if (label === "trim-overlay") return <TrimOverlay />;
   if (label === "color-loupe") return <ColorLoupe />;
   if (label === "alarm-overlay") return <AlarmOverlay />;
+  if (label === "x-overlay") return <XOverlay />;
   if (label.startsWith("screenshot-pin-")) return <ScreenshotPin />;
   if (label.startsWith("iris-overlay-")) return <IrisOverlay />;
   if (label === "snap-overlay") return <SnapOverlay />;

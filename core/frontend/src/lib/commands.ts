@@ -56,6 +56,7 @@ export type CommandKind =
   | "repo-export"
   | "nosleep"
   | "alias"
+  | "clown"
   | "bruno"
   | "timer"
   | "pwgen"
@@ -355,6 +356,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "alias [name]",
     description:
       "Shell-Alias geführt anlegen — Befehl + Name eingeben, Anlege-Befehl je OS kopieren oder direkt anlegen",
+    requiresArg: false,
+  },
+  {
+    kind: "clown",
+    keyword: "clown",
+    syntax: "clown [text]",
+    description:
+      "TeXt sO sChrEibEn — Mock-Case, L33t, Ｖａｐｏｒｗａｖｅ, 𝕕𝕠𝕦𝕓𝕝𝕖, Kopfüber u. a.; ohne Argument die Zwischenablage",
     requiresArg: false,
   },
   // ── repo — git activity stats (repo2viz-style) ────────────────────
@@ -1312,6 +1321,15 @@ export function isSpaceInvadersTrigger(query: string): boolean {
  * Listed here next to its siblings; the App.tsx command-builder reads
  * this to decide whether to emit the bpm ListEntry row.
  */
+/**
+ * `x!` — the hidden full-screen spectacle (v0.133.0). Exact token, so it can
+ * never be reached by autocomplete: you have to know it. Whitespace-tolerant
+ * and case-insensitive like the other hidden triggers.
+ */
+export function isXTrigger(query: string): boolean {
+  return /^\s*x!\s*$/i.test(query);
+}
+
 export function isBpmTrigger(query: string): boolean {
   return query.trim().toLowerCase() === "bpm";
 }

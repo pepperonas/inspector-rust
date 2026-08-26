@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.133.0] — 2026-08-26
+
+### Fixed
+
+- **`?re` now searches like `? re`.** A leading `?` followed by a PREFIX jumped straight into the top match's doc, hiding the other candidates — the space after the `?` must not change what you get. It filters the index now (exact command names like `?repo` still jump directly, and the trailing `sni?` form keeps its prefix resolution — there the `?` hangs off a command token, which is a different intent).
+
+### Added
+
+- **`x!` — a full-screen spectacle.** A hidden trigger that takes over the entire display (menu bar and Dock included) for ~15 seconds: six acts — Zündung, Raster, Slop, Brand, Nova, Leere — of ember light, a technocrat horizon rushing the viewer, a corrupted glyph flood with screen tearing, everything catching fire, a supernova into warp space, and the stars going out. One canvas, one rAF loop, pre-allocated particle pools, deterministic noise instead of `Math.random`. Enter starts it (never a stray keystroke), any key aborts. ⚠️ Full-screen luminance jumps are gated below the WCAG 2.3.1 three-per-second threshold — violent to look at, but not a photosensitivity hazard.
+
+## [0.132.0] — 2026-08-26
+
+### Added
+
+- **`clown` — silly text styles.** `clown <text>` lists twelve transforms at once, every row showing your own text already transformed (alternating case + sparse leet as the default "Clown" style, plus Mock, Leet, Vaporwave, Double-struck, Bold, Script, Small caps, Upside-down, Strikethrough, 👏-Clap and Spaced). Enter pastes the picked one, `@style` jumps to one directly, and bare `clown` takes the clipboard so long text needn't be retyped. Deterministic by design — the same text always yields the same result, so the list doesn't flicker while typing.
+
 ## [0.131.0] — 2026-08-26
 
 ### Fixed

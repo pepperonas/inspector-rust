@@ -1,4 +1,12 @@
 import type { MemeEntry } from "./meme";
+
+/** One `clown` style row: the style plus this text rendered in it. */
+export interface ClownEntryView {
+  key: string;
+  name: string;
+  hint: string;
+  output: string;
+}
 import type { CommandKind } from "./commands";
 import type { SocialTarget } from "./social";
 
@@ -209,6 +217,7 @@ export type ListEntry =
   | { kind: "app"; data: AppEntryView }
   | { kind: "pwgen"; data: PwgenEntryView }
   | { kind: "bpm"; data: BpmTriggerView }
+  | { kind: "xhype"; data: { label: string } }
   | { kind: "equalizer"; data: EqualizerTriggerView }
   | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
   // mode "add" (v0.104.0, `2fa add [issuer]`) opens the overlay straight on
@@ -216,6 +225,7 @@ export type ListEntry =
   | { kind: "totp-manage"; data: { label: string; mode?: "list" | "add"; issuer?: string } }
   | { kind: "totp"; data: TotpListView }
   | { kind: "meme"; data: MemeEntry }
+  | { kind: "clown"; data: ClownEntryView }
   | { kind: "figlet-font"; data: FigletFontView }
   | { kind: "social"; data: SocialTarget };
 

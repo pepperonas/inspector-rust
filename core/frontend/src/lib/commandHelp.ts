@@ -51,19 +51,22 @@ const LEADING_TOKEN_HELP_RE = /^\s*\?([a-z0-9]+)\s*$/i;
 export function parseHelpQuery(query: string): HelpTarget | null {
   if (INDEX_RE.test(query)) return { kind: "index", filter: "" };
 
-  // `?snitch` (leading `?`, no space) → resolve straight to the command doc,
-  // exactly like `snitch?`. Falls back to filtering the index by the term when
-  // it matches no command (still a help request — the leading `?` is the tell).
+  // `?snitch` (leading `?`, no space) → resolve straight to that command's doc,
+  // exactly like `snitch?`. Anything that ISN'T an exact command/alias filters
+  // the index instead (v0.133.0): `?re` now behaves like `? re` — the space
+  // after the `?` must not change what you get. Resolving a PREFIX to the top
+  // match's doc (the pre-0.133 behaviour) hid the other candidates; the
+  // filtered list shows them all AND renders the selected one's doc live in
+  // the preview, so nothing is lost.
+  //
+  // ⚠️ The TRAILING form keeps its prefix resolution (`sni?` → snitch's doc):
+  // there the `?` hangs off a command token — "help for THIS command" — while
+  // a LEADING `?` reads as "search the docs for…".
   const lead = LEADING_TOKEN_HELP_RE.exec(query);
   if (lead) {
     const t = lead[1].toLowerCase();
     const exact = lookupDoc(t);
     if (exact) return { kind: "doc", doc: exact };
-    const top = commandSuggestions(t)[0];
-    if (top) {
-      const doc = lookupDoc(top.keyword);
-      if (doc) return { kind: "doc", doc };
-    }
     return { kind: "index", filter: t };
   }
 

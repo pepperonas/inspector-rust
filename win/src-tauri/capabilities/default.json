@@ -2,7 +2,8 @@
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
   "description": "Capability for the Inspector Rust popup window",
-  "windows": ["popup", "screenshot-preview", "screenshot-editor", "status-toast", "screenshot-pin-*", "brightness-overlay", "record-overlay", "record-stop", "audio-swap", "trim-overlay", "color-loupe", "alarm-overlay", "snap-overlay", "window-palette", "iris-overlay-*"],
+  "windows": ["popup", "screenshot-preview", "screenshot-editor", "status-toast", "screenshot-pin-*", "brightness-overlay", "record-overlay", "record-stop", "audio-swap", "trim-overlay", "color-loupe", "x-overlay",
+    "alarm-overlay", "snap-overlay", "window-palette", "iris-overlay-*"],
   "permissions": [
     "core:default",
     "core:window:allow-show",

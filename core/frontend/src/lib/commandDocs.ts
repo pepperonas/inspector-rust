@@ -1099,6 +1099,36 @@ export const COMMAND_DOCS: CommandDoc[] = [
     see_also: "docs/repo.md",
   },
   {
+    command: "clown",
+    aliases: [],
+    category: CAT_FUN,
+    version_added: "0.132.0",
+    tagline: "tExT sO sChReIbEn — a gallery of silly text styles.",
+    tagline_de: "TeXt sO sChrEibEn — Galerie alberner Textstile.",
+    synopsis: "clown [text] [@style]",
+    description:
+      "Turns text into something sillier and lists EVERY style at once, each row showing your text already transformed — pick with the arrow keys, Enter pastes it. Styles: **Clown** (alternating case + occasional leet, the default), **Mock**, **Leet**, **Vaporwave** (fullwidth), **Double-struck**, **Fett**, **Schreibschrift**, **Kapitälchen**, **Kopfüber**, **Durchgestrichen**, **Klatschen** (👏 between words) and **Gesperrt**. Without an argument it takes the current clipboard text, so you don't have to retype a long passage. Every transform is deterministic — the same text always gives the same result, so the preview never flickers while you type.",
+    arguments: [
+      { name: "text", required: false, description: "The text to mangle. Omitted → the clipboard's text.", default: "clipboard" },
+      { name: "@style", required: false, description: "Jump straight to one style, e.g. `@leet` — it floats to the top of the list.", default: "all styles" },
+    ],
+    flags: [],
+    examples: [
+      { input: "clown so schreiben kann", result: "sO sChrEibEn K4nN — plus every other style below it." },
+      { input: "clown", result: "Takes the clipboard text and shows it in all styles." },
+      { input: "clown hallo @upside", result: "ollɐɥ — the upside-down style first." },
+    ],
+    tips: [
+      "Bare `clown` reads the clipboard — copy a paragraph, then just type `clown`.",
+      "The list shows your text already transformed, so you pick by looking, not by guessing.",
+    ],
+    caveats: [
+      "The Unicode styles (double-struck, script, small caps, …) are look-alike letters, not formatting: screen readers announce them character by character, some apps and fonts show boxes instead, and search/autocorrect no longer recognise the words. Fine for chats and toots — not for anything that matters.",
+      "Small caps have no glyph for `q` and `x`, so those two stay plain; upside-down leaves unmapped characters as they are.",
+    ],
+    related: ["figlet", "faker"],
+  },
+  {
     command: "rickroll",
     aliases: [],
     category: CAT_FUN,

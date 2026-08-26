@@ -46,6 +46,7 @@ mod models;
 mod nosleep;
 mod notes;
 mod media_name;
+mod xhype;
 mod shell_alias;
 mod ocr;
 mod totp_import;
@@ -797,6 +798,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::nosleep_status,
             commands::nosleep_set,
             commands::alias_create,
+            commands::x_overlay_open,
+            commands::x_overlay_close,
             commands::alias_list,
             commands::alias_delete,
             commands::adb_status,

@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import {
-  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Euro, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
+  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import type { ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
@@ -75,6 +75,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "help") return <BookOpen size={size} className={cls} />;
   if (entry.kind === "pwgen") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "bpm") return <Activity size={size} className={cls} />;
+  if (entry.kind === "xhype") return <Flame size={size} className={cls} />;
   if (entry.kind === "equalizer") return <AudioLines size={size} className={cls} />;
   if (entry.kind === "totp-manage") return <KeyRound size={size} className={cls} />;
   if (entry.kind === "totp") return <KeyRound size={size} className={cls} />;
@@ -92,6 +93,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
       : <Files size={size} className={cls} />;
   }
   if (entry.kind === "meme") return <Laugh size={size} className={cls} />;
+  if (entry.kind === "clown") return <Drama size={size} className={cls} />;
   if (entry.kind === "figlet-font") return <Type size={size} className={cls} />;
   if (entry.kind === "social") return <Download size={size} className={cls} />;
   switch (entry.data.content_type) {
@@ -143,10 +145,12 @@ export const HistoryItem = memo(function HistoryItem({
   const isHelp = entry.kind === "help";
   const isPwgen = entry.kind === "pwgen";
   const isBpm = entry.kind === "bpm";
+  const isXhype = entry.kind === "xhype";
   const isEqualizer = entry.kind === "equalizer";
   const isTotp = entry.kind === "totp";
   const isKillTarget = entry.kind === "kill-target";
   const isMeme = entry.kind === "meme";
+  const isClown = entry.kind === "clown";
   const isFiglet = entry.kind === "figlet-font";
   const isSocial = entry.kind === "social";
   // Custom commands get a reddish treatment so the user immediately sees
@@ -170,6 +174,8 @@ export const HistoryItem = memo(function HistoryItem({
     isTotp ||
     isKillTarget ||
     isMeme ||
+    isClown ||
+    isXhype ||
     // figlet's font gallery is a whole-list takeover exactly like kill/meme —
     // it was left out when `figlet` landed (v0.85.0), so `figlet hello` filled
     // the list with neutral rows and gave no signal you were in a command.
@@ -200,9 +206,11 @@ export const HistoryItem = memo(function HistoryItem({
         ? entry.data.name
         : isSocial && entry.kind === "social"
           ? `Download from ${entry.data.platform === "youtube" ? "YouTube" : entry.data.platform === "instagram" ? "Instagram" : entry.data.platform === "tiktok" ? "TikTok" : "Facebook"}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype
             ? ""
-            : truncateOneLine(entry.data.content_text || "(empty)", 80);
+            : isClown && entry.kind === "clown"
+              ? truncateOneLine(entry.data.output, 80)
+              : truncateOneLine(entry.data.content_text || "(empty)", 80);
 
   const right = isSnippet ? (
     <span
@@ -306,6 +314,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Meme — ⏎ copies it to the clipboard"
     >
       {entry.data.category || "meme"}
+    </span>
+  ) : isClown && entry.kind === "clown" ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/90"
+          : "bg-rose-500/15 text-rose-500")
+      }
+      title={`${entry.data.name} — ⏎ fügt den Text ein`}
+    >
+      {entry.data.name}
     </span>
   ) : isBruno ? (
     <span
@@ -639,6 +659,18 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               {entry.data.length} chars · {entry.data.mode} · ⏎ copy · ⌥⏎ alnum
+            </span>
+          </span>
+        ) : isXhype && entry.kind === "xhype" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.label}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Vollbild · sechs Akte · jede Taste bricht ab
             </span>
           </span>
         ) : isBpm && entry.kind === "bpm" ? (

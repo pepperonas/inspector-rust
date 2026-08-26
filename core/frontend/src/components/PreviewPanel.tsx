@@ -907,6 +907,27 @@ export function PreviewPanel({
     );
   }
 
+  if (entry.kind === "xhype") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-5 bg-black p-6 text-center">
+        <div
+          className="text-[64px] font-black leading-none"
+          style={{ color: "#ff3b0f", textShadow: "0 0 34px rgba(255,59,15,.75), 0 0 90px rgba(124,58,237,.5)" }}
+        >
+          X!
+        </div>
+        <div className="text-[12px] font-semibold uppercase tracking-[0.3em] text-[var(--color-muted)]">
+          Zündung · Raster · Slop · Brand · Nova · Leere
+        </div>
+        <div className="max-w-sm text-[12px] text-[var(--color-muted)]">
+          Ein 15-Sekunden-Stück über den ganzen Bildschirm. ⏎ startet, jede Taste
+          bricht ab. Vollflächen-Blitze bleiben unter der Reizschwelle für
+          Photosensibilität — heftig, aber nicht gefährlich.
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "bpm") {
     return (
       <div className="flex h-full flex-col gap-4 p-4">
@@ -1151,6 +1172,26 @@ export function PreviewPanel({
   // `?`-index rows never reach this panel (App renders CommandHelp for them),
   // but the union includes them — narrow explicitly for the clip fallthrough.
   if (entry.kind === "help") return null;
+
+  // ── Clown style preview ────────────────────────────────────────────────────
+  if (entry.kind === "clown") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4 text-[var(--color-fg)]">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          {entry.data.name}
+        </div>
+        {/* The output can be long and full of astral glyphs — let it wrap and
+            stay selectable, but never let it push the panel wide. */}
+        <div className="max-h-[60%] overflow-y-auto whitespace-pre-wrap break-words rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-[16px] leading-relaxed">
+          {entry.data.output}
+        </div>
+        <div className="text-[12px] text-[var(--color-muted)]">{entry.data.hint}</div>
+        <div className="mt-auto font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+          ⏎ Enter fügt den Text ein
+        </div>
+      </div>
+    );
+  }
 
   // ── Clip preview ───────────────────────────────────────────────────────────
   const clip = entry.data;

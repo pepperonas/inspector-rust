@@ -121,6 +121,13 @@ export const IN_POPUP_ACTIONS: FeatureRow[] = [
 
 /** Hidden games — exact word into the search field. */
 export const HIDDEN_GAMES: FeatureRow[] = [
+  {
+    name: "X!",
+    trigger: "x!",
+    keyword: "x!",
+    typed: true,
+    note: "Vollbild-Spektakel in sechs Akten (~15 s): Zündung, Raster, Slop, Brand, Nova, Leere. Jede Taste bricht ab.",
+  },
   { name: "Pong", trigger: "getshaky", keyword: "getshaky", typed: true },
   { name: "Snake — walls", trigger: "rockthebox", keyword: "rockthebox", typed: true },
   { name: "Snake — wrap edges", trigger: "rockthabox", keyword: "rockthabox", typed: true },
@@ -135,6 +142,7 @@ export const HIDDEN_GAMES: FeatureRow[] = [
  * real `COMMANDS` entry, so it's covered by the `CommandDoc` gate instead.
  */
 export const HIDDEN_TRIGGERS: readonly string[] = [
+  "x!",
   "getshaky",
   "rockthebox",
   "rockthabox",

@@ -353,6 +353,34 @@ fn fold_children(sorted: &[Raw], cap: usize) -> (usize, u64) {
 
 /// Match a scanned path to its containing volume among the mounted disks,
 /// returning `(mount, total, free, is_mount_root)`. Pure over the disk list.
+/// Turn a typed path argument into a real path: a leading `~` (alone or
+/// `~/…`) becomes the home folder, surrounding quotes are dropped.
+///
+/// ⚠️ Both halves are there because of how people actually type into the
+/// search bar: `daisy ~/Downloads` is the example the command's own help
+/// gives — and until v0.138.1 it scanned a *relative* folder literally named
+/// `~`, which simply does not exist. Quotes arrive whenever a path is dragged
+/// in from a terminal or pasted from one (`"/Users/x/My Files"`).
+///
+/// A `~user` form is deliberately NOT expanded — resolving another account's
+/// home needs the password database, and guessing `/Users/<name>` would be
+/// wrong on any machine that doesn't follow that layout.
+pub fn expand_user(arg: &str, home: Option<&Path>) -> PathBuf {
+    let mut s = arg.trim();
+    for q in ['"', '\''] {
+        if s.len() >= 2 && s.starts_with(q) && s.ends_with(q) {
+            s = &s[1..s.len() - 1];
+            break;
+        }
+    }
+    let s = s.trim();
+    match (s, home) {
+        ("~", Some(h)) => h.to_path_buf(),
+        (_, Some(h)) if s.starts_with("~/") => h.join(&s[2..]),
+        _ => PathBuf::from(s),
+    }
+}
+
 pub fn match_volume(
     path: &str,
     disks: &[(String, u64, u64)],
@@ -419,6 +447,38 @@ pub fn scan(
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn expand_user_resolves_a_leading_tilde() {
+        let home = PathBuf::from("/Users/t");
+        assert_eq!(expand_user("~/Downloads", Some(&home)), PathBuf::from("/Users/t/Downloads"));
+        assert_eq!(expand_user("~", Some(&home)), home);
+        assert_eq!(expand_user("  ~/a/b  ", Some(&home)), PathBuf::from("/Users/t/a/b"));
+    }
+
+    #[test]
+    fn expand_user_leaves_everything_else_alone() {
+        let home = PathBuf::from("/Users/t");
+        assert_eq!(expand_user("/tmp", Some(&home)), PathBuf::from("/tmp"));
+        assert_eq!(expand_user("relative/dir", Some(&home)), PathBuf::from("relative/dir"));
+        // `~user` needs the password database — guessing /Users/<name> would be
+        // wrong on machines that don't use that layout, so it stays literal.
+        assert_eq!(expand_user("~bob/x", Some(&home)), PathBuf::from("~bob/x"));
+        // A tilde INSIDE the path is an ordinary character.
+        assert_eq!(expand_user("/tmp/~x", Some(&home)), PathBuf::from("/tmp/~x"));
+        // No home known → never silently scan the wrong place.
+        assert_eq!(expand_user("~/Downloads", None), PathBuf::from("~/Downloads"));
+    }
+
+    #[test]
+    fn expand_user_strips_quotes_a_dragged_in_path_carries() {
+        let home = PathBuf::from("/Users/t");
+        assert_eq!(expand_user("\"/tmp/My Files\"", Some(&home)), PathBuf::from("/tmp/My Files"));
+        assert_eq!(expand_user("'~/Downloads'", Some(&home)), PathBuf::from("/Users/t/Downloads"));
+        // Only a MATCHED surrounding pair — an apostrophe in a folder name is
+        // part of the name.
+        assert_eq!(expand_user("/tmp/martin's", Some(&home)), PathBuf::from("/tmp/martin's"));
+    }
+
     use super::*;
 
     fn raw(name: &str, size: u64, dir: bool) -> Raw {

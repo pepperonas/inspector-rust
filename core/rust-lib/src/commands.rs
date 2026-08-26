@@ -1364,9 +1364,13 @@ pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::di
     // Bare `disk` prefers the folder selected in Finder (the `touch`/`loc`
     // convention), then falls back to home. A selected FILE resolves to its
     // parent directory — asking for a file's disk usage means its folder.
+    let home = dirs::home_dir();
     let root = match path.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        Some(p) => std::path::PathBuf::from(p),
-        None => finder_folder().or_else(dirs::home_dir).ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
+        // `~/Downloads` is what people type — and what this command's own help
+        // gives as an example. Taken literally it is a relative folder named
+        // `~`, which does not exist.
+        Some(p) => crate::disk_usage::expand_user(p, home.as_deref()),
+        None => finder_folder().or(home).ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
     };
     // Disks (mount, total, free) from sysinfo — passed into the pure scanner.
     let disks: Vec<(String, u64, u64)> = {

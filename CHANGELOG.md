@@ -4,6 +4,16 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.138.1] — 2026-08-27
+
+### Fixed
+
+- **`disk ~/Downloads` scans `~/Downloads` again.** A leading `~` was taken literally, so the command looked for a *relative* folder named `~` — which does not exist. The command's own help had been giving `daisy ~/Downloads` as an example the whole time. Surrounding quotes (what you get when a path is dragged in from a terminal) are dropped too.
+
+### Added
+
+- **`scripts/screenshot-macos.sh`** — the docs gallery was hand-made and undocumented; it is one command per image now.
+
 ## [0.138.0] — 2026-08-26
 
 ### Added

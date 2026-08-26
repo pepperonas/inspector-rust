@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.138.2] — 2026-08-27
+
+### Fixed
+
+- **`~` now works in every path-taking command**, not just `disk`: `loc`, `repo` and `md2pdf` took a leading `~` literally too. The expansion moved into one shared, tested helper, so the next command that accepts a path inherits the behaviour instead of the bug.
+
 ## [0.138.1] — 2026-08-27
 
 ### Fixed

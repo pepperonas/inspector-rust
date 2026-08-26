@@ -20,6 +20,7 @@ mod cutout;
 mod cutout_ml;
 mod db;
 mod disk_usage;
+mod path_arg;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
 mod expander;

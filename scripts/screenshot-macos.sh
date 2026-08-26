@@ -36,9 +36,14 @@ say() { printf '▸ %s\n' "$*"; }
 pgrep -x inspector-rust >/dev/null || { echo "✗ Inspector Rust läuft nicht"; exit 1; }
 
 # 1. Get focus onto a LOCAL app, and verify it — never type blind.
-osascript -e 'tell application "Finder" to activate' >/dev/null
-sleep 0.8
-front=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true')
+# The terminal running this script often wins the first activate back, so try
+# a few times before giving up — but NEVER type without confirming.
+for _ in 1 2 3; do
+  osascript -e 'tell application "Finder" to activate' >/dev/null
+  sleep 0.8
+  front=$(osascript -e 'tell application "System Events" to name of first process whose frontmost is true')
+  [[ "$front" == "Finder" ]] && break
+done
 if [[ "$front" != "Finder" ]]; then
   echo "✗ Frontmost ist '$front', nicht Finder — Tastenanschläge gingen woanders hin."
   echo "  Bring den lokalen Schreibtisch nach vorn (Screen Sharing schluckt sie) und starte neu."
@@ -79,9 +84,11 @@ fi
 
 # 3. Type the query (select-all first: a previous query may still stand).
 #
-# ⚠️ ONE character at a time, with a pause. A single `keystroke "disk ~/x"`
-# outruns the React input and the letters arrive SHUFFLED — the first attempt
-# produced `di~claude/insk /spector-rust` and photographed "No matches".
+# ⚠️ ONE character at a time, with a generous pause. A single
+# `keystroke "disk ~/x"` outruns the React input and the letters arrive
+# SHUFFLED — the first attempt produced `di~claude/insk /spector-rust` and
+# photographed "No matches". 40 ms then still DROPPED a slash on a slower
+# display (`~claude//inspector-rust`), so it is 90 ms. Slow beats re-shooting.
 say "Eingabe: $query"
 osascript -e 'tell application "System Events" to keystroke "a" using command down' >/dev/null
 esc_query=${query//\\/\\\\}
@@ -90,7 +97,7 @@ osascript <<APPLESCRIPT >/dev/null
 tell application "System Events"
   repeat with c in characters of "$esc_query"
     keystroke (c as text)
-    delay 0.04
+    delay 0.09
   end repeat
 end tell
 APPLESCRIPT

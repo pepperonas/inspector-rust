@@ -1251,7 +1251,11 @@ fn resolve_repo_target(target: Option<String>) -> Result<RepoTarget, String> {
         Some(t) if t.contains("://") || (t.contains('@') && t.contains(':')) => {
             Ok(RepoTarget::Remote(t.to_string()))
         }
-        Some(t) => Ok(RepoTarget::Local(std::path::PathBuf::from(t))),
+        // A typed `~/…` must resolve; the URL branch above never reaches here.
+        Some(t) => Ok(RepoTarget::Local(crate::path_arg::expand_user(
+            t,
+            dirs::home_dir().as_deref(),
+        ))),
         None => {
             // Bare `repo` → the Finder-selected folder that is a git repo.
             #[cfg(target_os = "macos")]
@@ -1369,7 +1373,7 @@ pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::di
         // `~/Downloads` is what people type — and what this command's own help
         // gives as an example. Taken literally it is a relative folder named
         // `~`, which does not exist.
-        Some(p) => crate::disk_usage::expand_user(p, home.as_deref()),
+        Some(p) => crate::path_arg::expand_user(p, home.as_deref()),
         None => finder_folder().or(home).ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
     };
     // Disks (mount, total, free) from sysinfo — passed into the pure scanner.
@@ -1606,7 +1610,14 @@ pub async fn loc_count(
 ) -> Result<crate::loc::LocReport, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let paths: Vec<String> = match paths {
-            Some(p) if !p.is_empty() => p,
+            // Typed paths, so `loc ~/claude/foo` has to resolve; the Finder
+            // selection below is already absolute.
+            Some(p) if !p.is_empty() => {
+                let home = dirs::home_dir();
+                p.iter()
+                    .map(|s| crate::path_arg::expand_user_str(s, home.as_deref()))
+                    .collect()
+            }
             _ => {
                 #[cfg(target_os = "macos")]
                 {
@@ -4558,7 +4569,7 @@ pub fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String>
     // synchronously (the frontend can show it) before we spawn.
     let arg_path = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     let paths: Vec<std::path::PathBuf> = if let Some(p) = arg_path {
-        vec![std::path::PathBuf::from(p)]
+        vec![crate::path_arg::expand_user(&p, dirs::home_dir().as_deref())]
     } else {
         #[cfg(target_os = "macos")]
         {

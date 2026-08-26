@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+// Vite's `?raw` import — typed by `vite/client`, so this works in tsc AND in
+// vitest. `node:fs` would not: the frontend tsconfig has no Node types.
+import xoverlaySource from "../components/XOverlay.tsx?raw";
 import {
   ACTS,
   X_DURATION,
@@ -29,6 +32,17 @@ describe("timeline", () => {
 
   it("every act has words to show", () => {
     for (const a of ACTS) expect(WORDS[a.key].length, a.key).toBeGreaterThan(0);
+  });
+
+  it("the renderer draws NO literal word — every act reads from WORDS", () => {
+    // Regression: two acts had their text hard-coded, so editing WORDS
+    // silently left them showing the old line. Comment-free source, per the
+    // house rule (the prose above legitimately quotes such calls).
+    const src = xoverlaySource
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+    expect(src).not.toMatch(/stab\(\s*["'`]/);
+    expect(src).toMatch(/WORDS\./);
   });
 
   it("actAt resolves each act at its boundaries", () => {

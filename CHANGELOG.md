@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.134.0] — 2026-08-26
+
+### Changed
+
+- **`x!` speaks a different line.** One sentence, stammered across the six acts — the pauses are the rhythm — building through the grid, drowning in the review flood, surviving the defence and detonating into full academic regalia at the nova, with a quiet epilogue in the void. The HUD now narrates an academic career to match (Immatrikulation → Regelstudienzeit → Peer Review → Disputation → **Berufung** → Emeritierung), and act III's glyph rain is made of the word itself. `stab()` gained auto-fit so the long regalia line can't run off a narrow screen, and all six acts now read from the word registry — two of them had their text hard-coded, which is now pinned by a test.
+
 ## [0.133.1] — 2026-08-26
 
 ### Fixed

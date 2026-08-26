@@ -34,7 +34,9 @@ import {
 const EMBERS = 260;
 const STARS = 320;
 const RAIN = 140;
-const GLYPHS = "アイウエオカキクケコ01<>{}[]/\\|=+*#%&@$XЖДЛФЯ";
+// Act III is the review flood — so the rain is literally made of the word,
+// stirred into citation/markup debris.
+const GLYPHS = "PROFESSORprofessor01<>{}[]/\\|=+*#%&@$†‡§¶ЖДЛФ";
 
 export function XOverlay() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -98,7 +100,16 @@ export function XOverlay() {
       ctx.save();
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      ctx.font = `900 ${size}px "Helvetica Neue", Inter, system-ui, sans-serif`;
+      const face = '"Helvetica Neue", Inter, system-ui, sans-serif';
+      // Auto-fit: the regalia line is long, and a narrow window would push it
+      // off both edges. Measure once, shrink to fit 88 % of the width.
+      ctx.font = `900 ${size}px ${face}`;
+      const room = w * 0.88;
+      const wide = ctx.measureText(text).width;
+      if (wide > room) {
+        size = Math.max(12, size * (room / wide));
+        ctx.font = `900 ${size}px ${face}`;
+      }
       ctx.globalCompositeOperation = "lighter";
       ctx.globalAlpha = alpha * 0.85;
       ctx.fillStyle = "#ff0040";
@@ -144,7 +155,9 @@ export function XOverlay() {
         ctx.globalCompositeOperation = "lighter";
         ctx.fillStyle = `rgba(255,60,15,${0.12 * beat * grow})`;
         ctx.fillRect(0, 0, w, h);
-        if (local > 0.82) stab("X", w, h, Math.min(w, h) * 0.34, easeIn((local - 0.82) / 0.18), 3);
+        if (local > 0.82) {
+          stab(WORDS.ignition[0], w, h, Math.min(w, h) * 0.2, easeIn((local - 0.82) / 0.18), 3);
+        }
       }
 
       // ══ II GRID — the technocrat horizon rushes in ═══════════════════════
@@ -302,7 +315,8 @@ export function XOverlay() {
           ctx.beginPath();
           ctx.arc(w / 2, h / 2, rr, 0, Math.PI * 2);
           ctx.stroke();
-          stab("X!", w, h, Math.min(w, h) * (0.3 + blast * 0.25), 1 - blast * 0.7, 4 + blast * 40);
+          // The full regalia — `stab` auto-fits it to the width.
+          stab(WORDS.nova[0], w, h, Math.min(w, h) * (0.22 + blast * 0.14), 1 - blast * 0.7, 4 + blast * 40);
         }
         // ONE gated white flash at detonation — the only full-field jump.
         if (local > 0.26 && local < 0.34 && flashAllowed(lastFlash, now)) {
@@ -328,6 +342,8 @@ export function XOverlay() {
         g.addColorStop(1, "rgba(0,0,0,0)");
         ctx.fillStyle = g;
         ctx.fillRect(0, 0, w, h);
+        // The epilogue: arrives late, quiet, and outlives the last ember.
+        stab(WORDS.void[0], w, h, Math.min(w, h) * 0.07, arc(clamp01(local * 1.15)) * 0.75, 1);
       }
 
       // ── Post: scanlines · grain · vignette · HUD ──────────────────────────

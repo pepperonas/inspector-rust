@@ -30,12 +30,12 @@ export interface XAct {
 }
 
 export const ACTS: readonly XAct[] = [
-  { key: "ignition", at: 0, dur: 1800, caption: "I · ZÜNDUNG" },
-  { key: "grid", at: 1800, dur: 3200, caption: "II · RASTER" },
-  { key: "slop", at: 5000, dur: 3200, caption: "III · SLOP" },
-  { key: "burn", at: 8200, dur: 3200, caption: "IV · BRAND" },
-  { key: "nova", at: 11400, dur: 2000, caption: "V · NOVA" },
-  { key: "void", at: 13400, dur: 1800, caption: "VI · LEERE" },
+  { key: "ignition", at: 0, dur: 1800, caption: "I · IMMATRIKULATION" },
+  { key: "grid", at: 1800, dur: 3200, caption: "II · REGELSTUDIENZEIT" },
+  { key: "slop", at: 5000, dur: 3200, caption: "III · PEER REVIEW" },
+  { key: "burn", at: 8200, dur: 3200, caption: "IV · DISPUTATION" },
+  { key: "nova", at: 11400, dur: 2000, caption: "V · BERUFUNG" },
+  { key: "void", at: 13400, dur: 1800, caption: "VI · EMERITIERUNG" },
 ];
 
 /** Total runtime in ms. */
@@ -101,15 +101,20 @@ export const PALETTE = {
   bone: "#e8e4dc",
 } as const;
 
-/** Words that stab across the screen, per act. Deliberately abstract — the
- *  piece is about the FEELING (acceleration, noise, collapse), not a quote. */
+/**
+ * ONE sentence, stammered across the six acts — the pauses ARE the rhythm.
+ * It builds through the grid, drowns in the review flood, survives the
+ * defence, and detonates into full academic regalia at the nova; the void
+ * gets the quiet epilogue. The `..` are load-bearing: they're the beat the
+ * piece stutters on.
+ */
 export const WORDS: Readonly<Record<XAct["key"], readonly string[]>> = {
-  ignition: ["X"],
-  grid: ["SCHNELLER", "MEHR", "JETZT"],
-  slop: ["SLOP", "RAUSCHEN", "MEHR", "MEHR", "MEHR"],
-  burn: ["ALLES BRENNT", "KAPUTT"],
-  nova: ["X!"],
-  void: ["…"],
+  ignition: ["ich.."],
+  grid: ["werde..", "JETZT..", "ich.. werde.. jetzt.."],
+  slop: ["professor", "PROFESSOR", "prof..?", "PROFESSOR"],
+  burn: ["PROFESSOR", "HABILITIERT"],
+  nova: ["PROF. DR. H.C. MULT."],
+  void: ["…emeritiert."],
 };
 
 /** Corrupt a word with combining marks — the "AI slop" texture. `amount` 0..1

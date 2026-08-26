@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.138.0] — 2026-08-26
+
+### Added
+
+- **`disk` is a browser now, not a one-shot view.** A path bar always spells out the absolute path of the folder on screen, and every segment of it is clickable — segments inside the scanned tree jump instantly, ones above it re-scan there. `⌫` (or `←`) climbs a level and keeps climbing past the folder you started in, so you can walk the whole disk without retyping a path.
+- **Unlimited depth.** Clicking a folder that the walk stopped at — where there was nothing left to show — now scans that folder afresh instead of doing nothing.
+- **`R` re-scans.** The footer had advertised the shortcut since v0.120.0; the key handler only ever matched `Escape`, so it never worked. It works now, and it re-scans the folder you are actually looking at.
+
+### Changed
+
+- **Bare `disk` uses the Finder selection**, like `touch` and `mkdir` do, falling back to the home folder.
+- **Faster sizing.** The scan now walks the top-level folders in parallel across up to eight workers.
+
 ## [0.137.0] — 2026-08-26
 
 ### Changed

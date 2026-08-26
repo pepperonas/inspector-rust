@@ -21,14 +21,32 @@ ein **Sonnenkranz-Diagramm** (Sunburst) der Ordnergrößen. `disk` (oder
 | Aktion | Wirkung |
 |---|---|
 | Klick auf Segment | in den Ordner zoomen (Drill-down) |
-| Breadcrumb / Esc | eine Ebene zurück (Esc am Wurzelknoten schließt) |
+| Klick in der **Pfadleiste** | direkt zu diesem Verzeichnis springen |
+| `⌫` / `←` / ↰ | eine Ebene höher — **auch über den Startordner hinaus** |
+| Esc | eine Ebene zurück; am Wurzelknoten schließt es das Panel |
 | Hover | Details in der Mitte + Detailzeile |
 | 🗑 (Segment / Datei) | in den **Papierkorb** verschieben (mit Bestätigung), danach Neu-Scan |
-| `R` / ⟳ | neu scannen |
+| `R` / ⟳ | den **aktuell gezeigten** Ordner neu scannen |
+
+## Navigation
+
+Die **Pfadleiste** über dem Diagramm nennt immer den absoluten Pfad dessen, was
+gerade zu sehen ist. Sie ist vollständig anklickbar, und die beiden Fälle
+verhalten sich bewusst unterschiedlich:
+
+- Ein Segment **innerhalb** des gescannten Baums springt **sofort** — die Größen
+  sind längst berechnet, ein erneuter Lauf wäre reine Verschwendung.
+- Ein Segment **oberhalb** der Scan-Wurzel scannt dort neu. Genau dadurch kann
+  man aus dem Startordner herauslaufen und den ganzen Datenträger durchsehen,
+  ohne je wieder einen Pfad zu tippen.
+
+Derselbe Unterschied gilt beim Hineinzoomen: Ordner **im** Baum öffnen sich
+verzögerungsfrei, ein Ordner an der **Grenze des Walks** — dort ist nichts mehr
+zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
 
 ## Ziele
 
-- `disk` — dein **Home-Verzeichnis** (schnell, „was frisst meinen Platz").
+- `disk` — der **im Finder ausgewählte Ordner**, sonst dein **Home-Verzeichnis**.
 - `disk <pfad>` — ein konkreter Ordner, z. B. `disk ~/Downloads`.
 - `disk /` — das **ganze Volume**; dann gehört der freie Speicher mit ins Bild.
 

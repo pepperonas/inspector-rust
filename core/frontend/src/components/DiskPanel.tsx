@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { HardDrive, RefreshCw, ChevronRight, Trash2, Folder, FileIcon } from "lucide-react";
+import {
+  HardDrive,
+  RefreshCw,
+  ChevronRight,
+  Trash2,
+  Folder,
+  FileIcon,
+  CornerLeftUp,
+} from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { diskScan, diskTrash, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
 import {
@@ -9,6 +17,9 @@ import {
   formatBytes,
   formatPct,
   baseName,
+  parentPath,
+  joinPath,
+  pathCrumbs,
   type Arc,
 } from "../lib/disk";
 import { confirmDialog } from "../lib/confirm";
@@ -43,6 +54,10 @@ export function DiskPanel({
   const [scanning, setScanning] = useState(false);
   // Drill path (index chain from the scan root); [] = the root itself.
   const [drill, setDrill] = useState<number[]>([]);
+  // The folder currently being scanned. Starts at the typed argument and moves
+  // as the user navigates OUT of the scanned tree — walking up past the root,
+  // or down past where the walk stopped pruning.
+  const [target, setTarget] = useState<string | null>(argPath(arg));
   const [hover, setHover] = useState<Arc | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const aliveRef = useRef(true);
@@ -71,13 +86,49 @@ export function DiskPanel({
 
   useEffect(() => {
     aliveRef.current = true;
-    run(arg);
     return () => {
       aliveRef.current = false;
     };
-    // Re-scan when the typed path arg changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // One scan per target — mount included. Navigation is just `setTarget`.
+  useEffect(() => {
+    run(target);
+  }, [target, run]);
+
+  // A newly typed argument re-targets. ⚠️ It must go through `setTarget`, NOT
+  // call `run` itself: on mount this fires with the value `target` was already
+  // seeded from, and React bails out of an identical state write, so there is
+  // exactly ONE walk. A direct `run(arg)` here (the shape this effect used to
+  // have) would scan the home folder twice on every open.
+  useEffect(() => {
+    setTarget(argPath(arg));
   }, [arg]);
+
+  /**
+   * Up one level. Inside the scanned tree that's instant (the sizes are
+   * already known); at the scan root it re-scans the parent folder, which is
+   * what lets you browse the whole disk without retyping a path.
+   */
+  const goUp = useCallback(() => {
+    if (drill.length > 0) {
+      setDrill((d) => d.slice(0, -1));
+      setHover(null);
+      return;
+    }
+    const p = scan ? parentPath(scan.root_path) : null;
+    if (p) setTarget(p);
+  }, [drill, scan]);
+
+  /** Navigate to an absolute path — instantly if it's inside the current
+   *  tree, otherwise by re-scanning there. */
+  const goTo = useCallback((crumbSteps: number | null, path: string) => {
+    if (crumbSteps === null) setTarget(path);
+    else {
+      setDrill((d) => d.slice(0, crumbSteps));
+      setHover(null);
+    }
+  }, []);
 
   // Live progress while a scan is in flight.
   useEffect(() => {
@@ -98,23 +149,34 @@ export function DiskPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // The path is typed in the search field, so a shortcut must never eat a
+      // keystroke meant for it (the weather lesson). Esc still exits from
+      // anywhere.
+      const tgt = e.target as HTMLElement | null;
+      const typing =
+        !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
+
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         // Esc drills UP one level first, then exits at the root (DaisyDisk's
-        // back gesture) — but only when not typing in a field.
-        const tgt = e.target as HTMLElement | null;
-        const typing = tgt && (tgt.tagName === "INPUT" || tgt.isContentEditable);
-        if (!typing && drill.length > 0) {
-          setDrill((d) => d.slice(0, -1));
-        } else {
-          onExit();
-        }
+        // back gesture).
+        if (!typing && drill.length > 0) setDrill((d) => d.slice(0, -1));
+        else onExit();
+        return;
+      }
+      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Backspace" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        goUp();
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        run(target);
       }
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit, drill]);
+  }, [focused, onExit, drill, goUp, run, target]);
 
   const flash = (m: string) => {
     setNote(m);
@@ -134,6 +196,20 @@ export function DiskPanel({
         : [],
     [focusNode],
   );
+
+  // The folder names along the drill, for the path bar.
+  const drillNames = useMemo(() => {
+    if (!scan) return [];
+    const names: string[] = [];
+    let cur: DiskNode = scan.tree;
+    for (const i of drill) {
+      const next = cur.children?.[i];
+      if (!next) break;
+      names.push(next.name);
+      cur = next;
+    }
+    return names;
+  }, [scan, drill]);
 
   if (err) {
     return (
@@ -172,17 +248,28 @@ export function DiskPanel({
           <HardDrive size={15} className="shrink-0 text-[var(--color-accent)]" />
           <span className="truncate">Speicher</span>
         </div>
-        <button
-          type="button"
-          onClick={() => run(arg)}
-          title="Neu scannen"
-          className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
-        >
-          <RefreshCw size={13} className={scanning ? "animate-spin" : undefined} />
-        </button>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            onClick={goUp}
+            disabled={drill.length === 0 && !parentPath(scan.root_path)}
+            title="Eine Ebene höher (⌫)"
+            className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)] disabled:opacity-30"
+          >
+            <CornerLeftUp size={13} />
+          </button>
+          <button
+            type="button"
+            onClick={() => run(target)}
+            title="Neu scannen (R)"
+            className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+          >
+            <RefreshCw size={13} className={scanning ? "animate-spin" : undefined} />
+          </button>
+        </div>
       </div>
 
-      <Breadcrumb scan={scan} drill={drill} onGo={(d) => setDrill(d)} />
+      <PathBar rootPath={scan.root_path} drillNames={drillNames} onGo={goTo} />
 
       {/* The sunburst. */}
       <div className="relative mx-auto" style={{ width: SIZE, maxWidth: "100%" }}>
@@ -213,7 +300,18 @@ export function DiskPanel({
                 }}
                 onMouseEnter={() => setHover(a)}
                 onClick={() => {
-                  if (a.node.is_dir && !a.node.other) setDrill([...drill, ...a.path]);
+                  if (!a.node.is_dir || a.node.other) return;
+                  // Inside the tree the sizes are already computed — drill
+                  // instantly. At the walk's pruning boundary there are no
+                  // children to show, so scan that folder afresh; that's what
+                  // makes the depth effectively unlimited.
+                  if ((a.node.children?.length ?? 0) > 0) {
+                    setDrill([...drill, ...a.path]);
+                    setHover(null);
+                  } else {
+                    const abs = absPath(scan, drill, a.path);
+                    if (abs) setTarget(abs);
+                  }
                 }}
               />
             );
@@ -253,7 +351,7 @@ export function DiskPanel({
           try {
             await diskTrash(abs);
             flash(`In den Papierkorb: ${hover.node.name}`);
-            run(arg); // re-scan to reflect the freed space
+            run(target); // re-scan to reflect the freed space — stay where we are
           } catch (e) {
             flash(String(e));
           }
@@ -265,17 +363,19 @@ export function DiskPanel({
         try {
           await diskTrash(path);
           flash(`In den Papierkorb: ${baseName(path)}`);
-          run(arg);
+          run(target);
         } catch (e) {
           flash(String(e));
         }
       }} />
 
       <p className="text-[10px] text-[var(--color-muted)]">
-        {scan.items.toLocaleString("de-DE")} Einträge gescannt · Klick = reinzoomen · Esc = zurück
+        {scan.items.toLocaleString("de-DE")} Einträge gescannt · Klick = reinzoomen
       </p>
       {focused && (
-        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen · R neu scannen</p>
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
+          ⌫ eine Ebene höher · R neu scannen · Esc zurück/schließen
+        </p>
       )}
     </div>
   );
@@ -310,41 +410,39 @@ function ScanningCard({ progress }: { progress: DiskScanProgress | null }) {
   );
 }
 
-function Breadcrumb({
-  scan,
-  drill,
+/**
+ * The absolute path of what's on screen, always visible and always clickable.
+ * Segments inside the scanned tree jump instantly; those above the scan root
+ * re-scan there, which is how you browse out of the folder you started in.
+ */
+function PathBar({
+  rootPath,
+  drillNames,
   onGo,
 }: {
-  scan: DiskScan;
-  drill: number[];
-  onGo: (d: number[]) => void;
+  rootPath: string;
+  drillNames: string[];
+  onGo: (steps: number | null, path: string) => void;
 }) {
-  // Resolve each drill step to a node name.
-  const crumbs: { name: string; to: number[] }[] = [{ name: scan.root_name, to: [] }];
-  let cur: DiskNode = scan.tree;
-  const acc: number[] = [];
-  for (const i of drill) {
-    const next = cur.children?.[i];
-    if (!next) break;
-    acc.push(i);
-    crumbs.push({ name: next.name, to: [...acc] });
-    cur = next;
-  }
+  const crumbs = pathCrumbs(rootPath, drillNames);
   return (
-    <div className="flex flex-wrap items-center gap-0.5 text-[11px]">
+    <div
+      className="flex flex-wrap items-center gap-0.5 text-[11px]"
+      title={crumbs[crumbs.length - 1]?.path}
+    >
       {crumbs.map((c, i) => (
-        <span key={c.to.join("-") || "root"} className="flex items-center gap-0.5">
-          {i > 0 && <ChevronRight size={11} className="text-[var(--color-muted)]" />}
+        <span key={c.path} className="flex items-center gap-0.5">
+          {i > 0 && <ChevronRight size={11} className="shrink-0 text-[var(--color-muted)]" />}
           <button
             type="button"
-            onClick={() => onGo(c.to)}
+            onClick={() => onGo(c.steps, c.path)}
             className={
-              "max-w-[140px] truncate rounded px-1 py-0.5 " +
+              "max-w-[140px] truncate rounded px-1 py-0.5 font-[var(--font-mono)] " +
               (i === crumbs.length - 1
                 ? "font-medium text-[var(--color-fg)]"
                 : "text-[var(--color-muted)] hover:text-[var(--color-accent)]")
             }
-            title={c.name}
+            title={c.path}
           >
             {c.name}
           </button>
@@ -452,6 +550,13 @@ function isAncestor(path: number[], of: number[]): boolean {
   return path.every((v, i) => v === of[i]);
 }
 
+/** The typed argument as a scan target — blank means "let the backend decide"
+ *  (the Finder selection, else the home folder). */
+function argPath(arg: string): string | null {
+  const t = arg.trim();
+  return t ? t : null;
+}
+
 /** Absolute filesystem path of an arc, from the scan root + drill + arc path.
  *  Returns null if any node has no resolvable name (the synthetic "Other"). */
 function absPath(scan: DiskScan, drill: number[], arcPathIdx: number[]): string | null {
@@ -463,6 +568,5 @@ function absPath(scan: DiskScan, drill: number[], arcPathIdx: number[]): string 
     parts.push(next.name);
     cur = next;
   }
-  const root = scan.root_path.replace(/\/$/, "");
-  return parts.length ? `${root}/${parts.join("/")}` : root;
+  return joinPath(scan.root_path, parts);
 }

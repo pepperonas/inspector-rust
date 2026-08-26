@@ -171,3 +171,55 @@ export function baseName(path: string): string {
   const parts = path.split("/").filter(Boolean);
   return parts[parts.length - 1] ?? path;
 }
+
+/** The containing directory of an absolute path, or `null` at the filesystem
+ *  root — that `null` is what stops "go up" from walking off the top. */
+export function parentPath(path: string): string | null {
+  const segs = path.split("/").filter(Boolean);
+  if (segs.length === 0) return null; // already "/"
+  segs.pop();
+  return "/" + segs.join("/");
+}
+
+/** Append name segments to an absolute root. Kept pure so the panel's
+ *  path arithmetic is tested rather than eyeballed. */
+export function joinPath(root: string, parts: readonly string[]): string {
+  const base = root === "/" ? "" : root.replace(/\/+$/, "");
+  return parts.length ? `${base}/${parts.join("/")}` : base || "/";
+}
+
+/** One segment of the panel's path bar. */
+export interface PathCrumb {
+  /** Display label ("/" for the filesystem root). */
+  name: string;
+  /** Absolute path this segment stands for. */
+  path: string;
+  /**
+   * How many in-tree drill steps reach this crumb, or `null` when it lies
+   * ABOVE the current scan root. That distinction is the whole point: a crumb
+   * inside the scanned tree is reachable instantly (the sizes are already
+   * computed), one above it needs a fresh scan.
+   */
+  steps: number | null;
+}
+
+/**
+ * The full absolute path of the current view, segment by segment — the scan
+ * root's own path plus one crumb per drill step.
+ */
+export function pathCrumbs(rootPath: string, drillNames: readonly string[]): PathCrumb[] {
+  const rootSegs = rootPath.split("/").filter(Boolean);
+  const out: PathCrumb[] = [
+    { name: "/", path: "/", steps: rootSegs.length === 0 ? 0 : null },
+  ];
+  let acc = "";
+  rootSegs.forEach((seg, i) => {
+    acc += "/" + seg;
+    out.push({ name: seg, path: acc, steps: i === rootSegs.length - 1 ? 0 : null });
+  });
+  drillNames.forEach((name, i) => {
+    acc += "/" + name;
+    out.push({ name, path: acc, steps: i + 1 });
+  });
+  return out;
+}

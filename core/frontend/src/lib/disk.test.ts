@@ -8,6 +8,9 @@ import {
   formatBytes,
   formatPct,
   baseName,
+  parentPath,
+  joinPath,
+  pathCrumbs,
   type DiskNode,
 } from "./disk";
 
@@ -123,5 +126,73 @@ describe("formatters", () => {
   it("baseName takes the last path segment", () => {
     expect(baseName("/Users/martin/big.bin")).toBe("big.bin");
     expect(baseName("/Users/martin/dir/")).toBe("dir");
+  });
+});
+
+describe("navigation paths", () => {
+  it("parentPath climbs one level and STOPS at the root", () => {
+    expect(parentPath("/Users/martin/claude")).toBe("/Users/martin");
+    expect(parentPath("/Users/martin")).toBe("/Users");
+    expect(parentPath("/Users")).toBe("/");
+    // The null is load-bearing: it's what keeps "go up" from walking off the
+    // top of the filesystem into a nonsense path.
+    expect(parentPath("/")).toBeNull();
+    expect(parentPath("")).toBeNull();
+  });
+
+  it("parentPath tolerates a trailing slash", () => {
+    expect(parentPath("/Users/martin/")).toBe("/Users");
+  });
+
+  it("joinPath never doubles or drops a separator", () => {
+    expect(joinPath("/Users/martin", ["claude", "src"])).toBe("/Users/martin/claude/src");
+    expect(joinPath("/Users/martin/", ["claude"])).toBe("/Users/martin/claude");
+    expect(joinPath("/Users/martin", [])).toBe("/Users/martin");
+    // From the filesystem root the base is empty — "//Users" would be wrong.
+    expect(joinPath("/", ["Users"])).toBe("/Users");
+    expect(joinPath("/", [])).toBe("/");
+  });
+
+  it("pathCrumbs spells out the whole absolute path", () => {
+    const c = pathCrumbs("/Users/martin", ["claude", "inspector-rust"]);
+    expect(c.map((x) => x.name)).toEqual(["/", "Users", "martin", "claude", "inspector-rust"]);
+    expect(c.map((x) => x.path)).toEqual([
+      "/",
+      "/Users",
+      "/Users/martin",
+      "/Users/martin/claude",
+      "/Users/martin/claude/inspector-rust",
+    ]);
+  });
+
+  it("marks which crumbs are reachable in-tree and which need a scan", () => {
+    const c = pathCrumbs("/Users/martin", ["claude"]);
+    // Above the scan root → null → clicking re-scans there.
+    expect(c[0].steps).toBeNull(); // /
+    expect(c[1].steps).toBeNull(); // /Users
+    // The scan root itself and every drill step are instant.
+    expect(c[2].steps).toBe(0); // /Users/martin  = the root
+    expect(c[3].steps).toBe(1); // one drill step in
+  });
+
+  it("scanning the filesystem root yields a single, in-tree crumb", () => {
+    const c = pathCrumbs("/", []);
+    expect(c).toHaveLength(1);
+    expect(c[0]).toEqual({ name: "/", path: "/", steps: 0 });
+  });
+
+  it("a trailing slash on the root does not produce an empty crumb", () => {
+    const c = pathCrumbs("/Users/martin/", []);
+    expect(c.map((x) => x.name)).toEqual(["/", "Users", "martin"]);
+    expect(c[c.length - 1].steps).toBe(0);
+  });
+
+  it("the last crumb always addresses the currently shown directory", () => {
+    for (const drill of [[], ["a"], ["a", "b", "c"]]) {
+      const c = pathCrumbs("/Users/martin", drill);
+      const last = c[c.length - 1];
+      expect(last.steps).toBe(drill.length);
+      expect(last.path).toBe(joinPath("/Users/martin", drill));
+    }
   });
 });

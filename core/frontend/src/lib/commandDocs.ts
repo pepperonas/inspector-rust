@@ -1248,18 +1248,19 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Speicher-Analyse à la DaisyDisk — Sunburst, was den Platz frisst.",
     synopsis: "disk [pfad]   ·   daisy [pfad]",
     description:
-      "Scans a folder and draws its disk usage as a concentric sunburst (like the DaisyDisk app): each ring is a directory level, each segment a folder/file sized by the space it actually occupies on disk. The centre hub shows the hovered item's size + share; a volume bar shows free space and how much of the whole disk this folder accounts for. Click a segment to zoom in, breadcrumb or Esc to go back, hover for details. A largest-files list sits below, and any item can be moved to the Trash (the DaisyDisk collector) with confirmation. Bare `disk` scans your home folder; `disk <pfad>` an explicit folder; `disk /` the whole volume (then free space shows too). On-disk size (allocated blocks), symlinks not followed, stays on one filesystem.",
+      "Scans a folder and draws its disk usage as a concentric sunburst (like the DaisyDisk app): each ring is a directory level, each segment a folder/file sized by the space it actually occupies on disk. The centre hub shows the hovered item's size + share; a volume bar shows free space and how much of the whole disk this folder accounts for. A **path bar** always names the folder on screen and every segment of it is clickable, so you can browse the whole disk without retyping — click a ring segment to zoom in, `⌫` or Esc to walk back out, past the folder you started in. A largest-files list sits below, and any item can be moved to the Trash (the DaisyDisk collector) with confirmation. Bare `disk` scans the folder **selected in Finder**, else your home folder; `disk <pfad>` an explicit folder; `disk /` the whole volume (then free space shows too). On-disk size (allocated blocks), symlinks not followed, stays on one filesystem.",
     arguments: [
-      { name: "pfad", required: false, description: "Folder to scan. Omit for the home folder; `/` for the whole volume.", default: "home folder" },
+      { name: "pfad", required: false, description: "Folder to scan. Omit to use the Finder selection, else the home folder; `/` for the whole volume.", default: "Finder selection, else home" },
     ],
     flags: [],
     examples: [
-      { input: "disk", result: "Sunburst of your home folder — biggest folders first." },
+      { input: "disk", result: "Sunburst of the folder selected in Finder — or your home folder." },
       { input: "disk /", result: "The whole boot volume, free space included." },
       { input: "daisy ~/Downloads", result: "Same view (alias) for a specific folder." },
     ],
     tips: [
-      "Click a ring segment to zoom into that folder; the breadcrumb or Esc walks back out.",
+      "Click a ring segment to zoom into that folder; `⌫` (or Esc) walks back out — past the scan root, so you can browse anywhere.",
+      "The path bar shows exactly which folder you are looking at; click any segment of it to jump straight there.",
       "The largest-files list and any segment have a trash button — it moves to the Trash (recoverable), then re-scans.",
       "Sizes are on-disk (allocated blocks), so they match what the volume readout says — not apparent size.",
     ],

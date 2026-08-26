@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.128.2] — 2026-08-26
+
+### Fixed
+
+- **`rickroll` plays again.** The YouTube embed died in the Tauri webview with "Error 153: Video player configuration error" (embed/referer restrictions) — the panel now plays a bundled, heavily compressed clip (480p, ~5 MB, faststart) in a native `<video>` element: zero network, unmuted-autoplay attempt with an honest blocked-hint, native controls, restart + browser fallback.
+
 ## [0.128.1] — 2026-08-25
 
 ### Fixed

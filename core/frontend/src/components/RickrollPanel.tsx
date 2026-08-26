@@ -1,22 +1,40 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ExternalLink, Music } from "lucide-react";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { embedUrl, watchUrl, RICK_LINES } from "../lib/rickroll";
+import { watchUrl, RICK_LINES } from "../lib/rickroll";
 import { prefersReducedMotion } from "../lib/md3-motion";
+import rickrollMp4 from "../assets/rickroll.mp4";
 
 /**
  * `rickroll` — plays Rick Astley's "Never Gonna Give You Up" with sound right
- * in the preview column (v0.122.0). The YouTube embed autoplays (the Enter/
- * click that opened the panel is the required user gesture; CSP is disabled so
- * the iframe loads). A prominent "open in browser" fallback covers a webview
- * that refuses autoplay-with-sound. A scrolling lyric marquee + gradient wash
- * make it a proper gag.
+ * in the preview column (v0.122.0). **Local clip since v0.128.2:** the YouTube
+ * embed died in the Tauri WKWebView ("Error 153: Video player configuration
+ * error" — embed/referer restrictions), so the panel plays a bundled, heavily
+ * compressed MP4 (480p, ~5 MB) instead — zero network, no YouTube moods. The
+ * effect tries unmuted autoplay (the Enter/click that opened the panel is the
+ * user gesture); if the webview still refuses, a hint shows and the native
+ * controls / "Abspielen" get it going. Browser fallback + lyric marquee stay.
  */
 export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: () => void }) {
-  // Remount the iframe to (re)start playback; bumping the key reloads it.
-  const [playKey, setPlayKey] = useState(0);
-  const src = useMemo(() => embedUrl({ autoplay: true }), []);
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [blocked, setBlocked] = useState(false);
   const reduce = prefersReducedMotion();
+
+  // Unmuted autoplay attempt — the opening Enter/click is the user gesture.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.play().catch(() => setBlocked(true));
+  }, []);
+
+  const restart = () => {
+    const v = videoRef.current;
+    if (!v) return;
+    v.currentTime = 0;
+    v.play()
+      .then(() => setBlocked(false))
+      .catch(() => setBlocked(true));
+  };
 
   useEffect(() => {
     if (!focused) return;
@@ -47,19 +65,17 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
         </button>
       </div>
 
-      {/* The video, 16:9, with a playful animated glow frame. */}
+      {/* The bundled clip, 16:9. */}
       <div
-        className="relative overflow-hidden rounded-xl border border-[var(--color-border)]"
+        className="relative overflow-hidden rounded-xl border border-[var(--color-border)] bg-black"
         style={{ aspectRatio: "16 / 9" }}
       >
-        <iframe
-          key={playKey}
-          src={src}
-          title="Rick Astley — Never Gonna Give You Up"
+        <video
+          ref={videoRef}
+          src={rickrollMp4}
+          controls
+          playsInline
           className="absolute inset-0 h-full w-full"
-          style={{ border: 0 }}
-          allow="autoplay; encrypted-media; fullscreen"
-          allowFullScreen
         />
       </div>
 
@@ -86,10 +102,10 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => setPlayKey((k) => k + 1)}
+          onClick={restart}
           className="rounded-md bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)]"
         >
-          ↻ Nochmal
+          {blocked ? "▶ Abspielen" : "↻ Nochmal"}
         </button>
         <button
           type="button"
@@ -99,9 +115,11 @@ export function RickrollPanel({ focused, onExit }: { focused: boolean; onExit: (
           Im Browser abspielen
         </button>
       </div>
-      <p className="text-[11px] text-[var(--color-muted)]">
-        Kein Ton? Manche Webviews blocken Autoplay mit Ton — dann „Im Browser abspielen“.
-      </p>
+      {blocked && (
+        <p className="text-[11px] text-amber-500">
+          Autoplay wurde geblockt — „▶ Abspielen“ oder die Player-Steuerung starten den Clip.
+        </p>
+      )}
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">Esc schließen</p>
       )}

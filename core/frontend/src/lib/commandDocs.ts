@@ -1107,7 +1107,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Du kennst die Regeln — und ich auch.",
     synopsis: "rickroll",
     description:
-      "Plays Rick Astley's \"Never Gonna Give You Up\" — with sound — right in the preview column (privacy-friendly YouTube embed; the CSP is disabled so it loads). A scrolling lyric marquee runs beneath it. If a webview refuses autoplay-with-sound, one button opens it in the browser instead.",
+      "Plays Rick Astley's \"Never Gonna Give You Up\" — with sound — right in the preview column (from a BUNDLED, heavily compressed clip — 480p: zero network, and no YouTube-embed failures (the iframe died in the webview with Error 153). A scrolling lyric marquee runs beneath it; native player controls, a restart button and an open-in-browser fallback round it out.",
     arguments: [],
     flags: [],
     examples: [

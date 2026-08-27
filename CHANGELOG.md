@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.139.0] — 2026-08-27
+
+### Added
+
+- **Geräte-Sync (opt-in, Standard AUS).** Mehrere Macs halten denselben Datenstand über einen **gemeinsamen Ordner** (Standard: iCloud Drive) — kein Server, keine Ports, kein Konto. Jedes Gerät legt EINE verschlüsselte Datei ab und liest die der anderen. Einstellungen → **Geräte-Sync**: Schalter, Ordner, Passwort (liegt im Schlüsselbund, wird nie mitsynchronisiert), 2FA-Opt-in, „Jetzt abgleichen".
+- Synchronisiert werden Verlauf, Snippets samt Gruppen, Notizen und — nur auf Wunsch — 2FA-Konten. **Einstellungen und Zeiterfassung bewusst nicht**: Hotkeys, Monitor-Helligkeit und die Sync-Konfiguration selbst sind gerätegebunden.
+
+### Sicherheit
+
+- **Ein leerer Stand kann einen gefüllten nie überschreiben.** Vier voneinander unabhängige Mechanismen: die Anwendung ist strukturell nur additiv (es gibt keinen Lösch-Pfad), das Veröffentlichen prüft den vorherigen Stand und verweigert leer-über-gefüllt, geschrieben wird atomar (tmp + rename, plus `.bak`), und eine unlesbare Datei wird ganz übersprungen statt halb angewandt.
+- **Löschungen wandern deshalb nicht mit** — die Geräte vereinigen ihre Daten. Bewusster Preis für die obige Garantie.
+
 ## [0.138.2] — 2026-08-27
 
 ### Fixed

@@ -156,6 +156,13 @@ import {
 } from "../lib/ipc";
 import {
   getSyncConfig,
+  getDeviceSyncConfig,
+  setDeviceSyncConfig,
+  getDeviceSyncStatus,
+  setDeviceSyncPassphrase,
+  deviceSyncNow,
+  type DeviceSyncConfig,
+  type DeviceSyncStatus,
   getPopupCloseOnBlur,
   setPopupCloseOnBlur,
   syncTestConnection,
@@ -2744,6 +2751,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <CloudSyncSection />
         </div>
 
+        {/* Device sync between several Macs (shared folder) */}
+        <div className="mt-6">
+          <DeviceSyncSection />
+        </div>
+
         {/* Backup & restore section */}
         <div className="mt-6">
           <Section
@@ -3240,6 +3252,130 @@ function PopupBehaviorSection() {
 }
 
 /** Cloud-Sync (cue): bidirectional snippet sync with the cue web app. */
+function DeviceSyncSection() {
+  const [cfg, setCfg] = useState<DeviceSyncConfig | null>(null);
+  const [status, setStatus] = useState<DeviceSyncStatus | null>(null);
+  const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+
+  const refresh = () => {
+    void getDeviceSyncStatus().then(setStatus).catch(() => {});
+  };
+  useEffect(() => {
+    void getDeviceSyncConfig().then(setCfg).catch(() => {});
+    refresh();
+  }, []);
+
+  const save = (next: DeviceSyncConfig) => {
+    setCfg(next);
+    void setDeviceSyncConfig(next).then(refresh).catch(() => {});
+  };
+
+  if (!cfg) return null;
+  const ready = cfg.enabled && !!status?.has_passphrase && cfg.folder.trim().length > 0;
+
+  return (
+    <Section
+      icon={<Cloud size={16} className="text-[var(--color-accent)]" />}
+      title="Geräte-Sync"
+      subtitle="Gleicher Datenstand auf mehreren Macs — über einen gemeinsamen Ordner (z. B. iCloud Drive). Standardmäßig aus."
+      id="device-sync"
+    >
+      <Row label="Aktiv" help="Aus = kein Hintergrund-Thread, kein Dateizugriff.">
+        <input
+          type="checkbox"
+          checked={cfg.enabled}
+          onChange={(e) => save({ ...cfg, enabled: e.target.checked })}
+        />
+      </Row>
+
+      <Row label="Ordner" help="Muss auf allen Geräten derselbe synchronisierte Ordner sein.">
+        <input
+          className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+          value={cfg.folder}
+          onChange={(e) => setCfg({ ...cfg, folder: e.target.value })}
+          onBlur={() => save(cfg)}
+          spellCheck={false}
+        />
+      </Row>
+
+      <Row
+        label="Passwort"
+        help="Verschlüsselt die abgelegten Dateien. Auf JEDEM Gerät dasselbe eingeben; liegt nur im Schlüsselbund und wird nie mitsynchronisiert."
+      >
+        <div className="flex gap-2">
+          <input
+            type="password"
+            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            placeholder={status?.has_passphrase ? "gespeichert" : "noch keins"}
+            value={pass}
+            onChange={(e) => setPass(e.target.value)}
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+            onClick={() => {
+              void setDeviceSyncPassphrase(pass).then(() => {
+                setPass("");
+                refresh();
+              });
+            }}
+          >
+            Speichern
+          </button>
+        </div>
+      </Row>
+
+      <Row
+        label="2FA-Geheimnisse mitsynchronisieren"
+        help="Aus. Erst einschalten, wenn dir bewusst ist, dass die Codes damit im gemeinsamen Ordner liegen (verschlüsselt)."
+      >
+        <input
+          type="checkbox"
+          checked={cfg.include_totp}
+          onChange={(e) => save({ ...cfg, include_totp: e.target.checked })}
+        />
+      </Row>
+
+      <div className="mt-3 flex items-center gap-3 text-[11px] text-[var(--color-muted)]">
+        <span>{status?.folder_ok ? "✓ Ordner erreichbar" : "✗ Ordner fehlt"}</span>
+        <span>{status?.has_passphrase ? "✓ Passwort gesetzt" : "✗ kein Passwort"}</span>
+        <span>{status ? `${status.peers} weitere(s) Gerät(e)` : ""}</span>
+        <button
+          type="button"
+          disabled={!ready || busy}
+          className="ml-auto rounded border border-[var(--color-border)] px-2 py-1 disabled:opacity-40"
+          onClick={() => {
+            setBusy(true);
+            deviceSyncNow()
+              .then((s) => {
+                setNote(
+                  s.skipped.length
+                    ? s.skipped[0]
+                    : `Übernommen: ${s.clips} Clips · ${s.snippets} Snippets · ${s.notes} Notizen`,
+                );
+                refresh();
+              })
+              .catch((e) => setNote(String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Läuft…" : "Jetzt abgleichen"}
+        </button>
+      </div>
+      {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
+      {status?.last_error && (
+        <p className="mt-1 text-[11px] text-amber-500">{status.last_error}</p>
+      )}
+      <p className="mt-3 text-[11px] text-[var(--color-muted)]">
+        Löschungen werden bewusst NICHT übertragen: die Geräte vereinigen ihre Daten. Ein leerer
+        Stand kann einen gefüllten damit nie überschreiben.
+      </p>
+    </Section>
+  );
+}
+
 function CloudSyncSection() {
   const [cfg, setCfgState] = useState<SyncConfig | null>(null);
   const [status, setStatus] = useState<SyncStatus | null>(null);

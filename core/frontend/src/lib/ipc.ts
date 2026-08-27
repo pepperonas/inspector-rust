@@ -943,6 +943,54 @@ export function syncNow(): Promise<void> {
   return invoke("sync_now");
 }
 
+// ── Device sync (shared folder, v0.139.0) ───────────────────────────────────
+
+export interface DeviceSyncConfig {
+  /** Master on/off. Default OFF — disabled means no thread work at all. */
+  enabled: boolean;
+  /** Absolute path of the shared folder (default: iCloud Drive). */
+  folder: string;
+  /** 2FA secrets travel only when this is ticked. Default off. */
+  include_totp: boolean;
+}
+
+export interface DeviceSyncStatus {
+  last_ms: number;
+  last_error: string;
+  device_id: string;
+  /** Other devices' files currently in the folder. */
+  peers: number;
+  has_passphrase: boolean;
+  folder_ok: boolean;
+}
+
+export interface DeviceSyncStats {
+  peers_read: number;
+  clips: number;
+  snippets: number;
+  notes: number;
+  totp: number;
+  published: boolean;
+  skipped: string[];
+}
+
+export function getDeviceSyncConfig(): Promise<DeviceSyncConfig> {
+  return invoke("get_device_sync_config");
+}
+export function setDeviceSyncConfig(config: DeviceSyncConfig): Promise<void> {
+  return invoke("set_device_sync_config", { config });
+}
+export function getDeviceSyncStatus(): Promise<DeviceSyncStatus> {
+  return invoke("get_device_sync_status");
+}
+/** Stored in THIS Mac's keychain; the same phrase must be entered on each. */
+export function setDeviceSyncPassphrase(passphrase: string): Promise<void> {
+  return invoke("set_device_sync_passphrase", { passphrase });
+}
+export function deviceSyncNow(): Promise<DeviceSyncStats> {
+  return invoke("device_sync_now");
+}
+
 /** Result of the live connection probe (Settings → Cloud-Sync checkmarks). */
 export interface SyncProbe {
   /** The server answered HTTP at all. */

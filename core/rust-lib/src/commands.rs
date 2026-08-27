@@ -6647,3 +6647,64 @@ mod project_map_tests {
         assert!(parse_project_map("").is_empty());
     }
 }
+
+// ── Device sync (shared folder, v0.139.0) ───────────────────────────────────
+
+#[tauri::command]
+pub fn get_device_sync_config(
+    db: tauri::State<'_, DbHandle>,
+) -> Result<crate::device_sync::DeviceSyncConfig, String> {
+    crate::device_sync::get_config(&db).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_device_sync_config(
+    db: tauri::State<'_, DbHandle>,
+    config: crate::device_sync::DeviceSyncConfig,
+) -> Result<(), String> {
+    crate::device_sync::set_config(&db, &config).map_err(|e| e.to_string())?;
+    crate::device_sync::request_sync();
+    Ok(())
+}
+
+/// Status is a filesystem read (the shared folder may be an iCloud mount that
+/// blocks), so it never runs on the main thread.
+#[tauri::command]
+pub async fn get_device_sync_status(
+    db: tauri::State<'_, DbHandle>,
+) -> Result<crate::device_sync::DeviceSyncStatus, String> {
+    let db = (*db).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::device_sync::get_status(&db).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The shared secret. Stored in THIS device's keychain and never synced —
+/// the same passphrase has to be entered on every Mac that joins.
+#[tauri::command]
+pub fn set_device_sync_passphrase(passphrase: String) -> Result<(), String> {
+    crate::device_sync::set_passphrase(passphrase.trim()).map_err(|e| e.to_string())?;
+    crate::device_sync::request_sync();
+    Ok(())
+}
+
+/// Run one cycle now. Async — it does argon2 + file IO.
+#[tauri::command]
+pub async fn device_sync_now(
+    db: tauri::State<'_, DbHandle>,
+) -> Result<crate::device_sync::SyncStats, String> {
+    let db = (*db).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = crate::device_sync::get_config(&db).map_err(|e| e.to_string())?;
+        let pass = crate::device_sync::get_passphrase();
+        if !crate::device_sync::should_run(&cfg, pass.is_some()) {
+            return Err("devicesync.not_ready".to_string());
+        }
+        crate::device_sync::cycle(&db, &cfg, &pass.unwrap_or_default())
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}

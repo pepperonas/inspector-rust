@@ -164,3 +164,4 @@ Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcu
 
 == Plattformen ==
 macOS (primär, voll verifiziert) · Windows · Linux (Ubuntu/Debian; einzelne Features OS-gebunden, Commands sind plattform-gegated)
+Geräte-Sync — `Einstellungen → Geräte-Sync` (opt-in, Standard AUS): gleicher Datenstand auf mehreren Macs über einen gemeinsamen Ordner (Default iCloud Drive), passwortverschlüsselt, Passwort im Schlüsselbund. Synchronisiert Verlauf, Snippets+Gruppen, Notizen, 2FA nur auf Wunsch; Einstellungen und Zeiterfassung nie. Nur additiv — ein leerer Stand kann einen gefüllten nie überschreiben, Löschungen wandern deshalb bewusst nicht mit (v0.139.0)

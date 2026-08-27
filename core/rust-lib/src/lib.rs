@@ -20,6 +20,7 @@ mod cutout;
 mod cutout_ml;
 mod db;
 mod disk_usage;
+mod device_sync;
 mod path_arg;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
@@ -441,6 +442,7 @@ pub fn run(context: tauri::Context<Wry>) {
 
             // Cloud sync with cue (snippets, opt-in via Settings).
             sync::start(app.handle().clone(), db_handle.clone());
+            device_sync::start(app.handle().clone(), db_handle.clone());
 
             // Re-apply the last-chosen brightness/EDR levels (gamma dies with
             // the process; without this every restart resets to 100 %).
@@ -638,6 +640,11 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_sync_config,
             commands::set_sync_config,
             commands::get_sync_status,
+            commands::get_device_sync_config,
+            commands::set_device_sync_config,
+            commands::get_device_sync_status,
+            commands::set_device_sync_passphrase,
+            commands::device_sync_now,
             commands::sync_now,
             commands::sync_test_connection,
             commands::get_gesture_config,

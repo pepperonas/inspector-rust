@@ -487,7 +487,7 @@ pub fn import_snippets_json(db: &DbHandle, json: &str) -> Result<snippets::Impor
     })
 }
 
-fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
+pub(crate) fn apply(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> {
     let mut result = BackupImportResult::default();
 
     // 0+1) Snippet groups + snippets.

@@ -265,6 +265,30 @@ fn backend_available() -> bool {
     false
 }
 
+/// Render a self-contained HTML document to PDF. Public so other features
+/// can reuse the pipeline instead of growing a second one (`loc`'s export
+/// does — one renderer, three formats).
+///
+/// ⚠️ **Main thread only on macOS** — WebKit asserts it. Dispatch via
+/// `app.run_on_main_thread` from a worker.
+pub fn html_to_pdf(html: &str, output: &Path) -> Result<(), String> {
+    write_pdf(html, output)
+}
+
+/// Render a self-contained HTML document to a PNG of the WHOLE page.
+///
+/// ⚠️ macOS only, main thread only. Elsewhere this reports honestly rather
+/// than writing an empty file.
+#[cfg(target_os = "macos")]
+pub fn html_to_png(html: &str, output: &Path) -> Result<(), String> {
+    macos::render_html_to_png(html, output)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn html_to_png(_html: &str, _output: &Path) -> Result<(), String> {
+    Err("PNG-Export ist bisher nur auf macOS umgesetzt".into())
+}
+
 #[cfg(target_os = "macos")]
 fn write_pdf(html: &str, output: &Path) -> Result<(), String> {
     macos::render_html_to_pdf(html, output)
@@ -508,6 +532,182 @@ mod macos {
     /// Iterate the main CFRunLoop for up to `dur`. Returns when one
     /// event is processed OR the timeout elapses — we call this in
     /// a poll loop, not a single big wait.
+    /// HTML → PNG of the WHOLE page.
+    ///
+    /// Same three stages as the PDF path, with one extra step that matters:
+    /// `takeSnapshot` captures the view's BOUNDS, not the document, so a
+    /// report longer than the initial frame would simply be cut off. We ask
+    /// the page for its own height first and resize to it.
+    ///
+    /// ⚠️ Main thread only, like every WebKit call here.
+    pub fn render_html_to_png(html: &str, output: &Path) -> Result<(), String> {
+        const WIDTH: f64 = 900.0;
+        unsafe {
+            let frame = CGRect {
+                origin: CGPoint { x: 0.0, y: 0.0 },
+                size: CGSize { width: WIDTH, height: 1200.0 },
+            };
+            let config: Id = msg_send![objc2::class!(WKWebViewConfiguration), new];
+            let webview: Id = msg_send![objc2::class!(WKWebView), alloc];
+            let webview: Id = msg_send![webview, initWithFrame: frame, configuration: config];
+            release(config);
+            if webview.is_null() {
+                return Err("WKWebView alloc/init returned nil".into());
+            }
+
+            let html_nsstring = nsstring_from_str(html);
+            let _: Id = msg_send![webview, loadHTMLString: html_nsstring, baseURL: NIL];
+            release(html_nsstring);
+
+            let deadline = Instant::now() + Duration::from_secs(5);
+            loop {
+                let is_loading: bool = msg_send![webview, isLoading];
+                if !is_loading {
+                    break;
+                }
+                if Instant::now() > deadline {
+                    release(webview);
+                    return Err("WKWebView load timed out after 5s".into());
+                }
+                run_loop_pump(Duration::from_millis(30));
+            }
+            run_loop_pump(Duration::from_millis(50));
+
+            // ── Measure the document, then grow the view to it ─────────
+            // Without this the snapshot is a 1200 px crop of a report that
+            // is usually far longer.
+            let height = Arc::new(Mutex::new(0.0f64));
+            let (htx, hrx) = mpsc::channel::<()>();
+            let h_for_block = Arc::clone(&height);
+            let htx_for_block = Mutex::new(Some(htx));
+            let js_block = block2::RcBlock::new(move |value: Id, _error: Id| {
+                if !value.is_null() {
+                    let v: f64 = msg_send![value, doubleValue];
+                    if let Ok(mut g) = h_for_block.lock() {
+                        *g = v;
+                    }
+                }
+                if let Ok(mut s) = htx_for_block.lock() {
+                    if let Some(s) = s.take() {
+                        let _ = s.send(());
+                    }
+                }
+            });
+            // ⚠️ NOT `scrollHeight`: for content shorter than the frame it
+            // clamps to the VIEWPORT, so a short report snapshotted with a
+            // page of trailing whitespace (measured live: 1200 for a ~400 pt
+            // document). The footer is the last element of every report, so
+            // its bottom edge is the true content height; scrollHeight stays
+            // as the fallback for a document without one.
+            let js = nsstring_from_str(
+                "(function(){var f=document.querySelector('footer');\
+                 if(f){return Math.ceil(f.getBoundingClientRect().bottom+32);}\
+                 return Math.ceil(document.body.scrollHeight);})()",
+            );
+            let _: () = msg_send![webview,
+                evaluateJavaScript: js,
+                completionHandler: &*js_block];
+            release(js);
+            let js_deadline = Instant::now() + Duration::from_secs(5);
+            while hrx.try_recv().is_err() {
+                if Instant::now() > js_deadline {
+                    break;
+                }
+                run_loop_pump(Duration::from_millis(20));
+            }
+            // A failed measurement falls back to the initial frame rather
+            // than to something absurd — a cropped report beats no report.
+            let measured = height.lock().map(|g| *g).unwrap_or(0.0);
+            tracing::debug!("html_to_png: measured document height = {measured}");
+            let full = measured.clamp(200.0, 20_000.0);
+            if measured > 0.0 {
+                let _: () = msg_send![webview,
+                    setFrameSize: CGSize { width: WIDTH, height: full }];
+                run_loop_pump(Duration::from_millis(120));
+            }
+
+            // ── Snapshot ──────────────────────────────────────────────
+            let result: Arc<Mutex<Option<PdfResult>>> = Arc::new(Mutex::new(None));
+            let (tx, rx) = mpsc::channel::<()>();
+            let result_for_block = Arc::clone(&result);
+            let tx_for_block = Mutex::new(Some(tx));
+            let block = block2::RcBlock::new(move |image: Id, error: Id| {
+                let outcome = if !error.is_null() {
+                    let desc: Id = msg_send![error, localizedDescription];
+                    PdfResult::Err(
+                        nsstring_to_string(desc)
+                            .unwrap_or_else(|| "takeSnapshot returned an error".to_string()),
+                    )
+                } else if image.is_null() {
+                    PdfResult::Err("takeSnapshot returned nil".to_string())
+                } else {
+                    // NSImage → TIFF → NSBitmapImageRep → PNG. There is no
+                    // direct NSImage→PNG call; this is the documented route.
+                    let tiff: Id = msg_send![image, TIFFRepresentation];
+                    if tiff.is_null() {
+                        PdfResult::Err("TIFFRepresentation was nil".to_string())
+                    } else {
+                        let rep: Id =
+                            msg_send![objc2::class!(NSBitmapImageRep), imageRepWithData: tiff];
+                        if rep.is_null() {
+                            PdfResult::Err("NSBitmapImageRep was nil".to_string())
+                        } else {
+                            let props: Id = msg_send![objc2::class!(NSDictionary), dictionary];
+                            // 4 = NSBitmapImageFileTypePNG.
+                            let png: Id = msg_send![rep,
+                                representationUsingType: 4usize,
+                                properties: props];
+                            if png.is_null() {
+                                PdfResult::Err("PNG encoding returned nil".to_string())
+                            } else {
+                                let ptr: *const u8 = msg_send![png, bytes];
+                                let len: usize = msg_send![png, length];
+                                if ptr.is_null() || len == 0 {
+                                    PdfResult::Err("PNG data was empty".to_string())
+                                } else {
+                                    PdfResult::Ok(
+                                        std::slice::from_raw_parts(ptr, len).to_vec(),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                };
+                if let Ok(mut g) = result_for_block.lock() {
+                    *g = Some(outcome);
+                }
+                if let Ok(mut s) = tx_for_block.lock() {
+                    if let Some(s) = s.take() {
+                        let _ = s.send(());
+                    }
+                }
+            });
+            let _: () = msg_send![webview,
+                takeSnapshotWithConfiguration: NIL,
+                completionHandler: &*block];
+
+            let snap_deadline = Instant::now() + Duration::from_secs(15);
+            loop {
+                if rx.try_recv().is_ok() {
+                    break;
+                }
+                if Instant::now() > snap_deadline {
+                    release(webview);
+                    return Err("takeSnapshot timed out".into());
+                }
+                run_loop_pump(Duration::from_millis(30));
+            }
+            release(webview);
+
+            match result.lock().ok().and_then(|mut g| g.take()) {
+                Some(PdfResult::Ok(bytes)) => std::fs::write(output, bytes)
+                    .map_err(|e| format!("PNG write failed: {e}")),
+                Some(PdfResult::Err(e)) => Err(e),
+                None => Err("takeSnapshot produced no result".into()),
+            }
+        }
+    }
+
     fn run_loop_pump(dur: Duration) {
         unsafe {
             CFRunLoopRunInMode(

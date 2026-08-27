@@ -1294,6 +1294,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "loc src", result: "Relative paths resolve against the app's working dir — prefer absolute paths." },
     ],
     tips: [
+      "Export als HTML, PDF oder PNG über die drei Knöpfe — die Datei landet in `~/Downloads` und wird im Finder gezeigt.",
       "Der Pfad über der Statistik ist klickbar, und die Unterordner-Reihe darunter zählt einen Ordner tiefer — `⌫` geht wieder hoch.",
       "R re-counts (e.g. after edits); the checkbox at the bottom includes ignored + hidden files.",
       "A folder's .gitignore only filters inside a git repo — a plain folder with a .gitignore counts everything.",

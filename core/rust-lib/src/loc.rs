@@ -27,10 +27,10 @@
 //! counts are asserted (tokei is deterministic and offline, so this is a
 //! legitimate hermetic test, not a network test).
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 /// One language row of the report, ready for the panel.
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct LocLanguage {
     pub name: String,
     pub files: usize,
@@ -43,7 +43,7 @@ pub struct LocLanguage {
 
 /// The whole report. `total_lines` = code + comments + blanks (the "lines"
 /// column of the IntelliJ plugin).
-#[derive(Serialize, Clone, Debug)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct LocReport {
     /// Display label — the folder name (or "N Auswahlen" for a multi-select).
     pub root_label: String,

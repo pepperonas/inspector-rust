@@ -41,6 +41,7 @@ mod iris;
 mod mic_capture;
 mod image_ops;
 mod loc;
+mod loc_export;
 mod logging;
 mod md_to_pdf;
 mod meme;
@@ -797,6 +798,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_crt_animation,
             commands::get_sleep_status,
             commands::loc_count,
+            commands::loc_export,
             commands::disk_scan,
             commands::disk_trash,
             commands::get_clock_zones,

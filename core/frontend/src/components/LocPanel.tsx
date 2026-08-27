@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Code2, FileCode2, RefreshCw, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
-import { locCount, type LocReport } from "../lib/ipc";
+import { Code2, FileCode2, RefreshCw, ChevronRight, CornerLeftUp, Folder, Download } from "lucide-react";
+import { locCount, locExport, type LocReport } from "../lib/ipc";
 import { languageColor, donutSegments, formatCount, formatPct } from "../lib/loc";
 // Generic path arithmetic — it lives in lib/disk because `disk` needed it
 // first, and it is pure + unit-tested there.
@@ -35,6 +35,9 @@ export function LocPanel({
   // The folder currently counted. Starts at the typed argument and moves as
   // the user navigates — null = the Finder selection.
   const [target, setTarget] = useState<string | null>(arg.trim() || null);
+  // Export feedback — the file lands in ~/Downloads and is revealed there.
+  const [exporting, setExporting] = useState<string | null>(null);
+  const [exported, setExported] = useState<string | null>(null);
   const aliveRef = useRef(true);
   const seqRef = useRef(0);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -165,6 +168,20 @@ export function LocPanel({
       </div>
 
       {current && <LocPathBar path={current} onGo={setTarget} />}
+      {report && (
+        <ExportRow
+          busy={exporting}
+          done={exported}
+          onExport={(fmt) => {
+            setExporting(fmt);
+            setExported(null);
+            locExport(report, fmt)
+              .then((p) => setExported(p.split("/").pop() ?? p))
+              .catch((e) => setExported(String(e)))
+              .finally(() => setExporting(null));
+          }}
+        />
+      )}
       {report && report.subdirs.length > 0 && (
         <SubdirList dirs={report.subdirs} base={current} onGo={setTarget} />
       )}
@@ -417,6 +434,38 @@ function SubdirList({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** HTML · PDF · PNG — all three from the one renderer in Rust, so what you
+ *  export always matches what the panel showed. */
+function ExportRow({
+  busy,
+  done,
+  onExport,
+}: {
+  busy: string | null;
+  done: string | null;
+  onExport: (fmt: "html" | "pdf" | "png") => void;
+}) {
+  const formats: Array<"html" | "pdf" | "png"> = ["html", "pdf", "png"];
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <Download size={12} className="shrink-0 text-[var(--color-muted)]" />
+      <span className="text-[var(--color-muted)]">Export:</span>
+      {formats.map((f) => (
+        <button
+          key={f}
+          type="button"
+          disabled={busy !== null}
+          onClick={() => onExport(f)}
+          className="rounded-full border border-[var(--color-border)] px-2 py-0.5 uppercase tracking-wide hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
+        >
+          {busy === f ? "…" : f}
+        </button>
+      ))}
+      {done && <span className="truncate text-[var(--color-muted)]">→ {done}</span>}
     </div>
   );
 }

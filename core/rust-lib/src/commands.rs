@@ -6708,3 +6708,50 @@ pub async fn device_sync_now(
     .await
     .map_err(|e| e.to_string())?
 }
+
+// ── loc export — one HTML renderer, three formats (v0.141.0) ────────────────
+
+/// Write the current `loc` report to `~/Downloads` as HTML, PDF or PNG and
+/// reveal it. `format` is "html" | "pdf" | "png".
+///
+/// ⚠️ PDF and PNG render through WebKit, which asserts the MAIN thread — so
+/// the work is dispatched there from this worker, exactly like `md2pdf`.
+#[tauri::command]
+pub async fn loc_export(
+    app: AppHandle,
+    report: crate::loc::LocReport,
+    format: String,
+) -> Result<String, String> {
+    let html = crate::loc_export::build_html(&report);
+    let stem = crate::media_name::sanitize_stem(&format!("loc-{}", report.root_label));
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let ext = match format.as_str() {
+        "html" => "html",
+        "pdf" => "pdf",
+        "png" => "png",
+        other => return Err(format!("Unbekanntes Format: {other}")),
+    };
+    let out = dir.join(format!("{stem}.{ext}"));
+
+    if ext == "html" {
+        std::fs::write(&out, &html).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
+    } else {
+        // WebKit on the main thread; the oneshot carries the result back.
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (h, o, is_pdf) = (html, out.clone(), ext == "pdf");
+        app.run_on_main_thread(move || {
+            let r = if is_pdf {
+                crate::md_to_pdf::html_to_pdf(&h, &o)
+            } else {
+                crate::md_to_pdf::html_to_png(&h, &o)
+            };
+            let _ = tx.send(r);
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv_timeout(std::time::Duration::from_secs(40))
+            .map_err(|_| "Rendern hat zu lange gedauert".to_string())??;
+    }
+
+    reveal_in_file_manager(&out);
+    Ok(out.to_string_lossy().into_owned())
+}

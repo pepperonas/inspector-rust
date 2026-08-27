@@ -2938,6 +2938,12 @@ export function locCount(paths: string[] | null, respectIgnores: boolean): Promi
   return invoke("loc_count", { paths, respectIgnores });
 }
 
+/** Export the loc report to ~/Downloads and reveal it. Returns the path.
+ *  One HTML renderer in Rust feeds all three formats, so they cannot drift. */
+export function locExport(report: LocReport, format: "html" | "pdf" | "png"): Promise<string> {
+  return invoke("loc_export", { report, format });
+}
+
 // ── System sleep status (footer indicator, v0.114.0, macOS) ─────────────────
 
 export interface SleepStatus {

@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.144.0] — 2026-08-27
+
+### Added
+
+- **Referenz-Index in beiden READMEs.** Die 24 Seiten unter `docs/` waren praktisch unsichtbar — es gab keinen Verweis auf sie. Jetzt eine Tabelle mit einer Zeile je Seite.
+- **Zwei neue Referenzseiten:** `docs/reports.md` (das gemeinsame Design hinter allen HTML-/PDF-/PNG-Exporten samt Druck-Fallstricken) und `docs/pagespeed.md` (Schlüssel, IP-Beschränkung, Grenzen).
+- **Acht neue Abzeichen**, davon vier aus dem Repo **berechnet** und vom `posttest`-Hook erzwungen: Befehle, Doku-Seiten, Rust-Module, Crates im Abhängigkeitsbaum. Dazu Lizenz, Tauri, „offline first", „keine Telemetrie".
+
+### Changed
+
+- **Abzeichen können nicht mehr veralten, auch ohne den Hook.** Neue Tests prüfen in CI, dass der Befehls-Zähler der Registry entspricht, die Testsumme aufgeht, jede Datei unter `docs/` verlinkt ist und der Index auf keine tote Seite zeigt.
+
 ## [0.143.1] — 2026-08-27
 
 ### Added

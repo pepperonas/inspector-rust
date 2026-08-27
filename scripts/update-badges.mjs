@@ -159,13 +159,46 @@ function fail(msg) {
   process.exit(1);
 }
 
+// ── Further repo metrics ─────────────────────────────────────────────────────
+//
+// ⚠️ Every badge added here must be COMPUTED, never typed. A hand-written
+// count is a claim that quietly stops being true — which is worse than no
+// badge at all, because a reader trusts it.
+
+function countMetrics() {
+  const read = (p) => readFileSync(join(ROOT, p), "utf8");
+
+  // Documented commands = entries in the CommandDoc registry, the same
+  // registry that generates the README matrix and the in-app help.
+  const commands = (read("core/frontend/src/lib/commandDocs.ts").match(/^    command: "/gm) ?? [])
+    .length;
+
+  // Reference pages under docs/.
+  const docs = readdirSync(join(ROOT, "docs")).filter((f) => f.endsWith(".md")).length;
+
+  // Rust modules in the core library (one file = one module).
+  const modules = readdirSync(join(ROOT, "core/rust-lib/src")).filter((f) =>
+    f.endsWith(".rs"),
+  ).length;
+
+  // Crates in the resolved dependency graph — the honest number for a Rust
+  // binary, not the count of direct dependencies.
+  const crates = (read("Cargo.lock").match(/^name = /gm) ?? []).length;
+
+  return { commands, docs, modules, crates };
+}
+
 // ── Badge rewriting (idempotent) ─────────────────────────────────────────────
 
-function rewriteBadges({ locK, total, rust, fe }) {
+function rewriteBadges({ locK, total, rust, fe, commands, docs, modules, crates }) {
   const edits = {
     "README.md": (s) =>
       s
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
+        .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
+        .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
+        .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
+        .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
         .replace(/badge\/tests-\d+%20passing/g, `badge/tests-${total}%20passing`)
         // Quality-section per-runner badges (cargo test / vitest counts).
@@ -261,7 +294,7 @@ const total = rust + fe;
 console.log(
   `── Rewriting badges (~${locK}k LOC · ${total} tests = ${rust} Rust + ${fe} frontend)…`,
 );
-rewriteBadges({ locK, total, rust, fe });
+rewriteBadges({ locK, total, rust, fe, ...countMetrics() });
 console.log(
   `✓ Badges: ~${locK}k LOC · ${total} tests (${rust} Rust + ${fe} frontend).`,
 );

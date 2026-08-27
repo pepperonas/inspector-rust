@@ -64,7 +64,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **3878 Unit-Tests (1467 Rust + 2411 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **3891 Unit-Tests (1467 Rust + 2424 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
@@ -72,8 +72,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~157k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1467 Rust + 2411 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-3878%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1467 Rust + 2424 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-3891%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -95,9 +95,17 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-3878%20(1467%20Rust%20%2B%202411%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-3891%20(1467%20Rust%20%2B%202424%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
+  [![Commands](https://img.shields.io/badge/commands-59-4f46e5?style=flat-square)](#commands)
+  [![Docs](https://img.shields.io/badge/docs-22%20pages-0ea5e9?style=flat-square)](./docs)
+  [![Rust modules](https://img.shields.io/badge/rust%20modules-84-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Crates](https://img.shields.io/badge/crates-863-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
+  [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
+  [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
+  [![Offline first](https://img.shields.io/badge/offline-first-334155?style=flat-square)](#privacy)
+  [![No telemetry](https://img.shields.io/badge/telemetry-none-334155?style=flat-square)](#privacy)
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
   [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/inspector-rust?style=flat-square)](#)
   [![Commit activity](https://img.shields.io/github/commit-activity/m/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
@@ -163,7 +171,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-1467%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-2411%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-2424%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -196,7 +204,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-3878%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-3891%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-284-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-33-blueviolet?style=flat-square)](#)
@@ -931,7 +939,7 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2411 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2424 Tests
 cargo test --workspace  # Rust-Unit-Tests — 1467 Tests
 ```
 
@@ -990,6 +998,41 @@ Siehe [`CHANGELOG.md`](./CHANGELOG.md) — jeder Release ist dokumentiert mit de
 
 - **Martin Pfeffer** — Autor & Maintainer
 - Kudos 2 Daniel
+
+
+## Referenz-Dokumentation
+
+Jede Referenzseite liegt in [`docs/`](./docs). Die Hilfe im Programm (`?`,
+`<befehl>?`) und die Befehlstabelle oben werden aus derselben Registry
+erzeugt; diese Seiten tragen das, was in keinen Tooltip passt —
+Entwurfsentscheidungen, Fehlerbilder und die Fallen, die es gekostet hat.
+
+| Seite | Inhalt |
+|---|---|
+| [reports.md](./docs/reports.md) | **Exported reports** — the one design system behind every HTML/PDF/PNG export, and the print traps |
+| [inline-help.md](./docs/inline-help.md) | The `?` help system and the CommandDoc registry that feeds three surfaces |
+| [spec.md](./docs/spec.md) | The original product spec |
+| [encryption.md](./docs/encryption.md) | At-rest encryption: what is encrypted, what deliberately is not |
+| [backup.md](./docs/backup.md) | Full-app backup, encrypted backups, restore semantics |
+| [snippets-import.md](./docs/snippets-import.md) | Snippet import/export formats and the merge rules |
+| [text-expander.md](./docs/text-expander.md) | The four expansion modes and why each exists |
+| [clipboard-shapes.md](./docs/clipboard-shapes.md) | Copy shapes, rich-text fidelity, lineage rails |
+| [notes.md](./docs/notes.md) | Notes |
+| [colors.md](./docs/colors.md) | Inline colour preview, picker, screen eyedropper |
+| [timesheet.md](./docs/timesheet.md) | Time tracking: model, privacy, consolidated slots |
+| [disk.md](./docs/disk.md) | `disk` / `daisy` — the usage sunburst and its blind spot |
+| [repo.md](./docs/repo.md) | `repo` — git activity statistics |
+| [pagespeed.md](./docs/pagespeed.md) | `pagespeed` — PageSpeed Insights, keys, IP restrictions |
+| [adb.md](./docs/adb.md) | `adb` — Android device control |
+| [faker.md](./docs/faker.md) | `faker` — realistic fake test data |
+| [figlet.md](./docs/figlet.md) | `figlet` — ASCII banners and the bundled font set |
+| [security-builder.md](./docs/security-builder.md) | `sec` — guided pentest command builders |
+| [cleanup.md](./docs/cleanup.md) | `clean` — the allowlist and the safety guarantees |
+| [translation.md](./docs/translation.md) | `tr*` — the provider strategy |
+| [ai-prompts.md](./docs/ai-prompts.md) | The bundled AI prompt snippets |
+| [boom-driver-plan.md](./docs/boom-driver-plan.md) | `boom` — why a virtual audio driver was unavoidable |
+| [macos-permissions.md](./docs/macos-permissions.md) | How the expander actually got working on macOS |
+| [RELEASING.md](./docs/RELEASING.md) | Release process |
 
 ## License
 

@@ -85,7 +85,7 @@ Dauerschlaf-Sperre — `nosleep [on|off]` (macOS): schaltet das DAUERHAFTE AC-En
 Alias-Builder — `alias [name]`: geführtes Anlegen eines Shell-Alias in der Preview (Befehl + Name → exakter Anlege-Befehl je OS: macOS/zsh, Linux/bash, Windows/PowerShell-Funktion; je Kopieren-Button + Direkt-Anlegen auf diesem System; darunter die bestehenden Aliasse der GESAMTEN Shell-Startkette (rc + gesourcte Dateien, je Zeile mit Herkunftsdatei) als durchsuchbare, alphabetische Liste mit Bearbeiten [füllt die Felder, Button wird „Aktualisieren“] und Löschen [Inline-Bestätigung]; Fokus springt bei Enter/Autocomplete ins Befehl-Feld; Quoting wird übernommen)
 Datei-Ops — `touch <name> [> inhalt]`, `mkdir <pfad>`, `terminal` (im aktiven Finder-Ordner)
 Netto-Rechner — `bruno <brutto>`: deutscher Brutto→Netto-Rechner (2025); Suffix `f` = Selbständigen-Kalkulation (`bruno 80000f`, auch `einnahmen-ausgaben f`): freiwillige GKV (Mindest-/Höchstbemessung) oder PKV-Fixbeitrag, volle PV, keine RV/AV, Grund-/Splittingtarif, Gewerbesteuer mit §35-Anrechnung (Freiberufler ohne); Enter fügt das Netto ein, Shift+Enter kopiert die komplette Aufstellung (Annahmen + alle Abzüge) als Text
-Timer/Wecker — `timer <n>[s/min]`, `alarm <HH:MM>` mit Vollbild-Alarm
+Timer/Wecker — `timer <n>[s/min]`, `alarm <HH:MM>` mit Vollbild-Alarm · Alias `countdown` (identisch)
 Passwörter — `pwgen [länge]`: 4 Modi (alnum/symbols/dict/leet), CSPRNG
 Kalender — `calendar [monat jahr]` / `cal`: Monatsansicht, Wochentag-Recherche, ←→↑↓-Navigation
 Zufall — `rnd` / `random`: würfelt eine Zahl und zeigt sie direkt im Preview (groß) + „Roll again"-Button zum Neuwürfeln im Bereich; Enter fügt die gezeigte Zahl ein. Bereich: `rnd` (1–6) · `rnd 100` · `rnd 5 500` · `rnd 1-2` (Dash-Range)

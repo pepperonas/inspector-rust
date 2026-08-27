@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.143.1] — 2026-08-27
+
+### Added
+
+- **`countdown` ist ein Alias von `timer`** — gleiche Argumente, gleicher Alarm, gleicher Ablauf. Der Alias trägt keine eigene Logik: er zeigt auf dieselbe `kind`, deshalb bleibt alles dahinter unverändert.
+
 ## [0.143.0] — 2026-08-27
 
 ### Changed

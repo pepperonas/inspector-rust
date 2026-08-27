@@ -41,7 +41,7 @@ describe("COMMANDS catalogue", () => {
   it("has 64 commands (translate ×9, dev-tools ×5, web-search bangs ×9, qr, sound+audio, rz+resize, optim+optimize, trim, hue, disco, stats, uptime, track, meme, …)", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(99);
+    expect(COMMANDS.length).toBe(100);
   });
 
   it("every keyword is unique", () => {
@@ -1273,5 +1273,28 @@ describe("parseTrackArg", () => {
     expect(parseTrackArg("pause")).toBeNull();
     expect(parseTrackArg("2")).toBeNull();
     expect(parseTrackArg("onn")).toBeNull();
+  });
+});
+
+describe("countdown is timer", () => {
+  it("parses to the SAME kind, so everything downstream is unchanged", () => {
+    // The alias carries no logic of its own: one `kind` means the dispatch,
+    // the command row and the scheduler all keep working untouched.
+    const a = parseCommand("countdown 12");
+    expect(a?.spec.kind).toBe("timer");
+    expect(a?.arg).toBe("12");
+    expect(parseCommand("timer 12")?.spec.kind).toBe(a?.spec.kind);
+  });
+
+  it("takes the same argument forms as timer", () => {
+    for (const arg of ["30s", "12", "2h", "90 min"]) {
+      expect(parseCommand(`countdown ${arg}`)?.arg).toBe(arg);
+    }
+  });
+
+  it("requires an argument, like timer — a bare keyword is not runnable", () => {
+    const bare = parseCommand("countdown");
+    expect(bare).toBeNull();
+    expect(parseCommand("timer")).toBeNull();
   });
 });

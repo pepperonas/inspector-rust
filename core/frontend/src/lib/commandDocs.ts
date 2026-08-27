@@ -620,7 +620,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
   },
   {
     command: "timer",
-    aliases: [],
+    aliases: ["countdown"],
     category: CAT_PROD,
     version_added: "0.42.0",
     tagline: "Countdown timer — fires an alarm on expiry.",

@@ -477,6 +477,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
       "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
     requiresArg: true,
   },
+  {
+    kind: "timer",
+    keyword: "countdown",
+    syntax: "countdown <N>[s|min|h]",
+    description: "Timer — Alias von `timer` (gleicher Befehl, sprechender Name).",
+    requiresArg: true,
+  },
   // ── Alarm (absolute clock time) ───────────────────────────────────
   {
     kind: "alarm",

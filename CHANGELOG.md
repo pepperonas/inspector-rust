@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.143.0] — 2026-08-27
+
+### Changed
+
+- **Alle Exporte teilen jetzt EIN Design.** Fünf Dokumente trugen vier handgeschriebene Stylesheets — zwei davon **dunkel** (`repo`, Timesheet). Das gemeinsame `report_style` gibt allen dieselbe Typografie, dieselbe Tabellen- und Kennzahlen-Form und dasselbe Papier.
+- **Hell und druckorientiert**, überall: ein dunkler Report ist beim Drucken und beim Weitergeben das falsche Erzeugnis.
+- **A4 statt US-Letter** — die Leser sind hier. Letter ließ auf jeder gedruckten Seite einen Streifen stehen.
+- **Handwerk statt Kästen:** Zahlen durchgängig `tabular-nums` und rechtsbündig (Ziffer unter Ziffer), Haarlinien und Weißraum statt Rahmen, Anteilsbalken direkt in der Tabellenzeile, Kopf mit Herkunft und Fuß mit Methode.
+- **PageSpeed: Desktop und Mobil stehen nebeneinander** — in einem festen Vierer-Raster, damit die Werte Kategorie für Kategorie auf einer Höhe liegen. Vorher brach SEO in eine zweite Zeile um und der Vergleich zerfiel.
+
+### Fixed
+
+- **Sprachfarben sind wieder unterscheidbar.** Ein Hash direkt auf 0–360° gab zwar Beständigkeit, aber keine Trennung — zwei Sprachen kamen als fast identische Türkistöne heraus. Jetzt eine kuratierte Zwölfer-Palette, weiterhin deterministisch je Name.
+- **`Node.js` heißt wieder `Node.js`.** In der Legende ersetzte ein `.replace('.', ",")` jeden Punkt der Zeile — auch den im Sprachnamen.
+- **Der PDF-Export verliert keine Farbflächen mehr:** ohne `print-color-adjust: exact` verwirft WebKit beim Rendern jeden Hintergrund, also genau die Balken, Chips und Ringe, die die Aussage tragen.
+
 ## [0.142.0] — 2026-08-27
 
 ### Added

@@ -61,6 +61,7 @@ mod recolor;
 mod input_lock;
 #[cfg(target_os = "macos")]
 mod esc_watch;
+mod report_style;
 mod repo_stats;
 mod region_picker;
 mod screen_picker;

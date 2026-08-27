@@ -393,12 +393,14 @@ mod macos {
     pub fn render_html_to_pdf(html: &str, output: &Path) -> Result<(), String> {
         unsafe {
             // ── 1) Build WKWebView ────────────────────────────────────
-            // Frame mimics US-Letter at 96 DPI ≈ 800×1100 — close enough
-            // to print intent. createPDF uses the view's bounds when
-            // no per-page rect is set in the configuration.
+            // ⚠️ A4, not US-Letter. `createPDFWithConfiguration: nil` takes
+            // the page rect from the view's BOUNDS, so this frame IS the
+            // paper size — 794×1123 is A4 at 96 DPI. The readers of these
+            // reports are on A4; Letter left a stripe at the bottom of every
+            // printed page and cropped the right edge.
             let frame = CGRect {
                 origin: CGPoint { x: 0.0, y: 0.0 },
-                size: CGSize { width: 800.0, height: 1100.0 },
+                size: CGSize { width: 794.0, height: 1123.0 },
             };
             let config_class = objc2::class!(WKWebViewConfiguration);
             let config: Id = msg_send![config_class, new];

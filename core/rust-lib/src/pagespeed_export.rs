@@ -11,6 +11,7 @@
 use crate::pagespeed::{band, PageSpeedReport, StrategyRun};
 
 use crate::loc_export::esc;
+use crate::report_style as rs;
 
 /// The ring colour per band — one rule, shared by panel, HTML and PDF.
 pub fn band_color(b: &str) -> &'static str {
@@ -22,19 +23,20 @@ pub fn band_color(b: &str) -> &'static str {
     }
 }
 
-/// A score as an SVG ring — Lighthouse's own visual, and it survives the PDF
-/// because it is inline SVG rather than a canvas.
+/// A score as an SVG ring — Lighthouse's own visual, and inline SVG so it
+/// survives the PDF (a canvas would not).
 fn ring(c: &crate::pagespeed::CategoryScore) -> String {
     let col = band_color(band(c.score));
-    let (r, circ) = (26.0_f64, 2.0 * std::f64::consts::PI * 26.0);
+    let (r, circ) = (25.0_f64, 2.0 * std::f64::consts::PI * 25.0);
     let filled = c.score.map(|s| s as f64 / 100.0).unwrap_or(0.0) * circ;
     let text = c.score.map(|s| s.to_string()).unwrap_or_else(|| "–".into());
     format!(
-        r#"<div class="ring"><svg viewBox="0 0 64 64" width="64" height="64" aria-hidden="true">
-<circle cx="32" cy="32" r="{r}" fill="none" stroke="{col}" stroke-opacity=".18" stroke-width="6"/>
-<circle cx="32" cy="32" r="{r}" fill="none" stroke="{col}" stroke-width="6" stroke-linecap="round"
- stroke-dasharray="{filled:.2} {circ:.2}" transform="rotate(-90 32 32)"/>
-<text x="32" y="37" text-anchor="middle" font-size="18" font-weight="600" fill="{col}">{text}</text>
+        r#"<div class="ps-ring"><svg viewBox="0 0 60 60" width="56" height="56" aria-hidden="true">
+<circle cx="30" cy="30" r="{r}" fill="none" stroke="{col}" stroke-opacity=".16" stroke-width="5"/>
+<circle cx="30" cy="30" r="{r}" fill="none" stroke="{col}" stroke-width="5" stroke-linecap="round"
+ stroke-dasharray="{filled:.2} {circ:.2}" transform="rotate(-90 30 30)"/>
+<text x="30" y="36" text-anchor="middle" font-size="17" font-weight="640" fill="{col}"
+ font-family="-apple-system,BlinkMacSystemFont,Helvetica,Arial,sans-serif">{text}</text>
 </svg><span>{label}</span></div>"#,
         label = esc(&c.label),
     )
@@ -47,7 +49,7 @@ fn strategy_block(run: &StrategyRun, heading: &str) -> String {
         .iter()
         .map(|m| {
             format!(
-                r#"<tr><td><i style="background:{c}"></i>{label}</td><td class="v">{val}</td></tr>"#,
+                r#"<tr><td><span class="ps-dot" style="background:{c}"></span>{label}</td><td class="rp-num">{val}</td></tr>"#,
                 c = band_color(band(m.score)),
                 label = esc(&m.label),
                 val = esc(&m.display),
@@ -55,78 +57,97 @@ fn strategy_block(run: &StrategyRun, heading: &str) -> String {
         })
         .collect();
     format!(
-        r#"<section><h2>{heading}</h2><div class="rings">{rings}</div>
+        r#"<div class="ps-col"><h2>{heading}</h2><div class="ps-rings">{rings}</div>
 <table><tbody>{metrics}</tbody></table>
-<p class="meta">{url} · gemessen {time} · Lighthouse {ver}</p></section>"#,
+<p class="ps-meta">{url}<br>{time} · Lighthouse {ver}</p></div>"#,
         heading = esc(heading),
         url = esc(&run.final_url),
-        time = esc(&run.fetch_time),
+        time = esc(&fmt_time(&run.fetch_time)),
         ver = esc(&run.lighthouse_version),
     )
 }
 
+/// `2026-08-27T20:23:50.193Z` → `27.08.2026, 20:23 UTC`. Pure; an
+/// unrecognised string is passed through rather than mangled.
+pub fn fmt_time(iso: &str) -> String {
+    let (date, rest) = match iso.split_once('T') {
+        Some(v) => v,
+        None => return iso.to_string(),
+    };
+    let d: Vec<&str> = date.split('-').collect();
+    if d.len() != 3 || rest.len() < 5 {
+        return iso.to_string();
+    }
+    format!("{}.{}.{}, {} UTC", d[2], d[1], d[0], &rest[..5])
+}
+
+/// The extra rules this report needs on top of the shared stylesheet: the
+/// two strategies sit SIDE BY SIDE so the comparison is a glance, not a
+/// scroll — that is the entire reason both are in one document.
+fn extra_css() -> &'static str {
+    r#"
+.ps-cols { display: flex; gap: 34px; align-items: flex-start }
+.ps-col { flex: 1 1 0; min-width: 0 }
+/* A fixed four-column grid, not flex-wrap: the four categories must sit in
+   ONE row per strategy so desktop and mobile line up score-for-score. With
+   wrapping, SEO dropped onto a second line and the comparison broke. */
+.ps-rings { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 0 0 18px }
+.ps-ring { text-align: center; min-width: 0 }
+.ps-ring span { display: block; margin-top: 3px; font-size: 9.5px; line-height: 1.2; color: var(--muted); overflow-wrap: anywhere }
+.ps-dot { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 9px }
+.ps-meta { margin: 12px 0 0; color: var(--muted); font-size: 10.5px; line-height: 1.5; word-break: break-all }
+.ps-scale { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 0 0 26px; font-size: 11.5px; color: var(--muted) }
+.ps-scale span { display: inline-flex; align-items: center; gap: 6px }
+.ps-scale i { width: 8px; height: 8px; border-radius: 2px }
+@media print { .ps-cols { gap: 22px } }
+"#
+}
+
 /// Build the document. Pure — no clock, so HTML and PDF cannot disagree.
 pub fn build_html(r: &PageSpeedReport) -> String {
-    let mut blocks = String::new();
+    let mut cols = String::new();
     if let Some(d) = &r.desktop {
-        blocks.push_str(&strategy_block(d, "Desktop"));
+        cols.push_str(&strategy_block(d, "Desktop"));
     }
     if let Some(m) = &r.mobile {
-        blocks.push_str(&strategy_block(m, "Mobil"));
+        cols.push_str(&strategy_block(m, "Mobil"));
     }
-    if blocks.is_empty() {
-        blocks.push_str(r#"<p class="warn">Keine Messung zustande gekommen.</p>"#);
-    }
-    // Failures are stated, never swallowed — a missing half must not read as
-    // a page that simply has no data.
+
     let errors: String = if r.errors.is_empty() {
         String::new()
     } else {
         format!(
-            r#"<p class="warn">{}</p>"#,
-            r.errors
-                .iter()
-                .map(|e| esc(e))
-                .collect::<Vec<_>>()
-                .join("<br>")
+            r#"<p class="rp-note">{}</p>"#,
+            r.errors.iter().map(|e| esc(e)).collect::<Vec<_>>().join("<br>")
         )
     };
 
-    format!(
-        r#"<!doctype html>
-<html lang="de"><head><meta charset="utf-8">
-<title>PageSpeed — {url}</title>
-<style>
-  :root {{ color-scheme: light }}
-  * {{ box-sizing: border-box }}
-  body {{ margin:0; padding:32px 36px; background:#fff; color:#16181d;
-    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif }}
-  h1 {{ margin:0 0 2px; font-size:20px; letter-spacing:-.01em }}
-  .url {{ margin:0 0 26px; color:#6b7280; font:12px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;
-    word-break:break-all }}
-  section {{ margin-bottom:30px; padding-bottom:22px; border-bottom:1px solid #eef0f3 }}
-  section:last-of-type {{ border-bottom:none }}
-  h2 {{ margin:0 0 14px; font-size:15px }}
-  .rings {{ display:flex; flex-wrap:wrap; gap:22px; margin-bottom:16px }}
-  .ring {{ text-align:center; width:88px }}
-  .ring span {{ display:block; margin-top:4px; font-size:11px; color:#6b7280 }}
-  table {{ width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums }}
-  td {{ padding:5px 0; border-bottom:1px solid #f1f3f5 }}
-  td.v {{ text-align:right; font-weight:600 }}
-  td i {{ display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:7px }}
-  .meta {{ margin:12px 0 0; color:#9aa1ab; font-size:11px; word-break:break-all }}
-  .warn {{ margin:0 0 18px; padding:9px 11px; border-radius:8px; background:#fff7ed;
-    border:1px solid #fed7aa; color:#9a3412; font-size:12px }}
-  footer {{ color:#9aa1ab; font-size:11px }}
-</style></head><body>
-<h1>PageSpeed Insights</h1>
-<p class="url">{url}</p>
-{errors}
-{blocks}
-<footer>Werte von Google PageSpeed Insights (Lighthouse) · 90–100 gut · 50–89 verbesserungswürdig · 0–49 schlecht · erstellt mit Inspector Rust</footer>
-</body></html>"#,
-        url = esc(&r.url),
-    )
+    let body = if cols.is_empty() {
+        format!(r#"{errors}<p class="rp-empty">Keine Messung zustande gekommen.</p>"#)
+    } else {
+        format!(
+            r#"{errors}<div class="ps-scale">
+<span><i style="background:{good}"></i>90–100 gut</span>
+<span><i style="background:{avg}"></i>50–89 verbesserungswürdig</span>
+<span><i style="background:{poor}"></i>0–49 schlecht</span>
+</div><section class="ps-cols">{cols}</section>"#,
+            good = band_color("good"),
+            avg = band_color("average"),
+            poor = band_color("poor"),
+        )
+    };
+
+    let doc = rs::shell(
+        "PageSpeed Insights",
+        "Performance-Bericht",
+        &esc(&r.url),
+        &body,
+        "Gemessen von Google PageSpeed Insights (Lighthouse) auf Googles Infrastruktur. \
+         <b>Desktop</b> und <b>Mobil</b> sind getrennte Läufe; Performance-Werte schwanken \
+         zwischen Messungen.<br>Erstellt mit Inspector Rust.",
+    );
+    // Append this report's own rules to the shared stylesheet.
+    doc.replace("</style>", &format!("{}\n</style>", extra_css()))
 }
 
 #[cfg(test)]
@@ -169,7 +190,19 @@ mod tests {
         let h = build_html(&report());
         assert!(h.contains("Desktop"));
         assert!(h.contains("Mobil"));
-        assert_eq!(h.matches("<section>").count(), 2);
+        assert_eq!(h.matches(r#"class="ps-col""#).count(), 2);
+        // …and they sit side by side, which is the point of one document.
+        assert!(h.contains(r#"class="ps-cols""#));
+    }
+
+    #[test]
+    fn the_four_rings_stay_in_one_row_per_strategy() {
+        // ⚠️ With flex-wrap the fourth category (SEO) dropped onto a second
+        // line and desktop/mobile no longer lined up score-for-score, which
+        // is the only reason both are in one document.
+        let h = build_html(&report());
+        assert!(h.contains("grid-template-columns: repeat(4, 1fr)"));
+        assert!(!h.contains(".ps-rings { display: flex"));
     }
 
     #[test]
@@ -208,7 +241,7 @@ mod tests {
         r.errors = vec!["Mobil: Kontingent erschöpft".into()];
         let h = build_html(&r);
         assert!(h.contains("Kontingent"));
-        assert_eq!(h.matches("<section>").count(), 1);
+        assert_eq!(h.matches(r#"class="ps-col""#).count(), 1);
     }
 
     #[test]

@@ -343,7 +343,12 @@ pub fn project_html(
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Project report · {range}</title>
 <style>
-:root{{--bg:#0c0d11;--surface:#17191f;--border:#2b2e38;--muted:#9a9fac;--fg:#f2f3f5;--accent:#b3c5ff}}
+:root{{color-scheme:light;--bg:#fff;--surface:#fff;--border:#e7e9ee;--muted:#6a7078;--fg:#14161a;--accent:#3f6cd4}}
+/* Light and print-first like every other report — a dark timesheet
+   wastes toner and looks broken on paper. */
+@page{{size:A4;margin:14mm}}
+@media print{{*{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}.card,.stat,table,tr{{break-inside:avoid}}thead{{display:table-header-group}}}}
+body{{font-variant-numeric:tabular-nums}}
 *{{box-sizing:border-box}}
 body{{margin:0 auto;max-width:880px;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:28px}}
 h1{{font-size:22px;margin:0 0 4px}}
@@ -612,7 +617,12 @@ pub fn html(
 <meta name=viewport content="width=device-width,initial-scale=1">
 <title>Timesheet · {range}</title>
 <style>
-:root{{--bg:#0c0d11;--surface:#17191f;--border:#2b2e38;--muted:#9a9fac;--fg:#f2f3f5;--accent:#b3c5ff}}
+:root{{color-scheme:light;--bg:#fff;--surface:#fff;--border:#e7e9ee;--muted:#6a7078;--fg:#14161a;--accent:#3f6cd4}}
+/* Light and print-first like every other report — a dark timesheet
+   wastes toner and looks broken on paper. */
+@page{{size:A4;margin:14mm}}
+@media print{{*{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}.card,.stat,table,tr{{break-inside:avoid}}thead{{display:table-header-group}}}}
+body{{font-variant-numeric:tabular-nums}}
 *{{box-sizing:border-box}}
 body{{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:28px;max-width:980px;margin:0 auto}}
 h1{{font-size:22px;margin:0 0 4px}}
@@ -782,6 +792,23 @@ mod tests {
             end_ms,
             apps: vec![crate::tracking::slots::SlotApp { app: "Claude Code".into(), seconds }],
             description: String::new(),
+        }
+    }
+
+    #[test]
+    fn both_documents_are_light_and_print_ready() {
+        // ⚠️ These two used to be DARK — wrong artefact for something you
+        // print or hand a client, and out of step with every other report.
+        // Also pins the print rule the PDF path depends on: without
+        // print-color-adjust WebKit drops every coloured bar.
+        for doc in [
+            html(&[], &Default::default(), 0, 86_400_000, 0, &[]),
+            project_html(&[], 0, 86_400_000, 0, Detail::Summary, None),
+        ] {
+            assert!(doc.contains("color-scheme:light"), "Report muss hell sein");
+            assert!(!doc.contains("#0c0d11"), "dunkle Palette darf nicht zurückkehren");
+            assert!(doc.contains("print-color-adjust:exact"));
+            assert!(doc.contains("size:A4"));
         }
     }
 

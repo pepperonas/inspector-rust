@@ -21,6 +21,7 @@
 //! external requests) and is tested structurally.
 
 use serde::Serialize;
+use crate::report_style as rs;
 use std::collections::BTreeMap;
 use std::process::Command;
 use std::time::Duration;
@@ -493,65 +494,26 @@ pub fn build_html(stats: &RepoStats) -> String {
         .map(|e| format!("<tr><td class=\"mono\">.{}</td><td>{}</td><td>{}</td></tr>", esc(&e.ext), e.commits, e.churn))
         .collect();
 
-    format!(
-        r#"<!DOCTYPE html>
-<html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{name} — repo activity</title>
-<style>
-:root{{--bg:#131318;--surf:#1d1d24;--bd:#2c2c36;--fg:#e6e1e9;--mut:#9a94a3;--acc:#d0bcff}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;padding:32px}}
-.wrap{{max-width:900px;margin:0 auto}}
-h1{{font-size:24px;margin:0 0 4px}}
-.sub{{color:var(--mut);margin:0 0 24px}}
-.kpis{{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:12px;margin-bottom:28px}}
-.kpi{{background:var(--surf);border:1px solid var(--bd);border-radius:14px;padding:14px}}
-.kpi b{{display:block;font-size:22px}}
-.kpi span{{color:var(--mut);font-size:12px}}
-.card{{background:var(--surf);border:1px solid var(--bd);border-radius:16px;padding:18px;margin-bottom:20px}}
-.card h2{{font-size:15px;margin:0 0 14px}}
-.row{{display:flex;align-items:center;gap:10px;margin:5px 0;font-size:12px}}
-.lbl{{width:56px;color:var(--mut);text-align:right;font-variant-numeric:tabular-nums}}
-.bar{{flex:1;height:10px;background:#00000030;border-radius:6px;overflow:hidden}}
-.bar i{{display:block;height:100%;border-radius:6px}}
-.val{{width:52px;text-align:right;font-variant-numeric:tabular-nums;color:var(--mut)}}
-table{{width:100%;border-collapse:collapse;font-size:12px}}
-td,th{{text-align:left;padding:5px 8px;border-bottom:1px solid var(--bd)}}
-th{{color:var(--mut);font-weight:600}}
-td:nth-child(2),td:nth-child(3),th:nth-child(2),th:nth-child(3){{text-align:right;font-variant-numeric:tabular-nums;width:80px}}
-.mono{{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}}
-footer{{color:var(--mut);font-size:11px;text-align:center;margin-top:28px}}
-</style></head><body><div class="wrap">
-<h1>{name}</h1>
-<p class="sub">{source} · {first} → {last}</p>
-<div class="kpis">
-<div class="kpi"><b>{commits}</b><span>Commits</span></div>
-<div class="kpi"><b>{contributors}</b><span>Mitwirkende</span></div>
-<div class="kpi"><b>{active_days}</b><span>Aktive Tage</span></div>
-<div class="kpi"><b>{streak}</b><span>Längste Serie</span></div>
-<div class="kpi"><b>+{ins}</b><span>Zeilen ein</span></div>
-<div class="kpi"><b>−{del}</b><span>Zeilen aus</span></div>
-</div>
-<div class="card"><h2>Commits nach Wochentag</h2>{wd}</div>
-<div class="card"><h2>Commits nach Stunde</h2>{hr}</div>
-<div class="card"><h2>Aktivität nach Monat</h2>{mo}</div>
-<div class="card"><h2>Commit-Kategorien</h2>{cat}</div>
-<div class="card"><h2>Aktivste Dateien</h2><table><tr><th>Datei</th><th>Änderungen</th><th>Churn</th></tr>{files}</table></div>
-<div class="card"><h2>Dateitypen</h2><table><tr><th>Typ</th><th>Commits</th><th>Churn</th></tr>{exts}</table></div>
-<div class="card"><h2>Top-Mitwirkende</h2><table><tr><th>Name</th><th>Commits</th><th>Churn</th></tr>{authors}</table></div>
-<footer>Erzeugt mit Inspector Rust · orientiert an repo2viz</footer>
-</div></body></html>"#,
-        name = esc(&stats.name),
-        source = esc(&stats.source),
-        first = esc(&stats.first_commit),
-        last = esc(&stats.last_commit),
-        commits = stats.commits,
-        contributors = stats.contributors,
-        active_days = stats.active_days,
-        streak = stats.longest_streak,
-        ins = stats.insertions,
-        del = stats.deletions,
+    let body = format!(
+        r#"{stats}
+<section><h2>Commits nach Wochentag</h2>{wd}</section>
+<section><h2>Commits nach Stunde</h2>{hr}</section>
+<section><h2>Aktivität nach Monat</h2>{mo}</section>
+<section><h2>Commit-Kategorien</h2>{cat}</section>
+<section><h2>Aktivste Dateien</h2><table>
+<thead><tr><th>Datei</th><th>Änderungen</th><th>Churn</th></tr></thead><tbody>{files}</tbody></table></section>
+<section><h2>Dateitypen</h2><table>
+<thead><tr><th>Typ</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{exts}</tbody></table></section>
+<section><h2>Top-Mitwirkende</h2><table>
+<thead><tr><th>Name</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{authors}</tbody></table></section>"#,
+        stats = rs::stats(&[
+            rs::Stat { label: "Commits", value: stats.commits.to_string(), unit: None },
+            rs::Stat { label: "Mitwirkende", value: stats.contributors.to_string(), unit: None },
+            rs::Stat { label: "Aktive Tage", value: stats.active_days.to_string(), unit: None },
+            rs::Stat { label: "Längste Serie", value: stats.longest_streak.to_string(), unit: Some("Tage") },
+            rs::Stat { label: "Zeilen ein", value: format!("+{}", stats.insertions), unit: None },
+            rs::Stat { label: "Zeilen aus", value: format!("−{}", stats.deletions), unit: None },
+        ]),
         wd = wd_rows,
         hr = hr_rows,
         mo = mo_rows,
@@ -559,8 +521,28 @@ footer{{color:var(--mut);font-size:11px;text-align:center;margin-top:28px}}
         files = file_rows,
         exts = ext_rows,
         authors = author_rows,
-    )
+    );
+
+    let doc = rs::shell(
+        "Repo-Aktivität",
+        &esc(&stats.name),
+        &format!("{} · {} → {}", esc(&stats.source), esc(&stats.first_commit), esc(&stats.last_commit)),
+        &body,
+        "Aus der Git-Historie gerechnet (Merges ausgenommen); <b>Churn</b> = geänderte Zeilen ein + aus.<br>Erstellt mit Inspector Rust, orientiert an repo2viz.",
+    );
+    doc.replace("</style>", &format!("{}\n</style>", REPO_CSS))
 }
+
+/// Bar-row rules on top of the shared stylesheet.
+const REPO_CSS: &str = r#"
+.row { display:flex; align-items:center; gap:11px; margin:4px 0; font-size:11.5px }
+.lbl { width:58px; color:var(--muted); text-align:right; flex:none }
+.bar { flex:1; height:8px; background:#f1f3f6; border-radius:4px; overflow:hidden }
+.bar i { display:block; height:100%; border-radius:4px }
+.val { width:56px; text-align:right; color:var(--muted); flex:none }
+.mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
+td:nth-child(2), td:nth-child(3), th:nth-child(2), th:nth-child(3) { width:88px }
+"#;
 
 /// Write the HTML export to `~/Downloads/<slug>-activity.html`, returning the
 /// path. Slug from the source (owner-repo for URLs, folder name for paths).
@@ -693,7 +675,7 @@ mod tests {
         s.name = "inspector-rust".into();
         s.source = "https://github.com/pepperonas/inspector-rust".into();
         let html = build_html(&s);
-        assert!(html.starts_with("<!DOCTYPE html>"));
+        assert!(html.starts_with("<!doctype html>"), "gemeinsames Dokument-Gerüst");
         assert!(html.contains("inspector-rust"));
         // No external requests — the whole point of the repo2viz-style export.
         assert!(!html.contains("http://"));

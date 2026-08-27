@@ -58,6 +58,11 @@ pub struct LocReport {
     pub total_lines: usize,
     /// tokei flagged parse problems somewhere — surface honestly, never hide.
     pub inaccurate: bool,
+    /// Immediate subdirectory names of the counted folder, sorted — what the
+    /// panel offers to descend into. Empty for a multi-path count (there is no
+    /// single "current folder" then) or when the path is a file.
+    #[serde(default)]
+    pub subdirs: Vec<String>,
 }
 
 /// Raw per-language numbers before aggregation (the pure seam — the impure
@@ -115,6 +120,9 @@ pub fn aggregate(
         total_blanks,
         total_lines: total_code + total_comments + total_blanks,
         inaccurate,
+        // Filled by `count` for a single-folder run; `aggregate` is pure and
+        // must not touch the filesystem.
+        subdirs: Vec::new(),
     }
 }
 
@@ -170,17 +178,66 @@ pub fn count(paths: &[String], respect_ignores: bool) -> Result<LocReport, Strin
             }
         })
         .collect();
-    Ok(aggregate(
+    let mut report = aggregate(
         rows,
         root_label_for(paths),
         paths.to_vec(),
         respect_ignores,
-    ))
+    );
+    // Navigation only makes sense for a single folder — with several paths
+    // counted at once there is no "current directory" to descend from.
+    if let [only] = paths {
+        report.subdirs = subdirs(std::path::Path::new(only), !respect_ignores);
+    }
+    Ok(report)
+}
+
+/// The immediate subdirectory names of `dir`, sorted case-insensitively.
+///
+/// Hidden folders follow the same rule as the count itself: with ignores
+/// respected (the default) they stay out, so the list matches what was
+/// actually counted. Symlinked directories are skipped — descending one would
+/// leave the tree the user thinks they are in.
+pub fn subdirs(dir: &std::path::Path, include_hidden: bool) -> Vec<String> {
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return Vec::new();
+    };
+    let mut out: Vec<String> = rd
+        .flatten()
+        .filter(|e| e.metadata().map(|m| m.is_dir()).unwrap_or(false))
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .filter(|n| include_hidden || !n.starts_with('.'))
+        .collect();
+    out.sort_by_key(|a| a.to_lowercase());
+    out
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subdirs_lists_folders_only_sorted_and_honours_the_hidden_rule() {
+        let root = std::env::temp_dir().join(format!("ir-loc-sub-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        for d in ["src", "Assets", ".git", "node_modules"] {
+            std::fs::create_dir_all(root.join(d)).unwrap();
+        }
+        std::fs::write(root.join("README.md"), "x").unwrap();
+
+        // Ignores respected → hidden folders stay out, so the list matches
+        // what was actually counted. Case-insensitive order, files excluded.
+        assert_eq!(
+            subdirs(&root, false),
+            vec!["Assets".to_string(), "node_modules".into(), "src".into()]
+        );
+        // …and with hidden included, `.git` appears.
+        assert!(subdirs(&root, true).contains(&".git".to_string()));
+        // A path that isn't a directory yields nothing rather than erroring.
+        assert!(subdirs(&root.join("README.md"), true).is_empty());
+        assert!(subdirs(&root.join("gibtsnicht"), true).is_empty());
+        let _ = std::fs::remove_dir_all(&root);
+    }
 
     // ── Pure aggregation ─────────────────────────────────────────────
 

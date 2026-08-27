@@ -1260,6 +1260,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "Click a ring segment to zoom into that folder; `⌫` (or Esc) walks back out — past the scan root, so you can browse anywhere.",
+      "**The list under the chart is the way into small folders.** The sunburst is area-proportional, so a 2 MB `src` next to a 20 GB `target` is a sub-pixel sliver you cannot click — the list has every child regardless of size (`↑↓` select, Enter opens).",
       "The path bar shows exactly which folder you are looking at; click any segment of it to jump straight there.",
       "The largest-files list and any segment have a trash button — it moves to the Trash (recoverable), then re-scans.",
       "Sizes are on-disk (allocated blocks), so they match what the volume readout says — not apparent size.",
@@ -1268,6 +1269,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "A full home/volume scan walks 10⁵–10⁶ files — it takes a few seconds (a live count shows progress).",
       "Scanning protected system paths under `/` may need Full Disk Access in System Settings; unreadable folders are skipped, never fatal.",
       "The chart is bounded (top folders per ring, ~5 rings) so it stays legible — the largest-files list is computed over everything.",
+      "A folder far smaller than its siblings gets no visible arc at all. That is honest, not a bug — the chart shows proportion; use the list below it to get in.",
     ],
     related: ["loc", "stats"],
     see_also: "docs/disk.md",
@@ -1292,6 +1294,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "loc src", result: "Relative paths resolve against the app's working dir — prefer absolute paths." },
     ],
     tips: [
+      "Der Pfad über der Statistik ist klickbar, und die Unterordner-Reihe darunter zählt einen Ordner tiefer — `⌫` geht wieder hoch.",
       "R re-counts (e.g. after edits); the checkbox at the bottom includes ignored + hidden files.",
       "A folder's .gitignore only filters inside a git repo — a plain folder with a .gitignore counts everything.",
     ],

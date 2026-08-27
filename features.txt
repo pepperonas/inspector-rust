@@ -165,3 +165,5 @@ Features-Tab — durchsuchbarer In-App-Katalog aller Funktionen mit Live-Shortcu
 == Plattformen ==
 macOS (primär, voll verifiziert) · Windows · Linux (Ubuntu/Debian; einzelne Features OS-gebunden, Commands sind plattform-gegated)
 Geräte-Sync — `Einstellungen → Geräte-Sync` (opt-in, Standard AUS): gleicher Datenstand auf mehreren Macs über einen gemeinsamen Ordner (Default iCloud Drive), passwortverschlüsselt, Passwort im Schlüsselbund. Synchronisiert Verlauf, Snippets+Gruppen, Notizen, 2FA nur auf Wunsch; Einstellungen und Zeiterfassung nie. Nur additiv — ein leerer Stand kann einen gefüllten nie überschreiben, Löschungen wandern deshalb bewusst nicht mit (v0.139.0)
+Speicher-Kinderliste — unter dem Sunburst listet `disk` JEDES Kind des aktuellen Ordners (größte zuerst, mit Anteil und Größe); das ist der Weg in Ordner, deren Kreissegment zu dünn zum Anklicken ist (2-MB-src neben 20-GB-target). ↑↓ wählen, Enter öffnet (v0.140.0)
+loc-Navigation — anklickbare Pfadleiste + Unterordner-Reihe zum Tieferzählen, ⌫ eine Ebene höher, R zählt den aktuellen Ordner neu (v0.140.0)

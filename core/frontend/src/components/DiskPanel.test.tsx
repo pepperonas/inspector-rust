@@ -44,14 +44,30 @@ function scanOf(rootPath: string): DiskScan {
   };
 }
 
-/** Find a rendered arc by hovering until the hub names it — black-box, no
- *  test-only attributes in the component. */
+/** Find a rendered arc by hovering until the hub + detail row name it.
+ *
+ * ⚠️ Counts occurrences rather than testing `includes`: since v0.140.0 the
+ * child LIST also spells out every name, so a plain substring check matched
+ * the very first arc hovered. Hovering the right arc adds the name again (hub
+ * + detail row), so the count is what identifies it. */
 function arcNamed(container: HTMLElement, name: string): Element {
+  const count = () => (container.textContent?.split(name).length ?? 1) - 1;
+  const base = count();
   for (const p of Array.from(container.querySelectorAll("path"))) {
     fireEvent.mouseEnter(p);
-    if (container.textContent?.includes(name)) return p;
+    if (count() > base) return p;
   }
   throw new Error(`no arc named ${name}`);
+}
+
+/** Click the child-list row for `name` — the path a user takes into a folder
+ *  whose arc is too thin to hit. */
+function rowNamed(container: HTMLElement, name: string): Element {
+  const btn = Array.from(container.querySelectorAll("button")).find(
+    (b) => b.textContent?.trim().startsWith(name),
+  );
+  if (!btn) throw new Error(`no list row named ${name}`);
+  return btn;
 }
 
 const settled = (c: HTMLElement, path: string) =>
@@ -105,6 +121,74 @@ describe("the path bar", () => {
     await settled(container, "/Users/martin/claude");
     fireEvent.click(getByTitle("/Users"));
     await waitFor(() => expect(diskScan).toHaveBeenLastCalledWith("/Users"));
+  });
+});
+
+describe("the child list — reaching what the chart cannot show", () => {
+  /** The real software-project shape: source dwarfed by build output. */
+  function lopsided(): DiskScan {
+    return {
+      ...scanOf("/Users/martin/projekt"),
+      tree: dir("projekt", 20_002_000_000, [
+        dir("target", 20_000_000_000, [dir("debug", 20_000_000_000)]),
+        dir("src", 2_000_000, [dir("lib", 2_000_000)]),
+      ]),
+    };
+  }
+
+  it("lists a folder whose arc is too thin to be drawn at all", async () => {
+    diskScan.mockImplementation(async () => lopsided());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+
+    // `src` is 0.01 % of the circle — below minAngle, so it has NO arc.
+    expect(() => arcNamed(container, "src")).toThrow();
+    // …but it is a row, and clicking it opens the folder.
+    fireEvent.click(rowNamed(container, "src"));
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+    expect(diskScan).toHaveBeenCalledTimes(1); // in-tree, no re-walk
+  });
+
+  it("opens a folder with the keyboard: arrows select, Enter enters", async () => {
+    diskScan.mockImplementation(async () => lopsided());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+
+    // Row 0 is `target` (largest first); one step down selects `src`.
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+  });
+
+  it("the arrows wrap rather than sticking at the ends", async () => {
+    diskScan.mockImplementation(async () => lopsided());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    // Up from the first row lands on the last one — `src`.
+    fireEvent.keyDown(window, { key: "ArrowUp" });
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+  });
+});
+
+describe("the child list must not scroll the panel on its own", () => {
+  it("reveals itself only once the keyboard drives it", async () => {
+    // Live-observed: revealing the selected row on MOUNT scrolled the whole
+    // preview column and pushed the title + path bar off-screen. But the list
+    // sits below the chart, so keyboard navigation DOES have to bring it in.
+    const spy = vi.fn();
+    const orig = Element.prototype.scrollIntoView;
+    Element.prototype.scrollIntoView = spy;
+    try {
+      const { container } = render(<DiskPanel arg="/Users/martin" focused onExit={() => {}} />);
+      await settled(container, "/Users/martin");
+      expect(spy, "kein Scrollen beim Öffnen").not.toHaveBeenCalled();
+
+      fireEvent.keyDown(window, { key: "ArrowDown" });
+      await waitFor(() => expect(spy).toHaveBeenCalled());
+    } finally {
+      Element.prototype.scrollIntoView = orig;
+    }
   });
 });
 

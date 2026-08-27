@@ -223,3 +223,32 @@ export function pathCrumbs(rootPath: string, drillNames: readonly string[]): Pat
   });
   return out;
 }
+
+/** One row of the child list under the chart. */
+export interface ChildRow {
+  /** Index in the parent's `children` — the drill path is built from it, so
+   *  the sort must NOT lose it. */
+  index: number;
+  node: DiskNode;
+  /** Share of the parent, 0..1. */
+  share: number;
+}
+
+/**
+ * Every child of the focused node, largest first.
+ *
+ * ⚠️ This is the answer to the sunburst's built-in blind spot: the chart is
+ * area-proportional *by design* (that honesty is the whole point of a
+ * DaisyDisk-style view), which means a 2 MB `src` next to a 20 GB `target`
+ * renders as a sub-pixel hairline you cannot hit — exactly the folders you
+ * want to open in a software project. A list has no minimum angle, so every
+ * child stays reachable no matter how small. Nothing is dropped here, not even
+ * the synthetic "Sonstiges" bucket (it is shown, just not drillable).
+ */
+export function childRows(focus: DiskNode): ChildRow[] {
+  const kids = focus.children ?? [];
+  const total = kids.reduce((s, c) => s + c.size, 0) || focus.size || 1;
+  return kids
+    .map((node, index) => ({ index, node, share: node.size / total }))
+    .sort((a, b) => b.node.size - a.node.size || a.node.name.localeCompare(b.node.name));
+}

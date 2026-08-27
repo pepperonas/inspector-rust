@@ -2927,6 +2927,8 @@ export interface LocReport {
   total_blanks: number;
   total_lines: number;
   inaccurate: boolean;
+  /** Immediate subdirectory names — what the panel offers to descend into. */
+  subdirs: string[];
 }
 
 /** Count lines of code. Omitted `paths` → the live Finder selection (macOS).

@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.140.0] — 2026-08-27
+
+### Added
+
+- **`disk`: eine Liste unter dem Diagramm — der Weg in kleine Ordner.** Das Sunburst ist flächentreu, und genau das machte Quellcode-Verzeichnisse unerreichbar: ein 2-MB-`src` neben einem 20-GB-`target` ist ein Haarstrich von 0,01 % des Kreises, den man nicht treffen kann. Die Liste kennt keinen Mindestwinkel und führt **jedes** Kind auf, mit Größe und Anteil. `↑↓` wählen, Enter öffnet.
+- **`loc` navigiert jetzt.** Pfadleiste über der Statistik (jedes Segment anklickbar) plus eine Reihe der Unterordner, die einen Ordner tiefer zählt; `⌫` geht wieder hoch. Versteckte Ordner folgen dem Ignore-Schalter, damit die Liste zeigt, was auch gezählt wurde.
+
 ## [0.139.0] — 2026-08-27
 
 ### Added

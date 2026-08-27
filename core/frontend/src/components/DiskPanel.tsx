@@ -20,7 +20,9 @@ import {
   parentPath,
   joinPath,
   pathCrumbs,
+  childRows,
   type Arc,
+  type ChildRow,
 } from "../lib/disk";
 import { confirmDialog } from "../lib/confirm";
 import { prefersReducedMotion } from "../lib/md3-motion";
@@ -59,6 +61,15 @@ export function DiskPanel({
   // or down past where the walk stopped pruning.
   const [target, setTarget] = useState<string | null>(argPath(arg));
   const [hover, setHover] = useState<Arc | null>(null);
+  /// Selected row in the child list (keyboard navigation).
+  const [sel, setSel] = useState(0);
+  // The key handler reads the rows through a ref so it doesn't re-subscribe on
+  // every scan.
+  const rowsRef = useRef<ChildRow[]>([]);
+  // Set once the user actually drives the list with the keyboard — the list
+  // sits below the chart, so it has to come into view THEN, but never on
+  // mount (that dragged the header and path bar off-screen).
+  const navigatedRef = useRef(false);
   const [note, setNote] = useState<string | null>(null);
   const aliveRef = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -120,6 +131,23 @@ export function DiskPanel({
     if (p) setTarget(p);
   }, [drill, scan]);
 
+  /** Open a child of the current focus: instant while the tree still has its
+   *  children, a fresh scan at the walk's pruning boundary. Shared by the arc
+   *  click and the list so both behave identically. */
+  const openChild = useCallback(
+    (index: number, node: DiskNode) => {
+      if (!scan || !node.is_dir || node.other) return;
+      if ((node.children?.length ?? 0) > 0) {
+        setDrill((d) => [...d, index]);
+        setHover(null);
+      } else {
+        const abs = absPath(scan, drill, [index]);
+        if (abs) setTarget(abs);
+      }
+    },
+    [scan, drill],
+  );
+
   /** Navigate to an absolute path — instantly if it's inside the current
    *  tree, otherwise by re-scanning there. */
   const goTo = useCallback((crumbSteps: number | null, path: string) => {
@@ -169,6 +197,20 @@ export function DiskPanel({
       if (e.key === "Backspace" || e.key === "ArrowLeft") {
         e.preventDefault();
         goUp();
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        // The list is the keyboard path into small folders; the chart can't
+        // offer one because its slivers aren't addressable.
+        e.preventDefault();
+        navigatedRef.current = true;
+        setSel((i) => {
+          const n = rowsRef.current.length;
+          if (n === 0) return 0;
+          return (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+        });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const row = rowsRef.current[sel];
+        if (row) openChild(row.index, row.node);
       } else if (e.key === "r" || e.key === "R") {
         e.preventDefault();
         run(target);
@@ -176,7 +218,8 @@ export function DiskPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit, drill, goUp, run, target]);
+  }, [focused, onExit, drill, goUp, run, target, sel, openChild]);
+
 
   const flash = (m: string) => {
     setNote(m);
@@ -196,6 +239,19 @@ export function DiskPanel({
         : [],
     [focusNode],
   );
+
+  // Every child of the current focus — the ONLY way into a folder whose arc
+  // is a sub-pixel sliver (see `childRows`).
+  const rows: ChildRow[] = useMemo(() => (focusNode ? childRows(focusNode) : []), [focusNode]);
+
+  useEffect(() => {
+    rowsRef.current = rows;
+  }, [rows]);
+  // A new folder starts at its first entry.
+  useEffect(() => {
+    setSel(0);
+    navigatedRef.current = false;
+  }, [focusNode]);
 
   // The folder names along the drill, for the path bar.
   const drillNames = useMemo(() => {
@@ -301,10 +357,8 @@ export function DiskPanel({
                 onMouseEnter={() => setHover(a)}
                 onClick={() => {
                   if (!a.node.is_dir || a.node.other) return;
-                  // Inside the tree the sizes are already computed — drill
-                  // instantly. At the walk's pruning boundary there are no
-                  // children to show, so scan that folder afresh; that's what
-                  // makes the depth effectively unlimited.
+                  // Deeper rings carry a multi-step path, so this can't go
+                  // through `openChild` (which takes one child index).
                   if ((a.node.children?.length ?? 0) > 0) {
                     setDrill([...drill, ...a.path]);
                     setHover(null);
@@ -357,6 +411,14 @@ export function DiskPanel({
           }
         }} />
       )}
+
+      <ChildList
+        rows={rows}
+        selected={sel}
+        onSelect={setSel}
+        onOpen={(r) => openChild(r.index, r.node)}
+        reveal={navigatedRef}
+      />
 
       <TopFiles scan={scan} onTrash={async (path) => {
         if (!(await confirmDialog(`„${baseName(path)}“ in den Papierkorb verschieben?`, "Speicher"))) return;
@@ -448,6 +510,89 @@ function PathBar({
           </button>
         </span>
       ))}
+    </div>
+  );
+}
+
+/**
+ * Every child of the current folder as a row — the way into folders the chart
+ * cannot show. A 2 MB `src` beside a 20 GB `target` is a sub-pixel arc; here
+ * it is a full-width row like any other.
+ */
+function ChildList({
+  rows,
+  selected,
+  onSelect,
+  onOpen,
+  reveal,
+}: {
+  rows: ChildRow[];
+  selected: number;
+  onSelect: (i: number) => void;
+  onOpen: (r: ChildRow) => void;
+  /** True once the user drove the list from the keyboard. */
+  reveal: React.RefObject<boolean>;
+}) {
+  const selRef = useRef<HTMLButtonElement>(null);
+  const boxRef = useRef<HTMLDivElement>(null);
+  // ⚠️ Scroll the LIST, never `scrollIntoView`. On mount the first row sits
+  // below the preview's fold, so `scrollIntoView` scrolled the whole column
+  // and pushed the header + path bar out of sight (seen in a live capture).
+  // Adjusting the list's own scrollTop cannot move anything else.
+  useEffect(() => {
+    const box = boxRef.current;
+    const el = selRef.current;
+    if (!box || !el) return;
+    // Only once the keyboard is in play: bring the list itself into view.
+    if (reveal.current) el.scrollIntoView({ block: "nearest" });
+    const top = el.offsetTop - box.offsetTop;
+    if (top < box.scrollTop) box.scrollTop = top;
+    else if (top + el.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = top + el.offsetHeight - box.clientHeight;
+    }
+  }, [selected, reveal]);
+  if (rows.length === 0) return null;
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
+      <p className="mb-2 text-[11px] font-medium">
+        Inhalt <span className="text-[var(--color-muted)]">· ↑↓ wählen · Enter öffnen</span>
+      </p>
+      <div ref={boxRef} className="flex max-h-[220px] flex-col gap-0.5 overflow-y-auto">
+        {rows.map((r, i) => {
+          const openable = r.node.is_dir && !r.node.other;
+          return (
+            <button
+              key={`${r.index}-${r.node.name}`}
+              ref={i === selected ? selRef : undefined}
+              type="button"
+              onClick={() => (openable ? onOpen(r) : onSelect(i))}
+              onMouseEnter={() => onSelect(i)}
+              className={
+                "flex items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] " +
+                (i === selected ? "bg-[var(--color-accent)]/15" : "hover:bg-[var(--color-border)]/40") +
+                (openable ? " cursor-pointer" : " cursor-default")
+              }
+            >
+              <span className="shrink-0 text-[var(--color-muted)]">
+                {r.node.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
+              </span>
+              <span className="min-w-0 flex-1 truncate" title={r.node.name}>
+                {r.node.other ? "Sonstiges" : r.node.name}
+              </span>
+              {/* A share bar, so the proportion the chart shows survives here. */}
+              <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--color-border)]">
+                <span
+                  className="block h-full rounded-full bg-[var(--color-accent)]"
+                  style={{ width: `${Math.max(2, r.share * 100)}%` }}
+                />
+              </span>
+              <span className="w-16 shrink-0 text-right tabular-nums text-[var(--color-muted)]">
+                {formatBytes(r.node.size)}
+              </span>
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

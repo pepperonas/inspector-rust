@@ -11,6 +11,7 @@ import {
   parentPath,
   joinPath,
   pathCrumbs,
+  childRows,
   type DiskNode,
 } from "./disk";
 
@@ -194,5 +195,52 @@ describe("navigation paths", () => {
       expect(last.steps).toBe(drill.length);
       expect(last.path).toBe(joinPath("/Users/martin", drill));
     }
+  });
+});
+
+describe("childRows — reaching the folders the chart cannot show", () => {
+  const dir = (name: string, size: number): DiskNode => ({
+    name,
+    size,
+    is_dir: true,
+    child_count: 0,
+  });
+
+  it("keeps even a hairline child, and keeps its drill index", () => {
+    // The real case: 2 MB of source next to 20 GB of build output. Its arc is
+    // sub-pixel — the list is the only way in.
+    const focus: DiskNode = {
+      ...dir("projekt", 20_002_000_000),
+      children: [dir("src", 2_000_000), dir("target", 20_000_000_000)],
+    };
+    const rows = childRows(focus);
+    expect(rows).toHaveLength(2);
+    expect(rows[0].node.name).toBe("target"); // largest first
+    expect(rows[1].node.name).toBe("src");
+    // …and `src` still addresses child 0, whatever the sort did.
+    expect(rows[1].index).toBe(0);
+    expect(rows[1].share).toBeLessThan(0.001);
+  });
+
+  it("shows the synthetic remainder too rather than hiding it", () => {
+    const focus: DiskNode = {
+      ...dir("x", 300),
+      children: [dir("a", 200), { ...dir("rest", 100), other: true }],
+    };
+    expect(childRows(focus).map((r) => r.node.name)).toEqual(["a", "rest"]);
+  });
+
+  it("ties break by name, so the order never wobbles between renders", () => {
+    const focus: DiskNode = {
+      ...dir("x", 300),
+      children: [dir("b", 100), dir("a", 100), dir("c", 100)],
+    };
+    expect(childRows(focus).map((r) => r.node.name)).toEqual(["a", "b", "c"]);
+  });
+
+  it("a leaf has no rows and never divides by zero", () => {
+    expect(childRows(dir("leer", 0))).toEqual([]);
+    const zero: DiskNode = { ...dir("x", 0), children: [dir("a", 0)] };
+    expect(childRows(zero)[0].share).toBe(0);
   });
 });

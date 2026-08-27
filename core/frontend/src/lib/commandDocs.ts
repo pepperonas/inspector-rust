@@ -1274,7 +1274,38 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["loc", "stats"],
     see_also: "docs/disk.md",
   },
-  {
+    {
+    command: "pagespeed",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.142.0",
+    tagline: "Google PageSpeed Insights for a URL — desktop and mobile, side by side.",
+    tagline_de: "Google PageSpeed Insights für eine URL — Desktop und Mobil nebeneinander.",
+    synopsis: "pagespeed <url>",
+    description:
+      "Runs Google's PageSpeed Insights (Lighthouse) against a URL and shows the four category scores — Performance, Accessibility, Best Practices, SEO — plus the key metrics (FCP, LCP, TBT, CLS, Speed Index). **Both strategies are fetched, in parallel, and shown together**: a page is routinely fine on desktop and poor on mobile, and seeing only one half invites the wrong conclusion. The report exports as HTML or PDF — again with desktop AND mobile in one document. Scores follow Lighthouse's own bands (90–100 good, 50–89 needs improvement, 0–49 poor).\n\nAn **API key** is optional but effectively necessary: without one you share a small anonymous daily quota with everybody else. Set it in Settings → PageSpeed.",
+    arguments: [
+      { name: "url", required: true, description: "The page to analyse. A bare host is fine — `celox.io` becomes `https://celox.io`." },
+    ],
+    flags: [],
+    examples: [
+      { input: "pagespeed celox.io", result: "Desktop and mobile scores for https://celox.io." },
+      { input: "pagespeed https://example.com/preise", result: "Analyses that exact page, not the domain root." },
+      { input: "pagespeed localhost:3000", result: "Works for a dev server — if Google can reach it (it usually cannot)." },
+    ],
+    tips: [
+      "Export puts **both** views in one HTML or PDF — that is the document you send a client.",
+      "`R` re-measures, `↑↓` scroll, Esc closes.",
+      "The key goes in Settings → PageSpeed and never leaves the machine except as the API request's `key` parameter.",
+    ],
+    caveats: [
+      "Two cold Lighthouse runs take 10–40 s each — they run in parallel, but this is not instant.",
+      "**Without an API key the shared quota runs out quickly** ('Quota exceeded'). With a key, mind that Google keys can carry an **IP restriction** — such a key works only from the allowed address and reports exactly that.",
+      "Google measures from its own infrastructure, so the page has to be publicly reachable; a local or intranet URL will usually fail.",
+    ],
+    related: ["loc", "repo"],
+  },
+{
     command: "loc",
     aliases: [],
     category: CAT_INFO,

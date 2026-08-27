@@ -47,6 +47,7 @@ export type CommandKind =
   | "mute"
   | "freeze"
   | "wakelock"
+  | "pagespeed"
   | "loc"
   | "adb"
   | "disk"
@@ -424,6 +425,14 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: false,
   },
   // ── loc — lines-of-code statistics ────────────────────────────────
+  {
+    kind: "pagespeed",
+    keyword: "pagespeed",
+    syntax: "pagespeed <url>",
+    description:
+      "Google PageSpeed Insights — Desktop und Mobil nebeneinander, als HTML/PDF exportierbar",
+    requiresArg: true,
+  },
   {
     kind: "loc",
     keyword: "loc",

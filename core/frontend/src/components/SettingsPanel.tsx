@@ -13,6 +13,7 @@ import {
   ClipboardType,
   Download,
   Euro,
+  Gauge,
   Info,
   Keyboard,
   Monitor,
@@ -156,6 +157,8 @@ import {
 } from "../lib/ipc";
 import {
   getSyncConfig,
+  getPagespeedKey,
+  setPagespeedKey,
   getDeviceSyncConfig,
   setDeviceSyncConfig,
   getDeviceSyncStatus,
@@ -2751,6 +2754,11 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <CloudSyncSection />
         </div>
 
+        {/* PageSpeed Insights API key */}
+        <div className="mt-6">
+          <PagespeedSection />
+        </div>
+
         {/* Device sync between several Macs (shared folder) */}
         <div className="mt-6">
           <DeviceSyncSection />
@@ -3252,6 +3260,60 @@ function PopupBehaviorSection() {
 }
 
 /** Cloud-Sync (cue): bidirectional snippet sync with the cue web app. */
+function PagespeedSection() {
+  const [stored, setStored] = useState(false);
+  const [key, setKey] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  useEffect(() => {
+    void getPagespeedKey().then(setStored).catch(() => {});
+  }, []);
+  return (
+    <Section
+      icon={<Gauge size={16} className="text-[var(--color-accent)]" />}
+      title="PageSpeed"
+      subtitle="API-Key für den `pagespeed`-Befehl. Ohne eigenen Key teilen sich alle Nutzer ein kleines Tageskontingent von Google."
+      id="pagespeed"
+    >
+      <Row
+        label="API-Key"
+        help="Kostenlos in der Google-Cloud-Konsole (PageSpeed Insights API). Bleibt auf diesem Rechner; er verlässt ihn nur als Parameter der Anfrage an Google."
+      >
+        <div className="flex gap-2">
+          <input
+            type="password"
+            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            placeholder={stored ? "gespeichert" : "kein Key hinterlegt"}
+            value={key}
+            onChange={(e) => setKey(e.target.value)}
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+            onClick={() => {
+              void setPagespeedKey(key)
+                .then(() => {
+                  setKey("");
+                  setNote(key.trim() ? "Key gespeichert." : "Key entfernt.");
+                  return getPagespeedKey().then(setStored);
+                })
+                .catch((e) => setNote(String(e)));
+            }}
+          >
+            Speichern
+          </button>
+        </div>
+      </Row>
+      {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
+      <p className="mt-3 text-[11px] leading-snug text-[var(--color-muted)]">
+        ⚠️ Ein Google-Key kann eine <b>IP-Beschränkung</b> tragen. Ein so gebundener Key gilt nur
+        von der freigegebenen Adresse aus — von diesem Rechner meldet er dann
+        „IP address restriction“. Die Beschränkung steht in der Google-Cloud-Konsole.
+      </p>
+    </Section>
+  );
+}
+
 function DeviceSyncSection() {
   const [cfg, setCfg] = useState<DeviceSyncConfig | null>(null);
   const [status, setStatus] = useState<DeviceSyncStatus | null>(null);

@@ -14,6 +14,7 @@ import { SoundPanel } from "./components/SoundPanel";
 import { HuePanel } from "./components/HuePanel";
 import { StatsPanel } from "./components/StatsPanel";
 import { LocPanel } from "./components/LocPanel";
+import { PagespeedPanel } from "./components/PagespeedPanel";
 import { AdbPanel, type AdbView } from "./components/AdbPanel";
 import { DiskPanel } from "./components/DiskPanel";
 import { ClockPanel } from "./components/ClockPanel";
@@ -293,6 +294,8 @@ function App() {
   // preview column. Enter-activated: tokei walks a whole directory tree.
   const [locMode, setLocMode] = useState(false);
   const [locFocus, setLocFocus] = useState(false);
+  const [pagespeedMode, setPagespeedMode] = useState(false);
+  const [pagespeedFocus, setPagespeedFocus] = useState(false);
   // adb mode (v0.119.0) — Android device control (ADBOSS companion). The arg
   // preselects the view (`adb remote` / `adb apps` / `adb wifi`).
   const [adbMode, setAdbMode] = useState(false);
@@ -1184,6 +1187,13 @@ function App() {
       setLocFocus(false);
     }
   }, [isLocCmd, locMode]);
+  const isPagespeedCmd = parsedCommand?.spec.kind === "pagespeed";
+  useEffect(() => {
+    if (!isPagespeedCmd && pagespeedMode) {
+      setPagespeedMode(false);
+      setPagespeedFocus(false);
+    }
+  }, [isPagespeedCmd, pagespeedMode]);
   const isNosleepCmd = parsedCommand?.spec.kind === "nosleep";
   // Show-while-fully-typed — but ONLY the bare form: the panel acts on an
   // `on`/`off` arg immediately (admin prompt!), so those stay Enter-only.
@@ -1706,6 +1716,10 @@ function App() {
         hint = "Enter → Dashboard, Toggles, Remote, Screenshot, Apps & WLAN-ADB im Preview";
         break;
       }
+      case "pagespeed":
+        label = `PageSpeed: ${arg}`;
+        hint = "Enter → Desktop und Mobil nebeneinander, exportierbar als HTML/PDF";
+        break;
       case "loc":
         label = arg ? `Lines of code: ${arg}` : "Lines of code — Finder-Auswahl";
         hint = "Enter → Sprachen-Statistik (Code/Kommentare/Leerzeilen) mit Charts";
@@ -3208,7 +3222,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3223,6 +3237,7 @@ function App() {
           commandKind === "repo" ||
           commandKind === "repo-export" ||
           commandKind === "nosleep" ||
+          commandKind === "pagespeed" ||
           commandKind === "alias";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
       }
@@ -3714,6 +3729,11 @@ function App() {
         setLocMode(true);
         setLocFocus(true);
         return true;
+      } else if (commandKind === "pagespeed") {
+        // Two cold Lighthouse runs — Enter-activated, never while typing.
+        setPagespeedMode(true);
+        setPagespeedFocus(true);
+        return true;
       } else if (commandKind === "weather") {
         // Inline animated weather panel (current + 5-day) in the preview column.
         setWeatherMode(true);
@@ -4122,6 +4142,7 @@ function App() {
       !uptimeFocus &&
       !weatherFocus &&
       !locFocus &&
+      !pagespeedFocus &&
       !adbFocus &&
       !diskFocus &&
       !clockFocus &&
@@ -4668,6 +4689,18 @@ function App() {
                       onExit={() => {
                         setAdbMode(false);
                         setAdbFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : pagespeedMode ? (
+                  <div className="md3-pop-in h-full">
+                    <PagespeedPanel
+                      focused={pagespeedFocus}
+                      arg={isPagespeedCmd ? (parsedCommand?.arg ?? "") : ""}
+                      onExit={() => {
+                        setPagespeedMode(false);
+                        setPagespeedFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

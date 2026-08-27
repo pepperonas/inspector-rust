@@ -6755,3 +6755,73 @@ pub async fn loc_export(
     reveal_in_file_manager(&out);
     Ok(out.to_string_lossy().into_owned())
 }
+
+// ── pagespeed — Google PageSpeed Insights, desktop + mobile (v0.142.0) ──────
+
+/// Analyse a URL. Both strategies run in parallel inside `analyze`; the whole
+/// thing is network-bound, so it never touches the main thread.
+#[tauri::command]
+pub async fn pagespeed_analyze(
+    db: tauri::State<'_, DbHandle>,
+    url: String,
+) -> Result<crate::pagespeed::PageSpeedReport, String> {
+    let key = crate::pagespeed::get_key(&db);
+    tauri::async_runtime::spawn_blocking(move || crate::pagespeed::analyze(&url, &key))
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn get_pagespeed_key(db: tauri::State<'_, DbHandle>) -> Result<bool, String> {
+    // Only WHETHER a key is stored — the key itself never crosses IPC, the
+    // same rule the weather key follows.
+    Ok(!crate::pagespeed::get_key(&db).trim().is_empty())
+}
+
+#[tauri::command]
+pub fn set_pagespeed_key(db: tauri::State<'_, DbHandle>, key: String) -> Result<(), String> {
+    crate::pagespeed::set_key(&db, &key).map_err(|e| e.to_string())
+}
+
+/// Export the report — desktop AND mobile in one document. `format` is
+/// "html" | "pdf"; same pipeline as the loc export, so the two stay
+/// consistent.
+#[tauri::command]
+pub async fn pagespeed_export(
+    app: AppHandle,
+    report: crate::pagespeed::PageSpeedReport,
+    format: String,
+) -> Result<String, String> {
+    let html = crate::pagespeed_export::build_html(&report);
+    let host = report
+        .url
+        .split("://")
+        .nth(1)
+        .unwrap_or(&report.url)
+        .split('/')
+        .next()
+        .unwrap_or("seite");
+    let stem = crate::media_name::sanitize_stem(&format!("pagespeed-{host}"));
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let ext = match format.as_str() {
+        "html" => "html",
+        "pdf" => "pdf",
+        other => return Err(format!("Unbekanntes Format: {other}")),
+    };
+    let out = dir.join(format!("{stem}.{ext}"));
+
+    if ext == "html" {
+        std::fs::write(&out, &html).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
+    } else {
+        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+        let (h, o) = (html, out.clone());
+        app.run_on_main_thread(move || {
+            let _ = tx.send(crate::md_to_pdf::html_to_pdf(&h, &o));
+        })
+        .map_err(|e| e.to_string())?;
+        rx.recv_timeout(std::time::Duration::from_secs(40))
+            .map_err(|_| "Rendern hat zu lange gedauert".to_string())??;
+    }
+    reveal_in_file_manager(&out);
+    Ok(out.to_string_lossy().into_owned())
+}

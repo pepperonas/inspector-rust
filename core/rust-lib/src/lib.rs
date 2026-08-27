@@ -21,6 +21,8 @@ mod cutout_ml;
 mod db;
 mod disk_usage;
 mod device_sync;
+mod pagespeed;
+mod pagespeed_export;
 mod path_arg;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
@@ -799,6 +801,10 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_sleep_status,
             commands::loc_count,
             commands::loc_export,
+            commands::pagespeed_analyze,
+            commands::pagespeed_export,
+            commands::get_pagespeed_key,
+            commands::set_pagespeed_key,
             commands::disk_scan,
             commands::disk_trash,
             commands::get_clock_zones,

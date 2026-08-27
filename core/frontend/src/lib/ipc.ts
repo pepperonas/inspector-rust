@@ -3399,3 +3399,39 @@ export function irisStatus(): Promise<IrisStatus> {
 export function irisSetThreshold(thresholdSpl: number): Promise<number> {
   return invoke("iris_set_threshold", { thresholdSpl });
 }
+
+// ── pagespeed — Google PageSpeed Insights (v0.142.0) ────────────────────────
+
+export interface PsCategory { id: string; label: string; score: number | null }
+export interface PsMetric { id: string; label: string; display: string; score: number | null }
+export interface PsRun {
+  strategy: string;
+  categories: PsCategory[];
+  metrics: PsMetric[];
+  final_url: string;
+  fetch_time: string;
+  lighthouse_version: string;
+}
+export interface PageSpeedReport {
+  url: string;
+  desktop: PsRun | null;
+  mobile: PsRun | null;
+  /** Why a strategy is missing — never silently empty. */
+  errors: string[];
+}
+
+/** Analyse a URL. Both strategies run in parallel in the backend. */
+export function pagespeedAnalyze(url: string): Promise<PageSpeedReport> {
+  return invoke("pagespeed_analyze", { url });
+}
+/** Export desktop AND mobile as one document. Returns the written path. */
+export function pagespeedExport(report: PageSpeedReport, format: "html" | "pdf"): Promise<string> {
+  return invoke("pagespeed_export", { report, format });
+}
+/** Only WHETHER a key is stored — the key itself never crosses IPC. */
+export function getPagespeedKey(): Promise<boolean> {
+  return invoke("get_pagespeed_key");
+}
+export function setPagespeedKey(key: string): Promise<void> {
+  return invoke("set_pagespeed_key", { key });
+}

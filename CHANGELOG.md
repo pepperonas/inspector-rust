@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.142.0] — 2026-08-27
+
+### Added
+
+- **`pagespeed <url>` — Google PageSpeed Insights in der Vorschau.** Die vier Lighthouse-Kategorien (Performance, Barrierefreiheit, Best Practices, SEO) plus die Kernmetriken, **Desktop und Mobil nebeneinander**: beide Läufe werden parallel geholt und zusammen gezeigt, weil eine Seite regelmäßig auf dem Desktop gut und mobil schlecht ist. Export als **HTML oder PDF — ebenfalls beide Ansichten in EINEM Dokument** (derselbe Renderer-Aufbau wie beim `loc`-Export).
+- **Einstellungen → PageSpeed** für den API-Key. Ohne eigenen Key teilen sich alle Nutzer ein kleines Tageskontingent von Google; der Key bleibt auf dem Rechner.
+
+### Hinweis
+
+- Fehlschläge werden **benannt statt verschluckt**: ein erschöpftes Kontingent und ein **IP-beschränkter** Key bekommen je eine eigene, handlungsfähige Meldung — Letzteres ist der Fall, in dem ein Key nur von einer freigegebenen Adresse aus gilt.
+
 ## [0.141.0] — 2026-08-27
 
 ### Added

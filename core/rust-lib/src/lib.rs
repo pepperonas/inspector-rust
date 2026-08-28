@@ -959,6 +959,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::audio_swap_cancel_overlay,
             commands::social_ytdlp_available,
             commands::social_download,
+            commands::social_metadata,
             commands::reveal_path,
             commands::trim_open_overlay,
             commands::trim_cancel_overlay,

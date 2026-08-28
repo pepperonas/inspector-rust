@@ -238,6 +238,108 @@ fn smart_rename(path: PathBuf, meta: Option<&crate::media_name::MediaMeta>) -> P
     }
 }
 
+/// What the preview shows before anything is downloaded.
+#[derive(serde::Serialize, Clone, Debug, PartialEq)]
+pub struct SocialMeta {
+    pub url: String,
+    pub title: String,
+    /// Channel / uploader, empty when the site does not name one.
+    pub uploader: String,
+    pub duration_s: Option<u64>,
+    pub thumbnail: Option<String>,
+    pub description: String,
+}
+
+/// yt-dlp argv for metadata only — no download, no playlist expansion.
+///
+/// ⚠️ **`--no-playlist` is load-bearing.** A `watch?v=X&list=Y` link would
+/// otherwise make yt-dlp extract EVERY entry of the list: minutes of work and
+/// a payload the preview cannot use. Measured cost with it: ~4 s per link,
+/// which is why the frontend caches, debounces and caps concurrency.
+///
+/// ⚠️ `--` before the URL, same argv-injection guard as [`build_dl_args`]: a
+/// value starting with `-` would otherwise be read as a flag.
+pub fn build_meta_args(url: &str) -> Vec<String> {
+    vec![
+        "--dump-single-json".into(),
+        "--skip-download".into(),
+        "--no-playlist".into(),
+        "--no-warnings".into(),
+        "--".into(),
+        url.into(),
+    ]
+}
+
+/// Smallest thumbnail at least `min_w` wide, else the top-level `thumbnail`.
+///
+/// ⚠️ The top-level field is the LARGEST one yt-dlp knows (YouTube hands back
+/// a 1280-px `maxresdefault`) — pulling that for a 64-px row is a needless
+/// megabyte per link. The array is ordered smallest-first in practice but not
+/// by contract, so pick explicitly.
+pub fn pick_thumbnail(v: &serde_json::Value, min_w: u64) -> Option<String> {
+    let best = v
+        .get("thumbnails")
+        .and_then(|t| t.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|t| {
+                    let url = t.get("url")?.as_str()?;
+                    let w = t.get("width").and_then(|w| w.as_u64()).unwrap_or(0);
+                    (w >= min_w).then(|| (w, url.to_string()))
+                })
+                .min_by_key(|(w, _)| *w)
+                .map(|(_, u)| u)
+        })
+        .unwrap_or(None);
+    best.or_else(|| v.get("thumbnail").and_then(|t| t.as_str()).map(str::to_string))
+}
+
+/// Parse yt-dlp's `--dump-single-json` output (pure).
+pub fn parse_meta(json: &str, url: &str) -> Result<SocialMeta, String> {
+    let v: serde_json::Value = serde_json::from_str(json).map_err(|e| format!("bad json: {e}"))?;
+    let s = |k: &str| v.get(k).and_then(|x| x.as_str()).unwrap_or("").trim().to_string();
+    let title = {
+        let t = s("title");
+        if t.is_empty() { url.to_string() } else { t }
+    };
+    // Sites disagree on which field names the author; take the first that has one.
+    let uploader = ["uploader", "channel", "creator", "uploader_id"]
+        .iter()
+        .map(|k| s(k))
+        .find(|x| !x.is_empty())
+        .unwrap_or_default();
+    Ok(SocialMeta {
+        url: url.to_string(),
+        title,
+        uploader,
+        duration_s: v.get("duration").and_then(|d| d.as_f64()).map(|d| d.max(0.0) as u64),
+        thumbnail: pick_thumbnail(&v, 160),
+        description: s("description"),
+    })
+}
+
+/// Fetch metadata for one URL. Impure shell; the parsing above is tested.
+pub fn metadata(url: &str) -> Result<SocialMeta, String> {
+    let u = url.trim();
+    if detect_platform(u).is_none() {
+        return Err("not a supported social-media URL".into());
+    }
+    let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
+    let out = Command::new(&yt)
+        .args(build_meta_args(u))
+        .output()
+        .map_err(|e| format!("yt-dlp: {e}"))?;
+    if !out.status.success() {
+        let last = String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .last()
+            .unwrap_or("unknown error")
+            .to_string();
+        return Err(last);
+    }
+    parse_meta(&String::from_utf8_lossy(&out.stdout), u)
+}
+
 /// Download `url` (video or audio) into `dir`. Returns the produced file path.
 /// Falls back to browser cookies if YouTube's anti-bot check blocks the
 /// anonymous request.
@@ -291,6 +393,84 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Shaped like a real `--dump-single-json` payload (captured from yt-dlp).
+    fn meta_json() -> String {
+        serde_json::json!({
+            "title": "Never Gonna Give You Up",
+            "uploader": "Rick Astley",
+            "channel": "Rick Astley",
+            "duration": 213.0,
+            "thumbnail": "https://i.ytimg.com/vi/X/maxresdefault.webp",
+            "description": "  The official video.  ",
+            "thumbnails": [
+                { "url": "https://i.ytimg.com/vi/X/default.jpg", "width": 120 },
+                { "url": "https://i.ytimg.com/vi/X/mqdefault.jpg", "width": 320 },
+                { "url": "https://i.ytimg.com/vi/X/maxresdefault.webp", "width": 1280 }
+            ]
+        })
+        .to_string()
+    }
+
+    #[test]
+    fn meta_args_never_expand_a_playlist_and_guard_the_url() {
+        let a = build_meta_args("https://youtu.be/x");
+        // A `watch?v=X&list=Y` link would otherwise extract EVERY entry.
+        assert!(a.contains(&"--no-playlist".to_string()));
+        assert!(a.contains(&"--skip-download".to_string()));
+        // `--` last-but-one: a url starting with `-` must never read as a flag.
+        assert_eq!(a[a.len() - 2], "--");
+        assert_eq!(a[a.len() - 1], "https://youtu.be/x");
+    }
+
+    #[test]
+    fn parse_meta_reads_the_fields_the_preview_shows() {
+        let m = parse_meta(&meta_json(), "https://youtu.be/x").unwrap();
+        assert_eq!(m.title, "Never Gonna Give You Up");
+        assert_eq!(m.uploader, "Rick Astley");
+        assert_eq!(m.duration_s, Some(213));
+        assert_eq!(m.description, "The official video.");
+    }
+
+    #[test]
+    fn a_small_thumbnail_is_chosen_over_the_giant_one() {
+        // The top-level field is the LARGEST yt-dlp knows (1280 px here);
+        // pulling that for a 64-px row wastes a megabyte per link.
+        let v: serde_json::Value = serde_json::from_str(&meta_json()).unwrap();
+        assert_eq!(
+            pick_thumbnail(&v, 160).as_deref(),
+            Some("https://i.ytimg.com/vi/X/mqdefault.jpg")
+        );
+    }
+
+    #[test]
+    fn the_thumbnail_falls_back_when_the_array_offers_nothing() {
+        let v = serde_json::json!({ "thumbnail": "https://x/only.jpg" });
+        assert_eq!(pick_thumbnail(&v, 160).as_deref(), Some("https://x/only.jpg"));
+        let empty = serde_json::json!({});
+        assert_eq!(pick_thumbnail(&empty, 160), None);
+    }
+
+    #[test]
+    fn a_missing_title_falls_back_to_the_url_rather_than_showing_nothing() {
+        let m = parse_meta("{}", "https://youtu.be/x").unwrap();
+        assert_eq!(m.title, "https://youtu.be/x");
+        assert_eq!(m.uploader, "");
+        assert_eq!(m.duration_s, None);
+    }
+
+    #[test]
+    fn the_uploader_falls_through_the_field_names_sites_disagree_on() {
+        let v = serde_json::json!({ "channel": "Only Channel" }).to_string();
+        assert_eq!(parse_meta(&v, "u").unwrap().uploader, "Only Channel");
+        let v2 = serde_json::json!({ "uploader_id": "@handle" }).to_string();
+        assert_eq!(parse_meta(&v2, "u").unwrap().uploader, "@handle");
+    }
+
+    #[test]
+    fn garbage_is_an_error_not_a_panic() {
+        assert!(parse_meta("not json", "u").is_err());
+    }
 
     #[test]
     fn detects_dailymotion_including_its_short_host() {

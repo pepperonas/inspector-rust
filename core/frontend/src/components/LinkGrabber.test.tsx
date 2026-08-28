@@ -9,6 +9,10 @@ const revealPath = vi.fn<(p: string) => Promise<void>>(async () => undefined);
 const setSuppressHide = vi.fn<(s: boolean) => Promise<void>>(async () => undefined);
 vi.mock("../lib/ipc", () => ({
   socialDownload: (u: string, m: string, r?: boolean) => socialDownload(u, m, r),
+  // These tests are about the QUEUE, not the preview: refuse metadata so the
+  // rows fall back to the raw URL. The loader records the failure and never
+  // retries it, so this costs one call per link and nothing else.
+  socialMetadata: () => Promise.reject(new Error("no metadata in tests")),
   revealPath: (p: string) => revealPath(p),
   setSuppressHide: (s: boolean) => setSuppressHide(s),
 }));

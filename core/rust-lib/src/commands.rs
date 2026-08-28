@@ -6201,6 +6201,19 @@ pub fn reveal_path(path: String) {
     reveal_in_file_manager(std::path::Path::new(&path));
 }
 
+/// Title, channel, duration, thumbnail and description for one link — what
+/// the preview shows BEFORE anything is downloaded.
+///
+/// ⚠️ Async + `spawn_blocking`: yt-dlp needs ~4 s per link (measured), and a
+/// sync command would run that on the main thread. The frontend caches the
+/// result per URL, debounces typing and caps how many run at once.
+#[tauri::command]
+pub async fn social_metadata(url: String) -> Result<crate::social_dl::SocialMeta, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::social_dl::metadata(&url))
+        .await
+        .map_err(|e| format!("metadata task: {e}"))?
+}
+
 // ── Trim (local audio/video) ─────────────────────────────────────────────────
 
 /// Window label for the trim overlay.

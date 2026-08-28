@@ -3102,6 +3102,20 @@ export function socialYtdlpAvailable(): Promise<boolean> {
   return invoke("social_ytdlp_available");
 }
 /** Download a social-media URL (video/audio) → Downloads; returns the path. */
+export interface SocialMeta {
+  url: string;
+  title: string;
+  uploader: string;
+  duration_s: number | null;
+  thumbnail: string | null;
+  description: string;
+}
+
+/** Title/channel/duration/thumbnail/description for one link (yt-dlp, ~4 s). */
+export function socialMetadata(url: string): Promise<SocialMeta> {
+  return invoke("social_metadata", { url });
+}
+
 /** Show one file in Finder/Explorer. */
 export function revealPath(path: string): Promise<void> {
   return invoke("reveal_path", { path });

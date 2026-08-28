@@ -19,6 +19,7 @@ import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-ma
 import type { ClipEntry, ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
 import { LinkGrabber } from "./LinkGrabber";
+import { MetaCard } from "./SocialMeta";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
@@ -391,6 +392,7 @@ export function PreviewPanel({
         <div className="break-all rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           {entry.data.url}
         </div>
+        <MetaCard url={entry.data.url} />
         <SocialDownloadBar
           target={entry.data}
           mode={socialMode}

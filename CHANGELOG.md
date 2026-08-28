@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.149.0] — 2026-08-28
+
+### Added
+
+- **Die Download-Vorschau zeigt jetzt, was da eigentlich kommt:** Titel, Kanal, Dauer, ein kleines Vorschaubild und die Beschreibung — vor dem Laden. Bei mehreren Links dieselbe Liste, Zeile für Zeile mit Bildchen und Titel; sie ist damit auch schon **vor** dem Start sichtbar und sagt einem, was man gleich herunterlädt.
+- ⚠️ **Gemessen ~4 s je Link — daraus folgt der ganze Entwurf:** Zwischenspeicher je URL (der Grabber rendert bei jedem Tastendruck neu), Entdopplung laufender Abfragen, 600-ms-Entprellung (sonst würden Links geholt, die noch getippt werden) und ein Deckel von **3** gleichzeitigen Abfragen — eine eingefügte Dreißiger-Liste startete sonst dreißig yt-dlp-Prozesse auf einmal.
+- ⚠️ **`--no-playlist` ist zwingend:** ein `watch?v=X&list=Y` zöge sonst JEDEN Eintrag der Liste.
+- ⚠️ **Das Vorschaubild ist das kleinste ab 160 px**, nicht das oberste `thumbnail`-Feld — das ist das größte, das yt-dlp kennt (YouTube: 1280 px), also ein unnötiges Megabyte je 64-px-Zeile.
+
 ## [0.148.1] — 2026-08-28
 
 ### Fixed

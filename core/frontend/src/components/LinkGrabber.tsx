@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { Check, Download, ListPlus, Loader2, Music, Trash2, X } from "lucide-react";
 import { extractSocialLinks, allYouTube, platformLabel, type SocialTarget } from "../lib/social";
 import { revealPath, setSuppressHide, socialDownload } from "../lib/ipc";
+import { MetaRow, requestMeta } from "./SocialMeta";
 
 type ItemState = "pending" | "running" | "done" | "failed";
 
@@ -48,6 +49,16 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
     if (!audioOffered && mode === "audio") setMode("video");
   }, [audioOffered, mode]);
 
+  // ⚠️ Debounced, never per keystroke: each link costs ~4 s of yt-dlp. The
+  // loader caches and caps concurrency, but queueing mid-paste would still
+  // fetch links the user is still in the middle of typing.
+  const foundKey = found.map((f) => f.url).join("\n");
+  useEffect(() => {
+    if (!foundKey) return;
+    const id = setTimeout(() => requestMeta(foundKey.split("\n")), 600);
+    return () => clearTimeout(id);
+  }, [foundKey]);
+
   // Releasing the pin on unmount matters more than it looks: without it an
   // interrupted run would leave the popup unable to close.
   useEffect(() => () => void setSuppressHide(false).catch(() => undefined), []);
@@ -83,6 +94,10 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
     if (lastOk) void revealPath(lastOk).catch(() => undefined);
   };
 
+  // Before a run the detected links are shown as the same list — that IS the
+  // preview: you see what will be downloaded, with title and thumbnail.
+  const rows: QueueItem[] =
+    queue ?? found.map((t) => ({ url: t.url, target: t, state: "pending" as const }));
   const failed = queue?.filter((i) => i.state === "failed") ?? [];
   const doneCount = queue?.filter((i) => i.state === "done").length ?? 0;
 
@@ -167,21 +182,34 @@ export function LinkGrabber({ seedUrl }: { seedUrl?: string }) {
         </div>
       </div>
 
-      {queue && (
+      {rows.length > 0 && (
         <>
-          <div className="text-[11px] text-[var(--color-muted)]">
-            {doneCount} / {queue.length} done{failed.length > 0 && ` · ${failed.length} failed`}
-          </div>
-          <ul className="flex max-h-56 flex-col gap-0.5 overflow-y-auto">
-            {queue.map((it, i) => (
+          {queue && (
+            <div className="text-[11px] text-[var(--color-muted)]">
+              {doneCount} / {queue.length} done{failed.length > 0 && ` · ${failed.length} failed`}
+            </div>
+          )}
+          <ul className="flex max-h-64 flex-col gap-0.5 overflow-y-auto">
+            {rows.map((it, i) => (
               <li key={`${it.url}-${i}`} className="flex items-center gap-2 rounded px-1 py-1 text-[11px]">
-                <StateIcon state={it.state} />
-                <span className="w-[68px] shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                {queue ? <StateIcon state={it.state} /> : <span className="w-[12px] shrink-0" />}
+                {/* Keep naming the platform: a thumbnail does not reliably tell
+                    Instagram from TikTok, and a row that failed has none. */}
+                <span className="w-[62px] shrink-0 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
                   {platformLabel(it.target.platform)}
                 </span>
-                <span className="min-w-0 flex-1 truncate font-[var(--font-mono)] text-[var(--color-muted)]" title={it.url}>
-                  {it.note ?? it.url}
-                </span>
+                {/* The finished filename is more use than the title once it is
+                    downloaded; before that, the title is what tells them apart. */}
+                {it.note ? (
+                  <>
+                    <span className="w-[40px] shrink-0" />
+                    <span className="min-w-0 flex-1 truncate text-[var(--color-muted)]" title={it.url}>
+                      {it.note}
+                    </span>
+                  </>
+                ) : (
+                  <MetaRow url={it.url} />
+                )}
               </li>
             ))}
           </ul>

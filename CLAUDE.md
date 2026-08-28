@@ -565,6 +565,8 @@ Die kodierten Regeln: **hell und druckorientiert** (ein dunkler Report ist beim 
 
 ⚠️ **`report_style::pct(anteil)` ist die einzige Prozent-Formatierung.** Dieselbe Formel plus derselbe „Node.js"-Warnkommentar standen an drei Stellen — und prompt schrieb die Legende „11,8 %" neben eine Tabellenspalte mit „11.8 %" im selben Dokument.
 
+⚠️ **Ein Schreiber für alle Exporte: `commands::write_report` (v0.146.0).** HTML/CSV direkt auf die Platte, PDF/PNG durch WebKit auf dem Hauptthread mit 40-s-Deckel. **Jeder Aufrufer MUSS `async` sein** — ein synchroner `#[tauri::command]` läuft selbst auf dem Hauptthread und wartete auf sich selbst (`track_export` wurde dafür umgestellt). Formate: **PDF überall, PNG nur wo das Dokument auf einen Blick passt** — `loc` ist eine Karte, ein Wochen-Timesheet ist mehrseitig. Frontend: `components/ExportRow.tsx`, **generisch über die angebotenen Formate**, damit `onExport` genau die liefert, die die Tafel zeigt.
+
 ⚠️ **Sicht-Ablage-Tests (`#[ignore] dump_…`)** in `loc_export`, `repo_stats` und `tracking/export` schreiben die Dokumente nach `$IR_DUMP_DIR`, damit man sie ansehen kann: `cargo test -p inspector-rust-core --lib dump_ -- --ignored`. ⚠️ `file://` ist im MCP-Browser gesperrt — über `python3 -m http.server` gehen, dann headless Chrome `--screenshot`.
 
 ⚠️ **PageSpeed: die vier Ringe brauchen ein festes `repeat(4, 1fr)`-Raster**, kein `flex-wrap`. Mit Umbruch fiel SEO in eine zweite Zeile, und Desktop/Mobil lagen nicht mehr Kategorie für Kategorie auf einer Höhe — womit der einzige Grund entfällt, beide in ein Dokument zu legen.

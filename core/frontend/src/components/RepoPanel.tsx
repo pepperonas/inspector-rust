@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GitBranch, RefreshCw, Download, Users, GitCommit, Flame, CalendarDays } from "lucide-react";
+import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays } from "lucide-react";
 import { repoAnalyze, repoExport, type RepoStats } from "../lib/ipc";
+import { ExportRow, type ExportFormat } from "./ExportRow";
 import {
   WEEKDAY_LABELS,
   categoryColor,
@@ -69,12 +70,18 @@ export function RepoPanel({
     };
   }, [run]);
 
-  const doExport = useCallback(() => {
-    setNote("Exportiere…");
-    repoExport(target)
-      .then((path) => setNote(`HTML gespeichert: ${path.split("/").pop()}`))
-      .catch((e) => setNote(String(e)));
-  }, [target]);
+  const [exporting, setExporting] = useState<string | null>(null);
+  const doExport = useCallback(
+    (fmt: ExportFormat = "html") => {
+      setExporting(fmt);
+      setNote("Exportiere…");
+      repoExport(target, fmt === "pdf" ? "pdf" : "html")
+        .then((path) => setNote(`Gespeichert: ${path.split("/").pop()}`))
+        .catch((e) => setNote(String(e)))
+        .finally(() => setExporting(null));
+    },
+    [target],
+  );
 
   // Auto-export once the analysis is on screen (the `export` command path).
   const exportedRef = useRef(false);
@@ -145,9 +152,6 @@ export function RepoPanel({
           <span className="truncate" title={stats.source}>{stats.name}</span>
         </div>
         <div className="flex items-center gap-1">
-          <button type="button" onClick={doExport} title="Als HTML exportieren (E)" className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
-            <Download size={13} />
-          </button>
           <button type="button" onClick={run} title="Neu analysieren" className="rounded-md p-1 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
             <RefreshCw size={13} className={busy ? "animate-spin" : undefined} />
           </button>
@@ -157,6 +161,12 @@ export function RepoPanel({
         {shortDate(stats.first_commit)} → {shortDate(stats.last_commit)}
       </p>
       {note && <p className="text-[11px] text-emerald-500">{note}</p>}
+      <ExportRow
+        formats={["html", "pdf"]}
+        busy={exporting}
+        done={null}
+        onExport={(f) => doExport(f)}
+      />
 
       {/* KPI tiles. */}
       <div className="grid grid-cols-3 gap-1.5">

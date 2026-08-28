@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Code2, FileCode2, RefreshCw, ChevronRight, CornerLeftUp, Folder, Download } from "lucide-react";
+import { Code2, FileCode2, RefreshCw, ChevronRight, CornerLeftUp, Folder } from "lucide-react";
 import { locCount, locExport, type LocReport } from "../lib/ipc";
+import { ExportRow } from "./ExportRow";
 import { languageColor, donutSegments, formatCount, formatPct } from "../lib/loc";
 // Generic path arithmetic — it lives in lib/disk because `disk` needed it
 // first, and it is pure + unit-tested there.
@@ -170,6 +171,7 @@ export function LocPanel({
       {current && <LocPathBar path={current} onGo={setTarget} />}
       {report && (
         <ExportRow
+          formats={["html", "pdf", "png"]}
           busy={exporting}
           done={exported}
           onExport={(fmt) => {
@@ -440,32 +442,3 @@ function SubdirList({
 
 /** HTML · PDF · PNG — all three from the one renderer in Rust, so what you
  *  export always matches what the panel showed. */
-function ExportRow({
-  busy,
-  done,
-  onExport,
-}: {
-  busy: string | null;
-  done: string | null;
-  onExport: (fmt: "html" | "pdf" | "png") => void;
-}) {
-  const formats: Array<"html" | "pdf" | "png"> = ["html", "pdf", "png"];
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-      <Download size={12} className="shrink-0 text-[var(--color-muted)]" />
-      <span className="text-[var(--color-muted)]">Export:</span>
-      {formats.map((f) => (
-        <button
-          key={f}
-          type="button"
-          disabled={busy !== null}
-          onClick={() => onExport(f)}
-          className="rounded-full border border-[var(--color-border)] px-2 py-0.5 uppercase tracking-wide hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
-        >
-          {busy === f ? "…" : f}
-        </button>
-      ))}
-      {done && <span className="truncate text-[var(--color-muted)]">→ {done}</span>}
-    </div>
-  );
-}

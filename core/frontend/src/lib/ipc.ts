@@ -2348,7 +2348,7 @@ export function trackCleanupDay(date: string, minSeconds: number): Promise<numbe
 /** Export `[from, to)` (unix ms) to ~/Downloads as `csv` or self-contained
  *  `html`; reveals the file. Returns the written path. */
 export function trackExport(
-  format: "csv" | "html",
+  format: "csv" | "html" | "pdf",
   from: number,
   to: number,
 ): Promise<string> {
@@ -2749,9 +2749,12 @@ export interface RepoStats {
 export function repoAnalyze(target: string | null): Promise<RepoStats> {
   return invoke("repo_analyze", { target });
 }
-/** Analyse + write the self-contained HTML to ~/Downloads; returns the path. */
-export function repoExport(target: string | null): Promise<string> {
-  return invoke("repo_export", { target });
+/** Analyse + write the report to ~/Downloads; returns the path. */
+export function repoExport(
+  target: string | null,
+  format: "html" | "pdf" = "html",
+): Promise<string> {
+  return invoke("repo_export", { target, format });
 }
 
 // ── clock — world clock zone persistence (v0.121.0) ─────────────────────────

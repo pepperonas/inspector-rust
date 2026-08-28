@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.146.0] — 2026-08-28
+
+### Added
+
+- **`repo` und die Zeiterfassung exportieren jetzt auch als PDF.** Seit v0.145.0 teilen alle fünf Dokumente ein Design — die Formate taten es nicht: `loc` konnte HTML/PDF/PNG, `repo` und das Timesheet nur HTML. Regel dahinter: **PDF überall, PNG nur, wo das Dokument auf einen Blick passt** (ein `loc`-Report ist eine Karte, ein Wochen-Timesheet ist mehrseitig — davon ein Bild zu machen hieße, es unlesbar zu falten).
+
+### Changed
+
+- **Ein Schreiber statt vier** (`commands::write_report`): HTML/CSV direkt, PDF/PNG durch WebKit auf dem Hauptthread. Dieselben ~15 Zeilen standen bereits zweimal da und wären mit `repo` und Timesheet auf vier gewachsen. ⚠️ Jeder Aufrufer muss `async` sein — ein synchroner `#[tauri::command]` läuft selbst auf dem Hauptthread und wartete auf sich selbst; `track_export` wurde dafür umgestellt.
+- **`ExportRow` ist eine geteilte Komponente** und **generisch über die angebotenen Formate**, damit `onExport` genau die zurückgibt, die eine Tafel anzeigt — sonst müsste jede ein Format wegnarrowen, das sie nie eingeblendet hat.
+- **`track_export` weist ein unbekanntes Format jetzt ab**, statt still auf CSV zu fallen.
+- Tote `repo_stats::export_html` entfernt — der gemeinsame Pfad hat sie ersetzt.
+
 ## [0.145.0] — 2026-08-28
 
 ### Fixed

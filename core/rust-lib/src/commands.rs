@@ -868,7 +868,8 @@ pub fn track_export_extension() -> Result<String, String> {
 /// Export the events in `[from, to)` (unix ms) to `~/Downloads` as `csv` or a
 /// self-contained `html` report; reveals the file. Returns the written path.
 #[tauri::command]
-pub fn track_export(
+pub async fn track_export(
+    app: AppHandle,
     db: State<'_, DbHandle>,
     format: String,
     from: i64,
@@ -897,11 +898,16 @@ pub fn track_export(
     let project_days =
         crate::tracking::range_project_totals(&db, &to_date(from), &to_date(to - 1), &(&cfg).into(), &names)
             .unwrap_or_default();
-    let (content, ext) = if format == "html" {
-        let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
-        (crate::tracking::export::html(&events, &tokens, from, to, now, &project_days), "html")
-    } else {
-        (crate::tracking::export::csv(&events, now, &project_days), "csv")
+    // ⚠️ `pdf` rendert dasselbe HTML durch WebKit — deshalb ist dieser Befehl
+    // `async`: ein synchroner liefe AUF dem Hauptthread und wartete auf sich selbst.
+    let (content, ext) = match format.as_str() {
+        "html" | "pdf" => {
+            let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
+            let doc = crate::tracking::export::html(&events, &tokens, from, to, now, &project_days);
+            (doc, if format == "pdf" { "pdf" } else { "html" })
+        }
+        "csv" => (crate::tracking::export::csv(&events, now, &project_days), "csv"),
+        other => return Err(format!("Unbekanntes Format: {other}")),
     };
     let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
     let stamp = chrono::Local
@@ -910,7 +916,7 @@ pub fn track_export(
         .map(|d| d.format("%Y%m%d").to_string())
         .unwrap_or_else(|| from.to_string());
     let path = dir.join(format!("timesheet-{stamp}.{ext}"));
-    std::fs::write(&path, content).map_err(|e| format!("write export: {e}"))?;
+    write_report(&app, content, &path)?;
     reveal_in_file_manager(&path);
     Ok(path.display().to_string())
 }
@@ -1301,17 +1307,29 @@ pub async fn repo_analyze(target: Option<String>) -> Result<crate::repo_stats::R
 /// Analyse + write the self-contained HTML export to ~/Downloads; reveals it
 /// and returns the path.
 #[tauri::command]
-pub async fn repo_export(app: AppHandle, target: Option<String>) -> Result<String, String> {
+pub async fn repo_export(
+    app: AppHandle,
+    target: Option<String>,
+    format: Option<String>,
+) -> Result<String, String> {
     let t = resolve_repo_target(target)?;
-    let path = tauri::async_runtime::spawn_blocking(move || {
+    let ext = match format.as_deref().unwrap_or("html") {
+        "html" => "html",
+        "pdf" => "pdf",
+        other => return Err(format!("Unbekanntes Format: {other}")),
+    };
+    let (html, slug) = tauri::async_runtime::spawn_blocking(move || {
         let stats = run_repo(t)?;
-        crate::repo_stats::export_html(&stats)
+        let (_name, slug) = crate::repo_stats::repo_identity(&stats.source);
+        Ok::<_, String>((crate::repo_stats::build_html(&stats), slug))
     })
     .await
     .map_err(|e| format!("repo task: {e}"))??;
-    let _ = &app;
-    reveal_in_file_manager(&path);
-    Ok(path.display().to_string())
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let out = dir.join(format!("{slug}-activity.{ext}"));
+    write_report(&app, html, &out)?;
+    reveal_in_file_manager(&out);
+    Ok(out.display().to_string())
 }
 
 // ── clock — world clock zone persistence (v0.121.0) ───────────────────
@@ -6716,6 +6734,32 @@ pub async fn device_sync_now(
 ///
 /// ⚠️ PDF and PNG render through WebKit, which asserts the MAIN thread — so
 /// the work is dispatched there from this worker, exactly like `md2pdf`.
+/// Write a finished report to `out`, rendering through WebKit for `pdf`/`png`.
+///
+/// ⚠️ **Every caller must be an `async` command.** WebKit asserts the MAIN
+/// thread, so the render is dispatched there and awaited on a channel — a sync
+/// `#[tauri::command]` runs ON the main thread and would block waiting for
+/// itself. The 40 s cap keeps a wedged WebView from hanging the caller forever.
+fn write_report(app: &AppHandle, html: String, out: &std::path::Path) -> Result<(), String> {
+    let ext = out.extension().and_then(|e| e.to_str()).unwrap_or("html");
+    if ext == "html" || ext == "csv" {
+        return std::fs::write(out, &html).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"));
+    }
+    let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
+    let (h, o, is_pdf) = (html, out.to_path_buf(), ext == "pdf");
+    app.run_on_main_thread(move || {
+        let r = if is_pdf {
+            crate::md_to_pdf::html_to_pdf(&h, &o)
+        } else {
+            crate::md_to_pdf::html_to_png(&h, &o)
+        };
+        let _ = tx.send(r);
+    })
+    .map_err(|e| e.to_string())?;
+    rx.recv_timeout(std::time::Duration::from_secs(40))
+        .map_err(|_| "Rendern hat zu lange gedauert".to_string())?
+}
+
 #[tauri::command]
 pub async fn loc_export(
     app: AppHandle,
@@ -6733,25 +6777,7 @@ pub async fn loc_export(
     };
     let out = dir.join(format!("{stem}.{ext}"));
 
-    if ext == "html" {
-        std::fs::write(&out, &html).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
-    } else {
-        // WebKit on the main thread; the oneshot carries the result back.
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        let (h, o, is_pdf) = (html, out.clone(), ext == "pdf");
-        app.run_on_main_thread(move || {
-            let r = if is_pdf {
-                crate::md_to_pdf::html_to_pdf(&h, &o)
-            } else {
-                crate::md_to_pdf::html_to_png(&h, &o)
-            };
-            let _ = tx.send(r);
-        })
-        .map_err(|e| e.to_string())?;
-        rx.recv_timeout(std::time::Duration::from_secs(40))
-            .map_err(|_| "Rendern hat zu lange gedauert".to_string())??;
-    }
-
+    write_report(&app, html, &out)?;
     reveal_in_file_manager(&out);
     Ok(out.to_string_lossy().into_owned())
 }
@@ -6810,18 +6836,7 @@ pub async fn pagespeed_export(
     };
     let out = dir.join(format!("{stem}.{ext}"));
 
-    if ext == "html" {
-        std::fs::write(&out, &html).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
-    } else {
-        let (tx, rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        let (h, o) = (html, out.clone());
-        app.run_on_main_thread(move || {
-            let _ = tx.send(crate::md_to_pdf::html_to_pdf(&h, &o));
-        })
-        .map_err(|e| e.to_string())?;
-        rx.recv_timeout(std::time::Duration::from_secs(40))
-            .map_err(|_| "Rendern hat zu lange gedauert".to_string())??;
-    }
+    write_report(&app, html, &out)?;
     reveal_in_file_manager(&out);
     Ok(out.to_string_lossy().into_owned())
 }

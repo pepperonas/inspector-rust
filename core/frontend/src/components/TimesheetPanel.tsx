@@ -343,7 +343,7 @@ export function TimesheetPanel() {
   };
 
   // Exports the visible scope: the day in Day mode, Mon–Sun in Week mode.
-  const doExport = (format: "csv" | "html") => {
+  const doExport = (format: "csv" | "html" | "pdf") => {
     const [from, to] =
       mode === "week"
         ? (() => {
@@ -529,6 +529,14 @@ export function TimesheetPanel() {
               title={mode === "week" ? "Export this week (Mon–Sun) as a self-contained HTML report → Downloads" : "Export this day as a self-contained HTML report → Downloads"}
             >
               <Download size={13} /> HTML
+            </button>
+            <button
+              type="button"
+              onClick={() => doExport("pdf")}
+              className="md3-press flex items-center gap-1 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:bg-[var(--color-surface)]"
+              title={mode === "week" ? "Diese Woche (Mo–So) als PDF → Downloads" : "Diesen Tag als PDF → Downloads"}
+            >
+              <Download size={13} /> PDF
             </button>
             {mode === "week" && (
               <button

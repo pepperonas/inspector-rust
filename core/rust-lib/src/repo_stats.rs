@@ -544,16 +544,6 @@ const REPO_CSS: &str = r#"
 td:nth-child(2), td:nth-child(3), th:nth-child(2), th:nth-child(3) { width:88px }
 "#;
 
-/// Write the HTML export to `~/Downloads/<slug>-activity.html`, returning the
-/// path. Slug from the source (owner-repo for URLs, folder name for paths).
-pub fn export_html(stats: &RepoStats) -> Result<std::path::PathBuf, String> {
-    let (_name, slug) = repo_identity(&stats.source);
-    let downloads = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
-    let path = downloads.join(format!("{slug}-activity.html"));
-    std::fs::write(&path, build_html(stats)).map_err(|e| format!("Schreiben fehlgeschlagen: {e}"))?;
-    Ok(path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

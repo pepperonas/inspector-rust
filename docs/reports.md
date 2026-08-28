@@ -125,8 +125,17 @@ Report **abgeschnitten**. Gemessen wird die Unterkante des Fußtexts.
 |---|:--:|:--:|:--:|---|
 | `loc` | ✅ | ✅ | ✅ | Sprachen-Tabelle mit Anteils-Spur je Zeile |
 | `pagespeed` | ✅ | ✅ | — | Desktop **und** Mobil nebeneinander in einem Dokument |
-| `repo` | ✅ | — | — | Balkenreihen für Wochentag/Stunde/Monat |
-| Zeiterfassung | ✅ | — | — | zwei Dokumente (Projekt-Report, Timesheet) + CSV |
+| `repo` | ✅ | ✅ | — | Balkenreihen für Wochentag/Stunde/Monat |
+| Zeiterfassung | ✅ | ✅ | — | zwei Dokumente (Projekt-Report, Timesheet) + CSV |
+
+**PDF überall, PNG nur wo das Dokument auf einen Blick passt.** Ein `loc`-Report
+ist eine Karte, die man in einen Chat zieht; ein Timesheet über eine Woche ist
+mehrseitig — davon ein Bild zu machen hieße, es unlesbar zu falten.
+
+Alle vier gehen durch **einen** Schreiber (`commands::write_report`): HTML/CSV
+direkt auf die Platte, PDF/PNG durch WebKit. ⚠️ **Jeder Aufrufer muss `async`
+sein** — WebKit besteht auf dem Hauptthread, und ein synchroner
+`#[tauri::command]` läuft selbst dort und wartete auf sich selbst.
 
 **PNG ist bisher nur macOS** — der Schnappschuss hängt an WKWebView; anderswo
 meldet der Befehl das ehrlich, statt eine leere Datei zu schreiben.

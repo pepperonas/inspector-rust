@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { validAliasName, posixQuote, aliasLine, psFunction, buildAliasSetups, filterAliases } from "./alias";
+import {
+  validAliasName,
+  posixQuote,
+  aliasLine,
+  psFunction,
+  buildAliasSetups,
+  filterAliases,
+  chooseForm,
+  definitionLine,
+} from "./alias";
 
 describe("validAliasName", () => {
   it("accepts shell-safe names and rejects everything a shell would parse", () => {
@@ -91,5 +100,58 @@ describe("filterAliases", () => {
     const before = list.map((e) => e.name);
     filterAliases(list, "");
     expect(list.map((e) => e.name)).toEqual(before);
+  });
+});
+
+describe("alias vs. function", () => {
+  it("keeps a plain command an alias", () => {
+    expect(chooseForm("git status")).toEqual({ kind: "alias" });
+    expect(definitionLine("gs", "git status")).toBe("alias gs='git status'");
+  });
+
+  it("keeps a bare cd an alias", () => {
+    // ⚠️ The load-bearing case. `work='cd ~/projects'` exists to LEAVE you
+    // there — a subshell would make it do nothing at all.
+    expect(chooseForm("cd ~/projects")).toEqual({ kind: "alias" });
+  });
+
+  it("makes cd-then-run a subshell function", () => {
+    expect(chooseForm("cd ~/x && ./y")).toEqual({ kind: "function", reason: "changes-directory" });
+    expect(definitionLine("bb", "cd ~/x && ./y")).toBe('bb() { ( cd ~/x && ./y "$@" ); }');
+  });
+
+  it("still forwards arguments after the conversion", () => {
+    // An alias forwards trailing arguments for free; a function does not.
+    expect(definitionLine("bb", "cd ~/x && ./y")).toContain('"$@"');
+  });
+
+  it("makes a command that reads $1 a function, without adding a second set", () => {
+    expect(chooseForm("echo $1")).toEqual({ kind: "function", reason: "takes-arguments" });
+    const line = definitionLine("c", 'git commit -m "$1"');
+    expect(line).not.toContain('"$@"');
+  });
+
+  it("ignores a separator inside quotes and a non-positional $", () => {
+    expect(chooseForm("echo 'a;b'")).toEqual({ kind: "alias" });
+    expect(chooseForm("echo $HOME")).toEqual({ kind: "alias" });
+  });
+
+  it("gives PowerShell the Push-/Pop-Location equivalent of a subshell", () => {
+    // A PS function runs in the CALLER's scope, so a bare `cd` inside one
+    // strands the prompt — exactly the bug the POSIX subshell avoids.
+    const ps = psFunction("bb", "cd C:/x; ./y", chooseForm("cd C:/x; ./y"));
+    expect(ps).toContain("Push-Location");
+    expect(ps).toContain("finally { Pop-Location }");
+    expect(psFunction("gs", "git status", chooseForm("git status"))).not.toContain("Push-Location");
+  });
+
+  it("puts the function — not an alias line — into every OS one-liner", () => {
+    const setups = buildAliasSetups("bb", "cd ~/x && ./y");
+    const posix = setups.filter((s) => s.os !== "windows");
+    expect(posix.length).toBe(2);
+    for (const s of posix) {
+      expect(s.command).toContain("bb() {");
+      expect(s.command).not.toContain("alias bb=");
+    }
   });
 });

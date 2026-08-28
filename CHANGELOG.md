@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.148.0] — 2026-08-28
+
+### Changed
+
+- **`alias` schreibt jetzt eine FUNKTION, wo eine nötig ist — und sagt warum.** Bisher entstand immer ein Alias, auch dort, wo er das Falsche tut.
+  - **`cd` mit nachfolgendem Befehl → Subshell-Funktion.** Als Alias bliebe **deine** Shell danach im Zielordner stehen; jeder weitere Befehl in dem Terminal liefe woanders. Man geht dorthin, um *eine* Sache zu tun.
+  - **Befehl liest `$1`/`$@` → Funktion.** Ein Alias kann Argumente gar nicht empfangen: die Shell expandiert ihn und hängt das Getippte **hinten** an, `$1` bleibt leer.
+  - ⚠️ **`cd` ALLEIN bleibt ein Alias.** `work='cd ~/projekte'` existiert, um dich dorthin zu bringen — eine Subshell machte es wirkungslos. Das ist die tragende Unterscheidung, entsprechend als erstes gepinnt und mutationsgeprüft.
+  - ⚠️ **`"$@"` wird im cd-Fall angehängt**, weil ein Alias nachgestellte Argumente gratis weiterreicht und eine Funktion nicht — ohne das nähme die Umstellung still Verhalten weg.
+  - Funktionen werden **wie Aliasse aufgelistet, bearbeitet und gelöscht**; der Editor zeigt den getippten Befehl, nicht die Hülle. **Bearbeiten entscheidet die Form neu** — aus `cd x` wird durch ein angehängtes `&& run` eine Funktion und beim Zurücknehmen wieder ein Alias.
+  - Windows nutzt für den cd-Fall `Push-Location`/`Pop-Location`: eine PowerShell-Funktion läuft im **Aufrufer-Scope**, ein nacktes `cd` darin strandet den Prompt genauso.
+  - Die Oberfläche begründet die Wahl in einem Satz. Stillschweigend andere Syntax zu schreiben, als jemand getippt hat, wäre die Sorte Cleverness, der man zu Recht misstraut.
+
 ## [0.147.0] — 2026-08-28
 
 ### Added

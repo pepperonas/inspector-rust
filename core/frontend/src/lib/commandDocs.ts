@@ -1161,7 +1161,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Shell-Alias geführt anlegen — Befehl je OS + direkt anlegen.",
     synopsis: "alias [name]",
     description:
-      "Opens a guided alias builder in the preview: enter the terminal command and the alias name, and the panel shows the exact one-liner that creates the alias on each OS — macOS (zsh, ~/.zshrc), Linux (bash, ~/.bashrc) and Windows (PowerShell $PROFILE, as a function so arguments are forwarded). Every row has a copy button; the current OS's row has an extra create button that appends the alias to your shell config directly. Below the builder, the aliases already defined in your rc file are listed — searchable, alphabetical — with edit (fills the builder; the button flips to update) and delete. Quoting is handled for you — commands containing quotes survive verbatim.",
+      "Opens a guided alias builder in the preview: enter the terminal command and the alias name, and the panel shows the exact one-liner that creates it on each OS — macOS (zsh, ~/.zshrc), Linux (bash, ~/.bashrc) and Windows (PowerShell $PROFILE). **It writes a shell FUNCTION instead of an alias when the command needs one, and says why:** a `cd` followed by another command becomes a subshell function, because as an alias it would leave YOUR shell sitting in that directory afterwards; a command reading `$1`/`$@` becomes one too, because an alias cannot receive arguments at all (the shell appends what you typed). A bare `cd` stays an alias — that one is supposed to move you. Every row has a copy button; the current OS's row has an extra create button that appends the alias to your shell config directly. Below the builder, the aliases already defined in your rc file are listed — searchable, alphabetical — with edit (fills the builder; the button flips to update) and delete. Quoting is handled for you — commands containing quotes survive verbatim.",
     arguments: [
       { name: "name", required: false, description: "Pre-fills the alias-name field.", default: "—" },
     ],
@@ -1175,10 +1175,13 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "The create button writes to THIS machine's shell config (~/.zshrc here); copy the other rows for your other machines.",
       "A new alias applies in the next terminal — or after `source ~/.zshrc`.",
       "Editing an existing alias: click its pencil in the list — the create button becomes an update.",
+      "Functions are listed, edited and deleted exactly like aliases; the editor shows the command you typed, not the subshell wrapper.",
+      "Editing re-decides the form: adding a command after a `cd` turns the alias into a function, removing it turns it back.",
     ],
     caveats: [
       "Fish is refused honestly (different alias syntax) — the panel's zsh/bash lines don't apply there.",
-      "Windows creates a PowerShell *function* (Set-Alias can't carry arguments); runtime-unverified per house convention.",
+      "Windows always creates a PowerShell *function* (Set-Alias can't carry arguments); for the `cd` case it uses Push-Location/Pop-Location, because a PS function runs in the caller's scope and would otherwise strand your prompt. Runtime-unverified per house convention.",
+      "A definition is written on ONE line — that is what lets it be replaced and deleted in place; multi-line function bodies are not supported.",
     ],
     related: ["terminal", "touch"],
   },

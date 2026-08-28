@@ -29,6 +29,124 @@ pub fn alias_line(name: &str, command: &str) -> String {
     format!("alias {name}='{}'", command.replace('\'', "'\\''"))
 }
 
+/// Why a definition has to be a shell FUNCTION instead of an alias.
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum FnReason {
+    /// `cd` followed by another command. As an alias this leaves the CALLER's
+    /// shell sitting in the target directory — you run it once and every later
+    /// command in that terminal happens somewhere you did not choose. A
+    /// function can put the `cd` in a subshell, so the directory change dies
+    /// with the command.
+    ChangesDirectory,
+    /// The command references positional parameters. An alias cannot receive
+    /// them at all: the shell expands the alias and APPENDS what you typed, so
+    /// `$1` stays empty and your argument lands at the end of the line.
+    TakesArguments,
+}
+
+/// Alias or function — and, when a function, why.
+#[derive(serde::Serialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(tag = "kind", content = "reason", rename_all = "kebab-case")]
+pub enum Form {
+    Alias,
+    Function(FnReason),
+}
+
+/// Split a command into its top-level segments at `;` `&&` `||` `|`.
+/// Quoted regions are skipped so a separator inside quotes doesn't split.
+fn segments(command: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut cur = String::new();
+    let mut quote: Option<char> = None;
+    let bytes: Vec<char> = command.chars().collect();
+    let mut i = 0;
+    while i < bytes.len() {
+        let c = bytes[i];
+        match quote {
+            Some(q) => {
+                if c == q {
+                    quote = None;
+                }
+                cur.push(c);
+                i += 1;
+            }
+            None => {
+                if c == '\'' || c == '"' {
+                    quote = Some(c);
+                    cur.push(c);
+                    i += 1;
+                } else if c == ';' || c == '|' || c == '&' {
+                    // `&&`/`||` consume two, `;`/`|` one.
+                    let two = i + 1 < bytes.len() && bytes[i + 1] == c;
+                    out.push(std::mem::take(&mut cur));
+                    i += if two { 2 } else { 1 };
+                } else {
+                    cur.push(c);
+                    i += 1;
+                }
+            }
+        }
+    }
+    out.push(cur);
+    out.into_iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+}
+
+/// Does `command` reference positional parameters (`$1`…`$9`, `$@`, `$*`)?
+fn uses_positional(command: &str) -> bool {
+    let c: Vec<char> = command.chars().collect();
+    (0..c.len()).any(|i| {
+        if c[i] != '$' {
+            return false;
+        }
+        let mut j = i + 1;
+        if j < c.len() && c[j] == '{' {
+            j += 1;
+        }
+        matches!(c.get(j), Some(n) if n.is_ascii_digit() || *n == '@' || *n == '*')
+    })
+}
+
+/// Decide whether a command must become a function, and why (pure).
+///
+/// ⚠️ **`cd` ALONE stays an alias.** `work='cd ~/projects'` is supposed to
+/// leave you in that directory — wrapping it in a subshell would make it do
+/// nothing at all. Only a `cd` with something AFTER it wants the subshell: you
+/// go there to run one thing and expect your shell to stay where it was.
+pub fn choose_form(command: &str) -> Form {
+    if uses_positional(command) {
+        return Form::Function(FnReason::TakesArguments);
+    }
+    let segs = segments(command);
+    let cd_at = segs.iter().position(|s| s == "cd" || s.starts_with("cd "));
+    match cd_at {
+        Some(i) if i + 1 < segs.len() => Form::Function(FnReason::ChangesDirectory),
+        _ => Form::Alias,
+    }
+}
+
+/// The rc line for a function definition, on ONE line — the whole module is
+/// line-based (append, replace in place, delete), and a multi-line body would
+/// break every one of those.
+///
+/// ⚠️ `"$@"` is appended for the directory case because an alias forwards
+/// trailing arguments for free and a function does NOT. Converting without it
+/// would silently take away behaviour the user already had.
+pub fn function_line(name: &str, command: &str, reason: FnReason) -> String {
+    match reason {
+        FnReason::ChangesDirectory => format!("{name}() {{ ( {command} \"$@\" ); }}"),
+        FnReason::TakesArguments => format!("{name}() {{ {command}; }}"),
+    }
+}
+
+/// The definition line for `command`, alias or function as the command needs.
+pub fn definition_line(name: &str, command: &str) -> String {
+    match choose_form(command) {
+        Form::Alias => alias_line(name, command),
+        Form::Function(r) => function_line(name, command, r),
+    }
+}
+
 /// Which rc file the alias belongs in, from `$SHELL`'s basename. Fish is
 /// refused honestly (its alias syntax differs — writing a bash line into
 /// fish's config would be silent breakage); anything unknown falls back to
@@ -55,8 +173,7 @@ pub fn rc_target(shell_env: Option<&str>, macos: bool) -> Result<&'static str, S
 /// Whether the rc content already defines this alias (an exact `alias NAME=`
 /// line start after trimming — commented-out lines don't count).
 pub fn already_defined(rc_content: &str, name: &str) -> bool {
-    let needle = format!("alias {name}=");
-    rc_content.lines().any(|l| l.trim_start().starts_with(&needle))
+    rc_content.lines().any(|l| defines(l, name))
 }
 
 #[derive(serde::Serialize, Clone, Debug, PartialEq)]
@@ -125,6 +242,46 @@ pub fn parse_alias_line(line: &str) -> Option<(String, String)> {
         return None;
     }
     Some((name.to_string(), unquote_shell(rest[eq + 1..].trim())))
+}
+
+/// Parse a one-line function definition back to the command the user typed.
+///
+/// The inverse of [`function_line`], so the manager can list, edit and delete
+/// a function exactly like an alias: the subshell wrapper and the appended
+/// `"$@"` are stripped, because the user never typed them — they are how the
+/// definition is SPELLED, not what it does.
+pub fn parse_function_line(line: &str) -> Option<(String, String)> {
+    let t = line.trim();
+    let open = t.find("()")?;
+    let name = t[..open].trim();
+    if !valid_name(name) {
+        return None;
+    }
+    let rest = t[open + 2..].trim_start();
+    let body = rest.strip_prefix('{')?.strip_suffix('}')?.trim();
+    let body = body.strip_suffix(';').unwrap_or(body).trim();
+    // Subshell form: `( cmd "$@" )`.
+    let body = match body.strip_prefix('(').and_then(|b| b.strip_suffix(')')) {
+        Some(inner) => inner.trim(),
+        None => body,
+    };
+    let body = body.strip_suffix(r#""$@""#).unwrap_or(body).trim();
+    let body = body.strip_suffix(';').unwrap_or(body).trim();
+    if body.is_empty() {
+        return None;
+    }
+    Some((name.to_string(), body.to_string()))
+}
+
+/// Parse either form — the manager treats both the same way.
+pub fn parse_definition_line(line: &str) -> Option<(String, String)> {
+    parse_alias_line(line).or_else(|| parse_function_line(line))
+}
+
+/// Does `line` define `name`, in either form?
+pub fn defines(line: &str, name: &str) -> bool {
+    let t = line.trim_start();
+    t.starts_with(&format!("alias {name}=")) || t.starts_with(&format!("{name}()"))
 }
 
 /// The path tokens a line `source`s (pure): every token following a bare
@@ -200,7 +357,7 @@ pub fn collect_aliases(
                     walk(&target, home, read, visited, out, depth + 1);
                 }
             }
-            if let Some((name, command)) = parse_alias_line(line) {
+            if let Some((name, command)) = parse_definition_line(line) {
                 match out.iter_mut().find(|e| e.name == name) {
                     Some(e) => {
                         e.command = command;
@@ -238,11 +395,10 @@ pub fn seed_files(rc: &str, home: &std::path::Path) -> Vec<std::path::PathBuf> {
 /// Remove every definition line of `name` (pure). Returns the new content +
 /// whether anything was removed; all other lines survive verbatim.
 pub fn remove_alias(content: &str, name: &str) -> (String, bool) {
-    let needle = format!("alias {name}=");
     let mut removed = false;
     let mut out = String::new();
     for line in content.lines() {
-        if line.trim_start().starts_with(&needle) {
+        if defines(line, name) {
             removed = true;
             continue;
         }
@@ -255,13 +411,14 @@ pub fn remove_alias(content: &str, name: &str) -> (String, bool) {
 /// Replace an existing definition IN PLACE (keeping its spot in the file) or
 /// append when absent (pure). Duplicate definition lines collapse into one.
 pub fn upsert_alias(content: &str, name: &str, command: &str) -> String {
-    let needle = format!("alias {name}=");
-    let line = alias_line(name, command);
+    // ⚠️ The FORM is re-decided on every write: editing `cd x` into
+    // `cd x && run` must turn the alias into a function, and back again.
+    let line = definition_line(name, command);
     if already_defined(content, name) {
         let mut out = String::new();
         let mut replaced = false;
         for l in content.lines() {
-            if l.trim_start().starts_with(&needle) {
+            if defines(l, name) {
                 if !replaced {
                     out.push_str(&line);
                     out.push('\n');
@@ -458,6 +615,118 @@ pub fn create(name: &str, command: &str, _overwrite: bool) -> Result<String, Str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_function_round_trips_to_the_command_the_user_typed() {
+        // The subshell and the `"$@"` are how the definition is SPELLED, not
+        // what the user asked for — the editor must show their command back.
+        for cmd in ["cd ~/x && ./y", "cd /tmp && ls -la"] {
+            let line = definition_line("f", cmd);
+            assert_eq!(parse_definition_line(&line), Some(("f".into(), cmd.into())), "{line}");
+        }
+        let line = definition_line("g", "echo $1");
+        assert_eq!(parse_definition_line(&line), Some(("g".into(), "echo $1".into())));
+    }
+
+    #[test]
+    fn defines_matches_both_forms_and_not_a_longer_name() {
+        assert!(defines("alias bb='x'", "bb"));
+        assert!(defines("bb() { ( cd /x ); }", "bb"));
+        assert!(defines("  bb() { x; }", "bb"));
+        assert!(!defines("alias bbx='x'", "bb"));
+        assert!(!defines("bbx() { x; }", "bb"));
+        assert!(!defines("# bb() { x; }", "bb"));
+    }
+
+    #[test]
+    fn editing_re_decides_the_form_in_both_directions() {
+        // Adding a command after the `cd` must turn the alias into a
+        // function; taking it away again must turn it back.
+        let rc = "alias bb='cd ~/x'\n";
+        let grown = upsert_alias(rc, "bb", "cd ~/x && ./y");
+        assert!(grown.contains("bb() { ( cd ~/x && ./y"), "{grown}");
+        assert!(!grown.contains("alias bb="), "the old alias line must be gone");
+        let shrunk = upsert_alias(&grown, "bb", "cd ~/x");
+        assert!(shrunk.contains("alias bb='cd ~/x'"), "{shrunk}");
+        assert!(!shrunk.contains("bb() {"), "the function must be gone");
+    }
+
+    #[test]
+    fn a_function_can_be_deleted_like_an_alias() {
+        let rc = "alias a='1'\nbb() { ( cd /x && ./y \"$@\" ); }\nalias c='3'\n";
+        let (out, removed) = remove_alias(rc, "bb");
+        assert!(removed);
+        assert!(!out.contains("bb()"));
+        assert!(out.contains("alias a='1'") && out.contains("alias c='3'"));
+    }
+
+    #[test]
+    fn a_plain_command_stays_an_alias() {
+        assert_eq!(choose_form("git status"), Form::Alias);
+        assert_eq!(definition_line("gs", "git status"), "alias gs='git status'");
+    }
+
+    #[test]
+    fn cd_alone_stays_an_alias() {
+        // ⚠️ The load-bearing distinction. `work='cd ~/projects'` exists to
+        // LEAVE you there — a subshell would make it do nothing at all.
+        assert_eq!(choose_form("cd ~/projects"), Form::Alias);
+        assert_eq!(choose_form("cd /tmp"), Form::Alias);
+    }
+
+    #[test]
+    fn cd_followed_by_a_command_becomes_a_subshell_function() {
+        // The other half: you go there to run one thing, and your shell must
+        // stay where it was. As an alias every later command in that terminal
+        // would happen somewhere you did not choose.
+        assert_eq!(
+            choose_form("cd ~/claude/beat-bytes && ./target/release/beatbyte"),
+            Form::Function(FnReason::ChangesDirectory)
+        );
+        assert_eq!(
+            definition_line("bb", "cd ~/x && ./y"),
+            r#"bb() { ( cd ~/x && ./y "$@" ); }"#
+        );
+    }
+
+    #[test]
+    fn the_subshell_form_forwards_arguments() {
+        // An alias forwards trailing arguments for free; a function does not.
+        // Converting without `"$@"` would silently REMOVE behaviour.
+        let line = definition_line("bb", "cd ~/x && ./y");
+        assert!(line.contains(r#""$@""#), "arguments must still reach the command");
+        assert!(line.contains("( ") && line.contains(" )"), "the cd belongs in a subshell");
+    }
+
+    #[test]
+    fn positional_parameters_force_a_function() {
+        // An alias cannot receive them: the shell appends what you typed, so
+        // `$1` stays empty and the argument lands at the end of the line.
+        assert_eq!(choose_form("echo $1"), Form::Function(FnReason::TakesArguments));
+        assert_eq!(choose_form("mkdir -p $1 && cd ${1}"), Form::Function(FnReason::TakesArguments));
+        assert_eq!(choose_form(r#"git commit -m "$@""#), Form::Function(FnReason::TakesArguments));
+    }
+
+    #[test]
+    fn a_command_that_already_uses_arguments_does_not_get_another_set() {
+        let line = definition_line("c", r#"git commit -m "$1""#);
+        assert_eq!(line.matches("$1").count(), 1);
+        assert!(!line.contains(r#""$@""#), "appending would duplicate the arguments");
+    }
+
+    #[test]
+    fn a_separator_inside_quotes_does_not_split_the_command() {
+        // `echo 'a;b'` is ONE segment — otherwise a quoted semicolon would
+        // fake a second command and turn a plain alias into a function.
+        assert_eq!(choose_form("echo 'a;b'"), Form::Alias);
+        assert_eq!(choose_form(r#"cd /x && echo "a && b""#), Form::Function(FnReason::ChangesDirectory));
+    }
+
+    #[test]
+    fn a_dollar_that_is_not_positional_is_left_alone() {
+        assert_eq!(choose_form("echo $HOME"), Form::Alias);
+        assert_eq!(choose_form("echo ${EDITOR}"), Form::Alias);
+    }
 
     #[test]
     fn valid_name_mirrors_the_frontend_rule() {

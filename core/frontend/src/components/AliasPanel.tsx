@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { TerminalSquare, Copy, Check, PlusCircle, Pencil, Trash2, Search, X } from "lucide-react";
-import { buildAliasSetups, validAliasName, filterAliases, type AliasSetup } from "../lib/alias";
+import { buildAliasSetups, validAliasName, filterAliases, chooseForm, type AliasSetup } from "../lib/alias";
 import { CURRENT_PLATFORM } from "../lib/platform";
 import { aliasCreate, aliasList, aliasDelete, type AliasEntry } from "../lib/ipc";
 
@@ -92,6 +92,9 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
   const nameOk = validAliasName(name);
   const ready = nameOk && cmd.trim().length > 0;
   const setups: AliasSetup[] = ready ? buildAliasSetups(name, cmd.trim()) : [];
+  // Say WHY it became a function. Silently emitting different syntax than the
+  // user asked for is the kind of cleverness people rightly distrust.
+  const form = cmd.trim() ? chooseForm(cmd.trim()) : { kind: "alias" as const };
   const currentOs = CURRENT_PLATFORM === "mac" ? "macos" : CURRENT_PLATFORM === "win" ? "windows" : "linux";
   // An existing name flips the create button into an update — `overwrite` is
   // passed to the backend, whose race guard still refuses a definition that
@@ -198,6 +201,28 @@ export function AliasPanel({ arg, focused, onExit }: { arg: string; focused: boo
           </span>
         )}
       </label>
+
+      {form.kind === "function" && (
+        <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2.5 py-2 text-[11px] leading-5">
+          <span className="font-medium">Wird eine Funktion, kein Alias.</span>{" "}
+          <span className="text-[var(--color-muted)]">
+            {form.reason === "changes-directory" ? (
+              <>
+                Der Befehl wechselt das Verzeichnis und macht danach noch etwas. Als
+                Alias bliebe <em>deine</em> Shell anschließend dort stehen — jeder
+                weitere Befehl im Terminal liefe woanders. Das <code>cd</code> läuft
+                deshalb in einer Subshell; dein Verzeichnis bleibt, wo es war.
+              </>
+            ) : (
+              <>
+                Der Befehl liest Argumente (<code>$1</code>, <code>$@</code>). Ein Alias
+                kann sie gar nicht empfangen: die Shell hängt das Getippte hinten an,
+                <code>$1</code> bliebe leer.
+              </>
+            )}
+          </span>
+        </div>
+      )}
 
       {ready ? (
         <div className="flex flex-col gap-2">

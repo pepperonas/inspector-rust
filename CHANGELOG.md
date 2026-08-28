@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.144.1] — 2026-08-28
+
+### Fixed
+
+- **Zwei Quelldateien waren für jede Suche unsichtbar.** `SettingsPanel.tsx` und `clown.ts` enthielten **rohe NUL-Bytes** als Trennzeichen in Template-Literalen. Ein NUL macht die Datei für `file` zu `data` und lässt grep/ugrep sie **stumm überspringen** — kein Fehler, keine Ausgabe, kein Exit-Code. Eine 219-KB-Datei lieferte auf jede Suche null Treffer, was zweimal zu der überzeugten Fehlaussage führte, in ihr liegender Code existiere nicht. Der **Wert** war richtig gewählt (ein NUL kann in keinem Hotkey vorkommen) — falsch war die Schreibweise: jetzt die Unicode-Escape `\u0000`, zur Laufzeit derselbe String, auf der Platte reines ASCII.
+
+### Added
+
+- **Wächter gegen unsichtbare Steuerzeichen** (`source-hygiene.test.ts`): scannt beide Quellbäume (256 TS/TSX + 117 Rust-Dateien) auf NUL und jedes andere C0-Steuerzeichen außer Tab, Zeilenumbruch und Wagenrücklauf, und benennt Datei, Zeile, Spalte und Byte. Mit eigenem Wächter dagegen, dass der Glob überhaupt etwas findet — ein leerer Glob machte die Prüfungen wahr-durch-Leere. Alle drei mutationsgeprüft.
+
+### Changed
+
+- **CLAUDE.md widersprach sich beim Geräte-Sync.** Der Abschnitt „geplant, NICHT implementiert" stand 23 Zeilen über der Beschreibung des seit v0.139.0 ausgelieferten Moduls; er ist entfernt. Dafür steht jetzt dort, was Anforderung 1 verlangt und der Text nicht sagte: Standard **aus**, `should_run` ist ein Dreifach-Tor (Schalter **und** Passwort **und** Ordner), der Worker-Thread existiert auch im Aus-Zustand und steigt vor jedem Datei- und Krypto-Zugriff aus, 2FA-Geheimnisse sind separat opt-in.
+
 ## [0.144.0] — 2026-08-27
 
 ### Added

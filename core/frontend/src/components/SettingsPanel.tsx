@@ -321,7 +321,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       .catch(() => undefined);
   }, []);
   const slotKey = (s: { hotkey: string; snippet_id: number }) =>
-    `${s.hotkey} ${s.snippet_id}`;
+    `${s.hotkey}\u0000${s.snippet_id}`;
   const slotsDirty = slots.map(slotKey).join("|") !== savedSlots.map(slotKey).join("|");
   const updateSlot = (i: number, patch: Partial<DirectSlot>) =>
     setSlots((cur) => cur.map((s, j) => (j === i ? { ...s, ...patch } : s)));

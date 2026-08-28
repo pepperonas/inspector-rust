@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.148.1] — 2026-08-28
+
+### Fixed
+
+- **Eine Lautstärke-Geste, die nichts bewirken kann, sagt das jetzt.** Feldbericht: „volume change funktioniert nicht mehr, habe macOS geupdated". Das Update war unschuldig — die Standardausgabe stand auf einem **Multi-Output-Gerät**, und macOS-Aggregatgeräte haben prinzipbedingt **keine Master-Lautstärke**. Belegt: die Geste wurde erkannt und ausgelöst (`gesture dispatch: SwipeDown → VolumeDown` im Log), keine Unterdrückung, kein Fehler — aber `osascript` meldete `output volume: missing value`, während Eingang und Warnton normal antworteten.
+- ⚠️ **Der eigentliche Mangel war das Schweigen.** `nudge_volume` gibt `None` für zwei sehr verschiedene Lagen zurück: „gestellt, aber kein Rückgabewert" und „es gibt gar nichts zu stellen". Beide zeigten denselben Richtungspfeil — der No-Op sah aus, als hätte er gewirkt. Neu entscheidet die pure `volume_failure_reason(level, has_control)`, und ohne Regler nennt der Toast den Grund. Die Erkennung dafür stand längst im Code (`volume_elements`: „Empty = no volume control (HDMI)"), sie wurde nur nie nach außen gereicht.
+
 ## [0.148.0] — 2026-08-28
 
 ### Changed

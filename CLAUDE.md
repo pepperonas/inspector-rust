@@ -1059,6 +1059,8 @@ live by the non-destructive `#[ignore]` test `ca_volume_live_roundtrip_restores_
 160 deliberately untouched — the coalescing window is why taps are reliable).
 Net effect: volume reacts mid-swipe (~1 ms exec), mute ~800 → ~200 ms.
 
+⚠️ **Ein Ausgang OHNE Lautstärkeregler ist kein Fehler, aber Schweigen darüber schon (v0.148.1).** `nudge_volume` liefert `None` für zwei Lagen — „gestellt, kein Rückgabewert" und „nichts zu stellen" — und beide zeigten denselben Richtungspfeil. Auf einem **Aggregat-/Multi-Output-Gerät** (auch HDMI, manche DACs) hat macOS prinzipbedingt keine Master-Lautstärke; die Geste war ein stiller No-Op. Die pure `volume_failure_reason(level, has_control)` trennt das, `ca_volume::has_volume_control()` reicht die Erkennung nach außen, die in `volume_elements` schon stand („Empty = no volume control (HDMI)"). ⚠️ **Diagnose-Griff bei „Lautstärke geht nicht":** `osascript -e 'get volume settings'` — meldet es `output volume: missing value`, liegt es am Gerät, nicht an der App; `SwitchAudioSource -c -t output` nennt es. ⚠️ **Die App kann selbst in diesen Zustand führen:** `arrange_system_audio` schaltet die Standardausgabe für Systemton-Aufnahmen auf genau so ein Multi-Output-Gerät und stellt sie danach zurück — bleibt die Rückstellung aus (unsauberes Beenden), ist die Lautstärke tot.
+
 **Opt-in** (settings key `gestures.enabled`, off by default);
 runs tray-resident as a background thread (no window/focus), `apply(app,db,state)`
 starts/stops the OS source to match the config (mirrors `auto_expand`). IPC

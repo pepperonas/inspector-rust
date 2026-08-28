@@ -393,15 +393,36 @@ fn perform(app: &tauri::AppHandle, action: GestureAction, step: i32) {
             GestureAction::VolumeUp | GestureAction::VolumeDown => {
                 let delta = if matches!(action, GestureAction::VolumeUp) { step } else { -step };
                 let level = crate::system_commands::nudge_volume(delta);
-                crate::status_toast::StatusToast {
-                    kind: "volume".into(),
-                    on: level.map(|l| l > 0).unwrap_or(true),
-                    // Title carries the level so the frontend can draw the bar;
-                    // falls back to a direction arrow when the OS gives no read-back.
-                    title: level
-                        .map(|l| format!("{l}%"))
-                        .unwrap_or_else(|| if delta > 0 { "+".into() } else { "−".into() }),
-                    subtitle: "Volume".into(),
+                #[cfg(target_os = "macos")]
+                let has_control = crate::system_commands::ca_volume::has_volume_control();
+                #[cfg(not(target_os = "macos"))]
+                let has_control = true;
+                // ⚠️ Say so when there is nothing to set. Showing a direction
+                // arrow for an output WITHOUT a volume control (aggregate /
+                // Multi-Output device, HDMI, some DACs) makes a no-op look like
+                // it worked — the user is then left guessing for days.
+                match crate::system_commands::volume_failure_reason(level, has_control) {
+                    Some(reason) => {
+                        tracing::warn!("volume gesture: {reason}");
+                        crate::status_toast::StatusToast {
+                            kind: "volume".into(),
+                            on: false,
+                            // A non-numeric title draws no bar — the existing
+                            // renderer already handles that for the arrow case.
+                            title: "—".into(),
+                            subtitle: reason.into(),
+                        }
+                    }
+                    None => crate::status_toast::StatusToast {
+                        kind: "volume".into(),
+                        on: level.map(|l| l > 0).unwrap_or(true),
+                        // Title carries the level so the frontend can draw the bar;
+                        // falls back to a direction arrow when the OS gives no read-back.
+                        title: level
+                            .map(|l| format!("{l}%"))
+                            .unwrap_or_else(|| if delta > 0 { "+".into() } else { "−".into() }),
+                        subtitle: "Volume".into(),
+                    },
                 }
             }
             GestureAction::MuteToggle => {

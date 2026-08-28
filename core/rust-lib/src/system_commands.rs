@@ -416,6 +416,17 @@ pub(crate) mod ca_volume {
         }
     }
 
+    /// Does the CURRENT default output publish a volume control at all?
+    ///
+    /// The check already existed inside `volume_elements` ("Empty = no volume
+    /// control (HDMI)") — it was just never surfaced, so a device without one
+    /// looked exactly like a device that simply gave no read-back.
+    pub fn has_volume_control() -> bool {
+        default_output()
+            .map(|d| !volume_elements(d, PROP_VOLUME_SCALAR).is_empty())
+            .unwrap_or(false)
+    }
+
     /// Current output volume in percent, or `None` (no device / no control).
     pub fn read_volume() -> Option<i32> {
         let dev = default_output()?;
@@ -711,6 +722,23 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
 /// in one synchronous `osascript`; other platforms fall back to
 /// `adjust_system_volume` and report `None` (no cheap read-back). Blocking —
 /// call off the hot path.
+/// Why the volume did not move, if it did not (pure).
+///
+/// ⚠️ `None` from [`nudge_volume`] used to mean two very different things:
+/// "changed, but the OS gave no read-back" and "there is nothing to change".
+/// The gesture showed a direction arrow for both — so on an output WITHOUT a
+/// volume control (a Multi-Output/aggregate device, HDMI, some DACs) the
+/// swipe looked like it had worked and silently did nothing. Field report,
+/// 2026-08-28: an aggregate device had been left as the default output and
+/// every volume gesture was a no-op with no feedback whatsoever.
+pub fn volume_failure_reason(level: Option<u8>, has_control: bool) -> Option<&'static str> {
+    match (level, has_control) {
+        (Some(_), _) => None,
+        (None, true) => None, // applied, just no read-back — the arrow is honest
+        (None, false) => Some("Kein Lautstärkeregler an diesem Ausgang"),
+    }
+}
+
 pub fn nudge_volume(delta: i32) -> Option<u8> {
     #[cfg(target_os = "macos")]
     {
@@ -871,6 +899,27 @@ mod tests {
         // A normal mid-range step lands where expected.
         assert_eq!(clamp_volume(48 + 6), 54);
         assert_eq!(clamp_volume(48 - 6), 42);
+    }
+
+    #[test]
+    fn a_level_read_back_is_never_a_failure() {
+        assert_eq!(volume_failure_reason(Some(50), true), None);
+        assert_eq!(volume_failure_reason(Some(0), false), None);
+    }
+
+    #[test]
+    fn no_read_back_on_a_device_with_a_control_stays_silent() {
+        // The change WAS applied, the OS just did not hand a level back — the
+        // direction arrow is honest there; a complaint would not be.
+        assert_eq!(volume_failure_reason(None, true), None);
+    }
+
+    #[test]
+    fn an_output_without_a_control_is_named_as_the_reason() {
+        // The case that cost a user days (2026-08-28): an aggregate /
+        // Multi-Output device was the default output, every volume gesture did
+        // nothing, and the toast showed a direction arrow as if it had worked.
+        assert!(volume_failure_reason(None, false).is_some());
     }
 
     #[test]

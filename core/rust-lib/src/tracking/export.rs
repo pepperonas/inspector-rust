@@ -1,17 +1,40 @@
 //! Timesheet export — flat **CSV** and a **single self-contained HTML** report
-//! (CSS + charts inline, zero external requests, dark theme, offline-viewable).
+//! (CSS + charts inline, zero external requests, light and print-first,
+//! offline-viewable). Both documents use the shared [`crate::report_style`].
 //! Charts are server-rendered inline **SVG** (no JS needed to view). Pure
 //! builders over already-decrypted [`TrackEvent`]s so they're unit-testable.
 
 use super::db::TrackEvent;
+use crate::report_style as rs;
 use chrono::{Local, TimeZone};
 use std::collections::HashMap;
 
 const FOOTER: &str = "© 2026 Martin Pfeffer | celox.io";
-const PALETTE: [&str; 10] = [
-    "#b3c5ff", "#7dd3fc", "#86efac", "#fcd34d", "#f9a8d4", "#c4b5fd", "#fdba74", "#5eead4",
-    "#a3e635", "#f87171",
-];
+
+/// The few rules the shared stylesheet cannot know about: the donut's two-column
+/// layout, the collapsible per-app details, and the grand-total line. Appended
+/// to [`rs::css`] rather than replacing it, so the common base stays the base.
+const EXTRA_CSS: &str = r#"
+.ts-donut { display: flex; align-items: center; gap: 22px }
+.ts-donut .lg { flex: 1; min-width: 0 }
+.ts-donut .lg .row { display: flex; align-items: center; gap: 9px; padding: 3px 0; font-size: 13px }
+.ts-donut .lg i { width: 9px; height: 9px; border-radius: 2px; flex: none }
+.ts-donut .lg .k { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+.ts-donut .lg .v { color: var(--muted); font-variant-numeric: tabular-nums }
+.ts-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 30px }
+.rp-total { text-align: right; font-weight: 640; margin: 18px 0 0 }
+.rp-total span { font-variant-numeric: tabular-nums }
+details { border-bottom: 1px solid #f2f4f7 }
+summary { display: flex; align-items: center; gap: 10px; cursor: pointer; padding: 8px 0; list-style: none }
+summary::-webkit-details-marker { display: none }
+summary::before { content: "\25B8"; color: var(--muted) }
+details[open] summary::before { content: "\25BE" }
+summary .n { flex: 1; font-weight: 600 }
+summary .dur { color: var(--muted); font-variant-numeric: tabular-nums }
+details > table { margin: 0 0 10px 18px }
+.ts-src { color: var(--muted); font-size: 11px }
+@media print { .ts-cols { gap: 20px } details[open] summary::before { content: "\25BE" } }
+"#;
 
 fn effective_dur_s(e: &TrackEvent, now: i64) -> i64 {
     e.duration_s
@@ -266,9 +289,9 @@ pub fn project_html(
     let mut sections = String::new();
     if detail == Detail::Summary {
         // Single table: project → total.
-        let mut body = String::from(
-            "<table><thead><tr><th>Project</th><th class=r>Duration</th></tr></thead><tbody>",
-        );
+        // Dieselbe Form wie loc: Farbchip + Anteils-Spur BEIM Namen, damit das
+        // Auge für die Proportion nicht in eine eigene Spalte wandern muss.
+        let mut totals: Vec<(String, i64)> = Vec::new();
         let mut i = 0;
         while i < billable.len() {
             let proj = billable[i].project.clone().unwrap_or_default();
@@ -277,14 +300,31 @@ pub fn project_html(
                 total += effective_dur_s(billable[i], now);
                 i += 1;
             }
-            body.push_str(&format!(
-                "<tr><td>{}</td><td class=r>{}</td></tr>",
-                esc(&proj),
-                fmt_dur(total)
-            ));
+            totals.push((proj, total));
         }
-        body.push_str("</tbody></table>");
-        sections = format!("<div class=card>{body}</div>");
+        let sum: i64 = totals.iter().map(|(_, s)| *s).sum();
+        let share_of = |s: i64| if sum > 0 { s as f64 / sum as f64 } else { 0.0 };
+        let parts: Vec<(String, f64, String)> = totals
+            .iter()
+            .map(|(p, s)| (esc(p), share_of(*s), rs::series_color(p).to_string()))
+            .collect();
+        let rows: String = totals
+            .iter()
+            .map(|(p, s)| {
+                format!(
+                    "<tr><td>{}</td><td class=\"rp-num\">{}</td><td class=\"rp-num rp-dim\">{}</td></tr>",
+                    rs::name_cell(rs::series_color(p), &esc(p), share_of(*s)),
+                    fmt_dur(*s),
+                    rs::pct(share_of(*s)),
+                )
+            })
+            .collect();
+        sections = format!(
+            "<section><h2>Nach Projekt</h2>{bar}<table><thead><tr><th>Projekt</th>\
+             <th class=\"rp-num\">Dauer</th><th class=\"rp-num\">Anteil</th></tr></thead>\
+             <tbody>{rows}</tbody></table></section>",
+            bar = rs::share_bar(&parts),
+        );
     } else {
         let mut i = 0;
         while i < billable.len() {
@@ -301,14 +341,15 @@ pub fn project_html(
                 for (date, d) in &per_day {
                     ptotal += d;
                     rows.push_str(&format!(
-                        "<tr><td>{}</td><td class=r>{}</td></tr>",
+                        "<tr><td>{}</td><td class=\"rp-num\">{}</td></tr>",
                         date,
                         fmt_dur(*d)
                     ));
                 }
                 sections.push_str(&format!(
-                    "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
-                     <table><thead><tr><th>Date</th><th class=r>Duration</th></tr></thead><tbody>{}</tbody></table></div>",
+                    "<section><h2>{}</h2><table><thead><tr><th>Datum</th>\
+                     <th class=\"rp-num\">Dauer</th></tr></thead><tbody>{2}</tbody>\
+                     <tfoot><tr><td>Gesamt</td><td class=\"rp-num\">{1}</td></tr></tfoot></table></section>",
                     esc(&proj), fmt_dur(ptotal), rows
                 ));
             } else {
@@ -317,7 +358,7 @@ pub fn project_html(
                     let d = effective_dur_s(e, now);
                     ptotal += d;
                     rows.push_str(&format!(
-                        "<tr><td>{}</td><td>{}–{}</td><td class=r>{}</td><td>{}</td></tr>",
+                        "<tr><td>{}</td><td class=\"rp-text\">{}–{}</td><td class=\"rp-num\">{}</td><td class=\"rp-text\">{}</td></tr>",
                         local_date(e.started_at),
                         local_time(e.started_at),
                         e.ended_at.map(local_time).unwrap_or_default(),
@@ -327,58 +368,27 @@ pub fn project_html(
                     i += 1;
                 }
                 sections.push_str(&format!(
-                    "<div class=card><div class=phead><h2>{}</h2><span class=ptot>{}</span></div>\
-                     <table><thead><tr><th>Date</th><th>Time</th><th class=r>Duration</th><th>Activity</th></tr></thead><tbody>{}</tbody></table></div>",
+                    "<section><h2>{}</h2><table><thead><tr><th>Datum</th><th class=\"rp-text\">Zeit</th>\
+                     <th class=\"rp-num\">Dauer</th><th class=\"rp-text\">Tätigkeit</th></tr></thead><tbody>{2}</tbody>\
+                     <tfoot><tr><td colspan=2>Gesamt</td><td class=\"rp-num\">{1}</td><td></td></tr></tfoot></table></section>",
                     esc(&proj), fmt_dur(ptotal), rows
                 ));
             }
         }
     }
     if billable.is_empty() {
-        sections = "<p class=muted>No project-tagged time in this range. Assign time to a project by dragging a window on the day timeline.</p>".into();
+        sections = "<p class=\"rp-empty\">In diesem Zeitraum ist keine Zeit einem Projekt zugeordnet. Zuordnen: ein Fenster auf der Tagesleiste ziehen.</p>".into();
     }
 
-    format!(
-        r#"<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<title>Project report · {range}</title>
-<style>
-:root{{color-scheme:light;--bg:#fff;--surface:#fff;--border:#e7e9ee;--muted:#6a7078;--fg:#14161a;--accent:#3f6cd4}}
-/* Light and print-first like every other report — a dark timesheet
-   wastes toner and looks broken on paper. */
-@page{{size:A4;margin:14mm}}
-@media print{{*{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}.card,.stat,table,tr{{break-inside:avoid}}thead{{display:table-header-group}}}}
-body{{font-variant-numeric:tabular-nums}}
-*{{box-sizing:border-box}}
-body{{margin:0 auto;max-width:880px;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:28px}}
-h1{{font-size:22px;margin:0 0 4px}}
-.sub{{color:var(--muted);margin:0 0 20px}}
-.card{{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:16px}}
-.phead{{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:8px}}
-.card h2{{font-size:15px;margin:0}}
-.ptot{{font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums}}
-.muted{{color:var(--muted)}}
-table{{width:100%;border-collapse:collapse;font-size:12px}}
-th,td{{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}}
-th{{color:var(--muted);font-weight:500}}
-td.r,th.r{{text-align:right;font-variant-numeric:tabular-nums}}
-.grand{{font-size:16px;font-weight:700;text-align:right;margin:4px 2px 0}}
-.grand .accent{{color:var(--accent)}}
-footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
-@media print{{body{{padding:0}}.card{{break-inside:avoid}}}}
-</style></head><body>
-<h1>Project report</h1>
-<p class=sub>{range}{scope}</p>
-{sections}
-<p class=grand>Total: <span class=accent>{grand}</span></p>
-<footer>{footer}</footer>
-</body></html>"#,
-        range = esc(&range),
-        scope = scope,
+    let body = format!(
+        r#"{sections}
+<p class="rp-total">Gesamt <span>{grand}</span></p>"#,
         sections = sections,
         grand = fmt_dur(grand),
-        footer = FOOTER,
-    )
+    );
+    let subject = format!("{}{}", esc(&range), scope);
+    rs::shell("Zeiterfassung", "Projekt-Report", &subject, &body, FOOTER)
+        .replace("</style>", &format!("{EXTRA_CSS}\n</style>"))
 }
 
 // ── HTML ─────────────────────────────────────────────────────────────────────
@@ -423,53 +433,49 @@ fn donut_svg(buckets: &[(String, i64)]) -> String {
     let top: Vec<(String, i64)> = buckets.iter().take(8).cloned().collect();
     let total: i64 = top.iter().map(|b| b.1).sum();
     if total == 0 {
-        return "<p class=muted>No active time.</p>".into();
+        return "<p class=\"rp-empty\">Keine aktive Zeit.</p>".into();
     }
     let mut acc = 0i64;
     let mut paths = String::new();
     let mut legend = String::new();
-    for (i, (key, secs)) in top.iter().enumerate() {
+    for (key, secs) in top.iter() {
         let a0 = acc as f64 / total as f64 * 360.0;
         acc += secs;
         let a1 = acc as f64 / total as f64 * 360.0;
-        let color = PALETTE[i % PALETTE.len()];
+        let color = rs::series_color(key);
         paths.push_str(&format!(
             "<path d=\"{}\" fill=\"{color}\"/>",
             donut_path(60.0, 60.0, 55.0, 33.0, a0, a1)
         ));
         legend.push_str(&format!(
-            "<div class=row><span class=dot style=\"background:{color}\"></span><span class=k>{}</span><span class=v>{}</span></div>",
+            "<div class=row><i style=\"background:{color}\"></i><span class=k>{}</span><span class=v>{}</span></div>",
             esc(key),
             fmt_dur(*secs)
         ));
     }
     format!(
-        "<div class=donut><svg viewBox=\"0 0 120 120\" width=140 height=140>{paths}</svg><div class=legend>{legend}</div></div>"
+        "<div class=\"ts-donut\"><svg viewBox=\"0 0 120 120\" width=132 height=132>{paths}</svg><div class=lg>{legend}</div></div>"
     )
 }
 
 fn bars_svg(buckets: &[(String, i64)], total: i64) -> String {
     if buckets.is_empty() {
-        return "<p class=muted>No data.</p>".into();
+        return "<p class=\"rp-empty\">Keine Daten.</p>".into();
     }
-    let max = buckets.iter().map(|b| b.1).max().unwrap_or(1).max(1);
-    let mut out = String::from("<div class=bars>");
-    for (key, secs) in buckets.iter().take(8) {
-        let pct = (*secs as f64 / max as f64 * 100.0).round();
-        let share = if total > 0 {
-            format!(" · {}%", (*secs as f64 / total as f64 * 100.0).round())
-        } else {
-            String::new()
-        };
-        out.push_str(&format!(
-            "<div class=bar><div class=lbl><span>{}</span><span class=v>{}{}</span></div><div class=track><div class=fill style=\"width:{pct}%\"></div></div></div>",
-            esc(key),
-            fmt_dur(*secs),
-            share
-        ));
-    }
-    out.push_str("</div>");
-    out
+    let rows: String = buckets
+        .iter()
+        .take(8)
+        .map(|(key, secs)| {
+            let share = if total > 0 { *secs as f64 / total as f64 } else { 0.0 };
+            format!(
+                "<tr><td>{}</td><td class=\"rp-num\">{}</td><td class=\"rp-num rp-dim\">{:.0} %</td></tr>",
+                rs::name_cell(rs::series_color(key), &esc(key), share),
+                fmt_dur(*secs),
+                share * 100.0
+            )
+        })
+        .collect();
+    format!("<table><tbody>{rows}</tbody></table>")
 }
 
 /// Build the self-contained HTML report for `events` over `[from, to)`.
@@ -561,12 +567,12 @@ pub fn html(
         let mut rows: Vec<(String, i64)> = claude_secs.into_iter().collect();
         rows.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
         let mut body = String::from(
-            "<table><thead><tr><th>Project</th><th class=r>Time</th><th class=r>Tokens in</th><th class=r>Tokens out</th></tr></thead><tbody>",
+            "<table><thead><tr><th>Projekt</th><th class=\"rp-num\">Zeit</th><th class=\"rp-num\">Token ein</th><th class=\"rp-num\">Token aus</th></tr></thead><tbody>",
         );
         for (proj, secs) in &rows {
             let (tin, tout) = claude_tokens.get(proj).copied().unwrap_or((0, 0));
             body.push_str(&format!(
-                "<tr><td>{}</td><td class=r>{}</td><td class=r>{}</td><td class=r>{}</td></tr>",
+                "<tr><td>{}</td><td class=\"rp-num\">{}</td><td class=\"rp-num\">{}</td><td class=\"rp-num\">{}</td></tr>",
                 esc(proj),
                 fmt_dur(*secs),
                 tin,
@@ -574,7 +580,7 @@ pub fn html(
             ));
         }
         body.push_str("</tbody></table>");
-        format!("<div class=card><h2>Claude Code</h2>{body}</div>")
+        format!("<section><h2>Claude Code</h2>{body}</section>")
     };
 
     // By app (detailed) — one collapsible <details> per app (native expand, no
@@ -591,11 +597,11 @@ pub fn html(
             det.sort_by(|a, b| b.1 .0.cmp(&a.1 .0).then(a.0.cmp(b.0)));
             let col = if source == "browser" { "Site" } else { "Window" };
             let mut rows = format!(
-                "<table><thead><tr><th>{col}</th><th class=r>Count</th><th class=r>Time</th></tr></thead><tbody>"
+                "<table><thead><tr><th>{col}</th><th class=\"rp-num\">Anzahl</th><th class=\"rp-num\">Zeit</th></tr></thead><tbody>"
             );
             for (label, (secs, count)) in &det {
                 rows.push_str(&format!(
-                    "<tr><td>{}</td><td class=r>{}</td><td class=r>{}</td></tr>",
+                    "<tr><td>{}</td><td class=\"rp-num\">{}</td><td class=\"rp-num\">{}</td></tr>",
                     esc(label),
                     count,
                     fmt_dur(*secs)
@@ -603,90 +609,33 @@ pub fn html(
             }
             rows.push_str("</tbody></table>");
             blocks.push_str(&format!(
-                "<details><summary><span>{}</span><span class=dur>{}</span></summary>{}</details>",
+                "<details><summary><span class=n>{}</span><span class=dur>{}</span></summary>{}</details>",
                 esc(app),
                 fmt_dur(*total),
                 rows
             ));
         }
-        format!("<div class=card><h2>By app (detailed)</h2>{blocks}</div>")
+        format!("<section><h2>Nach App (im Detail)</h2>{blocks}</section>")
     };
 
-    format!(
-        r#"<!doctype html><html lang=en><head><meta charset=utf-8>
-<meta name=viewport content="width=device-width,initial-scale=1">
-<title>Timesheet · {range}</title>
-<style>
-:root{{color-scheme:light;--bg:#fff;--surface:#fff;--border:#e7e9ee;--muted:#6a7078;--fg:#14161a;--accent:#3f6cd4}}
-/* Light and print-first like every other report — a dark timesheet
-   wastes toner and looks broken on paper. */
-@page{{size:A4;margin:14mm}}
-@media print{{*{{-webkit-print-color-adjust:exact;print-color-adjust:exact}}.card,.stat,table,tr{{break-inside:avoid}}thead{{display:table-header-group}}}}
-body{{font-variant-numeric:tabular-nums}}
-*{{box-sizing:border-box}}
-body{{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif;padding:28px;max-width:980px;margin:0 auto}}
-h1{{font-size:22px;margin:0 0 4px}}
-.sub{{color:var(--muted);margin:0 0 20px}}
-.stats{{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px}}
-.stat{{border:1px solid var(--border);border-radius:14px;padding:14px}}
-.stat .l{{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.04em}}
-.stat .n{{font-size:24px;font-weight:700;margin-top:2px}}
-.stat .n.accent{{color:var(--accent)}}
-.card{{border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:16px}}
-.card h2{{font-size:13px;color:var(--muted);font-weight:500;margin:0 0 10px}}
-.muted{{color:var(--muted)}}
-.grid2{{display:grid;grid-template-columns:1fr 1fr;gap:16px}}
-.donut{{display:flex;gap:14px;align-items:center}}
-.legend{{flex:1;min-width:0}}
-.legend .row{{display:flex;align-items:center;gap:8px;font-size:12px;margin:2px 0}}
-.dot{{width:10px;height:10px;border-radius:50%;flex:none}}
-.legend .k{{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
-.legend .v{{color:var(--muted)}}
-.bars .bar{{margin:6px 0;font-size:12px}}
-.bars .lbl{{display:flex;justify-content:space-between;margin-bottom:3px}}
-.bars .v{{color:var(--muted)}}
-.track{{height:7px;background:var(--surface);border-radius:99px;overflow:hidden}}
-.fill{{height:100%;background:var(--accent);border-radius:99px}}
-table{{width:100%;border-collapse:collapse;font-size:12px}}
-th,td{{text-align:left;padding:5px 6px;border-bottom:1px solid var(--border)}}
-th{{color:var(--muted);font-weight:500}}
-td.r,th.r{{text-align:right;font-variant-numeric:tabular-nums}}
-.badge{{background:var(--surface);color:var(--muted);border-radius:99px;padding:1px 7px;font-size:10px}}
-details{{border:1px solid var(--border);border-radius:10px;margin:6px 0;overflow:hidden}}
-details+details{{margin-top:8px}}
-summary{{display:flex;justify-content:space-between;align-items:center;cursor:pointer;padding:9px 12px;font-weight:600;list-style:none}}
-summary::-webkit-details-marker{{display:none}}
-summary::before{{content:"▸";color:var(--muted);margin-right:8px;transition:transform .15s}}
-details[open] summary::before{{transform:rotate(90deg)}}
-summary span:first-of-type{{flex:1}}
-summary .dur{{color:var(--muted);font-variant-numeric:tabular-nums;font-weight:500}}
-details>table{{margin:0 12px 10px}}
-footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
-</style></head><body>
-<h1>Timesheet</h1>
-<p class=sub>{range} · Top: {top3}</p>
-<div class=stats>
-  <div class=stat><div class=l>Active</div><div class="n accent">{active}</div></div>
-  <div class=stat><div class=l>Idle</div><div class=n>{idle}</div></div>
-  <div class=stat><div class=l>Events</div><div class=n>{nevents}</div></div>
-</div>
+    let stats_strip = rs::stats(&[
+        rs::Stat { label: "Aktiv", value: fmt_dur(active), unit: None },
+        rs::Stat { label: "Leerlauf", value: fmt_dur(idle), unit: None },
+        rs::Stat { label: "Ereignisse", value: events.len().to_string(), unit: None },
+    ]);
+    let body = format!(
+        r#"{stats_strip}
 {slots_card}
-<div class=card><h2>Active time per day</h2>{daily_bars}</div>
-<div class=grid2>
-  <div class=card><h2>By app</h2>{app_donut}</div>
-  <div class=card><h2>By category</h2>{cat_bars}</div>
+<section><h2>Aktive Zeit je Tag</h2>{daily_bars}</section>
+<div class="ts-cols">
+  <section><h2>Nach App</h2>{app_donut}</section>
+  <section><h2>Nach Kategorie</h2>{cat_bars}</section>
 </div>
-<div class=card><h2>Top hosts</h2>{host_bars}</div>
+<section><h2>Häufigste Hosts</h2>{host_bars}</section>
 {browser_card}
 {claude_card}
-<div class=card><h2>Events</h2>{table}</div>
-<footer>{footer}</footer>
-</body></html>"#,
-        range = esc(&range),
-        top3 = if top3.is_empty() { "—".into() } else { top3 },
-        active = fmt_dur(active),
-        idle = fmt_dur(idle),
-        nevents = events.len(),
+<section><h2>Ereignisse</h2>{table}</section>"#,
+        stats_strip = stats_strip,
         daily_bars = daily_bars,
         app_donut = app_donut,
         cat_bars = cat_bars,
@@ -695,8 +644,14 @@ footer{{color:var(--muted);text-align:center;margin-top:28px;font-size:12px}}
         claude_card = claude_card,
         slots_card = project_section_html(project_days),
         table = events_table(events, now),
-        footer = FOOTER,
-    )
+    );
+    let subject = format!(
+        "{} · Top: {}",
+        esc(&range),
+        if top3.is_empty() { "—".into() } else { top3 }
+    );
+    rs::shell("Zeiterfassung", "Timesheet", &subject, &body, FOOTER)
+        .replace("</style>", &format!("{EXTRA_CSS}\n</style>"))
 }
 
 /// The consolidated **per-project** section for the HTML report: one row per
@@ -714,7 +669,7 @@ fn project_section_html(project_days: &[(String, Vec<crate::tracking::slots::Pro
             grand += p.seconds;
             let apps = p.apps.iter().take(3).map(|a| esc(&a.app)).collect::<Vec<_>>().join(", ");
             rows.push_str(&format!(
-                "<tr><td>{}</td><td>{}</td><td class=r>{}</td><td>{}–{}</td><td>{}</td></tr>",
+                "<tr><td>{}</td><td class=\"rp-text\">{}</td><td class=\"rp-num\">{}</td><td class=\"rp-text\">{}–{}</td><td class=\"rp-text\">{}</td></tr>",
                 esc(date),
                 esc(&p.project),
                 hours2(p.seconds),
@@ -725,11 +680,11 @@ fn project_section_html(project_days: &[(String, Vec<crate::tracking::slots::Pro
         }
     }
     format!(
-        "<div class=card><h2>Consolidated per project \
-         <span class=badge>{n} · {h} h</span></h2>\
-         <p class=sub>Overlap-corrected union per project — correct even with parallel sessions.</p>\
-         <table><thead><tr><th>Date</th><th>Project</th><th class=r>Hours</th>\
-         <th>First–Last</th><th>Apps</th></tr></thead><tbody>{rows}</tbody></table></div>",
+        "<section><h2>Konsolidiert je Projekt</h2>\
+         <p class=\"rp-lede\">Überlappungsbereinigte Vereinigung je Projekt — richtig auch bei \
+         parallelen Sitzungen. {n} Einträge · {h} h gesamt.</p>\
+         <table><thead><tr><th>Datum</th><th class=\"rp-text\">Projekt</th><th class=\"rp-num\">Stunden</th>\
+         <th class=\"rp-text\">Erster–Letzter</th><th class=\"rp-text\">Apps</th></tr></thead><tbody>{rows}</tbody></table></section>",
         n = total,
         h = hours2(grand),
         rows = rows,
@@ -743,11 +698,11 @@ fn hours2(secs: i64) -> String {
 
 fn events_table(events: &[TrackEvent], now: i64) -> String {
     let mut t = String::from(
-        "<table><thead><tr><th>Date</th><th>Start</th><th>End</th><th>App</th><th>Host / Title</th><th>Src</th><th class=r>Dur</th></tr></thead><tbody>",
+        "<table><thead><tr><th>Datum</th><th class=\"rp-text\">Beginn</th><th class=\"rp-text\">Ende</th><th class=\"rp-text\">App</th><th class=\"rp-text\">Host / Titel</th><th class=\"rp-text\">Quelle</th><th class=\"rp-num\">Dauer</th></tr></thead><tbody>",
     );
     for e in events {
         t.push_str(&format!(
-            "<tr><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td>{}</td><td><span class=badge>{}</span></td><td class=r>{}</td></tr>",
+            "<tr><td>{}</td><td class=\"rp-text\">{}</td><td class=\"rp-text\">{}</td><td class=\"rp-text\">{}</td><td class=\"rp-text\">{}</td><td class=\"rp-text ts-src\">{}</td><td class=\"rp-num\">{}</td></tr>",
             local_date(e.started_at),
             local_time(e.started_at),
             e.ended_at.map(local_time).unwrap_or_default(),
@@ -795,6 +750,49 @@ mod tests {
         }
     }
 
+    /// Offline sight check: writes both timesheet documents so they can be
+    /// opened and LOOKED at. Test-green and looks-right are different claims —
+    /// the `loc` PNG-height defect passed every test.
+    ///
+    /// `cargo test -p inspector-rust-core --lib export::tests::dump -- --ignored`
+    #[test]
+    #[ignore]
+    fn dump_both_documents_for_a_sight_check() {
+        let base = 1_735_722_000_000i64; // 2025-01-01 10:00 local-ish
+        let h = 3_600_000i64;
+        let events = vec![
+            ev("Claude Code", base, base + 2 * h, false, None, Some("inspector-rust — device_sync.rs")),
+            ev("Ghostty", base + 2 * h, base + 2 * h + h / 2, false, None, Some("cargo test")),
+            ev("Safari", base + 3 * h, base + 3 * h + h / 3, false, Some("docs.rs"), Some("rusqlite — Rust")),
+            ev("Slack", base + 4 * h, base + 4 * h + h / 6, false, None, Some("#team")),
+            ev("Idle", base + 5 * h, base + 5 * h + h, true, None, None),
+        ];
+        let totals = vec![(
+            "2025-01-01".to_string(),
+            vec![
+                test_total("inspector-rust", 9000, base, base + 2 * h + h / 2),
+                test_total("celox-portal", 3600, base + 3 * h, base + 4 * h),
+            ],
+        )];
+        let mut events = events;
+        events[0].project = Some("inspector-rust".into());
+        events[1].project = Some("inspector-rust".into());
+        events[2].project = Some("celox-portal".into());
+        let events = events;
+        let mut tokens = HashMap::new();
+        tokens.insert("inspector-rust".to_string(), (412_000i64, 38_000i64));
+        let now = base + 6 * h;
+
+        let dir = std::path::PathBuf::from(
+            std::env::var("IR_DUMP_DIR").unwrap_or_else(|_| "/tmp".into()),
+        );
+        let a = html(&events, &tokens, base, now, now, &totals);
+        let b = project_html(&events, base, now, now, Detail::Summary, None);
+        std::fs::write(dir.join("timesheet-report.html"), &a).unwrap();
+        std::fs::write(dir.join("timesheet-projects.html"), &b).unwrap();
+        eprintln!("wrote {} + {} bytes to {}", a.len(), b.len(), dir.display());
+    }
+
     #[test]
     fn both_documents_are_light_and_print_ready() {
         // ⚠️ These two used to be DARK — wrong artefact for something you
@@ -805,10 +803,17 @@ mod tests {
             html(&[], &Default::default(), 0, 86_400_000, 0, &[]),
             project_html(&[], 0, 86_400_000, 0, Detail::Summary, None),
         ] {
-            assert!(doc.contains("color-scheme:light"), "Report muss hell sein");
+            // ⚠️ Nicht mehr die Schreibweise einer Kopie pinnen — das tat die
+            // erste Fassung und war grün, WÄHREND beide Dokumente ein eigenes,
+            // handgeschriebenes Stylesheet trugen. Jetzt wird geprüft, dass
+            // wirklich das GETEILTE benutzt wird; dessen eigene Tests pinnen
+            // hell, A4 und print-color-adjust an einer Stelle.
+            assert!(
+                doc.contains(&crate::report_style::css()),
+                "Dokument muss das geteilte Stylesheet einbetten"
+            );
+            assert!(doc.contains("rp-kicker"), "gemeinsamer Kopf fehlt");
             assert!(!doc.contains("#0c0d11"), "dunkle Palette darf nicht zurückkehren");
-            assert!(doc.contains("print-color-adjust:exact"));
-            assert!(doc.contains("size:A4"));
         }
     }
 
@@ -833,7 +838,7 @@ mod tests {
         let events = vec![ev("Code", 0, 60_000, false, None, None)];
         let totals = vec![("2026-07-21".to_string(), vec![test_total("kiez-finder", 9_000, 0, 9_000_000)])];
         let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
-        assert!(out.contains("Consolidated per project"));
+        assert!(out.contains("Konsolidiert je Projekt"));
         assert!(out.contains("kiez-finder"));
         assert!(out.contains("2.50"));
         // Empty report omits the section entirely.
@@ -870,7 +875,7 @@ mod tests {
             ],
         )];
         let out = html(&events, &HashMap::new(), 0, 86_400_000, 100_000, &totals);
-        assert!(out.contains("2 · 1.50 h")); // n · grand-total badge
+        assert!(out.contains("2 Einträge · 1.50 h")); // Anzahl + Gesamtsumme
     }
 
     #[test]
@@ -902,7 +907,7 @@ mod tests {
         assert!(!out.contains("src=\"http"));
         // Charts present.
         assert!(out.contains("<svg")); // donut
-        assert!(out.contains("class=fill")); // bars
+        assert!(out.contains("rp-track")); // Anteils-Spur in der Zeile (loc-Form)
         // Aggregations rendered (Code is top app).
         assert!(out.contains("Code"));
         assert!(out.contains("github.com"));
@@ -912,7 +917,7 @@ mod tests {
     fn html_handles_empty() {
         let out = html(&[], &HashMap::new(), 0, 86_400_000, 0, &[]);
         assert!(out.contains(FOOTER));
-        assert!(out.contains("No active time."));
+        assert!(out.contains("Keine aktive Zeit."));
     }
 
     #[test]
@@ -954,10 +959,10 @@ mod tests {
 
         let html = project_html(&events, 0, 86_400_000, 0, Detail::Full, None);
         assert!(html.starts_with("<!doctype html>"));
-        assert!(html.contains("Project report"));
+        assert!(html.contains("Projekt-Report"));
         assert!(html.contains("Acme"));
         assert!(html.contains("Beta"));
-        assert!(html.contains("Total:"));
+        assert!(html.contains("Gesamt"));
         assert!(html.contains(FOOTER));
         assert!(!html.contains("http://"));
         // Scoped HTML excludes the other client entirely.
@@ -972,7 +977,7 @@ mod tests {
         chrome.source = "browser".into();
         let code = ev("Code", 120_000, 300_000, false, None, Some("main.rs"));
         let out = html(&[chrome, code], &HashMap::new(), 0, 86_400_000, 400_000, &[]);
-        assert!(out.contains("By app (detailed)"));
+        assert!(out.contains("Nach App (im Detail)"));
         assert!(out.contains("<details>")); // native expand, no JS
         // Browser → host detail; other app → window-title detail.
         assert!(out.contains("Google Chrome"));

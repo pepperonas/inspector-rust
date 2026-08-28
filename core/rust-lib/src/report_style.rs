@@ -118,9 +118,22 @@ th {{
 th:first-child, td:first-child {{ text-align: left }}
 td {{ padding: 7px 0; border-bottom: 1px solid #f2f4f7; text-align: right; vertical-align: baseline }}
 td:first-child {{ padding-right: 14px }}
+/* ⚠️ Eine Rinne zwischen JEDEM Spaltenpaar. Ohne sie stößt eine rechtsbündige
+   Zahlenspalte direkt an die nächste linksbündige Textspalte — gemessen:
+   "2.5010:00:00–12:30:00". Bei loc/repo fiel das nie auf, weil dort die
+   Zahlen die letzten Spalten sind. */
+th + th, td + td {{ padding-left: 18px }}
 tr:last-child td {{ border-bottom: none }}
 tfoot td {{ font-weight: 640; border-top: 1px solid var(--rule); border-bottom: none; padding-top: 9px }}
 .rp-num {{ font-weight: 600 }}
+/* ⚠️ Nur `:first-child` ist von Haus aus linksbündig — das genügt, solange ein
+   Report genau EINE Textspalte hat (loc, repo). Ein Report mit mehreren
+   (die Zeiterfassung: Projekt, App, Host, Tätigkeit) schob sie sonst alle nach
+   rechts, wo sie wie Zahlen aussahen. */
+.rp-text {{ text-align: left }}
+/* Neutraler Erklärsatz unter einer Abschnittsüberschrift. NICHT `.rp-note` —
+   das ist der bernsteinfarbene Warnkasten und liest sich als Vorbehalt. */
+.rp-lede {{ color: var(--muted); font-size: 12.5px; margin: 0 0 14px; max-width: 62ch }}
 .rp-dim {{ color: var(--muted) }}
 /* The share bar lives INSIDE the label cell — the proportion sits next to
    the name instead of in a separate column that has to be scanned. */
@@ -190,6 +203,17 @@ pub fn shell(kicker: &str, title: &str, subject: &str, body: &str, foot: &str) -
     )
 }
 
+/// A share (0..1) as a German percentage: `0.118` → `"11,8 %"`.
+///
+/// ⚠️ Formats the NUMBER on its own. A blanket `.replace('.', ",")` over a
+/// finished line also hits the label — a language called "Node.js" came out as
+/// "Node,js". The rule lived in three places before this helper existed, which
+/// is exactly how one of them ends up with a different decimal separator than
+/// the legend right next to it (measured: "11,8 %" beside "11.8 %").
+pub fn pct(share: f64) -> String {
+    format!("{:.1} %", share * 100.0).replace('.', ",")
+}
+
 /// One entry of the stat strip. `unit` is rendered smaller and muted, so
 /// "3.963 Zeilen" reads as one figure rather than two.
 pub struct Stat<'a> {
@@ -236,11 +260,8 @@ pub fn share_bar(parts: &[(String, f64, String)]) -> String {
     let legend: String = parts
         .iter()
         .map(|(label, share, color)| {
-            // ⚠️ Format the NUMBER on its own. A blanket `.replace('.', ",")`
-            // over the finished span also hits the label — a language called
-            // "Node.js" came out as "Node,js".
-            let p = format!("{:.1}", share * 100.0).replace('.', ",");
-            format!(r#"<span><i style="background:{color}"></i>{label} <b>{p} %</b></span>"#)
+            let p = pct(*share);
+            format!(r#"<span><i style="background:{color}"></i>{label} <b>{p}</b></span>"#)
         })
         .collect();
     format!(r#"<div class="rp-bar">{segs}</div><div class="rp-legend">{legend}</div>"#)

@@ -669,6 +669,17 @@ mod tests {
         assert!(analyze_remote("not a url").is_err());
     }
 
+    /// Offline sight check — see the timesheet dump for why.
+    #[test]
+    #[ignore]
+    fn dump_for_a_sight_check() {
+        let dir = std::path::PathBuf::from(
+            std::env::var("IR_DUMP_DIR").unwrap_or_else(|_| "/tmp".into()),
+        );
+        let stats = parse_git_log(&synth_log());
+        std::fs::write(dir.join("repo-report.html"), build_html(&stats)).unwrap();
+    }
+
     #[test]
     fn build_html_is_self_contained_and_names_the_repo() {
         let mut s = parse_git_log(&synth_log());

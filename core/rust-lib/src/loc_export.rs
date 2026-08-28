@@ -49,7 +49,7 @@ pub fn pct(part: usize, whole: usize) -> String {
     if whole == 0 || part == 0 {
         return "0,0 %".into();
     }
-    format!("{:.1} %", (part as f64 / whole as f64) * 100.0).replace('.', ",")
+    rs::pct(part as f64 / whole as f64)
 }
 
 /// A stable colour per language, from the shared categorical palette — so a
@@ -178,6 +178,16 @@ mod tests {
         }
     }
 
+    /// Offline sight check — see the timesheet dump for why.
+    #[test]
+    #[ignore]
+    fn dump_for_a_sight_check() {
+        let dir = std::path::PathBuf::from(
+            std::env::var("IR_DUMP_DIR").unwrap_or_else(|_| "/tmp".into()),
+        );
+        std::fs::write(dir.join("loc-report.html"), build_html(&report())).unwrap();
+    }
+
     #[test]
     fn the_document_is_self_contained() {
         let h = build_html(&report());
@@ -222,7 +232,25 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_report_renders_rather_than_dividing_by_zero() {
+    fn a_report_with_a_zero_total_never_prints_infinity() {
+        // ⚠️ Der Vorgänger hieß "…rather_than_dividing_by_zero", räumte aber
+        // mit `languages.clear()` genau die Daten weg, die die Division
+        // auslösen. Er war GRÜN, auch wenn man den Nenner-Schutz in `pct`
+        // ersatzlos entfernte — nachgemessen. Hier bleiben die Sprachen stehen
+        // und nur der Nenner ist 0, das ist der Fall, den es zu fangen gilt.
+        let mut r = report();
+        r.total_code = 0;
+        r.total_files = 0;
+        r.total_lines = 0;
+        let h = build_html(&r);
+        let body = h.split("</style>").nth(1).expect("Dokument hat ein Stylesheet");
+        assert!(!body.contains("NaN"), "NaN im Inhalt");
+        assert!(!body.contains("inf"), "Unendlich im Inhalt");
+        assert!(body.contains("Rust"), "die Sprachen müssen im Inhalt stehen");
+    }
+
+    #[test]
+    fn an_empty_report_renders_rather_than_failing() {
         let mut r = report();
         r.languages.clear();
         r.total_code = 0;
@@ -230,8 +258,14 @@ mod tests {
         r.total_lines = 0;
         let h = build_html(&r);
         assert!(h.contains("</html>"));
-        assert!(!h.contains("NaN"));
-        assert!(!h.contains("inf"));
+        // ⚠️ Nur den INHALT prüfen, nicht das Stylesheet. Die Zusicherung gilt
+        // den ausgegebenen ZAHLEN — als blinde Teilzeichenketten-Suche über das
+        // ganze Dokument scheiterte sie am Wort "bernsteinfarbene" in einem
+        // CSS-Kommentar. Ein Test, der an deutscher Prosa zerbricht, prüft
+        // nicht, was er zu prüfen vorgibt.
+        let body = h.split("</style>").nth(1).expect("Dokument hat ein Stylesheet");
+        assert!(!body.contains("NaN"), "NaN im Inhalt");
+        assert!(!body.contains("inf"), "Unendlich im Inhalt");
     }
 
     #[test]

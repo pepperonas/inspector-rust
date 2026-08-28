@@ -4,6 +4,24 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.145.0] — 2026-08-28
+
+### Fixed
+
+- **Die Zeiterfassungs-Exporte waren nie wirklich auf das gemeinsame Design umgestellt.** v0.143.0 hat ihnen die *Werte* gegeben (hell, A4, Druckregeln, derselbe Akzent) — als **Kopie** in zwei handgeschriebene Stylesheets. Sie behielten gerahmte Karten, eine eigene Pastellpalette und englische Beschriftung, während die Doku „ein Design für alle" behauptete. Aufgefallen beim ersten **Rendern und Ansehen**; der Struktur-Pin war grün, weil er die Schreibweise der Kopie prüfte statt der Verdrahtung. Beide Dokumente laufen jetzt über `report_style` und sind von `loc` und `repo` nicht mehr zu unterscheiden.
+- **Spalten stießen aneinander.** Zwischen einer rechtsbündigen Zahlen- und der nächsten linksbündigen Textspalte fehlte jede Rinne — gemessen `2.5010:00:00–12:30:00`. Bei `loc`/`repo` fällt das nie auf, weil dort die Zahlen am Ende stehen.
+- **Ein Test war grün-blind, und zwar vollständig.** `an_empty_report_renders_rather_than_dividing_by_zero` räumte mit `languages.clear()` genau die Daten weg, die die Division auslösen — er blieb grün, selbst wenn man den Nenner-Schutz **ersatzlos entfernte** (nachgemessen). Jetzt zwei Tests: einer mit stehenden Sprachen und Nenner 0 (mutationsgeprüft rot ohne den Schutz), einer für das leere Dokument. Seine `inf`-Suche lief zudem über das ganze Dokument und zerbrach am Wort „bernste**inf**arbene" in einem CSS-Kommentar — sie prüft jetzt den Inhalt, nicht das Stylesheet.
+
+### Changed
+
+- **Drei Lücken im geteilten Vokabular geschlossen**, alle nur im Bild sichtbar: `.rp-text` (linksbündige Textspalte — von Haus aus war nur die erste links), die Spaltenrinne, und `.rp-lede` für einen neutralen Erklärsatz (`.rp-note` ist der bernsteinfarbene **Warn**kasten und las sich als Vorbehalt).
+- **`report_style::pct` ist die einzige Prozent-Formatierung.** Dieselbe Formel stand an drei Stellen — mit dem Ergebnis, dass die Legende „11,8 %" neben einer Tabellenspalte mit „11.8 %" stand.
+- **Zeiterfassungs-Dokumente auf Deutsch**, wie jeder andere Report; die Projekt-Tabelle bekommt Farbchip und Anteils-Spur beim Namen wie `loc`.
+
+### Added
+
+- **Sicht-Ablage-Tests** (`#[ignore] dump_…`) für `loc`, `repo` und beide Timesheet-Dokumente: sie schreiben das HTML nach `$IR_DUMP_DIR`, damit man es ansehen kann. Test-grün und sieht-richtig-aus sind verschiedene Aussagen — genau diese Lücke hat den Befund oben verursacht.
+
 ## [0.144.1] — 2026-08-28
 
 ### Fixed

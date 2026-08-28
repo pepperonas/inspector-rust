@@ -53,6 +53,12 @@ export const NON_COMMAND_FEATURES: FeatureRow[] = [
     typed: true,
     note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Prefers H.264 (QuickTime-playable); retries with browser cookies on YouTube's bot check. Needs yt-dlp.",
   },
+  {
+    name: "Link grabber (batch download)",
+    trigger: "paste many links into the box under the download bar",
+    typed: true,
+    note: "Paste anything — a list, a chat log, an e-mail — and every YouTube / Instagram / TikTok / Facebook / Dailymotion link in it is picked out, deduplicated and downloaded one after another. A failing link is recorded on its row and the queue continues; Retry re-runs only the failures. Audio is offered when every link is YouTube. The popup stays pinned for the run and Finder opens once at the end, not once per file.",
+  },
   { name: "Calculator", trigger: "2+2 · sqrt(144) · 0xff & 1", typed: true, note: "Inline calculator — Enter pastes the result." },
   {
     name: "Unit / base / time converter",

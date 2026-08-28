@@ -95,15 +95,30 @@ export function RepoPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // ⚠️ The export shortcuts are CHORDS, not bare letters. A bare `E`/`P`
+      // was unreachable: this panel never takes DOM focus (no tabIndex, no
+      // `.focus()`), so the search field keeps it and the `typing` guard below
+      // was permanently true — `E` had been advertised in the button tooltip
+      // and could never fire. Making bare letters work instead would recreate
+      // the weather bug: `repo` keeps its argument editable, and a `p` typed
+      // into a path would silently start an export.
       const tgt = e.target as HTMLElement | null;
       const typing = tgt && (tgt.tagName === "INPUT" || tgt.isContentEditable);
+      const chord = e.metaKey || e.ctrlKey;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
         onExit();
-      } else if (!typing && (e.key === "e" || e.key === "E")) {
+      } else if (chord && (e.key === "e" || e.key === "E")) {
         e.preventDefault();
-        doExport();
+        doExport("html");
+      } else if (chord && (e.key === "p" || e.key === "P")) {
+        e.preventDefault();
+        doExport("pdf");
+      } else if (!typing && (e.key === "e" || e.key === "E")) {
+        // Still honoured when focus is genuinely off the search field.
+        e.preventDefault();
+        doExport("html");
       }
     };
     window.addEventListener("keydown", onKey, true);
@@ -199,14 +214,19 @@ export function RepoPanel({
 
       {/* Weekday + hour. */}
       <Card title={`Wochentag · Spitze ${peakLabel(stats.by_weekday, WEEKDAY_LABELS)}`}>
-        <div className="flex items-end gap-1" style={{ height: 56 }}>
+        {/* ⚠️ NICHT `items-end`: das ließe jede Spalte auf Inhaltshöhe
+            schrumpfen, und die Prozenthöhe des Balkens hätte keinen definiten
+            Bezug mehr — sie fiel auf 0, das Diagramm war leer (seit ≤ v0.138.0,
+            auch im Galerie-Screenshot). Die Spalten müssen die 56 px füllen;
+            unten ausgerichtet wird INNERHALB von `Column`. */}
+        <div className="flex gap-1" style={{ height: 56 }}>
           {stats.by_weekday.map((v, i) => (
             <Column key={i} pct={barPct(v, wdMax)} label={WEEKDAY_LABELS[i]} value={v} color="#8ab4f8" />
           ))}
         </div>
       </Card>
       <Card title={`Uhrzeit · Spitze ${peakLabel(stats.by_hour, HOUR_LABELS)} Uhr`}>
-        <div className="flex items-end gap-[2px]" style={{ height: 48 }}>
+        <div className="flex gap-[2px]" style={{ height: 48 }}>
           {stats.by_hour.map((v, i) => (
             <Column key={i} pct={barPct(v, hrMax)} label={i % 6 === 0 ? String(i) : ""} value={v} color="#c58af9" thin />
           ))}

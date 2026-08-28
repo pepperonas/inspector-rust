@@ -4,6 +4,26 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.147.0] — 2026-08-28
+
+### Added
+
+- **Link-Grabber: beliebig viele Links auf einmal.** Unter der Download-/Status-Leiste sitzt jetzt ein Einfügefeld — hinein kommt, was man hat: eine Liste, ein Chatverlauf, eine E-Mail. Jeder enthaltene YouTube-/Instagram-/TikTok-/Facebook-/Dailymotion-Link wird herausgelesen, entdoppelt und der Reihe nach geladen, mit Zustand je Zeile.
+  - ⚠️ **Die eigentliche Schwierigkeit ist, wo ein Link ENDET.** Fließtext setzt einen Punkt dahinter, Klammern darum und ein Komma dazwischen; eine URL, die das mitnimmt, ist ein 404. Schließende Klammern fallen nur, wenn sie **unbalanciert** sind — eine URL darf `(`…`)` enthalten. Beide Hälften mutationsgeprüft.
+  - **Ein Fehlschlag stoppt die Schlange nicht** — ein toter Link unter zwölf ist normal, er wird in seiner Zeile vermerkt; „Retry" wiederholt nur die Fehlgeschlagenen.
+  - **Sequenziell, nicht parallel:** yt-dlp lastet eine Leitung allein aus, und der Cookies-aus-dem-Browser-Wiederholversuch hätte mehrere Prozesse um denselben Schlüsselbund-Dialog konkurrieren lassen.
+  - **Das Popup bleibt für den Lauf angeheftet.** Es versteckt sich bei Fokusverlust — und das würde die Komponente abräumen, die den Lauf steuert. Deshalb lädt der Stapel mit `reveal: false` und öffnet den Finder **einmal am Ende** statt nach jeder Datei.
+  - Audio wird angeboten, wenn **alle** Links YouTube sind: yt-dlp könnte es auch anderswo, aber die Einzel-Leiste verspricht YouTube — zwei verschiedene Antworten auf dieselbe Frage sind schlechter als eine fehlende Option.
+
+### Fixed
+
+- **Die Balken-Diagramme im `repo`-Panel waren leer** — „Wochentag" und „Uhrzeit" zeigten nur die Beschriftungen. Der Zeilen-Container trug `items-end`, wodurch jede Spalte auf ihre Inhaltshöhe schrumpfte; damit hatte die Prozenthöhe des Balkens keinen definiten Bezug mehr und fiel auf 0. Ausgerichtet wird jetzt **innerhalb** der Spalte, die Spalte füllt die Zeilenhöhe. ⚠️ Der Defekt stand seit mindestens v0.138.0 im Programm **und im veröffentlichten Galerie-Screenshot** — gefunden erst, als das Panel für eine andere Prüfung angesehen wurde.
+
+### Changed
+
+- **Die Export-Kurzbefehle des `repo`-Panels sind jetzt Akkorde: ⌘E (HTML) und ⌘P (PDF).** ⚠️ Das nackte `E` war **unerreichbar** und trotzdem im Knopf-Tooltip beworben: das Panel übernimmt nie den DOM-Fokus (kein `tabIndex`, kein `.focus()`), das Suchfeld behält ihn — womit der `typing`-Wächter dauerhaft zutraf. Nackte Buchstaben stattdessen freizuschalten hätte den Wetter-Fehler wiederholt: bei `repo` bleibt das Argument editierbar, ein `p` im Pfad hätte still einen Export gestartet. Ein Akkord kann nicht versehentlich getippt werden.
+- `social_download` nimmt ein optionales `reveal` (fehlt = wahr, der Einzel-Pfad bleibt unverändert); neues `reveal_path`-IPC zeigt eine Datei im Finder.
+
 ## [0.146.0] — 2026-08-28
 
 ### Added

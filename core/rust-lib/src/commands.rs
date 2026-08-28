@@ -6177,13 +6177,28 @@ pub async fn social_download(
     app: AppHandle,
     url: String,
     mode: crate::social_dl::DlMode,
+    // ⚠️ A batch must NOT reveal each file: every reveal raises Finder, which
+    // steals focus — and a focus loss hides the popup, unmounting the queue
+    // that is driving the batch. The link grabber passes `false` and reveals
+    // once when it is done. Absent = true, so the single-link path is unchanged.
+    reveal: Option<bool>,
 ) -> Result<String, String> {
     let dir = dirs::download_dir().ok_or("no Downloads folder")?;
     let out = crate::social_dl::download(&url, mode, &dir)?;
-    reveal_in_file_manager(&out);
+    if reveal.unwrap_or(true) {
+        reveal_in_file_manager(&out);
+    }
     let s = out.to_string_lossy().into_owned();
     let _ = app.emit("social-download-done", s.clone());
     Ok(s)
+}
+
+/// Show one path in Finder/Explorer. The link grabber downloads a whole batch
+/// with `reveal: false` and calls this once at the end — twelve reveals would
+/// raise the file manager twelve times, and each one steals focus.
+#[tauri::command]
+pub fn reveal_path(path: String) {
+    reveal_in_file_manager(std::path::Path::new(&path));
 }
 
 // ── Trim (local audio/video) ─────────────────────────────────────────────────

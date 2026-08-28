@@ -3102,8 +3102,19 @@ export function socialYtdlpAvailable(): Promise<boolean> {
   return invoke("social_ytdlp_available");
 }
 /** Download a social-media URL (video/audio) → Downloads; returns the path. */
-export function socialDownload(url: string, mode: DlMode): Promise<string> {
-  return invoke("social_download", { url, mode });
+/** Show one file in Finder/Explorer. */
+export function revealPath(path: string): Promise<void> {
+  return invoke("reveal_path", { path });
+}
+
+export function socialDownload(
+  url: string,
+  mode: DlMode,
+  /** Batch downloads pass false — see the Rust doc for why revealing each
+   *  file would kill the queue that started it. */
+  reveal = true,
+): Promise<string> {
+  return invoke("social_download", { url, mode, reveal });
 }
 
 export interface TrimFileInfo {

@@ -18,6 +18,7 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-manager";
 import type { ClipEntry, ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
+import { LinkGrabber } from "./LinkGrabber";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
@@ -396,6 +397,7 @@ export function PreviewPanel({
           onModeChange={onSocialModeChange}
           runSignal={socialRunSignal}
         />
+        <LinkGrabber seedUrl={entry.data.url} />
       </div>
     );
   }

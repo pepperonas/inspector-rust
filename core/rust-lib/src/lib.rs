@@ -1188,3 +1188,68 @@ fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tray_icon_tests {
+    //! The menu-bar hat is an ASSET, so nothing else can catch a bad one: a
+    //! coloured or edge-to-edge icon still decodes and still ships. These pin
+    //! the properties that make it a correct macOS template image.
+    const ICON: &[u8] = include_bytes!("../assets/tray-hat.png");
+
+    fn decoded() -> image::RgbaImage {
+        image::load_from_memory(ICON).expect("tray icon must decode").to_rgba8()
+    }
+
+    #[test]
+    fn the_icon_is_one_menu_bar_square_at_2x() {
+        // Measured on the machine, not guessed: NSStatusBar.system.thickness
+        // is 22.0 pt, so the icon square is 22 pt → 44 px at @2x.
+        let img = decoded();
+        assert_eq!(img.dimensions(), (44, 44));
+    }
+
+    #[test]
+    fn the_shape_lives_in_the_alpha_channel_only() {
+        // ⚠️ This is what "template image" MEANS: macOS ignores the colour and
+        // renders the alpha, tinting it for the light/dark bar and the
+        // highlighted state. A colourful icon would come out as a flat blob,
+        // and hard-coding a light/dark colour here could never work.
+        let img = decoded();
+        let mut seen = std::collections::HashSet::new();
+        for p in img.pixels() {
+            if p.0[3] > 0 {
+                seen.insert((p.0[0], p.0[1], p.0[2]));
+            }
+        }
+        assert_eq!(seen.len(), 1, "every visible pixel must share one colour");
+        assert!(img.pixels().any(|p| p.0[3] == 0), "needs transparent area");
+        assert!(img.pixels().any(|p| p.0[3] == 255), "needs opaque area");
+    }
+
+    #[test]
+    fn the_glyph_keeps_air_around_it_and_does_not_touch_the_edge() {
+        // A menu-bar glyph sits INSIDE its square. The previous hat spanned
+        // 21 of the 22 pt — one pixel of air a side — and looked cramped
+        // between its neighbours.
+        let img = decoded();
+        let (w, h) = img.dimensions();
+        let solid = |x: u32, y: u32| img.get_pixel(x, y).0[3] > 128;
+        let mut min_x = w;
+        let mut max_x = 0;
+        for y in 0..h {
+            for x in 0..w {
+                if solid(x, y) {
+                    min_x = min_x.min(x);
+                    max_x = max_x.max(x);
+                }
+            }
+        }
+        assert!(min_x >= 3, "left padding too small: {min_x} px");
+        assert!(w - 1 - max_x >= 3, "right padding too small");
+        let width_pt = (max_x - min_x + 1) as f32 / 2.0;
+        assert!(
+            (17.0..=19.0).contains(&width_pt),
+            "glyph should be ~18 pt wide, is {width_pt}"
+        );
+    }
+}

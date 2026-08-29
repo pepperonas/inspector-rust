@@ -14,6 +14,7 @@ Clipboard-Privacy — App-Ausschlussliste (z. B. Passwortmanager) + Auto-Clear n
 Rich-Copy-Treue — kopiertes Markdown/Rich-Text behält seinen Quelltext (Umbrüche inklusive); Enter fügt MD als MD ein und hebt den Eintrag wieder nach oben
 Abgeleitete Kopien — Plain-Text/Transform-Kopien werden ein NEUER Eintrag ganz oben, das Original bleibt unverändert an seiner Position
 Lineage-Rails — farbige Pfade links in der Liste verbinden eine Kopie mit ihrem Original (wie eine Commit-History); überstehen Backup/Restore (IDs werden neu zugeordnet); abschaltbar unter Settings → Appearance. Doku docs/clipboard-shapes.md
+Menüleisten-Icon — Hut als macOS-Template-Image (Form nur im Alphakanal, RGB einheitlich weiß): macOS tönt ihn selbst für helle/dunkle Leiste und den hervorgehobenen Zustand, deshalb ist NIRGENDS eine Hell/Dunkel-Farbe verdrahtet. 44×44 px = 22 pt @2x (gemessene `NSStatusBar.system.thickness`), Glyph 18 pt breit mit 2 pt Luft je Seite, Krone zu Krempe ~2:1, kein Innendetail. Geometrie gerechnet in `scripts/gen-tray-icon.py`, Eigenschaften per Test gepinnt
 Capture-Pause — Erfassung über Tray anhalten
 
 == Snippets & Text-Expander ==

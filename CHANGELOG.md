@@ -4,6 +4,15 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.149.1] — 2026-08-28
+
+### Changed
+
+- **Das Menüleisten-Icon ist neu gezeichnet.** Der alte Hut hatte eine 22 px hohe Krone auf einer 2 px flachen Krempe — ein Verhältnis von 11:1, das sich als Eimer las, nicht als Hut — dazu eine feine Tropfen-Aussparung, die bei @1x zu einem Schmutzfleck verlief, und keinen Rand: 21 von 22 pt Breite. Jetzt eine Fedora mit Kneifdelle und aufgeschwungener Krempe, **18 pt breit** (2 pt Luft je Seite), Krone zu Krempe rund 2:1, ohne Innendetail.
+- ⚠️ **Die Größe war nie das Problem.** 44 × 44 px ist exakt 22 pt @2x — gemessen, nicht geschätzt: `NSStatusBar.system.thickness` liefert auf dieser Maschine 22,0 pt. Falsch war allein die Zeichnung.
+- Die Geometrie wird in `scripts/gen-tray-icon.py` **gerechnet**, nicht als Pfad getippt, damit die Form beim Nachjustieren einer Proportion ausgewogen bleibt.
+- Drei neue Tests pinnen, was ein Template-Icon ausmacht: 44 × 44, **jedes sichtbare Pixel dieselbe Farbe** (macOS rendert nur den Alphakanal), und Luft zum Rand. Ein farbiges Icon lässt den mittleren Test rot werden — mutationsgeprüft.
+
 ## [0.149.0] — 2026-08-28
 
 ### Added

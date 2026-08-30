@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Moon } from "lucide-react";
 import { IS_MAC } from "../lib/platform";
-import { formatSleepCountdown, formatHolders } from "../lib/sleep-status";
+import { indicatorTicks, sleepIndicator, type SleepKind } from "../lib/sleep-indicator";
 import type { SleepStatus } from "../lib/ipc";
 
 interface Props {
@@ -66,9 +66,8 @@ export function Footer({
     // (♥ Martin Pfeffer) moved to the inline About to keep this lean.
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        {wakelockActive && <WakelockLed />}
+        <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
         {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
-        {sleepStatus && <SleepStatusLed status={sleepStatus} />}
         {trackingActive && <TrackingLed paused={!!trackingPaused} />}
         {activeTimerCount != null && activeTimerCount > 0 && (
           <TimerBadge count={activeTimerCount} />
@@ -156,112 +155,90 @@ function TrackingLed({ paused }: { paused: boolean }) {
   );
 }
 
-function WakelockLed() {
-  return (
-    <span
-      title="Keep-awake active — the computer won't sleep or lock. Type `wakelock off` (or `caffeine off`) to turn it off."
-      className="flex shrink-0 items-center gap-1"
-    >
-      <span
-        aria-hidden
-        className="h-2 w-2 rounded-full bg-red-500"
-        style={{
-          boxShadow: "0 0 4px rgba(239, 68, 68, 0.85), 0 0 8px rgba(239, 68, 68, 0.45)",
-          animation: "wakelockPulse 1.6s ease-in-out infinite",
-        }}
-      />
-      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
-        wake
-      </span>
-    </span>
-  );
-}
 
 /**
- * System-sleep indicator (macOS, v0.114.0): a glance answers "can I walk away
- * and let the Mac sleep?". Three states; hidden entirely when there is nothing
- * to say (unsupported platform, or nothing preventing sleep) — the footer must
- * not accumulate idle chrome.
+ * The single "will this Mac sleep?" indicator (macOS, v0.152.0 — replaces the
+ * wake LED and the separate sleep badge that used to sit side by side).
  *
- *  · `sleep_disabled`  → amber dot, `no-sleep` — the ACTIVE pmset profile has
- *    `sleep 0`, so idle sleep never happens; the countdown would be a lie and
- *    is deliberately not shown even when assertions are also active.
- *  · prevented, timed  → `wach 4:12` — the countdown ticks down LOCALLY every
- *    second between the ~10 s polls, parks at 0:00 (never negative; the next
- *    poll corrects), tooltip names the holders.
- *  · prevented, ∞      → `wach ∞` — some holder has no timeout.
+ * ⚠️ Two badges answering one question is what read as inconsistent: the red
+ * LED followed Inspector's wakelock, the amber badge followed the pmset
+ * profile, and on a machine whose stored AC profile is `sleep 0` the amber one
+ * could never react to the wakelock — toggling it changed nothing on screen.
+ * The decision now lives in the pure, tested `sleepIndicator`; this component
+ * only paints it.
+ *
+ * ⚠️ It is never absent on macOS. The old LED rendered only while ON, so "off"
+ * looked identical to a broken indicator; `sleepable` says it out loud.
  */
-function SleepStatusLed({ status }: { status: SleepStatus }) {
-  const ticking =
-    status.supported &&
-    !status.sleep_disabled &&
-    status.prevented &&
-    !status.indefinite &&
-    status.max_timeout_secs != null;
-  // Locally ticking remainder, anchored to the moment THIS status object
-  // arrived (re-anchors per poll). Lives in an effect — render stays pure
-  // (no Date.now() during render; react-compiler lint enforces this).
+const SLEEP_STYLE: Record<SleepKind, { dot: string; glow: string | undefined; pulse: boolean }> = {
+  wake: {
+    dot: "rgb(239, 68, 68)",
+    glow: "0 0 4px rgba(239, 68, 68, 0.85), 0 0 8px rgba(239, 68, 68, 0.45)",
+    pulse: true,
+  },
+  "no-sleep": {
+    dot: "rgb(245, 158, 11)",
+    glow: "0 0 4px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.45)",
+    pulse: false,
+  },
+  "awake-infinite": {
+    dot: "rgb(56, 189, 248)",
+    glow: "0 0 4px rgba(56, 189, 248, 0.85), 0 0 8px rgba(56, 189, 248, 0.45)",
+    pulse: false,
+  },
+  "awake-timed": {
+    dot: "rgb(56, 189, 248)",
+    glow: "0 0 4px rgba(56, 189, 248, 0.85), 0 0 8px rgba(56, 189, 248, 0.45)",
+    pulse: false,
+  },
+  // Quiet on purpose: a resting state must be readable without drawing the eye.
+  sleepable: { dot: "var(--color-muted)", glow: undefined, pulse: false },
+};
+
+function SleepLed({
+  status,
+  wakelockActive,
+}: {
+  status: SleepStatus | null;
+  wakelockActive: boolean;
+}) {
+  const ticking = indicatorTicks(status, wakelockActive);
+  // Locally ticking remainder, anchored to the moment THIS status arrived
+  // (re-anchors per poll). Lives in an effect — render stays pure (no
+  // Date.now() during render; react-compiler lint enforces this).
   const [remaining, setRemaining] = useState<number | null>(null);
   useEffect(() => {
     if (!ticking) {
       setRemaining(null);
       return;
     }
-    const base = status.max_timeout_secs ?? 0;
+    const base = status?.max_timeout_secs ?? 0;
     const anchoredAt = Date.now();
     setRemaining(base);
     const id = window.setInterval(
-      () => setRemaining(base - Math.floor((Date.now() - anchoredAt) / 1000)),
+      () => setRemaining(Math.max(0, base - Math.floor((Date.now() - anchoredAt) / 1000))),
       1000,
     );
     return () => window.clearInterval(id);
   }, [status, ticking]);
 
-  if (!status.supported) return null;
-
-  if (status.sleep_disabled) {
-    return (
-      <span
-        title="System-Sleep in pmset deaktiviert (sleep 0) — der Mac schläft nie von selbst."
-        className="flex shrink-0 items-center gap-1"
-      >
-        <span
-          aria-hidden
-          className="h-2 w-2 rounded-full"
-          style={{
-            backgroundColor: "rgb(245, 158, 11)",
-            boxShadow: "0 0 4px rgba(245, 158, 11, 0.85), 0 0 8px rgba(245, 158, 11, 0.45)",
-          }}
-        />
-        <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
-          no-sleep
-        </span>
-      </span>
-    );
-  }
-
-  if (!status.prevented) return null;
-
-  const holderNote = status.holders.length
-    ? ` Wachhalter: ${formatHolders(status.holders)}.`
-    : "";
-  const label = status.indefinite
-    ? "wach ∞"
-    : `wach ${formatSleepCountdown(remaining ?? status.max_timeout_secs ?? 0)}`;
-  const title = status.indefinite
-    ? `Der Mac wird ohne Zeitlimit wachgehalten (Assertion ohne Timeout).${holderNote}`
-    : `Der Mac wird wachgehalten — so lange noch, bis Sleep wieder möglich ist.${holderNote}`;
+  const ind = sleepIndicator(status, wakelockActive, remaining);
+  if (!ind) return null;
+  const style = SLEEP_STYLE[ind.kind];
   return (
-    <span title={title} className="flex shrink-0 items-center gap-1">
+    <span title={ind.title} className="flex shrink-0 items-center gap-1">
       <span
         aria-hidden
         className="h-2 w-2 rounded-full"
         style={{
-          backgroundColor: "rgb(56, 189, 248)", // sky — distinct from red wake / green rec
-          boxShadow: "0 0 4px rgba(56, 189, 248, 0.85), 0 0 8px rgba(56, 189, 248, 0.45)",
+          backgroundColor: style.dot,
+          boxShadow: style.glow,
+          animation: style.pulse ? "wakelockPulse 1.6s ease-in-out infinite" : undefined,
         }}
       />
-      <span className="font-[var(--font-mono)] text-[10px] tracking-wider">{label}</span>
+      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+        {ind.label}
+      </span>
     </span>
   );
 }

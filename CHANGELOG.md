@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.152.0] - 2026-08-30
+
+### Fixed
+
+- **Der Sleep-Indikator im Footer war unstimmig — vier Ursachen, alle gemessen.** (1) Das amber „no-sleep" konnte dem Wakelock **gar nicht** folgen: es hängt am gespeicherten pmset-Profil, und bei `sleep 0` stieg der Zweig aus, bevor die Assertions überhaupt angesehen wurden — `wakelock on`/`off` änderte auf so einer Maschine sichtbar nichts. (2) **„Aus" war unsichtbar**: die rote LED wurde nur bei *an* gerendert, „aus" war damit nicht von „Anzeige kaputt" unterscheidbar. (3) Der Status hing nach einem Umschalten **bis zu 10 Sekunden nach** (kein Lauschen auf `wakelock-changed`), sodass LED und Abzeichen sich zeitweise widersprachen. (4) `nosleep_set` sendete **gar kein Ereignis**, obwohl genau dieser Befehl der Grund für das amber ist.
+- **Ein Indikator statt zweier.** Zwei Abzeichen, die dieselbe Frage beantworten („schläft der Mac gleich?"), waren die Wurzel der Unstimmigkeit. Jetzt eine Anzeige, immer sichtbar, nach **Ursache** priorisiert: `wake` (Inspector) > `no-sleep` (Profil) > `wach ∞` > `wach 4:12` > `sleep`. Die Entscheidung ist die reine, getestete `sleepIndicator`; die Komponente malt nur noch.
+- **Der Hook holt beim Mounten**, nicht nur bei `window-shown` — `listen()` löst asynchron auf, ein vorher gesendetes `window-shown` ging verloren und ließ den Indikator leer, bis das Popup einmal geschlossen und neu geöffnet wurde.
+
+### Notes
+
+- **Der Wakelock steht bewusst ÜBER dem Profil.** Er ist die eine Ursache, die der Nutzer gerade selbst ausgelöst hat; ihn zu zeigen ist der Zweck der Anzeige. Das Profil bleibt erreichbar — Wakelock aus, und die Anzeige fällt darauf zurück. Mutationsgeprüft.
+- **Die Tooltips nennen die Ursache.** „no-sleep" sagt jetzt ausdrücklich, dass es vom Profil kommt und **nicht vom Wakelock**, und verweist auf `nosleep off` — genau die Verwechslung, die den Befund ausgelöst hat.
+- ⚠️ Bewusste Verhaltensänderung gegenüber v0.114.0, das beide Anzeigen nebeneinander zeigte; der alte Koexistenz-Test wurde entsprechend umgeschrieben statt gelöscht.
+
 ## [0.151.0] - 2026-08-30
 
 ### Fixed

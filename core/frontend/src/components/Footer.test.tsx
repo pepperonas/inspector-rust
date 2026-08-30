@@ -84,16 +84,19 @@ describe("Footer", () => {
 });
 
 describe("Footer — system sleep indicator", () => {
-  it("is hidden without a status, when unsupported, and when nothing prevents sleep", () => {
-    const probe = () => screen.queryByText(/no-sleep|wach/);
+  it("is hidden only where there is nothing truthful to say", () => {
+    const probe = () => screen.queryByText(/no-sleep|wach|^wake$|^sleep$/);
+    // No status yet + no wakelock -> nothing is known.
     render(<Footer index={0} total={1} />);
     expect(probe()).toBeNull();
     cleanup();
+    // Unsupported platform -> nothing to report.
     render(<Footer index={0} total={1} sleepStatus={sleep({ supported: false, prevented: true, indefinite: true })} />);
     expect(probe()).toBeNull();
     cleanup();
-    render(<Footer index={0} total={1} sleepStatus={sleep({})} />);
-    expect(probe()).toBeNull();
+    // ⚠️ But an unsupported status must not swallow the user's OWN wakelock.
+    render(<Footer index={0} total={1} wakelockActive={true} sleepStatus={sleep({ supported: false })} />);
+    expect(screen.getByText("wake")).toBeTruthy();
   });
 
   it("shows amber no-sleep when the active profile disables sleep — even with holders", () => {
@@ -140,7 +143,11 @@ describe("Footer — system sleep indicator", () => {
     expect(screen.getByTitle(/sharingd/)).toBeTruthy();
   });
 
-  it("coexists with the app's own wakelock LED (system state ≠ IR's wakelock)", () => {
+  it("shows ONE reading, not two competing ones (v0.152.0)", () => {
+    // ⚠️ Deliberate change from v0.114.0, which rendered the wake LED and the
+    // system badge side by side. Two indicators answering "will it sleep?"
+    // contradicted each other in the field: the amber profile badge could not
+    // react to the wakelock at all, so toggling it appeared to do nothing.
     render(
       <Footer
         index={0}
@@ -150,7 +157,27 @@ describe("Footer — system sleep indicator", () => {
       />,
     );
     expect(screen.getByText("wake")).toBeTruthy();
-    expect(screen.getByText("wach ∞")).toBeTruthy();
+    expect(screen.queryByText("wach ∞")).toBeNull();
+  });
+
+  it("lets the wakelock outrank a sleep-disabled profile, and falls back when it is off", () => {
+    // THE reported defect: with a stored AC profile of `sleep 0` the old amber
+    // branch returned before assertions were considered.
+    const st = sleep({ sleep_disabled: true, prevented: true, holders: ["caffeinate ×4"] });
+    render(<Footer index={0} total={1} wakelockActive={true} sleepStatus={st} />);
+    expect(screen.getByText("wake")).toBeTruthy();
+    expect(screen.queryByText("no-sleep")).toBeNull();
+    cleanup();
+    render(<Footer index={0} total={1} wakelockActive={false} sleepStatus={st} />);
+    expect(screen.getByText("no-sleep")).toBeTruthy();
+    expect(screen.queryByText("wake")).toBeNull();
+  });
+
+  it("says 'sleep' out loud instead of vanishing when nothing holds the Mac", () => {
+    // The old wake LED rendered only while ON, so "off" was indistinguishable
+    // from a broken indicator.
+    render(<Footer index={0} total={1} wakelockActive={false} sleepStatus={sleep({})} />);
+    expect(screen.getByText("sleep")).toBeTruthy();
   });
 });
 

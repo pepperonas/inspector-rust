@@ -1174,6 +1174,7 @@ pub async fn nosleep_status() -> Result<crate::nosleep::NoSleepStatus, String> {
 /// timeout (fallback `DEFAULT_RESTORE_MIN`). One admin prompt per call.
 #[tauri::command]
 pub async fn nosleep_set(
+    app: tauri::AppHandle,
     db: State<'_, DbHandle>,
     disable: bool,
 ) -> Result<crate::nosleep::NoSleepStatus, String> {
@@ -1191,6 +1192,10 @@ pub async fn nosleep_set(
     tauri::async_runtime::spawn_blocking(move || crate::nosleep::set_ac_sleep(minutes))
         .await
         .map_err(|e| format!("nosleep task: {e}"))??;
+    // ⚠️ The footer's sleep indicator reads the pmset profile, which THIS
+    // command just changed — without an event it showed the old answer until
+    // the next 10 s poll (or, with the popup hidden, until the next open).
+    let _ = app.emit("nosleep-changed", ());
     Ok(crate::nosleep::status())
 }
 

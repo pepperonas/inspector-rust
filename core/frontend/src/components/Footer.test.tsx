@@ -204,6 +204,45 @@ describe("Footer — dark-wake toggle", () => {
     expect(screen.getByText("srv")).toBeTruthy();
   });
 
+  it("is labelled in BOTH states — an unlabelled glyph is how it got lost", () => {
+    // ⚠️ Regression pin (v0.155.0). While off this was a bare 11 px moon with
+    // no text, next to labelled glowing indicators; the user reported it as
+    // simply gone. Every other footer item is glyph + uppercase mono label.
+    render(<Footer index={0} total={1} darkWake={false} onDarkWakeToggle={() => {}} />);
+    expect(screen.getByText("dark")).toBeTruthy();
+    cleanup();
+    render(<Footer index={0} total={1} darkWake={true} onDarkWakeToggle={() => {}} />);
+    expect(screen.getByText("srv")).toBeTruthy();
+  });
+
+  it("does not dim itself out of sight while resting", () => {
+    // ⚠️ `opacity-60` on an already-muted 11 px glyph is what made it
+    // invisible. It is a control and must read as one.
+    const { container } = render(
+      <Footer index={0} total={1} darkWake={false} onDarkWakeToggle={() => {}} />,
+    );
+    const btn = container.querySelector("button")!;
+    expect(btn.className).not.toContain("opacity-60");
+  });
+
+  it("comes BEFORE the sleep indicator, as it did until v0.152.0", () => {
+    // ⚠️ Merging the two indicators put an always-visible badge in front of
+    // this button; with the wakelock off it used to be the leftmost item.
+    const { container } = render(
+      <Footer
+        index={0}
+        total={1}
+        darkWake={false}
+        onDarkWakeToggle={() => {}}
+        sleepStatus={sleep({ sleep_disabled: true })}
+      />,
+    );
+    const btn = container.querySelector("button")!;
+    const badge = screen.getByText("no-sleep");
+    // DOCUMENT_POSITION_FOLLOWING === 4: the badge follows the button.
+    expect(btn.compareDocumentPosition(badge) & 4).toBeTruthy();
+  });
+
   it("coexists with the full wakelock LED (two modes, one backend)", () => {
     // App never sets both, but the footer must not couple them structurally.
     render(

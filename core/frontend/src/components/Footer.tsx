@@ -66,8 +66,12 @@ export function Footer({
     // (♥ Martin Pfeffer) moved to the inline About to keep this lean.
     <div className="flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 border-t border-[var(--color-border)] px-4 py-1 text-[11px] text-[var(--color-muted)]">
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-        <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
+        {/* ⚠️ The toggle comes FIRST. Before v0.152.0 the always-visible badge
+            sat after it, so with the wakelock off this was the footer's
+            leftmost item; merging the indicators moved it behind a labelled,
+            coloured badge and it stopped being findable (field report). */}
         {onDarkWakeToggle && <DarkWakeButton on={!!darkWake} onToggle={onDarkWakeToggle} />}
+        <SleepLed status={sleepStatus ?? null} wakelockActive={!!wakelockActive} />
         {trackingActive && <TrackingLed paused={!!trackingPaused} />}
         {activeTimerCount != null && activeTimerCount > 0 && (
           <TimerBadge count={activeTimerCount} />
@@ -264,8 +268,14 @@ function DarkWakeButton({ on, onToggle }: { on: boolean; onToggle: () => void })
           : "Dark Wake einschalten: Display darf schlafen, System bleibt wach — Remote-Verbindungen bleiben erreichbar (caffeinate -is, ohne sudo)."
       }
       className={
+        // ⚠️ No `opacity-60` in the resting state. An 11 px glyph at 60 % of an
+        // already-muted colour, with no label, next to labelled glowing
+        // indicators, is invisible in practice -- that is how this control got
+        // lost. It is a BUTTON and has to read as one.
         "flex shrink-0 cursor-pointer items-center gap-1 rounded px-0.5 transition-colors " +
-        (on ? "text-violet-400" : "text-[var(--color-muted)] opacity-60 hover:opacity-100")
+        (on
+          ? "text-violet-400"
+          : "text-[var(--color-muted)] hover:text-[var(--color-fg)]")
       }
     >
       <Moon
@@ -281,11 +291,12 @@ function DarkWakeButton({ on, onToggle }: { on: boolean; onToggle: () => void })
             : undefined
         }
       />
-      {on && (
-        <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
-          srv
-        </span>
-      )}
+      {/* ⚠️ Labelled in BOTH states. Every other footer item is glyph + an
+          uppercase mono label; this one carried text only while active, so
+          when off it was a bare 11 px moon nobody could place. */}
+      <span className="font-[var(--font-mono)] text-[10px] uppercase tracking-wider">
+        {on ? "srv" : "dark"}
+      </span>
     </button>
   );
 }

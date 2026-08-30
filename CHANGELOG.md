@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.155.0] - 2026-08-30
+
+### Fixed
+
+- **Der Dark-Wake-Umschalter im Footer war praktisch unsichtbar geworden — eine Regression aus v0.152.0.** Nutzerbefund: „ich sehe den button zum umschalten im footer auch nicht mehr". Drei Ursachen, die zusammenwirkten: (1) das Zusammenlegen der beiden Sleep-Anzeigen setzte ein **immer sichtbares, beschriftetes, farbiges** Abzeichen vor den Knopf — bis dahin stand die Anzeige dahinter, und bei ausgeschaltetem Wakelock war der ☾ das **erste** Element im Footer; (2) er trug im Ruhezustand **keine Beschriftung** (`srv` erschien nur im aktiven Zustand), während jedes andere Footer-Element Glyph + Versal-Label ist; (3) dazu `opacity-60` auf einer ohnehin gedämpften Farbe bei 11 px Glyphgröße.
+- **Behoben an allen drei Stellen:** der Umschalter steht wieder **vor** der Sleep-Anzeige, trägt in **beiden** Zuständen ein Label (`dark` / `srv`) und verliert die Ruhe-Deckkraft-Absenkung zugunsten eines Hover-Kontrasts.
+
+### Notes
+
+- ⚠️ **Ein Bedienelement darf nicht leiser gestaltet sein als die Anzeigen daneben.** Der Knopf war die ganze Zeit gerendert und anklickbar — er war nur nicht mehr zu finden. Gestaltungsänderungen an einem Element können ein *anderes* unbenutzbar machen; hier hat das Lauterwerden der Nachbarschaft gereicht.
+- Drei Regressions-Pins in `Footer.test.tsx`: Beschriftung in beiden Zuständen, kein `opacity-60` im Ruhezustand, und DOM-Reihenfolge vor der Sleep-Anzeige. Der Reihenfolge-Pin ist mutationsgeprüft (Zurücktauschen macht ihn rot).
+
 ## [0.154.0] - 2026-08-30
 
 ### Added

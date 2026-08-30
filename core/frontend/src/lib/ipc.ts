@@ -3183,14 +3183,49 @@ export function revealPath(path: string): Promise<void> {
   return invoke("reveal_path", { path });
 }
 
+/** Download the small audio-only proxy used for scrubbing the trim range in the
+ *  preview. Lands in the app cache (inside the asset-protocol scope) and is
+ *  reused for the same URL. Returns its local path. */
+/** One deduction row of the Bruno export. */
+export interface BrunoLine {
+  label: string;
+  value: number;
+}
+
+/** The finished Bruno breakdown, exactly as the popup showed it — the export
+ *  renders, it never computes (bruno computes in TS). */
+export interface BrunoReportPayload {
+  mode: "employee" | "self";
+  base_year: number;
+  net_year: number;
+  net_month: number;
+  deduction_rate: number;
+  marginal_rate: number;
+  taxes: BrunoLine[];
+  social: BrunoLine[];
+  assumptions: string;
+}
+
+/** Bruno breakdown → HTML/PDF in the shared report design (Downloads, revealed). */
+export function brunoExport(report: BrunoReportPayload, format: "html" | "pdf"): Promise<string> {
+  return invoke("bruno_export", { report, format });
+}
+
+export function socialAudioProxy(url: string): Promise<string> {
+  return invoke("social_audio_proxy", { url });
+}
+
 export function socialDownload(
   url: string,
   mode: DlMode,
   /** Batch downloads pass false — see the Rust doc for why revealing each
    *  file would kill the queue that started it. */
   reveal = true,
+  /** Optional trim range in seconds. ⚠️ Absent = the download is exactly what it
+   *  was before the trim feature existed (pinned on the Rust side). */
+  section?: [number, number],
 ): Promise<string> {
-  return invoke("social_download", { url, mode, reveal });
+  return invoke("social_download", { url, mode, reveal, section });
 }
 
 export interface TrimFileInfo {

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { drawQr } from "../lib/qr";
-import { STATE_LABELS, brunoSelfAssumptions } from "../lib/bruno";
+import { STATE_LABELS, brunoSelfAssumptions, buildBrunoExport } from "../lib/bruno";
 import {
   AudioLines, Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
   Pencil, Phone, Plus, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
@@ -19,7 +19,10 @@ import { writeText as clipboardWriteText } from "@tauri-apps/plugin-clipboard-ma
 import type { ClipEntry, ListEntry } from "../lib/types";
 import { detectSmartActions, type SmartActionKind } from "../lib/smart-actions";
 import { LinkGrabber } from "./LinkGrabber";
-import { MetaCard } from "./SocialMeta";
+import { MetaCard, useMeta } from "./SocialMeta";
+import { ExportRow } from "./ExportRow";
+import { TrimBar } from "./TrimBar";
+import { fmtClock, fullRange, isFullRange, sectionFor, type Range } from "../lib/trim-range";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
@@ -42,6 +45,7 @@ import {
   setClipNote,
   socialDownload,
   socialYtdlpAvailable,
+  brunoExport,
 } from "../lib/ipc";
 import { InlineMd } from "./InlineMd";
 
@@ -115,6 +119,26 @@ export type PreviewLiveTranslation =
  *  identity is stable across PreviewPanel re-renders — otherwise the animated
  *  Netto rows would remount (and restart their slot-machine roll) on every
  *  unrelated render. `animate` rolls the digits like the calculator result. */
+/**
+ * Export chips for the Bruno breakdown — ONE component for both modes so the
+ * affordance cannot drift, wired to the shared `ExportRow` like every report
+ * panel. The payload is built by the pure `buildBrunoExport`, the SAME mapping
+ * for preview and PDF.
+ */
+function BrunoExportRow({ data }: { data: Parameters<typeof buildBrunoExport>[0] }) {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [done, setDone] = useState<string | null>(null);
+  const run = (fmt: "html" | "pdf") => {
+    setBusy(fmt);
+    setDone(null);
+    void brunoExport(buildBrunoExport(data), fmt)
+      .then((p) => setDone(p.split(/[/\\]/).pop() ?? p))
+      .catch((e) => setDone(`Fehler: ${String(e)}`))
+      .finally(() => setBusy(null));
+  };
+  return <ExportRow formats={["html", "pdf"]} busy={busy} done={done} onExport={run} />;
+}
+
 function BrunoRow({
   k,
   v,
@@ -765,6 +789,8 @@ export function PreviewPanel({
           <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
         </div>
 
+        <BrunoExportRow data={entry.data} />
+
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           ⏎ Enter kopiert {entry.data.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
           {" "}· ⇧⏎ kopiert die komplette Aufstellung ·{" "}
@@ -828,6 +854,8 @@ export function PreviewPanel({
           <BrunoRow k="Netto / Monat" v={eurExact.format(d.netMonth)} accent animate />
           <BrunoRow k="Netto / Jahr" v={eurExact.format(d.netYear)} accent animate />
         </div>
+
+        <BrunoExportRow data={d} />
 
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           ⏎ Enter kopiert {d.period === "monthly" ? "Monats-Netto" : "Jahres-Netto"}
@@ -1435,6 +1463,18 @@ function SocialDownloadBar({
   runSignal?: number;
 }) {
   const [available, setAvailable] = useState(true);
+  // ⚠️ Trim is OPT-IN. While the section is closed, `sectionFor` returns
+  // undefined and the download is exactly what it was before this existed.
+  const [trimOpen, setTrimOpen] = useState(false);
+  const meta = useMeta(target.url);
+  const durationS = meta?.state === "ok" ? (meta.meta.duration_s ?? 0) : 0;
+  const [range, setRange] = useState<Range>({ start: 0, end: 0 });
+  useEffect(() => {
+    setRange(fullRange(durationS));
+  }, [target.url, durationS]);
+  useEffect(() => {
+    setTrimOpen(false);
+  }, [target.url]);
   const [busy, setBusy] = useState<null | "video" | "audio">(null);
   const [done, setDone] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1449,7 +1489,12 @@ function SocialDownloadBar({
     setError(null);
     setDone(null);
     try {
-      const out = await socialDownload(target.url, m);
+      const out = await socialDownload(
+        target.url,
+        m,
+        true,
+        sectionFor(range, durationS, trimOpen),
+      );
       setDone(out.split(/[/\\]/).pop() || out);
     } catch (e) {
       const msg = String(e);
@@ -1523,6 +1568,39 @@ function SocialDownloadBar({
       {isYt && controlled && (
         <div className="font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
           ⇥ Tab switches video / audio &nbsp;·&nbsp; ⏎ Enter downloads the selected one
+        </div>
+      )}
+
+      {/* Trim — optional, below the buttons. Closed, nothing about the download
+          changes; the duration comes from the metadata already fetched above. */}
+      {durationS > 0 && (
+        <div className="mt-1 border-t border-[var(--color-border)] pt-2">
+          <button
+            type="button"
+            onClick={() => setTrimOpen((v) => !v)}
+            className="md3-press flex w-full items-center gap-1.5 text-[11px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+            aria-expanded={trimOpen}
+          >
+            <Scissors size={11} />
+            Ausschnitt
+            {!trimOpen && <span className="opacity-70">— optional, lädt sonst das ganze Video</span>}
+            {trimOpen && !isFullRange(range, durationS) && (
+              <span className="font-[var(--font-mono)] text-[var(--color-accent)]">
+                {fmtClock(range.start, durationS >= 3600)}–{fmtClock(range.end, durationS >= 3600)}
+              </span>
+            )}
+            <span className="ml-auto">{trimOpen ? "▾" : "▸"}</span>
+          </button>
+          {trimOpen && (
+            <div className="mt-2">
+              <TrimBar
+                url={target.url}
+                duration={durationS}
+                range={range}
+                onRange={setRange}
+              />
+            </div>
+          )}
         </div>
       )}
       {error && <div className="text-[11px] text-rose-400">{error}</div>}

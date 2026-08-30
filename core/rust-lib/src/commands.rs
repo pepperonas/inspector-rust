@@ -6202,6 +6202,20 @@ pub fn social_ytdlp_available() -> bool {
 
 /// Download a social-media URL's video/audio into ~/Downloads; reveals it.
 /// `async` → runs off the main thread (yt-dlp can take a while).
+/// Download the small audio-only proxy for the trim preview and return its
+/// path. Async + `spawn_blocking`: this is a network download.
+#[tauri::command]
+pub async fn social_audio_proxy(url: String) -> Result<String, String> {
+    let dir = dirs::cache_dir()
+        .ok_or("no cache folder")?
+        .join("InspectorRust")
+        .join("proxies");
+    tauri::async_runtime::spawn_blocking(move || crate::social_dl::proxy_audio(&url, &dir))
+        .await
+        .map_err(|e| format!("proxy task: {e}"))?
+        .map(|p| p.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub async fn social_download(
     app: AppHandle,
@@ -6212,9 +6226,12 @@ pub async fn social_download(
     // that is driving the batch. The link grabber passes `false` and reveals
     // once when it is done. Absent = true, so the single-link path is unchanged.
     reveal: Option<bool>,
+    // Optional trim range in seconds. ⚠️ Absent = the download is byte-for-byte
+    // what it was before the trim feature existed.
+    section: Option<(f64, f64)>,
 ) -> Result<String, String> {
     let dir = dirs::download_dir().ok_or("no Downloads folder")?;
-    let out = crate::social_dl::download(&url, mode, &dir)?;
+    let out = crate::social_dl::download(&url, mode, &dir, section)?;
     if reveal.unwrap_or(true) {
         reveal_in_file_manager(&out);
     }
@@ -6920,6 +6937,29 @@ fn write_report(app: &AppHandle, html: String, out: &std::path::Path) -> Result<
     .map_err(|e| e.to_string())?;
     rx.recv_timeout(std::time::Duration::from_secs(40))
         .map_err(|_| "Rendern hat zu lange gedauert".to_string())?
+}
+
+/// Bruno breakdown → HTML/PDF in the shared report design. The numbers arrive
+/// computed from the frontend (bruno computes in TS); this only renders.
+#[tauri::command]
+pub async fn bruno_export(
+    app: AppHandle,
+    report: crate::bruno_export::BrunoReport,
+    format: String,
+) -> Result<String, String> {
+    let html = crate::bruno_export::build_html(&report);
+    let mode = if report.mode == "self" { "unternehmer" } else { "angestellt" };
+    let stem = crate::media_name::sanitize_stem(&format!("netto-{}-{}", mode, report.base_year.round() as i64));
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let ext = match format.as_str() {
+        "html" => "html",
+        "pdf" => "pdf",
+        other => return Err(format!("Unbekanntes Format: {other}")),
+    };
+    let out = dir.join(format!("{stem}.{ext}"));
+    write_report(&app, html, &out)?;
+    reveal_in_file_manager(&out);
+    Ok(out.to_string_lossy().into_owned())
 }
 
 #[tauri::command]

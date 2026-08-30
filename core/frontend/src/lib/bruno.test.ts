@@ -5,6 +5,8 @@ import {
   isBrunoPrefix,
   normaliseAmount,
   parseBrunoCommand,
+  toggleSelfMode,
+  buildBrunoExport,
   brunoSelfAssumptions,
   type BrunoInput,
 } from "./bruno";
@@ -604,5 +606,99 @@ describe("brunoSelfAssumptions", () => {
 
   it("uses the state label, falling back to upper-case for an unknown code", () => {
     expect(brunoSelfAssumptions({ ...base, state: "zz" })).toContain("ZZ");
+  });
+});
+
+describe("toggleSelfMode — Modus ohne Neutippen wechseln", () => {
+  it("schaltet in beide Richtungen und bleibt parsebar", () => {
+    expect(toggleSelfMode("bruno 60000")).toBe("bruno 60000f");
+    expect(toggleSelfMode("bruno 60000f")).toBe("bruno 60000");
+    // Das Ergebnis muss wieder durch den Parser gehen, sonst ist der Wechsel
+    // eine Sackgasse.
+    const a = parseBrunoCommand(toggleSelfMode("bruno 60000"));
+    expect(a?.self).toBe(true);
+    expect(a?.yearlyGross).toBe(60000);
+  });
+
+  it("behält den Monatsbezug", () => {
+    expect(toggleSelfMode("bruno 5000m")).toBe("bruno 5000mf");
+    const r = parseBrunoCommand("bruno 5000mf");
+    expect(r?.period).toBe("monthly");
+    expect(r?.yearlyGross).toBe(60000);
+  });
+
+  it("löst die Einnahmen-Ausgaben-Form auf, statt eine ungültige Eingabe zu erzeugen", () => {
+    // ⚠️ `parseBrunoCommand` weist `einnahmen-ausgaben` für Angestellte ab.
+    // Der Betrag behält seine Bedeutung: der GEWINN, der auf dem Schirm stand.
+    const out = toggleSelfMode("bruno 90000-15000f");
+    expect(out).toBe("bruno 75000");
+    expect(parseBrunoCommand(out)?.yearlyGross).toBe(75000);
+    expect(parseBrunoCommand(out)?.self).toBe(false);
+  });
+
+  it("lässt alles unberührt, was kein vollständiger bruno-Befehl ist", () => {
+    for (const q of ["bruno", "bruno abc", "", "rz 50"]) {
+      expect(toggleSelfMode(q)).toBe(q);
+    }
+  });
+});
+
+describe("buildBrunoExport — eine Abbildung für Vorschau UND PDF", () => {
+  const employee = {
+    yearlyGross: 60000, netYear: 37795, netMonth: 3149.6,
+    deductionRate: 0.37, marginalRate: 0.42,
+    incomeTax: 9290, soli: 0, churchTax: 0,
+    social: { health: 5115, care: 1440, pension: 5580, unemployment: 780 },
+    taxClass: 1, state: "nw", children: 0, isChurchMember: false,
+  };
+
+  it("Angestellten-Modus trägt alle vier Sozialversicherungen", () => {
+    const r = buildBrunoExport(employee);
+    expect(r.mode).toBe("employee");
+    expect(r.social.map((s) => s.label)).toEqual([
+      "Krankenversicherung", "Pflegeversicherung", "Rentenversicherung", "Arbeitslosenversicherung",
+    ]);
+    expect(r.assumptions).toContain("Steuerklasse 1");
+    expect(r.assumptions).toContain("Nordrhein-Westfalen");
+  });
+
+  it("Soli 0 bleibt als Aussage drin — eine Steuer, die fehlt, wirkt vergessen", () => {
+    const r = buildBrunoExport(employee);
+    const soli = r.taxes.find((x) => x.label === "Solidaritätszuschlag");
+    expect(soli).toBeDefined();
+    expect(soli!.value).toBe(0);
+  });
+
+  it("Unternehmer-Modus: keine RV/AV, § 35 als NEGATIVE Zeile", () => {
+    const r = buildBrunoExport({
+      ...employee,
+      self: {
+        yearlyProfit: 80000, netYear: 48000, netMonth: 4000,
+        totalDeductions: 32000, deductionRate: 0.4, marginalRate: 0.44,
+        health: 9870, care: 2520, incomeTax: 15000, soli: 0, churchTax: 0,
+        gewerbesteuer: 2800, gewerbeAnrechnung: 2380,
+        businessType: "gewerbe", hebesatz: 400, kvType: "gkv", kvSickPay: false,
+        children: 0, isChurchMember: false, married: false, state: "nw",
+      // Der View-Typ trägt mehr Felder; für die Abbildung zählen genau diese.
+      } as never,
+    });
+    expect(r.mode).toBe("self");
+    const labels = r.social.map((s) => s.label);
+    expect(labels).not.toContain("Rentenversicherung");
+    expect(labels).not.toContain("Arbeitslosenversicherung");
+    // ⚠️ Die § 35-Anrechnung MINDERT die ESt — als positive Zeile würde die
+    // Summe der Abzüge nicht mehr zum Netto passen.
+    const anr = r.taxes.find((x) => x.label === "§ 35-Anrechnung");
+    expect(anr).toBeDefined();
+    expect(anr!.value).toBeLessThan(0);
+  });
+
+  it("Summenprobe: Basis − Abzüge = Netto (in beiden Modi)", () => {
+    // ⚠️ Der Export rechnet NICHT selbst — aber seine Zeilen müssen die
+    // Rechnung des Kerns wiedergeben, sonst zeigt das PDF eine Aufstellung,
+    // deren Summen nicht aufgehen.
+    const r = buildBrunoExport(employee);
+    const ded = [...r.taxes, ...r.social].reduce((a, x) => a + x.value, 0);
+    expect(r.base_year - ded).toBeCloseTo(r.net_year, 0);
   });
 });

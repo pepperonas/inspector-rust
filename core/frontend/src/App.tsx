@@ -205,7 +205,7 @@ import {
   type SecDefaults,
 } from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
-import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, type GermanState } from "./lib/bruno";
+import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, toggleSelfMode, type GermanState } from "./lib/bruno";
 import { matchSettingsSection } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { useSleepStatus } from "./hooks/useSleepStatus";
@@ -2599,6 +2599,25 @@ function App() {
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [selectedSocialIsYt, gameMode]);
+
+  // Tab flips Angestellter ↔ Unternehmer while the bruno row is selected.
+  // ⚠️ Until now the ONLY way to change mode was retyping the amount with or
+  // without the `f` suffix — the calculation was reachable but the switch was
+  // not. Capture phase + `stopPropagation`, exactly like the social toggle
+  // above, so `useKeyboardNav`'s bubble handler never sees the Tab.
+  const selectedIsBruno = combined[selected]?.kind === "bruno";
+  useEffect(() => {
+    if (!selectedIsBruno || gameMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setQuery((q) => toggleSelfMode(q));
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [selectedIsBruno, gameMode]);
 
   // ← / → cycle through openers while the opener row is selected. Only
   // wired when that's actually true so the search-bar input's normal

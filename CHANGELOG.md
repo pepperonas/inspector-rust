@@ -4,6 +4,32 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.156.0] - 2026-08-30
+
+### Added
+
+- **Schnitt-Funktion im Social-Download (YouTube u. a.).** Unter den Download-Buttons sitzt ein aufklappbarer Abschnitt „Ausschnitt" im QuickTime-Modell: gelbe Griffe über einer Leiste, alles außerhalb wird verworfen, Bereich als Ganzes verschiebbar, Playhead per Klick/Ziehen, Zeitfelder zum Tippen (YouTube-Studio-Muster), Knöpfe Anfang · Bereich · Ende zum Prüfen, Pfeiltasten (⇧ = fein). Beim Download (Video ODER Audio) lädt yt-dlp per `--download-sections` + `--force-keyframes-at-cuts` NUR die aktive Sequenz — gemessen: 20 s aus einem 83-Minuten-Set in 21 s als 1,24 MiB statt 175–330 MiB.
+- **Anhören zum Prüfen über einen Audio-Proxy.** Gemessen am Referenzvideo hat YouTube KEIN progressives Format (alle 13 Varianten sind video-only oder audio-only) — ein Medienelement kann die Quelle nicht abspielen. Die Leiste scrubbt deshalb ein kleines m4a (Format 139, 48,8 kbit/s; 30 MB für 83 min, ~5 s Ladezeit) aus dem App-Cache, der bereits im Asset-Scope liegt. Beim Video-Download bleibt das Bild in der Vorschau bewusst aus — der ehrliche Preis dafür, nicht erst 300 MB zu laden.
+
+### Notes
+
+- ⚠️ **Der Schnitt ist ADDITIV**: ohne aufgeklappten, verengten Bereich ist die yt-dlp-argv byte-identisch zu vorher — gepinnt für Video und Audio; `sectionFor` gibt dann `undefined` (mutationsgeprüft).
+- ⚠️ **Das führende `*` in `--download-sections` ist tragend** — ohne es liest yt-dlp den Wert als Kapitel-Regex und lädt still das ganze Video. Eigener Pin; ebenso, dass die Schnitt-Argumente VOR dem `--`-Terminator stehen.
+- ⚠️ **Der Proxy ist auf ein progressives m4a gepinnt, nicht `worstaudio`** — das wählt gemessen eine HLS-Variante mit unbekannter Bitrate.
+- ⚠️ **Regressions-Pin: der `section`-Parameter war im ersten Entwurf deklariert, aber nicht an `invoke` weitergereicht** — ein stiller No-op, die UI hätte einen Bereich gezeigt und das ganze Video geladen.
+- Die Griffe SCHIEBEN sich gegenseitig statt zu tauschen (ein Tausch mitten im Ziehen fühlt sich an, als wehre sich die Leiste); halbfertige Zeiteingaben lassen den Griff in Ruhe (`parseClock` → null statt 0).
+
+### Added (Bruno)
+
+- **Modus-Umschalter Angestellter <-> Unternehmer per Tab.** Bisher war der einzige Weg, den Modus zu wechseln, das Neutippen des Betrags mit oder ohne `f`-Suffix; jetzt schaltet Tab auf der Bruno-Zeile um (reine `toggleSelfMode`, das Suffix bleibt die einzige Wahrheit). Die `einnahmen-ausgaben`-Form wird beim Wechsel zu Angestellt aufgeloest (der Parser weist sie dort ab) - der Betrag behaelt seine Bedeutung als der GEWINN, der auf dem Schirm stand. Katalogtext und Ergebnis-Zeile benennen den Modus und den Weg zum anderen.
+- **Bruno-Export als HTML und PDF** im geteilten `report_style`-Design (wie `loc`, `pagespeed`, `bench`): Kennzahlen-Leiste, Zusammensetzungs-Balken (hell = Netto, gesaettigt = Abzuege), Steuern-/Sozialabgaben-Tabellen mit Farbchip + Anteils-Spur, Ergebnis-Block. Export-Chips in beiden Vorschau-Zweigen (eine Komponente). Der Export RENDERT nur - gerechnet wird weiter im Frontend, die Zeilen kommen aus der puren `buildBrunoExport` (dieselbe Abbildung fuer Vorschau und PDF; Summenprobe Basis - Abzuege = Netto gepinnt).
+
+### Notes (Bruno)
+
+- Drei Befunde aus der SICHTPRUEFUNG, die kein Test sehen konnte: (a) `name_cell` liefert ein <span>, das in ein <td> gehoert - ohne Zelle hebt der Browser es aus der Tabelle (Labels standen UEBER der Tabelle, Betraege namenlos); (b) die Dump-Fixture ohne RV/AV ergab ein Dokument, dessen eigene Summen nicht aufgingen (Balken-Luecke, 63,0 % + 26,4 %); (c) Netto und Lohnsteuer waren zwei fast identische Blaus nebeneinander - Netto ist jetzt bewusst hell und NICHT aus der Serien-Palette (gepinnt).
+- Soli 0 Euro bleibt als Zeile stehen: unter dem 2025er-Tarif ist die Null eine AUSSAGE, keine Rauschzeile.
+- Die Paragraf-35-Anrechnung steht als NEGATIVE Zeile in den Steuern, sonst ginge die Summenprobe nicht auf.
+
 ## [0.155.0] - 2026-08-30
 
 ### Fixed

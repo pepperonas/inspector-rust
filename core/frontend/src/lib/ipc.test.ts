@@ -293,3 +293,36 @@ describe("ipc — return values + errors pass through unchanged", () => {
     await expect(ipc.deleteEntry(1)).rejects.toThrow("tauri ipc died");
   });
 });
+
+describe("social download — the trim section must actually reach Rust", () => {
+  it("omits the section when nothing was trimmed", async () => {
+    mockInvoke.mockResolvedValue("/p/out.mp4");
+    await ipc.socialDownload("https://youtu.be/x", "video");
+    expect(mockInvoke).toHaveBeenCalledWith("social_download", {
+      url: "https://youtu.be/x",
+      mode: "video",
+      reveal: true,
+      section: undefined,
+    });
+  });
+
+  it("forwards the section when one is set", async () => {
+    // ⚠️ Regression pin: the parameter was declared but NOT forwarded in the
+    // first draft — a silent no-op that would have downloaded the whole video
+    // while the UI showed a trimmed range.
+    mockInvoke.mockResolvedValue("/p/out.m4a");
+    await ipc.socialDownload("https://youtu.be/x", "audio", true, [600, 620.5]);
+    expect(mockInvoke).toHaveBeenCalledWith("social_download", {
+      url: "https://youtu.be/x",
+      mode: "audio",
+      reveal: true,
+      section: [600, 620.5],
+    });
+  });
+
+  it("asks Rust for the scrubbing proxy by url", async () => {
+    mockInvoke.mockResolvedValue("/c/proxy-ab.m4a");
+    await ipc.socialAudioProxy("https://youtu.be/x");
+    expect(mockInvoke).toHaveBeenCalledWith("social_audio_proxy", { url: "https://youtu.be/x" });
+  });
+});

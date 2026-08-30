@@ -22,6 +22,7 @@ mod db;
 mod disk_usage;
 mod bench;
 mod bench_export;
+mod bruno_export;
 mod device_sync;
 mod pagespeed;
 mod pagespeed_export;
@@ -806,6 +807,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_sleep_status,
             commands::loc_count,
             commands::loc_export,
+            commands::bruno_export,
             commands::pagespeed_analyze,
             commands::pagespeed_export,
             commands::get_pagespeed_key,
@@ -963,6 +965,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::audio_swap_cancel_overlay,
             commands::social_ytdlp_available,
             commands::social_download,
+            commands::social_audio_proxy,
             commands::social_metadata,
             commands::bench_plan,
             commands::bench_run,

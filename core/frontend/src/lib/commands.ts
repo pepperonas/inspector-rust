@@ -465,9 +465,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "bruno",
     keyword: "bruno",
-    syntax: "bruno <€>[m|j]",
+    syntax: "bruno <€>[m|j][f]",
     description:
-      "Brutto → Netto (2025). e.g. `bruno 60000` (yearly) or `bruno 5000m` (monthly)",
+      "Brutto → Netto (2025). `bruno 60000` jährlich · `bruno 5000m` monatlich · Suffix `f` = Unternehmer/Selbständige (Gewinn statt Brutto) · ⇥ wechselt den Modus",
     requiresArg: true,
   },
   // ── Timer ─────────────────────────────────────────────────────────

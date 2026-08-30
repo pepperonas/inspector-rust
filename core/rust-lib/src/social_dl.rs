@@ -67,7 +67,31 @@ pub enum DlMode {
 /// Build the yt-dlp argv. The `--print after_move:…` marker line carries the
 /// final path + naming metadata on stdout; `--` ends option parsing so a `-…`
 /// URL can't smuggle a flag. Pure.
-pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &str) -> Vec<String> {
+/// Format a `[start, end]` range as yt-dlp's `--download-sections` value.
+///
+/// ⚠️ The `*` prefix is what makes it a TIME range — without it yt-dlp reads the
+/// value as a chapter-title regex and silently downloads the whole video.
+pub fn fmt_section(start_s: f64, end_s: f64) -> String {
+    fn s(v: f64) -> String {
+        let x = format!("{:.3}", v.max(0.0));
+        let x = x.trim_end_matches('0').trim_end_matches('.').to_string();
+        if x.is_empty() { "0".into() } else { x }
+    }
+    format!("*{}-{}", s(start_s), s(end_s))
+}
+
+/// Build the yt-dlp argv.
+///
+/// `section` is the optional trim range. **Absent means the argv is exactly what
+/// it was before the feature existed** — the trim is additive, and a test pins
+/// that byte-for-byte.
+pub fn build_dl_args(
+    url: &str,
+    mode: DlMode,
+    ffmpeg_dir: &str,
+    out_template: &str,
+    section: Option<(f64, f64)>,
+) -> Vec<String> {
     let mut a: Vec<String> = vec![];
     match mode {
         DlMode::Video => {
@@ -107,10 +131,94 @@ pub fn build_dl_args(url: &str, mode: DlMode, ffmpeg_dir: &str, out_template: &s
         "after_move:IRMETA\u{1f}%(filepath)s\u{1f}%(artist,creator|)s\u{1f}%(track|)s\u{1f}%(title|)s\u{1f}%(uploader|)s\u{1f}%(release_year|)s".into(),
         "-o".into(),
         out_template.into(),
-        "--".into(),
-        url.into(),
     ]);
+    // ⚠️ Trim: appended ONLY when a range is set, so an untrimmed download keeps
+    // the exact argv it had before this feature existed (test-pinned).
+    // `--force-keyframes-at-cuts` makes the cut frame-accurate; without it
+    // yt-dlp snaps to the nearest keyframe and the start can land ~1 s early.
+    if let Some((s, e)) = section {
+        a.extend(["--download-sections".into(), fmt_section(s, e)]);
+        a.push("--force-keyframes-at-cuts".into());
+    }
+    // `--` ends option parsing so a URL starting with `-` can't smuggle a flag.
+    a.extend(["--".into(), url.into()]);
     a
+}
+
+/// Format selector for the scrubbing proxy.
+///
+/// ⚠️ Pinned to a small **progressive https m4a**, not `worstaudio`: measured on
+/// a real 83-minute video, `worstaudio` picks an HLS rendition (format 233) with
+/// an unknown bitrate, while this selector picks format 139 — 48.8 kbit/s,
+/// 30.2 MB, plain https. The fallbacks cover videos that have no m4a at all.
+pub const PROXY_FORMAT: &str = "bestaudio[ext=m4a][abr<=70]/bestaudio[ext=m4a]/bestaudio";
+
+/// Build the yt-dlp argv for the scrubbing proxy. Pure.
+pub fn build_proxy_args(url: &str, out_template: &str) -> Vec<String> {
+    vec![
+        "-f".into(), PROXY_FORMAT.into(),
+        "--no-playlist".into(), "--no-progress".into(), "--no-mtime".into(),
+        "--print".into(), "after_move:IRPROXY\u{1f}%(filepath)s".into(),
+        "-o".into(), out_template.into(),
+        "--".into(), url.into(),
+    ]
+}
+
+/// Download the small audio-only proxy used for scrubbing in the preview.
+///
+/// ⚠️ It lands in the CACHE dir, not Downloads: it is a working file, and
+/// `$CACHE/InspectorRust/**` is already inside the asset-protocol scope, so the
+/// webview can play it via `convertFileSrc` with no config change. Re-uses an
+/// existing proxy for the same URL instead of downloading twice.
+pub fn proxy_audio(url: &str, dir: &Path) -> Result<PathBuf, String> {
+    let u = url.trim();
+    if detect_platform(u).is_none() {
+        return Err("not a supported media URL".into());
+    }
+    let yt = yt_dlp_path().ok_or_else(|| ERR_NO_YTDLP.to_string())?;
+    std::fs::create_dir_all(dir).map_err(|e| format!("cache dir: {e}"))?;
+    // One stable name per URL so a second open reuses the file.
+    let key = format!("{:016x}", fnv1a(u));
+    let stem = dir.join(format!("proxy-{key}"));
+    for ext in ["m4a", "webm", "opus", "mp3", "ogg"] {
+        let c = stem.with_extension(ext);
+        if c.is_file() {
+            return Ok(c);
+        }
+    }
+    let template = stem.with_extension("%(ext)s");
+    let args = build_proxy_args(u, &template.to_string_lossy());
+    let out = Command::new(&yt).args(&args).output().map_err(|e| format!("yt-dlp: {e}"))?;
+    if !out.status.success() {
+        return Err(String::from_utf8_lossy(&out.stderr).into_owned());
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix("IRPROXY\u{1f}") {
+            let p = PathBuf::from(rest.trim());
+            if p.is_file() {
+                return Ok(p);
+            }
+        }
+    }
+    // Fall back to whatever landed next to the template.
+    for ext in ["m4a", "webm", "opus", "mp3", "ogg"] {
+        let c = stem.with_extension(ext);
+        if c.is_file() {
+            return Ok(c);
+        }
+    }
+    Err("proxy download produced no file".into())
+}
+
+/// Stable 64-bit key for a URL (FNV-1a). Only used for cache file names.
+fn fnv1a(s: &str) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in s.as_bytes() {
+        h ^= u64::from(*b);
+        h = h.wrapping_mul(0x1000_0000_01b3);
+    }
+    h
 }
 
 /// Browsers tried (in order) for `--cookies-from-browser` when YouTube's
@@ -343,7 +451,12 @@ pub fn metadata(url: &str) -> Result<SocialMeta, String> {
 /// Download `url` (video or audio) into `dir`. Returns the produced file path.
 /// Falls back to browser cookies if YouTube's anti-bot check blocks the
 /// anonymous request.
-pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> {
+pub fn download(
+    url: &str,
+    mode: DlMode,
+    dir: &Path,
+    section: Option<(f64, f64)>,
+) -> Result<PathBuf, String> {
     let u = url.trim();
     let platform_name = match detect_platform(u) {
         Some(p) => p.display_name(),
@@ -354,7 +467,7 @@ pub fn download(url: &str, mode: DlMode, dir: &Path) -> Result<PathBuf, String> 
     let ffmpeg_dir = ffmpeg.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
     std::fs::create_dir_all(dir).map_err(|e| format!("create dir: {e}"))?;
     let template = dir.join("%(title).100B [%(id)s].%(ext)s");
-    let base = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy());
+    let base = build_dl_args(u, mode, &ffmpeg_dir, &template.to_string_lossy(), section);
 
     match run_ytdlp(&yt, &base) {
         Ok((p, meta)) => Ok(smart_rename(p, meta.as_ref())),
@@ -513,7 +626,7 @@ mod tests {
 
     #[test]
     fn audio_args_also_have_timestamp_and_sabr_flags() {
-        let a = build_dl_args("https://youtu.be/x", DlMode::Audio, "/d", "/d/%(id)s.%(ext)s");
+        let a = build_dl_args("https://youtu.be/x", DlMode::Audio, "/d", "/d/%(id)s.%(ext)s", None);
         assert!(a.contains(&"--no-mtime".to_string()), "audio must download with current time too");
         assert!(a.windows(2).any(|w| w[0] == "--extractor-args"
             && w[1] == "youtube:player_client=default,ios,web_safari"));
@@ -537,7 +650,7 @@ mod tests {
 
     #[test]
     fn video_args_merge_to_mp4_with_guard() {
-        let a = build_dl_args("https://youtu.be/x", DlMode::Video, "/opt/homebrew/bin", "/d/%(id)s.%(ext)s");
+        let a = build_dl_args("https://youtu.be/x", DlMode::Video, "/opt/homebrew/bin", "/d/%(id)s.%(ext)s", None);
         // prefer H.264 (Mac-playable) via sort, not a raw best-video filter
         assert!(a.windows(2).any(|w| w[0] == "-S" && w[1] == "vcodec:h264,res,acodec:m4a"));
         assert!(a.windows(2).any(|w| w[0] == "--merge-output-format" && w[1] == "mp4"));
@@ -554,7 +667,7 @@ mod tests {
 
     #[test]
     fn audio_args_extract_m4a() {
-        let a = build_dl_args("https://youtu.be/x", DlMode::Audio, "/d", "/d/%(id)s.%(ext)s");
+        let a = build_dl_args("https://youtu.be/x", DlMode::Audio, "/d", "/d/%(id)s.%(ext)s", None);
         assert!(a.contains(&"-x".to_string()));
         assert!(a.windows(2).any(|w| w[0] == "--audio-format" && w[1] == "m4a"));
         assert!(!a.windows(2).any(|w| w[0] == "--merge-output-format"));
@@ -608,6 +721,7 @@ mod tests {
             DlMode::Video,
             "/d",
             "/d/%(title)s.%(ext)s",
+            None,
         );
         assert!(a.windows(2).any(|w| w[0] == "-S" && w[1].contains("h264")));
         assert!(a.windows(2).any(|w| w[0] == "--merge-output-format" && w[1] == "mp4"));
@@ -615,8 +729,59 @@ mod tests {
     }
 
     #[test]
+    fn without_a_section_the_argv_is_untouched() {
+        // ⚠️ The trim is ADDITIVE. An untrimmed download must produce exactly the
+        // argv it produced before the feature existed.
+        for mode in [DlMode::Video, DlMode::Audio] {
+            let a = build_dl_args("https://youtu.be/x", mode, "/d", "/d/o.%(ext)s", None);
+            assert!(!a.iter().any(|s| s == "--download-sections"), "{mode:?}");
+            assert!(!a.iter().any(|s| s == "--force-keyframes-at-cuts"), "{mode:?}");
+        }
+    }
+
+    #[test]
+    fn a_section_is_appended_before_the_end_of_options_marker() {
+        for mode in [DlMode::Video, DlMode::Audio] {
+            let a = build_dl_args("https://youtu.be/x", mode, "/d", "/d/o.%(ext)s", Some((600.0, 620.5)));
+            let i = a.iter().position(|s| s == "--download-sections").expect("flag");
+            assert_eq!(a[i + 1], "*600-620.5");
+            assert!(a.contains(&"--force-keyframes-at-cuts".to_string()));
+            // ⚠️ Everything must sit BEFORE `--`, or yt-dlp reads it as a URL.
+            let dashdash = a.iter().position(|s| s == "--").expect("terminator");
+            assert!(i + 1 < dashdash, "section args leaked past `--`");
+            assert_eq!(a.last().unwrap(), "https://youtu.be/x");
+        }
+    }
+
+    #[test]
+    fn fmt_section_marks_a_time_range_not_a_chapter_regex() {
+        // ⚠️ The leading `*` is load-bearing: without it yt-dlp treats the value
+        // as a CHAPTER-TITLE regex and silently downloads the whole video.
+        assert!(fmt_section(0.0, 1.0).starts_with('*'));
+        assert_eq!(fmt_section(600.0, 620.5), "*600-620.5");
+        assert_eq!(fmt_section(0.0, 12.25), "*0-12.25");
+        // Trailing zeros are trimmed, and a negative start clamps to 0.
+        assert_eq!(fmt_section(-5.0, 3.100), "*0-3.1");
+    }
+
+    #[test]
+    fn the_proxy_is_pinned_to_a_small_progressive_audio_format() {
+        // ⚠️ Measured on a real 83-minute video: `worstaudio` picks an HLS
+        // rendition with an unknown bitrate, this selector picks the 48.8 kbit/s
+        // https m4a. Do not "simplify" it back to `worstaudio`.
+        let a = build_proxy_args("https://youtu.be/x", "/c/proxy-1.%(ext)s");
+        let i = a.iter().position(|s| s == "-f").expect("format flag");
+        assert_eq!(a[i + 1], PROXY_FORMAT);
+        assert!(PROXY_FORMAT.contains("m4a"));
+        assert!(!PROXY_FORMAT.contains("worstaudio"));
+        let dashdash = a.iter().position(|s| s == "--").expect("terminator");
+        assert!(i + 1 < dashdash);
+        assert_eq!(a.last().unwrap(), "https://youtu.be/x");
+    }
+
+    #[test]
     fn download_rejects_non_social_before_spawn() {
-        assert!(download("https://example.com/x", DlMode::Video, Path::new("/tmp")).is_err());
-        assert!(download("-x", DlMode::Audio, Path::new("/tmp")).is_err());
+        assert!(download("https://example.com/x", DlMode::Video, Path::new("/tmp"), None).is_err());
+        assert!(download("-x", DlMode::Audio, Path::new("/tmp"), None).is_err());
     }
 }

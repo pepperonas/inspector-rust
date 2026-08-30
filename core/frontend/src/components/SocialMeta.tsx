@@ -10,8 +10,10 @@ import { createMetaLoader, formatDuration, clampDescription } from "../lib/socia
  */
 const loader = createMetaLoader(socialMetadata, 3);
 
-/** Subscribe one URL's metadata; queues the fetch on first use. */
-function useMeta(url: string | null) {
+/** Subscribe one URL's metadata; queues the fetch on first use.
+ *  Exported so the download bar can read the duration for the trim bar out of
+ *  the SAME cache MetaCard fills -- no second yt-dlp call. */
+export function useMeta(url: string | null) {
   const state = useSyncExternalStore(
     (fn) => loader.subscribe(fn),
     () => (url ? loader.get(url) : undefined),

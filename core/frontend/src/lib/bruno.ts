@@ -274,6 +274,33 @@ export function parseBrunoCommand(query: string): BrunoCommand | null {
 }
 
 /**
+ * Flip a bruno query between employee and self-employed mode.
+ *
+ * ⚠️ Until now the ONLY way to change mode was to retype the argument with or
+ * without an `f`. This makes it a one-key operation while keeping the suffix as
+ * the source of truth — the query stays the single place the mode lives, so
+ * nothing else in the pipeline has to learn about a second one.
+ *
+ * ⚠️ Switching AWAY from self-employed also drops the `einnahmen-ausgaben`
+ * form, because the parser rejects it for employees (`parseBrunoCommand`) — the
+ * expenses are subtracted first so the amount keeps its meaning as the profit
+ * that was on screen, rather than silently becoming a gross salary of the
+ * revenue.
+ *
+ * Returns the query unchanged when it isn't a parseable bruno command.
+ */
+export function toggleSelfMode(query: string): string {
+  const parsed = parseBrunoCommand(query);
+  if (!parsed) return query;
+  const amount =
+    parsed.period === "monthly" ? parsed.yearlyGross / 12 : parsed.yearlyGross;
+  // Keep German formatting out of it: a plain number always re-parses.
+  const num = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
+  const per = parsed.period === "monthly" ? "m" : "";
+  return parsed.self ? `bruno ${num}${per}` : `bruno ${num}${per}f`;
+}
+
+/**
  * Detect whether the user is *partially* typing a bruno command —
  * i.e. has typed `b`, `br`, `bru`, `brun`, `bruno`, or `bruno ` but
  * not yet a parseable amount. Used to surface the autocomplete row
@@ -680,4 +707,100 @@ export function formatBrunoSelfBreakdown(d: BrunoSelfBreakdownView): string {
     "",
     "Ohne RV/AV (keine Pflicht); USt ist durchlaufender Posten (§ 19 Kleinunternehmer: keine USt). Vereinfacht — keine Steuerberatung.",
   ].join("\n");
+}
+
+// ── Export ─────────────────────────────────────────────────────────
+
+/** Shape shared with `ipc.ts::BrunoReportPayload` (snake_case crosses IPC). */
+export interface BrunoExportReport {
+  mode: "employee" | "self";
+  base_year: number;
+  net_year: number;
+  net_month: number;
+  deduction_rate: number;
+  marginal_rate: number;
+  taxes: { label: string; value: number }[];
+  social: { label: string; value: number }[];
+  assumptions: string;
+}
+
+/**
+ * Map the popup's view model to the export payload — ONE function for both
+ * modes, so the PDF can never disagree with the preview about which rows a
+ * mode has.
+ *
+ * ⚠️ Zero rows are kept where the preview keeps them and dropped where the
+ * preview drops them (Soli/Kirchensteuer render only when > 0 in the popup —
+ * except Soli in the employee card, which always shows when > 0). The export
+ * states Soli explicitly even at 0: under the 2025 tariff a zero IS the
+ * answer, and a tax report that silently omits a tax invites the question
+ * whether it was forgotten.
+ */
+export function buildBrunoExport(d: {
+  self?: BrunoSelfBreakdownView;
+  yearlyGross: number;
+  netYear: number;
+  netMonth: number;
+  deductionRate: number;
+  marginalRate: number;
+  incomeTax: number;
+  soli: number;
+  churchTax: number;
+  social: { health: number; care: number; pension: number; unemployment: number };
+  taxClass: number;
+  state: string;
+  children: number;
+  isChurchMember: boolean;
+}): BrunoExportReport {
+  if (d.self) {
+    const s = d.self;
+    const taxes: { label: string; value: number }[] = [
+      { label: "Einkommensteuer", value: s.incomeTax },
+      { label: "Solidaritätszuschlag", value: s.soli },
+    ];
+    if (s.gewerbesteuer > 0) {
+      taxes.push({ label: "Gewerbesteuer", value: s.gewerbesteuer });
+      taxes.push({ label: "§ 35-Anrechnung", value: -s.gewerbeAnrechnung });
+    }
+    if (s.churchTax > 0) taxes.push({ label: "Kirchensteuer", value: s.churchTax });
+    const social: { label: string; value: number }[] = [
+      { label: "Krankenversicherung", value: s.health },
+    ];
+    if (s.care > 0) social.push({ label: "Pflegeversicherung", value: s.care });
+    return {
+      mode: "self",
+      base_year: s.yearlyProfit,
+      net_year: s.netYear,
+      net_month: s.netMonth,
+      deduction_rate: s.deductionRate,
+      marginal_rate: s.marginalRate,
+      taxes,
+      social,
+      assumptions: brunoSelfAssumptions(s),
+    };
+  }
+  const taxes: { label: string; value: number }[] = [
+    { label: "Lohnsteuer", value: d.incomeTax },
+    { label: "Solidaritätszuschlag", value: d.soli },
+  ];
+  if (d.churchTax > 0) taxes.push({ label: "Kirchensteuer", value: d.churchTax });
+  const kids = d.children === 0 ? "kinderlos" : `${d.children} Kind${d.children === 1 ? "" : "er"}`;
+  const church = d.isChurchMember ? "kirchensteuerpflichtig" : "keine Kirchensteuer";
+  const state = STATE_LABELS[d.state as GermanState] ?? d.state.toUpperCase();
+  return {
+    mode: "employee",
+    base_year: d.yearlyGross,
+    net_year: d.netYear,
+    net_month: d.netMonth,
+    deduction_rate: d.deductionRate,
+    marginal_rate: d.marginalRate,
+    taxes,
+    social: [
+      { label: "Krankenversicherung", value: d.social.health },
+      { label: "Pflegeversicherung", value: d.social.care },
+      { label: "Rentenversicherung", value: d.social.pension },
+      { label: "Arbeitslosenversicherung", value: d.social.unemployment },
+    ],
+    assumptions: `Steuerklasse ${d.taxClass} · ${state} · ${kids} · ${church}`,
+  };
 }

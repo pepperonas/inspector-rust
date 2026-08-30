@@ -643,8 +643,10 @@ export const HistoryItem = memo(function HistoryItem({
                   style: "percent",
                   maximumFractionDigits: 1,
                 });
-                const kind = entry.data.self ? "Gewinn (selbständig)" : "Brutto";
-                return `${kind} ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)}`;
+                // Name the ACTIVE mode and the way to the other one — the
+                // switch existed but was invisible (only the `f` suffix).
+                const kind = entry.data.self ? "Unternehmer · Gewinn" : "Angestellt · Brutto";
+                return `${kind} ${fmt.format(entry.data.yearlyGross)} / Jahr · Abgaben ${pct.format(entry.data.deductionRate)} · ⇥ Modus`;
               })()}
             </span>
           </span>

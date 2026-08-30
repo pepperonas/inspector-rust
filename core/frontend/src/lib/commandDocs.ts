@@ -618,14 +618,16 @@ export const COMMAND_DOCS: CommandDoc[] = [
     ],
     tips: [
       "Set tax class / Bundesland / children / church / health surcharge — and the freelancer options (Rechtsform, GewSt-Hebesatz, GKV/PKV, Splitting) — in Settings → Bruno once.",
+      "**Tab flips the mode** while the bruno row is selected — Angestellter ↔ Unternehmer without retyping the amount (the `f` suffix is rewritten for you; `einnahmen-ausgaben` resolves into the profit that was on screen).",
       "Enter pastes the period-matched net amount; Shift+Enter copies the COMPLETE breakdown (assumptions + every deduction row + net) as aligned plain text — ready for a mail or note. Works in both modes.",
+      "The preview's **Export row writes the breakdown as HTML or PDF** to Downloads — the shared report design (like `loc`/`pagespeed`), with signature and seal.",
       "`bruno 7000mf` reads the €7 000 as MONTHLY profit (m and f combine).",
     ],
     caveats: [
       "A simplified model — not tax advice.",
       "Self-employed mode assumes no compulsory pension/unemployment insurance (exceptions like Künstlersozialkasse aren't modelled) and treats VAT as a pass-through.",
     ],
-    related: ["faker"],
+    related: ["loc", "faker"],
   },
   {
     command: "dezibel",

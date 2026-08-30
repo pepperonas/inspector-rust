@@ -54,6 +54,12 @@ export const NON_COMMAND_FEATURES: FeatureRow[] = [
     note: "Auto-detected in a clip or the search bar → the preview offers Download video (all) + Download audio (YouTube only) → Downloads. Prefers H.264 (QuickTime-playable); retries with browser cookies on YouTube's bot check. Needs yt-dlp.",
   },
   {
+    name: "Ausschnitt (trim & download)",
+    trigger: "„Ausschnitt“ under the download buttons",
+    typed: false,
+    note: "QuickTime-style trim bar: yellow handles over the timeline, everything outside is discarded; drag the range, set the playhead, type start/end times, check Anfang · Bereich · Ende by ear (a small audio proxy, ~5 s to fetch). The download then fetches ONLY the section (yt-dlp --download-sections, frame-accurate) — 20 s out of an 83-minute set arrive as ~1.2 MiB. Collapsed = the download is byte-identical to before.",
+  },
+  {
     name: "Link grabber (batch download)",
     trigger: "paste many links into the box under the download bar",
     typed: true,

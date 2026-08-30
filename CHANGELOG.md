@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.157.1] - 2026-08-30
+
+### Changed
+
+- **Doku nachgezogen:** die Bruno-CommandDoc nennt jetzt den Tab-Modus-Wechsel und den HTML/PDF-Export (speist `?`-Hilfe, README-Matrix und Features-Tab); der „Ausschnitt" steht als In-Popup-Aktion im Features-Tab (`feature-extras.ts`); die Report-Signatur hat ihre `features.txt`-Zeile.
+- **11 neue Tests:** `TrimBar.test.tsx` (6 — Proxy genau einmal + über das Asset-Protokoll, ehrliche Fehlertexte inkl. `yt-dlp fehlt`, „Ganzes Video", getippte Zeiten inkl. der Regel, dass Müll-Eingaben den Griff NICHT bewegen [mutationsgeprüft], Pfeiltasten grob/fein) und 5 weitere `buildBrunoExport`-Pins (Kirchensteuer nur wenn fällig, Bundesland ausgeschrieben statt Kürzel, sichtbarer Fallback bei unbekanntem Kürzel, PKV ohne Pflege-Zeile, Freiberufler ohne GewSt-Zeilen).
+- **Signatur-Einbau mutationsgeprüft:** unbedingtes Signieren (auch leerer Dokumente) → 1 roter Test; Einbau entfernt → 2 rote Tests.
+
 ## [0.157.0] - 2026-08-30
 
 ### Added

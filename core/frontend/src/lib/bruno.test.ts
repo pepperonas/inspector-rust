@@ -702,3 +702,72 @@ describe("buildBrunoExport — eine Abbildung für Vorschau UND PDF", () => {
     expect(r.base_year - ded).toBeCloseTo(r.net_year, 0);
   });
 });
+
+describe("buildBrunoExport — Wahrheiten, die das PDF sonst leise verlöre", () => {
+  const base = {
+    yearlyGross: 60000, netYear: 37795, netMonth: 3149.6,
+    deductionRate: 0.37, marginalRate: 0.42,
+    incomeTax: 9290, soli: 0, churchTax: 0,
+    social: { health: 5115, care: 1440, pension: 5580, unemployment: 780 },
+    taxClass: 1, state: "nw", children: 0, isChurchMember: false,
+  };
+
+  it("Kirchensteuer erscheint genau dann, wenn sie anfällt", () => {
+    expect(
+      buildBrunoExport(base).taxes.some((x) => x.label === "Kirchensteuer"),
+    ).toBe(false);
+    const withChurch = buildBrunoExport({ ...base, churchTax: 800, isChurchMember: true });
+    const row = withChurch.taxes.find((x) => x.label === "Kirchensteuer");
+    expect(row?.value).toBe(800);
+    expect(withChurch.assumptions).toContain("kirchensteuerpflichtig");
+  });
+
+  it("die Annahmen-Zeile nennt das Bundesland ausgeschrieben, nie das Kürzel", () => {
+    // Ein PDF mit "NW" statt "Nordrhein-Westfalen" liest sich wie ein Platzhalter.
+    const r = buildBrunoExport(base);
+    expect(r.assumptions).not.toMatch(/\bNW\b/);
+    expect(r.assumptions).toContain("Nordrhein-Westfalen");
+  });
+
+  it("ein unbekanntes Bundesland-Kürzel fällt sichtbar auf Großbuchstaben zurück", () => {
+    // Lieber ein ehrliches "XY" als ein leerer String oder ein Absturz.
+    const r = buildBrunoExport({ ...base, state: "xy" });
+    expect(r.assumptions).toContain("XY");
+  });
+
+  it("PKV-Selbständige tragen keine separate Pflege-Zeile", () => {
+    const r = buildBrunoExport({
+      ...base,
+      self: {
+        yearlyProfit: 80000, netYear: 50000, netMonth: 4167,
+        totalDeductions: 30000, deductionRate: 0.375, marginalRate: 0.44,
+        health: 7200, care: 0, incomeTax: 15000, soli: 0, churchTax: 0,
+        gewerbesteuer: 0, gewerbeAnrechnung: 0,
+        businessType: "freiberufler", hebesatz: 400, kvType: "pkv", kvSickPay: false,
+        children: 0, isChurchMember: false, married: false, state: "be",
+      } as never,
+    });
+    // ⚠️ Die Vorschau blendet die Pflege-Zeile bei care === 0 aus (PKV enthält
+    // sie); der Export muss dieselbe Regel fahren, sonst zeigt das PDF eine
+    // 0-€-Pflegeversicherung, die die GKV-Logik suggeriert.
+    expect(r.social.some((s) => s.label === "Pflegeversicherung")).toBe(false);
+    expect(r.social.map((s) => s.label)).toEqual(["Krankenversicherung"]);
+  });
+
+  it("keine Gewerbesteuer-Zeilen beim Freiberufler", () => {
+    const r = buildBrunoExport({
+      ...base,
+      self: {
+        yearlyProfit: 80000, netYear: 50000, netMonth: 4167,
+        totalDeductions: 30000, deductionRate: 0.375, marginalRate: 0.44,
+        health: 9870, care: 2520, incomeTax: 15000, soli: 0, churchTax: 0,
+        gewerbesteuer: 0, gewerbeAnrechnung: 0,
+        businessType: "freiberufler", hebesatz: 400, kvType: "gkv", kvSickPay: false,
+        children: 0, isChurchMember: false, married: false, state: "nw",
+      } as never,
+    });
+    const labels = r.taxes.map((x) => x.label);
+    expect(labels).not.toContain("Gewerbesteuer");
+    expect(labels).not.toContain("§ 35-Anrechnung");
+  });
+});

@@ -173,6 +173,9 @@ function countMetrics() {
   const commands = (read("core/frontend/src/lib/commandDocs.ts").match(/^    command: "/gm) ?? [])
     .length;
 
+  // Catalogue lines in features.txt — one line per feature, by contract.
+  const features = read("features.txt").split("\n").filter((l) => l.trim().length > 0).length;
+
   // Reference pages under docs/.
   const docs = readdirSync(join(ROOT, "docs")).filter((f) => f.endsWith(".md")).length;
 
@@ -185,12 +188,12 @@ function countMetrics() {
   // binary, not the count of direct dependencies.
   const crates = (read("Cargo.lock").match(/^name = /gm) ?? []).length;
 
-  return { commands, docs, modules, crates };
+  return { commands, docs, modules, crates, features };
 }
 
 // ── Badge rewriting (idempotent) ─────────────────────────────────────────────
 
-function rewriteBadges({ locK, total, rust, fe, commands, docs, modules, crates }) {
+function rewriteBadges({ locK, rustK, tsK, total, rust, fe, commands, docs, modules, crates, features }) {
   const edits = {
     "README.md": (s) =>
       s
@@ -199,6 +202,13 @@ function rewriteBadges({ locK, total, rust, fe, commands, docs, modules, crates 
         .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
         .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
         .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
+        .replace(/badge\/features-\d+/g, `badge/features-${features}`)
+        // ⚠️ These three were hand-typed once and drifted — the exact failure
+        // the header forbids. LOC policy includes tests (v0.126.1), so the
+        // "source" label is gone; the split badges carry the same totals the
+        // main badge sums.
+        .replace(/badge\/Rust-~\d+k%20LoC/g, `badge/Rust-~${rustK}k%20LoC`)
+        .replace(/badge\/TypeScript-~\d+k%20LoC/g, `badge/TypeScript-~${tsK}k%20LoC`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
         .replace(/badge\/tests-\d+%20passing/g, `badge/tests-${total}%20passing`)
         // Quality-section per-runner badges (cargo test / vitest counts).
@@ -227,6 +237,18 @@ function rewriteBadges({ locK, total, rust, fe, commands, docs, modules, crates 
     "README.de.md": (s) =>
       s
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
+        // ⚠️ The German README carries the SAME computed badges — these rules
+        // were missing here, and docs-22/modules-84 sat beside the English
+        // 24/87 for weeks. A rule that exists in only one language IS the
+        // drift it was written to prevent.
+        .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
+        .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
+        .replace(/badge\/docs-\d+%20Seiten/g, `badge/docs-${docs}%20Seiten`)
+        .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
+        .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
+        .replace(/badge\/features-\d+/g, `badge/features-${features}`)
+        .replace(/badge\/Rust-~\d+k%20LoC/g, `badge/Rust-~${rustK}k%20LoC`)
+        .replace(/badge\/TypeScript-~\d+k%20LoC/g, `badge/TypeScript-~${tsK}k%20LoC`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
         .replace(/badge\/tests-\d+%20passing/g, `badge/tests-${total}%20passing`)
         // Quality-section per-runner badges (cargo test / vitest counts).
@@ -294,7 +316,15 @@ const total = rust + fe;
 console.log(
   `── Rewriting badges (~${locK}k LOC · ${total} tests = ${rust} Rust + ${fe} frontend)…`,
 );
-rewriteBadges({ locK, total, rust, fe, ...countMetrics() });
+rewriteBadges({
+  locK,
+  rustK: Math.round(rLoc / 1000),
+  tsK: Math.round(fLoc / 1000),
+  total,
+  rust,
+  fe,
+  ...countMetrics(),
+});
 console.log(
   `✓ Badges: ~${locK}k LOC · ${total} tests (${rust} Rust + ${fe} frontend).`,
 );

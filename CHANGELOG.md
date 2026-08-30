@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.158.0] - 2026-08-30
+
+### Changed
+
+- **Doku-Generalpass.** README-Featureliste um die vier neuesten Fähigkeiten ergänzt (Ausschnitt-Download, CPU-Benchmark, `dezibel`/`db`, signierte Reports) — in **beiden** Sprachen; Bruno-Bullet nennt Tab-Umschalter und Report-Export.
+- **Zwei unehrliche Badges beseitigt, drei neue berechnete ergänzt.** Die LoC-Split-Badges (Rust/TypeScript) waren **handgetippt und ~Faktor 2 daneben** (~44k/~38k behauptet, ~83k/~81k real — Relikte der Nur-Quelltext-Politik vor v0.126.1); sie laufen jetzt durch `update-badges.mjs`. Das `source-~81k`-Badge (Begriff seit der Politik-Änderung falsch) ist durch ein **berechnetes `features`-Badge** (Zeilen in features.txt) ersetzt; dazu ein `last-commit`-Badge (dynamisch via shields).
+- ⚠️ **Die deutsche README war bei den berechneten Badges wochenlang gedriftet** (`docs-22`/`modules-84` neben englisch 24/87) — ihr Ersetzungsblock im Badge-Script kannte diese Regeln schlicht nicht. Eine Regel, die nur in einer Sprache existiert, IST die Drift, die sie verhindern soll; der DE-Block trägt jetzt alle Regeln.
+
+### Added
+
+- **Vier neue Doku-Integritäts-Tests** (`readme-badges.test.ts`, laufen in CI): das features-Badge == Zeilen in features.txt (beide Sprachen); **jedes berechnete Badge zeigt in EN und DE denselben Wert** (mutationsgeprüft — genau die passierte Drift macht ihn rot); **alle neun Versions-Manifeste tragen EINE Version** (ein vergessener Bump im Release-Ritual fällt jetzt in CI); die **CHANGELOG-Spitze ist die aktuelle Version** (Doku darf dem Artefakt nicht hinterherlaufen).
+
 ## [0.157.1] - 2026-08-30
 
 ### Changed

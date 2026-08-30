@@ -3,6 +3,17 @@ import { describe, it, expect } from "vitest";
 // in vitest AND typechecks (the frontend tsconfig has no Node types).
 import readmeEn from "../../../../README.md?raw";
 import readmeDe from "../../../../README.de.md?raw";
+import featuresTxt from "../../../../features.txt?raw";
+import changelogMd from "../../../../CHANGELOG.md?raw";
+import cargoToml from "../../../../Cargo.toml?raw";
+import rootPkg from "../../../../package.json?raw";
+import fePkg from "../../package.json?raw";
+import macPkg from "../../../../macos/package.json?raw";
+import winPkg from "../../../../win/package.json?raw";
+import linuxPkg from "../../../../linux/package.json?raw";
+import macConf from "../../../../macos/src-tauri/tauri.conf.json?raw";
+import winConf from "../../../../win/src-tauri/tauri.conf.json?raw";
+import linuxConf from "../../../../linux/src-tauri/tauri.conf.json?raw";
 import { COMMAND_DOCS } from "./commandDocs";
 import { COMMANDS } from "./commands";
 
@@ -94,4 +105,52 @@ describe("the docs index is complete", () => {
       expect(ghosts, `toter Verweis: ${ghosts.join(", ")}`).toEqual([]);
     });
   }
+});
+
+describe("badge parity and manifest agreement", () => {
+  it("features badge equals the features.txt line count, in BOTH languages", () => {
+    // features.txt is the always-current one-line catalogue by contract; a
+    // badge that disagrees with it is a lie about the catalogue's size.
+    const lines = featuresTxt.split("\n").filter((l) => l.trim().length > 0).length;
+    expect(lines, "features.txt must not be empty").toBeGreaterThan(0);
+    expect(badge(readmeEn, "features")).toBe(lines);
+    expect(badge(readmeDe, "features")).toBe(lines);
+  });
+
+  it("every computed badge shows the SAME value in English and German", () => {
+    // ⚠️ This is the drift that actually happened: the German README sat at
+    // docs-22/modules-84 beside the English 24/87 for weeks, because the
+    // update script only carried rules for one language.
+    for (const key of ["commands", "docs", "rust%20modules", "crates", "features"]) {
+      expect(badge(readmeEn, key), `${key} missing in EN`).not.toBeNull();
+      expect(badge(readmeDe, key), `${key} missing in DE`).toBe(badge(readmeEn, key));
+    }
+    const split = (r: string) => r.match(/badge\/Rust-~(\d+)k%20LoC/)?.[1];
+    expect(split(readmeEn), "Rust split badge missing").toBeDefined();
+    expect(split(readmeDe)).toBe(split(readmeEn));
+  });
+
+  it("all nine version manifests agree on ONE version", () => {
+    // ⚠️ The release ritual bumps nine files; a missed one ships an app whose
+    // bundle and package disagree about what it is.
+    const pkgV = (s: string) => JSON.parse(s).version as string;
+    const v = pkgV(rootPkg);
+    expect(v).toMatch(/^\d+\.\d+\.\d+$/);
+    for (const [name, s] of [
+      ["core/frontend", fePkg], ["macos", macPkg], ["win", winPkg], ["linux", linuxPkg],
+      ["macos tauri.conf", macConf], ["win tauri.conf", winConf], ["linux tauri.conf", linuxConf],
+    ] as const) {
+      expect(pkgV(s), name).toBe(v);
+    }
+    expect(cargoToml, "Cargo.toml workspace version").toContain(`version = "${v}"`);
+  });
+
+  it("the CHANGELOG's topmost entry is the current version", () => {
+    // A release whose CHANGELOG still leads with the previous version has
+    // documentation lagging the artefact.
+    const v = JSON.parse(rootPkg).version as string;
+    const top = changelogMd.match(/^## \[(\d+\.\d+\.\d+)\]/m)?.[1];
+    expect(top, "no version heading in CHANGELOG").toBeDefined();
+    expect(top).toBe(v);
+  });
 });

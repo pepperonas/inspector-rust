@@ -33,7 +33,7 @@
   - 📸 **Screenshots — CleanShot-X-Stil**: Region (`Ctrl+Shift+S`) · Vollbild · aktives Fenster · Selbstauslöser · Wiederholen; schwebendes Vorschau-HUD; **Annotations-Editor** (Pfeil / Linie / Text / Rechteck / Ellipse / Highlight / Blur / Schwärzen / nummerierte Schritt-Badges); **an Bildschirm pinnen**. Dateinamen enthalten die Quell-App.
   - 🎥 **Bildschirmaufnahme** (`Ctrl+Shift+Alt+S`) — Region ziehen → Audio wählen (System / Mikro / beide) → 3-2-1 → **MP4 (H.264)** nach Downloads; schwebende Leiste mit **Pause/Resume**; Multi-Monitor; System-Audio routet automatisch über ein Loopback. Braucht ffmpeg.
   - 🔍 **Bildschirm-OCR** (`Ctrl+Shift+O`) — Apple Vision (macOS) / WinRT (Windows) / Tesseract (Linux). PDF-Qualität-Texterkennung ins Clipboard.
-  - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
+  - 🎬 **Medien-Tools** — **Download** von YouTube / Instagram / TikTok / Facebook (Video oder Audio — einfach eine URL einfügen; Tab toggelt bei YouTube), mit optionalem **Ausschnitt** unter den Buttons: gelbe Griffe im QuickTime-Stil, per Ohr über einen kleinen Audio-Proxy scrubben — der Download lädt dann **nur den Schnitt** (framegenau; 20 s aus einem 83-Minuten-Set kommen als ~1,2 MiB statt Hunderter MB); **Audio-Swap** (`Ctrl+Shift+Alt+M`) ersetzt oder mischt den Ton eines Videos mit einer lokalen Datei oder einem YouTube-Track; **Trim** von Audio/Video (`trim`) verlustfrei-schnell oder frame-genau. Brauchen ffmpeg / yt-dlp.
   - ⏱️ **Zeiterfassung / Timesheet** (`track on/off`; `track` oder **`Ctrl+Shift+T`**; macOS) — opt-in, event-basierte App-Nutzungserfassung per Fensterfokus mit rückwirkender Idle-Auto-Pause; ein editierbarer **Timesheet-Tab** mit Tages-/Wochen-Ansicht, Inline-SVG-Charts (Timeline · App-Donut · Kategorien · Projekte), **manueller Pause/Weiter-Taste**, CSV- + eigenständigem HTML-Export im sichtbaren Umfang (Tag oder Mo–So-Woche), **wochenweitem Aufräumen** und globalem **Tracking-Hotkey** (`Ctrl+Shift+Alt+T`, umbelegbar); erkennt **Claude-Code**-Nutzung pro Projekt (Zeit + Tokens); optionale **Browser-Extension** (nur Loopback-Socket). Fenstertitel + URLs at-rest verschlüsselt.
   - 📊 **System-Stats** (`stats`) — Live-Inline-Dashboard: CPU (gesamt + pro Kern), Speicher + Swap, **Akku & Leistungsaufnahme in Watt**, Temperaturen + **Lüfter-RPM** (SMC / hwmon), Disks, Live-Netzwerk-Durchsatz, Uptime. **Live ↔ History**-Umschalter mit Linien-Charts pro Metrik (1 h / 6 h / 24 h / 7 d).
   - ☀️ **Monitor-Helligkeit** (`brightness` / `bri`) — Slider inline in der Vorschau für interne *und* externe Displays (**↑↓** Monitor wählen, **←→** anpassen). Software-(Gamma-)Dimming auf macOS + Windows, Hardware-DDC/CI auf Linux. Auf **EDR-fähigen Macs** (14"/16" MBP XDR, Pro Display XDR) läuft *derselbe* Slider **über 100 %** hinaus und hebt das Display in seinen **Extra-Helligkeits-Bereich (EDR/XDR)** — Vivid-Stil, bis ~7× — via Multiply-Blend-Metal-Overlay; macOS drosselt thermisch automatisch (gleicher Pfad wie HDR-Video, innerhalb der Spezifikation).
@@ -54,8 +54,10 @@
   - 🎲 **Fake-Testdaten — `faker`** *(v0.84.270+)* — 70+ Generatoren (Namen, E-Mails, Adressen, Telefon, Firmen, Finanzen, Lorem, Datum, Zahlen, UUID/…, plus Composite-Records **person / user / address / order**) in 14 Locales. `faker` allein listet sie mit Live-Samples; `faker person 50 --csv @de` → 50 deutsche Datensätze als CSV im Clipboard, ein Enter. `--json` / `--sql` / `--ts`, `faker int 1..100`, `--seed=` reproduzierbar, ⌘/Ctrl+R würfelt neu, `faker tpl "{name} <{email}>"`. Ehrlicher Locale-Fallback (nicht unterstützt → EN, sichtbar). Auch `{faker:first_name}` in Snippets. Siehe [docs/faker.md](./docs/faker.md).
   - 🛡️ **Security-Command-Builder — `sec`** *(v0.84.271+)* — geführte Command-Builder für **nmap · sqlmap · feroxbuster · John**. Preset wählen, Ziel eintragen; Inspector Rust baut die korrekte (sh/bash-gequotete) Kommandozeile mit Flag-Erklärungstabelle — `nmap service 10.0.0.5` → `nmap -sV -sC 10.0.0.5`. **Enter kopiert; ⌘/Ctrl+Enter öffnet dein Terminal** mit dem eingefügten Command (macOS, opt-in, standardmäßig nicht abgeschickt). **Scannt nie selbst** — kein Subprozess, kein Netzwerk. Nur autorisierte Ziele. Siehe [docs/security-builder.md](./docs/security-builder.md).
   - 🌐 **Web-Such-Bangs** — `g` · `ddg` · `gh` · `yt` · `npm` · `crates` · `so` · `mdn` · `wiki` `<query>` öffnen die Suche der jeweiligen Seite.
-  - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer. Nimmt nativ (in Rust) auf, sodass der Start die Wiedergabe anderer Apps nie unterbricht.
-  - 💸 **Bruno (Brutto/Netto)** — deutscher Netto-Rechner 2025 als Suchleisten-Command, für **Angestellte UND Selbständige**: `bruno 60000` (Gehalt) oder `bruno 80000f` / `bruno 90000-15000f` (Gewinn bzw. Einnahmen − Ausgaben) mit freiwilliger GKV oder PKV-Fixbeitrag, Gewerbesteuer inkl. §35-Anrechnung, Grund-/Splittingtarif. Shift+Enter kopiert die komplette Aufstellung. Smarte Defaults + Pro-User-Override in den Einstellungen.
+  - 🥁 **BPM-Detektor** (`bpm`) — Live-Beat-Erkennung über das Mikro mit animiertem AAA-Visualizer. Nimmt nativ (in Rust) auf, sodass der Start die Wiedergabe anderer Apps nie unterbricht. Der kleine Bruder **`dezibel` / `db`** zeigt die Live-Lautstärke in dBFS mit derselben Leucht-und-Meter-Animation.
+  - 🏁 **CPU-Benchmark** (`benchmark` / `performance`) — sieben Disziplinen nach Geekbench-Vorbild, ein- und mehrkernig, bewertet gegen eine gemessene Referenz. Tippen zeigt erst die Vorschau; gemessen wird erst nach Bestätigung. Läufe liegen als JSON — ein Lauf von **einem anderen Rechner oder OS** lässt sich importieren und mit Deltas nebeneinanderlegen (Unterschiede unterhalb der Streuung sind als Rauschen markiert). Export als HTML/PDF.
+  - 📑 **Signierte Reports** — jeder exportierte Report (LoC, PageSpeed, Repo-Statistik, Benchmark, Bruno, Zeiterfassung; HTML wie PDF) trägt **Unterschrift und Vektor-Stempel** im geteilten druckfertigen Design — ein Blick über alle.
+  - 💸 **Bruno (Brutto/Netto)** — deutscher Netto-Rechner 2025 als Suchleisten-Command, für **Angestellte UND Selbständige**: `bruno 60000` (Gehalt) oder `bruno 80000f` / `bruno 90000-15000f` (Gewinn bzw. Einnahmen − Ausgaben) mit freiwilliger GKV oder PKV-Fixbeitrag, Gewerbesteuer inkl. §35-Anrechnung, Grund-/Splittingtarif. **Tab wechselt Angestellter ↔ Unternehmer** auf der Zeile; Shift+Enter kopiert die komplette Aufstellung, und die Vorschau **exportiert sie als HTML oder PDF** im geteilten Report-Design. Smarte Defaults + Pro-User-Override in den Einstellungen.
   - ⚙️ **Power-Commands** — die Suchleiste parst Dutzende Shell-artige Commands: Übersetzen (`tr` / `tren` / `trde` / `trde2it` / …), System (`kill` / `lock` / `reboot` / `shutdown` / `mute` / `freeze`), `rnd` / `random` (Würfeln), `timer` / `alarm <HH:MM>`, `touch` / `mkdir` / `terminal` (im offenen Finder-Ordner), `rmvvls`, `pwgen`, `meme [query]`, `calendar [monat jahr]` (Monatsansicht — welcher Wochentag war Datum X?) — plus jedes oben genannte Command. Fuzzy-gematcht, immer über den Clips, mit rotem Akzent gerendert. Ein **`?`** hinter einem Command (oder `?` allein) zeigt die volle **Inline-Hilfe** — Argumente, Beispiele, Tipps — direkt im Preview (auf Englisch).
   - 📓 **Snippets** (27 mitgelieferte KI-Prompts + 255 Material-Farben, **in Gruppen organisiert** — filtern, zuweisen, anlegen/umbenennen/sortieren/löschen) · **Notes** (persistente Bookmarks) · **Backup** (komplette App als eine Datei — inkl. 2FA + alle Settings + Snippet-Gruppen, Timesheet optional; optional passwort-verschlüsselt, Import mit Inline-Passwortabfrage).
   - 🟢 **Keep-alive & Wakelock** — `wakelock on/off` (Alias `caffeine`) hält die Maschine wach (pulsierende Footer-LED + On-Screen-Toast); **„Always keep running"** (Einstellungen → Startup) startet die App nativ neu, falls sie je beendet/gekillt wird.
@@ -64,7 +66,7 @@
 
   ### 🧰 Tech-Stack
 
-  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **4084 Unit-Tests (1531 Rust + 2553 Frontend).** MIT-lizenziert.
+  Tauri 2 (WebView2 / WKWebView) · Rust-Workspace (`core/rust-lib` geteilt, 2-Zeilen-Per-OS-Bundle-Shells) · React 19 + TypeScript 5 + Tailwind v4 + Vite 7 · Helligkeit via CoreGraphics/GDI-Gamma + DDC/CI (`ddc-hi`). **4088 Unit-Tests (1531 Rust + 2557 Frontend).** MIT-lizenziert.
 
   <!-- ── Headline-Kennzahlen — XXL Hero-Badges ─────────────────── -->
   <p>
@@ -72,8 +74,8 @@
       <img src="https://img.shields.io/badge/lines%20of%20code-~165k-2b3137?style=for-the-badge&logo=rust&logoColor=white" height="64" alt="Lines of code" />
     </a>
     &nbsp;
-    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1531 Rust + 2553 Frontend, alle grün">
-      <img src="https://img.shields.io/badge/unit%20tests-4084%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
+    <a href="https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml" title="Unit-Tests — 1531 Rust + 2557 Frontend, alle grün">
+      <img src="https://img.shields.io/badge/unit%20tests-4088%20passing-2ea043?style=for-the-badge&logo=vitest&logoColor=white" height="64" alt="Unit tests" />
     </a>
   </p>
 
@@ -95,12 +97,12 @@
   [![Issues](https://img.shields.io/github/issues/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/issues)
   [![Stars](https://img.shields.io/github/stars/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/stargazers)
   [![Maintenance](https://img.shields.io/badge/maintained-yes-brightgreen?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
-  [![Unit tests](https://img.shields.io/badge/unit%20tests-4084%20(1531%20Rust%20%2B%202553%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
+  [![Unit tests](https://img.shields.io/badge/unit%20tests-4088%20(1531%20Rust%20%2B%202557%20TS)-success?style=flat-square)](https://github.com/pepperonas/inspector-rust/actions/workflows/ci.yml)
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-61-4f46e5?style=flat-square)](#commands)
-  [![Docs](https://img.shields.io/badge/docs-22%20pages-0ea5e9?style=flat-square)](./docs)
-  [![Rust modules](https://img.shields.io/badge/rust%20modules-84-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![Docs](https://img.shields.io/badge/docs-24%20pages-0ea5e9?style=flat-square)](./docs)
+  [![Rust modules](https://img.shields.io/badge/rust%20modules-87-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-863-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
   [![Tauri](https://img.shields.io/badge/Tauri-2-24C8DB?style=flat-square&logo=tauri&logoColor=white)](https://tauri.app)
@@ -109,6 +111,7 @@
   [![Downloads](https://img.shields.io/github/downloads/pepperonas/inspector-rust/total?style=flat-square&label=downloads&color=8957e5)](https://github.com/pepperonas/inspector-rust/releases)
   [![Code size](https://img.shields.io/github/languages/code-size/pepperonas/inspector-rust?style=flat-square)](#)
   [![Commit activity](https://img.shields.io/github/commit-activity/m/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
+  [![Last commit](https://img.shields.io/github/last-commit/pepperonas/inspector-rust?style=flat-square)](https://github.com/pepperonas/inspector-rust/commits/main)
   [![Top language](https://img.shields.io/github/languages/top/pepperonas/inspector-rust?style=flat-square)](#)
   [![Languages](https://img.shields.io/github/languages/count/pepperonas/inspector-rust?style=flat-square&label=languages)](#)
   [![Release date](https://img.shields.io/github/release-date/pepperonas/inspector-rust?style=flat-square&label=released)](https://github.com/pepperonas/inspector-rust/releases/latest)
@@ -171,7 +174,7 @@
   [![ESLint](https://img.shields.io/badge/ESLint-flat%20config-4B32C3?style=flat-square&logo=eslint&logoColor=white)](https://eslint.org)
   [![Vitest](https://img.shields.io/badge/Vitest-3-6E9F18?style=flat-square&logo=vitest&logoColor=white)](https://vitest.dev)
   [![cargo test](https://img.shields.io/badge/cargo%20test-1531%20passing-success?style=flat-square&logo=rust&logoColor=white)](#)
-  [![vitest](https://img.shields.io/badge/vitest-2553%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
+  [![vitest](https://img.shields.io/badge/vitest-2557%20passing-success?style=flat-square&logo=vitest&logoColor=white)](#)
   [![cargo clippy](https://img.shields.io/badge/cargo%20clippy-D%20warnings-success?style=flat-square&logo=rust&logoColor=white)](#)
   [![tsc strict](https://img.shields.io/badge/tsc-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)](#)
   [![Prettier](https://img.shields.io/badge/code%20style-Prettier-F7B93E?style=flat-square&logo=prettier&logoColor=black)](https://prettier.io)
@@ -204,7 +207,7 @@
   [![exe size](https://img.shields.io/badge/.exe-~14%20MB-blue?style=flat-square&logo=windows&logoColor=white)](#)
 
   <!-- ── Features (numerical) ────────────────────────────────── -->
-  [![Tests](https://img.shields.io/badge/tests-4084%20passing-success?style=flat-square)](#)
+  [![Tests](https://img.shields.io/badge/tests-4088%20passing-success?style=flat-square)](#)
   [![IPC commands](https://img.shields.io/badge/IPC%20commands-284-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Search-bar commands](https://img.shields.io/badge/search--bar%20commands-74-blueviolet?style=flat-square)](./core/rust-lib/src/commands.rs)
   [![Tauri events](https://img.shields.io/badge/events-33-blueviolet?style=flat-square)](#)
@@ -219,9 +222,9 @@
   [![Image formats](https://img.shields.io/badge/image%20formats-5-blueviolet?style=flat-square)](#)
   [![Time tracking](https://img.shields.io/badge/timesheet-event--based%20·%20encrypted-CE422B?style=flat-square)](./docs/timesheet.md)
   [![Privacy](https://img.shields.io/badge/privacy-offline%20·%20no%20telemetry-success?style=flat-square)](./docs/encryption.md)
-  [![Rust LoC](https://img.shields.io/badge/Rust-~44k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
-  [![TS LoC](https://img.shields.io/badge/TypeScript-~38k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
-  [![Source LoC](https://img.shields.io/badge/source-~81k%20LoC-2b3137?style=flat-square)](#)
+  [![Rust LoC](https://img.shields.io/badge/Rust-~83k%20LoC-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
+  [![TS LoC](https://img.shields.io/badge/TypeScript-~81k%20LoC-3178C6?style=flat-square&logo=typescript&logoColor=white)](./core/frontend/src)
+  [![Features](https://img.shields.io/badge/features-165-0ea5e9?style=flat-square)](./features.txt)
   [![EDR headroom](https://img.shields.io/badge/XDR-up%20to%201600%20nits-FFB300?style=flat-square&logo=apple&logoColor=white)](#)
   [![Audio presets](https://img.shields.io/badge/boom-20%20EQ%20presets-1DB954?style=flat-square)](#)
   [![Material colours](https://img.shields.io/badge/snippets-255%20colours-blueviolet?style=flat-square)](#)
@@ -379,7 +382,7 @@
   [![Espresso-betrieben](https://img.shields.io/badge/angetrieben%20von-Espresso-6F4E37?style=flat-square)](#)
   [![Zero Config](https://img.shields.io/badge/setup-zero%20config-brightgreen?style=flat-square)](#)
   [![Kein Account](https://img.shields.io/badge/account-nicht%20nötig-brightgreen?style=flat-square)](#)
-  [![100+ Features](https://img.shields.io/badge/features-100%2B-e11d48?style=flat-square)](./features.txt)
+  [![100+ Features](https://img.shields.io/badge/features-165%2B-e11d48?style=flat-square)](./features.txt)
   [![Retro-Games](https://img.shields.io/badge/versteckt-Pong%20·%20Snake%20·%20Invaders%20·%20Flappy-ff69b4?style=flat-square)](#)
   [![Auf LinkedIn teilen](https://img.shields.io/badge/teilen%20auf-LinkedIn-0A66C2?style=flat-square&logo=linkedin&logoColor=white)](https://www.linkedin.com/)
 
@@ -941,7 +944,7 @@ Volle Feature-Referenz: [`docs/notes.md`](./docs/notes.md). Backup-Datei-Schema 
 Inspector Rust hält seine **pure Logik** — Parser, Mathematik, State-Machines, Arg-Builder, Formatierer — als freie Funktionen und testet sie erschöpfend (Verhalten, Edge-Cases, Fehlerpfade), während die unreine OS/FFI-Kante (CoreAudio/Vision/CGEvent-FFI, Tauri-Fenster, `ffmpeg`/`yt-dlp`/`osascript`-Spawns, Web Audio) manuell/per Integration getestet wird — sie braucht ein Live-System. Der deterministisch testbare Code ist daher gut abgedeckt — **Frontend `src/lib` ≈ 83 % stmt / 95 % Branch** (gemessen 2026-07-19) und die puren Rust-Kerne neben ihren 0 %-FFI-Shells (z. B. `window_snap/mod.rs` 93 %, `boom/mod.rs` 93 %) — auch wenn der Workspace-Schnitt bescheiden aussieht.
 
 ```bash
-pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2553 Tests
+pnpm test               # Frontend-Unit-Tests (vitest + happy-dom) — 2557 Tests
 cargo test --workspace  # Rust-Unit-Tests — 1531 Tests
 ```
 

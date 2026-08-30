@@ -253,6 +253,24 @@ pub fn build_compare_html(runs: &[BenchRun]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Strip embedded data URIs before content assertions: the base64 blob of
+    /// the signature can contain ANY letter triple — "NaN" included — and a
+    /// grep over it produces false positives. External-reference checks must
+    /// still see everything else, so only the base64 payload is removed.
+    fn sans_data_uris(h: &str) -> String {
+        let mut out = String::new();
+        let mut rest = h;
+        while let Some(i) = rest.find("data:image/png;base64,") {
+            out.push_str(&rest[..i]);
+            out.push_str("data:image/png;base64,ELIDED");
+            let tail = &rest[i + 22..];
+            let end = tail.find('"').unwrap_or(tail.len());
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
     use crate::bench::{Section, WorkloadResult};
 
     fn wl(id: &str, score: u32) -> WorkloadResult {
@@ -347,8 +365,11 @@ mod tests {
         let h = build_html(&run("a", &[("sort", 1000)], full()));
         assert!(h.contains("</html>"));
         assert!(!h.contains("<script"));
+        let h = sans_data_uris(&h);
         assert!(!h.contains("http://") && !h.contains("https://"));
-        assert!(!h.contains("src="));
+        // ⚠️ The embedded signature legitimately uses src="data:…"; only an
+        // EXTERNAL src is a violation.
+        assert!(!h.replace("src=\"data:", "").contains("src="));
     }
 
     #[test]

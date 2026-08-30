@@ -153,6 +153,24 @@ pub fn build_html(r: &PageSpeedReport) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Strip embedded data URIs before content assertions: the base64 blob of
+    /// the signature can contain ANY letter triple — "NaN" included — and a
+    /// grep over it produces false positives. External-reference checks must
+    /// still see everything else, so only the base64 payload is removed.
+    fn sans_data_uris(h: &str) -> String {
+        let mut out = String::new();
+        let mut rest = h;
+        while let Some(i) = rest.find("data:image/png;base64,") {
+            out.push_str(&rest[..i]);
+            out.push_str("data:image/png;base64,ELIDED");
+            let tail = &rest[i + 22..];
+            let end = tail.find('"').unwrap_or(tail.len());
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
     use crate::pagespeed::{CategoryScore, Metric};
 
     fn run(strategy: &str, perf: Option<u8>) -> StrategyRun {
@@ -207,7 +225,14 @@ mod tests {
 
     #[test]
     fn the_document_is_self_contained() {
-        let h = build_html(&report());
+        let raw = build_html(&report());
+        // Signature + seal ride in through the shared shell — pinned here
+        // because pagespeed has no sight-check dump of its own.
+        assert!(raw.contains(r#"<div class="rp-sign">"#) && raw.contains(r#"<svg class="rp-seal""#));
+        let h = sans_data_uris(&raw);
+        // ⚠️ The embedded signature legitimately uses src="data:…"; only an
+        // EXTERNAL src is a violation.
+        let h = h.replace("src=\"data:image/png;base64,ELIDED", "");
         for forbidden in ["<script", "http://", "@import", "<link", "src="] {
             assert!(!h.contains(forbidden), "{forbidden} darf nicht vorkommen");
         }

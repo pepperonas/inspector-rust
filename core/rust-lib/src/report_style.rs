@@ -156,6 +156,16 @@ footer {{
 }}
 footer b {{ color: var(--ink); font-weight: 600 }}
 
+/* ── Unterschrift + Stempel (Portal-Layout `drawSignatures`) ───── */
+.rp-sign {{ display: flex; justify-content: space-between; gap: 40px; margin: 44px 0 6px; break-inside: avoid }}
+.rp-sign-col {{ width: 250px; text-align: center }}
+.rp-sign-space {{ position: relative; height: 68px; display: flex; align-items: flex-end; justify-content: center; font-weight: 640; font-size: 13px }}
+.rp-sign-img {{ max-width: 230px; max-height: 58px; display: block; margin: 0 auto }}
+.rp-seal {{ position: absolute; left: -4px; bottom: -28px; width: 106px; height: 106px }}
+.rp-sign-line {{ height: 1px; background: var(--rule); margin-top: 4px }}
+.rp-sign-cap {{ margin-top: 6px; font-size: 9.5px; color: var(--muted); line-height: 1.5 }}
+.rp-sign-cap b {{ color: var(--ink); font-size: 11px }}
+
 /* ── Print ─────────────────────────────────────────────────────── */
 @page {{ size: A4; margin: 14mm }}
 @media print {{
@@ -175,6 +185,31 @@ footer b {{ color: var(--ink); font-weight: 600 }}
 /// `kicker` is the small label above the title (what KIND of report this is),
 /// `subject` the thing measured (path, URL, range) — shown monospaced because
 /// it is a machine string a reader may need to copy exactly.
+/// `TT.MM.JJJJ` of today — the signature's date line (the portal's dateStr).
+/// The one clock read besides the seal year; the body stays deterministic.
+fn today_de() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let mut days = (secs / 86_400) as i64;
+    let mut year = 1970i64;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let len = if leap { 366 } else { 365 };
+        if days < len { break; }
+        days -= len;
+        year += 1;
+    }
+    let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    let months = [31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    let mut month = 1;
+    for len in months {
+        if days < len { break; }
+        days -= len;
+        month += 1;
+    }
+    format!("{:02}.{:02}.{}", days + 1, month, year)
+}
+
 pub fn shell(kicker: &str, title: &str, subject: &str, body: &str, foot: &str) -> String {
     format!(
         r#"<!doctype html>
@@ -191,9 +226,15 @@ pub fn shell(kicker: &str, title: &str, subject: &str, body: &str, foot: &str) -
 </header>
 <div class="rp-rule"></div>
 {body}
+{sign}
 <footer>{foot}</footer>
 </body></html>"#,
         css = css(),
+        // ⚠️ Every report gets the signature + seal through THIS one seam — the
+        // per-export copy is exactly what the portal work warns against. An
+        // empty foot (the bench "nothing to compare" shell) stays unsigned:
+        // signing an empty document would be wrong.
+        sign = if foot.is_empty() { String::new() } else { signature_block(&today_de()) },
         kicker = kicker,
         title = title,
         subject = subject,
@@ -277,9 +318,199 @@ pub fn name_cell(color: &str, name: &str, share: f64) -> String {
     )
 }
 
+
+// ── Unterschrift + Stempel (v0.157.0) ──────────────────────────────────────
+//
+// Faithful port of the portal's `drawSignatures`/`drawSeal`
+// (celox-portal/server/certificate.js) into the HTML report world:
+// * The SIGNATURE is the same PNG asset, vendored and embedded as a data URI —
+//   the reports are pinned self-contained, an external file would break both
+//   the pin and the offline guarantee.
+// * The SEAL is a vector port (SVG) of `drawSeal`, geometry value for value
+//   (ring radii, 52 beads, guilloche 22 lobes, shield with check, −8° tilt).
+//   The portal draws it as vector precisely so no asset can go missing; SVG is
+//   the same decision in this rendering world. Arc text uses SVG textPath —
+//   the browser measures the glyphs, which is what pdfkit's per-char arcText
+//   emulated by hand.
+// * Ring wording follows the portal's honesty rule ("the stamp must not
+//   contradict the sheet"): a scan is neither a completion nor an assessment,
+//   so the bottom arc reads DURCHGEFÜHRTE ANALYSE.
+
+/// Portal primary — the seal ink.
+const SEAL_COLOR: &str = "#0B57D0";
+const SIG_PNG: &[u8] = include_bytes!("../assets/signature.png");
+
+/// Angles count from 12 o'clock, clockwise — the portal's convention. Using
+/// math angles from the x-axis puts everything 90° off (their documented trap).
+fn on_circle(r: f64, deg: f64) -> (f64, f64) {
+    let a = deg.to_radians();
+    (a.sin() * r, -a.cos() * r)
+}
+
+/// The seal as inline SVG, radius-normalised to r = 100 (viewBox ±115).
+pub fn seal_svg(bottom_text: &str) -> String {
+    let c = SEAL_COLOR;
+    // Beads: 52, like the portal ("Perlring … von Hand nicht sauber nachzubauen").
+    let mut beads = String::new();
+    for i in 0..52 {
+        let (x, y) = on_circle(90.0, f64::from(i) * 360.0 / 52.0);
+        beads.push_str(&format!(r##"<circle cx="{x:.2}" cy="{y:.2}" r="1.15" fill="{c}"/>"##));
+    }
+    // Guilloche: r 56.5 ± 5, 22 lobes, two phases, 540 steps (portal numbers —
+    // "die Bogenzahl ist NICHT je mehr desto feiner").
+    let guil = |phase: f64| {
+        let mut d = String::from("M");
+        for i in 0..=540 {
+            let t = f64::from(i) / 540.0 * 360.0;
+            let rr = 56.5 + 5.0 * ((22.0 * t + phase).to_radians()).cos();
+            let (x, y) = on_circle(rr, t);
+            if i > 0 {
+                d.push_str(" L");
+            }
+            d.push_str(&format!("{x:.2} {y:.2}"));
+        }
+        d.push('Z');
+        d
+    };
+    // Stars where the two arcs meet — upright, not radially rotated (a
+    // five-point star tilted 90° vs 270° reads as a mistake, per the portal).
+    let star = |cx: f64, cy: f64, r_out: f64| {
+        let r_in = r_out * 0.4;
+        let mut d = String::from("M");
+        for i in 0..10 {
+            let rr = if i % 2 == 1 { r_in } else { r_out };
+            let (x, y) = on_circle(rr, f64::from(i) * 36.0);
+            if i > 0 {
+                d.push_str(" L");
+            }
+            d.push_str(&format!("{:.2} {:.2}", cx + x, cy + y));
+        }
+        d.push('Z');
+        d
+    };
+    let (sx1, sy1) = on_circle(76.5, 90.0);
+    let (sx2, sy2) = on_circle(76.5, 270.0);
+    // Shield: portal geometry sw = 21, sh = 19, centred at (0, −10); the inner
+    // tressure is the classic certificate detail.
+    let shield = |w: f64, h: f64| {
+        format!(
+            "M{x0:.2} {y0:.2} L{x1:.2} {y0:.2} L{x1:.2} {y2:.2} Q{x1:.2} {y3:.2} 0 {y4:.2} Q{x0:.2} {y3:.2} {x0:.2} {y2:.2} Z",
+            x0 = -w,
+            x1 = w,
+            y0 = -10.0 - h,
+            y2 = -10.0 + h * 0.2,
+            y3 = -10.0 + h * 0.98,
+            y4 = -10.0 + h * 1.4,
+        )
+    };
+    format!(
+        r##"<svg class="rp-seal" viewBox="-115 -115 230 230" role="img" aria-label="Stempel">
+<g transform="rotate(-8)" stroke="{c}" fill="none" opacity="0.92">
+<circle r="100" stroke-width="4.2"/>
+<circle r="94.5" stroke-width="1.3"/>
+{beads}
+<circle r="85.5" stroke-width="1.3"/>
+<path id="rp-arc-top" d="M -76.5 0 A 76.5 76.5 0 1 1 76.5 0" stroke="none"/>
+<path id="rp-arc-bot" d="M -70 0 A 70 70 0 0 0 70 0" stroke="none"/>
+<text fill="{c}" stroke="none" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="10.4" letter-spacing="2"><textPath href="#rp-arc-top" startOffset="50%" text-anchor="middle">CELOX.IO&#160;&#160;·&#160;&#160;BERLIN</textPath></text>
+<text fill="{c}" stroke="none" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="9.5" letter-spacing="1.6"><textPath href="#rp-arc-bot" startOffset="50%" text-anchor="middle">{bottom_text}</textPath></text>
+<path d="{star1}" fill="{c}" stroke="none"/>
+<path d="{star2}" fill="{c}" stroke="none"/>
+<circle r="67.5" stroke-width="1.4"/>
+<circle r="64.5" stroke-width="0.9"/>
+<g opacity="0.72" stroke-width="0.8">
+<path d="{g0}"/>
+<path d="{g180}"/>
+<circle r="56.5" stroke-width="0.6"/>
+</g>
+<path d="{sh_out}" stroke-width="3.8"/>
+<path d="{sh_in}" stroke-width="1.05"/>
+<path d="M{cx0:.2} {cy0:.2} L{cx1:.2} {cy1:.2} L{cx2:.2} {cy2:.2}" stroke-width="5.2" stroke-linecap="round" stroke-linejoin="round"/>
+<text fill="{c}" stroke="none" x="0" y="34" text-anchor="middle" font-family="Helvetica, Arial, sans-serif" font-weight="700" font-size="11.8" letter-spacing="2.6">{year}</text>
+</g></svg>"##,
+        star1 = star(sx1, sy1, 5.0),
+        star2 = star(sx2, sy2, 5.0),
+        g0 = guil(0.0),
+        g180 = guil(180.0),
+        sh_out = shield(21.0, 19.0),
+        sh_in = shield(21.0 * 0.74, 19.0 * 0.72),
+        cx0 = -21.0 * 0.36,
+        cy0 = -10.0 + 19.0 * 0.12,
+        cx1 = -21.0 * 0.06,
+        cy1 = -10.0 + 19.0 * 0.5,
+        cx2 = 21.0 * 0.38,
+        cy2 = -10.0 - 19.0 * 0.36,
+        year = seal_year(),
+    )
+}
+
+/// The seal year. The ONLY clock read in the report path — matching the portal
+/// (`new Date().getFullYear()`); everything else stays deterministic.
+fn seal_year() -> i32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let days = secs / 86_400;
+    let mut year = 1970i32;
+    let mut rem = days as i64;
+    loop {
+        let leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+        let len = if leap { 366 } else { 365 };
+        if rem < len {
+            break;
+        }
+        rem -= len;
+        year += 1;
+    }
+    year
+}
+
+/// Signature + seal footer block — the portal's `drawSignatures` layout: date
+/// left over a line, the signature over the right line with the seal ON the
+/// ink ("ein Stempel liegt auf der Tinte, nicht darunter"), name + issuer
+/// below. ⚠️ Deliberately NO "digital signiert": these PDFs carry no
+/// cryptographic signature, and the portal documents why that claim would be
+/// exactly what a careful reader checks.
+pub fn signature_block(date: &str) -> String {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    let sig = B64.encode(SIG_PNG);
+    format!(
+        r##"<div class="rp-sign">
+  <div class="rp-sign-col">
+    <div class="rp-sign-space">{date}</div>
+    <div class="rp-sign-line"></div>
+    <div class="rp-sign-cap">Datum</div>
+  </div>
+  <div class="rp-sign-col">
+    <div class="rp-sign-space"><img class="rp-sign-img" src="data:image/png;base64,{sig}" alt="Unterschrift Martin Pfeffer">{seal}</div>
+    <div class="rp-sign-line"></div>
+    <div class="rp-sign-cap"><b>Martin Pfeffer</b><br>Erstellt mit Inspector Rust · celox.io</div>
+  </div>
+</div>"##,
+        seal = seal_svg("DURCHGEFÜHRTE ANALYSE"),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Strip embedded data URIs before content assertions: the base64 blob of
+    /// the signature can contain ANY letter triple — "NaN" included — and a
+    /// grep over it produces false positives. External-reference checks must
+    /// still see everything else, so only the base64 payload is removed.
+    fn sans_data_uris(h: &str) -> String {
+        let mut out = String::new();
+        let mut rest = h;
+        while let Some(i) = rest.find("data:image/png;base64,") {
+            out.push_str(&rest[..i]);
+            out.push_str("data:image/png;base64,ELIDED");
+            let tail = &rest[i + 22..];
+            let end = tail.find('"').unwrap_or(tail.len());
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
 
     #[test]
     fn series_colours_are_stable_distinct_and_legible() {
@@ -306,7 +537,16 @@ mod tests {
         let h = shell("Kicker", "Titel", "/pfad", "<p>x</p>", "Fuß");
         assert!(h.starts_with("<!doctype html>"));
         assert!(h.contains("</html>"));
+        // The signed shell must carry signature + seal — as MARKUP, not just
+        // the class names, which always sit in the stylesheet (first version of
+        // this pin grepped bare "rp-sign" and matched the CSS).
+        assert!(h.contains(r#"<div class="rp-sign">"#) && h.contains(r#"<svg class="rp-seal""#));
+        // … and an UNSIGNED shell (empty foot = the bench "nothing to compare"
+        // case) must not sign an empty document.
+        assert!(!shell("K", "T", "", "<p/>", "").contains(r#"<div class="rp-sign">"#));
         // Self-contained: nothing that would fetch when the file is opened.
+        // ⚠️ The embedded signature legitimately uses src="data:…".
+        let h = sans_data_uris(&h).replace("src=\"data:image/png;base64,ELIDED", "");
         for forbidden in ["<script", "http://", "https://", "@import", "<link", "src="] {
             assert!(!h.contains(forbidden), "{forbidden} darf nicht vorkommen");
         }
@@ -372,5 +612,39 @@ mod tests {
         // Out-of-range shares are clamped rather than overflowing the row.
         assert!(name_cell("#abc", "x", 2.5).contains("width:100.00%"));
         assert!(name_cell("#abc", "x", -1.0).contains("width:0.00%"));
+    }
+
+
+    #[test]
+    fn the_block_carries_signature_seal_and_name() {
+        let h = signature_block("30.08.2026");
+        assert!(h.contains("data:image/png;base64,"), "embedded signature");
+        assert!(h.contains("rp-seal"), "seal svg present");
+        assert!(h.contains("Martin Pfeffer"));
+        assert!(h.contains("30.08.2026"));
+        // ⚠️ The portal explicitly refuses this claim: no cryptographic
+        // signature, so the words must not appear.
+        assert!(!h.to_lowercase().contains("digital signiert"));
+    }
+
+    #[test]
+    fn the_seal_keeps_the_portal_geometry_and_honest_wording() {
+        let s = seal_svg("DURCHGEFÜHRTE ANALYSE");
+        assert!(s.contains("rotate(-8)"), "hand-stamped tilt");
+        assert_eq!(s.matches("<circle cx=").count(), 52, "52 beads");
+        assert!(s.contains("CELOX.IO"));
+        assert!(s.contains("DURCHGEFÜHRTE ANALYSE"));
+        // ⚠️ The stamp must not contradict the sheet: a scan is neither a
+        // completion nor an assessment (the portal's documented rule).
+        assert!(!s.contains("ABSCHLUSS") && !s.contains("ASSESSMENT"));
+        assert!(s.contains(SEAL_COLOR));
+    }
+
+    #[test]
+    fn the_seal_is_pure_vector_apart_from_text() {
+        // The portal draws the seal as vector so no asset can go missing; the
+        // SVG port must not smuggle a bitmap in.
+        let s = seal_svg("X");
+        assert!(!s.contains("<img") && !s.contains("data:image"));
     }
 }

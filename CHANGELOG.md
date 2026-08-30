@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.157.0] - 2026-08-30
+
+### Added
+
+- **Alle Report-Exporte tragen Unterschrift und Stempel** — LoC, PageSpeed, Repo, Benchmark (Einzel + Vergleich), Bruno und die Zeiterfassung, in HTML wie PDF. Vorlage ist 1:1 das Portal (`celox-portal/server/certificate.js`): dieselbe `signature.png` (vendort, als data-URI eingebettet — die Reports sind auf „selbstenthalten" gepinnt), der Stempel als **getreue SVG-Portierung** von `drawSeal` (Doppelring, Perlring mit 52 Perlen, Umlaufschrift, Guillochenband mit 22 Bögen, Schild mit Haken und Tressur, Jahr, −8° Handaufdruck), dasselbe Layout aus `drawSignatures` (Datum links, Unterschrift rechts, **Siegel auf der Tinte**, Name + Aussteller darunter).
+
+### Notes
+
+- ⚠️ **Ein Einbau, keine sechs Kopien:** der Block hängt in `report_style::shell()` — jeder heutige UND künftige Report ist automatisch signiert. Ein leerer Fuß (der „Nichts zu vergleichen"-Benchmark-Sonderfall) bleibt unsigniert: ein leeres Dokument zu unterschreiben wäre falsch (gepinnt).
+- ⚠️ **Ring-Wortlaut nach der Ehrlichkeits-Regel des Portals** („der Stempel darf dem Blatt nicht widersprechen"): ein Scan ist weder Abschluss noch Assessment, der untere Bogen sagt **DURCHGEFÜHRTE ANALYSE**; `ABSCHLUSS`/`ASSESSMENT` sind per Test verboten. Ebenso bewusst **kein „digital signiert"** — die PDFs tragen keine kryptografische Signatur (per Test verboten).
+- ⚠️ **Base64 kann JEDES Buchstabentripel enthalten — auch „NaN".** Die Inhalts-Pins (kein NaN, kein externes `src=`) liefen nach dem Einbetten über den 115-KB-Blob und schlugen falsch an; sie streifen jetzt data-URIs ab, bevor sie prüfen. Und ein Klassenname im Stylesheet ist kein Markup: der Signatur-Pin prüft `<div class="rp-sign">`, nicht das bloße Wort (die erste Fassung matchte die CSS).
+- Verifiziert: alle 8 Sicht-Dumps tragen genau 1× Unterschrift + 1× Stempel, je ein PDF erzeugt (310–420 KB); der Block im Bild abgenommen (Stempel liegt auf dem Namenszug, Ring lässt ihn lesbar).
+
 ## [0.156.0] - 2026-08-30
 
 ### Added

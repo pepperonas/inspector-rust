@@ -166,6 +166,24 @@ pub fn build_html(r: &BrunoReport) -> String {
 mod tests {
     use super::*;
 
+    /// Strip embedded data URIs before content assertions: the base64 blob of
+    /// the signature can contain ANY letter triple — "NaN" included — and a
+    /// grep over it produces false positives. External-reference checks must
+    /// still see everything else, so only the base64 payload is removed.
+    fn sans_data_uris(h: &str) -> String {
+        let mut out = String::new();
+        let mut rest = h;
+        while let Some(i) = rest.find("data:image/png;base64,") {
+            out.push_str(&rest[..i]);
+            out.push_str("data:image/png;base64,ELIDED");
+            let tail = &rest[i + 22..];
+            let end = tail.find('"').unwrap_or(tail.len());
+            rest = &tail[end..];
+        }
+        out.push_str(rest);
+        out
+    }
+
     fn sample(is_self: bool) -> BrunoReport {
         BrunoReport {
             mode: if is_self { "self" } else { "employee" }.into(),
@@ -218,8 +236,11 @@ mod tests {
         // Same contract as loc/pagespeed/bench: inline CSS, no script, no
         // external request — a report must render identically offline.
         assert!(!h.contains("<script"));
-        assert!(!h.contains("http://") && !h.contains("https://"));
-        assert!(!h.contains("src="));
+        let h2 = sans_data_uris(&h);
+        assert!(!h2.contains("http://") && !h2.contains("https://"));
+        // ⚠️ The embedded signature legitimately uses src="data:…"; only an
+        // EXTERNAL src is a violation.
+        assert!(!h2.replace("src=\"data:", "").contains("src="));
         assert_eq!(h, build_html(&sample(false)), "must be deterministic");
     }
 

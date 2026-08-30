@@ -36,6 +36,7 @@ import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
 import { WeatherPanel } from "./components/WeatherPanel";
 import { TokensPanel } from "./components/TokensPanel";
 import { ResizePanel } from "./components/ResizePanel";
+import { DezibelPanel } from "./components/DezibelPanel";
 import { RandomPanel } from "./components/RandomPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
@@ -1329,6 +1330,16 @@ function App() {
     };
   }, [isResizeCmd]);
 
+  // `dezibel` / `db` -- live mic loudness in the preview. Enter-activated on
+  // purpose: the house rule is that a panel which OPENS THE MICROPHONE must
+  // never start from a stray keystroke (same as `shazam` and bare `iris`).
+  const isDezibelCmd = parsedCommand?.spec.kind === "dezibel";
+  const [dezibelMode, setDezibelMode] = useState(false);
+  useEffect(() => {
+    // Leaving the command releases the mic by unmounting the panel.
+    if (!isDezibelCmd && dezibelMode) setDezibelMode(false);
+  }, [isDezibelCmd, dezibelMode]);
+
   const isRandomCmd = parsedCommand?.spec.kind === "random";
   useEffect(() => {
     if (isRandomCmd && !randomMode) setRandomMode(true);
@@ -1550,6 +1561,10 @@ function App() {
           : "e.g. `rz 50` (50 %), `rz 1200x800` (pixels), `rz px 50`, `rz % 150`";
         break;
       }
+      case "dezibel":
+        label = "Lautstärke messen — live in dBFS";
+        hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
+        break;
       case "optim":
         label = "Compress the selected image(s)";
         hint =
@@ -3158,6 +3173,9 @@ function App() {
     setNosleepFocus(false);
     setAliasMode(false);
     setAliasFocus(false);
+    // ⚠️ Explicit: a mic panel surviving a click-away hide would keep the
+    // native capture running invisibly (the bpm/equalizer lesson, v0.105.0).
+    setDezibelMode(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -3281,7 +3299,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3299,6 +3317,10 @@ function App() {
           commandKind === "pagespeed" ||
           commandKind === "alias";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
+      }
+      if (commandKind === "dezibel") {
+        setDezibelMode(true);
+        return true;
       }
       if (isTranslateKind(commandKind)) {
         // Enter → copy the live translation; ⇧Enter → open Google Translate.
@@ -4841,6 +4863,10 @@ function App() {
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />
+                  </div>
+                ) : dezibelMode ? (
+                  <div className="md3-pop-in h-full">
+                    <DezibelPanel />
                   </div>
                 ) : isResizeCmd ? (
                   <div className="md3-pop-in h-full">

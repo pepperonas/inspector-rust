@@ -45,7 +45,7 @@ describe("COMMANDS catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
-    expect(COMMANDS.length).toBe(102);
+    expect(COMMANDS.length).toBe(104);
   });
 
   it("every keyword is unique", () => {
@@ -1238,6 +1238,38 @@ describe("parseTrackArg", () => {
     expect(parseTrackArg("pause")).toBeNull();
     expect(parseTrackArg("2")).toBeNull();
     expect(parseTrackArg("onn")).toBeNull();
+  });
+});
+
+describe("db is dezibel", () => {
+  it("parses to the SAME kind, so everything downstream is unchanged", () => {
+    // The alias carries no logic of its own: one `kind` means the dispatch,
+    // the command row and the panel all keep working untouched.
+    const a = parseCommand("db");
+    expect(a?.spec.kind).toBe("dezibel");
+    expect(parseCommand("dezibel")?.spec.kind).toBe(a?.spec.kind);
+  });
+
+  it("is runnable BARE — the meter takes no argument", () => {
+    expect(parseCommand("dezibel")).not.toBeNull();
+    expect(parseCommand("db")).not.toBeNull();
+    expect(parseCommand("dezibel")?.spec.requiresArg).toBe(false);
+  });
+
+  it("does not swallow a longer word that merely starts the same way", () => {
+    // ⚠️ This does not test the spec — it guards the PRECONDITION that makes
+    // a two-character keyword safe at all: `lookupKeyword` matches exactly.
+    // Verified by mutation: making it prefix-based turns this red (`db` then
+    // hijacks every word starting with those letters).
+    expect(parseCommand("dbx")?.spec.kind).not.toBe("dezibel");
+    expect(parseCommand("dezibelmeter")?.spec.kind).not.toBe("dezibel");
+  });
+
+  it("its kind IS a real keyword, or the panel would flash open and shut", () => {
+    // The panel canonicalisation sets the query to the KIND string; a kind
+    // that is not a keyword stops parsing as the command, the auto-exit
+    // effect fires on the same tick and the panel closes itself (v0.84.247).
+    expect(parseCommand("dezibel")?.spec.kind).toBe("dezibel");
   });
 });
 

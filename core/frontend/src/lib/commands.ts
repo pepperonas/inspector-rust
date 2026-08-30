@@ -58,6 +58,7 @@ export type CommandKind =
   | "nosleep"
   | "alias"
   | "benchmark"
+  | "dezibel"
   | "clown"
   | "bruno"
   | "timer"
@@ -484,6 +485,20 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "benchmark",
     syntax: "benchmark",
     description: "CPU-Benchmark — Vorschau, dann auf Bestätigung Single- und Multi-Core messen.",
+    requiresArg: false,
+  },
+  {
+    kind: "dezibel",
+    keyword: "dezibel",
+    syntax: "dezibel",
+    description: "Live-Lautstärke in dBFS — animierte Anzeige in der Vorschau (Mikrofon).",
+    requiresArg: false,
+  },
+  {
+    kind: "dezibel",
+    keyword: "db",
+    syntax: "db",
+    description: "Live-Lautstärke — Alias von `dezibel` (gleicher Befehl, Kurzform).",
     requiresArg: false,
   },
   {

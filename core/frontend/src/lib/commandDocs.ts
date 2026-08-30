@@ -628,6 +628,33 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["faker"],
   },
   {
+    command: "dezibel",
+    aliases: ["db"],
+    category: CAT_SYS,
+    version_added: "0.154.0",
+    tagline: "Live microphone loudness in dBFS, animated in the preview.",
+    tagline_de: "Live-Lautstärke vom Mikrofon in dBFS, animiert in der Vorschau.",
+    synopsis: "dezibel    ·    db",
+    description:
+      "Opens the microphone and shows the current loudness in **dBFS** in the preview: a large monospace number whose glow and scale follow the level, plus a meter bar. The value is smoothed with a fast attack and a slow release, so peaks register while the reading stays calm. Same audio path and same smoothing as the `bpm` detector's dB readout — the mic capture is native (cpal) and shared, so running `bpm` or `disco` at the same time does not open a second stream. Esc closes it and releases the microphone.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "dezibel", result: "Enter opens the meter; the number tracks the room live." },
+      { input: "db", result: "Short form of the same command." },
+      { input: "db?", result: "This help — the trailing ? never opens the microphone." },
+    ],
+    tips: [
+      "0 dBFS is digital full scale, so normal room levels read NEGATIVE — quiet is around -60, loud around -10.",
+      "Enter-activated on purpose: a panel that opens the microphone must not start from a stray keystroke.",
+    ],
+    caveats: [
+      "dBFS is relative to the input's full scale, not a calibrated sound-pressure level — it is not an SPL meter.",
+      "The first mic open makes macOS reconfigure the shared audio device; other apps can stutter briefly.",
+    ],
+    related: ["shazam", "sound"],
+  },
+  {
     command: "benchmark",
     aliases: ["performance"],
     category: CAT_SYS,

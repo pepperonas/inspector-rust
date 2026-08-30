@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.154.0] - 2026-08-30
+
+### Added
+
+- **`dezibel` / `db` — Live-Lautstärke in der Vorschau.** Ein Befehl unter zwei Namen (`db` ist die Kurzform, gleiches `kind`, keine eigene Logik). Enter öffnet das Mikrofon; die Vorschau zeigt den Pegel in **dBFS** als große Monospace-Zahl, deren Leuchten, Skalierung und Deckkraft dem Pegel folgen, darunter ein Pegelbalken.
+
+### Notes
+
+- **Die Animation ist die des `bpm`-Detektors, gehoben statt neu erfunden**: dieselbe Glättung `smoothStep(aktuell, rmsToDbfs(rms(puffer)), 0.5, 0.12)` (Attack schnell, Release langsam), dieselbe Skalenabbildung `dbfsToLevel(db, −60, −6)`, dasselbe ~7-Hz-Ableseintervall und dieselbe Formsprache (Zahl + Leuchten + dünner Balken). Fundstelle: `BpmDetector.tsx` — die `dbRef`-Zeile in seiner rAF-Schleife und sein Anzeige-Intervall.
+- ⚠️ **Der Wert wird jeden Frame gelesen, aber nur ~7×/s an React gegeben.** Diese Trennung ist der Punkt: ein Messgerät darf den Baum nicht mit Bildrate neu rendern, und eine 60×/s wechselnde Zahl ist ohnehin unlesbar.
+- ⚠️ **Enter-aktiviert, nicht beim Tippen** — Hausregel für Panels, die das Mikrofon öffnen (wie `shazam` und blankes `iris`). Zusätzlich wird der Modus beim Verstecken des Popups ausdrücklich zurückgesetzt: ein Mikrofon-Panel, das ein Wegklicken überlebt, nähme unsichtbar weiter auf (die `bpm`/`equalizer`-Lehre aus v0.105.0).
+- ⚠️ **Das `kind` heißt `dezibel`, weil die Panel-Kanonisierung die Eingabe auf den KIND-String setzt.** Ein Kind, das kein gültiges Schlüsselwort ist, ließe das Panel aufblitzen und im selben Takt wieder schließen (v0.84.247). `db` + Enter schreibt die Zeile deshalb auf `dezibel` um — dasselbe Verhalten wie `performance` → `benchmark`.
+- **Aufnahme ist die geteilte native cpal-Erfassung** (`startFedMic`, referenzgezählt); gleichzeitiges `bpm` oder `disco` öffnet keinen zweiten Strom. Der geteilte warme AudioContext wird nie geschlossen.
+- ⚠️ **Kein Plattform-Gate.** `mic_capture.rs` trägt kein `cfg(target_os)`, cpal ist plattformübergreifend — eine macOS-Beschränkung zu behaupten wäre erfunden gewesen (ein erster Entwurf hatte sie und wurde nach Prüfung entfernt).
+- **dBFS ist relativ zur Vollaussteuerung, kein kalibrierter Schalldruck** — das ist kein SPL-Messgerät, und die Oberfläche sagt das.
+
 ## [0.153.0] - 2026-08-30
 
 ### Added

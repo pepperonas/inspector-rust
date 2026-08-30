@@ -1326,11 +1326,21 @@ export const BOOM_BANDS = [
   "16k",
 ];
 
-/** Window palette (Moom-style hover palette over the green zoom button; macOS, opt-in). */
+/**
+ * How the window palette is summoned.
+ *
+ * ⚠️ `zoom_hover` is the original Moom-style trigger and is no longer the
+ * default: since macOS 15 the system itself opens its tiling menu on plain
+ * hover over the green button, and there is no way to suppress it.
+ */
+export type PaletteTrigger = "zoom_hover" | "titlebar_modifier" | "hotkey";
+
+/** Window palette (preset layouts + hex grid over a window; macOS, opt-in). */
 export interface WindowPaletteConfig {
   enabled: boolean;
   cols: number;
   rows: number;
+  trigger: PaletteTrigger;
 }
 
 export interface PaletteContext {

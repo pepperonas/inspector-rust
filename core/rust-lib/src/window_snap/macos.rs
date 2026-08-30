@@ -189,7 +189,7 @@ pub(crate) fn screen_for_cursor(cursor: (f64, f64), screens: &[Rect]) -> Option<
 
 /// The focused window of the frontmost app (caller releases). At mouse-down of
 /// a titlebar drag this is the window being dragged.
-unsafe fn focused_window() -> Option<AXUIElementRef> {
+pub(crate) unsafe fn focused_window() -> Option<AXUIElementRef> {
     let sw = AXUIElementCreateSystemWide();
     if sw.is_null() {
         return None;

@@ -638,10 +638,11 @@ pub enum ActionId {
     AudioSwap,
     Timesheet,
     TrackToggle,
+    WindowPalette,
 }
 
 impl ActionId {
-    pub const ALL: [ActionId; 9] = [
+    pub const ALL: [ActionId; 10] = [
         ActionId::Ocr,
         ActionId::Screenshot,
         ActionId::Color,
@@ -651,6 +652,7 @@ impl ActionId {
         ActionId::AudioSwap,
         ActionId::Timesheet,
         ActionId::TrackToggle,
+        ActionId::WindowPalette,
     ];
 
     pub fn key(self) -> &'static str {
@@ -664,6 +666,7 @@ impl ActionId {
             ActionId::AudioSwap => "audioswap",
             ActionId::Timesheet => "timesheet",
             ActionId::TrackToggle => "tracktoggle",
+            ActionId::WindowPalette => "windowpalette",
         }
     }
 
@@ -682,6 +685,7 @@ impl ActionId {
             ActionId::AudioSwap => "Audio swap",
             ActionId::Timesheet => "Open Timesheet",
             ActionId::TrackToggle => "Toggle time tracking",
+            ActionId::WindowPalette => "Window palette (focused window)",
         }
     }
 
@@ -699,6 +703,9 @@ impl ActionId {
             // Every toggle fires a status toast, so an accidental press is
             // visible (never silent background recording).
             ActionId::TrackToggle => "Ctrl+Shift+Alt+KeyT",
+            // ⚠️ Deliberately a shortcut and not a hover: since macOS 15 the
+            // system owns hover over the green zoom button.
+            ActionId::WindowPalette => "Ctrl+Shift+Alt+KeyW",
         }
     }
 
@@ -888,6 +895,13 @@ pub fn dispatch_action(app: &AppHandle, id: ActionId) {
                     Err(e) => tracing::warn!("track toggle hotkey: {e}"),
                 }
             });
+        }
+        ActionId::WindowPalette => {
+            // Worker thread: the AX round-trips can block on a hung app. The
+            // palette window itself is built/shown on the main thread from
+            // inside `toggle_for_focused_window`.
+            #[cfg(target_os = "macos")]
+            std::thread::spawn(crate::window_palette::macos::toggle_for_focused_window);
         }
     }
 }
@@ -1457,7 +1471,11 @@ mod tests {
                 id.key()
             );
         }
-        assert_eq!(keys.len(), 9, "expected 9 action hotkeys");
+        // ⚠️ Count pin: a new action takes a global chord away from the user,
+        // so it must be a deliberate decision. Bump consciously, never
+        // reflexively — and never restate the number in the message, or the
+        // two drift apart (the `commands.test.ts` lesson).
+        assert_eq!(keys.len(), 10, "action-hotkey count changed — is the new binding really free?");
         assert_eq!(ActionId::from_key("nope"), None);
     }
 

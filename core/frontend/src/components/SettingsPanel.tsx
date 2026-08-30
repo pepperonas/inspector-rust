@@ -99,6 +99,7 @@ import {
   getWindowPaletteConfig,
   setWindowPaletteConfig,
   type WindowPaletteConfig,
+  type PaletteTrigger,
   getAutostartEnabled,
   getCleanerConfig,
   cleanerCategories,
@@ -1456,8 +1457,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
           <div className="mb-6">
             <Section
               icon={<LayoutGrid size={16} className="text-[var(--color-accent)]" />}
+              id="window-palette"
               title="Window palette"
-              subtitle="Hover the green zoom button of a window → a palette appears with preset layouts and a hex grid you drag a region over to snap the window there. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+              subtitle="A palette with preset layouts and a hex grid you drag a region over to snap the window there. Off by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
             >
               <Row label="Enable palette">
                 <label className="flex cursor-pointer items-center gap-2 text-[12px]">
@@ -1472,11 +1474,40 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     {paletteCfg === null
                       ? "Loading…"
                       : paletteCfg.enabled
-                        ? "On — hover a window's green button"
+                        ? "On"
                         : "Off"}
                   </span>
                 </label>
               </Row>
+              {paletteCfg?.enabled && (
+                <Row label="Summon by">
+                  <div className="flex flex-col gap-1.5 text-[12px]">
+                    <select
+                      value={paletteCfg.trigger}
+                      disabled={paletteBusy}
+                      onChange={(e) =>
+                        void updatePalette({ trigger: e.target.value as PaletteTrigger })
+                      }
+                      className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[var(--color-fg)]"
+                      aria-label="Palette trigger"
+                    >
+                      <option value="titlebar_modifier">Title bar + ⌃⌥ (recommended)</option>
+                      <option value="zoom_hover">Green zoom button (hover)</option>
+                      <option value="hotkey">Global shortcut only</option>
+                    </select>
+                    <span className="text-[var(--color-muted)]">
+                      {paletteCfg.trigger === "titlebar_modifier"
+                        ? "Hold Control+Option and point at a window's title bar."
+                        : paletteCfg.trigger === "hotkey"
+                          ? "Opens for the focused window — bind it under Global shortcuts."
+                          : "⚠️ macOS 15 and newer open their own tiling menu on this hover; both popovers will appear."}
+                    </span>
+                    <span className="text-[var(--color-muted)]">
+                      The global shortcut works in every mode.
+                    </span>
+                  </div>
+                </Row>
+              )}
               {paletteCfg?.enabled && (
                 <Row label="Hex grid density">
                   <div className="flex items-center gap-1.5 text-[12px]">

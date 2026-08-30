@@ -10,7 +10,10 @@
 //! triggers (mouse-moved alone never fires while the cursor is stationary). AX
 //! calls use a short messaging timeout so an unresponsive app can't hang us.
 
-use super::{fraction_to_rect, PaletteContext, WindowPaletteConfig};
+use super::{
+    fraction_to_rect, in_titlebar_band, titlebar_chord_held, PaletteContext, PaletteTrigger,
+    WindowPaletteConfig, TITLEBAR_BAND,
+};
 use crate::window_snap::macos::{screen_for_cursor, screens_topleft};
 use crate::window_snap::Rect;
 use parking_lot::Mutex;
@@ -95,6 +98,7 @@ extern "C" {
     ) -> CFMachPortRef;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
     fn CGEventGetLocation(event: CGEventRef) -> CGPoint;
+    fn CGEventGetFlags(event: CGEventRef) -> u64;
 
     fn AXUIElementCreateSystemWide() -> AXUIElementRef;
     fn AXUIElementCopyElementAtPosition(
@@ -211,6 +215,59 @@ unsafe fn window_of(el: AXUIElementRef) -> Option<AXUIElementRef> {
     None
 }
 
+/// Hit-test the cursor for the ACTIVE trigger.
+///
+/// Returns `(anchor, region, window)` — the anchor positions the palette, the
+/// region is the area the pointer may stay in without dismissing it (the grace
+/// zone), and the window is retained (caller releases).
+unsafe fn palette_hit(cursor: (f64, f64)) -> Option<(Rect, Rect, AXUIElementRef)> {
+    match *TRIGGER.lock() {
+        PaletteTrigger::ZoomHover => zoom_hit(cursor).map(|(f, w)| (f, f, w)),
+        PaletteTrigger::TitlebarModifier => {
+            if !titlebar_chord_held(LAST_FLAGS.load(Ordering::Relaxed)) {
+                return None;
+            }
+            titlebar_hit(cursor)
+        }
+        // No pointer summoning — the palette comes from the global shortcut.
+        PaletteTrigger::Hotkey => None,
+    }
+}
+
+/// Cursor over a window's title-bar band (chord already checked).
+///
+/// The anchor is a sliver **at the cursor**, not the window centre: a wide
+/// window would otherwise drop the palette far from where the user is pointing.
+unsafe fn titlebar_hit(cursor: (f64, f64)) -> Option<(Rect, Rect, AXUIElementRef)> {
+    let sw = AXUIElementCreateSystemWide();
+    if sw.is_null() {
+        return None;
+    }
+    AXUIElementSetMessagingTimeout(sw, 0.2);
+    let mut el: CFTypeRef = std::ptr::null();
+    let e = AXUIElementCopyElementAtPosition(sw, cursor.0 as f32, cursor.1 as f32, &mut el);
+    CFRelease(sw as CFTypeRef);
+    if e != 0 || el.is_null() {
+        return None;
+    }
+    let el = el as AXUIElementRef;
+    let win = window_of(el);
+    CFRelease(el as CFTypeRef);
+    let win = win?;
+    let Some(wf) = element_frame(win) else {
+        CFRelease(win as CFTypeRef);
+        return None;
+    };
+    if !in_titlebar_band(wf, cursor, TITLEBAR_BAND) {
+        CFRelease(win as CFTypeRef);
+        return None;
+    }
+    let band = Rect::new(wf.x, wf.y, wf.w, TITLEBAR_BAND.min(wf.h));
+    let anchor = Rect::new(cursor.0 - 1.0, band.y, 2.0, band.h);
+    tracing::debug!("window-palette: title-bar hit on window {wf:?}");
+    Some((anchor, band, win))
+}
+
 /// Hit-test the cursor: if it's over a window's zoom button, return its frame
 /// (top-left) + the enclosing window (retained). AX timeouts guard against hung
 /// apps.
@@ -297,6 +354,10 @@ static POINTER_INSIDE: AtomicBool = AtomicBool::new(false);
 static LAST_PTR_EMIT: Mutex<Option<Instant>> = Mutex::new(None);
 static LAST_HITTEST: Mutex<Option<Instant>> = Mutex::new(None);
 static CONFIG: Mutex<(u32, u32)> = Mutex::new((super::DEFAULT_COLS, super::DEFAULT_ROWS));
+static TRIGGER: Mutex<PaletteTrigger> = Mutex::new(PaletteTrigger::TitlebarModifier);
+/// Modifier flags from the most recent mouse-move. The dwell timer fires on its
+/// own thread and has no event, so the chord is read from here at show time.
+static LAST_FLAGS: AtomicU64 = AtomicU64::new(0);
 static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
 
 fn app_handle() -> Option<AppHandle> {
@@ -317,33 +378,40 @@ unsafe fn try_show_if(gen: u64) {
         return;
     }
     let cursor = *LAST_CURSOR.lock();
-    let frame = match *HOVER_BTN_FRAME.lock() {
+    let region = match *HOVER_BTN_FRAME.lock() {
         Some(f) => f,
         None => return,
     };
-    if !rect_contains(frame, cursor, 2.0) {
-        tracing::debug!("window-palette: dwell elapsed but cursor left the button");
-        return; // cursor left the button before the dwell elapsed
+    if !rect_contains(region, cursor, 2.0) {
+        tracing::debug!("window-palette: dwell elapsed but cursor left the target");
+        return; // cursor left the target before the dwell elapsed
     }
     // Re-hit to get a fresh retained window element + current frame.
-    let Some((frame, win)) = zoom_hit(cursor) else {
-        tracing::debug!("window-palette: re-hit at show time found no button");
+    let Some((anchor, region, win)) = palette_hit(cursor) else {
+        tracing::debug!("window-palette: re-hit at show time found no target");
         return;
     };
+    show_palette_for(anchor, region, win);
+}
+
+/// Position + show the palette for `win` (retained; ownership moves here).
+/// `anchor` decides where it sits, `region` is the grace zone the pointer may
+/// rest in. Shared by the pointer triggers and the global shortcut.
+unsafe fn show_palette_for(anchor: Rect, region: Rect, win: AXUIElementRef) {
     let screens = screens_topleft();
-    let center = (frame.x + frame.w / 2.0, frame.y + frame.h / 2.0);
+    let center = (anchor.x + anchor.w / 2.0, anchor.y + anchor.h / 2.0);
     let Some(vf) = screen_for_cursor(center, &screens) else {
         CFRelease(win as CFTypeRef);
         return;
     };
-    let px = (frame.x + frame.w / 2.0 - PAL_W / 2.0).clamp(vf.x + 4.0, (vf.x + vf.w - PAL_W - 4.0).max(vf.x + 4.0));
-    let py = (frame.y + frame.h + GAP).clamp(vf.y + 4.0, (vf.y + vf.h - PAL_H - 4.0).max(vf.y + 4.0));
+    let px = (anchor.x + anchor.w / 2.0 - PAL_W / 2.0).clamp(vf.x + 4.0, (vf.x + vf.w - PAL_W - 4.0).max(vf.x + 4.0));
+    let py = (anchor.y + anchor.h + GAP).clamp(vf.y + 4.0, (vf.y + vf.h - PAL_H - 4.0).max(vf.y + 4.0));
 
     release_target();
     TARGET_WIN.store(win as isize, Ordering::SeqCst);
     *TARGET_VF.lock() = Some(vf);
     *PALETTE_RECT.lock() = Some(Rect::new(px, py, PAL_W, PAL_H));
-    *HOVER_BTN_FRAME.lock() = Some(frame);
+    *HOVER_BTN_FRAME.lock() = Some(region);
     *OUT_SINCE.lock() = None;
     PALETTE_SHOWN.store(true, Ordering::SeqCst);
 
@@ -353,6 +421,36 @@ unsafe fn try_show_if(gen: u64) {
         let _ = app.run_on_main_thread(move || show_window(&a, px, py));
     } else {
         tracing::warn!("window-palette: no app handle to show palette");
+    }
+}
+
+/// Global-shortcut entry point: open the palette for the FOCUSED window,
+/// anchored under the middle of its title bar. Pressing again closes it.
+///
+/// ⚠️ Works in every trigger mode, not just `Hotkey` — it is an additional
+/// path, not an alternative one. Does nothing while the feature is off.
+pub(crate) fn toggle_for_focused_window() {
+    if !RUNNING.load(Ordering::SeqCst) {
+        tracing::debug!("window-palette: shortcut ignored — palette is disabled");
+        return;
+    }
+    if PALETTE_SHOWN.load(Ordering::SeqCst) {
+        hide_palette();
+        return;
+    }
+    unsafe {
+        let Some(win) = crate::window_snap::macos::focused_window() else {
+            tracing::warn!("window-palette: shortcut found no focused window");
+            return;
+        };
+        let Some(wf) = element_frame(win) else {
+            CFRelease(win as CFTypeRef);
+            return;
+        };
+        let band = Rect::new(wf.x, wf.y, wf.w, TITLEBAR_BAND.min(wf.h));
+        let anchor = Rect::new(wf.x + wf.w / 2.0 - 1.0, band.y, 2.0, band.h);
+        HOVER_GEN.fetch_add(1, Ordering::SeqCst); // cancel any pending dwell
+        show_palette_for(anchor, band, win);
     }
 }
 
@@ -495,13 +593,13 @@ unsafe fn maybe_hittest(cursor: (f64, f64)) {
         }
         *l = Some(now);
     }
-    match zoom_hit(cursor) {
-        Some((frame, win)) => {
+    match palette_hit(cursor) {
+        Some((_anchor, region, win)) => {
             CFRelease(win as CFTypeRef); // re-hit at show time
-            let was_over = HOVER_BTN_FRAME.lock().replace(frame).is_some();
+            let was_over = HOVER_BTN_FRAME.lock().replace(region).is_some();
             if !was_over {
                 let gen = HOVER_GEN.fetch_add(1, Ordering::SeqCst) + 1;
-                tracing::info!("window-palette: green button under cursor — dwell started (gen {gen})");
+                tracing::info!("window-palette: target under cursor — dwell started (gen {gen})");
                 std::thread::spawn(move || {
                     std::thread::sleep(Duration::from_millis(HOVER_DELAY_MS));
                     unsafe { try_show_if(gen) };
@@ -529,6 +627,7 @@ extern "C" fn on_event(_proxy: CGEventTapProxy, ty: u32, event: CGEventRef, _inf
         }
         EVT_MOUSE_MOVED => {
             let p = unsafe { CGEventGetLocation(event) };
+            LAST_FLAGS.store(unsafe { CGEventGetFlags(event) }, Ordering::Relaxed);
             let cursor = (p.x, p.y);
             *LAST_CURSOR.lock() = cursor;
             unsafe {
@@ -573,6 +672,7 @@ fn install_tap_thread() {
 pub(crate) fn set_active(app: &AppHandle, _db: &crate::db::DbHandle, cfg: WindowPaletteConfig) {
     *APP.lock() = Some(app.clone());
     *CONFIG.lock() = (cfg.cols, cfg.rows);
+    *TRIGGER.lock() = cfg.trigger;
     if cfg.enabled {
         if RUNNING.swap(true, Ordering::SeqCst) {
             return; // already running (config updated above)

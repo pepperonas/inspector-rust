@@ -1247,7 +1247,15 @@ macOS-gated); `apply(app,db,state)` starts/stops the monitor (mirrors
   (`expander::accessibility_granted`); without it the tap doesn't install.
   macOS only.
 
-### Window palette — Moom-style hover palette (`window_palette/`, v0.84.138)
+### Window palette — Presets + Hex-Raster am Fenster (`window_palette/`, v0.84.138; Auslöser wählbar v0.151.0)
+
+⚠️ **Der grüne Zoom-Knopf gehört seit macOS 15 dem System — dort ist kein Auslöser mehr zu holen (v0.151.0).** Sequoia öffnet auf reinem Hover sein eigenes Kachel-Menü („Bewegen & Anpassen" / „Füllen & Anordnen"); unsere Palette erschien darüber oder darunter, beide zugleich. **Empirisch geprüft auf 26.6.2, nicht geglaubt:** die WindowManager-Binary (`/System/Library/CoreServices/WindowManager.app/Contents/MacOS/WindowManager`) trägt exakt drei Kachel-Schlüssel — `enableTilingByEdgeDrag`, `enableTopTilingByEdgeDrag`, `enableTilingOptionAccelerator` — und **keiner** davon betrifft das Hover-Menü; die Systemeinstellungen bieten dafür ebenfalls nichts. **Es gibt also keinen `defaults`-Schlüssel dagegen** (Diagnose-Griff: `strings` über die Binary + `defaults read com.apple.WindowManager`). Konsequenz: nicht gegen ein Systemmenü antreten, das sich weder unterdrücken noch überlagern lässt, sondern **den Auslöser dorthin legen, wo macOS nichts beansprucht**.
+
+`PaletteTrigger` (`windowpalette.trigger`): **`TitlebarModifier`** — Zeiger auf der Titelleiste (oberes 28-pt-Band) bei gehaltenem **⌃⌥**, neuer Standard ab macOS 15 · **`ZoomHover`** — das alte Verhalten, bis macOS 14 konfliktfrei · **`Hotkey`** — kein Zeiger-Auslöser, nur der Kurzbefehl. Dazu **`ActionId::WindowPalette`** (`Ctrl+Shift+Alt+W`, belegbar) auf dem **fokussierten** Fenster, das in **jedem** Modus wirkt (zusätzlicher Weg, kein Ersatz) und beim zweiten Druck wieder schließt.
+
+⚠️ **„Nichts gespeichert" IST die Migration** — `load()` fällt auf `default_trigger(host_os_major())` zurück, ein Bestandsstand verlässt den Konflikt also ohne Zutun; ein bewusst gewählter Wert bleibt. ⚠️ **Eine unlesbare OS-Version ergibt den konfliktfreien Auslöser, nicht den alten**: falsch in Richtung „alt" zu raten kostet zwei kämpfende Popover auf jedem Fenster, falsch in Richtung „neu" nur Bequemlichkeit (`default_trigger(None)`, gepinnt + mutationsgeprüft). ⚠️ **Der Titelleisten-Auslöser verlangt ZWEI Modifier** — Control allein ist der Rechtsklick-Ersatz, Option-Klick auf einer Titelleiste hat in mehreren Programmen Bedeutung; je einzeln ginge die Palette im Alltag los. ⚠️ **Der Maus-Tap läuft in JEDEM Modus weiter, auch bei „nur Kurzbefehl"** — die Palette ist ein nicht-aktivierendes schwebendes Fenster, dessen WKWebView-Hover unzuverlässig ist, und der Tap ist es, der ihr den Zeiger weiterreicht (`summoned_by_pointer` gatet nur die Trefferprüfung, nie den Tap). Der Anker im Titelleisten-Modus sitzt **am Zeiger**, nicht in der Fenstermitte — sonst landete die Palette bei einem breiten Fenster weit weg vom Finger. Reine, getestete Regeln in `mod.rs`: `default_trigger` · `parse_os_major` · `titlebar_chord_held` · `in_titlebar_band` · `PaletteTrigger::parse`.
+
+Ursprüngliche Beschreibung (Auslöser inzwischen wählbar, siehe oben):
 
 Hover a window's green **zoom button** → a small overlay appears anchored under
 it with **preset layouts** (maximize / halves; ⌥ swaps to the four quarters)

@@ -4,6 +4,25 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.151.0] - 2026-08-30
+
+### Fixed
+
+- **Die Fenster-Palette kollidierte auf macOS 15+ mit dem System.** Ihr Auslöser war das Hovern über dem grünen Zoom-Knopf — und genau den beansprucht macOS seit Sequoia für sein eigenes Kachel-Menü ("Bewegen & Anpassen" / "Füllen & Anordnen"). Beide Popover erschienen übereinander.
+- **Nachgemessen statt geglaubt:** die WindowManager-Binary auf macOS 26.6.2 kennt exakt drei Kachel-Schalter (`enableTilingByEdgeDrag`, `enableTopTilingByEdgeDrag`, `enableTilingOptionAccelerator`) — **keiner** davon betrifft das Hover-Menü, und die Systemeinstellungen bieten dafür nichts an. Es gibt also **keinen** `defaults`-Schlüssel dagegen; wer einen anbietet, erfindet ihn. Der Konflikt ist auf Apples Seite nicht lösbar.
+
+### Added
+
+- **Auslöser der Fenster-Palette ist wählbar** (`windowpalette.trigger`): **Titelleiste + ⌃⌥** (neuer Standard), **grüner Knopf per Hover** (das alte Verhalten, bis macOS 14 konfliktfrei) oder **nur Kurzbefehl**.
+- **Globaler Kurzbefehl `Ctrl+Shift+Alt+W`** (belegbar) öffnet die Palette am **fokussierten** Fenster und schließt sie wieder. Er wirkt in **jedem** Auslöser-Modus, ist also kein Ersatz, sondern ein zusätzlicher Weg.
+
+### Notes
+
+- **Kein Migrationsschlüssel nötig — „nichts gespeichert" IST die Migration.** Ein bestehender Stand ohne explizit gewählten Auslöser bekommt den betriebssystem-abhängigen Standard und verlässt den Konflikt, ohne dass jemand etwas umstellen muss; eine bewusste Wahl bleibt erhalten.
+- **Eine unlesbare macOS-Version führt zum konfliktfreien Auslöser, nicht zum alten.** Sich in Richtung „altes macOS" zu irren kostet zwei kämpfende Popover auf jedem Fenster; sich in Richtung „neues macOS" zu irren kostet nur etwas Bequemlichkeit.
+- **Der Titelleisten-Auslöser verlangt bewusst ZWEI Modifier.** Control allein ist auf macOS der Rechtsklick-Ersatz, und Option-Klick auf eine Titelleiste hat in mehreren Programmen eine Bedeutung — je einzeln würde die Palette im Alltag losgehen.
+- ⚠️ **Der Maus-Tap läuft in jedem Modus weiter**, auch bei „nur Kurzbefehl": die Palette ist ein nicht-aktivierendes schwebendes Fenster, dessen WKWebView-Hover unzuverlässig ist — der Tap ist es, der ihr den Zeiger weiterreicht. Nur die Trefferprüfung hängt am Auslöser.
+
 ## [0.150.0] - 2026-08-30
 
 ### Added

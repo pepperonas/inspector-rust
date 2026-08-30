@@ -43,6 +43,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "input-lock", label: "Input lock", names: ["input lock", "freeze", "lock chord"] },
   { id: "gestures", label: "Touchpad gestures", names: ["gestures", "gesten", "touchpad", "trackpad", "tip-tap"] },
   { id: "window", label: "Window snapping & palette", names: ["window", "snapping", "palette", "fenster", "snap"] },
+  { id: "window-palette", label: "Window palette trigger", names: ["trigger", "tiling", "kachel", "titelleiste", "ausloeser"] },
   { id: "cloud-sync", label: "Cloud-Sync (cue)", names: ["cue", "sync", "cloud", "cloud-sync", "cue-sync", "token"] },
   { id: "backup", label: "Backup & restore", names: ["backup", "restore", "export", "import", "sicherung"] },
   { id: "startup", label: "Startup", names: ["startup", "autostart", "login", "keep running", "keepalive"] },

@@ -43,6 +43,22 @@ pub struct ResizeResult {
 /// - clipboard has no image format set
 /// - target dimensions are 0 or > MAX_PIXELS
 /// - the bitmap fails to decode (shouldn't happen if the clipboard says it's an image)
+/// Dimensions of the image currently on the clipboard, for the percentage
+/// path of `rz` when no Finder selection is usable.
+///
+/// ⚠️ Reads the header only, and the caller computes the target with the SAME
+/// `targetSize` used for files — duplicating that maths in Rust would let the
+/// two drift apart.
+pub fn clipboard_image_dimensions() -> Result<(u32, u32)> {
+    let bytes = read_clipboard_png()?;
+    let dims = ImageReader::new(Cursor::new(&bytes))
+        .with_guessed_format()
+        .context("guess clipboard image format")?
+        .into_dimensions()
+        .context("read clipboard image dimensions")?;
+    Ok(dims)
+}
+
 pub fn resize_clipboard_image_lanczos(width: u32, height: u32) -> Result<ResizeResult> {
     if width == 0 || height == 0 {
         return Err(anyhow!("width and height must be > 0 (got {width}x{height})"));
@@ -95,6 +111,62 @@ pub struct ResizeFileResult {
 /// - target dimensions are 0 or > MAX_PIXELS
 /// - source can't be opened / decoded
 /// - source has no `.<ext>` (we refuse to invent one)
+/// What the `rz` preview needs to know about one selected file.
+///
+/// Every field is optional on purpose: an unreadable or non-image file must be
+/// REPORTED, not silently dropped — a preview that quietly shows fewer images
+/// than are selected is worse than one that says "not readable".
+#[derive(Debug, Clone, serde::Serialize)]
+pub struct ImageInfo {
+    pub path: String,
+    pub width: Option<u32>,
+    pub height: Option<u32>,
+    pub format: Option<String>,
+}
+
+/// Human label for an image format. Pure + tested.
+///
+/// ⚠️ `image::ImageFormat` is `#[non_exhaustive]`, so the wildcard arm is
+/// mandatory — and it falls back to the format's own extension rather than
+/// inventing a name.
+pub fn format_label(fmt: image::ImageFormat) -> String {
+    match fmt {
+        image::ImageFormat::Png => "PNG".into(),
+        image::ImageFormat::Jpeg => "JPEG".into(),
+        image::ImageFormat::Gif => "GIF".into(),
+        image::ImageFormat::WebP => "WebP".into(),
+        image::ImageFormat::Bmp => "BMP".into(),
+        image::ImageFormat::Tiff => "TIFF".into(),
+        image::ImageFormat::Ico => "ICO".into(),
+        image::ImageFormat::Avif => "AVIF".into(),
+        other => other
+            .extensions_str()
+            .first()
+            .map(|e| e.to_uppercase())
+            .unwrap_or_else(|| "?".into()),
+    }
+}
+
+/// Probe one file for the `rz` preview.
+///
+/// ⚠️ Header-only: `image_dimensions` parses the header and does NOT decode.
+/// The preview probes every selected file while the user types, and decoding a
+/// handful of 40 MP JPEGs on each keystroke would freeze the UI.
+pub fn probe_image(path: &std::path::Path) -> ImageInfo {
+    let dims = image::image_dimensions(path).ok();
+    let format = ImageReader::open(path)
+        .ok()
+        .and_then(|r| r.with_guessed_format().ok())
+        .and_then(|r| r.format())
+        .map(format_label);
+    ImageInfo {
+        path: path.to_string_lossy().into_owned(),
+        width: dims.map(|d| d.0),
+        height: dims.map(|d| d.1),
+        format,
+    }
+}
+
 pub fn resize_file_to_neighbor(
     src: &std::path::Path,
     width: u32,
@@ -330,6 +402,28 @@ pub fn write_clipboard_png_canonical(bytes: &[u8]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn format_labels_are_human_and_never_invented() {
+        use image::ImageFormat as F;
+        assert_eq!(format_label(F::Png), "PNG");
+        assert_eq!(format_label(F::Jpeg), "JPEG");
+        assert_eq!(format_label(F::WebP), "WebP");
+        // ⚠️ ImageFormat is #[non_exhaustive]; the wildcard must still produce
+        // something truthful rather than a made-up name.
+        let other = format_label(F::Qoi);
+        assert!(!other.is_empty());
+        assert_eq!(other, other.to_uppercase());
+    }
+
+    #[test]
+    fn probing_a_missing_file_reports_instead_of_panicking() {
+        // A preview that silently drops unreadable files would show fewer
+        // images than are selected — worse than saying "not readable".
+        let info = probe_image(std::path::Path::new("/definitely/not/here.png"));
+        assert!(info.width.is_none() && info.height.is_none() && info.format.is_none());
+        assert!(info.path.ends_with("here.png"));
+    }
+
     use super::*;
     use image::{ImageBuffer, Rgb, Rgba};
 

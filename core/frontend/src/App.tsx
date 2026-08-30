@@ -35,6 +35,7 @@ import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
 import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
 import { WeatherPanel } from "./components/WeatherPanel";
 import { TokensPanel } from "./components/TokensPanel";
+import { ResizePanel } from "./components/ResizePanel";
 import { RandomPanel } from "./components/RandomPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
@@ -80,7 +81,6 @@ import {
   parseCommand,
   parseKillArg,
   parsePwgenArg,
-  parseResizeArg,
   parseTimerArg,
   parseAlarmArg,
   parseShotDelay,
@@ -135,6 +135,9 @@ import {
   figletSavePng,
   removeVowelsToClipboard,
   resizeClipboardImage,
+  imageSizes,
+  clipboardImageSize,
+  type FinderItem,
   saveClipAsNote,
   systemLock,
   adjustVolume,
@@ -205,6 +208,13 @@ import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBr
 import { matchSettingsSection } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { useSleepStatus } from "./hooks/useSleepStatus";
+import {
+  describeSpec,
+  isResizeQuery,
+  parseResizeCommand,
+  resizeQueryArg,
+  targetSize,
+} from "./lib/resize";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
 import { matchTotpEntries, totpCommandRows } from "./lib/totp";
 import { applyTheme, normaliseTheme } from "./lib/theme";
@@ -1286,6 +1296,39 @@ function App() {
   // shows so the dispatch pastes exactly it.
   const [randomMode, setRandomMode] = useState(false);
   const randomValueRef = useRef<number | null>(null);
+  // `rz` preview: which modes exist + what the CURRENT Finder selection turns
+  // into. Reading the selection spawns osascript (~300 ms), so it is fetched
+  // ONCE when the command becomes active and debounced -- never per keystroke.
+  // ⚠️ Keyed off the QUERY, not the parsed command: `rz` alone is not a
+  // complete command (`requiresArg: true`), so the panel would never appear
+  // for the bare keyword — which is precisely when the modes need explaining.
+  const isResizeCmd = isResizeQuery(query);
+  const [resizeSel, setResizeSel] = useState<{
+    files: FinderItem[];
+    readable: boolean;
+  } | null>(null);
+  useEffect(() => {
+    if (!isResizeCmd) {
+      setResizeSel(null);
+      return;
+    }
+    let cancelled = false;
+    const id = window.setTimeout(() => {
+      void getFinderSelection()
+        .then((sel) => {
+          if (!cancelled) setResizeSel({ files: sel.filter((f) => f.is_image), readable: true });
+        })
+        .catch(() => {
+          // Automation denied / no Finder -- report it, do not pretend "0 images".
+          if (!cancelled) setResizeSel({ files: [], readable: false });
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(id);
+    };
+  }, [isResizeCmd]);
+
   const isRandomCmd = parsedCommand?.spec.kind === "random";
   useEffect(() => {
     if (isRandomCmd && !randomMode) setRandomMode(true);
@@ -1496,13 +1539,15 @@ function App() {
         break;
       }
       case "resize": {
-        const dims = parseResizeArg(arg);
-        label = dims
-          ? `Resize selected image(s) → ${dims.width}×${dims.height}`
-          : `rz: invalid dimensions ("${arg}" — expected W×H, e.g. 1200x800)`;
-        hint = dims
-          ? "Finder/Explorer selection → <name>-WxH (Lanczos3); else the clipboard image"
-          : "Use format like 1200x800";
+        const spec = parseResizeCommand(arg);
+        label = spec
+          ? `Resize selected image(s) → ${describeSpec(spec)}`
+          : `rz: invalid size ("${arg}" — one number is percent, two are pixels)`;
+        hint = spec
+          ? spec.mode === "pct"
+            ? "Each image scaled from ITS own size → <name>-WxH (Lanczos3)"
+            : "Finder/Explorer selection → <name>-WxH (Lanczos3); else the clipboard image"
+          : "e.g. `rz 50` (50 %), `rz 1200x800` (pixels), `rz px 50`, `rz % 150`";
         break;
       }
       case "optim":
@@ -3375,8 +3420,8 @@ function App() {
           return true;
         }
       } else if (commandKind === "resize") {
-        const dims = parseResizeArg(arg);
-        if (!dims) {
+        const spec = parseResizeCommand(arg);
+        if (!spec) {
           setPasteError("other");
           return true;
         }
@@ -3389,13 +3434,29 @@ function App() {
           const sel = finderFiles ?? (await getFinderSelection());
           const imgs = sel.filter((f) => f.is_image);
           if (imgs.length > 0) {
+            // ⚠️ Percent is per image: each source has its own size, so the
+            // batch cannot share one target. Probe once (header-only), then
+            // compute every target with the SAME pure `targetSize` the
+            // preview used — the preview must not be able to promise a size
+            // the run does not deliver.
+            const probes =
+              spec.mode === "pct" ? await imageSizes(imgs.map((f) => f.path)) : [];
             const results = await Promise.all(
-              imgs.map((f) =>
-                resizeFile(f.path, dims.width, dims.height).catch((e) => {
+              imgs.map((f) => {
+                let w = spec.x;
+                let h = spec.y;
+                if (spec.mode === "pct") {
+                  const p = probes.find((q) => q.path === f.path);
+                  if (p?.width == null || p.height == null) return Promise.resolve("");
+                  const t = targetSize({ w: p.width, h: p.height }, spec);
+                  w = t.w;
+                  h = t.h;
+                }
+                return resizeFile(f.path, w, h).catch((e) => {
                   console.error("resize_file failed", f.path, e);
                   return "";
-                }),
-              ),
+                });
+              }),
             );
             didSelection = results.some((r) => r);
           }
@@ -3403,7 +3464,19 @@ function App() {
           console.debug("resize: finder selection unavailable", e);
         }
         if (!didSelection) {
-          await resizeClipboardImage(dims.width, dims.height);
+          let w = spec.x;
+          let h = spec.y;
+          if (spec.mode === "pct") {
+            const size = await clipboardImageSize();
+            if (!size) {
+              setPasteError("other");
+              return true;
+            }
+            const t = targetSize({ w: size[0], h: size[1] }, spec);
+            w = t.w;
+            h = t.h;
+          }
+          await resizeClipboardImage(w, h);
         }
         await hidePopup();
       } else if (commandKind === "optim") {
@@ -4767,6 +4840,14 @@ function App() {
                         setTokensFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
+                    />
+                  </div>
+                ) : isResizeCmd ? (
+                  <div className="md3-pop-in h-full">
+                    <ResizePanel
+                      arg={resizeQueryArg(query)}
+                      files={resizeSel?.files ?? null}
+                      selectionReadable={resizeSel?.readable ?? true}
                     />
                   </div>
                 ) : randomMode ? (

@@ -779,6 +779,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::list_timers,
             commands::get_finder_selection,
             commands::resize_file,
+            commands::image_sizes,
+            commands::clipboard_image_size,
             commands::optimize_file,
             commands::finder_touch,
             commands::finder_mkdir,

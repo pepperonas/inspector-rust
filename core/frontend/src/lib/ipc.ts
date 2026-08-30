@@ -473,6 +473,25 @@ export function resizeFile(path: string, width: number, height: number): Promise
   return invoke("resize_file", { path, width, height });
 }
 
+/** Dimensions + format of one selected file, for the `rz` preview. Every field
+ *  is optional: an unreadable file is REPORTED, never silently dropped. */
+export interface ImageInfo {
+  path: string;
+  width: number | null;
+  height: number | null;
+  format: string | null;
+}
+
+/** Dimensions of the clipboard image, or null when there is none. */
+export function clipboardImageSize(): Promise<[number, number] | null> {
+  return invoke("clipboard_image_size");
+}
+
+/** Header-only probe (no decode) of the given paths -- see the `rz` preview. */
+export function imageSizes(paths: string[]): Promise<ImageInfo[]> {
+  return invoke("image_sizes", { paths });
+}
+
 /** Optimise a single PNG file losslessly with oxipng. Writes the
  *  result next to the source as `<stem>-optim.png`. Returns the output
  *  path + before/after byte counts. Non-PNG sources reject with a

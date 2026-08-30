@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { parseResizeCommand } from "./resize";
 import {
   COMMANDS,
   DEFAULT_PWGEN_LENGTH,
@@ -17,7 +18,6 @@ import {
   rockTheBoxMode,
   parseCommand,
   parseKillArg,
-  parseResizeArg,
   parsePwgenArg,
   parseRandomArg,
   randomInt,
@@ -577,49 +577,6 @@ describe("web-search bangs (v0.76.0)", () => {
   });
 });
 
-describe("parseResizeArg", () => {
-  it("parses standard WxH", () => {
-    expect(parseResizeArg("1200x800")).toEqual({ width: 1200, height: 800 });
-  });
-
-  it("accepts uppercase X", () => {
-    expect(parseResizeArg("1200X800")).toEqual({ width: 1200, height: 800 });
-  });
-
-  it("tolerates whitespace around the separator", () => {
-    expect(parseResizeArg("1200 x 800")).toEqual({ width: 1200, height: 800 });
-    expect(parseResizeArg("  1200x800  ")).toEqual({ width: 1200, height: 800 });
-  });
-
-  it("accepts a plain space between the numbers (no x)", () => {
-    expect(parseResizeArg("200 200")).toEqual({ width: 200, height: 200 });
-    expect(parseResizeArg("1200   800")).toEqual({ width: 1200, height: 800 });
-    expect(parseResizeArg("  200 200  ")).toEqual({ width: 200, height: 200 });
-  });
-
-  it("rejects a single number with no separator/second value", () => {
-    expect(parseResizeArg("200200")).toBeNull();
-  });
-
-  it("rejects missing height", () => {
-    expect(parseResizeArg("1200x")).toBeNull();
-    expect(parseResizeArg("1200")).toBeNull();
-  });
-
-  it("rejects non-numeric", () => {
-    expect(parseResizeArg("foo x bar")).toBeNull();
-    expect(parseResizeArg("xxxx")).toBeNull();
-  });
-
-  it("rejects zero", () => {
-    expect(parseResizeArg("0x100")).toBeNull();
-    expect(parseResizeArg("100x0")).toBeNull();
-  });
-
-  it("rejects empty input", () => {
-    expect(parseResizeArg("")).toBeNull();
-  });
-});
 
 describe("parseCommand — system commands", () => {
   it("parses kill alone (empty arg, picker mode)", () => {
@@ -850,11 +807,15 @@ describe("resizePresetSuggestions", () => {
     expect(resizePresetSuggestions("r")).toEqual([]);
     expect(resizePresetSuggestions("rz=1")).toEqual([]);
   });
-  it("each suggestion completion parses as a complete `resize` command", () => {
+  it("each suggestion completion parses as a complete `resize` command in PIXELS", () => {
     for (const p of resizePresetSuggestions("rz")) {
       const parsed = parseCommand(p.completion);
       expect(parsed?.spec.kind).toBe("resize");
-      expect(parseResizeArg(parsed!.arg)).not.toBeNull();
+      const spec = parseResizeCommand(parsed!.arg);
+      expect(spec, p.completion).not.toBeNull();
+      // ⚠️ The presets are absolute sizes (1920x1080, ...). If the two-number
+      // rule ever flipped to percent they would silently become scale factors.
+      expect(spec!.mode, p.completion).toBe("px");
     }
   });
 });

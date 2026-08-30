@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.153.0] - 2026-08-30
+
+### Added
+
+- **`rz` kann prozentual skalieren, nicht nur in Pixeln.** **Eine Zahl ist Prozent** (`rz 50` bringt jedes Bild auf die halbe Größe), **zwei Zahlen bleiben Pixel** (`rz 1200x800`). Ein genannter Modus gewinnt immer: `px`/`pixel`/`pixels` und `%`/`pc`/`pct`/`percent`/`prozent`, letzteres auch als Nachsilbe (`rz 50%`, `rz 50x25%`). Achsen lassen sich einzeln skalieren (`rz % 150x100`).
+- **Vorschau beim Tippen von `rz`**: die verfügbaren Modi mit Beispielen und — für die aktuelle Finder-Auswahl — wie viele Bilder betroffen sind und was aus jedem wird (`3024×4032 → 1512×2016 (JPEG)`), inklusive Warnung je Bild, wenn ein Ziel die 16-MP-Grenze reißen würde.
+
+### Notes
+
+- ⚠️ **Die Modus-Regel hat zwei Fälle, und zwar aus Rückwärtskompatibilität.** `rz 1200x800` bedeutet seit v0.84.72 Pixel; das still in „1200 % × 800 %" zu drehen hätte eine eingespielte Eingabe umgedeutet — sie wäre in den 16-MP-Deckel gelaufen statt zu skalieren. Ein Test führt die drei Beispiele der eigenen Befehlsdokumentation als Pin mit; die Mutationsprobe (zwei Zahlen doch prozentual) lässt ihn fallen.
+- ⚠️ **Die Vorschau hängt an der EINGABE, nicht am geparsten Befehl.** `rz` hat ein Pflichtargument, ist allein also kein vollständiger Befehl — an `parsedCommand` gehängt erschien beim bloßen `rz` die generische Vorschlagskarte statt der Modi-Liste, also ausgerechnet im einzigen Fall, für den die Vorschau existiert. Gefunden hat das erst die Sichtprüfung im laufenden Programm; ein Test hätte es nicht sehen können.
+- ⚠️ **Prozent ist pro Bild, nicht pro Stapel.** Jede Quelle hat ihre eigene Größe, ein Stapel kann sich also kein gemeinsames Ziel teilen. Die Zielgrößen kommen aus derselben reinen `targetSize`, die auch die Vorschau benutzt — die Vorschau darf keine Größe versprechen, die der Lauf nicht liefert.
+- ⚠️ **Die Vorschau misst header-only und entprellt.** `image_dimensions` liest den Header und dekodiert nicht; bei jedem Tastendruck eine Auswahl von 40-MP-JPEGs zu dekodieren wäre das Einzige hier, was die Oberfläche einfrieren lässt. Die Finder-Auswahl selbst (osascript, ~300 ms) wird einmal beim Betreten des Befehls geholt, nicht pro Zeichen.
+- ⚠️ **Eine nicht lesbare Auswahl wird benannt, nicht als „0 Bilder" gezeigt** — „Freigabe fehlt" und „nichts ausgewählt" sind zwei verschiedene Tatsachen.
+- **`parseResizeArg` ist entfernt** (von `parseResizeCommand` abgelöst); seine Zusicherungen sind in die neue Suite übernommen, inklusive der einen bewusst geänderten (`rz 200` war früher ungültig und ist jetzt 200 %).
+
 ## [0.152.0] - 2026-08-30
 
 ### Fixed

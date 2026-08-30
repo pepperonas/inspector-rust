@@ -4507,6 +4507,31 @@ pub fn get_finder_selection() -> Result<Vec<FinderItem>, String> {
 /// Resize a single image file with Lanczos3, writing the output next
 /// to the source as `<stem>-<W>x<H>.<ext>`. Returns the output path
 /// so the frontend can show "Saved foo-1200x800.png" toast.
+/// Dimensions of the clipboard image, or null when there is none.
+#[tauri::command]
+pub async fn clipboard_image_size() -> Option<(u32, u32)> {
+    tauri::async_runtime::spawn_blocking(crate::image_ops::clipboard_image_dimensions)
+        .await
+        .ok()
+        .and_then(|r| r.ok())
+}
+
+/// Dimensions + format of each path, for the `rz` preview.
+///
+/// Async + `spawn_blocking`: this is file IO over a whole Finder selection and
+/// a sync command would run it on the main thread.
+#[tauri::command]
+pub async fn image_sizes(paths: Vec<String>) -> Vec<crate::image_ops::ImageInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|p| crate::image_ops::probe_image(std::path::Path::new(p)))
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
 #[tauri::command]
 pub fn resize_file(path: String, width: u32, height: u32) -> Result<String, String> {
     let src = std::path::PathBuf::from(&path);

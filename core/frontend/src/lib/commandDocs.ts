@@ -122,20 +122,29 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.84.72",
     tagline: "Resize the selected Finder image(s) (Lanczos3) → sibling files.",
     tagline_de: "Ausgewählte Finder-Bild(er) skalieren (Lanczos3) → Nachbardateien.",
-    synopsis: "rz <W>x<H>   ·   rz <W> <H>",
+    synopsis: "rz <N>   ·   rz <W>x<H>   ·   rz px|% <…>",
     description:
-      "Resizes the image(s) currently selected in Finder to W×H (Lanczos3), writing `<name>-WxH.<ext>` next to each (PNG/JPEG/WebP/GIF/BMP). Reads the live selection — you don't have to be in finder-mode first. Falls back to the clipboard image (16 MP cap) when nothing usable is selected or Automation isn't granted. Preset rows appear as you type `rz` (Tab fills one).",
-    arguments: [{ name: "WxH", required: true, description: "Target dimensions — `200x200`, `200 x 200`, or a plain space `200 200`.", default: undefined }],
-    flags: [],
-    examples: [
-      { input: "rz 1200x800", result: "Each selected image → a 1200×800 sibling copy." },
-      { input: "rz 512 512", result: "Space-separated dimensions also work." },
-      { input: "rz 64x64", result: "Great for favicons/app icons from a selected PNG." },
+      "Resizes the image(s) currently selected in Finder (Lanczos3), writing `<name>-WxH.<ext>` next to each (PNG/JPEG/WebP/GIF/BMP). **One number is a percentage** (`rz 50` = half size), **two numbers are pixels** (`rz 1200x800`) — and a named mode always wins (`px`/`pixel`, `%`/`pc`/`percent`). In percent mode every image is scaled from **its own** size, so a mixed batch keeps its proportions. Reads the live selection — you don't have to be in finder-mode first. Falls back to the clipboard image (16 MP cap) when nothing usable is selected or Automation isn't granted. Typing `rz` shows the modes plus what each selected image will become.",
+    arguments: [
+      { name: "N | WxH", required: true, description: "One number = percent of the original; two numbers = absolute pixels. `200x200`, `200 x 200` and `200 200` are all accepted.", default: undefined },
     ],
-    tips: ["Type `rz` bare to see the size presets; Tab fills one into the bar."],
+    flags: [
+      { flag: "px", description: "Force pixels — `px`, `pixel` or `pixels`. `rz px 50` is a 50×50 px square." },
+      { flag: "%", description: "Force percent — `%`, `pc`, `pct`, `percent` or `prozent`. Also as a suffix: `rz 50%`." },
+    ],
+    examples: [
+      { input: "rz 50", result: "Every selected image to half its own width and height." },
+      { input: "rz 1200x800", result: "Each selected image → a 1200×800 sibling copy (pixels, unchanged)." },
+      { input: "rz % 150x100", result: "Width to 150 %, height unchanged — axes scale separately." },
+    ],
+    tips: [
+      "Type `rz` bare: the preview lists the modes and, for the current Finder selection, what each image turns into.",
+      "`rz 50%` and `rz 50x25%` work too — a trailing percent sign flips both numbers to percent.",
+    ],
     caveats: [
-      "Needs the Finder Automation permission (macOS) for the selection; without it, falls back to the clipboard image.",
-      "Aspect ratio is not preserved — W and H are applied as given.",
+      "Needs the Finder Automation permission (macOS) for the selection; without it, falls back to the clipboard image — the preview says so rather than showing \"0 images\".",
+      "Aspect ratio is not preserved in pixel mode — W and H are applied as given. Percent mode preserves it whenever both axes use the same value.",
+      "The result is capped at 16 MP; a percentage that would exceed it is flagged per image in the preview.",
     ],
     related: ["optim"],
   },

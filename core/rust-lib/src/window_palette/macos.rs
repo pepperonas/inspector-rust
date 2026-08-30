@@ -391,20 +391,37 @@ unsafe fn try_show_if(gen: u64) {
         tracing::debug!("window-palette: re-hit at show time found no target");
         return;
     };
-    show_palette_for(anchor, region, win);
+    let dodge = matches!(*TRIGGER.lock(), PaletteTrigger::ZoomHover);
+    show_palette_for(anchor, region, win, dodge);
 }
 
 /// Position + show the palette for `win` (retained; ownership moves here).
 /// `anchor` decides where it sits, `region` is the grace zone the pointer may
 /// rest in. Shared by the pointer triggers and the global shortcut.
-unsafe fn show_palette_for(anchor: Rect, region: Rect, win: AXUIElementRef) {
+///
+/// ⚠️ `dodge_system_menu`: since macOS 15 a plain hover over the green button
+/// opens the SYSTEM tiling popover directly beneath the button — the very spot
+/// the centred palette used to occupy (the original "das macOS overlay stört
+/// den fenster manager" report). It cannot be suppressed (no defaults key —
+/// verified against the WindowManager binary), so in hover mode the palette
+/// steps ASIDE instead: right of the popover's zone, still under the title
+/// bar. Moving the cursor over to it leaves the button, which is exactly what
+/// dismisses the system popover — the two never stack.
+const SYS_MENU_DODGE: f64 = 250.0;
+
+unsafe fn show_palette_for(anchor: Rect, region: Rect, win: AXUIElementRef, dodge_system_menu: bool) {
     let screens = screens_topleft();
     let center = (anchor.x + anchor.w / 2.0, anchor.y + anchor.h / 2.0);
     let Some(vf) = screen_for_cursor(center, &screens) else {
         CFRelease(win as CFTypeRef);
         return;
     };
-    let px = (anchor.x + anchor.w / 2.0 - PAL_W / 2.0).clamp(vf.x + 4.0, (vf.x + vf.w - PAL_W - 4.0).max(vf.x + 4.0));
+    let want_px = if dodge_system_menu {
+        anchor.x + SYS_MENU_DODGE
+    } else {
+        anchor.x + anchor.w / 2.0 - PAL_W / 2.0
+    };
+    let px = want_px.clamp(vf.x + 4.0, (vf.x + vf.w - PAL_W - 4.0).max(vf.x + 4.0));
     let py = (anchor.y + anchor.h + GAP).clamp(vf.y + 4.0, (vf.y + vf.h - PAL_H - 4.0).max(vf.y + 4.0));
 
     release_target();
@@ -450,7 +467,8 @@ pub(crate) fn toggle_for_focused_window() {
         let band = Rect::new(wf.x, wf.y, wf.w, TITLEBAR_BAND.min(wf.h));
         let anchor = Rect::new(wf.x + wf.w / 2.0 - 1.0, band.y, 2.0, band.h);
         HOVER_GEN.fetch_add(1, Ordering::SeqCst); // cancel any pending dwell
-        show_palette_for(anchor, band, win);
+        // No system popover is open on the hotkey path — centre as usual.
+        show_palette_for(anchor, band, win, false);
     }
 }
 

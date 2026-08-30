@@ -1491,8 +1491,8 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                       className="rounded-md border border-[var(--color-border)] bg-[var(--color-bg)] px-1.5 py-1 text-[var(--color-fg)]"
                       aria-label="Palette trigger"
                     >
-                      <option value="titlebar_modifier">Title bar + ⌃⌥ (recommended)</option>
-                      <option value="zoom_hover">Green zoom button (hover)</option>
+                      <option value="zoom_hover">Green zoom button (hover, recommended)</option>
+                      <option value="titlebar_modifier">Title bar + ⌃⌥</option>
                       <option value="hotkey">Global shortcut only</option>
                     </select>
                     <span className="text-[var(--color-muted)]">
@@ -1500,7 +1500,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                         ? "Hold Control+Option and point at a window's title bar."
                         : paletteCfg.trigger === "hotkey"
                           ? "Opens for the focused window — bind it under Global shortcuts."
-                          : "⚠️ macOS 15 and newer open their own tiling menu on this hover; both popovers will appear."}
+                          : "On macOS 15+ the system opens its own tiling menu at the button; the palette places itself beside it, so the two never stack."}
                     </span>
                     <span className="text-[var(--color-muted)]">
                       The global shortcut works in every mode.

@@ -87,15 +87,17 @@ impl PaletteTrigger {
 
 /// Which trigger a fresh install (or one that never chose explicitly) gets.
 ///
-/// ⚠️ `None` — an unreadable OS version — deliberately resolves to the
-/// conflict-free trigger, not to the legacy one: the cost of guessing "old
-/// macOS" wrongly is two popovers fighting on every window, while guessing
-/// "new macOS" wrongly only costs a slightly less convenient trigger.
-pub fn default_trigger(os_major: Option<u32>) -> PaletteTrigger {
-    match os_major {
-        Some(m) if m < FIRST_TILING_MACOS => PaletteTrigger::ZoomHover,
-        _ => PaletteTrigger::TitlebarModifier,
-    }
+/// ⚠️ REVERSED in v0.158.1, on field evidence. v0.151.0 moved the default to
+/// `TitlebarModifier` on macOS 15+ to dodge the system tiling menu — and the
+/// palette promptly died in practice: the log showed the monitor armed for a
+/// whole day with ZERO hits, because nobody discovers a chorded hover, while
+/// the gesture everyone actually tries (hovering the green button) silently
+/// did nothing. A silent non-response on the expected gesture is worse than
+/// the collision. The collision itself is now mitigated SPATIALLY instead:
+/// in hover mode the palette places itself beside the system popover's zone
+/// (`macos::show_palette_for`), so both can exist without stacking.
+pub fn default_trigger(_os_major: Option<u32>) -> PaletteTrigger {
+    PaletteTrigger::ZoomHover
 }
 
 /// Major version out of a `sysinfo` OS version string ("26.6.2" -> 26).
@@ -262,19 +264,16 @@ mod tests {
     }
 
     #[test]
-    fn the_default_trigger_avoids_the_macos_tiling_conflict() {
-        // macOS 15+ owns plain hover over the green button -> never default there.
-        for m in [15u32, 16, 26, 99] {
-            assert_eq!(default_trigger(Some(m)), PaletteTrigger::TitlebarModifier, "macOS {m}");
-        }
-        // Older releases keep the nicer Moom-style hover.
-        for m in [10u32, 13, 14] {
+    fn the_default_trigger_is_the_hover_everyone_actually_tries() {
+        // ⚠️ Deliberate REVERSAL of the v0.151.0 rule, on field evidence: with
+        // the chorded default the palette registered ZERO hits in a full day of
+        // real use — nobody discovers ⌃⌥-hover, and the gesture people do try
+        // (the green button) silently did nothing. The macOS-menu collision is
+        // handled by PLACEMENT now, not by abandoning the gesture.
+        for m in [10u32, 14, 15, 26, 99] {
             assert_eq!(default_trigger(Some(m)), PaletteTrigger::ZoomHover, "macOS {m}");
         }
-        // ⚠️ Unreadable version resolves to the CONFLICT-FREE trigger, not the
-        // legacy one: guessing "old" wrongly costs two fighting popovers on
-        // every window; guessing "new" wrongly costs only convenience.
-        assert_eq!(default_trigger(None), PaletteTrigger::TitlebarModifier);
+        assert_eq!(default_trigger(None), PaletteTrigger::ZoomHover);
     }
 
     #[test]

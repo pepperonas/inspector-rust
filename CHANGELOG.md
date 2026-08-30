@@ -4,6 +4,18 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.158.1] - 2026-08-30
+
+### Fixed
+
+- **Die Fenster-Palette reagierte nicht mehr auf den Hover über dem grünen Knopf** (Nutzerbefund). Das war die v0.151.0-Entscheidung selbst: der Standard-Auslöser war auf „Titelleiste + ⌃⌥" gewandert, um dem macOS-Kachelmenü auszuweichen — und ist am echten Nutzer gescheitert. **Feldbeleg aus dem Log: Monitor einen ganzen Tag bewaffnet, null Treffer.** Einen Akkord-Hover entdeckt niemand, und die Geste, die jeder tatsächlich versucht, tat still nichts — eine stille Nicht-Reaktion auf die erwartete Geste ist schlimmer als die Kollision.
+- **Standard-Auslöser zurück auf den Hover, Kollision jetzt RÄUMLICH gelöst:** im Hover-Modus stellt sich die Palette **neben** die Zone des System-Popovers (250 pt rechts vom Knopf, weiter unter der Titelleiste) statt zentriert darauf. Der Weg des Cursors zur Palette verlässt den Knopf — genau das schließt das System-Menü; die beiden stapeln sich nie. Der Kurzbefehl-Pfad zentriert weiter (dort ist kein Popover offen).
+
+### Notes
+
+- ⚠️ **Lehre über die v0.151.0-Abwägung:** „falsch in Richtung neu raten kostet nur Bequemlichkeit" hat die Entdeckbarkeit unterschlagen — ein Auslöser, den niemand findet, ist funktional identisch mit einem abgeschalteten Feature. Der Default-Test ist ehrlich umgeschrieben (mit dem Feldbeleg im Kommentar), die beiden Alternativ-Auslöser bleiben wählbar, die Settings-Empfehlung ist zurückgedreht.
+- Verifiziert mit **synthetischen Mausbewegungen** (nur Maus — kein Klick, keine Tastatur, kein Fokuswechsel) über dem echten Zoom-Knopf eines TextEdit-Fensters, inklusive Log- und Bild-Nachweis der versetzten Platzierung.
+
 ## [0.158.0] - 2026-08-30
 
 ### Changed

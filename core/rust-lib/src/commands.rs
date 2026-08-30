@@ -6214,6 +6214,110 @@ pub async fn social_metadata(url: String) -> Result<crate::social_dl::SocialMeta
         .map_err(|e| format!("metadata task: {e}"))?
 }
 
+// ── benchmark / performance — CPU benchmark (v0.150.0) ──────────────────────
+
+/// What the PREVIEW shows before anything runs: how much work, how long, on
+/// how many threads, and against which yardstick.
+#[derive(serde::Serialize)]
+pub struct BenchPlan {
+    pub workloads: Vec<String>,
+    pub estimated_seconds: f64,
+    pub threads: usize,
+    pub baseline_machine: String,
+    pub machine: crate::bench::MachineInfo,
+}
+
+#[tauri::command]
+pub async fn bench_plan() -> Result<BenchPlan, String> {
+    tauri::async_runtime::spawn_blocking(|| BenchPlan {
+        workloads: crate::bench::WORKLOADS.iter().map(|w| w.name.to_string()).collect(),
+        estimated_seconds: crate::bench::estimated_seconds(),
+        threads: crate::bench::thread_count(),
+        baseline_machine: crate::bench::BASELINE_MACHINE.to_string(),
+        machine: crate::bench::machine_info(),
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+/// Run the benchmark and file the result.
+///
+/// ⚠️ Async + `spawn_blocking`: this saturates every core for ~9 s. A sync
+/// command runs ON the main thread and would freeze the whole UI — including
+/// the progress it is supposed to be reporting.
+#[tauri::command]
+pub async fn bench_run(app: AppHandle) -> Result<crate::bench::BenchRun, String> {
+    let handle = app.clone();
+    let run = tauri::async_runtime::spawn_blocking(move || {
+        crate::bench::run(|done, total, name| {
+            let _ = handle.emit(
+                "bench-progress",
+                serde_json::json!({ "done": done, "total": total, "name": name }),
+            );
+        })
+    })
+    .await
+    .map_err(|e| format!("Benchmark-Task: {e}"))?;
+    crate::bench::save(&run)?;
+    Ok(run)
+}
+
+#[tauri::command]
+pub async fn bench_history() -> Result<Vec<crate::bench::BenchRun>, String> {
+    tauri::async_runtime::spawn_blocking(crate::bench::history).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn bench_delete(id: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::bench::delete(&id))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Import a run another machine produced (its JSON file).
+#[tauri::command]
+pub async fn bench_import(path: String) -> Result<crate::bench::BenchRun, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::bench::import(std::path::Path::new(&path)))
+        .await
+        .map_err(|e| e.to_string())?
+}
+
+/// Export one run, or a comparison when several ids are given.
+#[tauri::command]
+pub async fn bench_export(
+    app: AppHandle,
+    ids: Vec<String>,
+    format: String,
+) -> Result<String, String> {
+    let ext = match format.as_str() {
+        "html" => "html",
+        "pdf" => "pdf",
+        other => return Err(format!("Unbekanntes Format: {other}")),
+    };
+    let (html, stem) = tauri::async_runtime::spawn_blocking(move || {
+        let all = crate::bench::history();
+        // Keep the ORDER the user picked — the first run is the reference the
+        // deltas are measured against.
+        let picked: Vec<_> = ids
+            .iter()
+            .filter_map(|id| all.iter().find(|r| &r.id == id).cloned())
+            .collect();
+        match picked.len() {
+            0 => Err("Kein Lauf ausgewählt".to_string()),
+            1 => Ok((crate::bench_export::build_html(&picked[0]), "benchmark".to_string())),
+            n => Ok((crate::bench_export::build_compare_html(&picked), format!("benchmark-vergleich-{n}"))),
+        }
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let out = dir.join(format!("{stem}.{ext}"));
+    write_report(&app, html, &out)?;
+    reveal_in_file_manager(&out);
+    Ok(out.to_string_lossy().into_owned())
+}
+
 // ── Trim (local audio/video) ─────────────────────────────────────────────────
 
 /// Window label for the trim overlay.

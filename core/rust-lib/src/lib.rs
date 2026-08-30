@@ -20,6 +20,8 @@ mod cutout;
 mod cutout_ml;
 mod db;
 mod disk_usage;
+mod bench;
+mod bench_export;
 mod device_sync;
 mod pagespeed;
 mod pagespeed_export;
@@ -960,6 +962,12 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::social_ytdlp_available,
             commands::social_download,
             commands::social_metadata,
+            commands::bench_plan,
+            commands::bench_run,
+            commands::bench_history,
+            commands::bench_delete,
+            commands::bench_import,
+            commands::bench_export,
             commands::reveal_path,
             commands::trim_open_overlay,
             commands::trim_cancel_overlay,

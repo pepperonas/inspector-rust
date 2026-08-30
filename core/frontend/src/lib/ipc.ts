@@ -3116,6 +3116,39 @@ export function socialMetadata(url: string): Promise<SocialMeta> {
   return invoke("social_metadata", { url });
 }
 
+import type { BenchRun, MachineInfo } from "./bench";
+
+export interface BenchPlan {
+  workloads: string[];
+  estimated_seconds: number;
+  threads: number;
+  baseline_machine: string;
+  machine: MachineInfo;
+}
+
+/** What the preview shows BEFORE anything runs. */
+export function benchPlan(): Promise<BenchPlan> {
+  return invoke("bench_plan");
+}
+/** Runs the benchmark (~9 s, saturates every core) and files the result. */
+export function benchRun(): Promise<BenchRun> {
+  return invoke("bench_run");
+}
+export function benchHistory(): Promise<BenchRun[]> {
+  return invoke("bench_history");
+}
+export function benchDelete(id: string): Promise<void> {
+  return invoke("bench_delete", { id });
+}
+/** Import a run another machine produced (its JSON file). */
+export function benchImport(path: string): Promise<BenchRun> {
+  return invoke("bench_import", { path });
+}
+/** One id = a run report; several = a comparison, first one is the reference. */
+export function benchExport(ids: string[], format: "html" | "pdf"): Promise<string> {
+  return invoke("bench_export", { ids, format });
+}
+
 /** Show one file in Finder/Explorer. */
 export function revealPath(path: string): Promise<void> {
   return invoke("reveal_path", { path });

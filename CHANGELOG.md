@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.150.0] - 2026-08-30
+
+### Added
+
+- **`benchmark` / `performance` - CPU-Benchmark nach Geekbench-Vorbild.** Sieben Disziplinen (Integer-Sortierung, SHA-256, Matrixmultiplikation, N-Koerper, Primzahlsieb, Deflate, Textauswertung), erst einkernig, dann ueber alle Threads. Beide Namen sind derselbe Befehl.
+- **Vorschau vor der Messung.** Tippen zeigt nur, was geschehen WUERDE - Disziplinen, geschaetzte Dauer, Threads, diese Maschine. Gemessen wird nichts, bis der Startknopf gedrueckt ist; der Lauf lastet ~9 s alle Kerne aus, das beginnt man nicht versehentlich.
+- **Systemangaben werden ausgelesen, nicht geschaetzt** - Geraet, OS+Version, Kernel, Architektur, CPU, Kerne, RAM. Was nicht lesbar ist, erscheint als "nicht verfuegbar"; ein Test laesst eine Platzhalterzahl durchfallen.
+- **Vergleich ueber Geraete und Betriebssysteme hinweg.** Jeder Lauf liegt als JSON unter `<Daten>/InspectorRust/benchmarks/` - das ist zugleich das Austauschformat. Verknuepft wird ueber die **Disziplin-ID, nie ueber die Position**: ein Lauf aus einer anderen Fassung kann einen anderen Satz tragen, und nach Position ausgerichtet vergliche man SHA-256 mit einem Primzahlsieb.
+- **HTML- und PDF-Export** im Haus-Report-Design (`report_style`), also dieselbe Form wie `loc`, `repo` und `pagespeed`.
+
+### Notes
+
+- **Die Referenzwerte mussten im Release-Profil gemessen werden.** Unter dem Debug-Profil von `cargo test` liefen dieselben Disziplinen 30-50x langsamer (SHA-256 mit 17 statt 241 MB/s); gegen Debug-Referenzen haette der ausgelieferte Release-Build Werte um 10 000 erzeugt. Gemessen auf einem Apple M1 Pro; der Lauf dort ergibt Single **1031** / Multi **5098**, also die beabsichtigten ~1000.
+- **Gemessen, nicht angenommen: zwei aufeinanderfolgende Laeufe streuen um bis zu 5 %** (Primzahlsieb 1284 -> 1212 Mkand/s). Der Vergleich kennzeichnet alles darunter als Rauschen, statt es als Befund auszugeben.
+
 ## [0.149.1] — 2026-08-28
 
 ### Changed

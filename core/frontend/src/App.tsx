@@ -21,6 +21,7 @@ import { ClockPanel } from "./components/ClockPanel";
 import { RickrollPanel } from "./components/RickrollPanel";
 import { RepoPanel } from "./components/RepoPanel";
 import { NoSleepPanel } from "./components/NoSleepPanel";
+import { BenchPanel } from "./components/BenchPanel";
 import { AliasPanel } from "./components/AliasPanel";
 import { IrisPanel } from "./components/IrisPanel";
 import { BoomPanel } from "./components/BoomPanel";
@@ -320,6 +321,8 @@ function App() {
   // nosleep mode (v0.124.0) — persistent AC sleep-profile toggle (macOS).
   const [nosleepMode, setNosleepMode] = useState(false);
   const [nosleepFocus, setNosleepFocus] = useState(false);
+  const [benchMode, setBenchMode] = useState(false);
+  const [benchFocus, setBenchFocus] = useState(false);
   const [aliasMode, setAliasMode] = useState(false);
   const [aliasFocus, setAliasFocus] = useState(false);
   const [tokensMode, setTokensMode] = useState(false);
@@ -1030,6 +1033,17 @@ function App() {
   // Same show-while-typing for the alias builder (pure UI — no side effects
   // until a button is pressed); Enter only hands it keyboard focus.
   const isAliasCmd = parsedCommand?.spec.kind === "alias";
+  // The benchmark preview is pure UI — it lists what WOULD run and measures
+  // nothing until the start button is pressed. Enter only hands over focus.
+  const isBenchCmd = parsedCommand?.spec.kind === "benchmark";
+  useEffect(() => {
+    if (isBenchCmd && !benchMode) {
+      setBenchMode(true);
+    } else if (!isBenchCmd && benchMode) {
+      setBenchMode(false);
+      setBenchFocus(false);
+    }
+  }, [isBenchCmd, benchMode]);
   useEffect(() => {
     if (isAliasCmd && !aliasMode) {
       setAliasMode(true);
@@ -3222,7 +3236,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4150,6 +4164,7 @@ function App() {
       !repoFocus &&
       !nosleepFocus &&
       !aliasFocus &&
+      !benchFocus &&
       !tokensFocus &&
       !calendarFocus &&
       !cleanFocus &&
@@ -4604,6 +4619,17 @@ function App() {
                       onExit={() => {
                         setUptimeMode(false);
                         setUptimeFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : benchMode ? (
+                  <div className="md3-pop-in h-full">
+                    <BenchPanel
+                      focused={benchFocus}
+                      onExit={() => {
+                        setBenchMode(false);
+                        setBenchFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

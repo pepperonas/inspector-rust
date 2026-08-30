@@ -38,10 +38,14 @@ import {
 } from "./commands";
 
 describe("COMMANDS catalogue", () => {
-  it("has 64 commands (translate ×9, dev-tools ×5, web-search bangs ×9, qr, sound+audio, rz+resize, optim+optimize, trim, hue, disco, stats, uptime, track, meme, …)", () => {
+  // The count lives in the assertion, NOT the title: this title said "64"
+  // while the assertion checked 100 — a number in a test name drifts
+  // silently because nothing verifies it.
+  it("pins the size of the command catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
-    expect(COMMANDS.length).toBe(100);
+    // +2 for `benchmark` and its `performance` spelling (v0.150.0).
+    expect(COMMANDS.length).toBe(102);
   });
 
   it("every keyword is unique", () => {

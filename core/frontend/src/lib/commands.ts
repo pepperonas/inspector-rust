@@ -57,6 +57,7 @@ export type CommandKind =
   | "repo-export"
   | "nosleep"
   | "alias"
+  | "benchmark"
   | "clown"
   | "bruno"
   | "timer"
@@ -476,6 +477,21 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description:
       "Timer + visual/audio notification. e.g. `timer 12` (12 min) · `timer 30s` · `timer 2h`",
     requiresArg: true,
+  },
+  // ── Benchmark (two spellings, one command — the countdown/timer pattern) ──
+  {
+    kind: "benchmark",
+    keyword: "benchmark",
+    syntax: "benchmark",
+    description: "CPU-Benchmark — Vorschau, dann auf Bestätigung Single- und Multi-Core messen.",
+    requiresArg: false,
+  },
+  {
+    kind: "benchmark",
+    keyword: "performance",
+    syntax: "performance",
+    description: "CPU-Benchmark — Alias von `benchmark` (gleicher Befehl).",
+    requiresArg: false,
   },
   {
     kind: "timer",

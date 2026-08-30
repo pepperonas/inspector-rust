@@ -619,6 +619,35 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["faker"],
   },
   {
+    command: "benchmark",
+    aliases: ["performance"],
+    category: CAT_SYS,
+    version_added: "0.150.0",
+    tagline: "CPU benchmark — preview, confirm, then single- and multi-core scores.",
+    tagline_de: "CPU-Benchmark — Vorschau, bestätigen, dann Single- und Multi-Core-Werte.",
+    synopsis: "benchmark",
+    description:
+      "Runs seven CPU workloads in the shape of Geekbench — integer sort, SHA-256, matrix multiply, an n-body step, a prime sieve, deflate compression and text analysis — first on one core, then across every thread the machine has. Typing the command only shows a **preview**: which disciplines will run, how long it will take and on how many threads. **Nothing is measured until you press the start button**, because the run saturates every core for about nine seconds. Each result carries the raw throughput AND a score relative to a fixed reference (1000 = the reference machine named in the report). Every system detail — device, OS, kernel, architecture, CPU, cores, RAM — is READ from the machine; anything that cannot be read says `nicht verfügbar` rather than showing a made-up number. Runs are saved as plain JSON, so a run from another Mac or a Linux box can be imported and put side by side with deltas. Export as HTML or PDF in the same house design as `loc` and `repo`.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "benchmark", result: "Shows the preview: disciplines, estimate, threads, this machine." },
+      { input: "performance", result: "The same command under its second name." },
+      { input: "benchmark", result: "After the run: tick two saved runs to compare them side by side.", note: "The first ticked run is the reference the deltas are measured against." },
+    ],
+    tips: [
+      "⌘B starts the run while the panel has focus; Esc leaves without measuring.",
+      "Import a run from another machine with the ⬆ button — it reads the JSON another copy of the app wrote.",
+      "Close other heavy apps first: the score measures the machine, and a busy machine scores lower.",
+    ],
+    caveats: [
+      "Repeated runs vary by roughly 5 % — a smaller difference is measurement noise, and the comparison marks it as such rather than presenting it as a result.",
+      "A score of 1000 means the fixed reference machine named in the report. That reference is a yardstick so runs can be compared, not a statement about any product.",
+      "Runs recorded under an older workload set are flagged in the comparison instead of being silently lined up against the current one.",
+    ],
+    related: ["stats", "uptime"],
+  },
+  {
     command: "timer",
     aliases: ["countdown"],
     category: CAT_PROD,

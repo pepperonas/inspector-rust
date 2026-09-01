@@ -1043,7 +1043,10 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "boom", result: "Pick a genre preset, tweak the 10 bands." },
       { input: "boom", result: "Off = audio passes through untouched." },
     ],
-    tips: ["macOS needs the one-time driver install (button in the panel)."],
+    tips: [
+      "macOS needs the one-time driver install (button in the panel).",
+      "Picking **boom Audio** by hand in the macOS sound menu turns boom ON — the bridge starts and routes to the output you were just on (a manual selection used to be silence).",
+    ],
     caveats: ["Distribution needs a signed driver; the bundled one is ad-hoc (loads locally)."],
     related: ["sound", "mute", "disco"],
   },

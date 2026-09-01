@@ -743,6 +743,20 @@ pub fn should_clear_stale_mute(state: Option<bool>) -> bool {
     state == Some(true)
 }
 
+/// v0.160.0 — a MANUAL selection of "boom Audio" as the system output is the
+/// enable gesture. Field report: with boom disabled, picking "boom Audio" in
+/// the sound menu was pure silence — the loopback device has no consumer
+/// unless the bridge runs, and the default-output listener only existed WHILE
+/// the bridge ran, so nothing even observed the selection. The watch is
+/// permanent now (armed at startup, never removed) and this rule decides what
+/// a change means: only "the default BECAME boom Audio while no bridge runs"
+/// is an adoption. The two `false` cases are the load-bearing ones — a REAL
+/// device picked while boom is off must never enable boom by itself, and a
+/// running bridge owns its own re-bridge path (a second start would race it).
+pub fn should_adopt_selection(new_default_is_boom: bool, bridge_running: bool) -> bool {
+    new_default_is_boom && !bridge_running
+}
+
 // ── Windows backend — Equalizer APO config renderer (pure, cross-platform) ───
 //
 // On Windows boom drives **Equalizer APO** (the established user-mode APO that
@@ -860,6 +874,22 @@ mod tests {
         assert!(should_clear_stale_mute(Some(true)));
         assert!(!should_clear_stale_mute(Some(false)));
         assert!(!should_clear_stale_mute(None));
+    }
+
+    #[test]
+    fn manual_boom_selection_adopts_only_when_the_bridge_is_down() {
+        // The field report: "boom Audio" picked by hand while boom is off →
+        // silence, because nothing drains the loopback. That selection IS the
+        // enable gesture.
+        assert!(should_adopt_selection(true, false));
+        // ⚠️ Picking a REAL device while boom is off must NEVER enable boom —
+        // the nightmare mutation is "adopt whenever the bridge is idle", which
+        // would switch boom on every time the user picks their BT box.
+        assert!(!should_adopt_selection(false, false));
+        // A running bridge owns device changes via its own re-bridge path; a
+        // second start racing it is never an adoption.
+        assert!(!should_adopt_selection(true, true));
+        assert!(!should_adopt_selection(false, true));
     }
 
 

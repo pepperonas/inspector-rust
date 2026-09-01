@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.160.0] - 2026-09-01
+
+### Fixed
+
+- **boom: „boom Audio" von Hand als Ausgabegerät wählen spielte keine Musik** (Feldbefund). Ursache: die Brücke (Loopback → echtes Gerät) läuft nur bei eingeschaltetem boom, und der Default-Output-Wächter existierte NUR, solange die Brücke lief — bei ausgeschaltetem boom war die manuelle Wahl im Ton-Menü also reine Stille, die niemand beobachtete. Der Wächter ist jetzt **permanent** (beim App-Start scharf, nie entfernt), und die manuelle Wahl von „boom Audio" ist die **Einschalt-Geste**: boom aktiviert sich, persistiert das, startet die Brücke und routet zum Gerät, auf dem der Nutzer **gerade eben** gehört hat (präziser als die persistierte Zuletzt-UID, die nur während gebrückter Sessions aktualisiert). Ein passiver Toast benennt das Zielgerät.
+
+### Notes
+
+- ⚠️ **Ein ECHTES Gerät wählen, während boom aus ist, bleibt ein reiner No-op** — boom darf sich niemals selbst einschalten, wenn man nur seine BT-Box wählt. Genau diese Mutation pinnt `should_adopt_selection` (mutationsgeprüft); ebenso, dass eine laufende Brücke nie den Adoptions-Pfad nimmt (sie besitzt ihren eigenen Re-Bridge-Pfad).
+- ⚠️ **Kein Selbst-Einschalt-Loop:** `start_locked` speichert als „vorheriges Gerät" immer das aufgelöste ECHTE Gerät (nie boom Audio) — Ausschalten stellt also ein echtes Gerät wieder her, und der Wächter sieht dann kein boom Audio. Der Adoptions-Pfad nutzt bewusst `set_active`, nicht `apply`: dessen `reset_stale_default` hätte die gerade getroffene Wahl sofort wieder weggerissen.
+- ⚠️ Ein beim **App-Start** bereits auf boom Audio festhängender Default gilt weiterhin als Crash-Artefakt und wird zurückgesetzt (kein Auto-Enable) — nur eine beobachtete ÄNDERUNG auf boom Audio ist eine Geste.
+- Live verifiziert: `SwitchAudioSource -s "boom Audio"` bei ausgeschaltetem boom → Log „treating it as the enable gesture" + „boom: enabled — routing …", Brücke läuft, Rückbau geprüft.
+
 ## [0.159.0] - 2026-09-01
 
 ### Added

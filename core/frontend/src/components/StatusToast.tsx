@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   AlarmClock,
+  AudioLines,
   Clock,
   Coffee,
   Dices,
@@ -128,6 +129,8 @@ export function StatusToast() {
   const Icon =
     payload.kind === "iris"
       ? Siren
+      : payload.kind === "boom"
+        ? AudioLines
       : payload.kind === "timer"
         ? Timer
       : payload.kind === "alarm"

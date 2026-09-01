@@ -95,6 +95,20 @@ fn now_ms() -> u64 {
 
 pub(crate) fn set_app_handle(app: tauri::AppHandle) {
     let _ = APP_HANDLE.set(app);
+    // v0.160.0: the default-output watch is PERMANENT — armed here at startup,
+    // never removed. Before, it only existed while the bridge ran, so with
+    // boom disabled a manual selection of "boom Audio" (sound menu / System
+    // Settings) was pure silence with NOTHING observing it (the field report
+    // "boom Audio gewählt → keine Musik"). Seed the "device the user was just
+    // on" memory with the current default so a first adoption can route back
+    // to it.
+    unsafe {
+        let def = default_output();
+        if def != 0 && def != find_device_by_uid("BoomAudio_UID") {
+            LAST_REAL_DEFAULT.store(def, Ordering::SeqCst);
+        }
+        add_default_listener();
+    }
 }
 
 fn emit_frontend(event: &str) {
@@ -1261,7 +1275,9 @@ fn gate_resume() {
 unsafe fn stop_locked(eng: &mut Engine) {
     LEVELS_BOOM_DEV.store(0, Ordering::Relaxed);
     LEVELS_REAL_DEV.store(0, Ordering::Relaxed);
-    remove_default_listener();
+    // The default-output listener stays armed (v0.160.0): it now also watches
+    // for a manual "boom Audio" selection while boom is OFF — removing it here
+    // would recreate exactly the unobserved-silence hole it exists to close.
     // Restore the user's real output device FIRST.
     let prev = SAVED_DEFAULT_OUTPUT.swap(0, Ordering::SeqCst);
     if prev != 0 {
@@ -1288,27 +1304,118 @@ extern "C" fn default_output_changed(
     0
 }
 
-/// The user picked a different output while boom is running → re-bridge to it so
-/// boom keeps EQ-ing whatever device is selected (and SAVED tracks it).
+/// The default output changed. Two cases, split by whether a bridge runs:
+/// running → re-bridge to the new device so boom keeps EQ-ing whatever is
+/// selected (and SAVED tracks it); down → maybe ADOPT a manual "boom Audio"
+/// selection as the enable gesture (v0.160.0, see `adopt_manual_selection`).
 fn follow_default_change() {
-    let mut slot = ENGINE.lock();
-    let Some(eng) = slot.as_mut() else { return };
-    let (boom_dev, cur_real) = match &eng.session {
-        Some(s) => (s.boom_dev, s.real_dev),
-        None => return,
-    };
-    let new_def = unsafe { default_output() };
-    // Ignore our own switch back to boom Audio + no-op (same real device).
-    if new_def == 0 || new_def == boom_dev || new_def == cur_real {
+    {
+        let mut slot = ENGINE.lock();
+        if let Some(eng) = slot.as_mut() {
+            if let Some(s) = &eng.session {
+                let (boom_dev, cur_real) = (s.boom_dev, s.real_dev);
+                let new_def = unsafe { default_output() };
+                // Ignore our own switch back to boom Audio + no-op (same real device).
+                if new_def == 0 || new_def == boom_dev || new_def == cur_real {
+                    return;
+                }
+                tracing::info!(
+                    "boom: output changed → re-bridging to '{}' ({new_def})",
+                    unsafe { device_name(new_def) },
+                );
+                unsafe {
+                    stop_ioprocs_only(eng); // keep new_def as the default
+                    start_locked(eng); // captures default_output() == new_def as the real device
+                }
+                return;
+            }
+        }
+        // ⚠️ Drop the ENGINE lock BEFORE the adoption path — it re-enters
+        // set_active → ENGINE.lock(), and parking_lot is not reentrant.
+    }
+    adopt_manual_selection();
+}
+
+/// One adoption at a time — CoreAudio can deliver notification bursts, and a
+/// second start racing the first would fight over the same devices.
+static ADOPTING: AtomicBool = AtomicBool::new(false);
+/// The last REAL (non-boom) default output — "the device the user was just
+/// listening on". More precise than the persisted `boom.last_output_uid`,
+/// which only updates while boom actually bridges: without this, adopting a
+/// manual selection could route to a device from weeks ago.
+static LAST_REAL_DEFAULT: AtomicU32 = AtomicU32::new(0);
+
+/// v0.160.0 — no bridge runs and the default output just changed. If the user
+/// picked "boom Audio" by hand, treat it as the ENABLE gesture: with no
+/// consumer on the loopback the selection is otherwise pure silence (the
+/// field report). Enable + persist + start the bridge; `start_locked`'s
+/// stale-default branch then routes playback to the remembered real device —
+/// which we point at the output the user was on a moment ago. Picking any
+/// REAL device while boom is off stays a plain no-op (pinned by
+/// `should_adopt_selection`: boom must never enable itself on that).
+fn adopt_manual_selection() {
+    if ADOPTING.swap(true, Ordering::SeqCst) {
         return;
     }
-    tracing::info!(
-        "boom: output changed → re-bridging to '{}' ({new_def})",
-        unsafe { device_name(new_def) },
-    );
-    unsafe {
-        stop_ioprocs_only(eng); // keep new_def as the default
-        start_locked(eng); // captures default_output() == new_def as the real device
+    adopt_manual_selection_inner();
+    ADOPTING.store(false, Ordering::SeqCst);
+}
+
+fn adopt_manual_selection_inner() {
+    let boom_dev = unsafe { find_device_by_uid("BoomAudio_UID") };
+    let new_def = unsafe { default_output() };
+    // Re-check the bridge under the lock — it may have started between the
+    // caller dropping the lock and us running (the pure rule owns the verdict).
+    let bridge_running = ENGINE.lock().as_ref().is_some_and(|e| e.session.is_some());
+    let is_boom = boom_dev != 0 && new_def == boom_dev;
+    if !super::should_adopt_selection(is_boom, bridge_running) {
+        if new_def != 0 && new_def != boom_dev {
+            // A real device was picked while boom is off — just remember it
+            // as "the output the user was on" for a later adoption.
+            LAST_REAL_DEFAULT.store(new_def, Ordering::SeqCst);
+        }
+        return;
+    }
+    let Some(app) = APP_HANDLE.get() else { return };
+    use tauri::Manager as _;
+    let Some(db) = app.try_state::<crate::db::DbHandle>() else { return };
+    // Route the adoption to the device the user was JUST listening on: point
+    // the remembered-output UID at it so start_locked's existing stale-default
+    // preference chain picks it (one chain, not a parallel one).
+    let prev = LAST_REAL_DEFAULT.load(Ordering::SeqCst);
+    if prev != 0 && unsafe { device_has_output(prev) } {
+        persist_last_output_uid(&unsafe { device_uid(prev) });
+    }
+    let mut cfg = super::BoomConfig::load(&db);
+    if cfg.enabled {
+        // Enabled in config but no bridge (earlier start failed) — the manual
+        // selection is a nudge to try again.
+        tracing::info!("boom: 'boom Audio' selected with boom enabled but no bridge → restarting");
+    } else {
+        cfg.enabled = true;
+        if let Err(e) = cfg.save(&db) {
+            tracing::warn!("boom: auto-enable could not persist: {e}");
+        }
+        tracing::info!("boom: 'boom Audio' selected manually while off → treating it as the enable gesture");
+    }
+    // Deliberately set_active, NOT super::apply — apply's reset_stale_default
+    // would yank the default the user JUST chose back to a real device (and
+    // with pick_real_output's preference, ignoring the remembered one).
+    set_active(&cfg);
+    // Feedback: this happened in the sound menu, far from our UI — say what
+    // just happened and where the audio actually plays now. Only on a bridge
+    // that really came up (a failed start must not toast success).
+    let target = ENGINE.lock().as_ref().and_then(|e| e.session.as_ref().map(|s| s.real_dev));
+    if let Some(real) = target {
+        crate::status_toast::show_passive(
+            app,
+            crate::status_toast::StatusToast {
+                kind: "boom".into(),
+                on: true,
+                title: "boom aktiviert".into(),
+                subtitle: format!("EQ läuft über „{}“", unsafe { device_name(real) }),
+            },
+        );
     }
 }
 
@@ -1363,22 +1470,16 @@ unsafe fn add_volume_listener(boom_dev: AudioObjectID) {
     AudioObjectAddPropertyListener(boom_dev, &a, boom_volume_changed, std::ptr::null_mut());
 }
 
+/// Register the default-output watch. PERMANENT since v0.160.0 (armed at
+/// startup in `set_app_handle`, re-asserted by every bridge start, never
+/// removed): while boom is off it watches for a manual "boom Audio" selection;
+/// while boom runs it drives the re-bridge. Idempotent via `LISTENER_ON`.
 unsafe fn add_default_listener() {
     if LISTENER_ON.swap(true, Ordering::SeqCst) {
         return; // already registered (survives live re-bridges)
     }
     let a = addr(PROP_DEFAULT_OUTPUT);
     AudioObjectAddPropertyListener(SYSTEM_OBJECT, &a, default_output_changed, std::ptr::null_mut());
-}
-
-fn remove_default_listener() {
-    if !LISTENER_ON.swap(false, Ordering::SeqCst) {
-        return;
-    }
-    let a = addr(PROP_DEFAULT_OUTPUT);
-    unsafe {
-        AudioObjectRemovePropertyListener(SYSTEM_OBJECT, &a, default_output_changed, std::ptr::null_mut());
-    }
 }
 
 // ── Public API (called from `boom::apply` + the IPC) ─────────────────────────

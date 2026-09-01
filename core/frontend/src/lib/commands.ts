@@ -59,6 +59,7 @@ export type CommandKind =
   | "alias"
   | "benchmark"
   | "dezibel"
+  | "bluetooth"
   | "clown"
   | "bruno"
   | "timer"
@@ -480,6 +481,23 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     requiresArg: true,
   },
   // ── Benchmark (two spellings, one command — the countdown/timer pattern) ──
+  {
+    kind: "bluetooth",
+    keyword: "bluetooth",
+    syntax: "bluetooth",
+    description:
+      "Bluetooth-Geräte verwalten — verbinden, trennen, entkoppeln (Liste mit Live-Status).",
+    requiresArg: false,
+    platform: ["mac"],
+  },
+  {
+    kind: "bluetooth",
+    keyword: "bt",
+    syntax: "bt",
+    description: "Bluetooth-Geräte — Alias von `bluetooth` (gleicher Befehl, Kurzform).",
+    requiresArg: false,
+    platform: ["mac"],
+  },
   {
     kind: "benchmark",
     keyword: "benchmark",

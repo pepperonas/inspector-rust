@@ -630,6 +630,34 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["loc", "faker"],
   },
   {
+    command: "bluetooth",
+    aliases: ["bt"],
+    category: CAT_SYS,
+    version_added: "0.159.0",
+    tagline: "Manage Bluetooth devices — connect, disconnect, unpair.",
+    tagline_de: "Bluetooth-Geräte verwalten — verbinden, trennen, entkoppeln.",
+    synopsis: "bluetooth   ·   bt",
+    description:
+      "Lists every paired Bluetooth device with its live connection state, straight from IOBluetooth — no external tool. Each row offers **Trennen/Verbinden** and an **unpair** action behind a two-stage confirm (unpairing deletes the pairing record; re-pairing needs the device's pairing mode again). The panel shows while the keyword is typed; Enter hands over the arrow keys (**↑↓** select, **⏎** connect/disconnect, **⌫ twice** unpairs, Esc back). The address is always shown, because a device can legitimately be paired twice (classic Bluetooth + LE).",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "bt", result: "The paired-device list — connected ones first, with a green dot." },
+      { input: "bluetooth", result: "Same command, long form." },
+      { input: "bt?", result: "This help." },
+    ],
+    tips: [
+      "Enter on a row toggles the connection — the quickest way to drop your speaker without opening System Settings.",
+      "Devices with no Class-of-Device (typical for BLE) honestly read as \"Gerät\" rather than a guessed category.",
+    ],
+    caveats: [
+      "macOS only (IOBluetooth).",
+      "Connecting to a switched-off device blocks until the macOS timeout (~10 s) before failing.",
+      "Unpairing uses a private macOS selector — there is no public API; if a future macOS removes it, the panel says so and points at System Settings.",
+    ],
+    related: ["sound", "boom"],
+  },
+  {
     command: "dezibel",
     aliases: ["db"],
     category: CAT_SYS,

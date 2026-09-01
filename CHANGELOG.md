@@ -4,6 +4,20 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.159.0] - 2026-09-01
+
+### Added
+
+- **`bluetooth` / `bt` — Bluetooth-Geräte verwalten** (macOS): gekoppelte Geräte mit Live-Verbindungsstatus, **Trennen/Verbinden** je Zeile, **Entkoppeln** hinter einer zweistufigen Inline-Bestätigung (Entkoppeln löscht die Kopplung — Neu-Koppeln braucht wieder den Pairing-Modus des Geräts). Zeigt sich beim Tippen (`sound`-Muster), Enter übergibt die Pfeiltasten (↑↓ · ⏎ verbinden/trennen · ⌫⌫ entkoppeln). Direkt über **IOBluetooth per FFI** — kein `blueutil`, kein Zusatztool.
+
+### Notes
+
+- ⚠️ **Entkoppeln hat keine öffentliche API** — der private `remove`-Selektor (derselbe, den `blueutil` nutzt), per `respondsToSelector` abgesichert: fällt er in einem künftigen macOS weg, sagt das Panel es und verweist auf die Systemeinstellungen, statt zu stürzen.
+- ⚠️ **Ein Gerät kann ZWEIMAL gekoppelt sein** (Classic + LE — live gemessen: der Referenz-Lautsprecher hält zwei MAC-Adressen). Die Adresse ist deshalb Teil der Oberfläche; ohne sie wären die Zwillinge ununterscheidbar. Sortierung verbunden-zuerst, Zwillinge adress-stabil (kein Flackern zwischen Polls).
+- ⚠️ **LE-Geräte senden keine Geräteklasse** (gemessen: eine MX Master meldet major 0) — die Kategorie bleibt dann ehrlich „Gerät", nie geraten. Batterie wird bewusst **nicht** angezeigt (IOBluetooth liefert sie nicht zuverlässig).
+- ⚠️ `openConnection` **blockiert** bis zum macOS-Timeout (~10 s bei ausgeschaltetem Gerät) — `spawn_blocking` ist hier tragend, und der Busy-Zustand sperrt nur die eine Zeile, nie das Panel.
+- Live verifiziert: `bluetooth::list` in-process gegen `system_profiler` — 5 Geräte deckungsgleich, inklusive des doppelt gekoppelten Lautsprechers.
+
 ## [0.158.1] - 2026-08-30
 
 ### Fixed

@@ -45,7 +45,7 @@ describe("COMMANDS catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
-    expect(COMMANDS.length).toBe(104);
+    expect(COMMANDS.length).toBe(106);
   });
 
   it("every keyword is unique", () => {
@@ -1238,6 +1238,26 @@ describe("parseTrackArg", () => {
     expect(parseTrackArg("pause")).toBeNull();
     expect(parseTrackArg("2")).toBeNull();
     expect(parseTrackArg("onn")).toBeNull();
+  });
+});
+
+describe("bt is bluetooth", () => {
+  it("parses to the SAME kind — the alias carries no logic", () => {
+    const a = parseCommand("bt");
+    expect(a?.spec.kind).toBe("bluetooth");
+    expect(parseCommand("bluetooth")?.spec.kind).toBe(a?.spec.kind);
+  });
+
+  it("is runnable bare and macOS-gated", () => {
+    expect(parseCommand("bluetooth")?.spec.requiresArg).toBe(false);
+    // ⚠️ An honest gate this time: IOBluetooth exists only on macOS.
+    expect(parseCommand("bluetooth")?.spec.platform).toEqual(["mac"]);
+    expect(parseCommand("bt")?.spec.platform).toEqual(["mac"]);
+  });
+
+  it("its kind IS a real keyword, or the panel would flash open and shut", () => {
+    // PANEL_KINDS canonicalisation sets the query to the KIND string (v0.84.247).
+    expect(parseCommand("bluetooth")?.spec.kind).toBe("bluetooth");
   });
 });
 

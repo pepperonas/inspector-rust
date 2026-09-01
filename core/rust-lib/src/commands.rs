@@ -6939,6 +6939,42 @@ fn write_report(app: &AppHandle, html: String, out: &std::path::Path) -> Result<
         .map_err(|_| "Rendern hat zu lange gedauert".to_string())?
 }
 
+/// Paired Bluetooth devices with live connection state (macOS).
+/// Async + `spawn_blocking`: IOBluetooth calls are sync FFI.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn bluetooth_list() -> Result<Vec<crate::bluetooth::BtDevice>, String> {
+    tauri::async_runtime::spawn_blocking(crate::bluetooth::list)
+        .await
+        .map_err(|e| format!("bluetooth task: {e}"))?
+}
+
+/// ⚠️ `openConnection` BLOCKS until the OS timeout (~10 s on an off device) —
+/// spawn_blocking is load-bearing, not style.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn bluetooth_connect(address: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::bluetooth::connect(&address))
+        .await
+        .map_err(|e| format!("bluetooth task: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn bluetooth_disconnect(address: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::bluetooth::disconnect(&address))
+        .await
+        .map_err(|e| format!("bluetooth task: {e}"))?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+pub async fn bluetooth_unpair(address: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::bluetooth::unpair(&address))
+        .await
+        .map_err(|e| format!("bluetooth task: {e}"))?
+}
+
 /// Bruno breakdown → HTML/PDF in the shared report design. The numbers arrive
 /// computed from the frontend (bruno computes in TS); this only renders.
 #[tauri::command]

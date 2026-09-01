@@ -17,6 +17,8 @@ use std::{env, fs};
 fn main() {
     #[cfg(target_os = "macos")]
     println!("cargo:rustc-link-lib=framework=Vision");
+    #[cfg(target_os = "macos")]
+    println!("cargo:rustc-link-lib=framework=IOBluetooth");
 
     generate_figlet_bundle();
 }

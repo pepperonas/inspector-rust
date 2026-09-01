@@ -37,6 +37,7 @@ import { WeatherPanel } from "./components/WeatherPanel";
 import { TokensPanel } from "./components/TokensPanel";
 import { ResizePanel } from "./components/ResizePanel";
 import { DezibelPanel } from "./components/DezibelPanel";
+import { BluetoothPanel } from "./components/BluetoothPanel";
 import { RandomPanel } from "./components/RandomPanel";
 import CommandHelp from "./components/CommandHelp";
 import {
@@ -1330,6 +1331,20 @@ function App() {
     };
   }, [isResizeCmd]);
 
+  // `bluetooth` / `bt` -- manage paired devices inline. Shows while fully
+  // typed (the `sound` pattern: listing is a cheap sync read, no radio scan);
+  // Enter only hands the arrow keys over. Actions stay explicit clicks/keys.
+  const isBluetoothCmd = parsedCommand?.spec.kind === "bluetooth";
+  const [bluetoothMode, setBluetoothMode] = useState(false);
+  const [bluetoothFocus, setBluetoothFocus] = useState(false);
+  useEffect(() => {
+    if (isBluetoothCmd && !bluetoothMode) setBluetoothMode(true);
+    else if (!isBluetoothCmd && bluetoothMode) {
+      setBluetoothMode(false);
+      setBluetoothFocus(false);
+    }
+  }, [isBluetoothCmd, bluetoothMode]);
+
   // `dezibel` / `db` -- live mic loudness in the preview. Enter-activated on
   // purpose: the house rule is that a panel which OPENS THE MICROPHONE must
   // never start from a stray keystroke (same as `shazam` and bare `iris`).
@@ -1561,6 +1576,10 @@ function App() {
           : "e.g. `rz 50` (50 %), `rz 1200x800` (pixels), `rz px 50`, `rz % 150`";
         break;
       }
+      case "bluetooth":
+        label = "Bluetooth-Geräte verwalten";
+        hint = "Verbinden · Trennen · Entkoppeln — ⏎ übergibt die Pfeiltasten";
+        break;
       case "dezibel":
         label = "Lautstärke messen — live in dBFS";
         hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
@@ -3195,6 +3214,8 @@ function App() {
     // ⚠️ Explicit: a mic panel surviving a click-away hide would keep the
     // native capture running invisibly (the bpm/equalizer lesson, v0.105.0).
     setDezibelMode(false);
+    setBluetoothMode(false);
+    setBluetoothFocus(false);
     // The calibration panel is transient like the other view modes. The
     // monitoring itself is NOT stopped here — running while the popup is
     // closed is the entire point of the command.
@@ -3318,7 +3339,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3336,6 +3357,11 @@ function App() {
           commandKind === "pagespeed" ||
           commandKind === "alias";
         setQuery(keepArg && arg ? `${commandKind} ${arg}` : commandKind);
+      }
+      if (commandKind === "bluetooth") {
+        setBluetoothMode(true);
+        setBluetoothFocus(true);
+        return true;
       }
       if (commandKind === "dezibel") {
         setDezibelMode(true);
@@ -4256,6 +4282,7 @@ function App() {
       activeTab === "history" &&
       !gameMode &&
       !bpmMode &&
+      !bluetoothFocus &&
       !equalizerMode &&
       !totpMode &&
       !pwgenEditing &&
@@ -4879,6 +4906,16 @@ function App() {
                       onExit={() => {
                         setTokensMode(false);
                         setTokensFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : bluetoothMode ? (
+                  <div className="md3-pop-in h-full">
+                    <BluetoothPanel
+                      focused={bluetoothFocus}
+                      onExit={() => {
+                        setBluetoothFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

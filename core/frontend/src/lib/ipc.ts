@@ -3211,6 +3211,31 @@ export function brunoExport(report: BrunoReportPayload, format: "html" | "pdf"):
   return invoke("bruno_export", { report, format });
 }
 
+/** One paired Bluetooth device (macOS). `kind` is best-effort from the
+ *  Class-of-Device — LE devices broadcast none and read as "Gerät". */
+export interface BtDevice {
+  name: string;
+  address: string;
+  connected: boolean;
+  kind: string;
+}
+
+export function bluetoothList(): Promise<BtDevice[]> {
+  return invoke("bluetooth_list");
+}
+/** ⚠️ Blocks server-side until the OS timeout (~10 s on an off device). */
+export function bluetoothConnect(address: string): Promise<void> {
+  return invoke("bluetooth_connect", { address });
+}
+export function bluetoothDisconnect(address: string): Promise<void> {
+  return invoke("bluetooth_disconnect", { address });
+}
+/** Unpair — removes the pairing record; re-pairing needs the device's pairing
+ *  mode again. Uses a private selector server-side (no public unpair API). */
+export function bluetoothUnpair(address: string): Promise<void> {
+  return invoke("bluetooth_unpair", { address });
+}
+
 export function socialAudioProxy(url: string): Promise<string> {
   return invoke("social_audio_proxy", { url });
 }

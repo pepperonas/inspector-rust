@@ -22,6 +22,7 @@ mod db;
 mod disk_usage;
 mod bench;
 mod bench_export;
+mod bluetooth;
 mod bruno_export;
 mod device_sync;
 mod pagespeed;
@@ -808,6 +809,14 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::loc_count,
             commands::loc_export,
             commands::bruno_export,
+            #[cfg(target_os = "macos")]
+            commands::bluetooth_list,
+            #[cfg(target_os = "macos")]
+            commands::bluetooth_connect,
+            #[cfg(target_os = "macos")]
+            commands::bluetooth_disconnect,
+            #[cfg(target_os = "macos")]
+            commands::bluetooth_unpair,
             commands::pagespeed_analyze,
             commands::pagespeed_export,
             commands::get_pagespeed_key,

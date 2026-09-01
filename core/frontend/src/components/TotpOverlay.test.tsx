@@ -69,3 +69,23 @@ describe("TotpOverlay initialTab / initialIssuer (2fa add, v0.104.0)", () => {
     expect(document.activeElement).toBe(issuer);
   });
 });
+
+describe("TotpOverlay brand icons (v0.161.0)", () => {
+  it("a known issuer renders its brand SVG, an unknown one a monogram", async () => {
+    const ipc = await import("../lib/ipc");
+    (ipc.totpList as ReturnType<typeof vi.fn>).mockResolvedValueOnce([
+      { id: 1, issuer: "GitHub", account: "martin", digits: 6, period: 30, algorithm: "SHA1", sort_order: 0 },
+      { id: 2, issuer: "Zzz Unbekannt", account: "", digits: 6, period: 30, algorithm: "SHA1", sort_order: 1 },
+    ]);
+    render(<TotpOverlay onExit={() => undefined} />);
+    // The icon chunk loads lazily — the brand SVG appears once it lands.
+    const svg = await screen.findByRole("img", { name: "GitHub" }, { timeout: 4000 });
+    expect(svg.tagName.toLowerCase()).toBe("svg");
+    // fill as a PRESENTATION ATTRIBUTE (survives stylesheet/CSP loss — the
+    // icon-catalogue hardening lesson), on the svg AND its path.
+    expect(svg.getAttribute("fill")).toBe("#181717");
+    expect(svg.querySelector("path")?.getAttribute("fill")).toBe("#181717");
+    // The unknown issuer gets its deterministic monogram, never a guess.
+    expect(await screen.findByText("Z")).toBeTruthy();
+  });
+});

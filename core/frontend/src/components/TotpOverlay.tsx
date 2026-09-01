@@ -28,6 +28,14 @@ import {
   totpUpdate,
 } from "../lib/ipc";
 import { matchTotpEntries } from "../lib/totp";
+import {
+  chipNeedsDark,
+  iconForIssuer,
+  loadIconIndex,
+  monogramHue,
+  monogramInitial,
+  type IconIndex,
+} from "../lib/totp-icons";
 import type { TotpCode, TotpEntry } from "../lib/totp";
 
 /**
@@ -602,6 +610,18 @@ function ListTab({
   const orderRef = useRef(order);
   const draggingRef = useRef<number | null>(null);
   const [draggingId, setDraggingId] = useState<number | null>(null);
+  // Brand icons (v0.161.0): the 4.5 MB Simple Icons chunk loads lazily on the
+  // first List render, once per session; rows show monograms until it lands.
+  const [icons, setIcons] = useState<IconIndex | null>(null);
+  useEffect(() => {
+    let live = true;
+    loadIconIndex().then((ix) => {
+      if (live) setIcons(ix);
+    }).catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
   const [confirmId, setConfirmId] = useState<number | null>(null);
   const [confirmClear, setConfirmClear] = useState(false);
   const rowRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -816,6 +836,7 @@ function ListTab({
               period={e.period}
               tickNow={tickNow}
             />
+            <IssuerIcon issuer={e.issuer} icons={icons} />
             <div className="flex flex-1 flex-col overflow-hidden">
               <div className="truncate text-[13px] font-semibold">
                 {e.issuer || "(no issuer)"}
@@ -898,6 +919,48 @@ function ListTab({
 /** SVG-based circular countdown indicator. Smoothly interpolates
  *  between server-side `seconds_remaining` values (which only update
  *  once per 1 s IPC poll) using the local `tickNow` clock. */
+/**
+ * Brand icon chip for a 2FA row (v0.161.0). The chip is deliberately LIGHT in
+ * both themes (the icon-catalogue lesson: GitHub #181717 vanishes on a dark
+ * ground); only near-white brands flip to a dark chip (`chipNeedsDark`).
+ * `fill` sits on <svg> AND <path> as presentation attributes. An unknown
+ * issuer gets a deterministic monogram — never a guessed look-alike brand.
+ */
+function IssuerIcon({ issuer, icons }: { issuer: string; icons: IconIndex | null }) {
+  const icon = icons ? iconForIssuer(icons, issuer) : null;
+  const base =
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-md border ";
+  if (icon) {
+    const dark = chipNeedsDark(icon.hex);
+    return (
+      <span
+        title={icon.title}
+        className={base + (dark ? "border-[#3a4150] bg-[#1c212b]" : "border-[#e4e7ee] bg-[#f1f3f7]")}
+      >
+        <svg
+          viewBox="0 0 24 24"
+          width="17"
+          height="17"
+          role="img"
+          aria-label={icon.title}
+          fill={"#" + icon.hex}
+        >
+          <path fill={"#" + icon.hex} d={icon.path} />
+        </svg>
+      </span>
+    );
+  }
+  return (
+    <span
+      aria-hidden="true"
+      className={base + "border-[#e4e7ee] bg-[#f1f3f7] text-[12px] font-bold"}
+      style={{ color: `hsl(${monogramHue(issuer)} 55% 38%)` }}
+    >
+      {monogramInitial(issuer)}
+    </span>
+  );
+}
+
 function CountdownRing({
   secondsRemaining,
   period,

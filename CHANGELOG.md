@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.161.0] - 2026-09-01
+
+### Added
+
+- **2FA-Einträge tragen ihr Markenzeichen**: jede Zeile im `2fa`-Overlay zeigt das Icon ihres Issuers (GitHub, Google, PayPal, …) — Markenfarbe auf hellem Chip, in beiden Themes. Quelle ist das **volle Simple-Icons-Set 16.29.0** (3457 Zeichen, generiert via `scripts/gen-totp-icons.mjs`, gepinnt), als **lazy geladener 4,5-MB-Chunk** — er lädt erst beim ersten Öffnen des Overlays, kuratieren würde den nächsten Issuer still verfehlen. Matching (`lib/totp-icons.ts`, pur + getestet): ganzer Issuer → Domain-Labels **von rechts nach links** (bei „x.github.com" ist „github" die Marke, nicht die Subdomain) → erstes Wort („Google (privat)"); Aliasse aus dem Datenpaket.
+
+### Notes
+
+- ⚠️ **Kein Icon wird je erfunden**: ein Issuer ohne Treffer bekommt ein deterministisches Monogramm (Initiale + stabiler FNV-Farbton), nie eine ähnlich aussehende Marke — dieselbe Ehrlichkeits-Regel wie im Icon-Katalog (Amazon/AWS/Slack u. a. fehlen in Simple Icons bewusst).
+- ⚠️ **Der Chip ist in BEIDEN Themes hell** (Katalog-Lehre: GitHub #181717 ist auf dunklem Grund unsichtbar); nur fast-weiße Marken kippen per `chipNeedsDark` (Luminanz-Schwelle) auf einen dunklen Chip. `fill` sitzt als **Präsentationsattribut** auf `<svg>` UND `<path>` (überlebt Stylesheet-/CSP-Verlust).
+- ⚠️ **Drift-Pin**: ein Test vergleicht die Version im generierten JSON mit der gepinnten devDependency — ein Paket-Bump ohne Generator-Lauf wird rot. Slug schlägt kollidierenden Titel im Lookup (mutationsgeprüft), ebenso die Rechts-nach-links-Domain-Reihenfolge.
+- Die `otp <issuer>`-Zeilen in der Hauptliste bleiben bewusst ohne Markenzeichen (v1-Umfang: das Overlay; die Hauptliste bräuchte den Chunk im Startpfad).
+
 ## [0.160.0] - 2026-09-01
 
 ### Fixed

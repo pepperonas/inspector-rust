@@ -1,7 +1,7 @@
 {
   "name": "inspector-rust-frontend",
   "private": true,
-  "version": "0.160.0",
+  "version": "0.161.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -39,6 +39,7 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "happy-dom": "^16.0.0",
     "prettier": "^3.8.3",
+    "simple-icons": "16.29.0",
     "tailwindcss": "^4.2.4",
     "typescript": "~5.8.3",
     "typescript-eslint": "^8.59.0",

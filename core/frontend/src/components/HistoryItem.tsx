@@ -6,6 +6,7 @@ import type { ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 import { InlineMd } from "./InlineMd";
+import { TotpBrandIcon } from "./TotpBrandIcon";
 import { platformLabel } from "../lib/social";
 
 interface Props {
@@ -79,7 +80,11 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "xhype") return <Flame size={size} className={cls} />;
   if (entry.kind === "equalizer") return <AudioLines size={size} className={cls} />;
   if (entry.kind === "totp-manage") return <KeyRound size={size} className={cls} />;
-  if (entry.kind === "totp") return <KeyRound size={size} className={cls} />;
+  if (entry.kind === "totp") {
+    // Brand icon instead of the generic key (v0.162.0) — self-loading, so the
+    // 4.5 MB chunk still only loads once a TOTP surface actually renders.
+    return <TotpBrandIcon issuer={entry.data.issuer} size={22} />;
+  }
   if (entry.kind === "app") {
     return (
       <AppIcon

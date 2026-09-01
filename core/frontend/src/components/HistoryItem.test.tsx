@@ -196,6 +196,16 @@ describe("HistoryItem — row chips + labels", () => {
     }
   });
 
+  it("the totp row carries its issuer's brand icon, not the generic key (v0.162.0)", async () => {
+    renderRow(KEYWORD_COMMAND_ROWS.totp);
+    // The Simple Icons chunk loads lazily — the brand SVG appears once it
+    // lands; fill is a PRESENTATION ATTRIBUTE (survives stylesheet loss).
+    const svg = await screen.findByRole("img", { name: "Hostinger" }, { timeout: 4000 });
+    expect(svg.tagName.toLowerCase()).toBe("svg");
+    expect(svg.getAttribute("fill")).toMatch(/^#[0-9A-F]{6}$/i);
+    expect(svg.querySelector("path")?.getAttribute("fill")).toBe(svg.getAttribute("fill"));
+  });
+
   it("shows the meme's folder as its chip, falling back to 'meme' at top level", () => {
     renderRow(KEYWORD_COMMAND_ROWS.meme);
     expect(screen.getByText("reactions")).toBeTruthy();

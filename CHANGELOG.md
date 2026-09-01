@@ -4,6 +4,12 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.162.0] - 2026-09-01
+
+### Changed
+
+- **Markenzeichen jetzt auch auf den `otp`/`2fa <issuer>`-Zeilen der Hauptliste und in der TOTP-Vorschau** (Nutzerwunsch — dort stand noch der generische Schlüssel). Alle drei Flächen rendern über **EINE geteilte, selbstladende Komponente `TotpBrandIcon`**: Mounten stößt den memoisierten Lazy-Load an, der 4,5-MB-Chunk bleibt also weiter aus dem Startpfad (lädt erst, wenn eine TOTP-Fläche wirklich rendert); `peekIconIndex` liefert bereits geladene Daten synchron, damit ein Remount nie das Monogramm aufblitzen lässt. Der v0.161.0-Satz „Hauptliste bewusst ohne Icon" ist damit Geschichte.
+
 ## [0.161.0] - 2026-09-01
 
 ### Added

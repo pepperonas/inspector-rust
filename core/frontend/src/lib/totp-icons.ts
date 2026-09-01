@@ -134,13 +134,21 @@ export function monogramInitial(issuer: string): string {
 }
 
 let indexPromise: Promise<IconIndex> | null = null;
+let resolvedIndex: IconIndex | null = null;
 
 /** Memoised lazy load of the generated icon data (4.5 MB — only on demand). */
 export function loadIconIndex(): Promise<IconIndex> {
   if (!indexPromise) {
-    indexPromise = import("./totp-icons.json").then((m) =>
-      buildIconIndex(m.default as unknown as IconData),
-    );
+    indexPromise = import("./totp-icons.json").then((m) => {
+      resolvedIndex = buildIconIndex(m.default as unknown as IconData);
+      return resolvedIndex;
+    });
   }
   return indexPromise;
+}
+
+/** Already-loaded index, synchronously — so a remounting chip never flashes
+ * the monogram while the (long-resolved) promise ticks once more. */
+export function peekIconIndex(): IconIndex | null {
+  return resolvedIndex;
 }

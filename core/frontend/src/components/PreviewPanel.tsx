@@ -7,6 +7,7 @@ import {
   Pencil, Phone, Plus, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
+import { TotpBrandIcon } from "./TotpBrandIcon";
 import { FakerPreview } from "./FakerPreview";
 import { SecPreview } from "./SecPreview";
 import { FigletPreview } from "./FigletPreview";
@@ -927,7 +928,8 @@ export function PreviewPanel({
           </div>
         </div>
         <div className="flex flex-col gap-1 text-[13px]">
-          <div>
+          <div className="flex items-center gap-2">
+            <TotpBrandIcon issuer={e.issuer} size={24} />
             <b>{e.issuer || "(no issuer)"}</b>
           </div>
           {e.account && <div className="text-[var(--color-muted)]">{e.account}</div>}

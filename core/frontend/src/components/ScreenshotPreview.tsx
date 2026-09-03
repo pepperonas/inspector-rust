@@ -149,7 +149,10 @@ export function ScreenshotPreview() {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-transparent p-1">
       <div
-        className="relative flex h-full w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
+        // Keyed on the capture path: a swapped capture (new shot while the
+        // window is up) replays the entrance.
+        key={info?.path ?? "empty"}
+        className="hud-enter relative flex h-full w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl"
         style={{
           backgroundImage: imgSrc ? `url(${imgSrc})` : undefined,
           backgroundSize: "cover",
@@ -164,7 +167,7 @@ export function ScreenshotPreview() {
             all action buttons fade in only while the cursor is over it. */}
         <div
           className={
-            "absolute inset-0 flex transition-opacity duration-150 ease-out " +
+            "absolute inset-0 flex transition-opacity duration-(--duration-fast) ease-sharp " +
             (hovered ? "opacity-100" : "opacity-0 pointer-events-none")
           }
         >

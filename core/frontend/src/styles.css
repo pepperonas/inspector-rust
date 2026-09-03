@@ -206,20 +206,39 @@ html.anim-off *:not(.anim-keep)::after {
   }
 }
 
-/* Modal panel — scale up with a small spring overshoot; its backdrop fades. */
+/* Modal / takeover panel (retimed Etappe 5): scale 0.95 → 1 + fade on the
+   sharp ease — no spring, no overshoot (the tool-feel decision in
+   .claude/rules/animation.md). One class serves the whole modal family
+   (ColorPicker, the 2fa/bpm takeovers, trim/audio-swap/alarm windows), so
+   the modal language can't fork. Its backdrop fades separately below. */
 @keyframes md3PopIn {
-  from { opacity: 0; transform: scale(0.9); }
+  from { opacity: 0; transform: scale(0.95); }
   to   { opacity: 1; transform: scale(1); }
 }
 .md3-pop-in {
-  animation: md3PopIn var(--md3-medium2) var(--md3-spring-bounce);
+  animation: md3PopIn var(--duration-base) var(--ease-sharp);
 }
 @keyframes md3FadeIn {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
 .md3-overlay-in {
-  animation: md3FadeIn var(--md3-short4) var(--md3-standard);
+  animation: md3FadeIn var(--duration-base) var(--ease-sharp);
+}
+
+/* Screenshot-HUD card (Etappe 5): sharp scale-in per fresh capture. NOT the
+   planned FLIP out of the capture rect — macOS `screencapture -i` returns
+   PNG bytes only and never surfaces the marquee geometry, so a flight
+   origin would be an invented direction; an honest scale-in beats a fake
+   flight. Gated on has-enter-anim (old WebKit: instant). */
+.has-enter-anim .hud-enter {
+  transition:
+    opacity var(--duration-slow) var(--ease-sharp),
+    transform var(--duration-slow) var(--ease-sharp);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.95);
+  }
 }
 
 /* Custom-command rows. The row root carries the virtual list's inline
@@ -548,12 +567,14 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
    total duration MUST match HOLD_MS in StatusToast.tsx so the window's
    auto-dismiss timer fires exactly as the fade-out completes. */
 .status-toast-pop {
+  /* 1600ms is the toast's LIFETIME (hold + exit), coupled to the Rust-side
+     hide — a named exception to the timing tokens. Only the entrance slice
+     was sharpened (Etappe 5): 0→8% ≈ 130ms scale+fade, no overshoot. */
   animation: statusToastPop 1600ms cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 @keyframes statusToastPop {
-  0%   { opacity: 0; transform: scale(0.7) translateY(10px); }
-  14%  { opacity: 1; transform: scale(1.06) translateY(0); }
-  24%  { transform: scale(1); }
+  0%   { opacity: 0; transform: scale(0.95) translateY(6px); }
+  8%   { opacity: 1; transform: scale(1) translateY(0); }
   80%  { opacity: 1; transform: scale(1); }
   100% { opacity: 0; transform: scale(0.96) translateY(-8px); }
 }

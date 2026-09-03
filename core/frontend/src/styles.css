@@ -145,7 +145,7 @@ html.anim-off {
 html.anim-reduced
   :is(
     .md3-press,
-    .md3-tab-enter,
+    .panel-enter,
     .md3-banner-in,
     .md3-pop-in,
     .md3-overlay-in,
@@ -191,13 +191,19 @@ html.anim-off *:not(.anim-keep)::after {
   transition-duration: var(--md3-short1);
 }
 
-/* Tab content swap — fade + slide in on the emphasized-decelerate curve. */
-@keyframes md3TabEnter {
-  from { opacity: 0; transform: translateX(10px); }
-  to   { opacity: 1; transform: translateX(0); }
-}
-.md3-tab-enter {
-  animation: md3TabEnter var(--md3-medium2) var(--md3-emphasized-decelerate);
+/* Tab-content swap (animation layer, Etappe 3): cross-fade + 4px rise on the
+   freshly-mounted panel (the wrapper is keyed on activeTab) via
+   @starting-style — gated on the has-enter-anim feature class, so an old
+   WKWebView (< Safari 17.4) shows the panel instantly instead of hanging in
+   a half state. Replaces the 300ms md3TabEnter keyframe. */
+.has-enter-anim .panel-enter {
+  transition:
+    opacity var(--duration-fast) var(--ease-sharp),
+    transform var(--duration-fast) var(--ease-sharp);
+  @starting-style {
+    opacity: 0;
+    transform: translateY(4px);
+  }
 }
 
 /* Modal panel — scale up with a small spring overshoot; its backdrop fades. */
@@ -316,7 +322,7 @@ html.anim-off *:not(.anim-keep)::after {
    JS spring entrance is separately gated by `prefersReducedMotion()`. */
 @media (prefers-reduced-motion: reduce) {
   .md3-press,
-  .md3-tab-enter,
+  .panel-enter,
   .md3-banner-in,
   .md3-pop-in,
   .md3-overlay-in,
@@ -1070,7 +1076,7 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
   to { opacity: 1; transform: none; }
 }
 .md3-preview-in {
-  animation: md3-preview-in 150ms var(--md3-emphasized-decelerate, ease-out) backwards;
+  animation: md3-preview-in var(--duration-fast, 100ms) var(--ease-sharp, ease-out) backwards;
 }
 
 /* 4 — Settings sections cascade up when the tab opens. Pure CSS stagger over

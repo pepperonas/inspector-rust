@@ -246,14 +246,21 @@ function App() {
   // timeout (re-armed per repeat event — there is no reliable keyup for the
   // END of auto-repeat across focus changes) flips back to animated.
   const [navInstant, setNavInstant] = useState(false);
+  // Ref mirror for the preview-crossfade effect: it keys on the selected
+  // entry and must READ the guard without re-running on its changes.
+  const navInstantRef = useRef(false);
   const navInstantTimer = useRef<number | null>(null);
   const noteNavRepeat = useCallback((repeating: boolean) => {
     if (!repeating) return; // a fresh, discrete press glides
     setNavInstant(true);
+    navInstantRef.current = true;
     if (navInstantTimer.current !== null) window.clearTimeout(navInstantTimer.current);
     // 160 ms: longer than any OS auto-repeat interval (~30-80 ms), shorter
     // than a deliberate second press.
-    navInstantTimer.current = window.setTimeout(() => setNavInstant(false), 160);
+    navInstantTimer.current = window.setTimeout(() => {
+      setNavInstant(false);
+      navInstantRef.current = false;
+    }, 160);
   }, []);
   const [activeTab, setActiveTab] = useState<Tab>("history");
   // `settings <section>` deep-link: SettingsPanel scrolls to this id +
@@ -3333,6 +3340,11 @@ function App() {
   useEffect(() => {
     const el = previewFadeRef.current;
     if (!el) return;
+    // Key-repeat guard (Etappe 3): while a held arrow auto-repeats, the
+    // crossfade is suspended — restarting a fade per repeat tick reads as
+    // flicker and costs a style-recalc every ~50 ms. The stale class from
+    // the last discrete change simply stays (no restart = no animation).
+    if (navInstantRef.current) return;
     el.classList.remove("md3-preview-in");
     void el.offsetWidth; // reflow → the re-add restarts the animation
     el.classList.add("md3-preview-in");
@@ -4666,7 +4678,7 @@ function App() {
 
         {/* Content — keyed on the active tab so it replays the MD3
             emphasized-decelerate enter transition on every tab switch. */}
-        <div key={activeTab} className="md3-tab-enter flex min-h-0 flex-1 flex-col">
+        <div key={activeTab} className="panel-enter flex min-h-0 flex-1 flex-col">
           {activeTab === "history" ? (
             <div className="flex min-h-0 flex-1">
               <div
@@ -5196,7 +5208,7 @@ function TabBar({
       {pill && (
         <span
           aria-hidden
-          className="absolute top-0 left-0 h-full rounded bg-[var(--color-accent)] transition-[transform,width] duration-300 ease-[cubic-bezier(0.2,0,0,1)] motion-reduce:transition-none"
+          className="absolute top-0 left-0 h-full rounded bg-[var(--color-accent)] transition-[transform,width] duration-(--duration-base) ease-sharp motion-reduce:transition-none"
           style={{ transform: `translateX(${pill.x}px)`, width: pill.w }}
         />
       )}

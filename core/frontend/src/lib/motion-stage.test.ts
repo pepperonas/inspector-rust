@@ -95,6 +95,15 @@ describe("the 'Off' stage is wired through the stylesheet", () => {
     }
   });
 
+  it("enter transitions are gated on the feature class (old WebKit = instant)", () => {
+    // Etappe 3: the panel swap uses @starting-style, which needs Safari
+    // 17.4+. Without the has-enter-anim gate an old WKWebView would apply
+    // the transition rule but never the starting style — elements could
+    // hang in a half state instead of appearing instantly.
+    expect(css).toContain(".has-enter-anim .panel-enter");
+    expect(css).toContain("@starting-style");
+  });
+
   it("the stage classes in CSS and TS are the same three", () => {
     for (const cls of Object.values(STAGE_CLASSES)) {
       if (cls === "anim-full") continue; // full = absence of damping, no rule needed

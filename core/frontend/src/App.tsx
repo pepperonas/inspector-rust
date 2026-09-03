@@ -240,6 +240,21 @@ function App() {
   const { notes, categories: noteCategories, refresh: refreshNotes } = useNotes();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  // Key-repeat guard (animation layer, Etappe 2/3): true while an arrow key
+  // auto-repeats. The selection indicator + the preview crossfade switch to
+  // instant so neither lags behind held-key navigation; a short settle
+  // timeout (re-armed per repeat event — there is no reliable keyup for the
+  // END of auto-repeat across focus changes) flips back to animated.
+  const [navInstant, setNavInstant] = useState(false);
+  const navInstantTimer = useRef<number | null>(null);
+  const noteNavRepeat = useCallback((repeating: boolean) => {
+    if (!repeating) return; // a fresh, discrete press glides
+    setNavInstant(true);
+    if (navInstantTimer.current !== null) window.clearTimeout(navInstantTimer.current);
+    // 160 ms: longer than any OS auto-repeat interval (~30-80 ms), shorter
+    // than a deliberate second press.
+    navInstantTimer.current = window.setTimeout(() => setNavInstant(false), 160);
+  }, []);
   const [activeTab, setActiveTab] = useState<Tab>("history");
   // `settings <section>` deep-link: SettingsPanel scrolls to this id +
   // briefly highlights the section. The nonce retriggers on repeat jumps.
@@ -4284,6 +4299,7 @@ function App() {
         console.error("adjust_volume failed", e),
       );
     },
+    onNavRepeat: noteNavRepeat,
     // In game mode the game owns the keyboard — disable the popup nav
     // handler so Esc / arrows don't double-fire. BPM mode + TOTP mode
     // own it too (Esc inside each overlay calls its own onExit).
@@ -4672,6 +4688,7 @@ function App() {
                   pinnedOnly={pinnedOnly}
                   pinnedCount={pinnedCount}
                   onTogglePinnedOnly={togglePinnedOnly}
+                  navInstant={navInstant}
                 />
               </div>
               <div className="w-3/5 min-w-0">

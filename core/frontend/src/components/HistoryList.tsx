@@ -1,11 +1,11 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Palette, Pin, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
 import { HistoryItem } from "./HistoryItem";
 import { computeLineage, railGutterPx } from "../lib/lineage";
-import type { ListEntry } from "../lib/types";
+import { isCustomCommandEntry, type ListEntry } from "../lib/types";
 
 interface Props {
   entries: ListEntry[];
@@ -30,6 +30,10 @@ interface Props {
   pinnedCount?: number;
   /** Flip the pinned-only filter. */
   onTogglePinnedOnly?: () => void;
+  /** Key-repeat guard (animation layer, Etappe 2): true while an arrow key
+   *  is auto-repeating — the selection indicator snaps instead of gliding,
+   *  otherwise it lags visibly behind fast navigation. */
+  navInstant?: boolean;
 }
 
 const ROW_HEIGHT = 36;
@@ -47,8 +51,32 @@ export function HistoryList({
   pinnedOnly = false,
   pinnedCount = 0,
   onTogglePinnedOnly,
+  navInstant = false,
 }: Props) {
   const parentRef = useRef<HTMLDivElement>(null);
+
+  // Selection indicator (animation layer, Etappe 2): ONE absolutely
+  // positioned element behind the rows glides to the selected index — the
+  // rows themselves carry no transition (virtualised, recycled per
+  // keystroke; a per-row transition would ghost between unrelated entries
+  // and recalc styles across every visible row). React only writes the
+  // custom properties; CSS animates the translate.
+  //
+  // The glide is suppressed (duration 0) in two cases:
+  //  – key-repeat (`navInstant`) — a held arrow would leave it lagging;
+  //  – the LIST itself changed this render (typing re-ranks + resets the
+  //    selection to 0): re-sorting the list is explicitly not animated, so
+  //    the indicator must not glide over reshuffled rows either. Detected
+  //    by entries identity; the ref is only READ during render and updated
+  //    in an effect (react-hooks/refs).
+  const prevEntriesRef = useRef(entries);
+  const listChanged = prevEntriesRef.current !== entries;
+  useEffect(() => {
+    prevEntriesRef.current = entries;
+  });
+  const indicatorInstant = navInstant || listChanged;
+  const selectedEntry =
+    selectedIndex >= 0 && selectedIndex < entries.length ? entries[selectedIndex] : null;
   const [pickerOpen, setPickerOpen] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
 
@@ -186,7 +214,32 @@ export function HistoryList({
           </span>
         </div>
       ) : (
-        <div ref={parentRef} className="flex-1 overflow-auto">
+        <div ref={parentRef} className="relative flex-1 overflow-auto">
+          {selectedEntry && (
+            <div
+              aria-hidden
+              data-testid="selection-indicator"
+              // Sibling BEFORE [data-vlist], not a child: the open cascade's
+              // nth-child stagger indexes [data-vlist] children, and the
+              // rows (positioned, later in the DOM) must paint above the
+              // fill. As an absolute child of the scroll container it
+              // scrolls with the content.
+              className={
+                "pointer-events-none absolute inset-x-0 top-0 h-(--row-h) translate-y-(--indicator-y) " +
+                (isCustomCommandEntry(selectedEntry)
+                  ? "bg-rose-600 "
+                  : "bg-[var(--color-accent)] ") +
+                "transition-transform ease-sharp motion-reduce:duration-0 " +
+                (indicatorInstant ? "duration-0" : "duration-(--duration-fast)")
+              }
+              style={
+                {
+                  "--row-h": `${ROW_HEIGHT}px`,
+                  "--indicator-y": `${selectedIndex * ROW_HEIGHT}px`,
+                } as CSSProperties
+              }
+            />
+          )}
           <div
             data-vlist
             style={{

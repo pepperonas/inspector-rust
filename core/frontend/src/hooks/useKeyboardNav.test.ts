@@ -7,7 +7,13 @@ afterEach(cleanup);
 /** Dispatch a window keydown the hook will see. */
 function press(
   key: string,
-  opts: { shiftKey?: boolean; altKey?: boolean; metaKey?: boolean; ctrlKey?: boolean } = {},
+  opts: {
+    shiftKey?: boolean;
+    altKey?: boolean;
+    metaKey?: boolean;
+    ctrlKey?: boolean;
+    repeat?: boolean;
+  } = {},
 ) {
   window.dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -16,6 +22,7 @@ function press(
       altKey: opts.altKey ?? false,
       metaKey: opts.metaKey ?? false,
       ctrlKey: opts.ctrlKey ?? false,
+      repeat: opts.repeat ?? false,
       bubbles: true,
     }),
   );
@@ -127,5 +134,32 @@ describe("useKeyboardNav — enabled flag", () => {
     expect(onEnter).not.toHaveBeenCalled();
     expect(onEscape).not.toHaveBeenCalled();
     expect(onShiftArrow).not.toHaveBeenCalled();
+  });
+});
+
+describe("useKeyboardNav — key-repeat guard (animation layer)", () => {
+  // The selection indicator must SNAP while an arrow auto-repeats — the
+  // caller learns about it through onNavRepeat(e.repeat) on every arrow nav.
+  it("reports e.repeat on arrow navigation", () => {
+    const onNavRepeat = vi.fn();
+    setup({ onNavRepeat });
+    press("ArrowDown");
+    expect(onNavRepeat).toHaveBeenLastCalledWith(false);
+    press("ArrowDown", { repeat: true });
+    expect(onNavRepeat).toHaveBeenLastCalledWith(true);
+    press("ArrowUp", { repeat: true });
+    expect(onNavRepeat).toHaveBeenLastCalledWith(true);
+  });
+
+  it("does not fire for Shift+arrow (volume) or an empty list", () => {
+    const onNavRepeat = vi.fn();
+    setup({ onNavRepeat });
+    press("ArrowDown", { shiftKey: true, repeat: true });
+    expect(onNavRepeat).not.toHaveBeenCalled();
+    cleanup();
+    const second = vi.fn();
+    setup({ onNavRepeat: second, length: 0 });
+    press("ArrowDown", { repeat: true });
+    expect(second).not.toHaveBeenCalled();
   });
 });

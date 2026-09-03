@@ -285,3 +285,42 @@ export interface PwgenEntryView {
   mode: "all" | "alnum" | "dict" | "leet";
   password: string;
 }
+
+/**
+ * The kinds rendered with the reddish "custom command" treatment. Covers
+ * EVERY row reached by typing a command keyword — uniformly, including with
+ * a parameter (`kill slack`, `meme cat`, …): the generic `command` + its
+ * suggestions, the dedicated keyword-command rows (2fa, otp, pwgen, bruno,
+ * bpm, …), the whole-list command pickers (kill-target, meme, figlet,
+ * clown) and calculator results (typing an expression should feel as
+ * "active" as a keyword, v0.84.27). Expression `color` rows and
+ * non-command rows (app, finder, clip, snippet, opener, help-index rows'
+ * neutral cousins) keep the neutral accent.
+ *
+ * ONE registry (the never-hard-code-a-list invariant): `HistoryItem`
+ * derives its accent from it AND `HistoryList` colours the sliding
+ * selection indicator from it — restating the set in either place would
+ * let the row accent and the indicator disagree on what a command is.
+ */
+export const CUSTOM_COMMAND_KINDS: ReadonlySet<ListEntry["kind"]> = new Set([
+  "command",
+  "command-suggestion",
+  "help",
+  "totp-manage",
+  "bruno",
+  "pwgen",
+  "bpm",
+  "equalizer",
+  "totp",
+  "kill-target",
+  "meme",
+  "clown",
+  "xhype",
+  "figlet-font",
+  "social",
+  "calc",
+] satisfies ListEntry["kind"][]);
+
+export function isCustomCommandEntry(entry: ListEntry): boolean {
+  return CUSTOM_COMMAND_KINDS.has(entry.kind);
+}

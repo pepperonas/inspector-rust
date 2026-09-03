@@ -225,3 +225,69 @@ describe("HistoryList — color picker modal", () => {
     expect(live.size).toBe(0);
   });
 });
+
+describe("HistoryList — sliding selection indicator (animation layer, Etappe 2)", () => {
+  // ONE absolutely positioned element glides between rows; React writes only
+  // the custom properties, CSS animates the translate. Rows carry no
+  // transition (virtualised — recycled nodes would ghost between entries).
+  const indicator = () => screen.getByTestId("selection-indicator");
+
+  it("positions via --indicator-y = index × row height and sizes via --row-h", () => {
+    setup({ entries: [clip(1), clip(2), clip(3)], selectedIndex: 2 });
+    const el = indicator();
+    expect(el.style.getPropertyValue("--indicator-y")).toBe("72px");
+    expect(el.style.getPropertyValue("--row-h")).toBe("36px");
+    expect(el.className).toContain("translate-y-(--indicator-y)");
+    expect(el.className).toContain("transition-transform");
+  });
+
+  it("is rose over a custom-command row and accent over a clip", () => {
+    // Colour comes from the SAME kind registry the row accent uses
+    // (lib/types.ts CUSTOM_COMMAND_KINDS) — the two must never disagree.
+    setup({ entries: [commandRow, clip(1)], selectedIndex: 0 });
+    expect(indicator().className).toContain("bg-rose-600");
+    cleanup();
+    setup({ entries: [commandRow, clip(1)], selectedIndex: 1 });
+    expect(indicator().className).toContain("bg-[var(--color-accent)]");
+    expect(indicator().className).not.toContain("bg-rose-600");
+  });
+
+  it("hides when the selection is out of range", () => {
+    setup({ entries: [clip(1)], selectedIndex: 5 });
+    expect(screen.queryByTestId("selection-indicator")).toBeNull();
+  });
+
+  // ⚠️ A bare `toContain("duration-0")` would also match the always-present
+  // `motion-reduce:duration-0` — caught green-blind by a mutation probe. The
+  // standalone class must be matched on word boundaries.
+  const hasInstant = (cls: string) => /(^|\s)duration-0(\s|$)/.test(cls);
+
+  it("snaps (duration-0) while an arrow key auto-repeats", () => {
+    // The key-repeat guard: with a held arrow the glide would lag behind the
+    // selection; App.tsx passes navInstant while repeats arrive.
+    setup({ entries: [clip(1), clip(2)], selectedIndex: 1, navInstant: true });
+    expect(hasInstant(indicator().className)).toBe(true);
+    expect(indicator().className).not.toContain("duration-(--duration-fast)");
+  });
+
+  it("glides on a discrete selection change, snaps when the LIST changed", () => {
+    // Typing re-ranks the list + resets the selection — re-sorting is
+    // explicitly not animated, so a changed entries identity must render the
+    // indicator instant for that frame.
+    const first = [clip(1), clip(2), clip(3)] as ListEntry[];
+    const props = {
+      entries: first,
+      selectedIndex: 0,
+      onSelect: vi.fn(),
+      onActivate: vi.fn(),
+    };
+    const { rerender } = render(<HistoryList {...props} />);
+    // Fresh mount: entries identity "changed" (nothing previous) → instant is
+    // fine; settle the ref by re-rendering with the SAME array.
+    rerender(<HistoryList {...props} selectedIndex={1} />);
+    expect(indicator().className).toContain("duration-(--duration-fast)");
+    expect(hasInstant(indicator().className)).toBe(false);
+    rerender(<HistoryList {...props} entries={[clip(9)] as ListEntry[]} selectedIndex={0} />);
+    expect(hasInstant(indicator().className)).toBe(true);
+  });
+});

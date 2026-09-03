@@ -132,9 +132,14 @@ describe("HistoryItem — the custom-command accent invariant", () => {
       expect(isRose(renderRow(entry))).toBe(true);
     });
 
-    it(`renders "${kind}" as a SOLID rose row when selected`, () => {
+    it(`"${kind}" selected: white text, NO own fill (the indicator paints it)`, () => {
+      // Since the sliding selection indicator (HistoryList, animation layer
+      // Etappe 2) the solid rose fill lives on ONE element behind the rows —
+      // a selected row painting its own background would wash over the
+      // indicator and re-introduce per-row style churn on every keystroke.
       const row = renderRow(entry, true);
-      expect(row.className).toContain("bg-rose-600");
+      expect(row.className).toContain("text-white");
+      expect(row.className).not.toContain("bg-rose-600");
       expect(row.className).not.toContain("bg-[var(--color-accent)]");
     });
   }
@@ -145,9 +150,10 @@ describe("HistoryItem — the custom-command accent invariant", () => {
     });
   }
 
-  it("uses the neutral accent — not rose — for a SELECTED clip", () => {
+  it("uses the neutral accent text — not rose — for a SELECTED clip", () => {
     const row = renderRow(NEUTRAL_ROWS.clip, true);
-    expect(row.className).toContain("bg-[var(--color-accent)]");
+    expect(row.className).toContain("text-[var(--color-accent-fg)]");
+    expect(row.className).not.toContain("bg-[var(--color-accent)]"); // fill = indicator's job
     expect(row.className).not.toContain("bg-rose-600");
   });
 

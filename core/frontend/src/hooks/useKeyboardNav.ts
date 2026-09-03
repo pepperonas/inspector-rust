@@ -19,6 +19,11 @@ interface Args {
    *  control to a takeover surface (e.g. the `getshaky` Pong game)
    *  without unmounting the hook (hooks can't be called conditionally). */
   enabled?: boolean;
+  /** Key-repeat guard (animation layer): called with `e.repeat` on every
+   *  ArrowUp/ArrowDown navigation — the caller switches the selection
+   *  indicator (and the preview crossfade) to instant while a held arrow
+   *  auto-repeats, so neither lags behind fast navigation. */
+  onNavRepeat?: (repeating: boolean) => void;
 }
 
 export function useKeyboardNav({
@@ -29,6 +34,7 @@ export function useKeyboardNav({
   onEscape,
   onShiftArrow,
   enabled = true,
+  onNavRepeat,
 }: Args) {
   const handler = useCallback(
     (e: KeyboardEvent) => {
@@ -41,6 +47,7 @@ export function useKeyboardNav({
           return;
         }
         if (length === 0) return;
+        onNavRepeat?.(e.repeat);
         setSelected(Math.min(selected + 1, length - 1));
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
@@ -50,6 +57,7 @@ export function useKeyboardNav({
           return;
         }
         if (length === 0) return;
+        onNavRepeat?.(e.repeat);
         setSelected(Math.max(selected - 1, 0));
       } else if (e.key === "Enter") {
         e.preventDefault();
@@ -59,7 +67,7 @@ export function useKeyboardNav({
         if (!e.repeat) onEscape(); // key-repeat must not queue extra hides
       }
     },
-    [length, selected, setSelected, onEnter, onEscape, onShiftArrow, enabled],
+    [length, selected, setSelected, onEnter, onEscape, onShiftArrow, enabled, onNavRepeat],
   );
 
   useEffect(() => {

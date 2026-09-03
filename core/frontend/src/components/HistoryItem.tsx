@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState } from "react";
 import {
   BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
-import type { ListEntry } from "../lib/types";
+import { isCustomCommandEntry, type ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
 import { formatAbsolute, relativeTime, truncateOneLine } from "../lib/format";
 import { InlineMd } from "./InlineMd";
@@ -161,35 +161,10 @@ export const HistoryItem = memo(function HistoryItem({
   const isSocial = entry.kind === "social";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
-  // app. This covers EVERY row reached by typing a command keyword —
-  // uniformly, including with a parameter (`kill slack`, `meme cat`, …): the
-  // generic `command` + its suggestions, the dedicated keyword-command rows
-  // (2fa, otp, pwgen, bruno, bpm), AND the whole-list command pickers
-  // (kill-target, meme). Only expression results (calc / color, where you type
-  // an expression rather than a keyword) and non-command rows (app, finder,
-  // clip, snippet, opener) keep the neutral accent.
-  const isCustomCommand =
-    isCommand ||
-    isSuggestion ||
-    isHelp ||
-    isTotpManage ||
-    isBruno ||
-    isPwgen ||
-    isBpm ||
-    isEqualizer ||
-    isTotp ||
-    isKillTarget ||
-    isMeme ||
-    isClown ||
-    isXhype ||
-    // figlet's font gallery is a whole-list takeover exactly like kill/meme —
-    // it was left out when `figlet` landed (v0.85.0), so `figlet hello` filled
-    // the list with neutral rows and gave no signal you were in a command.
-    isFiglet ||
-    isSocial ||
-    // Calculator / converter results: highlighted + animated like a command
-    // (v0.84.27) — typing an expression should feel as "active" as a keyword.
-    isCalc;
+  // app. The kind set lives in `lib/types.ts::CUSTOM_COMMAND_KINDS` (one
+  // registry — the sliding selection indicator in HistoryList colours itself
+  // from the SAME set, so row accent and indicator can never disagree).
+  const isCustomCommand = isCustomCommandEntry(entry);
   const isOpener = entry.kind === "opener";
   const isApp = entry.kind === "app";
   const isFinderFile = entry.kind === "finder-file";
@@ -467,12 +442,18 @@ export const HistoryItem = memo(function HistoryItem({
         // Custom-command rows fade in when they surface (opacity-only — the row
         // root holds the virtualizer's translateY transform).
         (isCustomCommand ? "md3-cmd-enter " : "") +
+        // The SELECTED background is no longer painted by the row: the
+        // sliding indicator in HistoryList (one element behind all rows,
+        // Etappe 2 of the animation layer) carries the solid rose/accent
+        // fill and glides between rows. The row keeps only its selected
+        // TEXT colours — and drops its own tint while selected so it
+        // doesn't wash over the indicator.
         (isCustomCommand
           ? selected
-            ? "bg-rose-600 text-white"
+            ? "text-white"
             : "bg-rose-500/10 hover:bg-rose-500/20"
           : selected
-            ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+            ? "text-[var(--color-accent-fg)]"
             : isNotedClip
               ? "bg-amber-400/15 hover:bg-amber-400/25"
               : "hover:bg-[var(--color-surface)]")

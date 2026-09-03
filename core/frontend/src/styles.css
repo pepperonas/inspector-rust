@@ -36,6 +36,20 @@
   --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   --font-mono: "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+
+  /* ── Animation-layer timing tokens (v0.163.0) ──────────────────────────
+     The ONLY durations new animation work may use — no literal ms in markup
+     (.claude/rules/animation.md). `--ease-sharp` deliberately has no
+     overshoot: this is a tool summoned 100× a day, the target feel is
+     native system UI (Alfred/Raycast), not Material springs. Registered in
+     @theme so `ease-sharp` exists as a utility; durations are referenced as
+     `duration-(--duration-fast)`. Zeroed wholesale by the anim-reduced /
+     anim-off stage classes below the md3 block. */
+  --duration-instant: 80ms;
+  --duration-fast: 100ms;
+  --duration-base: 130ms;
+  --duration-slow: 200ms;
+  --ease-sharp: cubic-bezier(0.2, 0, 0, 1);
 }
 
 /* ── Light palette ──────────────────────────────────────────────────
@@ -102,6 +116,57 @@
   --md3-short4: 200ms;
   --md3-medium2: 300ms;
   --md3-medium4: 400ms;
+}
+
+/* ── Animation stage: Full / Reduced / Off (v0.163.0) ──────────────────────
+   `lib/motion-stage.ts` is the only writer of these root classes. The stored
+   "full" defers to the OS reduced-motion hint, so `anim-reduced` is ALSO the
+   class carried when the OS asks for reduction — the @media blocks in this
+   file remain as the pre-JS/no-JS baseline, the class is the runtime truth.
+
+   Reduced: every token-based duration collapses to 0 (both the new
+   --duration-* layer and the --md3-* scale), plus the central app-chrome
+   disable list mirrored from the prefers-reduced-motion block further down.
+   Off: a global kill INSIDE the popup — everything except `.anim-keep`,
+   the marker for FUNCTIONAL animations (a countdown ring, an indeterminate
+   progress line) whose freezing would misinform rather than calm. */
+html.anim-reduced,
+html.anim-off {
+  --duration-instant: 0s;
+  --duration-fast: 0s;
+  --duration-base: 0s;
+  --duration-slow: 0s;
+  --md3-short1: 0s;
+  --md3-short2: 0s;
+  --md3-short4: 0s;
+  --md3-medium2: 0s;
+  --md3-medium4: 0s;
+}
+html.anim-reduced
+  :is(
+    .md3-press,
+    .md3-tab-enter,
+    .md3-banner-in,
+    .md3-pop-in,
+    .md3-overlay-in,
+    .md3-cmd-enter,
+    .md3-cmd-icon,
+    .md3-num-lock,
+    .fade-in,
+    .recordPulse
+  ),
+html.anim-reduced .md3-list-enter [data-vlist] > *,
+html.anim-reduced .md3-preview-in,
+html.anim-reduced .md3-settings-cascade > * {
+  animation: none !important;
+  transition: none !important;
+}
+html.anim-off *:not(.anim-keep),
+html.anim-off *:not(.anim-keep)::before,
+html.anim-off *:not(.anim-keep)::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
 }
 
 /* Tactile press: scale down quickly under the finger, spring back with a

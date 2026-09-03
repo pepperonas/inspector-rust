@@ -3015,6 +3015,17 @@ export function setCrtAnimation(ms: number): Promise<number> {
   return invoke("set_crt_animation", { ms });
 }
 
+// ── Animation stage: Full / Reduced / Off (v0.163.0) ────────────────────────
+
+export function getAnimationStage(): Promise<string> {
+  return invoke("get_animation_stage");
+}
+/** Persist the stage (whitelisted backend-side); returns the stored value and
+ *  broadcasts `animation-stage-changed` to every window. */
+export function setAnimationStage(stage: string): Promise<string> {
+  return invoke("set_animation_stage", { stage });
+}
+
 /** Set the cap (clamped backend-side) and prune now; returns the stored value. */
 export function setHistoryMax(max: number): Promise<number> {
   return invoke("set_history_max", { max });

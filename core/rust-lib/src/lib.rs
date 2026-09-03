@@ -805,6 +805,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_window_size_preference,
             commands::get_crt_animation,
             commands::set_crt_animation,
+            commands::get_animation_stage,
+            commands::set_animation_stage,
             commands::get_sleep_status,
             commands::loc_count,
             commands::loc_export,

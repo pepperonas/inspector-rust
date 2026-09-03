@@ -2053,6 +2053,47 @@ pub fn set_crt_animation(
     Ok(stored)
 }
 
+// ── Animation stage: Full / Reduced / Off (v0.163.0) ────────────────────────
+
+/// Settings key for the app-wide animation stage. `"full"` (the default)
+/// defers to the OS `prefers-reduced-motion` hint; `"reduced"` and `"off"`
+/// are absolute. The frontend's `lib/motion-stage.ts` mirrors this whitelist
+/// and resolves the EFFECTIVE stage — this side only stores + broadcasts.
+const KEY_ANIMATION_STAGE: &str = "appearance.animations";
+
+/// Pure: stored string → valid stage. Anything unknown (hand-edited DB, a
+/// future build's value) collapses to `"full"` — the shipped default — so a
+/// bad value can never wedge the UI into a state this build can't render.
+fn normalise_animation_stage(raw: Option<&str>) -> &'static str {
+    match raw.map(str::trim) {
+        Some("reduced") => "reduced",
+        Some("off") => "off",
+        _ => "full",
+    }
+}
+
+/// Read the persisted animation stage ("full" / "reduced" / "off").
+#[tauri::command]
+pub fn get_animation_stage(db: State<'_, DbHandle>) -> String {
+    let raw = settings::get(&db, KEY_ANIMATION_STAGE).ok().flatten();
+    normalise_animation_stage(raw.as_deref()).to_string()
+}
+
+/// Persist the animation stage and broadcast it — every window listens for
+/// `animation-stage-changed` (the `crt-animation-changed` pattern), so the
+/// Settings change applies live without a restart. Returns the stored value.
+#[tauri::command]
+pub fn set_animation_stage(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    stage: String,
+) -> Result<String, String> {
+    let stored = normalise_animation_stage(Some(&stage));
+    settings::set(&db, KEY_ANIMATION_STAGE, stored).map_err(map_err)?;
+    let _ = app.emit("animation-stage-changed", stored);
+    Ok(stored.to_string())
+}
+
 /// System sleep status for the footer indicator (v0.114.0). Async +
 /// `spawn_blocking` because it spawns `pmset` twice — a sync command would run
 /// the subprocess ON the main thread (see the v0.105.0 audit note above the
@@ -5047,6 +5088,28 @@ mod crt_animation_tests {
         // Mirrors `CRT_ON_MS` in core/frontend/src/lib/md3-motion.ts, whose test
         // asserts the same three numbers — neither side may drift alone.
         assert_eq!((CRT_MS_DEFAULT, CRT_MS_MIN, CRT_MS_MAX), (250, 80, 900));
+    }
+}
+
+#[cfg(test)]
+mod animation_stage_tests {
+    use super::normalise_animation_stage;
+
+    #[test]
+    fn valid_stages_pass_through() {
+        assert_eq!(normalise_animation_stage(Some("full")), "full");
+        assert_eq!(normalise_animation_stage(Some("reduced")), "reduced");
+        assert_eq!(normalise_animation_stage(Some("off")), "off");
+        assert_eq!(normalise_animation_stage(Some(" off ")), "off"); // trimmed
+    }
+
+    #[test]
+    fn unknown_values_collapse_to_the_default() {
+        // Mirrors `normaliseAnimationStage` in lib/motion-stage.ts — a
+        // hand-edited DB must render the default experience, never wedge.
+        for raw in [None, Some(""), Some("OFF"), Some("none"), Some("voll")] {
+            assert_eq!(normalise_animation_stage(raw), "full", "raw={raw:?}");
+        }
     }
 }
 

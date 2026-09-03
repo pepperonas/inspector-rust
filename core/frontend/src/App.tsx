@@ -59,6 +59,7 @@ import { useKeyboardNav } from "./hooks/useKeyboardNav";
 import { useNotes } from "./hooks/useNotes";
 import { useSnippets } from "./hooks/useSnippets";
 import { playCrtOn, playCrtOff, primeCrtHidden, crtOffMs, CRT_ON_MS } from "./lib/md3-motion";
+import { currentAnimationStage } from "./lib/motion-stage";
 import { detectSocial } from "./lib/social";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
@@ -502,6 +503,14 @@ function App() {
   // the `crt-animation-changed` event (see below).
   const crtMsRef = useRef(CRT_ON_MS);
 
+  // Animation stage (v0.163.0): with the effective stage below "full", the CRT
+  // power-on/off is skipped entirely — `playCrtOn/Off` treat ms <= 0 as the
+  // instant settle path and `primeCrtHidden` skips priming. Read via the
+  // motion-stage singleton (never IPC) for the same reason as crtMsRef: the
+  // open animation starts synchronously inside the window-shown handler.
+  const effectiveCrtMs = () =>
+    currentAnimationStage() === "full" ? crtMsRef.current : 0;
+
   // Dismiss = the reverse of the summon (§ signature transition): play the CRT
   // TV power-OFF on the shell, *then* hide the OS window — so closing mirrors
   // the power-on instead of snapping out. Under reduced motion / no WAAPI,
@@ -522,7 +531,7 @@ function App() {
     hidingRef.current = true;
     const gen = showGenRef.current;
     try {
-      const offMs = crtOffMs(crtMsRef.current);
+      const offMs = crtOffMs(effectiveCrtMs());
       await Promise.race([
         playCrtOff(shellRef.current, offMs),
         // Cap the await at the CRT power-off duration + margin so a hung
@@ -2959,7 +2968,7 @@ function App() {
     // popup OPEN (never per keystroke). The class is removed after the
     // animation so later virtualizer updates render instantly.
     setListEntrance(true);
-    window.setTimeout(() => setListEntrance(false), crtMsRef.current + 120);
+    window.setTimeout(() => setListEntrance(false), effectiveCrtMs() + 120);
     // Reconcile the footer keep-awake LED to the true state on every open.
     // `wakelock on` / `caffeine on` hide the popup before the footer can
     // observe the `wakelock-changed` event, so re-fetch here — guarantees
@@ -2975,7 +2984,7 @@ function App() {
     // not need a frame boundary, and waiting for one delayed the whole reveal
     // by a full frame (~8–16 ms) on the single path where latency is felt
     // most. Focus keeps its rAF — the input must exist and be laid out.
-    playCrtOn(shellRef.current, crtMsRef.current);
+    playCrtOn(shellRef.current, effectiveCrtMs());
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
@@ -3224,7 +3233,7 @@ function App() {
     // WHILE hidden — so the OS `show()` (which reveals the window before the
     // window-shown handler runs) shows the dark tube + dot, never a flash of
     // full-opacity content, before `playCrtOn` blooms it. `playCrtOn` clears it.
-    primeCrtHidden(shellRef.current, crtMsRef.current);
+    primeCrtHidden(shellRef.current, effectiveCrtMs());
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

@@ -69,6 +69,7 @@ import {
   getHistoryMax,
   setHistoryMax,
   type HistoryLimit,
+  getAnimationStage,
   getCrtAnimation,
   setCrtAnimation,
   type CrtAnimation,
@@ -146,6 +147,7 @@ import {
   setPastePlainTextOnly,
   setPopupHotkey,
   setSuppressHide,
+  setAnimationStage,
   setThemePreference,
   setWindowSizePreference,
   type AutoExpandConfig,
@@ -181,6 +183,11 @@ import type { FakerDefaults } from "../lib/faker";
 import type { FigletDefaults, FigletAlign, FigletComment, FigletFontMeta } from "../lib/figlet";
 import type { SecDefaults } from "../lib/sec";
 import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
+import {
+  normaliseAnimationStage,
+  stageLabel,
+  type AnimationStage,
+} from "../lib/motion-stage";
 import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
@@ -589,6 +596,29 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       console.error("theme persist failed", e);
     } finally {
       setThemeBusy(false);
+    }
+  };
+
+  // ── Animation stage (Full / Reduced / Off, v0.163.0) ─────────────────────
+  // Persisting broadcasts `animation-stage-changed`; every window's
+  // motion-stage runtime (initMotion in main.tsx) applies the root class
+  // live, so no re-apply is needed here.
+  const [animStage, setAnimStage] = useState<AnimationStage | null>(null);
+  const [animStageBusy, setAnimStageBusy] = useState(false);
+  useEffect(() => {
+    getAnimationStage()
+      .then((s) => setAnimStage(normaliseAnimationStage(s)))
+      .catch(() => setAnimStage("full"));
+  }, []);
+  const changeAnimStage = async (next: AnimationStage) => {
+    setAnimStage(next); // optimistic — the picker must feel instant
+    setAnimStageBusy(true);
+    try {
+      await setAnimationStage(next);
+    } catch (e) {
+      console.error("animation stage persist failed", e);
+    } finally {
+      setAnimStageBusy(false);
     }
   };
 
@@ -2292,6 +2322,44 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 : theme === "system"
                   ? "Following your operating system's light/dark setting."
                   : `Forced ${theme} — ignores the OS setting until you switch back to System.`}
+            </p>
+
+            <Row label="Animations">
+              <div
+                role="radiogroup"
+                aria-label="Animations"
+                className="flex overflow-hidden rounded-lg border border-[var(--color-border)]"
+              >
+                {(["full", "reduced", "off"] as const).map((value) => {
+                  const active = animStage === value;
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      role="radio"
+                      aria-checked={active}
+                      disabled={animStage === null || animStageBusy}
+                      onClick={() => void changeAnimStage(value)}
+                      className={
+                        "flex items-center gap-1.5 px-3 py-1.5 text-[12px] transition-colors " +
+                        "border-r border-[var(--color-border)] last:border-r-0 " +
+                        (active
+                          ? "bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                          : "bg-[var(--color-surface)] text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+                      }
+                    >
+                      {stageLabel(value)}
+                    </button>
+                  );
+                })}
+              </div>
+            </Row>
+            <p className="mt-2 text-[11px] leading-snug text-[var(--color-muted)]">
+              {animStage === "off"
+                ? "All decorative motion is off — the popup appears instantly (countdown rings keep ticking)."
+                : animStage === "reduced"
+                  ? "Transitions are instant; the popup power-on is skipped."
+                  : "Full also honours your OS “reduce motion” setting. Applies live, no restart."}
             </p>
 
             <Row label="Overlay size">

@@ -2,7 +2,15 @@ import React, { Suspense } from "react";
 import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./styles.css";
+import { initMotion } from "./lib/motion-stage";
 import { XOverlay } from "./components/XOverlay";
+
+// Animation layer (v0.163.0): synchronous `@starting-style` feature detection
+// (`has-enter-anim` on the root — old WKWebView shows elements instantly
+// instead of hanging in a half state) + the persisted Full/Reduced/Off stage.
+// Runs in EVERY window so the status toast / screenshot preview honour the
+// stage too, before the first render paints.
+initMotion();
 
 // Inspector Rust runs in many Tauri windows depending on what the user is
 // doing. The default `popup` window is the clipboard browser (`<App />`);

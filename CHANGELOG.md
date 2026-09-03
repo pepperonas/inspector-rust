@@ -4,6 +4,22 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.163.0] - 2026-09-03
+
+### Added
+- **CSS animation layer** across the popup — sharp, native-tool motion (no springs, no framework): a single **sliding selection indicator** glides between history rows (rose over command rows, accent otherwise — coloured from the same `CUSTOM_COMMAND_KINDS` registry as the row accent; snaps during key-repeat and whenever typing re-ranks the list), the tab pill/panel swap/preview crossfade run on shared timing tokens (`--duration-instant/fast/base/slow` + `--ease-sharp`), typed rows (command/calc/colour/bruno/otp) fade in over 80 ms (enter-only, never exit), modals and takeovers scale in without overshoot, top-of-popup permission banners unfold via `grid-template-rows`, Settings confirmations fade in and status cards glide amber↔green, and the interactive theme switch cross-fades colours.
+- **Settings → Appearance → "Animations"** — Full / Reduced / Off (`appearance.animations`, live via `animation-stage-changed` in every window). Full additionally honours the OS "reduce motion" hint; Reduced makes every transition instant and skips the CRT power-on; Off kills all decorative animation in the popup while `anim-keep`-marked functional animations (TOTP countdown ring, download progress wave) keep running.
+- `@starting-style` enter transitions are feature-detected (`has-enter-anim` from `CSS.supports("transition-behavior: allow-discrete")`) — on older WKWebView/WebKitGTK elements appear instantly instead of hanging in half states.
+- `.claude/rules/animation.md` — the animation rule file: tokens, constraints, named exceptions, and the M3E override for this repo.
+
+### Changed
+- **TOTP countdown ring is a free-running CSS keyframe** (linear drain, negative `animation-delay`, re-anchored per code) — the 100 ms ticker that re-rendered every list row ten times a second is gone.
+- The three legacy `transition-all` sites are explicit property lists now; the NoSleep switch knob moves via `translate-x` (compositor) instead of `left`. Repo-wide `transition-all`: 0.
+- Deliberate contract change: a SELECTED history row no longer paints its own background — the indicator carries the fill; the row keeps its selected text colours.
+
+### Honest deviations from the animation brief
+- No screenshot FLIP: macOS `screencapture -i` returns PNG bytes only — the marquee rect never reaches the process, so the HUD gets an honest sharp scale-in instead of an invented flight origin. No "S-key region frame" and no timer countdown ring — neither exists in the codebase.
+
 ## [0.162.0] - 2026-09-01
 
 ### Changed

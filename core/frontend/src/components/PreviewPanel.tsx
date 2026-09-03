@@ -1428,7 +1428,7 @@ function DownloadAnimation({ label }: { label: string }) {
       </div>
       <div className="text-[12px] font-medium text-[var(--color-fg)]">{label}</div>
       <div className="h-4 w-48 overflow-hidden">
-        <svg viewBox="0 0 96 16" className="md3-dl-wave h-full w-[200%]" preserveAspectRatio="none">
+        <svg viewBox="0 0 96 16" className="md3-dl-wave anim-keep h-full w-[200%]" preserveAspectRatio="none">
           <path
             d="M0 8 Q 6 2, 12 8 T 24 8 T 36 8 T 48 8 T 60 8 T 72 8 T 84 8 T 96 8"
             fill="none"

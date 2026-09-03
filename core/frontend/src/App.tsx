@@ -4481,9 +4481,9 @@ function App() {
       <div ref={shellRef} className="app-shell fade-in flex h-full w-full flex-col">
         {/* Paste-failure banner — sticky at the top, click-to-dismiss. */}
         {pasteError && (
-          <div
+          <Banner
             className={
-              "md3-banner-in flex items-start gap-2 border-b px-4 py-2 text-[12px] " +
+              "flex items-start gap-2 border-b px-4 py-2 text-[12px] " +
               (pasteError === "ax"
                 ? "border-amber-500/40 bg-amber-500/10"
                 : "border-red-500/40 bg-red-500/10")
@@ -4518,11 +4518,11 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {ocrPermissionMissing && (
-          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>OCR failed — macOS Screen Recording access not granted.</b> Without it,{" "}
               <code>screencapture</code> is denied and the region marquee never appears.
@@ -4537,11 +4537,11 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {expanderPermissionMissing && (
-          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Text expansion failed — macOS Accessibility access not granted.</b>{" "}
               Inspector Rust can&apos;t read the focused field or type the snippet without
@@ -4555,11 +4555,11 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {finderAutomationDenied && (
-          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               <b>Finder selection unavailable — macOS Automation access not granted.</b>{" "}
               Open{" "}
@@ -4575,11 +4575,11 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {expanderBlocked && (
-          <div className="md3-banner-in flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
+          <Banner className="flex items-start gap-2 border-b border-amber-500/40 bg-amber-500/10 px-4 py-2 text-[12px]">
             <span className="flex-1">
               {expanderBlocked === "password" ? (
                 <>
@@ -4621,11 +4621,11 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {timerFiredLabel && (
-          <div className="md3-banner-in flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
+          <Banner className="flex items-start gap-2 border-b border-[var(--color-accent)]/60 bg-[var(--color-accent)]/15 px-4 py-2 text-[12px]">
             <span className="flex-1">
               ⏰ <b>Timer done — {timerFiredLabel}</b>{" "}
               <span className="text-[var(--color-muted)]">
@@ -4639,7 +4639,7 @@ function App() {
             >
               ×
             </button>
-          </div>
+          </Banner>
         )}
 
         {/* Header — fixed height, tab buttons anchored top-right */}
@@ -5186,6 +5186,19 @@ type TabId = (typeof TAB_ITEMS)[number][0];
  *  one shared element that glides under the active tab (measured left/width,
  *  transform+width transition on the MD3 emphasized curve) instead of each
  *  button repainting its own background. Buttons keep the tactile press. */
+/** Top-of-popup notice (permission / paste / timer banners). The freshly
+ *  appearing banner UNFOLDS via grid-template-rows 0fr → 1fr
+ *  (`banner-expand`, Etappe 6) — the one sanctioned layout animation:
+ *  the only clean CSS way to animate an unknown height. Replaces the
+ *  md3-banner-in drop-in. */
+function Banner({ className, children }: { className: string; children: React.ReactNode }) {
+  return (
+    <div className="banner-expand">
+      <div className={className}>{children}</div>
+    </div>
+  );
+}
+
 function TabBar({
   active,
   onSelect,

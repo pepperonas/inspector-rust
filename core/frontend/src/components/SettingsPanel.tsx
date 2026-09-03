@@ -182,7 +182,7 @@ import {
 import type { FakerDefaults } from "../lib/faker";
 import type { FigletDefaults, FigletAlign, FigletComment, FigletFontMeta } from "../lib/figlet";
 import type { SecDefaults } from "../lib/sec";
-import { applyTheme, normaliseTheme, type ThemePreference } from "../lib/theme";
+import { applyThemeAnimated, normaliseTheme, type ThemePreference } from "../lib/theme";
 import {
   normaliseAnimationStage,
   stageLabel,
@@ -587,7 +587,9 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
     // Apply instantly for a snappy feel, then persist. If the persist
     // fails we keep the applied theme — it's purely cosmetic and the
     // next launch falls back to the last successfully-stored value.
-    applyTheme(next);
+    // Animated (Etappe 6): colours glide via the one-shot theme-switching
+    // blanket transition; the mount-time apply in App.tsx stays instant.
+    applyThemeAnimated(next);
     setTheme(next);
     setThemeBusy(true);
     try {
@@ -1652,7 +1654,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               process can't see the new grant until macOS re-evaluates
               AXIsProcessTrusted on a fresh launch. */}
             {accessibility === true && justGranted && (
-              <div className="mb-4 flex flex-col gap-2 rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5 text-[12px]">
+              <div className="confirm-enter mb-4 flex flex-col gap-2 rounded border border-emerald-500/40 bg-emerald-500/5 px-3 py-2.5 text-[12px]">
                 <div className="flex items-start gap-2">
                   <CheckCircle2 size={14} className="mt-0.5 shrink-0 text-emerald-500" />
                   <div className="flex-1">
@@ -1692,7 +1694,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
               </div>
             )}
             {accessibility === true && !justGranted && (
-              <div className="mb-4 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px]">
+              <div className="confirm-enter mb-4 flex items-center gap-2 rounded border border-emerald-500/30 bg-emerald-500/5 px-3 py-2 text-[12px]">
                 <CheckCircle2 size={14} className="shrink-0 text-emerald-500" />
                 <span className="font-medium">Accessibility access granted</span>
               </div>
@@ -4108,7 +4110,9 @@ function PopupHotkeySection() {
       {status && (
         <div
           className={
-            "mt-3 rounded border px-3 py-2 text-[12px] " +
+            // amber ↔ green flips ON this one element — the colour glide is
+            // the Etappe-6 "the user is looking right now" moment.
+            "mt-3 rounded border px-3 py-2 text-[12px] transition-colors duration-(--duration-slow) ease-sharp " +
             (status.kind === "ok"
               ? "border-emerald-500/40 bg-emerald-500/5 text-[var(--color-fg)]"
               : "border-amber-500/40 bg-amber-500/5 text-[var(--color-fg)]")
@@ -4256,7 +4260,9 @@ function HistoryHotkeySection() {
       {status && (
         <div
           className={
-            "mt-3 rounded border px-3 py-2 text-[12px] " +
+            // amber ↔ green flips ON this one element — the colour glide is
+            // the Etappe-6 "the user is looking right now" moment.
+            "mt-3 rounded border px-3 py-2 text-[12px] transition-colors duration-(--duration-slow) ease-sharp " +
             (status.kind === "ok"
               ? "border-emerald-500/40 bg-emerald-500/5 text-[var(--color-fg)]"
               : "border-amber-500/40 bg-amber-500/5 text-[var(--color-fg)]")

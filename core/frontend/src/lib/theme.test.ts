@@ -1,5 +1,5 @@
-import { describe, it, expect, afterEach } from "vitest";
-import { applyTheme, normaliseTheme, themeLabel } from "./theme";
+import { describe, it, expect, afterEach, vi } from "vitest";
+import { applyTheme, applyThemeAnimated, normaliseTheme, themeLabel, THEME_SWITCH_MS } from "./theme";
 
 afterEach(() => {
   // Reset the attribute so tests don't leak into each other.
@@ -84,5 +84,26 @@ describe("normaliseTheme + applyTheme — end to end", () => {
     document.documentElement.setAttribute("data-theme", "corrupted");
     applyTheme("light");
     expect(document.documentElement.getAttribute("data-theme")).toBe("light");
+  });
+});
+
+describe("applyThemeAnimated (Etappe 6)", () => {
+  it("arms the one-shot theme-switching blanket and removes it after", () => {
+    vi.useFakeTimers();
+    try {
+      applyThemeAnimated("light");
+      const root = document.documentElement;
+      // The class must be PRESENT while the data-theme flip paints (that's
+      // what makes the colours glide instead of jump)…
+      expect(root.classList.contains("theme-switching")).toBe(true);
+      expect(root.getAttribute("data-theme")).toBe("light");
+      // …and must NOT persist: a blanket transition on * that outlives the
+      // switch would tax every later interaction.
+      vi.advanceTimersByTime(THEME_SWITCH_MS + 1);
+      expect(root.classList.contains("theme-switching")).toBe(false);
+    } finally {
+      vi.useRealTimers();
+      document.documentElement.classList.remove("theme-switching");
+    }
   });
 });

@@ -146,6 +146,7 @@ html.anim-reduced
   :is(
     .md3-press,
     .panel-enter,
+    .banner-expand,
     .md3-banner-in,
     .md3-pop-in,
     .md3-overlay-in,
@@ -239,6 +240,67 @@ html.anim-off *:not(.anim-keep)::after {
     opacity: 0;
     transform: scale(0.95);
   }
+}
+
+/* TOTP countdown ring (Etappe 6): a free-running LINEAR drain over the
+   token period, phase-set by a NEGATIVE animation-delay (= the elapsed
+   slice) — no rAF, no JS tick; the compositor keeps it in sync. Marked
+   anim-keep at the call site: a countdown is information, the "Off"
+   animation stage must not freeze it. Deliberately linear — an eased
+   countdown would misreport how much time is left. */
+@keyframes totpRingDrain {
+  from {
+    stroke-dashoffset: 0;
+  }
+  to {
+    stroke-dashoffset: var(--ring-c);
+  }
+}
+.totp-ring-drain {
+  animation: totpRingDrain var(--ring-period) linear infinite;
+  animation-delay: var(--ring-delay);
+}
+
+/* Permission banners in Settings (Etappe 6): a freshly-appearing banner
+   unfolds via grid-template-rows 0fr → 1fr — the ONE sanctioned layout
+   animation (rule file): the only clean CSS way to animate an unknown
+   height, in a rarely-open tab. Gated on has-enter-anim; old WebKit shows
+   the banner instantly. */
+.has-enter-anim .banner-expand {
+  display: grid;
+  grid-template-rows: 1fr;
+  transition: grid-template-rows var(--duration-slow) var(--ease-sharp);
+  @starting-style {
+    grid-template-rows: 0fr;
+  }
+}
+.banner-expand > * {
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* Settings confirmations (Etappe 6): the just-granted card fades in calmly
+   — the one moment the user is certainly looking at this row. */
+.has-enter-anim .confirm-enter {
+  transition: opacity var(--duration-slow) var(--ease-sharp);
+  @starting-style {
+    opacity: 0;
+  }
+}
+
+/* Interactive theme switch (Etappe 6): while lib/theme.ts arms
+   `theme-switching` (~200 ms around the data-theme flip), background,
+   border and text colours glide on --duration-base. A blanket rule on *,
+   deliberately: it exists only during an explicit, rare user action in
+   Settings — never on a hot path — and is removed right after. It
+   temporarily REPLACES other transitions on the same elements (shorthand),
+   which is fine for 200 ms. */
+html.theme-switching,
+html.theme-switching * {
+  transition:
+    background-color var(--duration-base) var(--ease-sharp),
+    border-color var(--duration-base) var(--ease-sharp),
+    color var(--duration-base) var(--ease-sharp) !important;
 }
 
 /* Custom-command rows. The row root carries the virtual list's inline
@@ -335,7 +397,9 @@ html.anim-off *:not(.anim-keep)::after {
   .md3-opener-in-right, .md3-opener-in-left { animation: none !important; }
 }
 
-/* Banners / inline alerts drop in from the top. */
+/* Inline alerts (still used by preview/calendar/hue/trim/audio-swap notes)
+   drop in from the top. The six TOP-OF-POPUP banners moved to the
+   .banner-expand unfold in Etappe 6. */
 @keyframes md3BannerIn {
   from { opacity: 0; transform: translateY(-10px); }
   to   { opacity: 1; transform: translateY(0); }
@@ -350,6 +414,7 @@ html.anim-off *:not(.anim-keep)::after {
 @media (prefers-reduced-motion: reduce) {
   .md3-press,
   .panel-enter,
+  .banner-expand,
   .md3-banner-in,
   .md3-pop-in,
   .md3-overlay-in,

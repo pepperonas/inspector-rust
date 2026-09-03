@@ -42,3 +42,23 @@ export function themeLabel(theme: ThemePreference): string {
       return "System";
   }
 }
+
+/** Duration the `theme-switching` class stays on <html> — slightly past
+ *  `--duration-base` so the colour transitions complete before the blanket
+ *  rule is lifted. */
+export const THEME_SWITCH_MS = 200;
+
+/**
+ * Interactive theme change (Settings picker): briefly arms a blanket
+ * `transition-colors` via `html.theme-switching` (styles.css) so background
+ * and border colours glide instead of jumping — then applies the theme.
+ * Deliberately NOT part of `applyTheme`: the mount-time apply must stay
+ * instant (nothing is painted yet, and a launch-time blanket transition on
+ * `*` would tax the first popup open). One-shot per explicit user action.
+ */
+export function applyThemeAnimated(theme: ThemePreference): void {
+  const root = document.documentElement;
+  root.classList.add("theme-switching");
+  applyTheme(theme);
+  window.setTimeout(() => root.classList.remove("theme-switching"), THEME_SWITCH_MS);
+}

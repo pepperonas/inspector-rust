@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import {
   Check,
   Copy,
@@ -78,8 +78,6 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
   const [tab, setTab] = useState<Tab>(initialTab ?? "list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
   const [codes, setCodes] = useState<Map<number, TotpCode>>(new Map());
-  // Bumped on every 1s tick; used to drive the smooth countdown ring.
-  const [tickNow, setTickNow] = useState(() => Date.now());
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(
     null,
@@ -175,14 +173,12 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
     };
     void refresh();
     const interval = setInterval(refresh, 1000);
-    // The 100 ms tick only drives the countdown rings, which render on the
-    // List tab — don't burn 10 re-renders/s while Add or Import is showing.
-    const tick =
-      tab === "list" ? setInterval(() => setTickNow(Date.now()), 100) : undefined;
+    // (The former 100 ms tickNow ticker is gone — the countdown ring is a
+    // free-running CSS keyframe now, Etappe 6; ten re-renders/s across every
+    // row bought nothing the compositor doesn't do for free.)
     return () => {
       cancelled = true;
       clearInterval(interval);
-      if (tick !== undefined) clearInterval(tick);
     };
   }, [tab]);
 
@@ -479,7 +475,6 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
             codes={codes}
             filter={filter}
             setFilter={setFilter}
-            tickNow={tickNow}
             onCopy={doCopy}
             onDelete={doDelete}
             onEdit={startEdit}
@@ -574,7 +569,6 @@ function ListTab({
   codes,
   filter,
   setFilter,
-  tickNow,
   onCopy,
   onDelete,
   onEdit,
@@ -587,7 +581,6 @@ function ListTab({
   codes: Map<number, TotpCode>;
   filter: string;
   setFilter: (f: string) => void;
-  tickNow: number;
   onCopy: (id: number, label: string) => void;
   onDelete: (id: number, label: string) => void;
   onEdit: (e: TotpEntry) => void;
@@ -815,7 +808,7 @@ function ListTab({
             <CountdownRing
               secondsRemaining={c?.seconds_remaining ?? 0}
               period={e.period}
-              tickNow={tickNow}
+              code={c?.code ?? ""}
             />
             <TotpBrandIcon issuer={e.issuer} />
             <div className="flex flex-1 flex-col overflow-hidden">
@@ -897,33 +890,37 @@ function ListTab({
   );
 }
 
-/** SVG-based circular countdown indicator. Smoothly interpolates
- *  between server-side `seconds_remaining` values (which only update
- *  once per 1 s IPC poll) using the local `tickNow` clock. */
+/** SVG-based circular countdown indicator — a free-running CSS keyframe
+ *  drains the ring (negative animation-delay = the already-elapsed slice),
+ *  re-anchored once per code rollover; the number + colour follow the 1 s
+ *  IPC poll. */
 function CountdownRing({
   secondsRemaining,
   period,
-  tickNow,
+  code,
 }: {
   secondsRemaining: number;
   period: number;
-  tickNow: number;
+  code: string;
 }) {
-  // We track a "reference" wall-clock of when we last got a fresh
-  // server value, plus the value at that moment. Local interpolation
-  // = server_value - elapsed_since_reference.
-  // (useState would be overkill — we just compute from props each render.)
-  const drift = (tickNow % 1000) / 1000;
-  const localRemaining = Math.max(0, secondsRemaining - drift);
-  const fraction = localRemaining / period;
+  // Free-running CSS keyframe (Etappe 6): the drain is `totpRingDrain` over
+  // `--ring-period` with a NEGATIVE `--ring-delay` equal to the already-
+  // elapsed slice — zero JS ticks (the old 100 ms tickNow re-render is
+  // gone). The delay is anchored ONCE PER CODE (render-phase derived state,
+  // the sanctioned volume-HUD pattern — a ref write during render trips
+  // react-hooks/refs): re-deriving it from every 1 s poll would restart the
+  // animation each second and defeat the free run; at the code rollover the
+  // anchor recomputes to ≈0 and the ring snaps back to full.
+  const elapsedNow = Math.max(0, period - secondsRemaining);
+  const [anchor, setAnchor] = useState({ code, elapsed: elapsedNow });
+  if (anchor.code !== code) setAnchor({ code, elapsed: elapsedNow });
   const r = 14;
   const c = 2 * Math.PI * r;
-  const offset = c * (1 - fraction);
-  // Color: green when fresh, amber when ≤5s, red when ≤2s.
+  // Colour from the 1 s poll: green when fresh, amber when ≤5s, red ≤2s.
   const color =
-    localRemaining <= 2
+    secondsRemaining <= 2
       ? "stroke-rose-500"
-      : localRemaining <= 5
+      : secondsRemaining <= 5
         ? "stroke-amber-500"
         : "stroke-emerald-500";
   return (
@@ -942,15 +939,23 @@ function CountdownRing({
           cy="16"
           r={r}
           fill="none"
-          className={color + " transition-[stroke-dashoffset] duration-100"}
+          // anim-keep: a countdown is INFORMATION — the "Off" animation
+          // stage must not freeze it (styles.css spares the class).
+          className={color + " totp-ring-drain anim-keep"}
           strokeWidth="2.5"
           strokeDasharray={c}
-          strokeDashoffset={offset}
           strokeLinecap="round"
+          style={
+            {
+              "--ring-c": `${c}px`,
+              "--ring-period": `${period}s`,
+              "--ring-delay": `-${anchor.elapsed}s`,
+            } as CSSProperties
+          }
         />
       </svg>
       <div className="absolute inset-0 flex items-center justify-center font-[var(--font-mono)] text-[10px] font-semibold tabular-nums text-[var(--color-muted)]">
-        {Math.ceil(localRemaining)}
+        {Math.ceil(Math.max(0, secondsRemaining))}
       </div>
     </div>
   );

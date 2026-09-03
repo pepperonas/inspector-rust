@@ -438,7 +438,7 @@ export function BpmDetector({ onExit }: Props) {
             return (
               <div className="pointer-events-none absolute inset-x-0 bottom-[15%] flex flex-col items-center gap-2">
                 <div
-                  className="flex items-baseline gap-1 font-[var(--font-mono)] tabular-nums transition-all duration-150"
+                  className="flex items-baseline gap-1 font-[var(--font-mono)] tabular-nums transition-[color,text-shadow,transform,opacity] duration-150"
                   style={{
                     color: db === null ? "var(--color-muted)" : accent,
                     textShadow: db === null ? "none" : `0 0 ${6 + norm * 16}px ${accent}`,

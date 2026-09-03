@@ -119,8 +119,8 @@ export function NoSleepPanel({ arg, focused, onExit }: { arg: string; focused: b
               style={{ backgroundColor: status.ac_disabled ? "var(--color-accent)" : "var(--color-border)" }}
             >
               <span
-                className="absolute top-0.5 h-5 w-5 rounded-full bg-white transition-all"
-                style={{ left: status.ac_disabled ? "22px" : "2px" }}
+                className="absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white transition-transform"
+                style={{ transform: status.ac_disabled ? "translateX(20px)" : "translateX(0)" }}
               />
             </span>
           </button>

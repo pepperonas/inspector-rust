@@ -1040,6 +1040,44 @@ Entwurfsentscheidungen, Fehlerbilder und die Fallen, die es gekostet hat.
 | [macos-permissions.md](./docs/macos-permissions.md) | How the expander actually got working on macOS |
 | [RELEASING.md](./docs/RELEASING.md) | Release process |
 
+## 💸 Was es ersetzt
+
+Inspector Rust bündelt in einer kostenlosen MIT-App, was sonst als Regal voller Einzel-Utilities verkauft wird. Das bekannte Pendant je Funktion, zu offiziellen Listenpreisen (Stand September 2026, gerundet — EU-Storefront-Preise inkl. MwSt. liegen bei diesen Apps erfahrungsgemäß etwa beim USD-Listenpreis; einige Anbieter preisen regional oder mit Dauer-Aktionen):
+
+| Inspector-Rust-Funktion | Ersetzt | Preis (≈ €) |
+|---|---|---|
+| Clipboard-Verlauf (Pins, Notizen, Lineage) | [Paste](https://pasteapp.io/pricing) | 30 €/Jahr |
+| Launcher, Befehlspalette, Rechner | [Alfred 5 Powerpack](https://www.alfredapp.com/shop/) | £34 ≈ 39 € |
+| Text-Expander (Auto-Expansion, Snippets) | [TextExpander](https://textexpander.com/pricing) | 60 €/Jahr |
+| Fenster-Snapping + Layout-Palette | [Moom](https://manytricks.com/moom/) | 15 € |
+| Monitor-Helligkeit | [Lunar Pro](https://lunar.fyi/) | 23 € |
+| EDR-Helligkeit über 100 % | [Vivid](https://getvivid.app/) | 10 € |
+| System-EQ + Lautstärke-Boost (`boom`) | [Boom 3D](https://apps.apple.com/us/app/boom-3d-volume-booster-eq/id1233048948) | 50 € |
+| Audio-Ausgabewahl + Routing (`sound`) | [SoundSource](https://rogueamoeba.com/soundsource/buy.php) | 49 € |
+| Screenshots, Annotation, Pins, Screen-Recording | [CleanShot X](https://cleanshot.com/pricing) | 35 € |
+| Bildschirm-OCR | [TextSniper](https://textsniper.app/) | 8 € |
+| Farbpipette + Lupe | [Sip](https://sipapp.io/) | 30 € |
+| System-Cleaner (`clean`)¹ | [CleanMyMac](https://macpaw.com/cleanmymac) | ~40 €/Jahr |
+| Systemmonitor + Verlauf (`stats`) | [iStat Menus 7](https://apps.apple.com/us/app/istat-menus-7/id6499559693) | 12 € |
+| Automatische Zeiterfassung (Timesheet) | [Timing Professional](https://timingapp.com/) | 108 €/Jahr |
+| Video-Download (`social`) | [Downie](https://software.charliemonroe.net/downie/) | 20 € |
+| Medien-Trim + Audio-Tausch | [Permute](https://software.charliemonroe.net/permute/) | 15 € |
+| Trackpad-Gesten | [BetterTouchTool](https://folivora.ai/buy) | 15 € |
+| Disk-Usage-Sunburst (`disk`) | [DaisyDisk](https://daisydiskapp.com/) | 10 € |
+| Netzwerk-Monitor + Weltkarte (`snitch`)² | [Little Snitch 6](https://obdev.at/products/littlesnitch/order.html) | 59 € |
+| Bluetooth-Geräte-Menü (`bt`) | [ToothFairy](https://apps.apple.com/us/app/toothfairy/id1191449274) | 7 € |
+| Markdown → PDF | [Marked 2](https://apps.apple.com/us/app/marked-2-markdown-preview/id890031187) | 14 € |
+| 2FA-/TOTP-Codes | [Step Two](https://apps.apple.com/us/app/step-two/id1448916662) (Unlock) | 10 € |
+
+**Zusammen grob 420 € an Einmalkäufen plus rund 240 € jedes Jahr an Abos — Inspector Rust: 0 €.**
+
+Dazu die Kategorien, in denen die gängigen Pendants ohnehin kostenlos sind (Amphetamine fürs Wachhalten, Shazam, Espanso, Maccy, …) — hier wohnen sie einfach in derselben Suchleiste.
+
+¹ Der Cache-/Log-/Duplikate-Teil — CleanMyMacs Malware-/Uninstaller-Module haben hier kein Gegenstück.
+² Monitor, Aktivität je App und die Live-Weltkarte — der Blocker ist bewusst best-effort; eine selbstsignierte App kann keine NetworkExtension-Firewall ausliefern, Little Snitchs Durchsetzungs-Schicht ist also ehrlich NICHT ersetzt.
+
+Kein Anspruch auf Funktionsgleichheit — jede dieser Apps geht in ihrer Nische tiefer. Aber es sind die Werkzeuge, die diese App im Alltag ersetzt.
+
 ## License
 
 [MIT](./LICENSE) — © 2026 Martin Pfeffer | [celox.io](https://celox.io)

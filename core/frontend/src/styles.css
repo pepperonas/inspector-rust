@@ -230,8 +230,16 @@ html.anim-off *:not(.anim-keep)::after {
   from { opacity: 0; }
   to   { opacity: 1; }
 }
+/* Etappe 4 (animation layer): rows that APPEAR while typing (command /
+   calc / colour / bruno / otp rows) fade in on --duration-instant —
+   enter-only and opacity-only. Deliberately a keyframe, not
+   @starting-style: these live on VIRTUALISED rows whose DOM nodes are
+   recycled per keystroke; the stable per-kind key replays the keyframe
+   exactly once per appearance, while a starting-style transition would
+   re-fire on every recycle. NO exit animation, ever — a fading-out row
+   lags visibly behind fast typing and makes the search feel sluggish. */
 .md3-cmd-enter {
-  animation: md3CmdEnter var(--md3-short4) var(--md3-emphasized-decelerate);
+  animation: md3CmdEnter var(--duration-instant) var(--ease-sharp);
 }
 @keyframes md3IconPop {
   0%   { transform: scale(1); }

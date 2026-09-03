@@ -441,7 +441,10 @@ export const HistoryItem = memo(function HistoryItem({
         "group relative flex cursor-pointer items-center gap-2 px-3 py-2 text-[13px] " +
         // Custom-command rows fade in when they surface (opacity-only — the row
         // root holds the virtualizer's translateY transform).
-        (isCustomCommand ? "md3-cmd-enter " : "") +
+        // Colour swatch rows share the enter fade (they appear while typing,
+        // Etappe 4) but deliberately NOT the rose accent — an expression
+        // result is not a keyword command (v0.84.27 doctrine).
+        (isCustomCommand || isColor ? "md3-cmd-enter " : "") +
         // The SELECTED background is no longer painted by the row: the
         // sliding indicator in HistoryList (one element behind all rows,
         // Etappe 2 of the animation layer) carries the solid rose/accent

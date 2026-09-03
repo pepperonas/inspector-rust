@@ -160,6 +160,10 @@ describe("HistoryItem — the custom-command accent invariant", () => {
   it("gives command rows the entrance animation, and clips none", () => {
     expect(renderRow(KEYWORD_COMMAND_ROWS.command).className).toContain("md3-cmd-enter");
     expect(renderRow(NEUTRAL_ROWS.clip).className).not.toContain("md3-cmd-enter");
+    // Colour swatch rows appear while typing too (Etappe 4): they share the
+    // enter fade but stay on the neutral accent (not a keyword command).
+    expect(renderRow(NEUTRAL_ROWS.color).className).toContain("md3-cmd-enter");
+    expect(isRose(renderRow(NEUTRAL_ROWS.color))).toBe(false);
   });
 
   it("keeps the destructive kill row on the more alarming red-500 chip", () => {

@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.164.0] - 2026-09-03
+
+### Added
+- **Settings search in the main list** (macOS/Android-style): from 3 typed characters, matching Settings sections surface as jump rows (max 2, right after the app-launcher hit — navigation class, below every command row) — Enter opens the Settings tab scrolled to the section with the familiar highlight. Matching is deliberately stricter than the `settings <arg>` command: exact / name-prefix / word-start only, never the fuzzy subsequence, so ordinary clipboard queries stay noise-free. Same DE+EN synonym registry as the `settings` command (enriched: „animationen"/„bewegung" → Appearance, „datenschutz" → Clipboard privacy). The new `settings-section` rows are neutral (not command-rose); the selection indicator stays accent-coloured over them.
+
 ## [0.163.0] - 2026-09-03
 
 ### Added

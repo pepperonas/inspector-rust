@@ -1137,6 +1137,25 @@ export function PreviewPanel({
     );
   }
 
+  if (entry.kind === "settings-section") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          Einstellung
+        </div>
+        <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] p-4">
+          <div className="truncate text-[14px] font-semibold leading-snug">
+            {entry.data.label}
+          </div>
+          <div className="mt-3 font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">
+            ⏎ Enter öffnet den Settings-Tab und springt zur Sektion
+            (kurz hervorgehoben)
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (entry.kind === "meme") {
     // Animated preview straight from disk (a GIF plays in an <img>).
     const src = convertFileSrc(entry.data.path);

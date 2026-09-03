@@ -296,8 +296,10 @@ export function HistoryList({
                                                   ? `fig-${entry.data.name}`
                                                   : entry.kind === "help"
                                                     ? `help-${entry.data.command}`
-                                                    : entry.kind === "clown"
-                                                      ? `clown-${entry.data.key}`
+                                                    : entry.kind === "settings-section"
+                                                      ? `set-${entry.data.id}`
+                                                      : entry.kind === "clown"
+                                                        ? `clown-${entry.data.key}`
                                                       : entry.kind === "xhype"
                                                         ? "xhype"
                                                         : `c-${entry.data.id}`;

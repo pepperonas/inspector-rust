@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import {
-  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
+  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, SlidersHorizontal, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import { isCustomCommandEntry, type ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
@@ -102,6 +102,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "clown") return <Drama size={size} className={cls} />;
   if (entry.kind === "figlet-font") return <Type size={size} className={cls} />;
   if (entry.kind === "social") return <Download size={size} className={cls} />;
+  if (entry.kind === "settings-section") return <SlidersHorizontal size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
     case "image": return <Image size={size} className={cls} />;
@@ -159,6 +160,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isClown = entry.kind === "clown";
   const isFiglet = entry.kind === "figlet-font";
   const isSocial = entry.kind === "social";
+  const isSettingsSection = entry.kind === "settings-section";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
   // app. The kind set lives in `lib/types.ts::CUSTOM_COMMAND_KINDS` (one
@@ -187,7 +189,7 @@ export const HistoryItem = memo(function HistoryItem({
         ? entry.data.name
         : isSocial && entry.kind === "social"
           ? `Download from ${platformLabel(entry.data.platform)}`
-          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype
+          : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection
             ? ""
             : isClown && entry.kind === "clown"
               ? truncateOneLine(entry.data.output, 80)
@@ -283,6 +285,18 @@ export const HistoryItem = memo(function HistoryItem({
       title="Selected in Finder"
     >
       finder
+    </span>
+  ) : isSettingsSection ? (
+    <span
+      className={
+        "shrink-0 rounded px-1 py-0.5 text-[10px] font-medium uppercase tracking-wide " +
+        (selected
+          ? "bg-white/20 text-white/80"
+          : "bg-[var(--color-accent)]/15 text-[var(--color-accent)]")
+      }
+      title="Springt zur Sektion im Settings-Tab"
+    >
+      setting
     </span>
   ) : isMeme && entry.kind === "meme" ? (
     <span
@@ -736,6 +750,18 @@ export const HistoryItem = memo(function HistoryItem({
               }
             >
               ⏎ Launch · {entry.data.path}
+            </span>
+          </span>
+        ) : isSettingsSection && entry.kind === "settings-section" ? (
+          <span className="flex flex-col">
+            <span className="truncate font-semibold">{entry.data.label}</span>
+            <span
+              className={
+                "truncate text-[11px] " +
+                (selected ? "text-white/70" : "text-[var(--color-muted)]")
+              }
+            >
+              ⏎ Springt zu Settings → {entry.data.label}
             </span>
           </span>
         ) : isFinderFile && entry.kind === "finder-file" ? (

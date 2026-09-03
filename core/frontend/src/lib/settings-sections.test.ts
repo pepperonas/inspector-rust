@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { SETTINGS_SECTIONS, matchSettingsSection } from "./settings-sections";
+import { SETTINGS_SECTIONS, matchSettingsSection, suggestSettingsSections } from "./settings-sections";
 import { parseCommand } from "./commands";
 
 describe("settings command parsing", () => {
@@ -71,5 +71,54 @@ describe("matchSettingsSection", () => {
       // beaten by another section's synonym.
       expect(matchSettingsSection(s.names[0])?.id).toBe(s.id);
     }
+  });
+});
+
+describe("suggestSettingsSections — main-search suggestions (v0.164.0)", () => {
+  it("stays silent below the minimum length", () => {
+    // Two typed characters match half the registry by prefix — the clip
+    // search is the primary result set and must not be crowded that early.
+    expect(suggestSettingsSections("th")).toEqual([]);
+    expect(suggestSettingsSections("  a ")).toEqual([]);
+    expect(suggestSettingsSections("")).toEqual([]);
+  });
+
+  it("hits on exact names, name prefixes and word starts", () => {
+    expect(suggestSettingsSections("theme")[0]?.id).toBe("appearance");
+    expect(suggestSettingsSections("hotk")[0]?.id).toBe("popup-hotkey");
+    expect(suggestSettingsSections("short").some((s) => s.id === "global-shortcuts")).toBe(true);
+    // ⚠️ "entries" exists ONLY as the second word of "max entries" — unlike
+    // "short(cuts)", which is also a name prefix, this pin actually dies
+    // when the word-start branch is removed (first probe was green-blind).
+    expect(suggestSettingsSections("entri").some((s) => s.id === "clipboard-history")).toBe(true);
+  });
+
+  it("NEVER matches by fuzzy subsequence — that is the command's job", () => {
+    // `settings hty` may fuzzy-resolve; the main list must not ("hty" would
+    // surface settings rows while someone types ordinary clip queries).
+    expect(suggestSettingsSections("hty")).toEqual([]);
+    expect(suggestSettingsSections("xqz")).toEqual([]);
+  });
+
+  it("caps at two rows and ranks exact over prefix", () => {
+    // "animation" is an exact synonym of Appearance AND a prefix elsewhere —
+    // the exact hit must come first, and never more than `limit` rows.
+    const hits = suggestSettingsSections("animation");
+    expect(hits.length).toBeLessThanOrEqual(2);
+    expect(hits[0]?.id).toBe("appearance");
+    for (const s of SETTINGS_SECTIONS) {
+      expect(suggestSettingsSections(s.names[0]).length).toBeLessThanOrEqual(2);
+    }
+  });
+
+  it("finds the German animation stage wording", () => {
+    expect(suggestSettingsSections("animationen")[0]?.id).toBe("appearance");
+    expect(suggestSettingsSections("bewegung")[0]?.id).toBe("appearance");
+  });
+
+  it("each section resolves once, never duplicated across its synonyms", () => {
+    const hits = suggestSettingsSections("clipboard", 5);
+    const ids = hits.map((h) => h.id);
+    expect(new Set(ids).size).toBe(ids.length);
   });
 });

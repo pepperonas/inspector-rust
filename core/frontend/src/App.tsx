@@ -208,7 +208,7 @@ import {
 } from "./lib/sec";
 import { confirmDialog } from "./lib/confirm";
 import { computeBruno, computeBrunoSelf, formatBrunoBreakdown, formatBrunoSelfBreakdown, parseBrunoCommand, toggleSelfMode, type GermanState } from "./lib/bruno";
-import { matchSettingsSection } from "./lib/settings-sections";
+import { matchSettingsSection, suggestSettingsSections } from "./lib/settings-sections";
 import { IS_MAC } from "./lib/platform";
 import { useSleepStatus } from "./hooks/useSleepStatus";
 import {
@@ -2017,6 +2017,21 @@ function App() {
   // REPLACE the raw `weather <partial>` command row in `combined` when present,
   // so the top (biggest) city is the default selection.
   const weatherArg = isWeatherCmd ? (parsedCommand?.arg ?? "") : "";
+  // Settings-search suggestions (v0.164.0, macOS/Android pattern): matching
+  // Settings sections surface as jump rows in the main list — max 2, from 3
+  // typed characters, exact/prefix/word-start only (never fuzzy — the pure
+  // `suggestSettingsSections` guards the clip search against noise).
+  const settingsSectionEntries: ListEntry[] = useMemo(
+    () =>
+      suggestSettingsSections(query).map(
+        (sec): ListEntry => ({
+          kind: "settings-section",
+          data: { id: sec.id, label: sec.label },
+        }),
+      ),
+    [query],
+  );
+
   const weatherCitySuggestionEntries: ListEntry[] = useMemo(() => {
     if (!isWeatherCmd || weatherFocus) return [];
     const q = weatherArg.trim();
@@ -2573,6 +2588,9 @@ function App() {
       ...fakerCatalogEntries,
       ...secPresetEntries,
       ...(appEntry ? [appEntry] : []),
+      // Settings jumps sit right after the app-launcher hit: both are
+      // NAVIGATION, and clips below stay the primary result set.
+      ...settingsSectionEntries,
       ...finderFileEntries,
       ...(calcResult ? [{ kind: "calc", data: calcResult } as ListEntry] : []),
       ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),
@@ -2610,6 +2628,7 @@ function App() {
     totpAutocompleteEntries,
     resizePresetEntries,
     weatherCitySuggestionEntries,
+    settingsSectionEntries,
     fakerCatalogEntries,
     secPresetEntries,
     finderFileEntries,
@@ -4069,6 +4088,13 @@ function App() {
         // already-running instance instead of spawning a duplicate.
         await launchApp(target.data.path);
         await hidePopup();
+      } else if (target.kind === "settings-section") {
+        // Settings-search jump (v0.164.0): the exact sequence the `settings`
+        // command runs — Settings tab + scroll-and-highlight deep link.
+        setQuery("");
+        setSettingsJump({ id: target.data.id, nonce: Date.now() });
+        setActiveTab("settings");
+        return;
       } else if (target.kind === "bruno") {
         // SHIFT+Enter copies the COMPLETE breakdown (assumptions + every
         // deduction row + net, exactly what the preview shows) as aligned

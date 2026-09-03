@@ -103,6 +103,9 @@ const NEUTRAL_ROWS: Record<string, ListEntry> = {
     kind: "finder-file",
     data: { path: "/tmp/a.png", name: "a.png", size_bytes: 2048, is_image: true },
   },
+  // Settings-search jump rows are NAVIGATION (like app rows) — neutral by
+  // design; the sliding indicator stays accent-coloured over them.
+  "settings-section": { kind: "settings-section", data: { id: "appearance", label: "Appearance" } },
 };
 
 function renderRow(entry: ListEntry, selected = false) {
@@ -432,5 +435,14 @@ describe("HistoryItem — lineage rails", () => {
     const row = container.firstElementChild as HTMLElement;
     expect(row.style.paddingLeft).toBe("");
     expect(screen.queryByTitle("Copied from another entry")).toBeNull();
+  });
+});
+
+describe("HistoryItem — settings-search jump row (v0.164.0)", () => {
+  it("shows the section label and the jump hint", () => {
+    renderRow(NEUTRAL_ROWS["settings-section"]);
+    expect(screen.getByText("Appearance")).toBeTruthy();
+    expect(screen.getByText(/Springt zu Settings/)).toBeTruthy();
+    expect(screen.getByText("setting")).toBeTruthy();
   });
 });

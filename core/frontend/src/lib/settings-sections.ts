@@ -25,12 +25,12 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "global-shortcuts", label: "Global shortcuts", names: ["shortcuts", "global shortcuts", "hotkeys", "tastatur", "keyboard"] },
   { id: "expander", label: "Text expander", names: ["expander", "text expander", "snippets expander", "abbreviation"] },
   { id: "snippets", label: "Snippets", names: ["snippets", "snippet", "storage", "speicher", "count"] },
-  { id: "appearance", label: "Appearance", names: ["appearance", "theme", "darstellung", "dark", "light", "size", "crt", "animation", "popup animation", "animationsdauer"] },
+  { id: "appearance", label: "Appearance", names: ["appearance", "theme", "darstellung", "dark", "light", "size", "crt", "animation", "animations", "animationen", "motion", "bewegung", "popup animation", "animationsdauer"] },
   { id: "adb", label: "Android (adb)", names: ["adb", "android", "handy", "smartphone", "adboss", "phone"] },
   { id: "clipboard-history", label: "Clipboard history", names: ["history", "clipboard history", "max entries", "limit", "cap", "verlauf"] },
   { id: "pagespeed", label: "PageSpeed", names: ["pagespeed", "lighthouse", "api key", "google", "seite", "performance"] },
   { id: "device-sync", label: "Device sync", names: ["device sync", "geraete-sync", "geräte-sync", "geraetesync", "macs", "icloud", "abgleich"] },
-  { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear"] },
+  { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear", "privatsphäre", "datenschutz"] },
   { id: "cleaning", label: "Cleaning", names: ["cleaning", "clean", "cleaner", "aufräumen"] },
   { id: "timesheet", label: "Timesheet", names: ["timesheet", "tracking", "zeiterfassung", "track"] },
   { id: "bruno", label: "Bruno (Brutto/Netto)", names: ["bruno", "steuer", "netto", "brutto", "tax"] },
@@ -66,4 +66,39 @@ export function matchSettingsSection(arg: string): SettingsSection | null {
     }
   }
   return best?.section ?? null;
+}
+
+/** Minimum typed length before sections surface in the MAIN search list. */
+export const SETTINGS_SUGGEST_MIN_CHARS = 3;
+
+/**
+ * Settings suggestions for the MAIN search list (the macOS/Android
+ * settings-search pattern, v0.164.0) — deliberately STRICTER than
+ * `matchSettingsSection` (which serves the explicit `settings <arg>`
+ * command): only exact / name-prefix / word-start hits, NEVER the fuzzy
+ * subsequence. The clipboard search is the primary result set; a
+ * subsequence match would push settings rows into ordinary clip queries
+ * as noise. Ranking: exact (0) < name prefix (1) < word start (2); each
+ * section counts once with its best score; ties keep registry order
+ * (Array.sort is stable). The section LABEL joins the haystack so every
+ * visible name is findable even where the synonym list is thin.
+ */
+export function suggestSettingsSections(query: string, limit = 2): SettingsSection[] {
+  const q = query.trim().toLowerCase();
+  if (q.length < SETTINGS_SUGGEST_MIN_CHARS) return [];
+  const scored: { section: SettingsSection; score: number }[] = [];
+  for (const section of SETTINGS_SECTIONS) {
+    let best: number | null = null;
+    for (const name of [...section.names, section.label.toLowerCase()]) {
+      const s =
+        name === q ? 0
+        : name.startsWith(q) ? 1
+        : name.split(/[\s-]+/).some((w) => w.startsWith(q)) ? 2
+        : null;
+      if (s !== null && (best === null || s < best)) best = s;
+    }
+    if (best !== null) scored.push({ section, score: best });
+  }
+  scored.sort((a, b) => a.score - b.score);
+  return scored.slice(0, limit).map((e) => e.section);
 }

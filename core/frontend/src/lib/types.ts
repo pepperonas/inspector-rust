@@ -220,6 +220,7 @@ export type ListEntry =
   | { kind: "xhype"; data: { label: string; mode: "features" | "news" } }
   | { kind: "equalizer"; data: EqualizerTriggerView }
   | { kind: "help"; data: HelpEntryView } // `?` index row (command + tagline)
+  | { kind: "settings-section"; data: SettingsSectionView } // settings-search jump row
   // mode "add" (v0.104.0, `2fa add [issuer]`) opens the overlay straight on
   // the Add form, `issuer` pre-filled; absent/"list" is the classic manager.
   | { kind: "totp-manage"; data: { label: string; mode?: "list" | "add"; issuer?: string } }
@@ -323,4 +324,14 @@ export const CUSTOM_COMMAND_KINDS: ReadonlySet<ListEntry["kind"]> = new Set([
 
 export function isCustomCommandEntry(entry: ListEntry): boolean {
   return CUSTOM_COMMAND_KINDS.has(entry.kind);
+}
+
+/** Settings-search suggestion row (v0.164.0) — Enter jumps to the Settings
+ *  section (`settingsJump` + highlight), like the macOS/Android settings
+ *  search. Navigation, not a keyword command: deliberately NOT in
+ *  `CUSTOM_COMMAND_KINDS` (neutral accent, like an app-launcher hit — the
+ *  sliding selection indicator stays accent-coloured over it). */
+export interface SettingsSectionView {
+  id: string;
+  label: string;
 }

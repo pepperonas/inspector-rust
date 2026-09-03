@@ -241,6 +241,16 @@ describe("HistoryList — sliding selection indicator (animation layer, Etappe 2
     expect(el.className).toContain("transition-transform");
   });
 
+  it("stays accent over a settings-search jump row (navigation, not a command)", () => {
+    const settingsRow: ListEntry = {
+      kind: "settings-section",
+      data: { id: "appearance", label: "Appearance" },
+    };
+    setup({ entries: [settingsRow, clip(1)], selectedIndex: 0 });
+    expect(indicator().className).toContain("bg-[var(--color-accent)]");
+    expect(indicator().className).not.toContain("bg-rose-600");
+  });
+
   it("is rose over a custom-command row and accent over a clip", () => {
     // Colour comes from the SAME kind registry the row accent uses
     // (lib/types.ts CUSTOM_COMMAND_KINDS) — the two must never disagree.

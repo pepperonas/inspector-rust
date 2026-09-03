@@ -93,6 +93,11 @@ export const HIDDEN_TRIGGER_FEATURES: FeatureRow[] = [
 /** In-popup & preview actions (mouse / keyboard on the popup itself). */
 export const IN_POPUP_ACTIONS: FeatureRow[] = [
   { name: "Paste selected entry", trigger: formatHotkey("Enter") },
+  {
+    name: "Settings search",
+    trigger: "type a setting's name (3+ chars)",
+    note: "Matching Settings sections surface as jump rows (macOS/Android-style) — Enter opens the Settings tab scrolled to the section, briefly highlighted. Exact/prefix/word-start matches only, max 2 rows, below the app-launcher hit.",
+  },
   { name: "Paste with formatting", trigger: formatHotkey("Shift+Enter"), note: "Paste a clip keeping its original HTML/RTF formatting." },
   { name: "Navigate / close", trigger: "↑ ↓ · Esc", note: "Arrow keys move the selection; Esc hides the popup." },
   {

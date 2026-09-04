@@ -1076,6 +1076,9 @@ export function resetActionHotkey(id: string): Promise<void> {
 /** Window snapping (drag a window to a screen edge to snap it; macOS, opt-in). */
 export interface WindowSnapConfig {
   enabled: boolean;
+  /** Dwell (ms) before an edge zone arms — preview + snap only after the
+   *  cursor rests in the zone this long; 0 = instant (v0.165.0). */
+  dwell_ms: number;
 }
 
 export function getWindowSnapConfig(): Promise<WindowSnapConfig> {

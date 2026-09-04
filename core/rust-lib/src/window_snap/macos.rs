@@ -12,13 +12,13 @@
 //! which macOS 26 hard-asserts onto the main thread (silent EXC_BREAKPOINT).
 //! Requires **Accessibility** (`expander::accessibility_granted`).
 
-use super::{classify_zone, cocoa_rect_to_topleft, zone_rect, Rect, SnapZone};
+use super::{armed_zone, classify_zone, cocoa_rect_to_topleft, dwell_step, zone_rect, DwellState, Rect};
 use objc2::encode::{Encode, Encoding};
 use objc2::runtime::AnyObject;
 use objc2::{class, msg_send};
 use parking_lot::Mutex;
 use std::ffi::{c_void, CString};
-use std::sync::atomic::{AtomicBool, AtomicIsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicIsize, AtomicU64, Ordering};
 use tauri::{
     AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl, WebviewWindow,
     WebviewWindowBuilder,
@@ -292,9 +292,35 @@ static RUN_LOOP: AtomicIsize = AtomicIsize::new(0);
 /// at mouse-down; applied at mouse-up. Mirrors window_palette's `TARGET_WIN`.
 static DRAG_WIN: AtomicIsize = AtomicIsize::new(0);
 static SCREENS: Mutex<Vec<Rect>> = Mutex::new(Vec::new());
-static CURRENT_ZONE: Mutex<Option<SnapZone>> = Mutex::new(None);
+/// Dwell-arming state (v0.165.0) — the classified zone plus whether it has
+/// dwelled long enough to be LIVE. Replaces the old bare `CURRENT_ZONE`:
+/// preview + snap now hang off `armed_zone()`, never the raw classification.
+static DWELL: Mutex<DwellState> = Mutex::new(DwellState {
+    candidate: None,
+    since_ms: 0,
+    armed: false,
+});
+/// Configured dwell in ms (0 = instant). Atomic so a settings change applies
+/// live to the running tap thread.
+static DWELL_MS: AtomicU64 = AtomicU64::new(super::DEFAULT_DWELL_MS);
+/// Last drag cursor — the between-slice tick needs a position to arm a
+/// PERFECTLY still cursor (a resting hand produces no mouseDragged events).
+static LAST_CURSOR: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 static CURRENT_TARGET: Mutex<Option<Rect>> = Mutex::new(None);
 static APP: Mutex<Option<AppHandle>> = Mutex::new(None);
+
+/// Monotonic ms for the dwell clock (process-relative; only differences count).
+fn now_ms() -> u64 {
+    use std::sync::OnceLock;
+    use std::time::Instant;
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+/// Push the configured dwell (called from `apply`, also while running).
+pub(crate) fn set_dwell_ms(ms: u64) {
+    DWELL_MS.store(ms.min(super::DWELL_MS_MAX), Ordering::Relaxed);
+}
 
 fn app_handle() -> Option<AppHandle> {
     APP.lock().clone()
@@ -398,7 +424,8 @@ extern "C" fn tap_callback(
         EVT_LEFT_MOUSE_DOWN => {
             DRAGGING.store(true, Ordering::Relaxed);
             CANCELLED.store(false, Ordering::Relaxed);
-            *CURRENT_ZONE.lock() = None;
+            *DWELL.lock() = DwellState::default();
+            *LAST_CURSOR.lock() = None;
             *CURRENT_TARGET.lock() = None;
             let s = screens_topleft();
             tracing::debug!("snap: mousedown, {} screen(s); first={:?}", s.len(), s.first());
@@ -426,12 +453,22 @@ extern "C" fn tap_callback(
             let Some(screen) = screen else {
                 return event;
             };
-            let prev = *CURRENT_ZONE.lock();
-            let zone = classify_zone(cursor, screen, prev);
-            if zone != prev {
-                tracing::debug!("snap: zone {prev:?} -> {zone:?} cursor=({:.0},{:.0}) screen={screen:?}", cursor.0, cursor.1);
-                *CURRENT_ZONE.lock() = zone;
-                let target = zone.map(|z| zone_rect(z, screen));
+            *LAST_CURSOR.lock() = Some(cursor);
+            let prev = *DWELL.lock();
+            // Classification (with its hysteresis) is unchanged; dwell-arming
+            // (v0.165.0) is a layer ON TOP: only an ARMED zone shows the
+            // preview or snaps, so a quick place-near-the-edge stays inert.
+            let zone = classify_zone(cursor, screen, prev.candidate);
+            let next = dwell_step(prev, zone, now_ms(), DWELL_MS.load(Ordering::Relaxed));
+            if next != prev {
+                *DWELL.lock() = next;
+            }
+            if armed_zone(next) != armed_zone(prev) {
+                let target = armed_zone(next).map(|z| zone_rect(z, screen));
+                tracing::debug!(
+                    "snap: armed {:?} -> {:?} cursor=({:.0},{:.0}) screen={screen:?}",
+                    armed_zone(prev), armed_zone(next), cursor.0, cursor.1
+                );
                 *CURRENT_TARGET.lock() = target;
                 update_overlay(target);
             }
@@ -440,7 +477,8 @@ extern "C" fn tap_callback(
             let was_dragging = DRAGGING.swap(false, Ordering::Relaxed);
             let cancelled = CANCELLED.swap(false, Ordering::Relaxed);
             let target = CURRENT_TARGET.lock().take();
-            *CURRENT_ZONE.lock() = None;
+            *DWELL.lock() = DwellState::default();
+            *LAST_CURSOR.lock() = None;
             let win = take_drag_win();
             update_overlay(None);
             tracing::debug!(
@@ -487,7 +525,8 @@ extern "C" fn tap_callback(
                     == ESC_KEYCODE =>
         {
             CANCELLED.store(true, Ordering::Relaxed);
-            *CURRENT_ZONE.lock() = None;
+            *DWELL.lock() = DwellState::default();
+            *LAST_CURSOR.lock() = None;
             *CURRENT_TARGET.lock() = None;
             release_drag_win();
             update_overlay(None);
@@ -495,6 +534,34 @@ extern "C" fn tap_callback(
         _ => {}
     }
     event
+}
+
+/// Between-slice dwell tick (see the run loop): advances arming for a cursor
+/// that is resting inside a zone without generating drag events.
+fn maybe_arm_still_cursor() {
+    if !DRAGGING.load(Ordering::Relaxed) || CANCELLED.load(Ordering::Relaxed) {
+        return;
+    }
+    let prev = *DWELL.lock();
+    if prev.candidate.is_none() || prev.armed {
+        return;
+    }
+    let Some(cursor) = *LAST_CURSOR.lock() else { return };
+    let screen = {
+        let screens = SCREENS.lock();
+        screen_for_cursor(cursor, &screens)
+    };
+    let Some(screen) = screen else { return };
+    let next = dwell_step(prev, prev.candidate, now_ms(), DWELL_MS.load(Ordering::Relaxed));
+    if next != prev {
+        *DWELL.lock() = next;
+    }
+    if armed_zone(next) != armed_zone(prev) {
+        let target = armed_zone(next).map(|z| zone_rect(z, screen));
+        tracing::debug!("snap: armed via still-cursor tick -> {:?}", armed_zone(next));
+        *CURRENT_TARGET.lock() = target;
+        update_overlay(target);
+    }
 }
 
 fn install_tap_thread() {
@@ -528,6 +595,11 @@ fn install_tap_thread() {
             tracing::info!("window-snap: drag monitor armed");
             while RUNNING.load(Ordering::SeqCst) {
                 CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0.25, false);
+                // A PERFECTLY still cursor produces no mouseDragged events,
+                // so the dwell could never elapse from the callback alone —
+                // this between-slice tick arms it (worst case dwell + 250 ms;
+                // a real hand jitters and arms precisely via the callback).
+                maybe_arm_still_cursor();
             }
             RUN_LOOP.store(0, Ordering::SeqCst);
         })

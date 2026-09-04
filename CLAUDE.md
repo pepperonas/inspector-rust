@@ -1257,7 +1257,7 @@ macOS-gated); `apply(app,db,state)` starts/stops the monitor (mirrors
   window just ignores the resize → move-only). Re-querying `AXFocusedWindow` at
   mouse-up used to silently no-op maximize: hiding the full-screen preview
   overlay could clear focus before the AX set ran (v0.103.1). **Esc** cancels
-  (a `CANCELLED` flag the upcoming mouse-up checks). Needs **Accessibility**
+  (a `CANCELLED` flag the upcoming mouse-up checks). **Dwell-Arming (v0.165.0, Feldbefund „der Vorschlag kommt zu früh"):** eine Zone wird erst SCHARF (Overlay + Snap beim Loslassen), wenn der Cursor `windowsnap.dwell_ms` (Default 350 ms, 0 = altes Sofort-Verhalten, Max 2000; Settings → Window snapping → „Suggestion delay") in ihr verweilt — schnelles Vorbeiziehen/Platzieren am Rand löst nie aus. Pure `DwellState`/`dwell_step`/`armed_zone` in mod.rs (Klassifikation + Hysterese unverändert, Arming ist eine Schicht DARÜBER; Zonenwechsel startet die Uhr neu und nimmt das Arming mit — beides mutationsgeprüft); ⚠️ ein PERFEKT stiller Cursor erzeugt keine mouseDragged-Events, darum armiert ein Between-Slice-Tick der Run-Loop (`maybe_arm_still_cursor`, worst case Dwell + 250 ms) über `LAST_CURSOR`; `DWELL_MS` ist atomar und greift bei Settings-Änderung LIVE ohne Neustart (apply setzt es VOR dem early-returnenden set_active); Config-Feld serde-defaulted (die gestures.mute-Lehre: ein altes Frontend-Payload ohne das Feld darf die Verzögerung nicht nullen — gepinnt). Needs **Accessibility**
   (`expander::accessibility_granted`); without it the tap doesn't install.
   macOS only.
 

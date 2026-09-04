@@ -408,20 +408,22 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       .then(setSnapCfg)
       .catch(() => setSnapCfg(null));
   }, []);
-  const toggleSnap = async (next: boolean) => {
+  const patchSnap = async (patch: Partial<WindowSnapConfig>) => {
     if (!snapCfg) return;
     setSnapBusy(true);
-    const optimistic = { ...snapCfg, enabled: next };
+    const previous = snapCfg;
+    const optimistic = { ...snapCfg, ...patch };
     setSnapCfg(optimistic);
     try {
       setSnapCfg(await setWindowSnapConfig(optimistic));
     } catch (e) {
-      console.error("window-snap toggle failed", e);
-      setSnapCfg({ ...snapCfg, enabled: !next });
+      console.error("window-snap config failed", e);
+      setSnapCfg(previous);
     } finally {
       setSnapBusy(false);
     }
   };
+  const toggleSnap = (next: boolean) => patchSnap({ enabled: next });
 
   // ── Window palette (Moom-style, macOS, v0.84.138) ────────────────────────
   const [paletteCfg, setPaletteCfg] = useState<WindowPaletteConfig | null>(null);
@@ -1480,6 +1482,29 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                   </span>
                 </label>
               </Row>
+              {snapCfg?.enabled && (
+                <Row label="Suggestion delay">
+                  <div className="flex flex-col gap-1.5 text-[12px]">
+                    <select
+                      value={String(snapCfg.dwell_ms)}
+                      disabled={snapBusy}
+                      onChange={(e) => void patchSnap({ dwell_ms: Number(e.target.value) })}
+                      className="w-56 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
+                    >
+                      <option value="0">Instant (classic)</option>
+                      <option value="200">200 ms</option>
+                      <option value="350">350 ms (default)</option>
+                      <option value="500">500 ms</option>
+                      <option value="800">800 ms</option>
+                    </select>
+                    <span className="text-[var(--color-muted)]">
+                      The zone preview only appears after the cursor RESTS at the
+                      edge this long — placing a window near an edge no longer
+                      triggers snapping; pausing there does. Esc still cancels.
+                    </span>
+                  </div>
+                </Row>
+              )}
             </Section>
           </div>
         )}

@@ -119,6 +119,64 @@ pub fn zone_rect(zone: SnapZone, screen: Rect) -> Rect {
     }
 }
 
+// ── Dwell arming (v0.165.0) ──────────────────────────────────────────────────
+//
+// Field report 2026-09-04: "der Vorschlag kommt zu früh — oft will ich das
+// Windowmanagement gar nicht starten". Dragging a window NEAR an edge to
+// position it there put the cursor inside ENTER_PX and instantly showed the
+// preview — and releasing snapped. The fix is INTENT detection, the
+// Magnet/macOS-tiling model: a zone only ARMS (preview shown + snap on
+// release) after the cursor has DWELLED in it for `dwell_ms`. A fast
+// pass-through or a brisk place-near-the-edge never arms; pausing at the
+// edge does. `dwell_ms = 0` restores the old instant behaviour.
+
+/// Ships-with dwell before a zone arms. Long enough that "just placing the
+/// window near the edge" doesn't trigger, short enough that a deliberate
+/// hold doesn't feel like waiting.
+pub const DEFAULT_DWELL_MS: u64 = 350;
+/// Ceiling for the setting — past this the feature feels broken, not calm.
+pub const DWELL_MS_MAX: u64 = 2000;
+
+/// Dwell-arming state, advanced once per observation (drag event or the
+/// between-slice tick for a perfectly still cursor). Pure and clock-agnostic:
+/// `now_ms` is any monotonic millisecond counter.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub struct DwellState {
+    /// The zone the cursor is currently in (classified, armed or not).
+    pub candidate: Option<SnapZone>,
+    /// When `candidate` was entered.
+    pub since_ms: u64,
+    /// Whether the candidate has passed the dwell and is LIVE — only an armed
+    /// zone shows the preview, and only an armed zone snaps on release.
+    pub armed: bool,
+}
+
+/// Advance the dwell state. Leaving all zones resets everything; switching
+/// zones restarts the clock (an armed Left does NOT carry its arming over to
+/// Maximize at the corner); staying armed stays armed for as long as the
+/// zone is held.
+pub fn dwell_step(prev: DwellState, zone: Option<SnapZone>, now_ms: u64, dwell_ms: u64) -> DwellState {
+    match zone {
+        None => DwellState::default(),
+        Some(z) if prev.candidate == Some(z) => DwellState {
+            candidate: Some(z),
+            since_ms: prev.since_ms,
+            armed: prev.armed || now_ms.saturating_sub(prev.since_ms) >= dwell_ms,
+        },
+        Some(z) => DwellState {
+            candidate: Some(z),
+            since_ms: now_ms,
+            // dwell 0 = the pre-v0.165 instant behaviour.
+            armed: dwell_ms == 0,
+        },
+    }
+}
+
+/// The zone that is allowed to act (preview + snap): armed candidate or none.
+pub fn armed_zone(state: DwellState) -> Option<SnapZone> {
+    if state.armed { state.candidate } else { None }
+}
+
 /// Convert a Cocoa rect (bottom-left origin, y up, in the global desktop space)
 /// to top-left-origin coords (y down) — the space AX `kAXPosition` and
 /// `CGEventGetLocation` use. The flip pivots on the **primary** display's full
@@ -130,21 +188,52 @@ pub fn cocoa_rect_to_topleft(cocoa: Rect, primary_height: f64) -> Rect {
 // ── Config + lifecycle ───────────────────────────────────────────────────────
 
 const KEY_ENABLED: &str = "windowsnap.enabled";
+const KEY_DWELL_MS: &str = "windowsnap.dwell_ms";
 
-#[derive(Debug, Clone, Copy, Default, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, serde::Serialize, serde::Deserialize)]
 pub struct WindowSnapConfig {
     /// Off by default (opt-in) — the `bool` default `false` is exactly that.
     pub enabled: bool,
+    /// Dwell before a zone arms (v0.165.0); `0` = instant (old behaviour).
+    /// ⚠️ serde-defaulted — the gestures.mute lesson: a payload from an older
+    /// frontend without this field must not silently zero the delay.
+    #[serde(default = "default_dwell_ms")]
+    pub dwell_ms: u64,
+}
+
+fn default_dwell_ms() -> u64 {
+    DEFAULT_DWELL_MS
+}
+
+impl Default for WindowSnapConfig {
+    fn default() -> Self {
+        WindowSnapConfig { enabled: false, dwell_ms: DEFAULT_DWELL_MS }
+    }
+}
+
+/// Pure: stored string → effective dwell. Unset/garbage falls back to the
+/// default; `0` is honoured as "instant"; everything else clamps to the max.
+pub fn normalise_dwell_ms(raw: Option<&str>) -> u64 {
+    match raw.map(str::trim).filter(|s| !s.is_empty()) {
+        None => DEFAULT_DWELL_MS,
+        Some(s) => match s.parse::<u64>() {
+            Ok(n) => n.min(DWELL_MS_MAX),
+            Err(_) => DEFAULT_DWELL_MS,
+        },
+    }
 }
 
 impl WindowSnapConfig {
     pub fn load(db: &DbHandle) -> WindowSnapConfig {
+        let raw = crate::settings::get_or(db, KEY_DWELL_MS, "").ok();
         WindowSnapConfig {
             enabled: crate::settings::get_bool(db, KEY_ENABLED, false).unwrap_or(false),
+            dwell_ms: normalise_dwell_ms(raw.as_deref()),
         }
     }
     pub fn save(&self, db: &DbHandle) -> anyhow::Result<()> {
         crate::settings::set(db, KEY_ENABLED, if self.enabled { "true" } else { "false" })?;
+        crate::settings::set(db, KEY_DWELL_MS, &self.dwell_ms.min(DWELL_MS_MAX).to_string())?;
         Ok(())
     }
 }
@@ -160,6 +249,10 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, _state: &WindowSnapState) {
     let cfg = WindowSnapConfig::load(db);
     #[cfg(target_os = "macos")]
     {
+        // Dwell first, and unconditionally: `set_active` early-returns when
+        // the monitor is already running, but the atomic makes a settings
+        // change take effect live without a restart.
+        macos::set_dwell_ms(cfg.dwell_ms);
         macos::set_active(app, cfg.enabled);
     }
     #[cfg(not(target_os = "macos"))]
@@ -176,6 +269,71 @@ mod tests {
     use super::*;
 
     const SCREEN: Rect = Rect { x: 0.0, y: 0.0, w: 1440.0, h: 900.0 };
+
+    #[test]
+    fn dwell_arms_only_after_the_configured_hold() {
+        // The v0.165.0 contract: dragging INTO a zone shows nothing at first
+        // ("der Vorschlag kommt zu früh" — placing a window near the edge
+        // must not trigger); only holding it there arms preview + snap.
+        let d = 350;
+        let s0 = dwell_step(DwellState::default(), Some(SnapZone::Left), 1_000, d);
+        assert_eq!(s0.candidate, Some(SnapZone::Left));
+        assert!(!s0.armed, "entering a zone must NOT arm immediately");
+        assert_eq!(armed_zone(s0), None);
+        // Still short of the dwell → still calm.
+        let s1 = dwell_step(s0, Some(SnapZone::Left), 1_000 + d - 1, d);
+        assert!(!s1.armed);
+        // Boundary inclusive: exactly dwell later → armed.
+        let s2 = dwell_step(s1, Some(SnapZone::Left), 1_000 + d, d);
+        assert!(s2.armed);
+        assert_eq!(armed_zone(s2), Some(SnapZone::Left));
+        // Armed stays armed for as long as the zone is held.
+        let s3 = dwell_step(s2, Some(SnapZone::Left), 999_999, d);
+        assert!(s3.armed);
+    }
+
+    #[test]
+    fn dwell_zone_change_restarts_the_clock_and_drops_the_arming() {
+        // An armed Left must not carry its arming to Maximize at the corner —
+        // the user gets the same grace period before the NEW zone acts.
+        let d = 350;
+        let armed = DwellState { candidate: Some(SnapZone::Left), since_ms: 0, armed: true };
+        let switched = dwell_step(armed, Some(SnapZone::Maximize), 5_000, d);
+        assert_eq!(switched.candidate, Some(SnapZone::Maximize));
+        assert!(!switched.armed, "arming must not survive a zone switch");
+        assert_eq!(switched.since_ms, 5_000, "the clock must restart on a zone switch");
+        // Leaving all zones resets everything.
+        assert_eq!(dwell_step(switched, None, 5_100, d), DwellState::default());
+    }
+
+    #[test]
+    fn dwell_zero_is_the_old_instant_behaviour() {
+        let s = dwell_step(DwellState::default(), Some(SnapZone::Right), 42, 0);
+        assert!(s.armed, "dwell 0 must arm on entry — the pre-v0.165 feel");
+        assert_eq!(armed_zone(s), Some(SnapZone::Right));
+    }
+
+    #[test]
+    fn normalise_dwell_defaults_and_clamps() {
+        // Unset / blank / garbage → default (a hand-edited DB must not make
+        // snapping instant OR unreachable by accident); big values clamp.
+        for raw in [None, Some(""), Some("  "), Some("abc"), Some("-5")] {
+            assert_eq!(normalise_dwell_ms(raw), DEFAULT_DWELL_MS, "raw={raw:?}");
+        }
+        assert_eq!(normalise_dwell_ms(Some("0")), 0);
+        assert_eq!(normalise_dwell_ms(Some("500")), 500);
+        assert_eq!(normalise_dwell_ms(Some("999999")), DWELL_MS_MAX);
+        assert_eq!(normalise_dwell_ms(Some(" 350 ")), 350);
+    }
+
+    #[test]
+    fn config_payload_without_dwell_keeps_the_default() {
+        // ⚠️ The gestures.mute lesson (2026-09-04): an older frontend sending
+        // `{"enabled":true}` must not zero the delay through deserialisation.
+        let cfg: WindowSnapConfig = serde_json::from_str(r#"{"enabled":true}"#).unwrap();
+        assert_eq!(cfg.dwell_ms, DEFAULT_DWELL_MS);
+        assert!(cfg.enabled);
+    }
 
     #[test]
     fn classify_picks_the_nearest_edge() {

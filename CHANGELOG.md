@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.165.0] - 2026-09-04
+
+### Changed
+- **Window snapping now waits for intent**: the edge-zone preview only appears after the cursor DWELLS at the edge (default 350 ms, configurable under Settings → Window snapping → "Suggestion delay", 0 = the old instant behaviour) — briskly placing a window near an edge no longer triggers window management, and without a visible preview releasing never snaps. A perfectly still cursor is armed by a run-loop tick (drag events alone would never elapse the dwell); the setting applies live. Zone classification and hysteresis are unchanged — arming is a layer on top, and switching zones restarts the clock.
+
 ## [0.164.1] - 2026-09-04
 
 ### Fixed

@@ -327,6 +327,28 @@ pub fn map_action(ev: &GestureEvent, cfg: &GestureConfig) -> Option<GestureActio
     }
 }
 
+/// Why a gesture that WOULD dispatch under all-on switches was dropped by
+/// THIS config — `None` when it wouldn't dispatch anyway (1-finger taps are
+/// constant noise) or when config isn't what dropped it. Powers the
+/// dropped-by-config log line at the dispatch chokepoint: exactly this hole
+/// cost a field debugging round (2026-09-04 — `gestures.mute` sat `false` in
+/// the settings DB for weeks and every recognised 3-finger tap vanished
+/// WITHOUT A TRACE between "recognised Tap" and "gesture dispatch"; the
+/// typing guard logs its vetoes, the config gate did not).
+pub fn config_drop_reason(ev: &GestureEvent, cfg: &GestureConfig) -> Option<&'static str> {
+    if map_action(ev, cfg).is_some() {
+        return None; // it dispatched — nothing was dropped
+    }
+    let all_on = GestureConfig { volume: true, mute: true, tiptap: true, ..*cfg };
+    map_action(ev, &all_on)?; // wouldn't dispatch even with every switch on
+    Some(match ev.kind {
+        GestureKind::Tap => "gestures.mute is off",
+        GestureKind::SwipeUp | GestureKind::SwipeDown => "gestures.volume is off",
+        GestureKind::TipTapLeft | GestureKind::TipTapRight => "gestures.tiptap is off",
+        _ => return None,
+    })
+}
+
 /// Seconds since the HID system last saw `event_type`. `f64::INFINITY` on
 /// error / off macOS, i.e. "as long ago as possible" — every caller treats that
 /// as "no recent activity", so a failure can never fabricate a signal.
@@ -1647,6 +1669,14 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
                 // any future gesture misfire without turning on debug.
                 tracing::info!("gesture dispatch: {:?} ({} fingers) → {:?}", ev.kind, ev.fingers, action);
                 perform(&app_sink, action, step);
+            } else if let Some(reason) = config_drop_reason(&ev, &cfg) {
+                // A config-gated drop must never be silent (the 2026-09-04
+                // lesson): the recogniser said "recognised Tap (3 fingers)",
+                // and without this line the trail simply ended.
+                tracing::info!(
+                    "gesture dropped by config: {:?} ({} fingers) — {}",
+                    ev.kind, ev.fingers, reason
+                );
             }
         });
         match source.start(cfg, sink) {
@@ -2985,6 +3015,38 @@ mod tests {
         assert_eq!(map_action(&tap, &no_mute), None);
         assert_eq!(map_action(&up, &no_mute), Some(GestureAction::VolumeUp));
         assert_eq!(map_action(&right, &no_mute), Some(GestureAction::NextTab));
+    }
+
+    #[test]
+    fn a_config_gated_drop_is_named_never_silent() {
+        // The 2026-09-04 field lesson: `gestures.mute` sat false in the DB
+        // and every recognised 3-finger tap vanished between "recognised"
+        // and "dispatch" with NO log line — the typing guard logs its
+        // vetoes, the config gate didn't. `config_drop_reason` names the
+        // responsible switch, and ONLY for gestures that would otherwise
+        // have dispatched (a 1-finger tap is constant noise, not a drop).
+        let base = GestureConfig { enabled: true, tiptap: true, ..Default::default() };
+        let tap3 = GestureEvent { kind: GestureKind::Tap, fingers: 3 };
+        let tap1 = GestureEvent { kind: GestureKind::Tap, fingers: 1 };
+        let up = GestureEvent { kind: GestureKind::SwipeUp, fingers: 3 };
+        let right = GestureEvent { kind: GestureKind::TipTapRight, fingers: 2 };
+
+        let no_mute = GestureConfig { mute: false, ..base };
+        assert_eq!(config_drop_reason(&tap3, &no_mute), Some("gestures.mute is off"));
+        // Would never dispatch anyway → not a config drop, no log noise.
+        assert_eq!(config_drop_reason(&tap1, &no_mute), None);
+        // Dispatched fine → nothing dropped.
+        assert_eq!(config_drop_reason(&tap3, &base), None);
+        assert_eq!(config_drop_reason(&up, &no_mute), None);
+
+        let no_volume = GestureConfig { volume: false, ..base };
+        assert_eq!(config_drop_reason(&up, &no_volume), Some("gestures.volume is off"));
+        let no_tiptap = GestureConfig { tiptap: false, ..base };
+        assert_eq!(config_drop_reason(&right, &no_tiptap), Some("gestures.tiptap is off"));
+        // Master switch off = the whole source never runs; the reason helper
+        // stays quiet rather than blaming an individual gesture switch.
+        let disabled = GestureConfig { enabled: false, ..base };
+        assert_eq!(config_drop_reason(&tap3, &disabled), None);
     }
 
     #[test]

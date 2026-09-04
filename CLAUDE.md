@@ -1056,7 +1056,7 @@ caution is deliberate, a previous recognition-layer change broke gestures entire
 Keystroke recency via `CGEventSourceSecondsSinceLastEventType(HID, kCGEventKeyDown)`
 — poll-free, no extra tap; pure modifiers are flags-changed events, so hotkey chords
 don't arm the guard (libinput's exemption). Tab switching is exempt (it synthesizes
-keystrokes itself). Every veto logs `gesture suppressed (typing …)` next to the
+keystrokes itself). **Seit v0.164.1 loggt auch das CONFIG-Gate seine Verwürfe** (`gesture dropped by config: … — gestures.mute is off`, pure `config_drop_reason`, nur für Gesten, die sonst dispatched hätten): Feldbefund 2026-09-04 — `gestures.mute=false` lag als EINZELNER Key in der Settings-DB (kein App-Pfad schreibt ihn einzeln; höchstwahrscheinlich ein liegengebliebener externer sqlite3-Debug-Griff aus der Mute-Debug-Woche ~18.08.), und jeder erkannte 3-Finger-Tap verschwand WOCHENLANG spurlos zwischen „recognised Tap" und „gesture dispatch". Lehre doppelt: (a) jeder Verwerfungspfad am Chokepoint braucht seine Logzeile, (b) Debug-Schreibzugriffe in die Nutzer-DB IMMER sofort zurücksetzen. Every veto logs `gesture suppressed (typing …)` next to the
 `gesture dispatch:` chokepoint line, so the suppression rate is measurable. The pure
 `typing_guard_suppresses(action, since_s)` is unit-tested. (2) **Per-gesture
 switches** `gestures.volume` / `gestures.mute` (default ON, serde-defaulted so old

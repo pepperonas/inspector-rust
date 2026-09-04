@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.164.1] - 2026-09-04
+
+### Fixed
+- **3-finger-tap mute was dead since ~Aug 18** — root cause was no code path at all: `gestures.mute=false` sat in the settings DB as a lone key (the app's only writer persists all six gesture keys together), most plausibly a leftover external sqlite3 debug write from the mute-debugging sessions of that week. The value is healed; more importantly, the diagnosis hole is closed: a gesture dropped by a per-gesture config switch now logs `gesture dropped by config: Tap (3 fingers) — gestures.mute is off` at the dispatch chokepoint (the typing guard already logged its vetoes; the config gate was the one silent path). The pure `config_drop_reason` names the responsible switch ONLY for gestures that would otherwise have dispatched — 1-finger taps stay out of the log.
+
 ## [0.164.0] - 2026-09-03
 
 ### Added

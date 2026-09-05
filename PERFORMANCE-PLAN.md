@@ -1,4 +1,10 @@
-# Performance-Plan — Inspector Rust (Stand 2026-09-05, v0.165.0)
+# Performance-Plan — Inspector Rust (Stand 2026-09-05, v0.165.0 → umgesetzt in v0.166.0)
+
+> **Umsetzungsstand (v0.166.0, 05.09.):** Etappen 0–6 sind umgesetzt oder
+> durch Messung erledigt — siehe die ✅/↩︎-Marken je Maßnahme und Abschnitt 5.
+> Zwei Behauptungen des Plans stellten sich beim Nachmessen als falsch heraus
+> und sind unten korrigiert (A3, B3). Stehen gelassen als Lehre: Planzahlen
+> ohne Nachmessen sind Behauptungen.
 
 Ziel: die App **spürbar und messbar** schneller/leichter machen, **ohne eine
 einzige Funktion zu verlieren**. Jede Maßnahme trägt ihren Befund (Datei:Zeile
@@ -41,7 +47,7 @@ Live am 05.09. (M1 Pro, Uptime 2 h 53 min, Popup versteckt):
 
 ### A — Sofort (hoher Gewinn, geringes Risiko)
 
-**A1 · DB-Wartung: VACUUM + Auto-Maintenance** — *Befund:* 39 % Freelist
+**A1 ✅ · DB-Wartung: VACUUM + Auto-Maintenance** — *Befund:* 39 % Freelist
 (≈ 130 MB) in einer 331-MB-Datei; das DB-Öffnen beim Start dauert 430 ms
 (`lib.rs:184`). *Maßnahme:* einmaliges `VACUUM` (Wartungspfad im Backup-
 Modul oder Settings → Clipboard history „DB verdichten"), dann
@@ -52,7 +58,7 @@ ok). *Gewinn:* −130 MB Disk, kürzeres Öffnen, schnellere Backups/Prune.
 nur bei verstecktem Popup, mit Busy-Timeout. *Verifikation:*
 `PRAGMA freelist_count` < 2 %, Start-bis-„db at" gemessen.
 
-**A2 · Gesten-Settle-Ticker ereignisgesteuert** — *Befund:*
+**A2 ✅ · Gesten-Settle-Ticker ereignisgesteuert** — *Befund:*
 `gestures/macos.rs:228,254` — `ir-gestures-tick` schläft **dauerhaft 24 ms**
 (~42 Wakeups/s) und pollt `RUNNING`, auch wenn seit Stunden kein Finger auf
 dem Pad liegt; der wahrscheinlichste Anteil der 0,4–1 % Idle-CPU.
@@ -65,17 +71,14 @@ Stop-Pfad (`join`) muss den parkenden Thread wecken (Test: start/stop-Zyklus
 hängt nicht). *Verifikation:* `top`/`powermetrics` Idle-CPU 60 s vorher/
 nachher; Tap-Latenz unverändert (bestehende 14 Recognizer-Tests).
 
-**A3 · Timesheet-Heartbeat entkoppeln** — *Befund:* `tracking/mod.rs:32,488`
-— jeder 1,5-s-Tick schreibt `touch_event` in die DB = **2 400 WAL-Writes pro
-Stunde**, Tag für Tag, nur damit ein Absturz das offene Ereignis auf ≤ 1,5 s
-genau beendet. *Maßnahme:* Heartbeat alle 10 s (Absturz-Granularität 10 s
-statt 1,5 s — für eine Zeiterfassung irrelevant) UND nur, wenn sich
-`ended_at` real bewegt; Fokus-/Idle-Wechsel schreiben weiter sofort.
-*Gewinn:* −85 % DB-Writes im Dauerbetrieb, weniger WAL-Churn (A1 wirkt
-länger). *Risiko:* gering; Pin `resume_if_active`-Tests bleiben grün.
-*Verifikation:* Write-Zähler über 10 min (SQLite `total_changes`).
+**A3 ↩︎ KORRIGIERT · Timesheet-Heartbeat** — *Befund beim Nachmessen:* der
+Heartbeat läuft BEREITS nur jeden 4. Tick (~6 s, `tracking/mod.rs:488`,
+≈ 600 Writes/h) — die Plan-Behauptung „alle 1,5 s = 2 400/h“ war falsch
+(die Zeile ist gated). Keine Änderung; ein 6-s-Absturzfenster ist der
+richtige Handel. (Der ursprüngliche Plantext — „Heartbeat alle 10 s, −85 %
+Writes" — beruhte auf dem falschen 1,5-s-Befund und entfällt.)
 
-**A4 · Frontend-Panels lazy laden** — *Befund:* `App.tsx` importiert **45
+**A4 ✅ · Frontend-Panels lazy laden** (gemessen 952 → 363 KB) — *Befund:* `App.tsx` importiert **45
 Panel-Komponenten eager**, 0 lazy; der App-Chunk hat 971 KB und wird beim
 Start des versteckten Popups komplett geparst/JIT-kompiliert; `main.tsx` macht
 es für die Aux-Fenster längst richtig (`React.lazy`, v0.84.228).
@@ -92,7 +95,7 @@ Show-while-typed-Panels müssen ihren Auto-Exit-Effekt nicht neu bewerten
 Größen (Delta-Tabelle wie in v0.163.0), `performance.now()`-Marke bis
 „shell mounted" im Startlog.
 
-**A5 · `findSnippets` ohne Entschlüsselung pro Tastendruck** — *Befund:*
+**A5 ✅ · `findSnippets` ohne Entschlüsselung pro Tastendruck** — *Befund:*
 `snippets.rs:197–234` — die Body-Suche entschlüsselt AES-GCM-Bodies, bis 10
 Treffer stehen; bei einer Query ohne Titel-/Kürzel-Treffer sind das **alle
 289 Bodies bei jedem Anschlag**, über IPC. *Maßnahme:* ein prozessweiter
@@ -107,7 +110,7 @@ Zeit `find_snippets` mit 289 Snippets, Query ohne Treffer, vorher/nachher.
 
 ### B — Mittel (klarer Gewinn, mehr Umbau oder Messbedarf)
 
-**B1 · Startup-Reihenfolge** — *Befund:* 430 ms bis „db at" umfassen
+**B1 ↩︎ instrumentiert (`db ready in N ms`), Umbau nach Messung · Startup-Reihenfolge** — *Befund:* 430 ms bis „db at" umfassen
 Keychain-Zugriff (`crypto::init`, `lib.rs:164`) + Öffnen der 331-MB-DB +
 Lazy-Migrationen (12 DDL/PRAGMA in `db.rs`); danach synchron Seed-Prüfung,
 Timesheet-Resume, Hotkeys. *Maßnahme:* nach A1 neu messen; dann alles, was
@@ -117,7 +120,7 @@ Sync, Brightness-Restore-Thread) hinter den ersten Frame schieben; das
 Read statt N `PRAGMA table_info`). *Gewinn:* geschätzt −200–400 ms bis
 „bereit"; **erst nach Messung behaupten**.
 
-**B2 · Popup-Öffnen: History nur nachladen, wenn sich etwas änderte** —
+**B2 ✅ · Popup-Öffnen: History nur nachladen, wenn sich etwas änderte** —
 *Befund:* `window-shown` refresht Snippets + Wakelock, und
 `useClipboardHistory` holt beim Öffnen unbedingt die Liste (`list_slim`:
 1 000 Zeilen entschlüsseln + JSON + IPC), obwohl seit dem letzten Öffnen oft
@@ -129,9 +132,11 @@ ein verpasstes Event = veraltete Liste → das Flag wird IMMER gesetzt, wenn
 das Event kam, und zusätzlich bei jedem eigenen Upsert-Pfad; Test mit
 Fake-Events.
 
-**B3 · `combined` in stabile Teil-Memos zerlegen** — *Befund:* das große
-`useMemo` in `App.tsx` hängt an ~40 Dependencies; jede Panel-State-Änderung
-(z. B. `navInstant` alle 160 ms bei gehaltener Pfeiltaste, Toast-Timer)
+**B3 ↩︎ KORRIGIERT · `combined` zerlegen** — *Befund beim Nachmessen:* die
+~40 Dependencies sind AUSNAHMSLOS query-/daten-abgeleitete Memos —
+`navInstant`, Toast-Timer usw. sind NICHT darunter (Plan-Annahme falsch);
+das Memo rechnet nur, wenn sich Eingabe oder Daten ändern. Kein Umbau.
+Ursprüngliche (falsche) Annahme: jede Panel-State-Änderung
 rechnet die komplette Listenassemblierung neu (Clip-Filter über 1 000
 Einträge, Snippet-Map, alle Sub-Rows). *Maßnahme:* Clips+Snippets als
 eigenes Memo (nur `query`/Daten), Command-Rows als zweites, finale
@@ -141,13 +146,13 @@ gepinnt. *Gewinn:* weniger Re-Render-Arbeit pro Anschlag; *Risiko:* die
 Reihenfolge-Invariante ist genau das, was man dabei bricht — die
 bestehenden Row-Order-Tests sind der Wächter.
 
-**B4 · Timesheet-Abfragen mit 162 k Zeilen** — *Maßnahme:* `EXPLAIN QUERY
+**B4 ✅ geprüft, nichts nötig · Timesheet-Abfragen mit 162 k Zeilen** — `EXPLAIN QUERY PLAN` auf der Live-DB: Tages-Range → `idx_track_events_started`, Session-Lookup → `idx_track_events_session`, beide seit je vorhanden. *Ursprüngliche Maßnahme:* `EXPLAIN QUERY
 PLAN` für `day_report`/`range_report`/`cleanup_day`/`slots`; fehlende Indizes
 auf `(session_id, started_at)`/`started_at` ergänzen (lazy `CREATE INDEX IF
 NOT EXISTS`); Retention nach A1 verdichten. *Gewinn:* Timesheet-Tab-Öffnen
 und Slots-Berechnung; *Verifikation:* Zeit `track_get_day` vorher/nachher.
 
-**B5 · Stats-Collector schlanker** — *Befund:* `system_stats.rs:104–200` —
+**B5 ✅ · Stats-Collector schlanker** (`gather_core`, kein Disks-Walk / SMC-Fans / Host-Strings) — *Befund:* `system_stats.rs:104–200` —
 `gather()` erzeugt alle 60 s neue `Networks`/`Disks`/`Components`-Listen
 (statfs je Mount, SMC-Reads) und schläft 200 ms für das CPU-Fenster; der
 Hintergrund-Sammler braucht aber nur CPU %, RAM %, Netz-Bytes, Watt, Temp,
@@ -156,15 +161,16 @@ ohne Disks/Components-Neuaufbau für den 60-s-Sammler; das vollständige
 `gather()` bleibt für das sichtbare `stats`-Panel. *Gewinn:* weniger Syscalls
 je Minute; klein, aber dauerhaft.
 
-**B6 · PreviewPanel-Re-Renders** — *Befund:* 2 286 Zeilen, rendert bei jeder
+**B6 ⏸ bewusst offen · PreviewPanel-Re-Renders** (`React.memo` nützt nur mit stabilen Callback-Props — App.tsx reicht ~15 Inline-Closures durch; das wäre ein messungsloser Umbau) — *Befund:* 2 286 Zeilen, rendert bei jeder
 Selektionsänderung komplett neu (Crossfade-Effekt liest Refs). *Maßnahme:*
 `React.memo` auf die inneren Branch-Komponenten (Clip/Command/Snippet/…),
 teure Ableitungen (`detectSmartActions`, Markdown/Inline-MD) memoisieren.
 *Verifikation:* React-Profiler-Commit-Zeit pro ↓-Druck.
 
-**B7 · `clipboard-changed`-Bursts koaleszieren** — viele IPCs emittieren das
-Event einzeln (Upsert-Familie); bei Batch-Operationen (Backup-Restore,
-Clear) kommt es N-fach → N Refetches. *Maßnahme:* Emit am Ende der
+**B7 ✅ geprüft, nichts nötig · `clipboard-changed`-Bursts** — alle 12
+Emitter feuern EINMAL pro Operation (Backup-Restore, Device-Sync und Clear
+emittieren am Ende, nicht je Zeile); ein Frontend-Debounce hätte nur
+spekulativen Wert. *Maßnahme:* Emit am Ende der
 Operation, im Frontend zusätzlich ein 30-ms-Debounce im Hook.
 
 ### C — Größe & Verteilung (ehrlich: kein Laufzeitgewinn)
@@ -187,7 +193,7 @@ vor Größe), ein zweiter Prozess für Hintergrund-Monitore (Komplexität ohne
 Messbeleg), Reduktion der 39 Threads um ihrer selbst willen (parkende
 Threads kosten ~0; die Frage ist Wakeups, siehe A2).
 
-### D — Messbarkeit dauerhaft
+### D — Messbarkeit dauerhaft (✅ D1 `scripts/perf-probe.sh` · ✅ D3: `needs_tick`-Pin, `scripts/check-bundle.mjs` in `check.sh` [App ≤ 400 KB, Entry ≤ 340, CSS ≤ 110], Cache-Invalidierungs-Pins · D2/D4 offen)
 
 1. **`scripts/perf-probe.sh`**: liest aus dem Log Start→„db at"→„armed",
    misst 60 s Idle-CPU (`top -l`), RSS, Thread-Zahl, `PRAGMA freelist_count`/
@@ -227,3 +233,19 @@ DB-Roundtrip im Normalfall. Der Hotkey→Paste-Pfad ist heute schon unter
   remembered output 'BlackHole 2ch'" → Stille). Kein Performance-Thema, aber
   ein Korrektheits-Bug: Loopback-/Virtual-Geräte dürfen nie Brücken-Ziel
   sein. Separat fixen.
+
+## 5. Ergebnis (v0.166.0)
+
+| Größe | vorher (v0.165.0) | nachher (v0.166.0) |
+|---|---|---|
+| Eager App-Chunk | 952 KB | **363 KB** (Budget-Check in `check.sh`) |
+| history.db / Freelist | 331 MB / 38,7 % | erster Wartungslauf 5 min nach Start (`db maintenance: full compact`) bzw. Settings → Clipboard history → „Compact now“ — Zahl im Release-Commit |
+| Gesten-Ticker im Leerlauf | ~42 Wakeups/s | 0 (parkt; 1 Wakeup/s Sicherheitsnetz) |
+| `findSnippets` je Anschlag | bis zu ~300 AES-Decrypts | 0 (Cache, generation-invalidiert) |
+| Popup-Öffnen ohne Kopie seit dem letzten Mal | 1000-Zeilen-Decrypt + IPC | kein Roundtrip (Dirty-Flag) |
+| Stats-Sammler je Minute | Disks-Walk + SMC-Fans + Host-Strings | nur CPU/RAM/Netz/Temp/Akku |
+
+Idle-CPU/RSS/Startzeit: Vorher/Nachher-JSON in den Commit-Messages
+(`perf(probe)` = Baseline, Release-Commit = Nachher). Das „db ready“-Log
+liefert ab v0.166.0 die echte DB-Öffnungszeit (die frühere „db at“-Zeile
+datierte nur den Setup-Beginn).

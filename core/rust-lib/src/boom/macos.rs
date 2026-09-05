@@ -104,7 +104,7 @@ pub(crate) fn set_app_handle(app: tauri::AppHandle) {
     // to it.
     unsafe {
         let def = default_output();
-        if def != 0 && def != find_device_by_uid("BoomAudio_UID") {
+        if routable(def, find_device_by_uid("BoomAudio_UID")) {
             LAST_REAL_DEFAULT.store(def, Ordering::SeqCst);
         }
         add_default_listener();
@@ -604,6 +604,20 @@ unsafe fn device_has_output(dev: AudioObjectID) -> bool {
     AudioObjectGetPropertyDataSize(dev, &a, 0, std::ptr::null(), &mut size) == 0 && size > 0
 }
 
+/// Can the bridge play through `dev`? Not boom Audio itself, and not any
+/// VIRTUAL-transport device — a loopback (BlackHole, Soundflower, …) has no
+/// speakers: routing the EQ into it is pure silence. Field incident
+/// 2026-09-04 19:33: boom "restored remembered output 'BlackHole 2ch'" (the
+/// screen recorder had made it the system default, the adoption watcher
+/// remembered it as "the device the user was on") → "ich höre nichts".
+/// Aggregate / Multi-Output devices stay allowed (they reach real hardware).
+unsafe fn routable(dev: AudioObjectID, boom_dev: AudioObjectID) -> bool {
+    super::routable_output(
+        dev != 0 && dev != boom_dev && device_has_output(dev),
+        dev != 0 && device_transport(dev) == TRANSPORT_VIRTUAL,
+    )
+}
+
 unsafe fn device_transport(dev: AudioObjectID) -> u32 {
     let a = addr(PROP_TRANSPORT);
     let mut t = 0u32;
@@ -855,26 +869,27 @@ unsafe fn start_locked(eng: &mut Engine) -> bool {
         return false;
     }
     let mut real_dev = default_output();
-    if real_dev == 0 || real_dev == boom_dev {
-        // Default is boom Audio (stale from a prior unclean exit) → bridge to a
-        // real output instead, so we never play to our own silent device.
+    if !routable(real_dev, boom_dev) {
+        // Default is boom Audio (stale from a prior unclean exit) — or a virtual
+        // loopback such as BlackHole (no speakers) → bridge to a real output
+        // instead, so we never play into silence.
         // Prefer the REMEMBERED device (the one the user last listened on —
         // e.g. a BT speaker), fall back to built-in only when it's gone.
         let saved_uid = saved_last_output_uid();
         if !saved_uid.is_empty() {
             let remembered = find_device_by_uid(&saved_uid);
-            if remembered != 0 && remembered != boom_dev && device_has_output(remembered) {
+            if routable(remembered, boom_dev) {
                 real_dev = remembered;
                 tracing::info!(
-                    "boom: default was stale boom Audio; restoring remembered output '{}'",
+                    "boom: default output not routable (boom Audio / virtual loopback); restoring remembered output '{}'",
                     device_name(remembered)
                 );
             }
         }
-        if real_dev == 0 || real_dev == boom_dev {
+        if !routable(real_dev, boom_dev) {
             real_dev = pick_real_output(boom_dev);
             if real_dev != 0 {
-                tracing::info!("boom: default was stale boom Audio; using real output {real_dev}");
+                tracing::info!("boom: default output not routable; using real output {real_dev}");
             }
         }
     }
@@ -1369,9 +1384,10 @@ fn adopt_manual_selection_inner() {
     let bridge_running = ENGINE.lock().as_ref().is_some_and(|e| e.session.is_some());
     let is_boom = boom_dev != 0 && new_def == boom_dev;
     if !super::should_adopt_selection(is_boom, bridge_running) {
-        if new_def != 0 && new_def != boom_dev {
+        if unsafe { routable(new_def, boom_dev) } {
             // A real device was picked while boom is off — just remember it
-            // as "the output the user was on" for a later adoption.
+            // as "the output the user was on" for a later adoption. A virtual
+            // loopback (BlackHole during a screen recording) is NOT remembered.
             LAST_REAL_DEFAULT.store(new_def, Ordering::SeqCst);
         }
         return;
@@ -1383,7 +1399,7 @@ fn adopt_manual_selection_inner() {
     // the remembered-output UID at it so start_locked's existing stale-default
     // preference chain picks it (one chain, not a parallel one).
     let prev = LAST_REAL_DEFAULT.load(Ordering::SeqCst);
-    if prev != 0 && unsafe { device_has_output(prev) } {
+    if unsafe { routable(prev, boom_dev) } {
         persist_last_output_uid(&unsafe { device_uid(prev) });
     }
     let mut cfg = super::BoomConfig::load(&db);

@@ -753,6 +753,15 @@ pub fn should_clear_stale_mute(state: Option<bool>) -> bool {
 /// is an adoption. The two `false` cases are the load-bearing ones — a REAL
 /// device picked while boom is off must never enable boom by itself, and a
 /// running bridge owns its own re-bridge path (a second start would race it).
+/// Whether an output device may be the bridge's playback target: it must
+/// carry output streams (and not be boom Audio — folded into `has_output` by
+/// the caller) and must NOT be a virtual-transport loopback. BlackHole passes
+/// `device_has_output` (it has output streams — that is what a loopback is)
+/// and yet nobody hears it; only the transport type tells the two apart.
+pub fn routable_output(has_output: bool, is_virtual: bool) -> bool {
+    has_output && !is_virtual
+}
+
 pub fn should_adopt_selection(new_default_is_boom: bool, bridge_running: bool) -> bool {
     new_default_is_boom && !bridge_running
 }
@@ -892,6 +901,16 @@ mod tests {
         assert!(!should_adopt_selection(false, true));
     }
 
+
+    #[test]
+    fn a_virtual_loopback_is_never_a_playback_target() {
+        // The 2026-09-04 incident: BlackHole has output streams (a loopback IS
+        // an output) but no speakers — routing the EQ into it is silence.
+        assert!(!routable_output(true, true), "BlackHole-like: output streams, virtual transport");
+        assert!(routable_output(true, false), "speakers / BT box / aggregate");
+        assert!(!routable_output(false, false), "no output streams (a mic)");
+        assert!(!routable_output(false, true));
+    }
 
     #[test]
     fn version_gate_matches_14_2_minimum() {

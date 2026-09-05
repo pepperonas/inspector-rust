@@ -4,6 +4,21 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.166.0] - 2026-09-05
+
+### Changed — performance (PERFORMANCE-PLAN.md, measured before/after)
+- **Database compaction**: `history.db` had grown to 331 MB with 39 % dead pages. A full VACUUM (+ `auto_vacuum=INCREMENTAL` so later frees are reclaimed page-by-page) now runs from the hourly maintenance tick when dead space exceeds 10 % (first pass 5 min after launch, never in the start-up window), and on demand via **Settings → Clipboard history → "Compact now"**, which also shows size + dead-space share.
+- **Gesture settle ticker parks**: the thread that finalises multi-finger taps woke every 24 ms around the clock (~42 wakeups/s with no finger on the pad). It now waits until a tap cluster actually needs it and parks again after — recognition and timing unchanged.
+- **Snippet search no longer decrypts per keystroke**: a process-wide read cache (invalidated by every write path — snippet/category CRUD, backup restore, seed) replaces the up-to-300 AES decrypts the body search did on each keystroke without an abbreviation/title hit.
+- **Popup open without a copy since last time is free**: the history refetch on `window-shown` runs only when a `clipboard-changed` arrived while the popup was hidden (dirty flag) instead of unconditionally (1000-row decrypt + IPC per open).
+- **41 panels, games and takeovers load lazily**: the eager App chunk shrank from 952 KB to 363 KB; only the open-path components (search bar, history list, preview, footer) stay in the start-up chunk. `scripts/check.sh` now enforces bundle budgets (`scripts/check-bundle.mjs`).
+- **Stats collector**: the once-a-minute history sample no longer walks every mounted disk, reads SMC fan keys or host strings it never stores.
+- **Measurable**: `scripts/perf-probe.sh` prints one JSON line (startup, idle CPU, RSS, threads, DB size/dead space, bundle sizes); a `db ready in N ms` start-up marker replaces the misleading "db at" timing.
+- Verified-no-change (documented in the plan): timesheet heartbeat was already gated to ~6 s; `track_events` queries already use their indexes; `clipboard-changed` emitters already fire once per operation; the `combined` list memo depends only on query-derived state.
+
+### Fixed
+- **boom routed the EQ into a virtual loopback** (field: "ich höre nichts" — the log said `restoring remembered output 'BlackHole 2ch'`): a screen recording had made BlackHole the system default, the adoption watcher remembered it as "the device the user was on", and every later bridge start played into a device without speakers. One rule now governs all five real-output decisions: a virtual-transport device (BlackHole/loopback/boom Audio) is never a playback target; aggregate/Multi-Output devices stay allowed.
+
 ## [0.165.0] - 2026-09-04
 
 ### Changed

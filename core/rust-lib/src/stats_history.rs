@@ -272,7 +272,9 @@ pub fn start_collector(db: DbHandle) {
         .spawn(move || {
             let mut iter: u64 = 0;
             loop {
-                let stats = crate::system_stats::gather();
+                // B5: the collector scope — no disk walk / fan keys / host
+                // strings, none of which `sample_from` stores.
+                let stats = crate::system_stats::gather_core();
                 let sample = sample_from(&stats);
                 let ts = now_secs();
                 insert(&db, ts, &sample);

@@ -99,10 +99,32 @@ pub struct BatteryStat {
     pub model: Option<String>,
 }
 
+/// What a `gather` is for (PERFORMANCE-PLAN B5, v0.166.0). The once-a-minute
+/// history collector only stores CPU %, RAM %, net rates, watts, CPU temp and
+/// battery % — it never needs the per-mount disk walk (a statfs per volume +
+/// a fresh `Disks` list every minute), the SMC fan keys or the host strings.
+/// `Full` is the visible `stats` panel; `Collector` skips those.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum GatherScope {
+    Full,
+    Collector,
+}
+
 /// Gather one snapshot of system stats. Blocks ~200 ms (the CPU/network sample
 /// window); callers run it off the main thread (Tauri command worker).
 pub fn gather() -> SystemStats {
+    gather_scoped(GatherScope::Full)
+}
+
+/// The history collector's snapshot: same CPU/memory/network/temp/battery
+/// numbers, no disks / fans / host strings (B5).
+pub fn gather_core() -> SystemStats {
+    gather_scoped(GatherScope::Collector)
+}
+
+pub fn gather_scoped(scope: GatherScope) -> SystemStats {
     use sysinfo::{Disks, MemoryRefreshKind, Networks, RefreshKind, System};
+    let full = scope == GatherScope::Full;
 
     let mut sys = System::new_with_specifics(
         RefreshKind::new()
@@ -137,7 +159,10 @@ pub fn gather() -> SystemStats {
     let cpu_freq_mhz = cpus.first().map(|c| c.frequency()).unwrap_or(0);
     let per_core: Vec<f32> = cpus.iter().map(|c| c.cpu_usage()).collect();
 
-    let disks = Disks::new_with_refreshed_list()
+    let disks = if !full {
+        Vec::new()
+    } else {
+        Disks::new_with_refreshed_list()
         .list()
         .iter()
         .map(|d| DiskStat {
@@ -155,7 +180,8 @@ pub fn gather() -> SystemStats {
         })
         // Drop pseudo / zero-capacity mounts (devfs, etc.) that just clutter.
         .filter(|d| d.total > 0)
-        .collect();
+        .collect()
+    };
 
     let load = System::load_average();
     let load_avg = if cfg!(target_os = "windows") {
@@ -165,14 +191,14 @@ pub fn gather() -> SystemStats {
     };
 
     let mut temps = summarize_temps(&component_temps());
-    let fans = read_fans();
+    let fans = if full { read_fans() } else { Vec::new() };
     supplement_cpu_temp(&mut temps);
 
     SystemStats {
-        host_name: System::host_name(),
-        os_name: System::long_os_version().or_else(System::name),
-        kernel: System::kernel_version(),
-        cpu_arch: System::cpu_arch(),
+        host_name: if full { System::host_name() } else { None },
+        os_name: if full { System::long_os_version().or_else(System::name) } else { None },
+        kernel: if full { System::kernel_version() } else { None },
+        cpu_arch: if full { System::cpu_arch() } else { None },
         uptime_secs: System::uptime(),
         cpu_brand,
         cpu_usage: sys.global_cpu_usage(),
@@ -869,5 +895,18 @@ mod smc_tests {
         assert_eq!(decode(u32::from_be_bytes(*b"sp78"), &[1]), None);
         assert_eq!(decode(u32::from_be_bytes(*b"ui16"), &[1]), None);
         assert_eq!(decode(u32::from_be_bytes(*b"ui8 "), &[]), None);
+    }
+
+    #[test]
+    fn collector_scope_skips_disks_fans_and_host_strings() {
+        // B5: the once-a-minute collector must not pay for the per-mount
+        // disk walk, the SMC fan keys or the host strings it never stores.
+        let core = super::gather_scoped(super::GatherScope::Collector);
+        assert!(core.disks.is_empty());
+        assert!(core.fans.is_empty());
+        assert!(core.host_name.is_none() && core.os_name.is_none());
+        // …while the numbers it DOES store are still produced.
+        assert!(core.mem_total > 0);
+        assert!(core.logical_cores > 0);
     }
 }

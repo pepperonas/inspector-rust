@@ -1,45 +1,55 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+// PERFORMANCE-PLAN A4 (v0.166.0): every preview panel, tab panel, game and
+// full-shell takeover below is `lazy` — the popup used to parse + JIT a single
+// ~950 KB chunk at launch for surfaces most opens never touch. Only the
+// open-path components stay eager (SearchBar, HistoryList, PreviewPanel,
+// Footer). A lazy chunk loads from the local asset protocol in a few ms on
+// first use, and the popup exists (hidden) long before the first hotkey, so
+// hotkey→visible latency is untouched. Suspense boundaries sit per REGION
+// (preview column / tab content / each takeover) so a first-time chunk load
+// never blanks more than that region for a frame.
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
-import { FeaturesPanel } from "./components/FeaturesPanel";
-import { TimesheetPanel } from "./components/TimesheetPanel";
+const FeaturesPanel = lazy(() => import("./components/FeaturesPanel").then((m) => ({ default: m.FeaturesPanel })));
+const TimesheetPanel = lazy(() => import("./components/TimesheetPanel").then((m) => ({ default: m.TimesheetPanel })));
 import { Footer } from "./components/Footer";
 import { HistoryList } from "./components/HistoryList";
-import { NotesPanel } from "./components/NotesPanel";
+const NotesPanel = lazy(() => import("./components/NotesPanel").then((m) => ({ default: m.NotesPanel })));
 import { PreviewPanel } from "./components/PreviewPanel";
-import { SpaceInvadersGame } from "./components/SpaceInvadersGame";
-import { BrightnessPanel } from "./components/BrightnessPanel";
-import { SoundPanel } from "./components/SoundPanel";
-import { HuePanel } from "./components/HuePanel";
-import { StatsPanel } from "./components/StatsPanel";
-import { LocPanel } from "./components/LocPanel";
-import { PagespeedPanel } from "./components/PagespeedPanel";
-import { AdbPanel, type AdbView } from "./components/AdbPanel";
-import { DiskPanel } from "./components/DiskPanel";
-import { ClockPanel } from "./components/ClockPanel";
-import { RickrollPanel } from "./components/RickrollPanel";
-import { RepoPanel } from "./components/RepoPanel";
-import { NoSleepPanel } from "./components/NoSleepPanel";
-import { BenchPanel } from "./components/BenchPanel";
-import { AliasPanel } from "./components/AliasPanel";
-import { IrisPanel } from "./components/IrisPanel";
-import { BoomPanel } from "./components/BoomPanel";
-import { CalendarPanel } from "./components/CalendarPanel";
-import { CleanPanel } from "./components/CleanPanel";
-import { SnitchPanel } from "./components/SnitchPanel";
-import { SnitchMapPanel } from "./components/SnitchMapPanel";
-import { ShazamPanel } from "./components/ShazamPanel";
-import { UptimePanel } from "./components/UptimePanel";
+const SpaceInvadersGame = lazy(() => import("./components/SpaceInvadersGame").then((m) => ({ default: m.SpaceInvadersGame })));
+const BrightnessPanel = lazy(() => import("./components/BrightnessPanel").then((m) => ({ default: m.BrightnessPanel })));
+const SoundPanel = lazy(() => import("./components/SoundPanel").then((m) => ({ default: m.SoundPanel })));
+const HuePanel = lazy(() => import("./components/HuePanel").then((m) => ({ default: m.HuePanel })));
+const StatsPanel = lazy(() => import("./components/StatsPanel").then((m) => ({ default: m.StatsPanel })));
+const LocPanel = lazy(() => import("./components/LocPanel").then((m) => ({ default: m.LocPanel })));
+const PagespeedPanel = lazy(() => import("./components/PagespeedPanel").then((m) => ({ default: m.PagespeedPanel })));
+import type { AdbView } from "./components/AdbPanel";
+const AdbPanel = lazy(() => import("./components/AdbPanel").then((m) => ({ default: m.AdbPanel })));
+const DiskPanel = lazy(() => import("./components/DiskPanel").then((m) => ({ default: m.DiskPanel })));
+const ClockPanel = lazy(() => import("./components/ClockPanel").then((m) => ({ default: m.ClockPanel })));
+const RickrollPanel = lazy(() => import("./components/RickrollPanel").then((m) => ({ default: m.RickrollPanel })));
+const RepoPanel = lazy(() => import("./components/RepoPanel").then((m) => ({ default: m.RepoPanel })));
+const NoSleepPanel = lazy(() => import("./components/NoSleepPanel").then((m) => ({ default: m.NoSleepPanel })));
+const BenchPanel = lazy(() => import("./components/BenchPanel").then((m) => ({ default: m.BenchPanel })));
+const AliasPanel = lazy(() => import("./components/AliasPanel").then((m) => ({ default: m.AliasPanel })));
+const IrisPanel = lazy(() => import("./components/IrisPanel").then((m) => ({ default: m.IrisPanel })));
+const BoomPanel = lazy(() => import("./components/BoomPanel").then((m) => ({ default: m.BoomPanel })));
+const CalendarPanel = lazy(() => import("./components/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
+const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ default: m.CleanPanel })));
+const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
+const SnitchMapPanel = lazy(() => import("./components/SnitchMapPanel").then((m) => ({ default: m.SnitchMapPanel })));
+const ShazamPanel = lazy(() => import("./components/ShazamPanel").then((m) => ({ default: m.ShazamPanel })));
+const UptimePanel = lazy(() => import("./components/UptimePanel").then((m) => ({ default: m.UptimePanel })));
 import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
 import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
-import { WeatherPanel } from "./components/WeatherPanel";
-import { TokensPanel } from "./components/TokensPanel";
-import { ResizePanel } from "./components/ResizePanel";
-import { DezibelPanel } from "./components/DezibelPanel";
-import { BluetoothPanel } from "./components/BluetoothPanel";
-import { RandomPanel } from "./components/RandomPanel";
-import CommandHelp from "./components/CommandHelp";
+const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
+const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({ default: m.TokensPanel })));
+const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
+const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
+const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
+const RandomPanel = lazy(() => import("./components/RandomPanel").then((m) => ({ default: m.RandomPanel })));
+const CommandHelp = lazy(() => import("./components/CommandHelp"));
 import {
   parseFigletCommand,
   galleryFonts,
@@ -51,8 +61,8 @@ import {
 import { bannerPngBase64, themePngColors } from "./lib/figlet-png";
 import { discoEngine } from "./lib/disco-engine";
 import { SearchBar } from "./components/SearchBar";
-import { SettingsPanel } from "./components/SettingsPanel";
-import { SnippetsPanel } from "./components/SnippetsPanel";
+const SettingsPanel = lazy(() => import("./components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
+const SnippetsPanel = lazy(() => import("./components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 import { useClipboardHistory } from "./hooks/useClipboardHistory";
 import { useFuzzySearch } from "./hooks/useFuzzySearch";
 import { useKeyboardNav } from "./hooks/useKeyboardNav";
@@ -110,13 +120,13 @@ import { matchCities } from "./lib/cities";
 import { slugify, generateUuids, sha256Hex, formatJson, decodeJwt } from "./lib/devtools";
 import { qrPngBase64 } from "./lib/qr";
 import { TOP_OPENERS, pickOpenerIndex } from "./lib/openers";
-import { PongGame } from "./components/PongGame";
-import { SnakeGame } from "./components/SnakeGame";
-import { FlappyGame } from "./components/FlappyGame";
+const PongGame = lazy(() => import("./components/PongGame").then((m) => ({ default: m.PongGame })));
+const SnakeGame = lazy(() => import("./components/SnakeGame").then((m) => ({ default: m.SnakeGame })));
+const FlappyGame = lazy(() => import("./components/FlappyGame").then((m) => ({ default: m.FlappyGame })));
 import { matchMemes, type MemeEntry } from "./lib/meme";
-import { BpmDetector } from "./components/BpmDetector";
-import { EqualizerVisualizer } from "./components/EqualizerVisualizer";
-import { TotpOverlay } from "./components/TotpOverlay";
+const BpmDetector = lazy(() => import("./components/BpmDetector").then((m) => ({ default: m.BpmDetector })));
+const EqualizerVisualizer = lazy(() => import("./components/EqualizerVisualizer").then((m) => ({ default: m.EqualizerVisualizer })));
+const TotpOverlay = lazy(() => import("./components/TotpOverlay").then((m) => ({ default: m.TotpOverlay })));
 import {
   clearHistory,
   deleteEntry,
@@ -4423,6 +4433,7 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell fade-in flex h-full w-full flex-col">
+          <Suspense fallback={null}>
           {gameMode === "pong" ? (
             <PongGame onExit={exitGame} />
           ) : gameMode === "space" ? (
@@ -4432,6 +4443,7 @@ function App() {
           ) : (
             <SnakeGame onExit={exitGame} wrap={gameMode === "snake-wrap"} />
           )}
+          </Suspense>
         </div>
       </div>
     );
@@ -4453,7 +4465,9 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
+          <Suspense fallback={null}>
           <BpmDetector onExit={exitBpm} />
+          </Suspense>
         </div>
       </div>
     );
@@ -4474,7 +4488,9 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
+          <Suspense fallback={null}>
           <EqualizerVisualizer onExit={exitEqualizer} />
+          </Suspense>
         </div>
       </div>
     );
@@ -4491,12 +4507,14 @@ function App() {
     return (
       <div className="flex h-screen w-screen p-2">
         <div className="app-shell md3-pop-in flex h-full w-full flex-col">
+          <Suspense fallback={null}>
           <TotpOverlay
             onExit={exitTotp}
             onHidePopup={hidePopup}
             initialTab={totpInitial.tab}
             initialIssuer={totpInitial.issuer}
           />
+          </Suspense>
         </div>
       </div>
     );
@@ -4705,6 +4723,7 @@ function App() {
         {/* Content — keyed on the active tab so it replays the MD3
             emphasized-decelerate enter transition on every tab switch. */}
         <div key={activeTab} className="panel-enter flex min-h-0 flex-1 flex-col">
+          <Suspense fallback={null}>
           {activeTab === "history" ? (
             <div className="flex min-h-0 flex-1">
               <div
@@ -4730,6 +4749,7 @@ function App() {
                 />
               </div>
               <div className="w-3/5 min-w-0">
+                <Suspense fallback={null}>
                 {helpTarget ? (
                   <div className="md3-pop-in h-full">
                     <CommandHelp
@@ -5136,6 +5156,7 @@ function App() {
                   />
                   </div>
                 )}
+                </Suspense>
               </div>
             </div>
           ) : activeTab === "snippets" ? (
@@ -5162,6 +5183,7 @@ function App() {
               }}
             />
           )}
+          </Suspense>
         </div>
 
         <Footer

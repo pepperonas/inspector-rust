@@ -448,6 +448,11 @@ pub fn compact(db: &DbHandle) -> Result<DbSpace> {
     conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
     conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
     conn.execute_batch("VACUUM")?;
+    // ⚠️ Checkpoint + TRUNCATE again AFTER the VACUUM: the rewrite lands in
+    // the WAL first, and an auto-checkpoint only recycles the WAL file, it
+    // never shrinks it — measured live 2026-09-05: DB 331 → 202 MB while the
+    // WAL sat at 203 MB until the next TRUNCATE checkpoint.
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
     space_locked(&conn)
 }
 

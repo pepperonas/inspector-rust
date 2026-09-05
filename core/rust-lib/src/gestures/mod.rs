@@ -270,30 +270,104 @@ pub enum GestureAction {
     PrevTab,
 }
 
-/// Typing-guard window: a volume/mute gesture dispatched less than this long
-/// after a real (non-modifier) keystroke is suppressed. libinput uses 200 ms
-/// after a lone keypress and 500 ms inside a typing burst, keyed to the TOUCH
-/// start; our check runs at DISPATCH time, which sits ~200-400 ms after touch
-/// start for a recognised swipe/tap — so 500 ms here lands in the same
-/// effective touch-start window without threading timestamps through the
-/// recogniser (deliberately: the recogniser stays untouched).
+/// Typing-guard window: a volume/mute gesture whose fingers LANDED, or whose
+/// touch was still down, less than this long after a real (non-modifier)
+/// keystroke is suppressed. libinput uses 200 ms after a lone keypress and
+/// 500 ms inside a typing burst, keyed to the TOUCH start — and so is this
+/// since v0.166.1 (see [`TypingTrace`]).
 pub const TYPING_GUARD_S: f64 = 0.5;
 
-/// Whether the typing guard suppresses `action`, given the seconds since the
-/// last hardware key-down. Pure: the platform query stays at the call site.
-/// Tab actions are NEVER suppressed — tip-tap both emits keystrokes itself
-/// (it would self-suppress its own bursts) and is guarded by its own
-/// rest-quiet rule instead. Pure modifier presses don't count as key-downs at
-/// the source (macOS reports them as flags-changed, not key-down), so
-/// shift-clicks and hotkey chords don't arm the guard — the same exemption
-/// libinput makes explicitly.
-pub fn typing_guard_suppresses(action: GestureAction, since_keydown_s: f64) -> bool {
+/// What the typing guard knows about a gesture, in seconds against the last
+/// hardware key-down. `before_touch_s` was sampled when the fingers LANDED
+/// (libinput's disable-while-typing question: "was the user typing when the
+/// touch began?"); `before_lift_s` is derived at dispatch — seconds between
+/// that key-down and the moment the fingers LIFTED, so it is NEGATIVE when the
+/// last key came after the lift. That negative case is what the v0.109.0 guard
+/// got wrong: it measured against the DISPATCH, which for a tap sits ≥ 160 ms
+/// past the lift (settle + tick), so a key pressed right after a deliberate
+/// 3-finger tap — typing resumed — read as "typing 0.01 s ago" and vetoed the
+/// tap. `f64::INFINITY` = no key-down known (never vetoes).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct TypingTrace {
+    pub before_touch_s: f64,
+    pub before_lift_s: f64,
+}
+
+/// Whether the typing guard suppresses `action`. Pure: the platform queries
+/// stay at the call site. Two exemptions are load-bearing:
+///
+/// * Tab actions are NEVER suppressed — tip-tap both emits keystrokes itself
+///   (it would self-suppress its own bursts) and is guarded by its own
+///   rest-quiet rule instead.
+/// * An UNMUTE (`unmuting`: a mute toggle while the output is muted) is NEVER
+///   suppressed. The guard exists against palm misfires, and an accidental
+///   unmute costs nothing — you hear sound — while a vetoed unmute strands the
+///   user muted with no gesture that can undo it (the 2026-09-05 report:
+///   "I keep having to unmute in System Settings"). Only the MUTING direction
+///   can be an accident worth blocking.
+///
+/// A key pressed AFTER the fingers lifted (`before_lift_s < 0`) never counts:
+/// it cannot have caused the touch. Pure modifier presses don't count as
+/// key-downs at the source (macOS reports them as flags-changed), so
+/// shift-clicks and hotkey chords don't arm the guard — libinput's exemption.
+pub fn typing_guard_suppresses(action: GestureAction, trace: TypingTrace, unmuting: bool) -> bool {
     match action {
         GestureAction::NextTab | GestureAction::PrevTab => false,
+        GestureAction::MuteToggle if unmuting => false,
         GestureAction::VolumeUp | GestureAction::VolumeDown | GestureAction::MuteToggle => {
-            since_keydown_s < TYPING_GUARD_S
+            let typed_before_touch = trace.before_touch_s < TYPING_GUARD_S;
+            // ≥ 0: the key preceded the lift (during the touch, or the window
+            // before it). < 0 is "typing resumed after the gesture" — allowed.
+            let typed_before_lift = (0.0..TYPING_GUARD_S).contains(&trace.before_lift_s);
+            typed_before_touch || typed_before_lift
         }
     }
+}
+
+/// Handoff from the platform emit site to the dispatch sink, both of which run
+/// on the emitting thread with the sink called synchronously right after these
+/// are set. `u64::MAX` = not sampled. Kept as plain atomics rather than fields
+/// on `GestureEvent` so the event stays the small value type the recogniser
+/// tests construct by the dozen.
+static EMIT_LIFT_AGE_MS: AtomicU64 = AtomicU64::new(0);
+static TOUCH_TYPED_BEFORE_MS: AtomicU64 = AtomicU64::new(u64::MAX);
+
+/// Platform hook: the pad went from no contact to at least one — sample how
+/// long ago the last key-down was, so the guard can ask its question about the
+/// TOUCH START rather than about whenever the recogniser finished.
+pub(crate) fn note_touch_start() {
+    let s = seconds_since_last_keydown();
+    let ms = if s.is_finite() { (s * 1000.0) as u64 } else { u64::MAX };
+    TOUCH_TYPED_BEFORE_MS.store(ms, Ordering::Relaxed);
+}
+
+/// Platform hook, called right before the sink: how long ago the emitted
+/// gesture's fingers lifted (0 for an in-flight / at-lift emit, the settle
+/// delay for a deferred tap).
+pub(crate) fn note_emit_lift_age_ms(ms: u64) {
+    EMIT_LIFT_AGE_MS.store(ms, Ordering::Relaxed);
+}
+
+/// Assemble the guard's view of the gesture being dispatched (see the hooks).
+fn typing_trace_now() -> TypingTrace {
+    let since_keydown = seconds_since_last_keydown();
+    let lift_age_s = EMIT_LIFT_AGE_MS.load(Ordering::Relaxed) as f64 / 1000.0;
+    let before_touch_s = match TOUCH_TYPED_BEFORE_MS.load(Ordering::Relaxed) {
+        u64::MAX => f64::INFINITY,
+        ms => ms as f64 / 1000.0,
+    };
+    TypingTrace { before_touch_s, before_lift_s: since_keydown - lift_age_s }
+}
+
+/// Is the default output currently muted? `None` = unknown (no control, no
+/// macOS) — the guard then treats the toggle as a MUTE, i.e. still vetoable.
+#[cfg(target_os = "macos")]
+fn output_muted_now() -> Option<bool> {
+    crate::system_commands::ca_volume::read_mute()
+}
+#[cfg(not(target_os = "macos"))]
+fn output_muted_now() -> Option<bool> {
+    None
 }
 
 /// Pure mapping (config-gated). Fixed bindings for now, but isolated here so a
@@ -1263,6 +1337,13 @@ impl PalmAwareRecognizer {
         self.cluster_open
     }
 
+    /// Milliseconds since the last contact left the pad — for a deferred tap,
+    /// how long the emit trails the lift (the typing guard measures against
+    /// the LIFT, not the dispatch).
+    pub fn since_last_contact_ms(&self, now: u64) -> u64 {
+        now.saturating_sub(self.last_contact_ms)
+    }
+
     /// Emit a deferred TAP once the pad has settled. Call periodically (the
     /// platform layer runs a ~40 ms tick); pure + testable. Returns the coalesced
     /// N-finger tap (N = distinct non-palm contacts in the cluster) exactly once,
@@ -1664,11 +1745,13 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
                 // its own line so the suppression rate is measurable against
                 // the isolated-dispatch misfire metric.
                 if cfg.typing_guard {
-                    let since = seconds_since_last_keydown();
-                    if typing_guard_suppresses(action, since) {
+                    let trace = typing_trace_now();
+                    let unmuting =
+                        action == GestureAction::MuteToggle && output_muted_now() == Some(true);
+                    if typing_guard_suppresses(action, trace, unmuting) {
                         tracing::info!(
-                            "gesture suppressed (typing {:.2}s ago): {:?} ({} fingers) → {:?}",
-                            since, ev.kind, ev.fingers, action
+                            "gesture suppressed (typing {:.2}s before touch, {:.2}s before lift): {:?} ({} fingers) → {:?}",
+                            trace.before_touch_s, trace.before_lift_s, ev.kind, ev.fingers, action
                         );
                         return;
                     }
@@ -3078,22 +3161,57 @@ mod tests {
         assert_eq!(config_drop_reason(&tap3, &disabled), None);
     }
 
+    fn trace(before_touch_s: f64, before_lift_s: f64) -> TypingTrace {
+        TypingTrace { before_touch_s, before_lift_s }
+    }
+
     #[test]
     fn typing_guard_suppresses_volume_and_mute_only_within_window() {
         use GestureAction::*;
-        // Inside the window: volume + mute suppressed, tabs never.
+        // Typing right before the touch: volume + mute suppressed, tabs never.
         for a in [VolumeUp, VolumeDown, MuteToggle] {
-            assert!(typing_guard_suppresses(a, 0.0));
-            assert!(typing_guard_suppresses(a, TYPING_GUARD_S - 0.01));
+            assert!(typing_guard_suppresses(a, trace(0.0, 0.0), false));
+            assert!(typing_guard_suppresses(a, trace(TYPING_GUARD_S - 0.01, f64::INFINITY), false));
             // At/after the boundary: allowed again.
-            assert!(!typing_guard_suppresses(a, TYPING_GUARD_S));
-            assert!(!typing_guard_suppresses(a, 3600.0));
+            assert!(!typing_guard_suppresses(a, trace(TYPING_GUARD_S, TYPING_GUARD_S), false));
+            assert!(!typing_guard_suppresses(a, trace(3600.0, 3600.0), false));
         }
         for a in [NextTab, PrevTab] {
-            assert!(!typing_guard_suppresses(a, 0.0), "tab actions are exempt: {a:?}");
+            assert!(!typing_guard_suppresses(a, trace(0.0, 0.0), false), "tab actions are exempt: {a:?}");
         }
         // The error sentinel (no data) must never suppress.
-        assert!(!typing_guard_suppresses(VolumeUp, f64::INFINITY));
+        assert!(!typing_guard_suppresses(VolumeUp, trace(f64::INFINITY, f64::INFINITY), false));
+    }
+
+    #[test]
+    fn a_key_pressed_after_the_lift_never_vetoes() {
+        use GestureAction::*;
+        // The 2026-09-05 log: "typing 0.01 s ago" at a dispatch that trailed
+        // the lift by ≥ 160 ms — the key came AFTER the tap. Not a palm.
+        for a in [VolumeUp, VolumeDown, MuteToggle] {
+            assert!(!typing_guard_suppresses(a, trace(f64::INFINITY, -0.01), false), "{a:?}");
+            assert!(!typing_guard_suppresses(a, trace(f64::INFINITY, -0.4), false), "{a:?}");
+        }
+        // …but a key DURING the touch (before the lift) still vetoes.
+        assert!(typing_guard_suppresses(MuteToggle, trace(f64::INFINITY, 0.2), false));
+    }
+
+    #[test]
+    fn typing_right_before_the_touch_vetoes_even_when_keys_continue_after() {
+        // Fingers landed 0.3 s after a key, typing resumed after the lift:
+        // the touch-start sample is the palm signature and wins.
+        assert!(typing_guard_suppresses(GestureAction::VolumeUp, trace(0.3, -0.2), false));
+    }
+
+    #[test]
+    fn an_unmute_is_never_vetoed() {
+        // Same trace, same action: only the direction differs. A vetoed unmute
+        // strands the user muted; an accidental unmute is harmless.
+        let t = trace(0.0, 0.0);
+        assert!(typing_guard_suppresses(GestureAction::MuteToggle, t, false));
+        assert!(!typing_guard_suppresses(GestureAction::MuteToggle, t, true));
+        // The exemption is mute-specific: volume ignores the flag.
+        assert!(typing_guard_suppresses(GestureAction::VolumeUp, t, true));
     }
 
     #[test]

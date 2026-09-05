@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.166.1] - 2026-09-05
+
+### Fixed
+- **3-finger-tap mute got stuck — the typing guard vetoed the UNMUTE.** Field report: "I keep having to unmute in System Settings." The log showed four taps in one morning discarded as "typing 0.01–0.34 s ago": a tap is dispatched ≥ 160 ms after the fingers lift (settle + tick), and the guard measured key recency against that dispatch — so typing that merely *resumed* after a deliberate tap read as a palm brush. When the vetoed tap was the one meant to unmute, no gesture could undo the silence. The guard now (a) samples the typing clock when the fingers LAND and judges the touch against that plus keys pressed *during* the touch — a key after the lift never counts — and (b) never vetoes an unmute: an accidental unmute costs nothing, a vetoed one strands you muted. The veto log line now names both distances ("… before touch, … before lift").
+
 ## [0.166.0] - 2026-09-05
 
 ### Changed — performance (PERFORMANCE-PLAN.md, measured before/after)

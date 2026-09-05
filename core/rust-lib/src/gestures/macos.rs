@@ -276,15 +276,21 @@ fn tick_thread() {
             break;
         }
         let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
-        let ev = {
+        let (ev, lift_age_ms) = {
             let mut rec = REC.lock();
-            rec.as_mut().and_then(|r| r.tick(now))
+            match rec.as_mut() {
+                Some(r) => (r.tick(now), r.since_last_contact_ms(now)),
+                None => (None, 0),
+            }
         };
         if let Some(ev) = ev {
             tracing::info!(
                 "gestures(mac): recognised {:?} ({} finger(s)) via settle tick",
                 ev.kind, ev.fingers
             );
+            // A deferred tap is dispatched ≥ TAP_SETTLE_MS after the lift; the
+            // typing guard must judge it against the lift, not against now.
+            super::note_emit_lift_age_ms(lift_age_ms);
             if let Some(sink) = SINK.lock().as_ref() {
                 sink(ev);
             }
@@ -375,6 +381,13 @@ extern "C" fn frame_callback(
     // keep pushing the swallow deadline to now+GRACE — so it covers the whole
     // gesture plus a grace tail (lift frames + momentum). On full lift, log the
     // leak counters.
+    // Touch start (no contact → any contact): sample the typing clock for the
+    // guard's "was the user typing when the fingers landed?" question. One
+    // µs-cheap CGEventSource read per touch, never per frame.
+    if n > 0 && prev == 0 {
+        super::note_touch_start();
+    }
+
     if active >= ARM_FINGERS {
         // On the leading edge of a gesture, re-assert the tap is enabled — a
         // display reconfiguration (monitor unplug) can silently disable a
@@ -403,6 +416,7 @@ extern "C" fn frame_callback(
             "gestures(mac): recognised {:?} ({} finger(s)) t_ms={} active {}->{}",
             ev.kind, ev.fingers, t_ms, prev_active, active
         );
+        super::note_emit_lift_age_ms(0); // in-flight / at-lift emit
         if let Some(sink) = SINK.lock().as_ref() {
             sink(ev);
         }

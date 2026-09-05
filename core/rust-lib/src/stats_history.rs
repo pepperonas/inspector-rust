@@ -281,6 +281,24 @@ pub fn start_collector(db: DbHandle) {
                 if iter.is_multiple_of(60) {
                     prune(&db, ts - RETENTION_SECS);
                 }
+                // DB maintenance (PERFORMANCE-PLAN A1): hourly, offset by 5
+                // samples so the first pass lands ~5 min after launch, not in
+                // the start-up window — a full VACUUM holds the DB mutex for
+                // seconds on a 300 MB file. Errors are logged, never fatal.
+                if iter % 60 == 5 {
+                    match crate::db::maintenance(&db) {
+                        Ok((space, true)) => tracing::info!(
+                            "db maintenance: full compact → {:.1} MB, freelist {} pages",
+                            space.bytes as f64 / 1_048_576.0,
+                            space.freelist_pages
+                        ),
+                        Ok((space, false)) => tracing::debug!(
+                            "db maintenance: incremental step, freelist {} pages",
+                            space.freelist_pages
+                        ),
+                        Err(e) => tracing::warn!("db maintenance failed: {e:#}"),
+                    }
+                }
                 iter = iter.wrapping_add(1);
                 std::thread::sleep(Duration::from_secs(SAMPLE_INTERVAL_SECS));
             }

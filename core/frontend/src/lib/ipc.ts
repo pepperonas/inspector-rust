@@ -3029,6 +3029,20 @@ export function setAnimationStage(stage: string): Promise<string> {
   return invoke("set_animation_stage", { stage });
 }
 
+/** Size / dead-space readout of history.db (PERFORMANCE-PLAN A1). */
+export interface DbSpace {
+  bytes: number;
+  freelist_pages: number;
+  page_count: number;
+}
+export function getDbSpace(): Promise<DbSpace> {
+  return invoke("db_space");
+}
+/** Full VACUUM on demand (seconds on a large file; runs off the main thread). */
+export function compactDb(): Promise<DbSpace> {
+  return invoke("db_compact");
+}
+
 /** Set the cap (clamped backend-side) and prune now; returns the stored value. */
 export function setHistoryMax(max: number): Promise<number> {
   return invoke("set_history_max", { max });

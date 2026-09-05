@@ -66,7 +66,9 @@ import {
   getWeatherConfig,
   setWeatherConfig,
   type WeatherConfig,
+  getDbSpace,
   getHistoryMax,
+  compactDb,
   setHistoryMax,
   type HistoryLimit,
   getAnimationStage,
@@ -158,6 +160,7 @@ import {
   type DirectSlot,
   type ExpanderConfig,
 } from "../lib/ipc";
+import type { DbSpace } from "../lib/ipc";
 import {
   getSyncConfig,
   getPagespeedKey,
@@ -5311,6 +5314,29 @@ function HistoryLimitSection() {
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [savedOk, setSavedOk] = useState(false);
+  // DB size / dead space + on-demand compaction (PERFORMANCE-PLAN A1).
+  const [space, setSpace] = useState<DbSpace | null>(null);
+  const [compacting, setCompacting] = useState(false);
+  const [compactResult, setCompactResult] = useState<string | null>(null);
+  useEffect(() => {
+    void getDbSpace().then(setSpace).catch(() => setSpace(null));
+  }, []);
+  const compactNow = async () => {
+    if (!space) return;
+    setCompacting(true);
+    setCompactResult(null);
+    const before = space.bytes;
+    try {
+      const after = await compactDb();
+      setSpace(after);
+      setCompactResult(`${formatBytes(before)} → ${formatBytes(after.bytes)}`);
+    } catch (e) {
+      console.error("db compact failed", e);
+      setCompactResult(null);
+    } finally {
+      setCompacting(false);
+    }
+  };
 
   useEffect(() => {
     getHistoryMax()
@@ -5381,6 +5407,30 @@ function HistoryLimitSection() {
               {limit.min.toLocaleString()}–{limit.ceiling.toLocaleString()}
             </span>
           )}
+        </div>
+      </Row>
+      <Row
+        label="Database"
+        help="Pruned clips and deleted images leave dead pages behind; SQLite never gives them back on its own. Compacting rewrites the file (runs automatically about once an hour when the dead space exceeds 10 %)."
+      >
+        <div className="flex w-full items-center gap-2 text-[12px]">
+          <span className="font-mono text-[var(--color-muted)]">
+            {space === null
+              ? "…"
+              : `${formatBytes(space.bytes)} · ${
+                  space.page_count > 0
+                    ? Math.round((100 * space.freelist_pages) / space.page_count)
+                    : 0
+                } % dead space`}
+          </span>
+          <button
+            onClick={() => void compactNow()}
+            disabled={compacting || space === null}
+            className="rounded-md border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] disabled:opacity-40"
+          >
+            {compacting ? "Compacting…" : "Compact now"}
+          </button>
+          {compactResult && <span className="text-emerald-500">{compactResult}</span>}
         </div>
       </Row>
     </Section>

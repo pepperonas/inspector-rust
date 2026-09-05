@@ -9,7 +9,9 @@
 # Fields:
 #   version            running app version (Info.plist)
 #   startup_ms         log: "… starting" → last monitor "armed" line of that start
-#   db_open_ms         log: "… starting" → "db at …"
+#   setup_start_ms     log: "… starting" → "db at …" (= Tauri setup begins: plugins + hidden
+#                      popup webview built; the DB itself opens right after — see db_ready_ms)
+#   db_ready_ms        log: "… starting" → "db ready" (crypto init + open + table init), null on old builds
 #   idle_cpu_pct       mean %CPU over PROBE_CPU_SECS (top -l samples, 1 s apart)
 #   rss_mb / threads   live process
 #   db_mb / wal_mb     history.db + WAL on disk
@@ -28,12 +30,13 @@ pid=$(pgrep -f "$APP_DIR/Contents/MacOS" | head -1 || true)
 
 # ── startup timings from the newest log ─────────────────────────────────────
 log=$(ls -t "$DATA_DIR"/logs/inspector-rust.log.* 2>/dev/null | head -1 || true)
-startup_ms="null"; db_open_ms="null"
+startup_ms="null"; setup_start_ms="null"; db_ready_ms="null"
 if [ -n "$log" ]; then
   # Take the LAST "starting" block in the file.
   block=$(awk '/Inspector Rust v[0-9.]+ starting/{buf=""} {buf=buf $0 "\n"} END{printf "%s", buf}' "$log")
   t0=$(printf "%s" "$block" | grep -m1 " starting (logs" | cut -c1-27)
   tdb=$(printf "%s" "$block" | grep -m1 " db at " | cut -c1-27)
+  trdy=$(printf "%s" "$block" | grep -m1 " db ready" | cut -c1-27)
   # Last "armed" line within the first 10 s of the start (monitors/hotkeys).
   tarm=$(printf "%s" "$block" | grep " armed" | head -20 | tail -1 | cut -c1-27)
   ms() { python3 -c "
@@ -43,7 +46,8 @@ def p(s):
     return datetime.datetime.fromisoformat(s)
 a,b=sys.argv[1],sys.argv[2]
 print(int((p(b)-p(a)).total_seconds()*1000))" "$1" "$2" 2>/dev/null || echo null; }
-  [ -n "$t0" ] && [ -n "$tdb" ] && db_open_ms=$(ms "$t0" "$tdb")
+  [ -n "$t0" ] && [ -n "$tdb" ] && setup_start_ms=$(ms "$t0" "$tdb")
+  [ -n "$t0" ] && [ -n "$trdy" ] && db_ready_ms=$(ms "$t0" "$trdy")
   [ -n "$t0" ] && [ -n "$tarm" ] && startup_ms=$(ms "$t0" "$tarm")
 fi
 
@@ -75,5 +79,5 @@ app_chunk_kb=$(kb "$(ls "$dist"/App-*.js 2>/dev/null | head -1)")
 css_kb=$(kb "$(ls "$dist"/index-*.css 2>/dev/null | head -1)")
 entry_kb=$(kb "$(ls -S "$dist"/index-*.js 2>/dev/null | head -1)")
 
-printf '{"version":"%s","startup_ms":%s,"db_open_ms":%s,"idle_cpu_pct":%s,"rss_mb":%s,"threads":%s,"db_mb":%s,"wal_mb":%s,"freelist_pct":%s,"app_chunk_kb":%s,"css_kb":%s,"entry_kb":%s,"cpu_secs":%s}\n' \
-  "$version" "$startup_ms" "$db_open_ms" "$idle_cpu_pct" "$rss_mb" "$threads" "$db_mb" "$wal_mb" "$freelist_pct" "$app_chunk_kb" "$css_kb" "$entry_kb" "$CPU_SECS"
+printf '{"version":"%s","startup_ms":%s,"setup_start_ms":%s,"db_ready_ms":%s,"idle_cpu_pct":%s,"rss_mb":%s,"threads":%s,"db_mb":%s,"wal_mb":%s,"freelist_pct":%s,"app_chunk_kb":%s,"css_kb":%s,"entry_kb":%s,"cpu_secs":%s}\n' \
+  "$version" "$startup_ms" "$setup_start_ms" "$db_ready_ms" "$idle_cpu_pct" "$rss_mb" "$threads" "$db_mb" "$wal_mb" "$freelist_pct" "$app_chunk_kb" "$css_kb" "$entry_kb" "$CPU_SECS"

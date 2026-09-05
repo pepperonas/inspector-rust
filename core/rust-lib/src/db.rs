@@ -395,6 +395,165 @@ pub fn clear(db: &DbHandle) -> Result<()> {
     Ok(())
 }
 
+// ── Compaction (PERFORMANCE-PLAN A1, v0.166.0) ──────────────────────────────
+//
+// Field measurement 2026-09-05: history.db was 331 MB with a 39 % freelist
+// (~130 MB of dead pages — pruned clips, deleted image blobs, timesheet
+// retention) and the start-up DB open took 374 ms. SQLite never returns
+// freed pages to the OS on its own; `VACUUM` rewrites the file, and
+// `auto_vacuum=INCREMENTAL` (which only takes effect through that VACUUM)
+// lets later frees be reclaimed cheaply page-by-page from the hourly tick.
+
+/// Freelist share above which the hourly maintenance runs a FULL vacuum
+/// instead of the cheap incremental step.
+pub const COMPACT_FREELIST_RATIO: f64 = 0.10;
+/// Pages the incremental step reclaims per hourly tick (4 KB pages → ~1 MB).
+pub const INCREMENTAL_PAGES: u64 = 256;
+
+#[derive(Debug, Clone, Copy, PartialEq, serde::Serialize)]
+pub struct DbSpace {
+    /// File size implied by the page count (page_size × page_count).
+    pub bytes: u64,
+    pub freelist_pages: u64,
+    pub page_count: u64,
+}
+
+impl DbSpace {
+    pub fn freelist_ratio(&self) -> f64 {
+        if self.page_count == 0 {
+            0.0
+        } else {
+            self.freelist_pages as f64 / self.page_count as f64
+        }
+    }
+}
+
+/// Pure: does this much dead space warrant a full VACUUM? `ratio` is the
+/// threshold (`COMPACT_FREELIST_RATIO` in production). An empty DB never does.
+pub fn should_compact(freelist_pages: u64, page_count: u64, ratio: f64) -> bool {
+    page_count > 0 && (freelist_pages as f64 / page_count as f64) >= ratio
+}
+
+fn space_locked(conn: &Connection) -> Result<DbSpace> {
+    let page_size: u64 = conn.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+    let page_count: u64 = conn.query_row("PRAGMA page_count", [], |r| r.get(0))?;
+    let freelist_pages: u64 = conn.query_row("PRAGMA freelist_count", [], |r| r.get(0))?;
+    Ok(DbSpace { bytes: page_size * page_count, freelist_pages, page_count })
+}
+
+/// Current size / dead-space readout (cheap: three PRAGMAs).
+pub fn space(db: &DbHandle) -> Result<DbSpace> {
+    let conn = db.lock();
+    space_locked(&conn)
+}
+
+/// Full compaction: checkpoint + truncate the WAL, switch the file to
+/// incremental auto-vacuum (only takes effect through the VACUUM that
+/// follows), then VACUUM. Holds the DB mutex for the duration — seconds on a
+/// 300 MB file — so callers run it off the main thread and never while the
+/// popup is in use (hourly tick / explicit Settings button).
+pub fn compact(db: &DbHandle) -> Result<DbSpace> {
+    let conn = db.lock();
+    // wal_checkpoint returns a row (busy, log, checkpointed) — drain it.
+    conn.query_row("PRAGMA wal_checkpoint(TRUNCATE)", [], |_| Ok(()))?;
+    conn.pragma_update(None, "auto_vacuum", "INCREMENTAL")?;
+    conn.execute_batch("VACUUM")?;
+    space_locked(&conn)
+}
+
+/// Cheap hourly step: reclaim up to `max_pages` freelist pages. A no-op on a
+/// file that has never been through `compact` (auto_vacuum still NONE) —
+/// which is exactly why the maintenance tick escalates to a full compact
+/// when the freelist is large.
+pub fn compact_incremental(db: &DbHandle, max_pages: u64) -> Result<()> {
+    let conn = db.lock();
+    // The pragma yields zero or more (empty) rows depending on the build —
+    // prepare + drain is the form that tolerates both.
+    let mut stmt = conn.prepare(&format!("PRAGMA incremental_vacuum({max_pages})"))?;
+    let mut rows = stmt.query([])?;
+    while rows.next()?.is_some() {}
+    Ok(())
+}
+
+/// The hourly maintenance decision: full compact when the freelist is fat,
+/// else the cheap incremental step. Returns the space AFTER the step and
+/// whether a full compact ran. Errors are the caller's to log — maintenance
+/// must never take the app down.
+pub fn maintenance(db: &DbHandle) -> Result<(DbSpace, bool)> {
+    let before = space(db)?;
+    if should_compact(before.freelist_pages, before.page_count, COMPACT_FREELIST_RATIO) {
+        let after = compact(db)?;
+        Ok((after, true))
+    } else {
+        compact_incremental(db, INCREMENTAL_PAGES)?;
+        Ok((space(db)?, false))
+    }
+}
+
+#[cfg(test)]
+mod compact_tests {
+    use super::*;
+
+    fn mem() -> DbHandle {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE blobs (id INTEGER PRIMARY KEY, data BLOB NOT NULL);",
+        )
+        .unwrap();
+        Arc::new(Mutex::new(conn))
+    }
+
+    #[test]
+    fn should_compact_threshold_is_inclusive_and_empty_db_never_compacts() {
+        assert!(!should_compact(0, 0, COMPACT_FREELIST_RATIO));
+        assert!(!should_compact(9, 100, 0.10));
+        assert!(should_compact(10, 100, 0.10)); // exactly the ratio → yes
+        assert!(should_compact(39, 100, 0.10)); // the field case (39 %)
+    }
+
+    #[test]
+    fn deleting_rows_leaves_a_freelist_and_compact_reclaims_it() {
+        let db = mem();
+        {
+            let conn = db.lock();
+            let blob = vec![7u8; 64 * 1024];
+            for i in 0..64 {
+                conn.execute("INSERT INTO blobs (id, data) VALUES (?1, ?2)", params![i, blob]).unwrap();
+            }
+            conn.execute("DELETE FROM blobs WHERE id < 56", []).unwrap();
+        }
+        let before = space(&db).unwrap();
+        assert!(before.freelist_pages > 0, "deletes must leave dead pages: {before:?}");
+        assert!(before.freelist_ratio() > 0.5);
+        let after = compact(&db).unwrap();
+        assert_eq!(after.freelist_pages, 0, "VACUUM must drop the freelist: {after:?}");
+        assert!(after.bytes < before.bytes);
+        // The remaining rows survived the rewrite.
+        let n: i64 = db.lock().query_row("SELECT count(*) FROM blobs", [], |r| r.get(0)).unwrap();
+        assert_eq!(n, 8);
+    }
+
+    #[test]
+    fn maintenance_escalates_to_a_full_compact_only_when_fat() {
+        let db = mem();
+        {
+            let conn = db.lock();
+            let blob = vec![1u8; 64 * 1024];
+            for i in 0..32 {
+                conn.execute("INSERT INTO blobs (id, data) VALUES (?1, ?2)", params![i, blob]).unwrap();
+            }
+            conn.execute("DELETE FROM blobs WHERE id < 24", []).unwrap();
+        }
+        let (after, full) = maintenance(&db).unwrap();
+        assert!(full, "a >10 % freelist must trigger the full compact");
+        assert_eq!(after.freelist_pages, 0);
+        // Second pass on a clean file: the cheap step, no VACUUM.
+        let (again, full2) = maintenance(&db).unwrap();
+        assert!(!full2);
+        assert_eq!(again.freelist_pages, 0);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

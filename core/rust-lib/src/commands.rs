@@ -2237,7 +2237,9 @@ pub fn set_popup_close_on_blur(
 
 #[tauri::command]
 pub fn list_snippets(db: State<'_, DbHandle>) -> Result<Vec<Snippet>, String> {
-    snippets::list_all(&db).map_err(map_err)
+    // Through the read cache (A5): the Snippets tab poll/refresh no longer
+    // decrypts every body per call.
+    snippets::list_all_cached(&db).map(|v| (*v).clone()).map_err(map_err)
 }
 
 #[tauri::command]
@@ -5843,6 +5845,34 @@ pub fn get_history_max(db: State<'_, DbHandle>) -> HistoryLimit {
         min: crate::db::MIN_HISTORY_ENTRIES,
         ceiling: crate::db::MAX_HISTORY_ENTRIES,
     }
+}
+
+/// Size / dead-space readout for Settings → Clipboard history (cheap PRAGMAs).
+#[tauri::command]
+pub fn db_space(db: State<'_, DbHandle>) -> Result<crate::db::DbSpace, String> {
+    crate::db::space(&db).map_err(map_err)
+}
+
+/// Full compaction on demand (PERFORMANCE-PLAN A1). `async` + `spawn_blocking`:
+/// VACUUM on a 300 MB file holds the DB mutex for seconds — never on the main
+/// thread. Returns the space after.
+#[tauri::command]
+pub async fn db_compact(app: AppHandle) -> Result<crate::db::DbSpace, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let db = app.state::<DbHandle>();
+        let before = crate::db::space(&db).map_err(map_err)?;
+        let after = crate::db::compact(&db).map_err(map_err)?;
+        tracing::info!(
+            "db: compacted {:.1} MB → {:.1} MB (freelist {} → {} pages)",
+            before.bytes as f64 / 1_048_576.0,
+            after.bytes as f64 / 1_048_576.0,
+            before.freelist_pages,
+            after.freelist_pages
+        );
+        Ok(after)
+    })
+    .await
+    .map_err(|e| format!("compact task: {e}"))?
 }
 
 /// Set the cap (clamped) and prune immediately. Returns the stored value and

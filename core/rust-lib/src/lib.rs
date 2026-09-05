@@ -181,12 +181,17 @@ pub fn run(context: tauri::Context<Wry>) {
                 }
             }
 
+            let db_t0 = std::time::Instant::now();
             let db_handle = db::open(&db_path)?;
 
             snippets::init_table(&db_handle)?;
             notes::init_table(&db_handle)?;
             settings::init_table(&db_handle)?;
             totp_store::init_table(&db_handle)?;
+            // Measured marker for scripts/perf-probe.sh (`db_ready_ms`): the
+            // "db at" line above fires BEFORE crypto init + open, so it only
+            // dates the start of setup, not the DB.
+            tracing::info!("db ready in {} ms", db_t0.elapsed().as_millis());
 
             // One-shot migration: rewrite any pre-encryption rows in place so
             // the next read paths through the cipher cleanly. Idempotent —
@@ -959,6 +964,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_weather_config,
             commands::set_weather_config,
             commands::get_history_max,
+            commands::db_space,
+            commands::db_compact,
             commands::set_history_max,
             commands::screen_record_open_overlay,
             commands::cancel_record_overlay,

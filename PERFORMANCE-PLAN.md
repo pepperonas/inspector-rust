@@ -3,7 +3,7 @@
 > **Umsetzungsstand (v0.166.0, 05.09.):** Etappen 0–6 sind umgesetzt oder
 > durch Messung erledigt — siehe die ✅/↩︎-Marken je Maßnahme und Abschnitt 5.
 > Zwei Behauptungen des Plans stellten sich beim Nachmessen als falsch heraus
-> und sind unten korrigiert (A3, B3). Stehen gelassen als Lehre: Planzahlen
+> und sind unten korrigiert (A3, B1, B3). Stehen gelassen als Lehre: Planzahlen
 > ohne Nachmessen sind Behauptungen.
 
 Ziel: die App **spürbar und messbar** schneller/leichter machen, **ohne eine
@@ -20,7 +20,7 @@ Live am 05.09. (M1 Pro, Uptime 2 h 53 min, Popup versteckt):
 | RSS | **29 MB** (top: 49 MB) | ✓ unter dem „< 50 MB"-Versprechen |
 | Idle-CPU | **0,4–1,0 %** | ✗ für eine Tray-App zu viel — siehe A2 |
 | Threads | **39** | 12 benannte Dauer-Threads + Tauri/WebKit |
-| Startup bis „alle Monitore scharf" | **~1,2 s** (17:16:27.28 → 28.52), davon **430 ms bis „db at"** | ✗ DB-Öffnen dominiert — siehe A1 |
+| Startup bis „alle Monitore scharf" | **~1,2 s** (17:16:27.28 → 28.52), davon **430 ms bis „db at"** | ↩︎ nachgemessen: DB-Öffnen = 4 ms; die 400 ms sind Tauri-Setup — siehe B1 |
 | Popup-Öffnen nativ | 17–38 ms (Debug-Log, v0.107.0) + CRT ≤ 250 ms | ✓ gepinnt |
 | history.db | **331 MB**, Freelist **32 946 von 84 832 Seiten (39 %)** | ✗ ~130 MB toter Raum — siehe A1 |
 | davon `entries.content_data` | 152 MB, **214 Bild-Clips = 138 MB** | ✓ `list_slim` hält sie aus dem Popup-Pfad |
@@ -110,7 +110,7 @@ Zeit `find_snippets` mit 289 Snippets, Query ohne Treffer, vorher/nachher.
 
 ### B — Mittel (klarer Gewinn, mehr Umbau oder Messbedarf)
 
-**B1 ↩︎ instrumentiert (`db ready in N ms`), Umbau nach Messung · Startup-Reihenfolge** — *Befund:* 430 ms bis „db at" umfassen
+**B1 ↩︎ KORRIGIERT durch Messung · Startup-Reihenfolge** — *Gemessen (v0.166.0, „db ready in N ms“-Marker):* Krypto-Init + DB-Öffnen + Tabellen-Init = **4 ms**. Die ~400 ms „bis db at“ sind Tauri-/WebKit-Setup (Plugins, verstecktes Popup-Webview), also NICHT unser Code und nicht durch A1 zu verkürzen. Kein Umbau der Reihenfolge — die schweren Inits laufen bereits als Threads. Ursprünglicher (falscher) Befund: 430 ms bis „db at" umfassen
 Keychain-Zugriff (`crypto::init`, `lib.rs:164`) + Öffnen der 331-MB-DB +
 Lazy-Migrationen (12 DDL/PRAGMA in `db.rs`); danach synchron Seed-Prüfung,
 Timesheet-Resume, Hotkeys. *Maßnahme:* nach A1 neu messen; dann alles, was

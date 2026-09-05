@@ -234,18 +234,23 @@ DB-Roundtrip im Normalfall. Der Hotkey→Paste-Pfad ist heute schon unter
   ein Korrektheits-Bug: Loopback-/Virtual-Geräte dürfen nie Brücken-Ziel
   sein. Separat fixen.
 
-## 5. Ergebnis (v0.166.0)
+## 5. Ergebnis (v0.166.0, gemessen — `scripts/perf-probe.sh`)
 
 | Größe | vorher (v0.165.0) | nachher (v0.166.0) |
 |---|---|---|
-| Eager App-Chunk | 952 KB | **363 KB** (Budget-Check in `check.sh`) |
-| history.db / Freelist | 331 MB / 38,7 % | erster Wartungslauf 5 min nach Start (`db maintenance: full compact`) bzw. Settings → Clipboard history → „Compact now“ — Zahl im Release-Commit |
-| Gesten-Ticker im Leerlauf | ~42 Wakeups/s | 0 (parkt; 1 Wakeup/s Sicherheitsnetz) |
+| history.db / toter Raum | 331 MB / 38,7 % | **203,7 MB / 0,4 %** (erster Wartungslauf 5 min nach Start; WAL nach dem Nachfix 4 MB statt 203 MB) |
+| Eager App-Chunk | 952 KB | **355 KB** (Budget-Gate in `check.sh`) |
+| DB-Öffnen (`db ready`) | (nicht gemessen — die „db at“-Zeile datierte nur den Setup-Beginn) | **4–38 ms**; die ~400–580 ms davor sind Tauri-/WebKit-Setup |
+| Gesten-Ticker im Leerlauf | ~42 Wakeups/s | 0 (parkt; 1 Wakeup/s Sicherheitsnetz) — strukturell, unter `top`s 1-%-Auflösung nicht als Zahl belegbar |
+| Idle-CPU (30–60 s, boom-Brücke pausiert) | 0,24 % | **0,29 %** = unverändert im Rauschen; direkt nach dem 200-MB-VACUUM kurz 0,8–1,2 % |
+| Speicher | RSS 39 MB (Prozess 2 h 53 alt) | **Physical footprint 43,9 MB** frisch gestartet (Peak 112 MB während Startup/App-Index); RSS 82 MB zählt geteilte Framework-Seiten mit — ab jetzt misst die Probe den Footprint |
 | `findSnippets` je Anschlag | bis zu ~300 AES-Decrypts | 0 (Cache, generation-invalidiert) |
 | Popup-Öffnen ohne Kopie seit dem letzten Mal | 1000-Zeilen-Decrypt + IPC | kein Roundtrip (Dirty-Flag) |
 | Stats-Sammler je Minute | Disks-Walk + SMC-Fans + Host-Strings | nur CPU/RAM/Netz/Temp/Akku |
 
-Idle-CPU/RSS/Startzeit: Vorher/Nachher-JSON in den Commit-Messages
-(`perf(probe)` = Baseline, Release-Commit = Nachher). Das „db ready“-Log
-liefert ab v0.166.0 die echte DB-Öffnungszeit (die frühere „db at“-Zeile
-datierte nur den Setup-Beginn).
+Ehrliche Einordnung: die messbaren Gewinne sind **Disk (−128 MB), Start-Parse
+(−63 %) und die Arbeit pro Tastendruck/Öffnen**; Idle-CPU und Speicher waren
+schon vorher im Soll und haben sich in der Messauflösung nicht bewegt — die
+Ticker-Änderung ist trotzdem richtig (42 Wakeups/s auf einem Laptop kosten
+Energie, nicht Prozentpunkte). Drei Plan-Annahmen (A3, B1, B3) waren falsch
+und stehen korrigiert im Text.

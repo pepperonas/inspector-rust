@@ -13,7 +13,8 @@
 #                      popup webview built; the DB itself opens right after — see db_ready_ms)
 #   db_ready_ms        log: "… starting" → "db ready" (crypto init + open + table init), null on old builds
 #   idle_cpu_pct       mean %CPU over PROBE_CPU_SECS (top -l samples, 1 s apart)
-#   rss_mb / threads   live process
+#   rss_mb / threads   live process (RSS counts shared framework pages — see footprint_mb)
+#   footprint_mb       vmmap 'Physical footprint' — the honest macOS memory number
 #   db_mb / wal_mb     history.db + WAL on disk
 #   freelist_pct       PRAGMA freelist_count / page_count (dead space)
 #   app_chunk_kb / css_kb / entry_kb   last frontend build in core/frontend/dist
@@ -52,10 +53,12 @@ print(int((p(b)-p(a)).total_seconds()*1000))" "$1" "$2" 2>/dev/null || echo null
 fi
 
 # ── live process ────────────────────────────────────────────────────────────
-rss_mb="null"; threads="null"; idle_cpu_pct="null"
+rss_mb="null"; threads="null"; idle_cpu_pct="null"; footprint_mb="null"
 if [ -n "$pid" ]; then
   rss_mb=$(ps -p "$pid" -o rss= | awk '{printf "%.1f", $1/1024}')
   threads=$(ps -M -p "$pid" | tail -n +2 | wc -l | tr -d ' ')
+  footprint_mb=$(vmmap -summary "$pid" 2>/dev/null | awk '/^Physical footprint:/ {gsub("M","",$3); print $3; exit}' || echo null)
+  [ -z "$footprint_mb" ] && footprint_mb=null
   # top prints one sample per second; skip the first (it is cumulative).
   # `-stats pid,cpu` → "PID  %CPU" rows; guard on the pid column so a header
   # or a stray line can never be summed as CPU (the first draft summed PIDs).
@@ -79,5 +82,5 @@ app_chunk_kb=$(kb "$(ls "$dist"/App-*.js 2>/dev/null | head -1)")
 css_kb=$(kb "$(ls "$dist"/index-*.css 2>/dev/null | head -1)")
 entry_kb=$(kb "$(ls -S "$dist"/index-*.js 2>/dev/null | head -1)")
 
-printf '{"version":"%s","startup_ms":%s,"setup_start_ms":%s,"db_ready_ms":%s,"idle_cpu_pct":%s,"rss_mb":%s,"threads":%s,"db_mb":%s,"wal_mb":%s,"freelist_pct":%s,"app_chunk_kb":%s,"css_kb":%s,"entry_kb":%s,"cpu_secs":%s}\n' \
-  "$version" "$startup_ms" "$setup_start_ms" "$db_ready_ms" "$idle_cpu_pct" "$rss_mb" "$threads" "$db_mb" "$wal_mb" "$freelist_pct" "$app_chunk_kb" "$css_kb" "$entry_kb" "$CPU_SECS"
+printf '{"version":"%s","startup_ms":%s,"setup_start_ms":%s,"db_ready_ms":%s,"idle_cpu_pct":%s,"rss_mb":%s,"footprint_mb":%s,"threads":%s,"db_mb":%s,"wal_mb":%s,"freelist_pct":%s,"app_chunk_kb":%s,"css_kb":%s,"entry_kb":%s,"cpu_secs":%s}\n' \
+  "$version" "$startup_ms" "$setup_start_ms" "$db_ready_ms" "$idle_cpu_pct" "$rss_mb" "$footprint_mb" "$threads" "$db_mb" "$wal_mb" "$freelist_pct" "$app_chunk_kb" "$css_kb" "$entry_kb" "$CPU_SECS"

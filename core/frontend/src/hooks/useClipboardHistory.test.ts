@@ -43,25 +43,32 @@ describe("useClipboardHistory — hidden-popup visibility gate (v0.105.0)", () =
     expect(getHistory).toHaveBeenCalledTimes(1);
   });
 
-  it("window-shown refreshes unconditionally and re-enables live refetches", async () => {
+  it("window-shown refreshes ONLY when a copy happened while hidden (B2), then goes live", async () => {
+    // PERFORMANCE-PLAN B2 (v0.166.0): the pre-v0.166 contract refreshed on
+    // EVERY open — a 1000-row decrypt + IPC for the common case of "no copy
+    // since last time". A clean open is now free; a copy while visible still
+    // refetches live.
     renderHook(() => useClipboardHistory());
     await waitFor(() => expect(handlers.size).toBe(3));
     await fire("window-shown");
-    expect(getHistory).toHaveBeenCalledTimes(2); // fresh the moment it's visible
+    expect(getHistory).toHaveBeenCalledTimes(1); // nothing changed → no refetch
     await fire("clipboard-changed");
-    expect(getHistory).toHaveBeenCalledTimes(3); // visible → live again
+    expect(getHistory).toHaveBeenCalledTimes(2); // visible → live again
   });
 
-  it("popup-hidden re-parks the refetch until the next show", async () => {
+  it("a copy while hidden marks the list stale, and the next show refreshes exactly once", async () => {
     renderHook(() => useClipboardHistory());
     await waitFor(() => expect(handlers.size).toBe(3));
-    await fire("window-shown"); // 2
+    await fire("window-shown"); // clean → still 1
     await fire("popup-hidden");
     await fire("clipboard-changed");
     await fire("clipboard-changed");
-    expect(getHistory).toHaveBeenCalledTimes(2); // parked again
+    expect(getHistory).toHaveBeenCalledTimes(1); // parked: no fetch for a hidden UI
     await fire("window-shown");
-    expect(getHistory).toHaveBeenCalledTimes(3); // and fresh on re-open
+    expect(getHistory).toHaveBeenCalledTimes(2); // stale → fresh on re-open
+    await fire("popup-hidden");
+    await fire("window-shown");
+    expect(getHistory).toHaveBeenCalledTimes(2); // nothing new → free again
   });
 
   it("unmount detaches all three listeners", async () => {

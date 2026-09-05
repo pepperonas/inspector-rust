@@ -14,8 +14,17 @@ export function useClipboardHistory() {
   // Starts `true`: the popup window is created hidden at launch (the mount
   // refresh below still loads the initial data once).
   const hiddenRef = useRef(true);
+  // Dirty flag (PERFORMANCE-PLAN B2, v0.166.0): "window-shown" used to
+  // refresh UNCONDITIONALLY — a 1000-row decrypt + IPC marshal on every open,
+  // although most opens follow no copy at all. Now a "clipboard-changed"
+  // that arrives while hidden only MARKS the list stale, and "window-shown"
+  // refreshes iff something was marked. The flag also starts `true` (nothing
+  // loaded yet), and any own write path emits "clipboard-changed" too, so a
+  // stale list is impossible unless the event itself is lost.
+  const dirtyRef = useRef(true);
 
   const refresh = useCallback(async () => {
+    dirtyRef.current = false;
     const rows = await getHistory(1000, 0);
     setEntries(rows);
     setLoading(false);
@@ -31,14 +40,15 @@ export function useClipboardHistory() {
     let unshow: UnlistenFn | undefined;
     let unhide: UnlistenFn | undefined;
     void listen("clipboard-changed", () => {
-      if (!hiddenRef.current) void refresh();
+      if (hiddenRef.current) dirtyRef.current = true;
+      else void refresh();
     }).then((u) => {
       if (cancelled) u();
       else unlisten = u;
     });
     void listen("window-shown", () => {
       hiddenRef.current = false;
-      void refresh();
+      if (dirtyRef.current) void refresh();
     }).then((u) => {
       if (cancelled) u();
       else unshow = u;

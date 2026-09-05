@@ -92,6 +92,7 @@ pub fn categorize_existing(db: &DbHandle) -> Result<()> {
         }
         let refs: Vec<&dyn rusqlite::ToSql> = params.iter().map(|b| b.as_ref()).collect();
         conn.execute(&sql, refs.as_slice())?;
+        crate::snippets::invalidate_cache(); // external SQL writer → read cache (A5)
         Ok(())
     };
     assign(DEFAULT_PROMPTS_JSON, GROUP_AI)?;

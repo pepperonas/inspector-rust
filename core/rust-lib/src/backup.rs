@@ -749,6 +749,7 @@ pub fn replace_all(db: &DbHandle, backup: Backup) -> Result<BackupImportResult> 
         let conn = db.lock();
         conn.execute("DELETE FROM entries", [])?;
         conn.execute("DELETE FROM snippets", [])?;
+        crate::snippets::invalidate_cache(); // external SQL writer → read cache (A5)
         conn.execute("DELETE FROM notes", [])?;
     }
     apply(db, backup)

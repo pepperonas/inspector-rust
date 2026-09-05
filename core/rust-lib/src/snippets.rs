@@ -4,6 +4,8 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use crate::db::DbHandle;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 
 fn default_version() -> i64 {
     1
@@ -116,6 +118,46 @@ const SNIPPET_COLS: &str =
     "s.id, s.abbreviation, s.title, s.body, s.created_at, s.updated_at, c.name, s.version";
 const SNIPPET_FROM: &str =
     "FROM snippets s LEFT JOIN snippet_categories c ON c.id = s.category_id";
+
+// ── Read cache (PERFORMANCE-PLAN A5, v0.166.0) ───────────────────────────────
+//
+// `find_by_query` fills its remaining slots from the BODIES, which are
+// AES-encrypted at rest — historically that decrypted every snippet on every
+// keystroke that had no abbreviation/title hit (all ~300 rows, over IPC).
+// The cache holds the decrypted `Snippet`s process-wide; it is invalidated by
+// a generation counter that EVERY write path bumps (the snippet + category
+// CRUD below, plus the two external SQL writers: backup restore and the seed
+// categoriser). Lock discipline: the cache mutex is never held while the DB
+// mutex is taken and vice versa — the generation is an atomic, so a writer
+// bumping it while holding the DB lock cannot deadlock a reader, and a read
+// that raced a write simply isn't cached (its generation no longer matches).
+// Plaintext bodies live in memory only for the process lifetime; the at-rest
+// encryption (the DB file) is untouched.
+static CACHE_GEN: AtomicU64 = AtomicU64::new(1);
+static CACHE: parking_lot::Mutex<Option<(u64, Arc<Vec<Snippet>>)>> = parking_lot::Mutex::new(None);
+
+/// Drop the read cache. Called by every write path in this module; external
+/// writers (backup restore, seed) call it too. Cheap (one atomic add).
+pub fn invalidate_cache() {
+    CACHE_GEN.fetch_add(1, Ordering::SeqCst);
+}
+
+/// `list_all` through the process-wide cache. Same rows, same order.
+pub fn list_all_cached(db: &DbHandle) -> Result<Arc<Vec<Snippet>>> {
+    let gen = CACHE_GEN.load(Ordering::SeqCst);
+    if let Some((g, v)) = CACHE.lock().as_ref() {
+        if *g == gen {
+            return Ok(v.clone());
+        }
+    }
+    let fresh = Arc::new(list_all(db)?);
+    // A write that landed during our read bumped the generation → do not
+    // cache what may already be stale; the next reader refills.
+    if CACHE_GEN.load(Ordering::SeqCst) == gen {
+        *CACHE.lock() = Some((gen, fresh.clone()));
+    }
+    Ok(fresh)
+}
 
 pub fn list_all(db: &DbHandle) -> Result<Vec<Snippet>> {
     let conn = db.lock();
@@ -230,12 +272,13 @@ pub fn find_by_query(db: &DbHandle, query: &str) -> Result<Vec<Snippet>> {
     // Pass 2 — body matches fill the remaining slots (weakest signal last).
     if out.len() < LIMIT {
         let seen: std::collections::HashSet<i64> = out.iter().map(|s| s.id).collect();
-        for s in list_all(db)? {
+        // Through the read cache (A5): no per-keystroke decrypt of every body.
+        for s in list_all_cached(db)?.iter() {
             if out.len() >= LIMIT {
                 break;
             }
             if !seen.contains(&s.id) && s.body.to_lowercase().contains(&q) {
-                out.push(s);
+                out.push(s.clone());
             }
         }
     }
@@ -361,6 +404,7 @@ pub fn create(
          VALUES (?1, ?2, ?3, ?4, ?5, ?5, ?6)",
         params![abbreviation.trim(), title.trim(), enc_body, category_id, now, version],
     )?;
+    invalidate_cache();
     Ok(conn.last_insert_rowid())
 }
 
@@ -436,6 +480,7 @@ pub fn update(
         )?;
     }
     tx.commit()?;
+    invalidate_cache();
     Ok(())
 }
 
@@ -446,6 +491,7 @@ pub fn set_category(db: &DbHandle, id: i64, category_id: Option<i64>) -> Result<
         "UPDATE snippets SET category_id = ?1 WHERE id = ?2",
         params![category_id, id],
     )?;
+    invalidate_cache();
     Ok(())
 }
 
@@ -491,6 +537,7 @@ pub fn create_category(db: &DbHandle, name: &str) -> Result<i64> {
         "INSERT INTO snippet_categories (name, sort_order) VALUES (?1, ?2)",
         params![name, next],
     )?;
+    invalidate_cache();
     Ok(conn.last_insert_rowid())
 }
 
@@ -506,6 +553,7 @@ pub fn rename_category(db: &DbHandle, id: i64, name: &str) -> Result<()> {
         params![name, id],
     )
     .map_err(|e| anyhow!("rename failed (name in use?): {e}"))?;
+    invalidate_cache(); // the group NAME is part of every Snippet row
     Ok(())
 }
 
@@ -514,6 +562,7 @@ pub fn delete_category(db: &DbHandle, id: i64) -> Result<()> {
     let conn = db.lock();
     conn.execute("UPDATE snippets SET category_id = NULL WHERE category_id = ?1", params![id])?;
     conn.execute("DELETE FROM snippet_categories WHERE id = ?1", params![id])?;
+    invalidate_cache();
     Ok(())
 }
 
@@ -556,6 +605,7 @@ pub fn delete(db: &DbHandle, id: i64) -> Result<()> {
         record_tombstone_conn(&conn, &abbr, version)?;
     }
     conn.execute("DELETE FROM snippets WHERE id = ?1", params![id])?;
+    invalidate_cache();
     Ok(())
 }
 
@@ -657,6 +707,7 @@ pub fn upsert_by_abbreviation(
         "#,
         params![abbr, title, enc_body, category_id, now, applies, new_version],
     )?;
+    invalidate_cache();
     Ok(())
 }
 
@@ -1252,5 +1303,62 @@ mod tests {
             )
             .unwrap();
         assert_eq!(n, 1, "the peer must learn the old key is gone");
+    }
+
+    // ── Read cache (A5) ───────────────────────────────────────────────────
+
+    fn cache_db() -> DbHandle {
+        let conn = Connection::open_in_memory().unwrap();
+        let db: DbHandle = Arc::new(parking_lot::Mutex::new(conn));
+        init_table(&db).unwrap();
+        db
+    }
+
+    #[test]
+    fn cache_serves_the_same_rows_and_every_write_path_invalidates_it() {
+        let db = cache_db();
+        let id = create(&db, "ab", "Title", "hello body", None).unwrap();
+        let first = list_all_cached(&db).unwrap();
+        assert_eq!(first.len(), 1);
+        // Same generation → the very same Arc (no re-read, no re-decrypt).
+        assert!(Arc::ptr_eq(&first, &list_all_cached(&db).unwrap()));
+
+        // update → visible
+        update(&db, id, "ab", "Title 2", "hello body", None).unwrap();
+        assert_eq!(list_all_cached(&db).unwrap()[0].title, "Title 2");
+        // category assign + rename → the joined name is part of the row
+        let cat = create_category(&db, "Work").unwrap();
+        set_category(&db, id, Some(cat)).unwrap();
+        assert_eq!(list_all_cached(&db).unwrap()[0].category.as_deref(), Some("Work"));
+        rename_category(&db, cat, "Job").unwrap();
+        assert_eq!(list_all_cached(&db).unwrap()[0].category.as_deref(), Some("Job"));
+        delete_category(&db, cat).unwrap();
+        assert_eq!(list_all_cached(&db).unwrap()[0].category, None);
+        // upsert (new row) → visible
+        upsert_by_abbreviation(&db, "cd", "T", "other body", CategoryAssign::Keep, 1).unwrap();
+        assert_eq!(list_all_cached(&db).unwrap().len(), 2);
+        // delete → gone
+        delete(&db, id).unwrap();
+        let after = list_all_cached(&db).unwrap();
+        assert_eq!(after.len(), 1);
+        assert_eq!(after[0].abbreviation, "cd");
+        // explicit invalidation (the external writers' hook) → fresh Arc
+        let a = list_all_cached(&db).unwrap();
+        invalidate_cache();
+        let b = list_all_cached(&db).unwrap();
+        assert!(!Arc::ptr_eq(&a, &b));
+    }
+
+    #[test]
+    fn body_search_sees_an_edit_made_after_the_cache_filled() {
+        // The failure mode a cache invites: a body edited AFTER a search
+        // filled the cache must be found by the next search.
+        let db = cache_db();
+        let id = create(&db, "zz", "", "alpha text", None).unwrap();
+        assert_eq!(find_by_query(&db, "alpha").unwrap().len(), 1);
+        assert_eq!(find_by_query(&db, "omega").unwrap().len(), 0);
+        update(&db, id, "zz", "", "omega text", None).unwrap();
+        assert_eq!(find_by_query(&db, "omega").unwrap().len(), 1);
+        assert_eq!(find_by_query(&db, "alpha").unwrap().len(), 0);
     }
 }

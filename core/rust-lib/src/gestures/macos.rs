@@ -246,11 +246,31 @@ pub(crate) fn is_running() -> bool {
     RUNNING.load(Ordering::Relaxed)
 }
 
+/// Park/wake gate for the settle ticker (A2). The frame callback notifies
+/// whenever the recogniser reports work (`needs_tick`), `stop()` notifies so a
+/// parked ticker can exit. The 1 s timeout is a safety net only — it costs one
+/// wakeup per second instead of ~42, and guarantees a missed notify can never
+/// strand a pending tap.
+static TICK_GATE: (Mutex<()>, parking_lot::Condvar) = (Mutex::new(()), parking_lot::Condvar::new());
+
+fn wake_ticker() {
+    TICK_GATE.1.notify_all();
+}
+
 /// The recogniser tick loop (own thread). Finalises a deferred tap cluster once
 /// the pad has been quiet past the settle window and dispatches it through the
 /// sink — the piece the frame callback can't do (no frames arrive after lift).
+/// PARKS while the recogniser has nothing deferred (PERFORMANCE-PLAN A2): the
+/// pre-v0.166 loop slept 24 ms unconditionally, ~42 wakeups/s around the
+/// clock with no finger on the pad.
 fn tick_thread() {
     while RUNNING.load(Ordering::Relaxed) {
+        let pending = REC.lock().as_ref().map(|r| r.needs_tick()).unwrap_or(false);
+        if !pending {
+            let mut guard = TICK_GATE.0.lock();
+            TICK_GATE.1.wait_for(&mut guard, std::time::Duration::from_secs(1));
+            continue;
+        }
         std::thread::sleep(std::time::Duration::from_millis(TICK_MS));
         if !RUNNING.load(Ordering::Relaxed) {
             break;
@@ -339,13 +359,16 @@ extern "C" fn frame_callback(
         rn += 1;
     }
 
-    let (event, prev_active, active) = {
+    let (event, prev_active, active, pending) = {
         let mut rec = REC.lock();
         let rec = rec.get_or_insert_with(PalmAwareRecognizer::new);
         let prev_active = rec.active_fingers();
         let ev = rec.feed(t_ms, &raw[..rn]);
-        (ev, prev_active, rec.active_fingers())
+        (ev, prev_active, rec.active_fingers(), rec.needs_tick())
     };
+    if pending {
+        wake_ticker(); // a deferred tap needs the settle ticker (A2)
+    }
 
     // Scroll-consume window: while ≥3 ACTIVE fingers are down (parked palms /
     // resting thumbs excluded — a palm + 2-finger scroll must keep scrolling),
@@ -605,6 +628,7 @@ impl GestureSource for MacGestureSource {
 
     fn stop(&mut self) {
         RUNNING.store(false, Ordering::SeqCst);
+        wake_ticker(); // a parked settle ticker must see RUNNING=false and exit
         SWALLOW_UNTIL_MS.store(0, Ordering::SeqCst);
         let tap = SCROLL_TAP_PORT.swap(0, Ordering::SeqCst) as CFMachPortRef;
         if !tap.is_null() {

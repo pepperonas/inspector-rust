@@ -1254,6 +1254,15 @@ impl PalmAwareRecognizer {
         carried
     }
 
+    /// Whether the settle ticker has any work: a tap cluster is open and waiting
+    /// to be finalised. The platform ticker PARKS while this is false
+    /// (PERFORMANCE-PLAN A2) — before v0.166.0 it woke every 24 ms around the
+    /// clock, ~42 wakeups/s with no finger on the pad, the bulk of the app's
+    /// idle CPU.
+    pub fn needs_tick(&self) -> bool {
+        self.cluster_open
+    }
+
     /// Emit a deferred TAP once the pad has settled. Call periodically (the
     /// platform layer runs a ~40 ms tick); pure + testable. Returns the coalesced
     /// N-finger tap (N = distinct non-palm contacts in the cluster) exactly once,
@@ -2311,6 +2320,26 @@ mod tests {
     /// SEQUENTIAL single-finger touches (0→1→0 each, ~25 ms apart — never 3 at
     /// once) must still coalesce into ONE 3-finger tap (→ mute), via the cluster
     /// + settle tick. This is exactly the field-logged failure.
+    #[test]
+    fn needs_tick_is_true_only_while_a_tap_cluster_waits_for_its_settle() {
+        // The ticker's park condition (A2): idle pad → no work; a lifted tap →
+        // work until the settle finalises it → no work again. A ticker that
+        // parked while a cluster waited would never finalise the tap (mute
+        // would die); one that never parked is the old 42-wakeups/s.
+        let mut r = PalmAwareRecognizer::new();
+        assert!(!r.needs_tick(), "fresh recogniser has nothing to tick");
+        let c = |id: i32, x: f64| RawContact { id, x, y: 0.5, size: 1.0 };
+        r.feed(0, &[c(1, 0.4), c(2, 0.5), c(3, 0.6)]);
+        assert!(!r.needs_tick(), "fingers still down: nothing deferred yet");
+        r.feed(60, &[]); // lift → the tap cluster opens, deferred to the tick
+        assert!(r.needs_tick(), "a lifted tap must keep the ticker awake");
+        assert!(r.tick(100).is_none(), "not settled yet (TAP_SETTLE_MS)");
+        assert!(r.needs_tick());
+        let ev = r.tick(60 + TAP_SETTLE_MS + 1);
+        assert_eq!(ev.map(|e| (e.kind, e.fingers)), Some((GestureKind::Tap, 3)));
+        assert!(!r.needs_tick(), "finalised → the ticker may park again");
+    }
+
     #[test]
     fn sequential_single_touches_coalesce_into_one_three_finger_tap() {
         let evs = palm_events(&[

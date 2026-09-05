@@ -418,16 +418,6 @@ pub struct DbSpace {
     pub page_count: u64,
 }
 
-impl DbSpace {
-    pub fn freelist_ratio(&self) -> f64 {
-        if self.page_count == 0 {
-            0.0
-        } else {
-            self.freelist_pages as f64 / self.page_count as f64
-        }
-    }
-}
-
 /// Pure: does this much dead space warrant a full VACUUM? `ratio` is the
 /// threshold (`COMPACT_FREELIST_RATIO` in production). An empty DB never does.
 pub fn should_compact(freelist_pages: u64, page_count: u64, ratio: f64) -> bool {
@@ -524,7 +514,7 @@ mod compact_tests {
         }
         let before = space(&db).unwrap();
         assert!(before.freelist_pages > 0, "deletes must leave dead pages: {before:?}");
-        assert!(before.freelist_ratio() > 0.5);
+        assert!(before.freelist_pages as f64 / before.page_count as f64 > 0.5);
         let after = compact(&db).unwrap();
         assert_eq!(after.freelist_pages, 0, "VACUUM must drop the freelist: {after:?}");
         assert!(after.bytes < before.bytes);

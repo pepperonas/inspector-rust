@@ -1026,16 +1026,23 @@ pub(crate) fn driver_present() -> bool {
 /// boom Audio's mute property live (µs — the panel polls ~8 Hz) so the UI can
 /// say WHY the output is silent instead of looking broken.
 pub(crate) fn levels() -> (f32, f32, bool, bool) {
-    let muted = [&LEVELS_BOOM_DEV, &LEVELS_REAL_DEV].iter().any(|a| {
-        let dev = a.load(Ordering::Relaxed);
-        dev != 0 && unsafe { device_mute(dev) }.unwrap_or(false)
-    });
     (
         f32::from_bits(CB_IN_RMS_BITS.load(Ordering::Relaxed)),
         f32::from_bits(CB_OUT_RMS_BITS.load(Ordering::Relaxed)),
         CLIP.swap(false, Ordering::Relaxed),
-        muted,
+        bridge_muted(),
     )
+}
+
+/// Is EITHER bridge device muted right now (boom Audio, where keys/gestures
+/// land, or the real output behind it)? `false` while no bridge runs. Pure
+/// reads, no side effects — unlike `levels()`, which also resets the clip
+/// latch, so the mute path must call THIS, never `levels()`.
+pub(crate) fn bridge_muted() -> bool {
+    [&LEVELS_BOOM_DEV, &LEVELS_REAL_DEV].iter().any(|a| {
+        let dev = a.load(Ordering::Relaxed);
+        dev != 0 && unsafe { device_mute(dev) }.unwrap_or(false)
+    })
 }
 
 /// boom Audio's / the real output's device ids while a session runs (0 =
@@ -1597,5 +1604,52 @@ mod probe_tests {
                 );
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod mute_live_tests {
+    //! Live, non-destructive (restores every state it touches). Run with
+    //! `cargo test -p inspector-rust-core --lib mute_live -- --ignored --nocapture`.
+    use super::*;
+
+    /// The v0.169.1 field state, staged for real: boom Audio (the default
+    /// output) reads UNMUTED while the real output behind it is MUTED. The old
+    /// toggle read the default, saw "unmuted", wrote "muted" on boom Audio —
+    /// and the user was silent twice over. The new toggle must read the mute
+    /// through the bridge, take it as an UNMUTE, and clear BOTH devices.
+    #[test]
+    #[ignore]
+    fn a_toggle_unmutes_a_muted_real_output_hiding_behind_boom() {
+        let boom = unsafe { find_device_by_uid("BoomAudio_UID") };
+        let real = unsafe { find_device_by_uid("BuiltInSpeakerDevice") };
+        if boom == 0 || real == 0 {
+            eprintln!("boom driver or built-in speakers not present — skipping");
+            return;
+        }
+        // The test process has no running bridge; register the pair the way
+        // start_locked does so bridge_muted() looks through the same window.
+        let (b0, r0) = unsafe { (device_mute(boom), device_mute(real)) };
+        let (lb0, lr0) = (LEVELS_BOOM_DEV.load(Ordering::Relaxed), LEVELS_REAL_DEV.load(Ordering::Relaxed));
+        LEVELS_BOOM_DEV.store(boom, Ordering::Relaxed);
+        LEVELS_REAL_DEV.store(real, Ordering::Relaxed);
+        unsafe {
+            set_device_mute(boom, false);
+            set_device_mute(real, true);
+        }
+        let staged = unsafe { (device_mute(boom), device_mute(real)) };
+        let outcome = crate::system_commands::toggle_system_mute();
+        let after = unsafe { (device_mute(boom), device_mute(real)) };
+        // Restore before asserting so a failure can't leave the machine muted.
+        unsafe {
+            set_device_mute(boom, b0.unwrap_or(false));
+            set_device_mute(real, r0.unwrap_or(false));
+        }
+        LEVELS_BOOM_DEV.store(lb0, Ordering::Relaxed);
+        LEVELS_REAL_DEV.store(lr0, Ordering::Relaxed);
+        eprintln!("staged {staged:?} → toggle {outcome:?} → after {after:?}");
+        assert_eq!(staged, (Some(false), Some(true)), "could not stage the field state");
+        assert!(!outcome.unwrap(), "the toggle must report UNMUTED");
+        assert_eq!(after, (Some(false), Some(false)), "both devices must be clear");
     }
 }

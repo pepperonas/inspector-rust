@@ -24,6 +24,7 @@ mod bench;
 mod bench_export;
 mod bluetooth;
 mod bruno_export;
+mod auto_backup;
 mod device_sync;
 mod pagespeed;
 mod pagespeed_export;
@@ -100,6 +101,7 @@ mod text_field;
 mod timer;
 mod ui_state;
 mod wakelock;
+mod qr;
 
 pub use ui_state::UiState;
 
@@ -132,7 +134,11 @@ pub fn run(context: tauri::Context<Wry>) {
         logging::log_dir()
     );
 
-    tauri::Builder::default()
+    // `mut` is used only by the macOS-gated `set_activation_policy` on the
+    // built app below; on Linux/Windows that call is cfg'd out, so allow the
+    // otherwise-unused `mut` there (clippy runs with -D warnings).
+    #[cfg_attr(not(target_os = "macos"), allow(unused_mut))]
+    let mut app = tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             if let Some(action) = cli_dispatch::parse_args(argv) {
                 tracing::info!("CLI action (second instance): {action:?}");
@@ -456,6 +462,7 @@ pub fn run(context: tauri::Context<Wry>) {
             // Cloud sync with cue (snippets, opt-in via Settings).
             sync::start(app.handle().clone(), db_handle.clone());
             device_sync::start(app.handle().clone(), db_handle.clone());
+            auto_backup::start(app.handle().clone(), db_handle.clone());
 
             // Re-apply the last-chosen brightness/EDR levels (gamma dies with
             // the process; without this every restart resets to 100 %).
@@ -495,7 +502,11 @@ pub fn run(context: tauri::Context<Wry>) {
                 cli_dispatch::dispatch(app.handle(), action);
             }
 
-            // Hide from macOS Dock — Inspector Rust is a tray-only background app.
+            // Belt-and-braces re-assertion of the accessory (Dock-hidden) policy.
+            // The FLASH-FREE call is the one on the built app *before* `run()`
+            // (see the tail of `run()`); this one runs at the later `Ready`
+            // event, so it can't prevent the launch flash on its own — it just
+            // keeps the policy pinned if anything perturbed it during setup.
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Accessory);
 
@@ -658,6 +669,14 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::get_device_sync_status,
             commands::set_device_sync_passphrase,
             commands::device_sync_now,
+            commands::get_auto_backup_config,
+            commands::set_auto_backup_config,
+            commands::get_auto_backup_status,
+            commands::set_auto_backup_password,
+            commands::auto_backup_list_snapshots,
+            commands::auto_backup_now,
+            commands::auto_backup_restore,
+
             commands::sync_now,
             commands::sync_test_connection,
             commands::get_gesture_config,
@@ -719,6 +738,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::recolor_image_entry,
             commands::image_chromaticity,
             commands::qr_copy_png,
+            commands::qr_save,
             commands::figlet_copy_png,
             commands::figlet_save_png,
             commands::cut_out_image_entry,
@@ -830,6 +850,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_pagespeed_key,
             commands::disk_scan,
             commands::disk_trash,
+            commands::disk_trash_many,
             commands::get_clock_zones,
             commands::set_clock_zones,
             commands::repo_analyze,
@@ -1010,14 +1031,29 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::linux_web_hotkey_to_gsettings,
         ])
         .build(context)
-        .expect("error while building Inspector Rust")
-        .run(|_app, event| {
-            // Tear the boom audio engine down on quit so the system output is
-            // never left muted (muted tap = our IOProc is the only path).
-            if matches!(event, tauri::RunEvent::Exit) {
-                boom::shutdown();
-            }
-        });
+        .expect("error while building Inspector Rust");
+
+    // Hide from the Dock BEFORE the event loop starts — this is the call that
+    // makes the launch flash-free. tao applies its DEFAULT activation policy
+    // (Regular) at `applicationDidFinishLaunching`, and `set_activation_policy`
+    // from inside `.setup()` lands only at the later `Ready` event (the runtime
+    // is already taken by `run()`, so it's deferred) — one beat too late, so the
+    // Dock icon flashes for a frame. Setting it on the BUILT app, while the
+    // runtime is still present, writes tao's aux state before launch, so tao
+    // applies Accessory directly and the icon never appears. Paired with
+    // `LSUIElement` (the pre-launch bundle declaration) this is a truly
+    // flash-free menu-bar-only start; the `.setup()` call remains as a
+    // belt-and-braces re-assertion.
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+    app.run(|_app, event| {
+        // Tear the boom audio engine down on quit so the system output is
+        // never left muted (muted tap = our IOProc is the only path).
+        if matches!(event, tauri::RunEvent::Exit) {
+            boom::shutdown();
+        }
+    });
 }
 
 fn build_tray(app: &tauri::AppHandle) -> tauri::Result<()> {
@@ -1281,6 +1317,40 @@ mod tray_icon_tests {
         assert!(
             (17.0..=19.0).contains(&width_pt),
             "glyph should be ~18 pt wide, is {width_pt}"
+        );
+    }
+}
+
+/// The macOS shell must declare itself a **menu-bar agent** (`LSUIElement`), or
+/// macOS gives it a Dock icon and a launch-time Dock flash — the app is
+/// tray-only, so that is a regression. The key is merged into the bundle's
+/// `Info.plist` by the Tauri v2 bundler from `macos/src-tauri/Info.plist`
+/// (both the install script's build and `pnpm build:macos` DMGs go through it),
+/// which is why the runtime `set_activation_policy(Accessory)` alone is not
+/// enough — that only takes effect at the Ready event, after the flash.
+///
+/// macOS-only on purpose: the `include_str!` reaches into the sibling macOS
+/// shell crate, so gating the whole module keeps the Linux/Windows builds from
+/// depending on that path.
+#[cfg(all(test, target_os = "macos"))]
+mod agent_app_tests {
+    // Relative to core/rust-lib/src/ → repo root → the macOS shell.
+    const INFO_PLIST: &str = include_str!("../../../macos/src-tauri/Info.plist");
+
+    #[test]
+    fn the_macos_bundle_is_declared_a_menu_bar_agent() {
+        // The key AND its true value, tolerant of plutil's whitespace: a bare
+        // `<key>LSUIElement</key>` with a `<false/>` under it would be worse
+        // than nothing (it would look handled while showing the Dock icon).
+        let body = INFO_PLIST
+            .split("<key>LSUIElement</key>")
+            .nth(1)
+            .expect("Info.plist must declare LSUIElement");
+        let next_tag = body.trim_start();
+        assert!(
+            next_tag.starts_with("<true/>"),
+            "LSUIElement must be <true/> (agent app), found: {}",
+            &next_tag[..next_tag.len().min(24)]
         );
     }
 }

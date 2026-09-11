@@ -7,9 +7,12 @@ import {
   Folder,
   FileIcon,
   CornerLeftUp,
+  Plus,
+  Check,
+  X,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { diskScan, diskTrash, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
+import { diskScan, diskTrashMany, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
 import {
   sunburstArcs,
   arcPath,
@@ -18,13 +21,16 @@ import {
   formatPct,
   baseName,
   parentPath,
-  joinPath,
   pathCrumbs,
   childRows,
+  absPathOf,
+  pruneScan,
+  drillByNames,
+  collectorTotals,
   type Arc,
   type ChildRow,
+  type CollectorItem,
 } from "../lib/disk";
-import { confirmDialog } from "../lib/confirm";
 import { prefersReducedMotion } from "../lib/md3-motion";
 
 /**
@@ -33,7 +39,18 @@ import { prefersReducedMotion } from "../lib/md3-motion";
  * sized by on-disk space), a centre hub with the volume free/used readout,
  * click-to-drill with a breadcrumb, hover details, and a largest-files list.
  * Enter-activated — a full `~` walk is heavy IO, never per keystroke.
+ *
+ * Deleting (v0.169.0) is DaisyDisk's collector, keyboard-first: Space (or ＋)
+ * collects the selected row — folders and files alike, across drill levels —
+ * a bar shows the running total, and ⌘⌫ (or 🗑 in the bar) moves the whole
+ * collection to the Trash, two-stage (arm → confirm). With an empty collector
+ * ⌘⌫ acts on the selected row directly. Nothing re-scans afterwards: the tree
+ * is pruned locally (the bytes now live in the Trash) and the drill position
+ * is kept by NAME, so deleting three things deep in a tree no longer costs
+ * three round trips to the root.
  */
+/** How long an armed delete stays armed before it quietly disarms. */
+const ARM_MS = 4000;
 const SIZE = 320; // svg viewbox (square)
 const CX = SIZE / 2;
 const CY = SIZE / 2;
@@ -74,6 +91,14 @@ export function DiskPanel({
   const aliveRef = useRef(true);
   const scrollRef = useRef<HTMLDivElement>(null);
   const seqRef = useRef(0);
+  // The collector: absolute-path snapshots (they survive drilling elsewhere).
+  const [collector, setCollector] = useState<CollectorItem[]>([]);
+  // Two-stage delete: first ⌘⌫/click arms, the second within ARM_MS commits.
+  const [armed, setArmed] = useState(false);
+  const armTimer = useRef<number | null>(null);
+  const [busy, setBusy] = useState(false);
+  // Per-path failures of the last run, shown until the next action.
+  const [failures, setFailures] = useState<{ path: string; error: string }[]>([]);
 
   const run = useCallback((path: string | null) => {
     const seq = ++seqRef.current;
@@ -141,7 +166,7 @@ export function DiskPanel({
         setDrill((d) => [...d, index]);
         setHover(null);
       } else {
-        const abs = absPath(scan, drill, [index]);
+        const abs = absPathOf(scan, [...drill, index]);
         if (abs) setTarget(abs);
       }
     },
@@ -174,57 +199,7 @@ export function DiskPanel({
     };
   }, [scanning]);
 
-  useEffect(() => {
-    if (!focused) return;
-    const onKey = (e: KeyboardEvent) => {
-      // The path is typed in the search field, so a shortcut must never eat a
-      // keystroke meant for it (the weather lesson). Esc still exits from
-      // anywhere.
-      const tgt = e.target as HTMLElement | null;
-      const typing =
-        !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
 
-      if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        // Esc drills UP one level first, then exits at the root (DaisyDisk's
-        // back gesture).
-        if (!typing && drill.length > 0) setDrill((d) => d.slice(0, -1));
-        else onExit();
-        return;
-      }
-      if (typing || e.metaKey || e.ctrlKey || e.altKey) return;
-      if (e.key === "Backspace" || e.key === "ArrowLeft") {
-        e.preventDefault();
-        goUp();
-      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        // The list is the keyboard path into small folders; the chart can't
-        // offer one because its slivers aren't addressable.
-        e.preventDefault();
-        navigatedRef.current = true;
-        setSel((i) => {
-          const n = rowsRef.current.length;
-          if (n === 0) return 0;
-          return (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
-        });
-      } else if (e.key === "Enter") {
-        e.preventDefault();
-        const row = rowsRef.current[sel];
-        if (row) openChild(row.index, row.node);
-      } else if (e.key === "r" || e.key === "R") {
-        e.preventDefault();
-        run(target);
-      }
-    };
-    window.addEventListener("keydown", onKey, true);
-    return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit, drill, goUp, run, target, sel, openChild]);
-
-
-  const flash = (m: string) => {
-    setNote(m);
-    window.setTimeout(() => setNote((n) => (n === m ? null : n)), 2600);
-  };
 
   // The node the rings are drawn FROM (the drill focus).
   const focusNode: DiskNode | null = useMemo(() => {
@@ -266,6 +241,174 @@ export function DiskPanel({
     }
     return names;
   }, [scan, drill]);
+
+  const flash = useCallback((m: string) => {
+    setNote(m);
+    window.setTimeout(() => setNote((n) => (n === m ? null : n)), 3200);
+  }, []);
+
+  const disarm = useCallback(() => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    armTimer.current = null;
+    setArmed(false);
+  }, []);
+  const arm = useCallback(() => {
+    if (armTimer.current) window.clearTimeout(armTimer.current);
+    setArmed(true);
+    armTimer.current = window.setTimeout(() => setArmed(false), ARM_MS);
+  }, []);
+  useEffect(() => () => { if (armTimer.current) window.clearTimeout(armTimer.current); }, []);
+  // Any change of what's selected or shown disarms — an armed delete must
+  // never fire on something other than what the user was looking at.
+  useEffect(() => { disarm(); }, [sel, focusNode, disarm]);
+
+  /** The collectable identity of a list row — null for the synthetic
+   *  "Sonstiges" bucket, which has no path and can't be trashed. */
+  const itemOf = useCallback(
+    (idxPath: number[], node: DiskNode): CollectorItem | null => {
+      if (!scan || node.other) return null;
+      const path = absPathOf(scan, [...drill, ...idxPath]);
+      return path ? { path, name: node.name, size: node.size, is_dir: node.is_dir } : null;
+    },
+    [scan, drill],
+  );
+
+  const toggleCollect = useCallback((item: CollectorItem | null) => {
+    if (!item) return;
+    disarm();
+    setCollector((c) =>
+      c.some((i) => i.path === item.path) ? c.filter((i) => i.path !== item.path) : [...c, item],
+    );
+  }, [disarm]);
+
+  /** Move `items` to the Trash, then apply the result LOCALLY: prune the
+   *  tree, keep the drill by name, keep the volume readout (the Trash still
+   *  holds the bytes), and surface per-path failures. No re-scan. */
+  const execute = useCallback(async (items: CollectorItem[]) => {
+    disarm();
+    if (!scan || items.length === 0 || busy) return;
+    setBusy(true);
+    setFailures([]);
+    const seq = seqRef.current;
+    const names = drillNames;
+    try {
+      const rep = await diskTrashMany(items.map((i) => i.path));
+      if (!aliveRef.current) return;
+      const trashed = new Set(rep.trashed);
+      // A scan that started meanwhile is fresher than any prune of the old tree.
+      if (seq === seqRef.current) {
+        const pruned = pruneScan(scan, rep.trashed);
+        setScan(pruned);
+        setDrill(drillByNames(pruned.tree, names));
+        setHover(null);
+      }
+      setCollector((c) => c.filter((i) => !trashed.has(i.path)));
+      setFailures(rep.failed);
+      const done = items.filter((i) => trashed.has(i.path));
+      const tot = collectorTotals(done);
+      if (tot.count > 0) {
+        flash(
+          `${tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} in den Papierkorb (${formatBytes(tot.bytes)}) — Platz wird frei, sobald du den Papierkorb leerst`,
+        );
+      }
+    } catch (e) {
+      if (aliveRef.current) setFailures([{ path: "", error: String(e) }]);
+    } finally {
+      if (aliveRef.current) setBusy(false);
+    }
+  }, [scan, busy, drillNames, disarm, flash]);
+
+  /** What ⌘⌫ / the bar button acts on: the collection when it has anything,
+   *  else the selected row alone (the "just delete this" path). */
+  const trashTargets = useCallback((): CollectorItem[] => {
+    if (collector.length > 0) return collector;
+    const row = rowsRef.current[sel];
+    const item = row ? itemOf([row.index], row.node) : null;
+    return item ? [item] : [];
+  }, [collector, sel, itemOf]);
+
+  /** First call arms (the row / bar turns red and says so), the second commits. */
+  const requestTrash = useCallback(() => {
+    const targets = trashTargets();
+    if (targets.length === 0) return;
+    if (!armed) {
+      arm();
+      return;
+    }
+    void execute(targets);
+  }, [trashTargets, armed, arm, execute]);
+
+  useEffect(() => {
+    if (!focused) return;
+    const onKey = (e: KeyboardEvent) => {
+      // The path is typed in the search field, so a shortcut must never eat a
+      // keystroke meant for it (the weather lesson). Esc still exits from
+      // anywhere.
+      const tgt = e.target as HTMLElement | null;
+      const typing =
+        !!tgt && (tgt.tagName === "INPUT" || tgt.tagName === "TEXTAREA" || tgt.isContentEditable);
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        // An armed delete is cancelled first — Esc must always be "no".
+        if (armed) {
+          disarm();
+          return;
+        }
+        // Then Esc drills UP one level, then exits at the root (DaisyDisk's
+        // back gesture).
+        if (!typing && drill.length > 0) setDrill((d) => d.slice(0, -1));
+        else onExit();
+        return;
+      }
+      if (typing) return;
+      // ⌘⌫ is the Finder's "Move to Trash" and the one chord that survives
+      // the modifier guard below; the forward Delete key does the same. Plain
+      // ⌫ stays "one level up".
+      if (((e.metaKey || e.ctrlKey) && e.key === "Backspace") || e.key === "Delete") {
+        e.preventDefault();
+        requestTrash();
+        return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === "Backspace" || e.key === "ArrowLeft") {
+        e.preventDefault();
+        goUp();
+      } else if (e.key === " ") {
+        // Space collects the selected row (folders and files alike).
+        e.preventDefault();
+        const row = rowsRef.current[sel];
+        if (row) toggleCollect(itemOf([row.index], row.node));
+      } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        // The list is the keyboard path into small folders; the chart can't
+        // offer one because its slivers aren't addressable.
+        e.preventDefault();
+        navigatedRef.current = true;
+        setSel((i) => {
+          const n = rowsRef.current.length;
+          if (n === 0) return 0;
+          return (i + (e.key === "ArrowDown" ? 1 : n - 1)) % n;
+        });
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        const row = rowsRef.current[sel];
+        if (row) openChild(row.index, row.node);
+      } else if (e.key === "r" || e.key === "R") {
+        e.preventDefault();
+        run(target);
+      }
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [focused, onExit, drill, goUp, run, target, sel, openChild, armed, disarm, requestTrash, toggleCollect, itemOf]);
+
+  // A prune can shorten the list under the selection.
+  useEffect(() => {
+    if (sel >= rows.length && rows.length > 0) setSel(rows.length - 1);
+  }, [rows, sel]);
+
+  const collectedPaths = useMemo(() => new Set(collector.map((i) => i.path)), [collector]);
 
   if (err) {
     return (
@@ -363,7 +506,7 @@ export function DiskPanel({
                     setDrill([...drill, ...a.path]);
                     setHover(null);
                   } else {
-                    const abs = absPath(scan, drill, a.path);
+                    const abs = absPathOf(scan, [...drill, ...a.path]);
                     if (abs) setTarget(abs);
                   }
                 }}
@@ -396,47 +539,51 @@ export function DiskPanel({
 
       {note && <p className="text-[11px] text-emerald-500">{note}</p>}
 
-      {/* Hover / selection detail + trash action. */}
+      {/* Hover / selection detail — a segment goes into the collector from here. */}
       {hover && !hover.node.other && (
-        <DetailRow arc={hover} whole={focusNode!.size} onTrash={async () => {
-          const abs = absPath(scan, drill, hover.path);
-          if (!abs) return;
-          if (!(await confirmDialog(`„${hover.node.name}“ in den Papierkorb verschieben?`, "Speicher"))) return;
-          try {
-            await diskTrash(abs);
-            flash(`In den Papierkorb: ${hover.node.name}`);
-            run(target); // re-scan to reflect the freed space — stay where we are
-          } catch (e) {
-            flash(String(e));
-          }
-        }} />
+        <DetailRow
+          arc={hover}
+          whole={focusNode!.size}
+          collected={collectedPaths.has(absPathOf(scan, [...drill, ...hover.path]) ?? "")}
+          onCollect={() => toggleCollect(itemOf(hover.path, hover.node))}
+        />
       )}
+
+      <CollectorBar
+        items={collector}
+        armed={armed && collector.length > 0}
+        busy={busy}
+        failures={failures}
+        onRemove={(path) => { disarm(); setCollector((c) => c.filter((i) => i.path !== path)); }}
+        onClear={() => { disarm(); setCollector([]); }}
+        onTrash={requestTrash}
+        onDismissFailures={() => setFailures([])}
+      />
 
       <ChildList
         rows={rows}
         selected={sel}
+        armedRow={armed && collector.length === 0 ? sel : null}
+        collected={collectedPaths}
+        pathOf={(r) => absPathOf(scan, [...drill, r.index])}
         onSelect={setSel}
         onOpen={(r) => openChild(r.index, r.node)}
+        onCollect={(r) => toggleCollect(itemOf([r.index], r.node))}
         reveal={navigatedRef}
       />
 
-      <TopFiles scan={scan} onTrash={async (path) => {
-        if (!(await confirmDialog(`„${baseName(path)}“ in den Papierkorb verschieben?`, "Speicher"))) return;
-        try {
-          await diskTrash(path);
-          flash(`In den Papierkorb: ${baseName(path)}`);
-          run(target);
-        } catch (e) {
-          flash(String(e));
-        }
-      }} />
+      <TopFiles
+        scan={scan}
+        collected={collectedPaths}
+        onCollect={(f) => toggleCollect({ path: f.path, name: baseName(f.path), size: f.size, is_dir: false })}
+      />
 
       <p className="text-[10px] text-[var(--color-muted)]">
         {scan.items.toLocaleString("de-DE")} Einträge gescannt · Klick = reinzoomen
       </p>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          ⌫ eine Ebene höher · R neu scannen · Esc zurück/schließen
+          ⌫ höher · Leertaste sammeln · ⌘⌫ Papierkorb · R neu scannen · Esc zurück
         </p>
       )}
     </div>
@@ -517,19 +664,30 @@ function PathBar({
 /**
  * Every child of the current folder as a row — the way into folders the chart
  * cannot show. A 2 MB `src` beside a 20 GB `target` is a sub-pixel arc; here
- * it is a full-width row like any other.
+ * it is a full-width row like any other. Each row also carries the collect
+ * toggle (＋ → ✓): a row is a `div` holding TWO sibling buttons, never a
+ * button inside a button (invalid HTML — the hue lesson).
  */
 function ChildList({
   rows,
   selected,
+  armedRow,
+  collected,
+  pathOf,
   onSelect,
   onOpen,
+  onCollect,
   reveal,
 }: {
   rows: ChildRow[];
   selected: number;
+  /** The row an armed single delete would hit (null when the collector is in play). */
+  armedRow: number | null;
+  collected: Set<string>;
+  pathOf: (r: ChildRow) => string | null;
   onSelect: (i: number) => void;
   onOpen: (r: ChildRow) => void;
+  onCollect: (r: ChildRow) => void;
   /** True once the user drove the list from the keyboard. */
   reveal: React.RefObject<boolean>;
 }) {
@@ -555,44 +713,188 @@ function ChildList({
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <p className="mb-2 text-[11px] font-medium">
-        Inhalt <span className="text-[var(--color-muted)]">· ↑↓ wählen · Enter öffnen</span>
+        Inhalt <span className="text-[var(--color-muted)]">· ↑↓ wählen · Enter öffnen · Leertaste sammeln</span>
       </p>
       <div ref={boxRef} className="flex max-h-[220px] flex-col gap-0.5 overflow-y-auto">
         {rows.map((r, i) => {
           const openable = r.node.is_dir && !r.node.other;
+          const path = pathOf(r);
+          const isCollected = !!path && collected.has(path);
+          const isArmed = armedRow === i;
           return (
-            <button
+            <div
               key={`${r.index}-${r.node.name}`}
-              ref={i === selected ? selRef : undefined}
-              type="button"
-              onClick={() => (openable ? onOpen(r) : onSelect(i))}
               onMouseEnter={() => onSelect(i)}
               className={
-                "flex items-center gap-2 rounded px-1.5 py-1 text-left text-[11px] " +
-                (i === selected ? "bg-[var(--color-accent)]/15" : "hover:bg-[var(--color-border)]/40") +
-                (openable ? " cursor-pointer" : " cursor-default")
+                "flex items-center gap-1 rounded text-[11px] " +
+                (isArmed
+                  ? "bg-red-500/15 ring-1 ring-red-500/60"
+                  : i === selected
+                    ? "bg-[var(--color-accent)]/15"
+                    : "hover:bg-[var(--color-border)]/40")
               }
             >
-              <span className="shrink-0 text-[var(--color-muted)]">
-                {r.node.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
-              </span>
-              <span className="min-w-0 flex-1 truncate" title={r.node.name}>
-                {r.node.other ? "Sonstiges" : r.node.name}
-              </span>
-              {/* A share bar, so the proportion the chart shows survives here. */}
-              <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--color-border)]">
-                <span
-                  className="block h-full rounded-full bg-[var(--color-accent)]"
-                  style={{ width: `${Math.max(2, r.share * 100)}%` }}
-                />
-              </span>
-              <span className="w-16 shrink-0 text-right tabular-nums text-[var(--color-muted)]">
-                {formatBytes(r.node.size)}
-              </span>
-            </button>
+              <button
+                type="button"
+                onClick={() => onCollect(r)}
+                disabled={!path}
+                title={isCollected ? "Aus dem Sammler nehmen (Leertaste)" : "In den Sammler (Leertaste)"}
+                aria-pressed={isCollected}
+                className={
+                  "shrink-0 rounded p-1 disabled:opacity-20 " +
+                  (isCollected
+                    ? "text-[var(--color-accent)]"
+                    : "text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+                }
+              >
+                {isCollected ? <Check size={12} /> : <Plus size={12} />}
+              </button>
+              <button
+                ref={i === selected ? selRef : undefined}
+                type="button"
+                onClick={() => (openable ? onOpen(r) : onSelect(i))}
+                className={
+                  "flex min-w-0 flex-1 items-center gap-2 rounded py-1 pr-1.5 text-left " +
+                  (openable ? "cursor-pointer" : "cursor-default")
+                }
+              >
+                <span className="shrink-0 text-[var(--color-muted)]">
+                  {r.node.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={r.node.name}>
+                  {r.node.other ? "Sonstiges" : r.node.name}
+                </span>
+                {isArmed ? (
+                  <span className="shrink-0 text-[10px] font-medium text-red-500">
+                    ⌘⌫ erneut = Papierkorb
+                  </span>
+                ) : (
+                  <>
+                    {/* A share bar, so the proportion the chart shows survives here. */}
+                    <span className="h-1 w-10 shrink-0 overflow-hidden rounded-full bg-[var(--color-border)]">
+                      <span
+                        className="block h-full rounded-full bg-[var(--color-accent)]"
+                        style={{ width: `${Math.max(2, r.share * 100)}%` }}
+                      />
+                    </span>
+                    <span className="w-16 shrink-0 text-right tabular-nums text-[var(--color-muted)]">
+                      {formatBytes(r.node.size)}
+                    </span>
+                  </>
+                )}
+              </button>
+            </div>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * DaisyDisk's collector, keyboard-first. Lists what has been gathered (across
+ * drill levels — the items are absolute paths), the running total, and the
+ * one button that actually trashes: two-stage, and it says so.
+ */
+function CollectorBar({
+  items,
+  armed,
+  busy,
+  failures,
+  onRemove,
+  onClear,
+  onTrash,
+  onDismissFailures,
+}: {
+  items: CollectorItem[];
+  armed: boolean;
+  busy: boolean;
+  failures: { path: string; error: string }[];
+  onRemove: (path: string) => void;
+  onClear: () => void;
+  onTrash: () => void;
+  onDismissFailures: () => void;
+}) {
+  if (items.length === 0 && failures.length === 0) return null;
+  const tot = collectorTotals(items);
+  return (
+    <div
+      className={
+        "rounded-xl border p-3 [contain:content] " +
+        (armed ? "border-red-500/60 bg-red-500/5" : "border-[var(--color-accent)]/40")
+      }
+    >
+      {items.length > 0 && (
+        <>
+          <div className="mb-2 flex items-center justify-between gap-2 text-[11px]">
+            <span className="font-medium">
+              Sammler{" "}
+              <span className="text-[var(--color-muted)] tabular-nums">
+                · {tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} · {formatBytes(tot.bytes)}
+              </span>
+            </span>
+            <button
+              type="button"
+              onClick={onClear}
+              className="rounded px-1 text-[10px] text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+            >
+              leeren
+            </button>
+          </div>
+          <div className="mb-2 flex max-h-[120px] flex-col gap-0.5 overflow-y-auto">
+            {items.map((i) => (
+              <div key={i.path} className="flex items-center gap-2 text-[11px]">
+                <span className="shrink-0 text-[var(--color-muted)]">
+                  {i.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
+                </span>
+                <span className="min-w-0 flex-1 truncate" title={i.path}>{i.name}</span>
+                <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(i.size)}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemove(i.path)}
+                  title="Aus dem Sammler nehmen"
+                  className="shrink-0 rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={onTrash}
+            disabled={busy}
+            className={
+              "flex w-full items-center justify-center gap-1.5 rounded-lg px-2 py-1.5 text-[11px] font-medium disabled:opacity-50 " +
+              (armed
+                ? "bg-red-500 text-white"
+                : "bg-[var(--color-accent)]/15 text-[var(--color-fg)] hover:bg-[var(--color-accent)]/25")
+            }
+          >
+            <Trash2 size={12} />
+            {busy
+              ? "Verschiebe…"
+              : armed
+                ? `Nochmal ⌘⌫ oder klicken: ${tot.count === 1 ? "1 Eintrag" : `${tot.count} Einträge`} in den Papierkorb`
+                : "In den Papierkorb (⌘⌫)"}
+          </button>
+        </>
+      )}
+      {failures.length > 0 && (
+        <div className="mt-2 rounded-lg border border-amber-500/50 bg-amber-500/10 p-2 text-[11px]">
+          <div className="mb-1 flex items-center justify-between">
+            <span className="font-medium">Nicht verschoben</span>
+            <button type="button" onClick={onDismissFailures} className="rounded p-0.5 text-[var(--color-muted)] hover:text-[var(--color-fg)]">
+              <X size={11} />
+            </button>
+          </div>
+          {failures.map((f, k) => (
+            <p key={`${f.path}-${k}`} className="truncate text-[var(--color-muted)]" title={f.path}>
+              {f.path ? `${baseName(f.path)}: ` : ""}{f.error}
+            </p>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -630,7 +932,17 @@ function VolumeBar({ scan }: { scan: DiskScan }) {
   );
 }
 
-function DetailRow({ arc, whole, onTrash }: { arc: Arc; whole: number; onTrash: () => void }) {
+function DetailRow({
+  arc,
+  whole,
+  collected,
+  onCollect,
+}: {
+  arc: Arc;
+  whole: number;
+  collected: boolean;
+  onCollect: () => void;
+}) {
   return (
     <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] px-2.5 py-1.5 text-[11px]">
       <span className="shrink-0" style={{ color: arc.color }}>
@@ -644,45 +956,66 @@ function DetailRow({ arc, whole, onTrash }: { arc: Arc; whole: number; onTrash: 
       </span>
       <button
         type="button"
-        onClick={onTrash}
-        title="In den Papierkorb"
-        className="shrink-0 rounded p-1 text-[var(--color-muted)] hover:text-red-500"
+        onClick={onCollect}
+        title={collected ? "Aus dem Sammler nehmen" : "In den Sammler"}
+        aria-pressed={collected}
+        className={
+          "shrink-0 rounded p-1 " +
+          (collected ? "text-[var(--color-accent)]" : "text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+        }
       >
-        <Trash2 size={12} />
+        {collected ? <Check size={12} /> : <Plus size={12} />}
       </button>
     </div>
   );
 }
 
-function TopFiles({ scan, onTrash }: { scan: DiskScan; onTrash: (path: string) => void }) {
+function TopFiles({
+  scan,
+  collected,
+  onCollect,
+}: {
+  scan: DiskScan;
+  collected: Set<string>;
+  onCollect: (f: { path: string; size: number }) => void;
+}) {
   if (scan.top_files.length === 0) return null;
   const max = scan.top_files[0].size || 1;
   return (
     <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
       <p className="mb-2 text-[11px] font-medium">Größte Dateien</p>
       <div className="flex flex-col gap-1">
-        {scan.top_files.slice(0, 12).map((f) => (
-          <div key={f.path} className="group flex items-center gap-2 text-[11px]">
-            <div className="relative min-w-0 flex-1">
-              <div
-                className="absolute inset-y-0 left-0 rounded bg-[var(--color-accent)] opacity-15"
-                style={{ width: `${(f.size / max) * 100}%` }}
-              />
-              <span className="relative block truncate px-1 py-0.5 font-[var(--font-mono)]" title={f.path}>
-                {baseName(f.path)}
-              </span>
+        {scan.top_files.slice(0, 12).map((f) => {
+          const isCollected = collected.has(f.path);
+          return (
+            <div key={f.path} className="group flex items-center gap-2 text-[11px]">
+              <div className="relative min-w-0 flex-1">
+                <div
+                  className="absolute inset-y-0 left-0 rounded bg-[var(--color-accent)] opacity-15"
+                  style={{ width: `${(f.size / max) * 100}%` }}
+                />
+                <span className="relative block truncate px-1 py-0.5 font-[var(--font-mono)]" title={f.path}>
+                  {baseName(f.path)}
+                </span>
+              </div>
+              <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(f.size)}</span>
+              <button
+                type="button"
+                onClick={() => onCollect(f)}
+                title={isCollected ? "Aus dem Sammler nehmen" : "In den Sammler"}
+                aria-pressed={isCollected}
+                className={
+                  "shrink-0 rounded p-0.5 transition-opacity " +
+                  (isCollected
+                    ? "text-[var(--color-accent)] opacity-100"
+                    : "text-[var(--color-muted)] opacity-0 hover:text-[var(--color-fg)] group-hover:opacity-100")
+                }
+              >
+                {isCollected ? <Check size={11} /> : <Plus size={11} />}
+              </button>
             </div>
-            <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(f.size)}</span>
-            <button
-              type="button"
-              onClick={() => onTrash(f.path)}
-              title="In den Papierkorb"
-              className="shrink-0 rounded p-0.5 text-[var(--color-muted)] opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-            >
-              <Trash2 size={11} />
-            </button>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
@@ -700,18 +1033,4 @@ function isAncestor(path: number[], of: number[]): boolean {
 function argPath(arg: string): string | null {
   const t = arg.trim();
   return t ? t : null;
-}
-
-/** Absolute filesystem path of an arc, from the scan root + drill + arc path.
- *  Returns null if any node has no resolvable name (the synthetic "Other"). */
-function absPath(scan: DiskScan, drill: number[], arcPathIdx: number[]): string | null {
-  let cur: DiskNode = scan.tree;
-  const parts: string[] = [];
-  for (const i of [...drill, ...arcPathIdx]) {
-    const next = cur.children?.[i];
-    if (!next || next.other) return null;
-    parts.push(next.name);
-    cur = next;
-  }
-  return joinPath(scan.root_path, parts);
 }

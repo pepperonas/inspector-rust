@@ -1010,6 +1010,72 @@ export function deviceSyncNow(): Promise<DeviceSyncStats> {
   return invoke("device_sync_now");
 }
 
+// ── Auto-backup — scheduled encrypted snapshots to a folder (v0.170.0) ──────
+
+export interface AutoBackupConfig {
+  enabled: boolean;
+  /** Absolute destination folder (e.g. a Google Drive / iCloud folder). */
+  folder: string;
+  interval_min: number;
+  /** How many timestamped snapshots to keep (older ones are pruned). */
+  keep: number;
+  encrypt: boolean;
+  /** Clipboard history is the size driver; everything else is always included. */
+  include_history: boolean;
+  include_timesheet: boolean;
+}
+export interface AutoBackupStatus {
+  last_ms: number;
+  last_check_ms: number;
+  next_check_ms: number;
+  last_error: string;
+  encrypt: boolean;
+  has_password: boolean;
+  folder_ok: boolean;
+  snapshot_count: number;
+}
+export interface AutoBackupSnapshot {
+  path: string;
+  name: string;
+  ts_ms: number;
+  bytes: number;
+  encrypted: boolean;
+}
+export interface AutoBackupCycleOutcome {
+  wrote: boolean;
+  unchanged: boolean;
+  bytes: number;
+  pruned: number;
+  path: string | null;
+}
+
+export function getAutoBackupConfig(): Promise<AutoBackupConfig> {
+  return invoke("get_auto_backup_config");
+}
+export function setAutoBackupConfig(config: AutoBackupConfig): Promise<void> {
+  return invoke("set_auto_backup_config", { config });
+}
+export function getAutoBackupStatus(): Promise<AutoBackupStatus> {
+  return invoke("get_auto_backup_status");
+}
+/** Stored only in this Mac's keychain — never in a file or the settings table. */
+export function setAutoBackupPassword(password: string): Promise<void> {
+  return invoke("set_auto_backup_password", { password });
+}
+export function autoBackupListSnapshots(): Promise<AutoBackupSnapshot[]> {
+  return invoke("auto_backup_list_snapshots");
+}
+export function autoBackupNow(): Promise<AutoBackupCycleOutcome> {
+  return invoke("auto_backup_now");
+}
+export function autoBackupRestore(
+  path: string,
+  password: string | null,
+  replace: boolean,
+): Promise<BackupImportResult> {
+  return invoke("auto_backup_restore", { path, password, replace });
+}
+
 /** Result of the live connection probe (Settings → Cloud-Sync checkmarks). */
 export interface SyncProbe {
   /** The server answered HTTP at all. */
@@ -2838,6 +2904,16 @@ export function diskScan(path: string | null): Promise<DiskScan> {
 export function diskTrash(path: string): Promise<void> {
   return invoke("disk_trash", { path });
 }
+/** Per-path outcome of a collector run (mirrors Rust `TrashReport`). */
+export interface DiskTrashReport {
+  trashed: string[];
+  failed: { path: string; error: string }[];
+}
+/** Move a whole collection to the Trash in one go (v0.169.0). One failure
+ *  never aborts the rest — read the report. */
+export function diskTrashMany(paths: string[]): Promise<DiskTrashReport> {
+  return invoke("disk_trash_many", { paths });
+}
 
 // ── adb — Android device control (v0.119.0) ─────────────────────────────────
 
@@ -3612,4 +3688,9 @@ export function getPagespeedKey(): Promise<boolean> {
 }
 export function setPagespeedKey(key: string): Promise<void> {
   return invoke("set_pagespeed_key", { key });
+}
+
+/** Save QR output to Downloads. Returns the written path. */
+export function qrSave(output: { pngB64: string } | { matrix: boolean[][] }): Promise<string> {
+  return invoke("qr_save", output);
 }

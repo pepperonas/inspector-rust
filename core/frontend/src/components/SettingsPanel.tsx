@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Archive,
   Cloud,
+  HardDrive,
   Camera,
   Clock,
   Lock,
@@ -165,11 +166,21 @@ import {
   getSyncConfig,
   getPagespeedKey,
   setPagespeedKey,
+  getAutoBackupConfig,
+  setAutoBackupConfig,
+  getAutoBackupStatus,
+  setAutoBackupPassword,
+  autoBackupListSnapshots,
+  autoBackupNow,
+  autoBackupRestore,
   getDeviceSyncConfig,
   setDeviceSyncConfig,
   getDeviceSyncStatus,
   setDeviceSyncPassphrase,
   deviceSyncNow,
+  type AutoBackupConfig,
+  type AutoBackupStatus,
+  type AutoBackupSnapshot,
   type DeviceSyncConfig,
   type DeviceSyncStatus,
   getPopupCloseOnBlur,
@@ -194,6 +205,7 @@ import {
 import { MEME_ENABLED } from "../lib/meme";
 import type { BackupImportResult, Snippet } from "../lib/types";
 import { formatBytes } from "../lib/format";
+import { confirmDialog } from "../lib/confirm";
 import { HotkeyCapture } from "./HotkeyCapture";
 import { GlobalShortcutsSection } from "./GlobalShortcutsSection";
 
@@ -2891,6 +2903,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         {/* Device sync between several Macs (shared folder) */}
         <div className="mt-6">
           <DeviceSyncSection />
+          <AutoBackupSection onRestored={onBackupImported} />
         </div>
 
         {/* Backup & restore section */}
@@ -3563,6 +3576,279 @@ function DeviceSyncSection() {
         Löschungen werden bewusst NICHT übertragen: die Geräte vereinigen ihre Daten. Ein leerer
         Stand kann einen gefüllten damit nie überschreiben.
       </p>
+    </Section>
+  );
+}
+
+
+function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | void }) {
+  const [cfg, setCfg] = useState<AutoBackupConfig | null>(null);
+  const [status, setStatus] = useState<AutoBackupStatus | null>(null);
+  const [pass, setPass] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<string | null>(null);
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [snapshots, setSnapshots] = useState<AutoBackupSnapshot[] | null>(null);
+  const [restorePw, setRestorePw] = useState("");
+  const [replaceMode, setReplaceMode] = useState(false);
+
+  const refresh = () => {
+    void getAutoBackupStatus().then(setStatus).catch(() => {});
+  };
+  useEffect(() => {
+    void getAutoBackupConfig().then(setCfg).catch(() => {});
+    refresh();
+    let unlisten: UnlistenFn | undefined;
+    void listen("auto-backup-status-changed", refresh).then((u) => (unlisten = u));
+    return () => unlisten?.();
+  }, []);
+
+  const save = (next: AutoBackupConfig) => {
+    setCfg(next);
+    void setAutoBackupConfig(next).then(refresh).catch(() => {});
+  };
+
+  const pickFolder = async () => {
+    if (!cfg) return;
+    const path = await openDialog({ directory: true, multiple: false });
+    if (typeof path === "string") save({ ...cfg, folder: path });
+  };
+
+  const loadSnapshots = () => {
+    void autoBackupListSnapshots().then(setSnapshots).catch(() => setSnapshots([]));
+  };
+
+  const doRestore = async (snap: AutoBackupSnapshot) => {
+    if (replaceMode) {
+      const ok = await confirmDialog(
+        "Alles ersetzen: der aktuelle Stand wird durch diese Sicherung ersetzt. Seit der Sicherung Hinzugefügtes geht verloren. Fortfahren?",
+        "Backup einspielen",
+      );
+      if (!ok) return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      const r = await autoBackupRestore(snap.path, snap.encrypted ? restorePw : null, replaceMode);
+      setNote(
+        `Eingespielt: ${r.history_imported} Clips · ${r.snippets_imported} Snippets · ${r.notes_imported} Notizen`,
+      );
+      setRestorePw("");
+      if (onRestored) await onRestored();
+    } catch (e) {
+      setNote(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!cfg) return null;
+  const ready =
+    cfg.enabled && cfg.folder.trim().length > 0 && (!cfg.encrypt || !!status?.has_password);
+
+  return (
+    <Section
+      icon={<HardDrive size={16} className="text-[var(--color-accent)]" />}
+      title="Automatische Backups"
+      subtitle="Sichert Einstellungen, Snippets, Notizen, 2FA (und optional den Verlauf) in einem festen Intervall in einen Ordner deiner Wahl — z. B. einen Google-Drive- oder iCloud-Ordner, optional verschlüsselt. Standardmäßig aus."
+      id="auto-backup"
+    >
+      <Row label="Aktiv" help="Aus = kein Hintergrund-Thread, kein Dateizugriff.">
+        <input
+          type="checkbox"
+          checked={cfg.enabled}
+          onChange={(e) => save({ ...cfg, enabled: e.target.checked })}
+        />
+      </Row>
+
+      <Row label="Zielordner" help="Ein bestehender Ordner, z. B. dein synchronisierter Google-Drive- oder iCloud-Ordner.">
+        <div className="flex gap-2">
+          <input
+            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            value={cfg.folder}
+            onChange={(e) => setCfg({ ...cfg, folder: e.target.value })}
+            onBlur={() => save(cfg)}
+            spellCheck={false}
+            placeholder="/Users/…/Google Drive/InspectorRust"
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+            onClick={() => void pickFolder()}
+          >
+            Wählen…
+          </button>
+        </div>
+      </Row>
+
+      <div className="flex gap-3">
+        <Row label="Intervall (Min.)" help="Wie oft geprüft wird. Geschrieben wird nur, wenn sich etwas geändert hat.">
+          <input
+            type="number"
+            min={1}
+            className="w-24 rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            value={cfg.interval_min}
+            onChange={(e) => setCfg({ ...cfg, interval_min: Math.max(1, Number(e.target.value) || 1) })}
+            onBlur={() => save(cfg)}
+          />
+        </Row>
+        <Row label="Stände behalten" help="Ältere Sicherungen werden automatisch gelöscht (nur unsere Dateien).">
+          <input
+            type="number"
+            min={1}
+            className="w-24 rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            value={cfg.keep}
+            onChange={(e) => setCfg({ ...cfg, keep: Math.max(1, Number(e.target.value) || 1) })}
+            onBlur={() => save(cfg)}
+          />
+        </Row>
+      </div>
+
+      <Row label="Verschlüsseln" help="Empfohlen bei Cloud-Ordnern. AES-256, das Passwort liegt nur im Schlüsselbund.">
+        <input
+          type="checkbox"
+          checked={cfg.encrypt}
+          onChange={(e) => save({ ...cfg, encrypt: e.target.checked })}
+        />
+      </Row>
+
+      {cfg.encrypt && (
+        <Row
+          label="Backup-Passwort"
+          help="⚠️ Ohne dieses Passwort ist die Sicherung wertlos — notiere es zusätzlich in einem Passwortmanager. Es wird nie in einer Datei gespeichert."
+        >
+          <div className="flex gap-2">
+            <input
+              type="password"
+              className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+              placeholder={status?.has_password ? "gespeichert" : "noch keins"}
+              value={pass}
+              onChange={(e) => setPass(e.target.value)}
+            />
+            <button
+              type="button"
+              className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+              onClick={() => void setAutoBackupPassword(pass).then(() => { setPass(""); refresh(); })}
+            >
+              Speichern
+            </button>
+          </div>
+        </Row>
+      )}
+
+      <Row label="Zwischenablage-Verlauf mitsichern" help="Aus = kleinere Dateien (der Verlauf mit Bildern ist der Größentreiber). Einstellungen, Snippets, Notizen und 2FA sind immer enthalten.">
+        <input
+          type="checkbox"
+          checked={cfg.include_history}
+          onChange={(e) => save({ ...cfg, include_history: e.target.checked })}
+        />
+      </Row>
+
+      <Row label="Zeiterfassung mitsichern" help="Aus. Die Timesheet-Daten sind oft groß und gerätegebunden.">
+        <input
+          type="checkbox"
+          checked={cfg.include_timesheet}
+          onChange={(e) => save({ ...cfg, include_timesheet: e.target.checked })}
+        />
+      </Row>
+
+      {!cfg.encrypt && (
+        <p className="mb-4 rounded border border-amber-500/50 bg-amber-500/10 p-2 text-[11px] text-amber-600">
+          ⚠️ 2FA-Geheimnisse werden mitgesichert. Ohne Verschlüsselung liegen sie im Klartext in diesem Ordner — bei einem Cloud-Ordner solltest du die Verschlüsselung einschalten.
+        </p>
+      )}
+
+      <div className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-[var(--color-muted)]">
+        <span>{status?.folder_ok ? "✓ Ordner erreichbar" : "✗ Ordner fehlt"}</span>
+        {cfg.encrypt && <span>{status?.has_password ? "✓ Passwort gesetzt" : "✗ kein Passwort"}</span>}
+        <span>{status ? `${status.snapshot_count} Stände` : ""}</span>
+        {status && status.last_ms > 0 && <span>zuletzt {new Date(status.last_ms).toLocaleString()}</span>}
+        <button
+          type="button"
+          disabled={!ready || busy}
+          className="ml-auto rounded border border-[var(--color-border)] px-2 py-1 disabled:opacity-40"
+          onClick={() => {
+            setBusy(true);
+            setNote(null);
+            autoBackupNow()
+              .then((o) => {
+                setNote(
+                  o.wrote
+                    ? `Gesichert (${formatBytes(o.bytes)})${o.pruned ? `, ${o.pruned} alte gelöscht` : ""}`
+                    : "Unverändert — keine neue Datei nötig",
+                );
+                refresh();
+              })
+              .catch((e) => setNote(String(e)))
+              .finally(() => setBusy(false));
+          }}
+        >
+          {busy ? "Läuft…" : "Jetzt sichern"}
+        </button>
+        <button
+          type="button"
+          className="rounded border border-[var(--color-border)] px-2 py-1"
+          onClick={() => {
+            const open = !restoreOpen;
+            setRestoreOpen(open);
+            if (open) loadSnapshots();
+          }}
+        >
+          {restoreOpen ? "Schließen" : "Wiederherstellen…"}
+        </button>
+      </div>
+
+      {restoreOpen && (
+        <div className="mt-3 rounded border border-[var(--color-border)] p-3">
+          <div className="mb-2 flex items-center gap-3 text-[11px]">
+            <span className="font-medium">Stand einspielen</span>
+            <label className="flex items-center gap-1">
+              <input type="radio" checked={!replaceMode} onChange={() => setReplaceMode(false)} /> Zusammenführen
+            </label>
+            <label className="flex items-center gap-1">
+              <input type="radio" checked={replaceMode} onChange={() => setReplaceMode(true)} /> Alles ersetzen
+            </label>
+          </div>
+          <p className="mb-2 text-[11px] text-[var(--color-muted)]">
+            Zusammenführen ergänzt nur (löscht nie). „Alles ersetzen“ stellt exakt diesen Stand her — Späteres geht verloren.
+          </p>
+          {snapshots === null ? (
+            <p className="text-[11px] text-[var(--color-muted)]">Lade…</p>
+          ) : snapshots.length === 0 ? (
+            <p className="text-[11px] text-[var(--color-muted)]">Keine Sicherungen im Ordner gefunden.</p>
+          ) : (
+            <div className="flex max-h-[220px] flex-col gap-1 overflow-y-auto">
+              {snapshots.map((s) => (
+                <div key={s.path} className="flex items-center gap-2 text-[11px]">
+                  {s.encrypted && <Lock size={11} className="shrink-0 text-[var(--color-muted)]" />}
+                  <span className="min-w-0 flex-1 truncate">{new Date(s.ts_ms).toLocaleString()}</span>
+                  <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(s.bytes)}</span>
+                  {s.encrypted && (
+                    <input
+                      type="password"
+                      placeholder="Passwort"
+                      className="w-24 shrink-0 rounded border border-[var(--color-border)] bg-transparent px-1 py-0.5"
+                      value={restorePw}
+                      onChange={(e) => setRestorePw(e.target.value)}
+                    />
+                  )}
+                  <button
+                    type="button"
+                    disabled={busy || (s.encrypted && restorePw.length === 0)}
+                    className="shrink-0 rounded border border-[var(--color-border)] px-2 py-0.5 disabled:opacity-40"
+                    onClick={() => void doRestore(s)}
+                  >
+                    Einspielen
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
+      {status?.last_error && <p className="mt-1 text-[11px] text-amber-500">{status.last_error}</p>}
     </Section>
   );
 }

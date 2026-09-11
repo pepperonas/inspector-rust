@@ -417,6 +417,38 @@ pub fn scan(
     })
 }
 
+/// Result of trashing several paths at once (v0.169.0 — the collector).
+#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+pub struct TrashReport {
+    pub trashed: Vec<String>,
+    pub failed: Vec<TrashFailure>,
+}
+
+#[derive(Serialize, Clone, Debug, PartialEq)]
+pub struct TrashFailure {
+    pub path: String,
+    pub error: String,
+}
+
+/// Trash every path, reporting per item and **never aborting the batch**: one
+/// dead link, one permission error or one path that vanished between scan
+/// and click must not stop the other eleven (the `clean` lesson). Pure over an
+/// injected deleter so the batch semantics are unit-tested without touching a
+/// real Trash.
+pub fn trash_batch<F>(paths: &[String], mut delete: F) -> TrashReport
+where
+    F: FnMut(&std::path::Path) -> Result<(), String>,
+{
+    let mut report = TrashReport::default();
+    for path in paths {
+        match delete(std::path::Path::new(path)) {
+            Ok(()) => report.trashed.push(path.clone()),
+            Err(error) => report.failed.push(TrashFailure { path: path.clone(), error }),
+        }
+    }
+    report
+}
+
 #[cfg(test)]
 mod tests {
 
@@ -589,5 +621,29 @@ mod tests {
         assert!(top.iter().all(|t| t.size > 0));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn trash_batch_reports_per_item_and_never_aborts_the_batch() {
+        let paths = vec!["/a".to_string(), "/b".to_string(), "/c".to_string()];
+        let report = trash_batch(&paths, |p| {
+            if p.to_str() == Some("/b") {
+                Err("nope".to_string())
+            } else {
+                Ok(())
+            }
+        });
+        // The failure in the middle must not stop `/c`.
+        assert_eq!(report.trashed, vec!["/a".to_string(), "/c".to_string()]);
+        assert_eq!(
+            report.failed,
+            vec![TrashFailure { path: "/b".to_string(), error: "nope".to_string() }]
+        );
+    }
+
+    #[test]
+    fn trash_batch_of_nothing_is_an_empty_report() {
+        let report = trash_batch(&[], |_| Ok(()));
+        assert_eq!(report, TrashReport::default());
     }
 }

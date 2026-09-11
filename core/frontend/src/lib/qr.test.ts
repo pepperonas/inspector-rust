@@ -29,6 +29,15 @@ describe("qrMatrix", () => {
     expect(big).toBeGreaterThan(small);
   });
 
+  it("preserves Unicode characters that the old Latin-1 truncation lost", () => {
+    expect(qrMatrix("Ā")).not.toEqual(qrMatrix("\0"));
+    expect(qrMatrix("😀")).not.toEqual(qrMatrix("=\0"));
+  });
+
+  it("rejects content exceeding the UTF-8 byte capacity", () => {
+    expect(() => qrMatrix("😀".repeat(583))).toThrow("too long");
+  });
+
   it("throws on empty text", () => {
     expect(() => qrMatrix("")).toThrow();
   });

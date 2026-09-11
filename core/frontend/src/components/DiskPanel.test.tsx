@@ -6,15 +6,16 @@ import type { DiskScan, DiskNode } from "../lib/ipc";
 // it renders standalone. `diskScan` is the interesting one: how OFTEN and with
 // WHICH path it is called is exactly what these tests are about.
 const diskScan = vi.fn<(path: string | null) => Promise<DiskScan>>();
-const diskTrash = vi.fn(async () => undefined);
+/** The batch-trash IPC: by default everything succeeds; a test can hand back
+ *  a partial report to exercise the failure path. */
+const diskTrashMany = vi.fn<(paths: string[]) => Promise<{ trashed: string[]; failed: { path: string; error: string }[] }>>();
 vi.mock("../lib/ipc", () => ({
   diskScan: (p: string | null) => diskScan(p),
-  diskTrash: () => diskTrash(),
+  diskTrashMany: (paths: string[]) => diskTrashMany(paths),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async () => () => undefined,
 }));
-vi.mock("../lib/confirm", () => ({ confirmDialog: async () => true }));
 // Reduced motion keeps the arcs free of entrance classes; irrelevant here.
 vi.mock("../lib/md3-motion", () => ({ prefersReducedMotion: () => true }));
 
@@ -76,6 +77,8 @@ const settled = (c: HTMLElement, path: string) =>
 beforeEach(() => {
   diskScan.mockReset();
   diskScan.mockImplementation(async (p) => scanOf(p ?? "/Users/martin"));
+  diskTrashMany.mockReset();
+  diskTrashMany.mockImplementation(async (paths) => ({ trashed: paths, failed: [] }));
 });
 afterEach(cleanup);
 
@@ -269,5 +272,146 @@ describe("navigating", () => {
     fireEvent.keyDown(window, { key: "Escape" });
     expect(diskScan).toHaveBeenCalledTimes(1);
     expect(onExit).not.toHaveBeenCalled();
+  });
+});
+
+describe("deleting — the collector (v0.169.0)", () => {
+  /** projekt → [target(idx 0) → [debug], src(idx 1) → [lib]] */
+  function project(): DiskScan {
+    return {
+      ...scanOf("/Users/martin/projekt"),
+      total: 20_002_000_000,
+      tree: dir("projekt", 20_002_000_000, [
+        dir("target", 20_000_000_000, [dir("debug", 20_000_000_000)]),
+        dir("src", 2_000_000, [dir("lib", 2_000_000)]),
+      ]),
+      top_files: [{ path: "/Users/martin/projekt/target/debug/big.bin", size: 19_000_000_000 }],
+    };
+  }
+  const cmdBackspace = () => fireEvent.keyDown(window, { key: "Backspace", metaKey: true });
+  const space = () => fireEvent.keyDown(window, { key: " " });
+  const down = () => fireEvent.keyDown(window, { key: "ArrowDown" });
+  const enter = () => fireEvent.keyDown(window, { key: "Enter" });
+
+  it("⌘⌫ on a row is two-stage: the first press only ARMS, the second trashes", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    down(); // row 1 = src
+    cmdBackspace();
+    expect(diskTrashMany, "erste Taste löscht nie").not.toHaveBeenCalled();
+    expect(container.textContent).toContain("erneut");
+    cmdBackspace();
+    await waitFor(() => expect(diskTrashMany).toHaveBeenCalledWith(["/Users/martin/projekt/src"]));
+    // The row is gone and NOTHING was re-scanned — the tree was pruned locally.
+    await waitFor(() => expect(() => rowNamed(container, "src")).toThrow());
+    expect(diskScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("the drill position survives a delete by NAME — a sibling's removal shifts indices", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    space(); // collect `target` (row 0) at the root
+    down();
+    enter(); // drill into `src` — drill = [1]
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+    cmdBackspace();
+    cmdBackspace();
+    await waitFor(() => expect(diskTrashMany).toHaveBeenCalledWith(["/Users/martin/projekt/target"]));
+    // `src` slid from index 1 to 0. An index-based drill would now address
+    // nothing (or the wrong folder); by name we must still be standing in
+    // src, looking at `lib`, with no re-scan.
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+    expect(container.textContent).toContain("src");
+    expect(container.textContent).not.toContain("target");
+    expect(diskScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("Space collects across folders and ONE ⌘⌫ pair trashes the whole collection", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    space(); // target
+    down();
+    enter(); // into src
+    await waitFor(() => expect(container.textContent).toContain("lib"));
+    space(); // lib
+    expect(container.textContent).toContain("2 Einträge");
+    cmdBackspace();
+    cmdBackspace();
+    await waitFor(() =>
+      expect(diskTrashMany).toHaveBeenCalledWith([
+        "/Users/martin/projekt/target",
+        "/Users/martin/projekt/src/lib",
+      ]),
+    );
+    expect(diskTrashMany).toHaveBeenCalledTimes(1);
+  });
+
+  it("Esc cancels an armed delete — it neither trashes nor exits", async () => {
+    diskScan.mockImplementation(async () => project());
+    const onExit = vi.fn();
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={onExit} />);
+    await settled(container, "projekt");
+    cmdBackspace();
+    expect(container.textContent).toContain("erneut");
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(container.textContent).not.toContain("erneut");
+    expect(diskTrashMany).not.toHaveBeenCalled();
+    expect(onExit).not.toHaveBeenCalled();
+  });
+
+  it("a per-path failure is shown by name and the failed item stays in the collector", async () => {
+    diskScan.mockImplementation(async () => project());
+    diskTrashMany.mockImplementation(async (paths) => ({
+      trashed: paths.filter((p) => p.endsWith("/src")),
+      failed: [{ path: "/Users/martin/projekt/target", error: "keine Berechtigung" }],
+    }));
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    space(); // target
+    down();
+    space(); // src
+    cmdBackspace();
+    cmdBackspace();
+    await waitFor(() => expect(container.textContent).toContain("keine Berechtigung"));
+    expect(container.textContent).toContain("Nicht verschoben");
+    // src went, target stays collected (and stays in the tree).
+    expect(container.textContent).toContain("1 Eintrag");
+    expect(() => rowNamed(container, "target")).not.toThrow();
+    expect(() => rowNamed(container, "src")).toThrow();
+    expect(diskScan).toHaveBeenCalledTimes(1);
+  });
+
+  it("the largest-files list drops files under a trashed folder", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    expect(container.textContent).toContain("big.bin");
+    cmdBackspace(); // row 0 = target
+    cmdBackspace();
+    await waitFor(() => expect(container.textContent).not.toContain("big.bin"));
+  });
+
+  it("plain ⌫ still climbs a level — only ⌘⌫ trashes", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    fireEvent.keyDown(window, { key: "Backspace" });
+    await waitFor(() => expect(diskScan).toHaveBeenLastCalledWith("/Users/martin"));
+    expect(diskTrashMany).not.toHaveBeenCalled();
+  });
+
+  it("changing the selection disarms a pending delete", async () => {
+    diskScan.mockImplementation(async () => project());
+    const { container } = render(<DiskPanel arg="/Users/martin/projekt" focused onExit={() => {}} />);
+    await settled(container, "projekt");
+    cmdBackspace();
+    expect(container.textContent).toContain("erneut");
+    down();
+    await waitFor(() => expect(container.textContent).not.toContain("erneut"));
+    cmdBackspace(); // this is a fresh FIRST press on the new row, not a commit
+    expect(diskTrashMany).not.toHaveBeenCalled();
   });
 });

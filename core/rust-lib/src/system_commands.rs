@@ -608,6 +608,8 @@ pub fn set_system_volume(level: i32) -> Option<u8> {
     let lv = clamp_volume(level);
     #[cfg(target_os = "macos")]
     {
+        // Dragging the slider while muted unmutes too (Control-Center parity).
+        unmute_for_volume_change();
         if ca_volume::write_volume(lv as i32) {
             LAST_COMMANDED_VOLUME.store(lv as i32, Ordering::Relaxed);
             return Some(lv);
@@ -717,6 +719,31 @@ pub fn adjust_system_volume(delta: i32) -> Result<u8> {
     }
 }
 
+/// A volume change unmutes when the output is muted — the macOS hardware-key
+/// behaviour (pressing volume up OR down while muted restores sound), applied
+/// to every synthetic volume path (gesture swipe, Shift+↑/↓, the slider).
+///
+/// ⚠️ Takes ONLY the mute state, never the delta: the user asked for unmute on
+/// up AND down (2026-09-06), so the direction structurally cannot enter the
+/// decision. `None` (no mute control / unknown) never unmutes — there is
+/// nothing to clear, and guessing would fight an aggregate/HDMI output.
+pub fn should_unmute_on_volume_change(muted: Option<bool>) -> bool {
+    muted == Some(true)
+}
+
+/// Clear a mute anywhere on the path before a volume change, so changing the
+/// volume brings sound back. Reuses `set_system_mute(false)`, which clears the
+/// default output AND both boom bridge devices — a mute hiding behind boom is
+/// cleared too. No-op when not muted (a cheap read). macOS only: the
+/// Windows/Linux volume paths go through the OS multimedia keys / wpctl, which
+/// already unmute natively.
+#[cfg(target_os = "macos")]
+fn unmute_for_volume_change() {
+    if should_unmute_on_volume_change(output_muted_anywhere()) {
+        let _ = set_system_mute(false);
+    }
+}
+
 /// Nudge the volume by `delta` and return the **new** level (0–100), so a
 /// caller (the gesture toast) can display it. macOS reads+clamps+sets+returns
 /// in one synchronous `osascript`; other platforms fall back to
@@ -742,6 +769,10 @@ pub fn volume_failure_reason(level: Option<u8>, has_control: bool) -> Option<&'s
 pub fn nudge_volume(delta: i32) -> Option<u8> {
     #[cfg(target_os = "macos")]
     {
+        // Changing the volume while muted unmutes (up or down) — the native
+        // hardware-key behaviour; covers the gesture swipe AND Shift+↑/↓
+        // (which delegates here). Only acts when actually muted.
+        unmute_for_volume_change();
         // Grid-snapped from our last-commanded value (see `snap_from`) so the
         // gesture toast shows clean multiples of the step (80, 85, 90 …) and
         // never stalls on boom Audio's jittery read-back. Store the applied
@@ -785,44 +816,46 @@ pub fn nudge_volume(delta: i32) -> Option<u8> {
     }
 }
 
-/// Toggle the system output mute state. Reads the current state via
-/// `osascript`, flips it, returns the new state (`true` = now muted).
-/// No privilege required.
+/// Combine what the default output says about its mute with what the boom
+/// bridge devices say (v0.169.1). A mute ANYWHERE on the path to the speakers
+/// means "muted" — that is what the user hears. Pure; the two reads happen at
+/// the call sites.
+///
+/// Field report ("I keep having to untick Mute in System Settings"): the
+/// toggle only ever read and wrote the DEFAULT output — boom Audio while boom
+/// fronts the system — so a mute sitting on the real output behind it was
+/// invisible: the toggle read "unmuted", wrote "muted" on boom Audio, and the
+/// user was now silent twice over, with no gesture able to undo it.
+pub fn mute_state(default_muted: Option<bool>, bridge_muted: bool) -> Option<bool> {
+    match (default_muted, bridge_muted) {
+        (_, true) => Some(true),
+        (Some(m), false) => Some(m),
+        (None, false) => None,
+    }
+}
+
+/// Is the output muted anywhere that matters (default output, or either boom
+/// bridge device)? `None` = no mute control at all on the default output and
+/// no bridge (HDMI-only setups).
+pub fn output_muted_anywhere() -> Option<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        mute_state(ca_volume::read_mute(), crate::boom::output_muted())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+/// Toggle the system output mute state and return the new state (`true` =
+/// now muted). Decides from `output_muted_anywhere` — so an "unmute" is an
+/// unmute even when the mute sits on the real output behind boom — and hands
+/// the write to `set_system_mute`. No privilege required.
 pub fn toggle_system_mute() -> Result<bool> {
     #[cfg(target_os = "macos")]
     {
-        // Fast path (v0.110.0): the osascript route below spawns TWO processes
-        // (read + set ≈ 600 ms measured); CoreAudio flips the device's mute
-        // property in microseconds. Fallback covers devices without a mute
-        // control (AppleScript then mutes via the system-volume route).
-        if let Some(m) = ca_volume::read_mute() {
-            let next = !m;
-            if ca_volume::write_mute(next) {
-                return Ok(next);
-            }
-        }
-        tracing::debug!("toggle_system_mute: CoreAudio path unavailable, osascript fallback");
-        let out = std::process::Command::new("/usr/bin/osascript")
-            .arg("-e")
-            .arg("output muted of (get volume settings)")
-            .output()
-            .context("osascript mute read failed")?;
-        let currently_muted = String::from_utf8_lossy(&out.stdout).trim() == "true";
-        let next = !currently_muted;
-        let script = if next {
-            "set volume with output muted"
-        } else {
-            "set volume without output muted"
-        };
-        std::process::Command::new("/usr/bin/osascript")
-            .arg("-e")
-            .arg(script)
-            .status()
-            .context("osascript mute set failed")?
-            .success()
-            .then_some(())
-            .ok_or_else(|| anyhow!("osascript mute set returned non-zero exit"))?;
-        Ok(next)
+        set_system_mute(!output_muted_anywhere().unwrap_or(false))
     }
     #[cfg(target_os = "windows")]
     {
@@ -834,9 +867,9 @@ pub fn toggle_system_mute() -> Result<bool> {
     }
     #[cfg(target_os = "linux")]
     {
-        // Toggle mute on the default sink (PipeWire, then PulseAudio). We can't
-        // cheaply read the resulting state, so report `true` best-effort (the
-        // `mute` command ignores the value).
+        // No read-back here, so this stays a device-side TOGGLE (PipeWire,
+        // then PulseAudio) — deriving a direction from an unknown state would
+        // always mute. Report `true` best-effort (the `mute` command ignores it).
         run_first_ok(
             "mute",
             &[
@@ -849,6 +882,87 @@ pub fn toggle_system_mute() -> Result<bool> {
     #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
     {
         Err(anyhow!("toggle_system_mute not implemented on this platform"))
+    }
+}
+
+/// Set the system output mute state. Unmuting clears EVERY device on the path
+/// (the default output and, while boom bridges, both bridge devices — the
+/// same rule as the boom panel's Unmute button); muting touches only the
+/// default output (boom Audio's driver silences the whole path). The result
+/// is READ BACK: the returned state is what the output actually reports, and a
+/// write that did not take is logged rather than announced as done.
+pub fn set_system_mute(muted: bool) -> Result<bool> {
+    #[cfg(target_os = "macos")]
+    {
+        // Fast path (v0.110.0): the osascript route below spawns TWO processes
+        // (read + set ≈ 600 ms measured); CoreAudio flips the device's mute
+        // property in microseconds. Fallback covers devices without a mute
+        // control (AppleScript then mutes via the system-volume route).
+        let mut wrote = ca_volume::write_mute(muted);
+        if !muted && crate::boom::unmute() {
+            wrote = true;
+        }
+        if wrote {
+            return Ok(verify_mute(muted));
+        }
+        tracing::debug!("set_system_mute: CoreAudio path unavailable, osascript fallback");
+        let script = if muted {
+            "set volume with output muted"
+        } else {
+            "set volume without output muted"
+        };
+        std::process::Command::new("/usr/bin/osascript")
+            .arg("-e")
+            .arg(script)
+            .status()
+            .context("osascript mute set failed")?
+            .success()
+            .then_some(())
+            .ok_or_else(|| anyhow!("osascript mute set returned non-zero exit"))?;
+        Ok(verify_mute(muted))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        // Windows has no cheap read-back; the toggle path below synthesizes
+        // the key regardless of `muted` (best-effort, runtime-unverified).
+        win_vol::tap(win_vol::VK_VOLUME_MUTE);
+        Ok(muted)
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let arg = if muted { "1" } else { "0" };
+        run_first_ok(
+            "mute",
+            &[
+                ("wpctl", &["set-mute", "@DEFAULT_AUDIO_SINK@", arg]),
+                ("pactl", &["set-sink-mute", "@DEFAULT_SINK@", arg]),
+            ],
+        )?;
+        Ok(muted)
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        Err(anyhow!("set_system_mute not implemented on this platform"))
+    }
+}
+
+/// Read the output's mute back after a write and report honestly: the value
+/// the output ACTUALLY has wins over what was intended, and a disagreement is
+/// logged — a HUD that says "Unmuted" over a silent output is exactly the
+/// confusion this exists to end.
+#[cfg(target_os = "macos")]
+fn verify_mute(intended: bool) -> bool {
+    match output_muted_anywhere() {
+        Some(actual) if actual != intended => {
+            tracing::warn!(
+                "mute: wrote muted={intended} but the output reads muted={actual} (default {:?}, boom bridge {})",
+                ca_volume::read_mute(),
+                crate::boom::output_muted()
+            );
+            actual
+        }
+        Some(actual) => actual,
+        None => intended,
     }
 }
 
@@ -1229,5 +1343,82 @@ mod tests {
         // any supported OS. The call must error, not panic.
         let r = kill_process_by_pid(999_999_999, false);
         assert!(r.is_err(), "killing a nonexistent PID must error");
+    }
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod volume_unmute_live_tests {
+    //! Live + non-destructive (restores volume AND mute). Run with
+    //! `cargo test -p inspector-rust-core --lib volume_unmute_live -- --ignored --nocapture`.
+    use super::*;
+
+    /// The requested behaviour end to end: with the output MUTED, a volume
+    /// nudge (down is the harder case — it must still unmute) leaves the
+    /// output UNMUTED and the level actually moved. Restores both.
+    #[test]
+    #[ignore]
+    fn nudging_the_volume_down_while_muted_unmutes() {
+        let Some(vol0) = ca_volume::read_volume() else {
+            eprintln!("default output has no volume control — skipping");
+            return;
+        };
+        let mute0 = ca_volume::read_mute();
+        // Stage: a mid volume so a down-step is representable, and muted.
+        set_system_volume(60);
+        if !ca_volume::write_mute(true) {
+            eprintln!("default output has no mute control — skipping");
+            return;
+        }
+        let staged_mute = output_muted_anywhere();
+        let level = nudge_volume(-5);
+        let after_mute = output_muted_anywhere();
+        let after_vol = ca_volume::read_volume();
+        // Restore before asserting so a failure can't leave the machine muted.
+        set_system_volume(vol0);
+        let _ = ca_volume::write_mute(mute0.unwrap_or(false));
+        eprintln!("staged muted={staged_mute:?} → nudge {level:?} → muted={after_mute:?} vol={after_vol:?}");
+        assert_eq!(staged_mute, Some(true), "could not stage a muted output");
+        assert_eq!(after_mute, Some(false), "a volume change must unmute");
+        assert!(level.is_some(), "the nudge should report a level");
+    }
+}
+
+#[cfg(test)]
+mod mute_state_tests {
+    //! The field rule behind v0.169.1: a mute ANYWHERE on the path to the
+    //! speakers is a mute — the toggle must decide from that, or an "unmute"
+    //! silently becomes a second mute.
+    use super::mute_state;
+
+    #[test]
+    fn a_mute_on_a_bridge_device_counts_even_when_the_default_reads_clear() {
+        // The exact field state: boom Audio (default) unmuted, the real output
+        // behind it muted → the user hears nothing → this IS "muted".
+        assert_eq!(mute_state(Some(false), true), Some(true));
+        assert_eq!(mute_state(None, true), Some(true));
+    }
+
+    #[test]
+    fn without_a_bridge_the_default_output_decides() {
+        assert_eq!(mute_state(Some(true), false), Some(true));
+        assert_eq!(mute_state(Some(false), false), Some(false));
+    }
+
+    #[test]
+    fn no_control_anywhere_is_unknown_not_muted() {
+        // HDMI-only: no mute control, no bridge → the caller falls back to
+        // "not muted" and toggles toward mute, exactly as before.
+        assert_eq!(mute_state(None, false), None);
+    }
+
+    #[test]
+    fn a_volume_change_unmutes_only_when_muted_and_regardless_of_direction() {
+        use super::should_unmute_on_volume_change;
+        // The whole contract: muted → unmute; not muted / unknown → leave it.
+        // The fn takes no delta, so up and down are the same by construction —
+        // that is the guarantee the user asked for.
+        assert!(should_unmute_on_volume_change(Some(true)));
+        assert!(!should_unmute_on_volume_change(Some(false)));
+        assert!(!should_unmute_on_volume_change(None));
     }
 }

@@ -764,7 +764,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "qr",
     keyword: "qr",
     syntax: "qr <text>",
-    description: "Generate a QR code — preview it, Enter copies the PNG to clipboard",
+    description: "Generate a QR code — live preview, copy PNG, save PNG or printable STL",
     requiresArg: true,
   },
   {

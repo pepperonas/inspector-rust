@@ -1451,6 +1451,24 @@ pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::di
 /// Move a scanned file/folder to the Trash (the DaisyDisk "collector" — free
 /// up the space you just found). macOS/Linux via the `trash` plugin path; the
 /// path must exist and is confirmed on the frontend before this is called.
+/// Trash a whole collection at once (v0.169.0). Per-item report — a path that
+/// vanished between scan and click is reported, not fatal; see
+/// `disk_usage::trash_batch`. Runs off the main thread: the Trash move can
+/// block on a slow volume.
+#[tauri::command]
+pub async fn disk_trash_many(paths: Vec<String>) -> Result<crate::disk_usage::TrashReport, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        Ok(crate::disk_usage::trash_batch(&paths, |p| {
+            if !p.exists() {
+                return Err("Pfad existiert nicht mehr".to_string());
+            }
+            trash::delete(p).map_err(|e| format!("In den Papierkorb fehlgeschlagen: {e}"))
+        }))
+    })
+    .await
+    .map_err(|e| format!("disk task: {e}"))?
+}
+
 #[tauri::command]
 pub async fn disk_trash(path: String) -> Result<(), String> {
     tauri::async_runtime::spawn_blocking(move || {
@@ -6999,6 +7017,110 @@ pub async fn device_sync_now(
     .map_err(|e| e.to_string())?
 }
 
+// ── Auto-backup — scheduled encrypted snapshots to a folder (v0.170.0) ──────
+
+#[tauri::command]
+pub fn get_auto_backup_config(
+    db: State<'_, DbHandle>,
+) -> Result<crate::auto_backup::AutoBackupConfig, String> {
+    crate::auto_backup::get_config(db.inner()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn set_auto_backup_config(
+    db: State<'_, DbHandle>,
+    config: crate::auto_backup::AutoBackupConfig,
+) -> Result<(), String> {
+    crate::auto_backup::set_config(db.inner(), &config).map_err(|e| e.to_string())?;
+    crate::auto_backup::request_check(); // a freshly enabled/re-timed backup fires soon
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_auto_backup_status(
+    db: State<'_, DbHandle>,
+) -> Result<crate::auto_backup::AutoBackupStatus, String> {
+    let db = (*db).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::auto_backup::get_status(&db).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Store (or, with an empty string, remove) the backup password in the OS
+/// keychain. Never written to a file or the settings table.
+#[tauri::command]
+pub fn set_auto_backup_password(password: String) -> Result<(), String> {
+    crate::auto_backup::set_password(&password).map_err(|e| e.to_string())?;
+    crate::auto_backup::request_check();
+    Ok(())
+}
+
+/// List the snapshots in the configured folder (newest first) for the restore
+/// picker.
+#[tauri::command]
+pub async fn auto_backup_list_snapshots(
+    db: State<'_, DbHandle>,
+) -> Result<Vec<crate::auto_backup::SnapshotInfo>, String> {
+    let db = (*db).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = crate::auto_backup::get_config(&db).map_err(|e| e.to_string())?;
+        crate::auto_backup::list_snapshots(&cfg.folder).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Force a backup now (writes even if unchanged). Returns the outcome for a toast.
+#[tauri::command]
+pub async fn auto_backup_now(
+    db: State<'_, DbHandle>,
+) -> Result<crate::auto_backup::CycleOutcome, String> {
+    let db = (*db).clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let cfg = crate::auto_backup::get_config(&db).map_err(|e| e.to_string())?;
+        let pass = crate::auto_backup::get_password();
+        if !crate::auto_backup::should_run(&cfg, pass.is_some()) {
+            return Err("autobackup.not_ready".to_string());
+        }
+        let now = chrono::Utc::now().timestamp_millis();
+        let outcome = crate::auto_backup::cycle(&db, &cfg, pass.as_deref(), true, now)
+            .map_err(|e| format!("{e:#}"))?;
+        let _ = crate::settings::set(&db, crate::auto_backup::KEY_LAST_CHECK_MS, &now.to_string());
+        let _ = crate::settings::set(&db, crate::auto_backup::KEY_LAST_ERROR, "");
+        if outcome.wrote {
+            let _ = crate::settings::set(&db, crate::auto_backup::KEY_LAST_MS, &now.to_string());
+        }
+        Ok(outcome)
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// Restore a snapshot into the live DB. `replace` = wipe-then-apply; otherwise
+/// merge. Encrypted files need `password`. Emits `clipboard-changed` +
+/// `snippets-synced` so the UI reflects the restored data.
+#[tauri::command]
+pub async fn auto_backup_restore(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    path: String,
+    password: Option<String>,
+    replace: bool,
+) -> Result<BackupImportResult, String> {
+    let db = (*db).clone();
+    let res = tauri::async_runtime::spawn_blocking(move || {
+        crate::auto_backup::restore(&db, &path, password.as_deref(), replace)
+            .map_err(|e| format!("{e:#}"))
+    })
+    .await
+    .map_err(|e| e.to_string())??;
+    let _ = app.emit("clipboard-changed", ());
+    let _ = app.emit("snippets-synced", ());
+    Ok(res)
+}
+
 // ── loc export — one HTML renderer, three formats (v0.141.0) ────────────────
 
 /// Write the current `loc` report to `~/Downloads` as HTML, PDF or PNG and
@@ -7170,4 +7292,11 @@ pub async fn pagespeed_export(
     write_report(&app, html, &out)?;
     reveal_in_file_manager(&out);
     Ok(out.to_string_lossy().into_owned())
+}
+
+/// Export a QR PNG or printable STL to Downloads without changing the clipboard.
+#[tauri::command]
+pub async fn qr_save(png_b64: Option<String>, matrix: Option<Vec<Vec<bool>>>) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::qr::save(png_b64, matrix))
+        .await.map_err(|e| e.to_string())?
 }

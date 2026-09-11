@@ -252,3 +252,160 @@ export function childRows(focus: DiskNode): ChildRow[] {
     .map((node, index) => ({ index, node, share: node.size / total }))
     .sort((a, b) => b.node.size - a.node.size || a.node.name.localeCompare(b.node.name));
 }
+
+// ── Deleting from the view (v0.169.0) ────────────────────────────────────────
+//
+// Trashing an item does NOT re-scan. A full `~` walk takes seconds and the old
+// flow also reset the drill to the root, so deleting three things deep in a
+// tree meant three round trips back to the top. Instead the tree is pruned
+// locally and exactly: the item's on-disk bytes leave the scanned folder (they
+// now live in the Trash), so subtracting them up the ancestor chain is the
+// honest number — while the VOLUME's free space stays as it was, because the
+// Trash still holds the bytes until it is emptied. Everything here is pure so
+// that arithmetic is tested rather than eyeballed.
+
+/** One entry the user has collected for deletion — an absolute-path snapshot,
+ *  so it survives drilling elsewhere and even a re-scan of another folder. */
+export interface CollectorItem {
+  path: string;
+  name: string;
+  size: number;
+  is_dir: boolean;
+}
+
+/** Shape of the batch-trash IPC result (mirrors Rust `TrashReport`). */
+export interface TrashReport {
+  trashed: string[];
+  failed: { path: string; error: string }[];
+}
+
+export function collectorTotals(items: readonly CollectorItem[]): { count: number; bytes: number } {
+  return { count: items.length, bytes: items.reduce((s, i) => s + i.size, 0) };
+}
+
+/** Absolute filesystem path of a node addressed by an index chain from the
+ *  scan root. `null` when any step is the synthetic "Other" bucket (it has no
+ *  path) or out of range. Inverse of `indexPathFor`. */
+export function absPathOf(
+  scan: { root_path: string; tree: DiskNode },
+  idxPath: readonly number[],
+): string | null {
+  let cur: DiskNode = scan.tree;
+  const parts: string[] = [];
+  for (const i of idxPath) {
+    const next = cur.children?.[i];
+    if (!next || next.other) return null;
+    parts.push(next.name);
+    cur = next;
+  }
+  return joinPath(scan.root_path, parts);
+}
+
+/** Resolve an absolute path back to an index chain inside the scanned tree —
+ *  `[]` for the root itself, `null` when the path lies outside the scan, runs
+ *  through the "Other" bucket, or names a child the pruned tree does not
+ *  carry. Inverse of `absPathOf`. */
+export function indexPathFor(
+  scan: { root_path: string; tree: DiskNode },
+  absPath: string,
+): number[] | null {
+  const root = scan.root_path === "/" ? "" : scan.root_path.replace(/\/+$/, "");
+  const target = absPath.replace(/\/+$/, "");
+  if (target === (root || "/")) return [];
+  const prefix = root + "/";
+  if (!target.startsWith(prefix)) return null;
+  const segs = target.slice(prefix.length).split("/").filter(Boolean);
+  const out: number[] = [];
+  let cur: DiskNode = scan.tree;
+  for (const seg of segs) {
+    const i = (cur.children ?? []).findIndex((c) => !c.other && c.name === seg);
+    if (i < 0) return null;
+    out.push(i);
+    cur = cur.children![i];
+  }
+  return out;
+}
+
+/** Is `path` equal to or inside `dir`? Path-boundary aware, so `/a/bc` is
+ *  never "under" `/a/b`. */
+export function isUnder(path: string, dir: string): boolean {
+  const d = dir === "/" ? "/" : dir.replace(/\/+$/, "");
+  if (path === d) return true;
+  return d === "/" ? path.startsWith("/") : path.startsWith(d + "/");
+}
+
+/**
+ * A NEW tree with the node at `idxPath` removed and its size subtracted from
+ * every ancestor (`child_count` of the parent decremented). Never mutates the
+ * input — the tree is React state. An empty path (the root) or an invalid one
+ * returns the tree unchanged: there is nothing sensible to remove.
+ */
+export function removeAt(root: DiskNode, idxPath: readonly number[]): DiskNode {
+  if (idxPath.length === 0) return root;
+  const walk = (node: DiskNode, depth: number): DiskNode | null => {
+    const i = idxPath[depth];
+    const kids = node.children ?? [];
+    const victim = kids[i];
+    if (!victim) return null; // invalid path → signal "unchanged"
+    if (depth === idxPath.length - 1) {
+      const children = kids.filter((_, k) => k !== i);
+      return {
+        ...node,
+        size: Math.max(0, node.size - victim.size),
+        child_count: Math.max(0, node.child_count - 1),
+        ...(children.length ? { children } : { children: [] }),
+      };
+    }
+    const replaced = walk(victim, depth + 1);
+    if (!replaced) return null;
+    const children = kids.map((k, idx) => (idx === i ? replaced : k));
+    return { ...node, size: Math.max(0, node.size - (victim.size - replaced.size)), children };
+  };
+  return walk(root, 0) ?? root;
+}
+
+/**
+ * Re-resolve a drill by folder NAMES after the tree changed — the longest
+ * prefix that still exists, as fresh indices.
+ *
+ * ⚠️ Positions are not identity. Pruning a sibling shifts every index after
+ * it, so a stale index chain keeps "working" while silently addressing a
+ * DIFFERENT folder (trash `target` at index 0 and the old `[0, 0]` now lands
+ * on `src/main.rs`). Only the names say where the user was standing; if an
+ * ancestor itself was trashed, the walk stops there.
+ */
+export function drillByNames(tree: DiskNode, names: readonly string[]): number[] {
+  const out: number[] = [];
+  let cur: DiskNode = tree;
+  for (const name of names) {
+    const i = (cur.children ?? []).findIndex((c) => !c.other && c.name === name);
+    if (i < 0) break;
+    out.push(i);
+    cur = cur.children![i];
+  }
+  return out;
+}
+
+/**
+ * Apply a set of trashed absolute paths to a scan: each path that resolves
+ * inside the tree is pruned (size subtracted up the chain), the largest-files
+ * list drops every file at or under a trashed path, and `total` follows the
+ * tree. Paths outside the scan (collected under another root) are ignored —
+ * there is nothing of them in this picture. Volume free space is deliberately
+ * NOT touched: the bytes sit in the Trash until it is emptied.
+ */
+export function pruneScan<S extends { root_path: string; tree: DiskNode; total: number; top_files: { path: string; size: number }[] }>(
+  scan: S,
+  trashed: readonly string[],
+): S {
+  let tree = scan.tree;
+  // Prune deepest paths first so an ancestor's removal can't invalidate a
+  // descendant's index chain resolved against the original tree.
+  const sorted = [...trashed].sort((a, b) => b.split("/").length - a.split("/").length);
+  for (const p of sorted) {
+    const idx = indexPathFor({ root_path: scan.root_path, tree }, p);
+    if (idx && idx.length > 0) tree = removeAt(tree, idx);
+  }
+  const top_files = scan.top_files.filter((f) => !trashed.some((t) => isUnder(f.path, t)));
+  return { ...scan, tree, total: tree.size, top_files };
+}

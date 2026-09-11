@@ -30,6 +30,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSection[] = [
   { id: "clipboard-history", label: "Clipboard history", names: ["history", "clipboard history", "max entries", "limit", "cap", "verlauf"] },
   { id: "pagespeed", label: "PageSpeed", names: ["pagespeed", "lighthouse", "api key", "google", "seite", "performance"] },
   { id: "device-sync", label: "Device sync", names: ["device sync", "geraete-sync", "geräte-sync", "geraetesync", "macs", "icloud", "abgleich"] },
+  { id: "auto-backup", label: "Auto-backup", names: ["auto-backup", "auto backup", "automatisch", "sicherung", "geplant", "schedule", "google drive", "backup ordner", "backup-ordner", "intervall"] },
   { id: "clipboard-privacy", label: "Clipboard privacy", names: ["privacy", "clipboard privacy", "exclude", "auto-clear", "privatsphäre", "datenschutz"] },
   { id: "cleaning", label: "Cleaning", names: ["cleaning", "clean", "cleaner", "aufräumen"] },
   { id: "timesheet", label: "Timesheet", names: ["timesheet", "tracking", "zeiterfassung", "track"] },

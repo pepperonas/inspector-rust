@@ -12,6 +12,13 @@ import {
   joinPath,
   pathCrumbs,
   childRows,
+  removeAt,
+  absPathOf,
+  indexPathFor,
+  isUnder,
+  drillByNames,
+  pruneScan,
+  collectorTotals,
   type DiskNode,
 } from "./disk";
 
@@ -242,5 +249,123 @@ describe("childRows — reaching the folders the chart cannot show", () => {
     expect(childRows(dir("leer", 0))).toEqual([]);
     const zero: DiskNode = { ...dir("x", 0), children: [dir("a", 0)] };
     expect(childRows(zero)[0].share).toBe(0);
+  });
+});
+
+describe("deleting from the view — the tree is pruned, never re-scanned", () => {
+  /** A real-shaped tree: build output beside source, a file in the source. */
+  function tree(): DiskNode {
+    return dir("projekt", [
+      dir("target", [dir("debug", [leaf("bin", 700), leaf("deps", 300)])]),
+      dir("src", [leaf("main.rs", 40), leaf("lib.rs", 60)]),
+    ]);
+  }
+
+  it("removeAt subtracts the victim's bytes up the WHOLE ancestor chain", () => {
+    const t = tree(); // projekt 1100 → target 1000 → debug 1000 → bin 700
+    const out = removeAt(t, [0, 0, 0]); // trash target/debug/bin
+    expect(out.size).toBe(400);
+    expect(out.children![0].size).toBe(300); // target
+    expect(out.children![0].children![0].size).toBe(300); // debug
+    expect(out.children![0].children![0].children!.map((c) => c.name)).toEqual(["deps"]);
+    expect(out.children![0].children![0].child_count).toBe(1);
+    // Siblings on other branches are untouched, byte for byte.
+    expect(out.children![1]).toEqual(t.children![1]);
+  });
+
+  it("removeAt never mutates the input (the tree is React state)", () => {
+    const t = tree();
+    const snapshot = JSON.stringify(t);
+    removeAt(t, [1, 0]);
+    expect(JSON.stringify(t)).toBe(snapshot);
+  });
+
+  it("removeAt leaves the tree alone for the root or an invalid path", () => {
+    const t = tree();
+    expect(removeAt(t, [])).toBe(t);
+    expect(removeAt(t, [7])).toBe(t);
+    expect(removeAt(t, [0, 9, 1])).toBe(t);
+  });
+
+  it("absPathOf and indexPathFor are inverses, and the root maps to []", () => {
+    const scan = { root_path: "/Users/martin/projekt", tree: tree() };
+    const idx = [0, 0, 1]; // target/debug/deps
+    const abs = absPathOf(scan, idx);
+    expect(abs).toBe("/Users/martin/projekt/target/debug/deps");
+    expect(indexPathFor(scan, abs!)).toEqual(idx);
+    expect(indexPathFor(scan, "/Users/martin/projekt")).toEqual([]);
+    expect(indexPathFor(scan, "/Users/martin/projekt/")).toEqual([]);
+  });
+
+  it("indexPathFor refuses paths outside the scan or through 'Other'", () => {
+    const t = tree();
+    t.children!.push({ name: "…", size: 5, is_dir: true, other: true, child_count: 0 });
+    const scan = { root_path: "/Users/martin/projekt", tree: t };
+    expect(indexPathFor(scan, "/Users/martin/other/x")).toBeNull();
+    expect(indexPathFor(scan, "/Users/martin/projektX/target")).toBeNull(); // no boundary confusion
+    expect(indexPathFor(scan, "/Users/martin/projekt/nope")).toBeNull();
+    // The synthetic bucket has no path — it must not resolve by its label.
+    expect(absPathOf(scan, [2])).toBeNull();
+  });
+
+  it("isUnder respects path boundaries", () => {
+    expect(isUnder("/a/b/c", "/a/b")).toBe(true);
+    expect(isUnder("/a/b", "/a/b")).toBe(true);
+    expect(isUnder("/a/bc", "/a/b")).toBe(false);
+    expect(isUnder("/x", "/")).toBe(true);
+  });
+
+  it("drillByNames follows the folder by NAME when a sibling's removal shifts indices", () => {
+    const t = tree();
+    const pruned = removeAt(t, [0]); // `target` (index 0) is gone; `src` slides to 0
+    // The hazard this exists for: the stale index chain [0, 0] (which MEANT
+    // target/debug) now silently addresses src/main.rs — a different node
+    // that happens to exist. Names cannot be fooled by the shift.
+    expect(pruned.children![0].children![0].name).toBe("main.rs");
+    expect(drillByNames(pruned, ["src"])).toEqual([0]);
+    expect(drillByNames(pruned, ["src", "lib.rs"])).toEqual([0, 1]);
+    // Standing IN the folder that was trashed → fall back to the nearest
+    // surviving ancestor (here the root).
+    expect(drillByNames(pruned, ["target", "debug"])).toEqual([]);
+    // Unchanged tree, unchanged answer.
+    expect(drillByNames(t, ["target", "debug", "deps"])).toEqual([0, 0, 1]);
+  });
+
+  it("pruneScan drops trashed subtrees AND the largest-files under them, keeps free space", () => {
+    const scan = {
+      root_path: "/Users/martin/projekt",
+      tree: tree(),
+      total: 1100,
+      volume_free: 500,
+      top_files: [
+        { path: "/Users/martin/projekt/target/debug/bin", size: 700 },
+        { path: "/Users/martin/projekt/src/lib.rs", size: 60 },
+      ],
+    };
+    const out = pruneScan(scan, ["/Users/martin/projekt/target", "/nowhere/else"]);
+    expect(out.total).toBe(100);
+    expect(out.tree.children!.map((c) => c.name)).toEqual(["src"]);
+    expect(out.top_files.map((f) => f.path)).toEqual(["/Users/martin/projekt/src/lib.rs"]);
+    expect(out.volume_free).toBe(500); // the Trash still holds the bytes
+  });
+
+  it("pruneScan handles an ancestor and its descendant in one batch", () => {
+    // Both collected: `target` at the root and `target/debug/bin` from deeper.
+    // Deepest-first pruning means the child's index is resolved before its
+    // parent vanishes; the result must simply be "target is gone".
+    const scan = { root_path: "/p", tree: tree(), total: 1100, top_files: [] };
+    const out = pruneScan(scan, ["/p/target", "/p/target/debug/bin"]);
+    expect(out.tree.children!.map((c) => c.name)).toEqual(["src"]);
+    expect(out.total).toBe(100);
+  });
+
+  it("collectorTotals sums what will be freed", () => {
+    expect(collectorTotals([])).toEqual({ count: 0, bytes: 0 });
+    expect(
+      collectorTotals([
+        { path: "/a", name: "a", size: 10, is_dir: true },
+        { path: "/b", name: "b", size: 5, is_dir: false },
+      ]),
+    ).toEqual({ count: 2, bytes: 15 });
   });
 });

@@ -10,7 +10,11 @@ import qrcode from "qrcode-generator";
 export function qrMatrix(text: string): boolean[][] {
   if (!text) throw new Error("qr: empty text");
   const qr = qrcode(0, "M"); // typeNumber 0 = auto-fit
-  qr.addData(text);
+  // The encoder defaults to Latin-1 truncation. Feed UTF-8 bytes explicitly
+  // so emoji, CJK and accented text survive scanning.
+  const bytes = new TextEncoder().encode(text);
+  if (bytes.length > 2331) throw new Error("QR content is too long (maximum 2331 UTF-8 bytes).");
+  qr.addData(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(""));
   qr.make();
   const n = qr.getModuleCount();
   const rows: boolean[][] = [];

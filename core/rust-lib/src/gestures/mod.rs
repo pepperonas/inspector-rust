@@ -130,11 +130,27 @@ pub const TIPTAP_TAP_MAX_MS: u64 = 300;
 pub const TIPTAP_TAP_MIN_MS: u64 = 40;
 /// Max movement (normalized) a resting finger may make during the tap — more is
 /// a scroll/swipe, and a drifting rest finger re-arms its settle timer.
+/// Measured CUMULATIVELY against an anchor, never frame-to-frame (see
+/// [`TtState`]): at 60–125 Hz even a brisk scroll moves each finger well under
+/// this per frame.
 pub const TIPTAP_MAX_MOVE_NORM: f64 = 0.05;
+/// Max movement of the TAPPING finger itself (v0.167.0). A tap is stationary;
+/// a finger that travels while the other stays put is a DRAG — the everyday
+/// thumb-anchored posture (thumb parked, index dragging to move the cursor or
+/// select text), which used to fire a tab switch on every drag because only the
+/// resting finger was ever movement-checked. Slightly looser than the rest's
+/// bar: a fingertip's centroid rolls a millimetre or two as it flattens on
+/// contact, and that roll must not read as travel.
+pub const TIPTAP_TAP_MAX_MOVE_NORM: f64 = 0.06;
 /// The tap must land at least this far (normalized) beyond the resting finger
 /// for the direction decision to be reliable (a tap right on top of the rest
-/// finger is ambiguous → rejected).
-pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
+/// finger is ambiguous → rejected). A fingertip's contact patch is ~10–15 mm
+/// across; on a ~160 mm-wide pad the old 0.03 was ~5 mm, i.e. the two patches
+/// physically OVERLAP and "left or right of it" is below the noise floor —
+/// which is what let two fingers resting side by side produce a direction.
+/// 0.06 ≈ 1 cm demands a real gap, still far under the ~2 cm between two
+/// adjacent fingertips of one hand.
+pub const TIPTAP_MIN_SEP_NORM: f64 = 0.06;
 /// Refractory period between two tip-tap emits. A physical tap's lift can
 /// "bounce" (the contact re-appears for a frame or two) — without this gap one
 /// tap could fire several tab switches ("apps jump around wildly"). Bounce is
@@ -143,8 +159,12 @@ pub const TIPTAP_MIN_SEP_NORM: f64 = 0.03;
 /// chained taps/s (350 ms swallowed rapid taps and read as "laggy").
 pub const TIPTAP_EMIT_GAP_MS: u64 = 200;
 /// The tap must land at a roughly similar HEIGHT as the resting finger
-/// (|Δy|, 0..1). Generous — strongly angled hands are fine.
-pub const TIPTAP_MAX_DY_NORM: f64 = 0.55;
+/// (|Δy|, 0..1) — two adjacent fingertips of one hand sit in roughly one row.
+/// Still generous (0.40 ≈ 4 cm of a MacBook pad's ~10 cm height, so strongly
+/// angled hands are fine), but no longer over HALF the pad: at the old 0.55 a
+/// thumb parked at the bottom edge and an index finger tapping mid-pad counted
+/// as "the same row", which is the thumb-anchored false positive.
+pub const TIPTAP_MAX_DY_NORM: f64 = 0.40;
 /// …and not implausibly far past the edge sideways (an adjacent fingertip, not
 /// a wide reach across the pad).
 pub const TIPTAP_MAX_DX_NORM: f64 = 0.40;
@@ -363,7 +383,11 @@ fn typing_trace_now() -> TypingTrace {
 /// macOS) — the guard then treats the toggle as a MUTE, i.e. still vetoable.
 #[cfg(target_os = "macos")]
 fn output_muted_now() -> Option<bool> {
-    crate::system_commands::ca_volume::read_mute()
+    // The whole path, not just the default output (v0.169.1): a mute parked on
+    // the real output behind boom Audio made the tap read as a MUTE attempt,
+    // which the typing guard then vetoed — the one gesture that could have
+    // restored sound was the one being suppressed.
+    crate::system_commands::output_muted_anywhere()
 }
 #[cfg(not(target_os = "macos"))]
 fn output_muted_now() -> Option<bool> {
@@ -1498,13 +1522,42 @@ enum TtState {
     /// tap's position relative to the rest finger; `started` = when the tap
     /// landed; `rest_since` carries the rest's settle time so chained taps
     /// don't need to re-settle.
-    TapDown { rest: Contact, rest_since: u64, tap: Contact, dir: GestureKind, started: u64 },
+    ///
+    /// `rest_anchor`/`tap_anchor` are where each finger stood when the attempt
+    /// began. BOTH fingers are movement-checked CUMULATIVELY against them for
+    /// the whole attempt (v0.167.0) — the same lesson `Rest1`'s anchor already
+    /// encoded, which had never been carried past the tap's landing:
+    ///
+    /// * frame-to-frame, a two-finger scroll moves each finger far under
+    ///   `TIPTAP_MAX_MOVE_NORM`, so a brief flick-scroll whose fingers happened
+    ///   to land ≥ `TIPTAP_REST_MIN_MS` apart walked through the old per-frame
+    ///   guard and emitted a tab switch on lift;
+    /// * the tapping finger was never movement-checked at all, so
+    ///   thumb-anchored dragging read as a tap.
+    TapDown {
+        rest: Contact,
+        rest_anchor: Contact,
+        rest_since: u64,
+        tap: Contact,
+        tap_anchor: Contact,
+        dir: GestureKind,
+        started: u64,
+    },
     /// The tap finger lifted (the rest finger remains) — emit is DEFERRED one
     /// frame to confirm the lift. If the tap finger re-appears next frame it was
     /// a mid-hold contact flicker (not a real lift) → back to `TapDown`, no emit;
     /// this stops one physical tap from firing twice (double-jump bug). Only a
-    /// *confirmed* lift emits.
-    TapReleasing { rest: Contact, rest_since: u64, dir: GestureKind, started: u64, lift_t: u64 },
+    /// *confirmed* lift emits. The anchors ride along so a flicker cannot reset
+    /// the cumulative movement budget.
+    TapReleasing {
+        rest: Contact,
+        rest_anchor: Contact,
+        rest_since: u64,
+        tap_anchor: Contact,
+        dir: GestureKind,
+        started: u64,
+        lift_t: u64,
+    },
     /// Disqualified (scroll/swipe/too-many fingers) — wait for the finger count
     /// to fall back to a resting posture, then re-settle.
     Poisoned,
@@ -1559,8 +1612,21 @@ impl TipTapRecognizer {
 
     pub fn feed(&mut self, t_ms: u64, contacts: &[Contact]) -> Option<GestureKind> {
         let state = self.state.take().unwrap_or(TtState::Idle);
-        let (next, emit) = Self::step(state, t_ms, contacts);
+        let was_poisoned = matches!(state, TtState::Poisoned);
+        let (next, emit, reject) = Self::step(state, t_ms, contacts);
         self.state = Some(next);
+        // Diagnosability (the house rule that a silently dropped gesture costs
+        // weeks): name every rejected attempt once — on the EDGE into the
+        // disqualified state, so a scroll doesn't log per frame. Positions are
+        // not logged; only the reason and the contact count.
+        if let Some(why) = reject {
+            if !was_poisoned {
+                tracing::debug!(
+                    "tip-tap rejected: {why} (t_ms={t_ms}, contacts={})",
+                    contacts.len()
+                );
+            }
+        }
         // Refractory: a tap's lift can bounce (contact re-appears for a frame),
         // which would re-run the whole tap cycle — cap the emit rate instead of
         // trusting every cycle.
@@ -1581,16 +1647,48 @@ impl TipTapRecognizer {
         (TIPTAP_TAP_MIN_MS..=TIPTAP_TAP_MAX_MS).contains(&dur).then_some(dir)
     }
 
-    fn step(state: TtState, t_ms: u64, c: &[Contact]) -> (TtState, Option<GestureKind>) {
+    /// One frame of the state machine. Returns the next state, an emit, and —
+    /// when the attempt was disqualified — why (for the debug log).
+    fn step(
+        state: TtState,
+        t_ms: u64,
+        c: &[Contact],
+    ) -> (TtState, Option<GestureKind>, Option<&'static str>) {
+        type Step = (TtState, Option<GestureKind>, Option<&'static str>);
+        fn poison(why: &'static str) -> Step {
+            (TtState::Poisoned, None, Some(why))
+        }
+        /// Both fingers must hold their ground for the whole attempt: the rest
+        /// finger because a travelling "rest" is a scroll, the tap finger
+        /// because a travelling "tap" is a drag. `None` = still a tip-tap.
+        fn still_a_tap(
+            r: Contact,
+            rest_anchor: Contact,
+            t: Contact,
+            tap_anchor: Contact,
+            started: u64,
+            t_ms: u64,
+        ) -> Option<&'static str> {
+            if dist(r, rest_anchor) > TIPTAP_MAX_MOVE_NORM {
+                return Some("the resting finger travelled (scroll/swipe)");
+            }
+            if dist(t, tap_anchor) > TIPTAP_TAP_MAX_MOVE_NORM {
+                return Some("the tapping finger dragged");
+            }
+            if t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS {
+                return Some("the tap overstayed (two-finger rest)");
+            }
+            None
+        }
         match state {
             // Idle / Poisoned funnel finger-count changes toward a fresh rest.
             TtState::Idle | TtState::Poisoned => match c.len() {
-                0 => (TtState::Idle, None),
-                1 => (TtState::Rest1 { rest: c[0], anchor: c[0], since: t_ms }, None),
-                _ => (TtState::Poisoned, None), // 2+ landing at once = scroll/swipe
+                0 => (TtState::Idle, None, None),
+                1 => (TtState::Rest1 { rest: c[0], anchor: c[0], since: t_ms }, None, None),
+                _ => poison("two or more fingers landed together (scroll/swipe)"),
             },
             TtState::Rest1 { rest, anchor, since } => match c.len() {
-                0 => (TtState::Idle, None),
+                0 => (TtState::Idle, None, None),
                 1 => {
                     // Track the rest finger; CUMULATIVE movement since the
                     // stillness window began (scroll, slow mousing) re-arms the
@@ -1604,78 +1702,155 @@ impl TipTapRecognizer {
                             since: if drifted { t_ms } else { since },
                         },
                         None,
+                        None,
                     )
                 }
                 2 => {
                     if t_ms.saturating_sub(since) < TIPTAP_REST_MIN_MS {
                         // The second finger landed before the rest settled → a
                         // two-finger scroll/swipe, not a tip-tap.
-                        return (TtState::Poisoned, None);
+                        return poison("the tap landed before the rest settled");
                     }
                     let (r, tap) = split_rest_tap(c, rest);
                     match tiptap_direction(r, tap) {
                         Some(dir) => (
-                            TtState::TapDown { rest: r, rest_since: since, tap, dir, started: t_ms },
+                            TtState::TapDown {
+                                rest: r,
+                                rest_anchor: r,
+                                rest_since: since,
+                                tap,
+                                tap_anchor: tap,
+                                dir,
+                                started: t_ms,
+                            },
+                            None,
                             None,
                         ),
                         // Ambiguous / implausible tap position → not a tip-tap.
-                        None => (TtState::Poisoned, None),
+                        None => poison("the tap sat on top of the rest, too far, or off-row"),
                     }
                 }
-                _ => (TtState::Poisoned, None),
+                _ => poison("three or more fingers"),
             },
-            TtState::TapDown { rest, rest_since, tap, dir, started } => match c.len() {
-                // Everything lifted fast — the tap plus the rest went up
-                // near-together. Emit if the tap duration was valid.
-                0 => (TtState::Idle, Self::tap_emit(dir, started, t_ms)),
+            TtState::TapDown {
+                rest,
+                rest_anchor,
+                rest_since,
+                tap,
+                tap_anchor,
+                dir,
+                started,
+            } => match c.len() {
+                // Rest AND tap vanished in the SAME frame. The whole point of
+                // the posture is that the rest finger stays put — BetterTouchTool
+                // calls it the "fixed" finger — so two fingers going up together
+                // is a plain two-finger tap (on macOS the secondary click), and
+                // after the fact the two are not distinguishable. Never emit.
+                0 => (
+                    TtState::Idle,
+                    None,
+                    Some("rest and tap lifted in the same frame (two-finger tap)"),
+                ),
                 1 => {
                     // One finger lifted. Did the TAP lift (the remaining matches
                     // the rest) or did the rest lift (the tap is still here)?
                     if dist(c[0], rest) <= dist(c[0], tap) {
+                        if dist(c[0], rest_anchor) > TIPTAP_MAX_MOVE_NORM {
+                            return poison("the resting finger travelled (scroll/swipe)");
+                        }
                         // Rest remains → tap lifted → DEFER one frame to confirm.
-                        (TtState::TapReleasing { rest: c[0], rest_since, dir, started, lift_t: t_ms }, None)
+                        (
+                            TtState::TapReleasing {
+                                rest: c[0],
+                                rest_anchor,
+                                rest_since,
+                                tap_anchor,
+                                dir,
+                                started,
+                                lift_t: t_ms,
+                            },
+                            None,
+                            None,
+                        )
                     } else {
                         // The rest finger lifted, tap still down → ambiguous.
-                        (TtState::Poisoned, None)
+                        poison("the resting finger lifted instead of the tap")
                     }
                 }
                 2 => {
-                    // Still holding. Movement of the rest finger or overstaying
-                    // the tap window means it's a scroll/hold, not a tap.
+                    // Still holding. Either finger travelling, or overstaying the
+                    // tap window, means scroll/drag/hold — not a tap.
                     let (r, t) = split_rest_tap(c, rest);
-                    if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
-                        || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
-                    {
-                        return (TtState::Poisoned, None);
+                    if let Some(why) = still_a_tap(r, rest_anchor, t, tap_anchor, started, t_ms) {
+                        return poison(why);
                     }
-                    (TtState::TapDown { rest: r, rest_since, tap: t, dir, started }, None)
+                    (
+                        TtState::TapDown {
+                            rest: r,
+                            rest_anchor,
+                            rest_since,
+                            tap: t,
+                            tap_anchor,
+                            dir,
+                            started,
+                        },
+                        None,
+                        None,
+                    )
                 }
-                _ => (TtState::Poisoned, None),
+                _ => poison("three or more fingers"),
             },
-            TtState::TapReleasing { rest, rest_since, dir, started, lift_t } => match c.len() {
-                // Lift confirmed (tap stayed gone) → emit once.
-                0 => (TtState::Idle, Self::tap_emit(dir, started, lift_t)),
-                1 => (
-                    // The rest finger stays down — chaining: go back to a settled
-                    // Rest1 (carry `rest_since`) so a second tap can fire at once.
-                    // The anchor restarts at the current position: the rest was
-                    // still through the whole tap (TapDown's movement guard).
-                    TtState::Rest1 { rest: c[0], anchor: c[0], since: rest_since },
-                    Self::tap_emit(dir, started, lift_t),
-                ),
+            TtState::TapReleasing {
+                rest,
+                rest_anchor,
+                rest_since,
+                tap_anchor,
+                dir,
+                started,
+                lift_t,
+            } => match c.len() {
+                // Lift confirmed (tap stayed gone) → emit once. The rest finger
+                // went up a frame LATER than the tap, so the lift was ordered,
+                // not simultaneous — that order is what separates the end of a
+                // tip-tap from a two-finger tap.
+                0 => (TtState::Idle, Self::tap_emit(dir, started, lift_t), None),
+                1 => {
+                    if dist(c[0], rest_anchor) > TIPTAP_MAX_MOVE_NORM {
+                        return poison("the resting finger travelled (scroll/swipe)");
+                    }
+                    (
+                        // The rest finger stays down — chaining: go back to a settled
+                        // Rest1 (carry `rest_since`) so a second tap can fire at once.
+                        // The anchor restarts at the current position: the rest was
+                        // still through the whole tap (the guards above).
+                        TtState::Rest1 { rest: c[0], anchor: c[0], since: rest_since },
+                        Self::tap_emit(dir, started, lift_t),
+                        None,
+                    )
+                }
                 2 => {
                     // The tap finger re-appeared: it was a mid-hold flicker, NOT
-                    // a real lift → resume the SAME tap (keep `started`, `dir`),
-                    // no emit. This is the double-fire fix.
+                    // a real lift → resume the SAME tap (keep `started`, `dir`
+                    // and BOTH anchors), no emit. This is the double-fire fix.
                     let (r, t) = split_rest_tap(c, rest);
-                    if dist(r, rest) > TIPTAP_MAX_MOVE_NORM
-                        || t_ms.saturating_sub(started) > TIPTAP_TAP_MAX_MS
-                    {
-                        return (TtState::Poisoned, None);
+                    if let Some(why) = still_a_tap(r, rest_anchor, t, tap_anchor, started, t_ms) {
+                        return poison(why);
                     }
-                    (TtState::TapDown { rest: r, rest_since, tap: t, dir, started }, None)
+                    (
+                        TtState::TapDown {
+                            rest: r,
+                            rest_anchor,
+                            rest_since,
+                            tap: t,
+                            tap_anchor,
+                            dir,
+                            started,
+                        },
+                        None,
+                        None,
+                    )
                 }
-                _ => (TtState::Poisoned, None),
+                _ => poison("three or more fingers"),
             },
         }
     }
@@ -2884,10 +3059,106 @@ mod tests {
         );
         // On top of the rest finger → None.
         assert_eq!(tiptap_direction(rest, Contact { x: 0.49, y: 0.5 }), None);
+        // Δx 0.04: the two contact patches overlap — no reliable direction.
+        assert_eq!(tiptap_direction(rest, Contact { x: 0.52, y: 0.5 }), None);
         // Too far away → None.
         assert_eq!(tiptap_direction(rest, Contact { x: 0.98, y: 0.5 }), None);
-        // Too high (Δy 0.60 > the 0.55 limit) → None.
+        // Too high (Δy 0.60 > the 0.40 limit) → None.
         assert_eq!(tiptap_direction(rest, Contact { x: 0.70, y: 1.10 }), None);
+        // Δy 0.50: allowed under the old 0.55 limit, rejected now — that band
+        // is where a thumb parked at the bottom edge met an index finger
+        // tapping mid-pad, i.e. plain thumb-anchored clicking.
+        assert_eq!(tiptap_direction(rest, Contact { x: 0.70, y: 1.00 }), None);
+    }
+
+    #[test]
+    fn tiptap_rejects_a_slow_two_finger_scroll() {
+        // THE everyday false positive (and the one BetterTouchTool's own forum
+        // reports): the two fingers of a scroll land staggered, so the rest
+        // settles and the second finger reads as a tap — then both glide. Each
+        // frame moves 0.02, well under the per-frame bar, so the pre-v0.167.0
+        // frame-to-frame guard passed the whole scroll through and emitted a
+        // tab switch on lift. Cumulatively the rest travels 0.12.
+        let mut frames: Vec<(u64, Vec<Contact>)> = vec![
+            (0, vec![Contact { x: 0.40, y: 0.50 }]),
+            (100, vec![Contact { x: 0.40, y: 0.50 }]), // settled
+            (150, vec![Contact { x: 0.40, y: 0.50 }, Contact { x: 0.60, y: 0.50 }]),
+        ];
+        for i in 1..=6 {
+            let dy = 0.02 * i as f64;
+            frames.push((
+                150 + i * 20,
+                vec![
+                    Contact { x: 0.40, y: 0.50 - dy },
+                    Contact { x: 0.60, y: 0.50 - dy },
+                ],
+            ));
+        }
+        frames.push((290, vec![Contact { x: 0.40, y: 0.38 }])); // one lifts
+        frames.push((310, vec![]));
+        assert_eq!(tiptap_events(&frames), vec![], "a slow two-finger scroll is not a tip-tap");
+    }
+
+    #[test]
+    fn tiptap_rejects_a_dragging_tap_finger() {
+        // Thumb parked stone-still, index finger drags across the pad (moving
+        // the cursor / selecting text) and lifts inside the tap window. Only
+        // the RESTING finger used to be movement-checked, so this fired a tab
+        // switch on every drag — the thumb-anchored posture the one-finger
+        // rest is known to be exposed to.
+        let thumb = Contact { x: 0.30, y: 0.80 };
+        let frames: Vec<(u64, Vec<Contact>)> = vec![
+            (0, vec![thumb]),
+            (100, vec![thumb]), // settled
+            (150, vec![thumb, Contact { x: 0.50, y: 0.75 }]),
+            (180, vec![thumb, Contact { x: 0.56, y: 0.75 }]),
+            (210, vec![thumb, Contact { x: 0.62, y: 0.75 }]),
+            (240, vec![thumb, Contact { x: 0.68, y: 0.75 }]), // dragged 0.18
+            (270, vec![thumb]),
+            (300, vec![thumb]),
+            (360, vec![]),
+        ];
+        assert_eq!(tiptap_events(&frames), vec![], "a drag is not a tap");
+    }
+
+    #[test]
+    fn tiptap_ignores_a_simultaneous_two_finger_lift() {
+        // Rest and tap vanish in the SAME frame — a plain two-finger tap (the
+        // macOS secondary click), indistinguishable after the fact from a
+        // tip-tap whose fixed finger did not stay fixed.
+        let evs = tiptap_events(&[
+            (0, rest_one()),
+            (100, rest_one()),
+            (150, rest_tap(0.68)),
+            (200, vec![]), // both gone at once
+            (300, vec![]),
+        ]);
+        assert!(evs.is_empty(), "a two-finger tap must not switch tabs");
+    }
+
+    #[test]
+    fn tiptap_tolerates_natural_jitter() {
+        // The counter-check to the two guards above: a REAL tip-tap is never
+        // pixel-perfect — the resting finger breathes and the tapping fingertip
+        // rolls a little as it flattens. Both stay inside their budgets, so it
+        // must still fire (the guards block travel, not the user).
+        let evs = tiptap_events(&[
+            (0, vec![Contact { x: 0.480, y: 0.500 }]),
+            (60, vec![Contact { x: 0.487, y: 0.494 }]),
+            (120, vec![Contact { x: 0.475, y: 0.508 }]),
+            (
+                160,
+                vec![Contact { x: 0.482, y: 0.503 }, Contact { x: 0.680, y: 0.520 }],
+            ),
+            (
+                200,
+                vec![Contact { x: 0.478, y: 0.497 }, Contact { x: 0.700, y: 0.545 }],
+            ),
+            (240, vec![Contact { x: 0.484, y: 0.505 }]),
+            (280, vec![Contact { x: 0.479, y: 0.499 }]),
+            (400, vec![]),
+        ]);
+        assert_eq!(evs, vec![GestureKind::TipTapRight]);
     }
 
 

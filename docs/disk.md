@@ -25,8 +25,37 @@ ein **Sonnenkranz-Diagramm** (Sunburst) der Ordnergrößen. `disk` (oder
 | `⌫` / `←` / ↰ | eine Ebene höher — **auch über den Startordner hinaus** |
 | Esc | eine Ebene zurück; am Wurzelknoten schließt es das Panel |
 | Hover | Details in der Mitte + Detailzeile |
-| 🗑 (Segment / Datei) | in den **Papierkorb** verschieben (mit Bestätigung), danach Neu-Scan |
+| Leertaste / ＋ | die gewählte Zeile (Ordner **oder** Datei) in den **Sammler** nehmen — auch über Ordner hinweg |
+| `⌘⌫` / Entf | den Sammler in den **Papierkorb** — zweistufig: einmal armiert (rot, mit Hinweis), nochmal bestätigt; Esc bricht ab. Bei leerem Sammler trifft es die gewählte Zeile |
+| ＋ am Segment / an der Datei | in den Sammler (nie direkt löschen) |
 | `R` / ⟳ | den **aktuell gezeigten** Ordner neu scannen |
+
+## Löschen — der Sammler
+
+DaisyDisks Kern-Workflow **finden → sammeln → löschen**, in Tastaturform:
+
+1. Mit `↑↓` eine Zeile wählen, **Leertaste** nimmt sie in den Sammler (＋ mit
+   der Maus). Das geht mit Ordnern **und** Dateien, und über Ebenen hinweg —
+   erst `target` an der Wurzel, dann tiefer `src/alt.log`, alles in einer
+   Sammlung mit laufender Gesamtgröße.
+2. **`⌘⌫`** (die Finder-Geste „In den Papierkorb") armiert: der Knopf wird rot
+   und sagt, was passiert. Ein zweites `⌘⌫` (oder Klick) verschiebt alles.
+   Esc, ein Wechsel der Auswahl oder vier Sekunden Untätigkeit entwaffnen.
+3. Ist der Sammler leer, trifft `⌘⌫` die **gewählte Zeile** direkt — derselbe
+   zweistufige Ablauf, nur ohne Sammelschritt.
+
+Danach wird **nicht neu gescannt**: die Einträge verschwinden aus Diagramm
+und Liste, die Ordnergrößen sinken um genau diese Bytes, und du stehst noch
+im selben Ordner. Ein Voll-Scan von `~` dauert Sekunden und warf früher
+zurück zur Wurzel — drei Dinge tief im Baum löschen hieß dreimal neu
+hinnavigieren.
+
+Zwei Ehrlichkeiten: Es gibt **nur den Papierkorb** (wiederherstellbar), kein
+endgültiges Löschen — das gehört zu `clean` mit seiner Allowlist. Und der
+**freie Platz des Volumes ändert sich erst, wenn du den Papierkorb leerst**;
+die Volume-Leiste bleibt darum absichtlich stehen. Was nicht verschoben
+werden konnte (Rechte, Pfad inzwischen weg), steht mit Grund unter dem
+Sammler und bleibt darin, damit nichts stillschweigend verloren geht.
 
 ## Navigation
 
@@ -66,5 +95,6 @@ zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
 ## Nicht enthalten
 
 Der volle DaisyDisk-Funktionsumfang (mehrere Datenträger nebeneinander,
-Drag-in-Collector-Sammelmappe, Vorschau) bleibt der App vorbehalten — die
-Preview ist der schnelle „wo ist mein Platz hin"-Blick.
+Vorschau, Drag-and-Drop in den Sammler — hier ist er Tastatur und ＋) bleibt
+der App vorbehalten — die Preview ist der schnelle „wo ist mein Platz hin"-Blick,
+der den gefundenen Platz auch gleich freiräumt.

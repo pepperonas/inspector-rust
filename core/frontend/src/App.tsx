@@ -1577,7 +1577,7 @@ function App() {
         break;
       case "qr":
         label = `QR code: "${arg}"`;
-        hint = "Preview on the right · Enter copies the PNG to the clipboard";
+        hint = "Preview on the right · Enter copies PNG · Save PNG / STL in the preview";
         break;
       case "faker": {
         // A complete generator → runnable command row (+ FakerPreview on the

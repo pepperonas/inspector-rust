@@ -4,6 +4,58 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.171.0] - 2026-09-11
+
+### Added
+- **QR file exports:** `qr <URL or text>` now offers Save PNG and Save STL directly in the preview, writing to Downloads. STL exports a 2 mm base with 0.6 mm raised modules, a four-module quiet zone and print colour-change guidance.
+
+### Fixed
+- QR encoding now preserves UTF-8 text, including emoji and CJK. Oversized content shows an error instead of leaving a stale preview.
+
+## [0.170.0] - 2026-09-09
+
+### Added
+- **Scheduled auto-backups to a folder (Settings → Automatische Backups).** Point it at any folder — a Google Drive or iCloud folder, say — and Inspector Rust writes a full backup (settings, snippets, notes, 2FA, optionally the clipboard history) into it on an interval you choose, optionally AES-256 encrypted with a keychain-stored password, keeping the newest N timestamped snapshots and pruning older ones (only its own files). Restore any snapshot from Settings — merge (additive, never deletes) or replace-all (an exact point-in-time restore, with a confirmation). Snapshots use the exact manual-export format, so the existing "Import" button loads them too. Off by default; nothing runs until you enable it. Details: [docs/auto-backup.md](./docs/auto-backup.md).
+- **Only writes when something changed.** A full export every hour would otherwise stack byte-identical multi-MB files in the cloud folder. The change fingerprint hashes the CONTENT — ignoring the export timestamp and the backup's own heartbeat settings (which a backup writes as a side effect) — so an unchanged interval writes no file. Encryption keeps the password in the OS keychain only, never in a file; with encryption off, the app warns that your 2FA secrets would be stored in clear text.
+
+## [0.169.2] - 2026-09-06
+
+### Added
+- **Changing the volume while muted now unmutes** — up or down, matching what the hardware volume keys do. It covers every volume path on macOS: the 3-finger swipe, Shift+↑/↓ in the popup, and the sound slider. The unmute clears the whole path (default output and, while boom bridges, both bridge devices), so a mute hiding behind boom is cleared too; it only acts when actually muted, so an ordinary volume change is untouched. The decision takes only the mute state, never the direction, so up and down behave identically by construction.
+
+## [0.169.1] - 2026-09-06
+
+### Fixed
+- **Mute/unmute no longer strands you in System Settings.** Field report: "after mute/unmute I often have to untick the Mute box in System Settings → Sound to hear anything." The 3-finger-tap (and the `mute` command) was a blind toggle on the DEFAULT output only — boom Audio while boom fronts the system — so a mute sitting on the real output behind it was invisible: the toggle read "unmuted", wrote "muted" on boom Audio, and you were silent twice over; worse, the typing guard's unmute exemption looked at the same narrow read, so the one tap that could have restored sound was the one being vetoed. The log showed the signature — bursts of two and three toggles within seconds, then Settings. Now the toggle decides from the WHOLE path (default output or either boom bridge device muted ⇒ this is an unmute), an unmute clears every device on the path (the same rule the boom panel's Unmute button already used), and the state is read back after writing so the HUD shows what the output actually reports — a write that did not take is logged, not announced.
+- Not the rhythm game: `beat-bytes` was suspected; it was not running and installs no audio driver. Mute lives in CoreAudio device properties.
+
+## [0.169.0] - 2026-09-06
+
+### Added
+- **`disk` / `daisy` can now delete — DaisyDisk's collector, keyboard-first.** Deleting existed before only on the hovered segment's detail row (mouse-only, gone the moment the mouse moved) and in the largest-files list (files only); the child list — the real navigation surface — could not delete at all. Now **Space** (or ＋) collects the selected row, folders and files alike and across folders, a bar shows the running count and size, and **`⌘⌫`** — the Finder's own "Move to Trash" chord — moves the whole collection to the Trash, **two-stage**: the first press arms (the row or bar turns red and says so), the second commits; Esc, moving the selection or four seconds of silence disarm. With nothing collected, `⌘⌫` trashes the selected row directly. Every ＋ elsewhere (hovered segment, largest files) only *collects* — the sole thing that deletes is the collector's button or `⌘⌫`, so a stray click can never delete.
+
+### Fixed
+- **Deleting no longer throws you back to the root and re-scans.** The old flow re-walked the whole folder after every trash (seconds for `~`) and reset the drill to the top, so deleting three things deep in a tree meant three trips back and three re-navigations. The view is now pruned in place — the trashed bytes are subtracted from every ancestor, the largest-files list drops what went under a trashed folder — and **you stay in the folder you were in**. The position is re-resolved by *name*, not by index: removing a sibling shifts every index after it, and a stale index chain kept "working" while silently pointing at a different folder (caught by the new tests before it shipped).
+- **Badge updater no longer deadlocks with its own parity test.** Adding a line to `features.txt` turned the frontend suite red (the features badge must equal the line count) — and the updater refused to rewrite badges while a suite was red, so the only way out was a hand edit. The pure count badges (commands, docs, modules, crates, features) are now written *before* the suites run, through one shared rule set for both READMEs; test-count badges stay gated on green suites.
+- The volume's free space deliberately does **not** change after a trash: the bytes sit in the Trash until you empty it, and the panel says so. Items that could not be moved (permissions, path gone) are listed with the reason and stay in the collector rather than vanishing silently.
+
+## [0.168.0] - 2026-09-06
+
+### Fixed
+- **No more Dock icon — the app lives only in the menu bar.** Inspector Rust is a tray-only background app, but the macOS bundle never declared itself a menu-bar *agent* (`LSUIElement`), so macOS gave it a Dock icon (and a brief Dock flash at every launch, since the app only demoted itself to an accessory a moment after starting up). Two things were needed, because either alone still flashed: the bundle now carries `LSUIElement` (merged from `macos/src-tauri/Info.plist` by the Tauri bundler) so macOS never gives it a Dock icon before launch, AND the app is demoted to an accessory *before* the event loop starts rather than a beat after it — the toolkit otherwise applies its default (Dock-visible) policy at launch, re-adding the icon for a frame. The result is a clean menu-bar-only start: no Dock icon, no flash, only the fedora icon in the menu bar. A macOS-only test pins the `LSUIElement` declaration so it can't silently regress.
+
+## [0.167.0] - 2026-09-05
+
+### Fixed
+- **Tip-tap switched tabs far too often.** Four separate holes let everyday trackpad use reach the gesture, and all four are closed:
+  - **A slow two-finger scroll was read as a tip-tap.** The "resting finger must hold still" rule was checked frame-to-frame, and at 60–125 Hz each finger of a scroll moves far under the bar per frame — so a brief flick-scroll whose fingers happened to land ≥ 80 ms apart walked straight through and switched a tab on lift. Stillness is now measured **cumulatively against an anchor for the whole attempt**, the way the pre-tap settle rule already did (that fix, from v0.109.0, had simply never been carried past the moment the tap landed).
+  - **A drag was read as a tap.** Only the *resting* finger was ever movement-checked, so the classic thumb-anchored posture — thumb parked, index finger dragging to move the cursor or select text — fired a tab switch on every drag. The tapping finger now has its own travel budget: a tap is stationary, a finger that travels is a drag.
+  - **A plain two-finger tap (the macOS secondary click) could switch tabs.** When the resting finger and the tap vanish in the same frame, nothing distinguishes the two gestures after the fact — the whole point of the posture is that the resting finger *stays*. That case no longer emits; a tip-tap whose tap lifts first and rest follows is unaffected.
+  - **Two fingers lying side by side produced a direction.** A fingertip's contact patch is ~10–15 mm wide, so the old 5 mm minimum separation meant the two patches physically overlapped and "left or right of it" was below the noise floor. It now takes ~1 cm — still far under the ~2 cm between two adjacent fingertips. The height tolerance also dropped from over half the pad to 0.40, so a thumb parked at the bottom edge and an index finger tapping mid-pad no longer count as "the same row".
+- **Rejected tip-taps are now visible.** Every disqualified attempt logs its reason once at debug level (`tip-tap rejected: the tapping finger dragged`), on the edge into the rejected state so a scroll doesn't log per frame. Positions are never logged. Diagnosing "it fires when it shouldn't" no longer means guessing.
+
+Deliberate tip-taps are unaffected: the guards block travel, not the user, and a new test drives a realistic tap — a breathing rest finger and a fingertip rolling as it flattens — to prove the tightening left real usage alone. Four new recogniser tests; all 81 gesture tests pass and every new guard was mutation-verified.
+
 ## [0.166.1] - 2026-09-05
 
 ### Fixed

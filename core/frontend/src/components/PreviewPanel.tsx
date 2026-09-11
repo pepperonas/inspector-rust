@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
-import { drawQr } from "../lib/qr";
+import { QrPreview } from "./QrPreview";
 import { STATE_LABELS, brunoSelfAssumptions, buildBrunoExport } from "../lib/bruno";
 import {
   AudioLines, Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
@@ -652,7 +652,7 @@ export function PreviewPanel({
             ⏎ Enter to {isQr ? "copy the QR PNG" : "run"}
           </div>
         </div>
-        {isQr && <QrPreview text={entry.data.arg} />}
+        {isQr && <QrPreview key={entry.data.arg} text={entry.data.arg} />}
       </div>
     );
   }
@@ -2257,30 +2257,6 @@ function TransformBar({ text, sourceId }: { text: string; sourceId?: number }) {
           );
         })}
       </div>
-    </div>
-  );
-}
-
-/** Canvas QR preview for the `qr <text>` command. Always renders black-on-white
- *  so the code scans regardless of the app theme. */
-function QrPreview({ text }: { text: string }) {
-  const ref = useRef<HTMLCanvasElement>(null);
-  useEffect(() => {
-    const canvas = ref.current;
-    if (!canvas) return;
-    try {
-      drawQr(canvas, text, 6, 4, "#000000", "#ffffff");
-    } catch {
-      // empty / unencodable text — leave the canvas blank.
-    }
-  }, [text]);
-  return (
-    <div className="flex flex-1 items-center justify-center">
-      <canvas
-        ref={ref}
-        className="max-h-full max-w-full rounded-lg border border-[var(--color-border)] bg-white"
-        aria-label="QR code preview"
-      />
     </div>
   );
 }

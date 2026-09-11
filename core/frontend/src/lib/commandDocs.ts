@@ -362,11 +362,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
     aliases: [],
     category: CAT_TEXT,
     version_added: "0.76.0",
-    tagline: "Generate a QR code — preview live, Enter copies the PNG.",
-    tagline_de: "QR-Code erzeugen — Live-Vorschau, Enter kopiert das PNG.",
+    tagline: "Generate a QR code — live preview, PNG and printable STL export.",
+    tagline_de: "QR-Code erzeugen — Live-Vorschau, PNG- und druckbarer STL-Export.",
     synopsis: "qr <text>",
     description:
-      "Renders a QR code of the text live in the preview pane (black-on-white so it always scans). Enter copies the PNG to the clipboard (and history). Dependency-free, offline.",
+      "Renders text or URLs as a black-on-white QR code live in the preview. Enter copies PNG to the clipboard and history. Save PNG / Save STL writes directly to Downloads. Offline, with UTF-8 support. STL uses millimetres: 1 mm modules, four-module quiet zone, 2 mm base and 0.6 mm raised code.",
     arguments: [{ name: "text", required: true, description: "The text/URL to encode.", default: undefined }],
     flags: [],
     examples: [
@@ -374,8 +374,8 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "qr WIFI:T:WPA;S:MyNet;P:secret;;", result: "A Wi-Fi join QR." },
       { input: "qr +49 170 1234567", result: "Encode a phone number." },
     ],
-    tips: ["The preview updates as you type — check it scans before copying."],
-    caveats: ["Very long inputs make dense codes that scan poorly."],
+    tips: ["For STL, print a light base and switch to dark filament at 2 mm. STL stores no colours; test scanning the finished print."],
+    caveats: ["Very long inputs make dense codes that scan poorly. Maximum 2331 UTF-8 bytes."],
     related: ["uuid"],
   },
   {
@@ -533,7 +533,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline: "Toggle system output mute.",
     tagline_de: "System-Ausgabe stumm schalten (Toggle).",
     synopsis: "mute",
-    description: "Toggles the system output mute state. macOS via osascript; Windows the multimedia mute key; Linux wpctl/pactl.",
+    description: "Toggles the system output mute state. macOS via CoreAudio (osascript fallback), boom-aware: while boom fronts the system the decision looks at the WHOLE path — default output or either bridge device muted counts as muted — and an unmute clears every device on it, then the state is read back so the HUD shows what the output actually reports. Windows the multimedia mute key; Linux wpctl/pactl (device-side toggle).",
     arguments: [],
     flags: [],
     examples: [
@@ -541,7 +541,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "mute", result: "Silence a call notification fast." },
       { input: "mute", result: "Toggle back with the same command." },
     ],
-    tips: ["Shift+↑/↓ in the popup nudges the volume by 5%; `sound` opens the full slider."],
+    tips: [
+      "Shift+↑/↓ in the popup nudges the volume by 5%; `sound` opens the full slider.",
+      "If you ever hear nothing although the HUD says unmuted, the mute was sitting on the real output behind boom Audio — since v0.169.1 one more `mute` (or 3-finger tap) clears it everywhere; before, only System Settings could.",
+      "Changing the volume while muted (up or down — gesture swipe, Shift+↑/↓, or the slider) unmutes, like the hardware volume keys (v0.169.2).",
+    ],
     caveats: [],
     related: ["sound", "boom"],
   },
@@ -1349,7 +1353,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Speicher-Analyse à la DaisyDisk — Sunburst, was den Platz frisst.",
     synopsis: "disk [pfad]   ·   daisy [pfad]",
     description:
-      "Scans a folder and draws its disk usage as a concentric sunburst (like the DaisyDisk app): each ring is a directory level, each segment a folder/file sized by the space it actually occupies on disk. The centre hub shows the hovered item's size + share; a volume bar shows free space and how much of the whole disk this folder accounts for. A **path bar** always names the folder on screen and every segment of it is clickable, so you can browse the whole disk without retyping — click a ring segment to zoom in, `⌫` or Esc to walk back out, past the folder you started in. A largest-files list sits below, and any item can be moved to the Trash (the DaisyDisk collector) with confirmation. Bare `disk` scans the folder **selected in Finder**, else your home folder; `disk <pfad>` an explicit folder; `disk /` the whole volume (then free space shows too). On-disk size (allocated blocks), symlinks not followed, stays on one filesystem.",
+      "Scans a folder and draws its disk usage as a concentric sunburst (like the DaisyDisk app): each ring is a directory level, each segment a folder/file sized by the space it actually occupies on disk. The centre hub shows the hovered item's size + share; a volume bar shows free space and how much of the whole disk this folder accounts for. A **path bar** always names the folder on screen and every segment of it is clickable, so you can browse the whole disk without retyping — click a ring segment to zoom in, `⌫` or Esc to walk back out, past the folder you started in. A largest-files list sits below. **Deleting is DaisyDisk's collector, keyboard-first:** Space (or ＋) collects the selected row — folders and files alike, across folders — a bar shows the running total, and `⌘⌫` moves the whole collection to the Trash, two-stage (the first press arms and says so, the second commits). With nothing collected, `⌘⌫` acts on the selected row directly. The view is pruned in place and you stay exactly where you were — no re-scan, no jump back to the root. Bare `disk` scans the folder **selected in Finder**, else your home folder; `disk <pfad>` an explicit folder; `disk /` the whole volume (then free space shows too). On-disk size (allocated blocks), symlinks not followed, stays on one filesystem.",
     arguments: [
       { name: "pfad", required: false, description: "Folder to scan. Omit to use the Finder selection, else the home folder; `/` for the whole volume.", default: "Finder selection, else home" },
     ],
@@ -1363,7 +1367,9 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Click a ring segment to zoom into that folder; `⌫` (or Esc) walks back out — past the scan root, so you can browse anywhere.",
       "**The list under the chart is the way into small folders.** The sunburst is area-proportional, so a 2 MB `src` next to a 20 GB `target` is a sub-pixel sliver you cannot click — the list has every child regardless of size (`↑↓` select, Enter opens).",
       "The path bar shows exactly which folder you are looking at; click any segment of it to jump straight there.",
-      "The largest-files list and any segment have a trash button — it moves to the Trash (recoverable), then re-scans.",
+      "**Deleting:** Space collects the selected row (folders and files, across folders), the bar shows the total, `⌘⌫` trashes the collection — press it once to arm, again to commit; Esc cancels. With an empty collector `⌘⌫` trashes the selected row alone. `⌫` alone still goes up a level.",
+      "Every ＋ elsewhere (the hovered segment's detail row, the largest-files list) only COLLECTS — the sole thing that actually trashes is the collector's button or `⌘⌫`, so a stray click can never delete.",
+      "After a delete the chart and list update in place and you stay in the same folder — the bytes now live in the Trash, so the folder's numbers drop while the volume's free space does not.",
       "Sizes are on-disk (allocated blocks), so they match what the volume readout says — not apparent size.",
     ],
     caveats: [
@@ -1371,6 +1377,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "Scanning protected system paths under `/` may need Full Disk Access in System Settings; unreadable folders are skipped, never fatal.",
       "The chart is bounded (top folders per ring, ~5 rings) so it stays legible — the largest-files list is computed over everything.",
       "A folder far smaller than its siblings gets no visible arc at all. That is honest, not a bug — the chart shows proportion; use the list below it to get in.",
+      "Trashing is the only way to delete here — everything goes to the Trash (recoverable) and disk space is freed only when you empty it. There is deliberately no permanent delete; that belongs to `clean` with its allowlist, not to a free file browser.",
     ],
     related: ["loc", "stats"],
     see_also: "docs/disk.md",

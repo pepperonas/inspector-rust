@@ -712,6 +712,21 @@ pub fn unmute() -> bool {
     }
 }
 
+/// Is the output muted on EITHER bridge device while boom fronts the system?
+/// `false` when boom isn't bridging (or off macOS). Side-effect free — the
+/// mute toggle consults this so an "unmute" can see a mute that sits on the
+/// real output behind boom Audio, which the default-output read never shows.
+pub fn output_muted() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::bridge_muted()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
 /// Current engine levels (zeros when not running / off macOS).
 pub fn levels() -> BoomLevels {
     #[cfg(target_os = "macos")]

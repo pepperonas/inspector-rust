@@ -193,16 +193,63 @@ function countMetrics() {
 
 // ── Badge rewriting (idempotent) ─────────────────────────────────────────────
 
+// The catalogue badges are FILE COUNTS (commands, docs pages, modules, crates,
+// features.txt lines) — they depend on no test outcome. ONE rule set for both
+// READMEs: a rule that exists in only one language IS the drift it was written
+// to prevent (docs-22/modules-84 once sat beside the English 24/87 for weeks).
+// The "%20Seiten" variant simply doesn't match in the English file.
+function applyMetricBadges(s, { commands, docs, modules, crates, features }) {
+  return s
+    .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
+    .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
+    .replace(/badge\/docs-\d+%20Seiten/g, `badge/docs-${docs}%20Seiten`)
+    .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
+    .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
+    .replace(/badge\/features-\d+/g, `badge/features-${features}`);
+}
+
+function writeEdits(edits) {
+  let changed = 0;
+  for (const [name, edit] of Object.entries(edits)) {
+    const path = join(ROOT, name);
+    let before;
+    try {
+      before = readFileSync(path, "utf8");
+    } catch {
+      continue; // README.de.md is optional
+    }
+    const after = edit(before);
+    if (after !== before) {
+      writeFileSync(path, after);
+      changed++;
+      console.log(`   updated ${name}`);
+    } else {
+      console.log(`   ${name} already current`);
+    }
+  }
+  return changed;
+}
+
+// ⚠️ Written BEFORE the suites run — on purpose. `readme-badges.test.ts` pins
+// the features badge to the features.txt line count, so adding a feature line
+// turned the frontend suite red, and this script refused to touch the badges
+// while a suite was red: the guard and the fixer blocked each other, and the
+// only way out was the hand edit the whole file exists to forbid. Counts first,
+// then the gated test-count badges — the suites still gate everything that
+// actually depends on them.
+function writeMetricBadges(metrics) {
+  return writeEdits({
+    "README.md": (s) => applyMetricBadges(s, metrics),
+    "README.de.md": (s) => applyMetricBadges(s, metrics),
+  });
+}
+
 function rewriteBadges({ locK, rustK, tsK, total, rust, fe, commands, docs, modules, crates, features }) {
+  const metrics = { commands, docs, modules, crates, features };
   const edits = {
     "README.md": (s) =>
-      s
+      applyMetricBadges(s, metrics)
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
-        .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
-        .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
-        .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
-        .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
-        .replace(/badge\/features-\d+/g, `badge/features-${features}`)
         // ⚠️ These three were hand-typed once and drifted — the exact failure
         // the header forbids. LOC policy includes tests (v0.126.1), so the
         // "source" label is gone; the split badges carry the same totals the
@@ -235,18 +282,8 @@ function rewriteBadges({ locK, rustK, tsK, total, rust, fe, commands, docs, modu
           `$1${rust}$2`,
         ),
     "README.de.md": (s) =>
-      s
+      applyMetricBadges(s, metrics)
         .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
-        // ⚠️ The German README carries the SAME computed badges — these rules
-        // were missing here, and docs-22/modules-84 sat beside the English
-        // 24/87 for weeks. A rule that exists in only one language IS the
-        // drift it was written to prevent.
-        .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
-        .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
-        .replace(/badge\/docs-\d+%20Seiten/g, `badge/docs-${docs}%20Seiten`)
-        .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
-        .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
-        .replace(/badge\/features-\d+/g, `badge/features-${features}`)
         .replace(/badge\/Rust-~\d+k%20LoC/g, `badge/Rust-~${rustK}k%20LoC`)
         .replace(/badge\/TypeScript-~\d+k%20LoC/g, `badge/TypeScript-~${tsK}k%20LoC`)
         .replace(/unit%20tests-\d+%20passing/g, `unit%20tests-${total}%20passing`)
@@ -273,26 +310,7 @@ function rewriteBadges({ locK, rustK, tsK, total, rust, fe, commands, docs, modu
           `$1${rust}$2`,
         ),
   };
-
-  let changed = 0;
-  for (const [name, edit] of Object.entries(edits)) {
-    const path = join(ROOT, name);
-    let before;
-    try {
-      before = readFileSync(path, "utf8");
-    } catch {
-      continue; // README.de.md is optional
-    }
-    const after = edit(before);
-    if (after !== before) {
-      writeFileSync(path, after);
-      changed++;
-      console.log(`   updated ${name}`);
-    } else {
-      console.log(`   ${name} already current`);
-    }
-  }
-  return changed;
+  return writeEdits(edits);
 }
 
 // ── Main ─────────────────────────────────────────────────────────────────────
@@ -303,6 +321,10 @@ const fLoc = frontendLoc();
 const loc = rLoc + fLoc;
 const locK = Math.round(loc / 1000);
 console.log(`   Rust ${rLoc} · Frontend ${fLoc} → ${loc} (~${locK}k)`);
+
+console.log("── Writing catalogue badges (file counts — no test can change them)…");
+const metrics = countMetrics();
+writeMetricBadges(metrics);
 
 console.log("── Running cargo test --workspace…");
 const rust = rustTests();
@@ -323,7 +345,7 @@ rewriteBadges({
   total,
   rust,
   fe,
-  ...countMetrics(),
+  ...metrics,
 });
 console.log(
   `✓ Badges: ~${locK}k LOC · ${total} tests (${rust} Rust + ${fe} frontend).`,

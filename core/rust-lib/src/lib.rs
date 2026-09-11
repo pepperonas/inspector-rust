@@ -102,6 +102,7 @@ mod timer;
 mod ui_state;
 mod wakelock;
 mod qr;
+mod ip;
 
 pub use ui_state::UiState;
 
@@ -977,6 +978,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_light,
             commands::hue_set_all,
             commands::weather_fetch,
+            commands::ip_fetch,
             commands::token_usage_fetch,
             commands::iris_start,
             commands::iris_stop,

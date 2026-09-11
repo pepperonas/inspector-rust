@@ -45,7 +45,7 @@ describe("COMMANDS catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
-    expect(COMMANDS.length).toBe(106);
+    expect(COMMANDS.length).toBe(107);
   });
 
   it("every keyword is unique", () => {

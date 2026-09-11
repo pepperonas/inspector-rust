@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.172.0] - 2026-09-11
+
+### Added
+- **`ip` command:** shows the public IP, approximate city/country, coordinates, timezone, ISP and ASN, with an offline world map and OpenStreetMap link. Results are fetched on demand and never persisted.
+
 ## [0.171.0] - 2026-09-11
 
 ### Added

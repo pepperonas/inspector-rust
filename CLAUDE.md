@@ -1688,3 +1688,7 @@ Dateien: `core/rust-lib/src/device_sync.rs` (neu, 24 Tests) · IPC in `commands.
 ### QR exports
 
 `qr <text>` retains live preview / Enter-to-copy and adds Save PNG / Save STL in `PreviewPanel.tsx`. Both use typed `qrSave` → async `qr_save` → `qr.rs::save` on the blocking pool. Unique files go to Downloads without changing clipboard/history. `qr.ts` explicitly encodes UTF-8 bytes (the library defaults to truncated Latin-1); caps payloads at 2331 bytes. Invalid payloads show an error with exports disabled. STL is a closed relief surface: 1 mm modules, four-module quiet zone, 2 mm base, 0.6 mm raised cells inset 0.04 mm to avoid diagonal non-manifold contacts. Rows flip into Cartesian Y so top view is not mirrored. Mesh contains no internal faces; UI explains light base/dark relief via filament change at 2 mm. No new dependencies or capabilities.
+
+### `ip` command
+
+`ip` fetches the public IP and approximate city/region/country, coordinates, timezone, ISP and ASN from `ipapi.co` on demand. The result is transient and never stored. `IpPanel.tsx` renders a dotted world map from the existing offline `worldmask.ts` plus an OpenStreetMap deep link. IP geolocation is explicitly labelled approximate and the panel states that the provider sees the public IP. Backend: `ip.rs` → async `ip_fetch` IPC; six-second timeout and capped response body keep an unreachable provider from blocking the UI.

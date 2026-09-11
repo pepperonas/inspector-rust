@@ -44,6 +44,7 @@ const UptimePanel = lazy(() => import("./components/UptimePanel").then((m) => ({
 import { parseIrisArg, irisRowLabel, irisAction } from "./lib/iris";
 import { irisStart, irisStop, irisStatus, irisSetThreshold } from "./lib/ipc";
 const WeatherPanel = lazy(() => import("./components/WeatherPanel").then((m) => ({ default: m.WeatherPanel })));
+const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default: m.IpPanel })));
 const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({ default: m.TokensPanel })));
 const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
 const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
@@ -335,6 +336,8 @@ function App() {
   // arg (`weather berlin`) is a city override; empty = IP-located.
   const [weatherMode, setWeatherMode] = useState(false);
   const [weatherFocus, setWeatherFocus] = useState(false);
+  const [ipMode, setIpMode] = useState(false);
+  const [ipFocus, setIpFocus] = useState(false);
   // loc mode (v0.117.0) — Enter on the `loc` row counts the Finder selection
   // (or the typed path) with tokei and renders the language statistic in the
   // preview column. Enter-activated: tokei walks a whole directory tree.
@@ -1247,6 +1250,14 @@ function App() {
       setWeatherFocus(false);
     }
   }, [isWeatherCmd, weatherMode]);
+  const isIpCmd = parsedCommand?.spec.kind === "ip";
+  useEffect(() => {
+    if (isIpCmd && !ipMode) setIpMode(true);
+    else if (!isIpCmd && ipMode) {
+      setIpMode(false);
+      setIpFocus(false);
+    }
+  }, [isIpCmd, ipMode]);
   const isLocCmd = parsedCommand?.spec.kind === "loc";
   useEffect(() => {
     if (!isLocCmd && locMode) {
@@ -1861,6 +1872,10 @@ function App() {
       case "weather":
         label = arg ? `Weather: ${arg}` : "Weather — your location";
         hint = "Enter → current conditions + 5-day forecast, animated in the preview";
+        break;
+      case "ip":
+        label = "What is my IP?";
+        hint = "Enter → public IP, approximate location, network and map";
         break;
       case "tokens":
         label = "Claude Code token usage";
@@ -3404,7 +3419,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
+        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3957,6 +3972,10 @@ function App() {
         // Inline animated weather panel (current + 5-day) in the preview column.
         setWeatherMode(true);
         setWeatherFocus(true);
+        return true;
+      } else if (commandKind === "ip") {
+        setIpMode(true);
+        setIpFocus(true);
         return true;
       } else if (commandKind === "tokens") {
         // Inline Claude Code usage from the local Token Tracker.
@@ -4964,6 +4983,17 @@ function App() {
                       onExit={() => {
                         setLocMode(false);
                         setLocFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : ipMode ? (
+                  <div className="md3-pop-in h-full">
+                    <IpPanel
+                      focused={ipFocus}
+                      onExit={() => {
+                        setIpMode(false);
+                        setIpFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

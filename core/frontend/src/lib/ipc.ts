@@ -3694,3 +3694,22 @@ export function setPagespeedKey(key: string): Promise<void> {
 export function qrSave(output: { pngB64: string } | { matrix: boolean[][] }): Promise<string> {
   return invoke("qr_save", output);
 }
+
+export interface IpReport {
+  ip: string;
+  city?: string;
+  region?: string;
+  country?: string;
+  country_code?: string;
+  postal?: string;
+  latitude?: number;
+  longitude?: number;
+  timezone?: string;
+  organization?: string;
+  asn?: string;
+}
+
+/** Fetch public IP and approximate location; no result is persisted. */
+export function ipFetch(): Promise<IpReport> {
+  return invoke("ip_fetch");
+}

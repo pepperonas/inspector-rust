@@ -7300,3 +7300,11 @@ pub async fn qr_save(png_b64: Option<String>, matrix: Option<Vec<Vec<bool>>>) ->
     tauri::async_runtime::spawn_blocking(move || crate::qr::save(png_b64, matrix))
         .await.map_err(|e| e.to_string())?
 }
+
+/// Fetch the caller's public IP and approximate ISP geolocation.
+#[tauri::command]
+pub async fn ip_fetch() -> Result<crate::ip::IpReport, String> {
+    tauri::async_runtime::spawn_blocking(crate::ip::fetch)
+        .await
+        .map_err(|e| format!("ip task: {e}"))?
+}

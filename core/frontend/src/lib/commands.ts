@@ -93,6 +93,7 @@ export type CommandKind =
   | "boom"
   | "uptime"
   | "weather"
+  | "ip"
   | "tokens"
   | "track"
   | "trim"
@@ -844,6 +845,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "weather [city]",
     description:
       "Weather for your location (or `weather berlin`) — current conditions + 5-day forecast, animated in the preview. Needs an OpenWeather API key (Settings → Weather).",
+    requiresArg: false,
+  },
+  {
+    kind: "ip",
+    keyword: "ip",
+    syntax: "ip",
+    description: "Show your public IP, approximate location, network and map",
     requiresArg: false,
   },
   {

@@ -1588,6 +1588,27 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["alarm", "timer"],
   },
   {
+    command: "ip",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.172.0",
+    tagline: "Show your public IP, approximate location, network and a map.",
+    tagline_de: "Öffentliche IP, ungefähren Standort, Netzwerk und Karte anzeigen.",
+    synopsis: "ip",
+    description:
+      "Looks up the public IP seen by the provider and displays approximate city, region, country, coordinates, timezone, ISP and ASN. The preview includes an offline dotted world map and a link to OpenStreetMap. No result is stored; IP geolocation is approximate and usually identifies an ISP or city, not an address.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "ip", result: "Show the public IP and approximate location." },
+      { input: "ip", result: "See ISP, ASN, timezone and coordinates." },
+      { input: "ip", result: "Open the approximate location in OpenStreetMap." },
+    ],
+    tips: ["Press R to refresh and Esc to leave the panel."],
+    caveats: ["Requires internet access; the lookup provider receives your public IP and the location can be inaccurate."],
+    related: ["weather", "snitch"],
+  },
+  {
     command: "track",
     aliases: [],
     category: CAT_PROD,

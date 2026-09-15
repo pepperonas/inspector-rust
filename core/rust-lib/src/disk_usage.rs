@@ -38,6 +38,13 @@ pub const MAX_CHILDREN: usize = 24;
 pub const MAX_NODES: usize = 20_000;
 /// How many largest files to surface.
 pub const TOP_FILES: usize = 30;
+/// Publish the live item/byte counters to the shared atomics at most once per
+/// this many entries within a directory (plus once when the directory
+/// finishes). Batching turns a contended per-entry atomic RMW — pointless
+/// across 8 worker threads — into a rare one, while still keeping the "N items
+/// scanned" readout live even inside a single directory with millions of
+/// direct children (where per-directory-only flushing would let it stall).
+const PROGRESS_FLUSH_EVERY: u64 = 4096;
 
 /// A node of the FULL in-memory tree (built by the walk, then pruned away).
 struct Raw {
@@ -119,12 +126,12 @@ pub struct ScanProgress {
 
 /// Recursively size a directory. Impure (touches the FS); everything it feeds
 /// is pure. `root_dev` pins the filesystem; `top` accumulates the largest
-/// files; `progress` is bumped per entry so the UI can show a live count.
+/// files; `progress` is published per directory so the UI can show a live count.
 fn walk(
     dir: &Path,
     depth: usize,
     root_dev: u64,
-    top: &mut Vec<TopFile>,
+    top: &mut TopK,
     progress: &ScanProgress,
 ) -> Raw {
     let name = dir
@@ -146,8 +153,13 @@ fn walk(
         Ok(e) => e,
         Err(_) => return node, // permission denied etc. → empty dir, not fatal
     };
+    // Tally this directory's own entries locally and publish ONCE at the end,
+    // not with an atomic RMW per entry: with up to 8 worker threads the two
+    // per-entry counters were a contended cache line for no gain — the live
+    // readout only needs directory-granular updates (hundreds of dirs/ms).
+    let mut local_items = 0u64;
+    let mut local_bytes = 0u64;
     for entry in entries.flatten() {
-        let path = entry.path();
         let meta = match entry.metadata() {
             // entry.metadata() does NOT traverse symlinks (unlike fs::metadata),
             // so a symlink is sized as the link itself and never followed.
@@ -158,36 +170,52 @@ fn walk(
         if device_of(&meta) != root_dev {
             continue;
         }
-        progress.items.fetch_add(1, Ordering::Relaxed);
+        local_items += 1;
         if meta.is_dir() {
-            let child = walk(&path, depth + 1, root_dev, top, progress);
+            let child = walk(&entry.path(), depth + 1, root_dev, top, progress);
             node.size += child.size;
             node.children.push(child);
         } else {
             let sz = on_disk_size(&meta);
             node.size += sz;
-            progress.bytes.fetch_add(sz, Ordering::Relaxed);
-            let child_name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            local_bytes += sz;
+            // Leaf name only — building the full path is deferred to `TopK`,
+            // which pays it only for the ~TOP_FILES files that actually make
+            // the largest-files list (was one PathBuf join per file).
+            let child_name = entry.file_name().to_string_lossy().into_owned();
+            top.consider(dir, &child_name, sz);
             node.children.push(Raw { name: child_name, size: sz, is_dir: false, children: Vec::new() });
-            consider_top(top, &path, sz);
+        }
+        if local_items >= PROGRESS_FLUSH_EVERY {
+            flush_progress(progress, &mut local_items, &mut local_bytes);
         }
     }
-    let _ = depth;
+    flush_progress(progress, &mut local_items, &mut local_bytes);
     node
+}
+
+/// Add the locally-tallied items/bytes to the shared counters and reset them.
+#[inline]
+fn flush_progress(progress: &ScanProgress, items: &mut u64, bytes: &mut u64) {
+    if *items > 0 {
+        progress.items.fetch_add(*items, Ordering::Relaxed);
+        *items = 0;
+    }
+    if *bytes > 0 {
+        progress.bytes.fetch_add(*bytes, Ordering::Relaxed);
+        *bytes = 0;
+    }
 }
 
 /// Fan the root's children out over worker threads. Directories are split
 /// round-robin; plain files at the root are handled inline (they're cheap).
 /// Merging is order-independent, and each worker's `top` list is folded back
-/// through `consider_top`, so the result matches the serial walk exactly.
+/// through `TopK::consider_owned`, so the result matches the serial walk exactly.
 fn walk_root_parallel(
     dir: &Path,
     mut node: Raw,
     root_dev: u64,
-    top: &mut Vec<TopFile>,
+    top: &mut TopK,
     progress: &ScanProgress,
 ) -> Raw {
     let entries = match std::fs::read_dir(dir) {
@@ -195,27 +223,29 @@ fn walk_root_parallel(
         Err(_) => return node,
     };
     let mut dirs: Vec<PathBuf> = Vec::new();
+    let mut local_items = 0u64;
+    let mut local_bytes = 0u64;
     for entry in entries.flatten() {
-        let path = entry.path();
         let Ok(meta) = entry.metadata() else { continue };
         if device_of(&meta) != root_dev {
             continue;
         }
-        progress.items.fetch_add(1, Ordering::Relaxed);
+        local_items += 1;
         if meta.is_dir() {
-            dirs.push(path);
+            dirs.push(entry.path());
         } else {
             let sz = on_disk_size(&meta);
             node.size += sz;
-            progress.bytes.fetch_add(sz, Ordering::Relaxed);
-            let child_name = path
-                .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
-                .unwrap_or_default();
+            local_bytes += sz;
+            let child_name = entry.file_name().to_string_lossy().into_owned();
+            top.consider(dir, &child_name, sz);
             node.children.push(Raw { name: child_name, size: sz, is_dir: false, children: Vec::new() });
-            consider_top(top, &path, sz);
+        }
+        if local_items >= PROGRESS_FLUSH_EVERY {
+            flush_progress(progress, &mut local_items, &mut local_bytes);
         }
     }
+    flush_progress(progress, &mut local_items, &mut local_bytes);
     if dirs.is_empty() {
         return node;
     }
@@ -234,11 +264,11 @@ fn walk_root_parallel(
             .map(|bucket| {
                 scope.spawn(move || {
                     let mut mine: Vec<Raw> = Vec::new();
-                    let mut my_top: Vec<TopFile> = Vec::new();
+                    let mut my_top = TopK::new();
                     for d in bucket {
                         mine.push(walk(&d, 1, root_dev, &mut my_top, progress));
                     }
-                    (mine, my_top)
+                    (mine, my_top.into_sorted())
                 })
             })
             .collect();
@@ -250,42 +280,76 @@ fn walk_root_parallel(
             node.children.push(c);
         }
         for t in worker_top {
-            consider_top_owned(top, t);
+            top.consider_owned(t);
         }
     }
     node
 }
 
-/// `consider_top` for an already-built entry (merging a worker's list).
-fn consider_top_owned(top: &mut Vec<TopFile>, item: TopFile) {
-    if item.size == 0 {
-        return;
-    }
-    if top.len() < TOP_FILES {
-        top.push(item);
-    } else if item.size > top.iter().map(|t| t.size).min().unwrap_or(0) {
-        top.push(item);
-        if top.len() > TOP_FILES * 2 {
-            top.sort_by_key(|t| Reverse(t.size));
-            top.truncate(TOP_FILES);
-        }
-    }
+/// A bounded "largest files" accumulator. Two things it does that a plain
+/// `Vec` + per-file `min()` scan did not, both hot on a big walk:
+///
+///  * **O(1) reject.** It caches `min` (the smallest size currently kept once
+///    full), so the overwhelmingly common case — a file that isn't a
+///    contender — is a single comparison, not an O(`TOP_FILES`) scan of the
+///    list per file. Over a `/`-sized walk (millions of files) the old scan was
+///    ~`TOP_FILES` × N comparisons for nothing.
+///  * **Lazy path.** The full path string is built ONLY for a file that
+///    actually qualifies, from `(dir, name)` — so the ~millions of files that
+///    never make the list never pay a path allocation just to be discarded.
+///
+/// Output is identical to the old push/sort/truncate: `min` stays the smallest
+/// kept element (the same value the old `iter().min()` returned), so exactly
+/// the same files qualify, and `into_sorted` yields the same top `TOP_FILES`.
+struct TopK {
+    items: Vec<TopFile>,
+    /// Smallest size in `items` once full; `0` while still filling (so every
+    /// non-empty file qualifies, matching the old `len() < TOP_FILES` branch).
+    min: u64,
 }
 
-/// Keep a bounded max-heap-ish list of the largest files (simple: push, sort,
-/// truncate when it grows past 2×TOP_FILES so sorts stay cheap).
-fn consider_top(top: &mut Vec<TopFile>, path: &Path, size: u64) {
-    if size == 0 {
-        return;
+impl TopK {
+    fn new() -> Self {
+        Self { items: Vec::new(), min: 0 }
     }
-    if top.len() < TOP_FILES {
-        top.push(TopFile { path: path.to_string_lossy().into_owned(), size });
-    } else if size > top.iter().map(|t| t.size).min().unwrap_or(0) {
-        top.push(TopFile { path: path.to_string_lossy().into_owned(), size });
-        if top.len() > TOP_FILES * 2 {
-            top.sort_by_key(|t| Reverse(t.size));
-            top.truncate(TOP_FILES);
+
+    /// Consider a file identified by its dir + leaf name, building the path
+    /// only if it makes the list.
+    fn consider(&mut self, dir: &Path, name: &str, size: u64) {
+        if size == 0 || (self.items.len() >= TOP_FILES && size <= self.min) {
+            return;
         }
+        self.push(TopFile { path: dir.join(name).to_string_lossy().into_owned(), size });
+    }
+
+    /// Merge an already-built entry (folding a worker's list into the main one).
+    fn consider_owned(&mut self, item: TopFile) {
+        if item.size == 0 || (self.items.len() >= TOP_FILES && item.size <= self.min) {
+            return;
+        }
+        self.push(item);
+    }
+
+    fn push(&mut self, item: TopFile) {
+        self.items.push(item);
+        if self.items.len() == TOP_FILES {
+            // Just reached full — establish `min` once.
+            self.min = self.items.iter().map(|t| t.size).min().unwrap_or(0);
+        } else if self.items.len() > TOP_FILES * 2 {
+            // Grew past the slack; sort desc + truncate keeps the sort amortised.
+            self.items.sort_by_key(|t| Reverse(t.size));
+            self.items.truncate(TOP_FILES);
+            self.min = self.items.last().map(|t| t.size).unwrap_or(0);
+        }
+        // Between full and the truncate threshold `min` is unchanged: the newly
+        // pushed item is strictly larger than `min`, so the smallest kept
+        // element — the one still to be truncated away — is still present.
+    }
+
+    fn into_sorted(mut self) -> Vec<TopFile> {
+        self.items.sort_by_key(|t| Reverse(t.size));
+        self.items.truncate(TOP_FILES);
+        self.items
     }
 }
 
@@ -388,10 +452,9 @@ pub fn scan(
         return Err("Kein Ordner — bitte einen Ordner angeben.".into());
     }
     let root_dev = device_of(&meta);
-    let mut top: Vec<TopFile> = Vec::new();
+    let mut top = TopK::new();
     let raw = walk(&root, 0, root_dev, &mut top, progress);
-    top.sort_by_key(|t| Reverse(t.size));
-    top.truncate(TOP_FILES);
+    let top = top.into_sorted();
 
     let total = raw.size;
     let root_name = if raw.name.is_empty() { "/".into() } else { raw.name.clone() };
@@ -601,8 +664,9 @@ mod tests {
         }
         let progress = ScanProgress::default();
         let meta = std::fs::symlink_metadata(&dir).unwrap();
-        let mut top = Vec::new();
-        let raw = walk(&dir, 0, device_of(&meta), &mut top, &progress);
+        let mut topk = TopK::new();
+        let raw = walk(&dir, 0, device_of(&meta), &mut topk, &progress);
+        let top = topk.into_sorted();
 
         // Every top-level dir came back exactly once — no worker dropped or
         // duplicated a bucket.
@@ -645,5 +709,79 @@ mod tests {
     fn trash_batch_of_nothing_is_an_empty_report() {
         let report = trash_batch(&[], |_| Ok(()));
         assert_eq!(report, TrashReport::default());
+    }
+
+    #[test]
+    fn topk_keeps_the_largest_and_builds_the_path_from_dir_plus_name() {
+        let dir = Path::new("/x");
+        let mut top = TopK::new();
+        // More than the cap, ascending sizes — only the largest TOP_FILES survive.
+        for i in 0..(TOP_FILES + 20) {
+            top.consider(dir, &format!("f{i}"), (i as u64 + 1) * 10);
+        }
+        let out = top.into_sorted();
+        assert_eq!(out.len(), TOP_FILES);
+        // Sorted largest-first; the path is `dir/name`, built lazily.
+        let biggest = TOP_FILES + 19;
+        assert_eq!(out[0].size, (biggest as u64 + 1) * 10);
+        assert_eq!(out[0].path, format!("/x/f{biggest}"));
+        // The smallest survivor beat everything below the cut (f0/size 10 gone).
+        assert!(out.last().unwrap().size > 10);
+    }
+
+    #[test]
+    fn topk_rejects_a_smaller_file_once_full_and_zero_sizes_always() {
+        let dir = Path::new("/x");
+        let mut top = TopK::new();
+        for i in 0..TOP_FILES {
+            top.consider(dir, &format!("big{i}"), 1000);
+        }
+        top.consider(dir, "tiny", 1); // below the min once full → rejected
+        top.consider(dir, "empty", 0); // zero size → never kept
+        let out = top.into_sorted();
+        assert_eq!(out.len(), TOP_FILES);
+        assert!(out.iter().all(|t| t.size == 1000));
+        assert!(!out.iter().any(|t| t.path.ends_with("tiny") || t.path.ends_with("empty")));
+    }
+
+    #[test]
+    fn topk_consider_owned_merges_a_worker_list_and_drops_zeroes() {
+        let mut main = TopK::new();
+        main.consider(Path::new("/a"), "keep", 500);
+        main.consider_owned(TopFile { path: "/b/huge".into(), size: 9000 });
+        main.consider_owned(TopFile { path: "/b/zero".into(), size: 0 }); // ignored
+        let out = main.into_sorted();
+        assert_eq!(out[0].path, "/b/huge");
+        assert!(out.iter().all(|t| t.size > 0));
+        assert!(out.iter().any(|t| t.path == "/a/keep"));
+    }
+
+    /// Manual perf harness (never in the normal suite). Times a real scan of
+    /// `IR_DISK_BENCH` over several warm iterations so before/after work is
+    /// measured, not guessed:
+    ///   IR_DISK_BENCH=/Applications cargo test --release -p inspector-rust-core \
+    ///     --lib disk_bench -- --ignored --nocapture
+    #[test]
+    #[ignore]
+    fn disk_bench() {
+        let Ok(path) = std::env::var("IR_DISK_BENCH") else {
+            eprintln!("set IR_DISK_BENCH=<path> to run this bench");
+            return;
+        };
+        let p = std::path::PathBuf::from(&path);
+        for i in 0..6 {
+            let prog = ScanProgress::default();
+            let t = std::time::Instant::now();
+            let s = super::scan(&p, &[], &prog).unwrap();
+            let dt = t.elapsed();
+            let items = s.items.max(1);
+            eprintln!(
+                "run {i}: {:>8.1?}  items={:>9}  total={:>7} MB  {:>8.0} items/s",
+                dt,
+                s.items,
+                s.total / 1_000_000,
+                items as f64 / dt.as_secs_f64(),
+            );
+        }
     }
 }

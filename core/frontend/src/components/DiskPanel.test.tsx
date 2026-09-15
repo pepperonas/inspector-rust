@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
+import { render, cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import type { DiskScan, DiskNode } from "../lib/ipc";
 
 // The panel scans on mount and listens for progress events — both stubbed so
@@ -412,6 +412,39 @@ describe("deleting — the collector (v0.169.0)", () => {
     down();
     await waitFor(() => expect(container.textContent).not.toContain("erneut"));
     cmdBackspace(); // this is a fresh FIRST press on the new row, not a commit
+    expect(diskTrashMany).not.toHaveBeenCalled();
+  });
+});
+
+describe("context menu (right-click a ring segment)", () => {
+  it("opens with the segment's path and moves it to the Trash on click", async () => {
+    const { container, getByRole, queryByRole } = render(
+      <DiskPanel arg="/Users/martin" focused onExit={() => {}} />,
+    );
+    await settled(container, "/Users/martin");
+    // No menu until a right-click.
+    expect(queryByRole("menu")).toBeNull();
+    fireEvent.contextMenu(arcNamed(container, "deep"));
+    const menu = getByRole("menu");
+    // The menu names exactly what was hit (path visible).
+    expect(menu.textContent).toContain("/Users/martin/deep");
+    // The single action trashes that path; the view then updates (prune).
+    fireEvent.click(within(menu).getByRole("menuitem"));
+    await waitFor(() =>
+      expect(diskTrashMany).toHaveBeenCalledWith([expect.stringContaining("/Users/martin/deep")]),
+    );
+    await waitFor(() => expect(queryByRole("menu")).toBeNull());
+  });
+
+  it("Escape closes the menu and trashes nothing", async () => {
+    const { container, getByRole, queryByRole } = render(
+      <DiskPanel arg="/Users/martin" focused onExit={() => {}} />,
+    );
+    await settled(container, "/Users/martin");
+    fireEvent.contextMenu(arcNamed(container, "deep"));
+    expect(getByRole("menu")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(queryByRole("menu")).toBeNull());
     expect(diskTrashMany).not.toHaveBeenCalled();
   });
 });

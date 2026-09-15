@@ -81,6 +81,17 @@ export function sunburstArcs(root: DiskNode, opts: SunburstOpts, startAngle = 0)
   return arcs.sort((a, b) => b.depth - a.depth || a.a0 - b.a0);
 }
 
+/**
+ * The outermost radius the sunburst reaches: the last ring's outer edge, i.e.
+ * `hubR + rings*ring` (matches `arcPath`'s `r1` at the deepest ring). The SVG
+ * viewBox MUST enclose this around its centre or the outer ring is clipped —
+ * derive the viewBox from this rather than hard-coding a size (the v0.120.0
+ * bug: a 320px viewBox drawn to radius 188 clipped 28px on every side).
+ */
+export function sunburstExtent(opts: SunburstOpts): number {
+  return opts.hubR + opts.rings * opts.ring;
+}
+
 /** Evenly spaced, pleasant hues around the wheel for the top ring. Skews away
  *  from muddy yellow-greens by sampling a curated band. */
 export function topHue(i: number, n: number): number {

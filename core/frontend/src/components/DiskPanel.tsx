@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   HardDrive,
   RefreshCw,
@@ -15,6 +15,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { diskScan, diskTrashMany, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
 import {
   sunburstArcs,
+  sunburstExtent,
   arcPath,
   nodeAt,
   formatBytes,
@@ -51,12 +52,22 @@ import { prefersReducedMotion } from "../lib/md3-motion";
  */
 /** How long an armed delete stays armed before it quietly disarms. */
 const ARM_MS = 4000;
-const SIZE = 320; // svg viewbox (square)
-const CX = SIZE / 2;
-const CY = SIZE / 2;
 const HUB_R = 58;
 const RING = 26;
 const RINGS = 5;
+/** The ring geometry, shared with `sunburstArcs` so the viewBox and the arcs
+ *  can never disagree about how far the drawing reaches. */
+const RING_OPTS = { hubR: HUB_R, ring: RING, rings: RINGS };
+/** Stroke width + antialiasing breathing room around the outermost ring. */
+const PAD = 6;
+/** Square viewBox, DERIVED from the geometry so it always encloses the arcs
+ *  (the outer ring reaches `sunburstExtent` = 188px around the centre). The svg
+ *  scales this to the preview width, so it fits at every panel size without
+ *  clipping — the fix for the outer ring being cut off (was a fixed 320 viewBox
+ *  drawn to radius 188). */
+const VIEW = 2 * (sunburstExtent(RING_OPTS) + PAD);
+const CX = VIEW / 2;
+const CY = VIEW / 2;
 
 export function DiskPanel({
   arg,
@@ -99,6 +110,8 @@ export function DiskPanel({
   const [busy, setBusy] = useState(false);
   // Per-path failures of the last run, shown until the next action.
   const [failures, setFailures] = useState<{ path: string; error: string }[]>([]);
+  // Right-click context menu on a ring segment: viewport coords + the target.
+  const [menu, setMenu] = useState<{ x: number; y: number; item: CollectorItem } | null>(null);
 
   const run = useCallback((path: string | null) => {
     const seq = ++seqRef.current;
@@ -209,9 +222,7 @@ export function DiskPanel({
 
   const arcs = useMemo(
     () =>
-      focusNode
-        ? sunburstArcs(focusNode, { hubR: HUB_R, ring: RING, rings: RINGS })
-        : [],
+      focusNode ? sunburstArcs(focusNode, RING_OPTS) : [],
     [focusNode],
   );
 
@@ -281,6 +292,19 @@ export function DiskPanel({
     );
   }, [disarm]);
 
+  /** Open the right-click menu for a ring segment. `null` (the synthetic
+   *  "Sonstiges" bucket, which has no path) opens nothing. */
+  const openMenu = useCallback(
+    (e: React.MouseEvent, item: CollectorItem | null) => {
+      e.preventDefault();
+      e.stopPropagation();
+      if (!item) return;
+      disarm(); // a fresh menu supersedes any armed collector delete
+      setMenu({ x: e.clientX, y: e.clientY, item });
+    },
+    [disarm],
+  );
+
   /** Move `items` to the Trash, then apply the result LOCALLY: prune the
    *  tree, keep the drill by name, keep the volume readout (the Trash still
    *  holds the bytes), and surface per-path failures. No re-scan. */
@@ -341,6 +365,16 @@ export function DiskPanel({
   useEffect(() => {
     if (!focused) return;
     const onKey = (e: KeyboardEvent) => {
+      // While the segment menu is open it owns the keyboard: Esc closes it,
+      // every other key is swallowed so the list underneath doesn't act.
+      if (menu) {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          e.stopPropagation();
+          setMenu(null);
+        }
+        return;
+      }
       // The path is typed in the search field, so a shortcut must never eat a
       // keystroke meant for it (the weather lesson). Esc still exits from
       // anywhere.
@@ -401,7 +435,7 @@ export function DiskPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit, drill, goUp, run, target, sel, openChild, armed, disarm, requestTrash, toggleCollect, itemOf]);
+  }, [focused, onExit, drill, goUp, run, target, sel, openChild, armed, disarm, requestTrash, toggleCollect, itemOf, menu]);
 
   // A prune can shorten the list under the selection.
   useEffect(() => {
@@ -470,10 +504,12 @@ export function DiskPanel({
 
       <PathBar rootPath={scan.root_path} drillNames={drillNames} onGo={goTo} />
 
-      {/* The sunburst. */}
-      <div className="relative mx-auto" style={{ width: SIZE, maxWidth: "100%" }}>
+      {/* The sunburst. Fills the preview width up to the viewBox size and
+          scales the whole viewBox down on narrower panels, so the outer ring
+          is never clipped (the viewBox encloses the arcs by construction). */}
+      <div className="relative mx-auto w-full" style={{ maxWidth: VIEW }}>
         <svg
-          viewBox={`0 0 ${SIZE} ${SIZE}`}
+          viewBox={`0 0 ${VIEW} ${VIEW}`}
           className="w-full"
           onMouseLeave={() => setHover(null)}
         >
@@ -498,6 +534,7 @@ export function DiskPanel({
                   animationDelay: reduce ? undefined : `${a.depth * 55}ms`,
                 }}
                 onMouseEnter={() => setHover(a)}
+                onContextMenu={(e) => openMenu(e, itemOf(a.path, a.node))}
                 onClick={() => {
                   if (!a.node.is_dir || a.node.other) return;
                   // Deeper rings carry a multi-step path, so this can't go
@@ -583,8 +620,16 @@ export function DiskPanel({
       </p>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          ⌫ höher · Leertaste sammeln · ⌘⌫ Papierkorb · R neu scannen · Esc zurück
+          ⌫ höher · Leertaste sammeln · Rechtsklick: Menü · ⌘⌫ Papierkorb · R neu scannen · Esc zurück
         </p>
+      )}
+      {menu && (
+        <SegmentMenu
+          menu={menu}
+          busy={busy}
+          onTrash={() => void execute([menu.item])}
+          onClose={() => setMenu(null)}
+        />
       )}
     </div>
   );
@@ -1017,6 +1062,96 @@ function TopFiles({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Right-click context menu for a ring segment. Shows what was hit (name, size,
+ * full path) and moves it to the Trash on click — Finder's secondary-click
+ * model: the Trash is recoverable, so the right-click plus the menu click IS
+ * the deliberate act (no extra confirm; user decision 2026-09-15). Closes on
+ * Esc (handled by the panel's key handler, which owns the keyboard while the
+ * menu is open), on a mousedown outside the menu, or after the action.
+ * Positioned at the cursor and clamped into the viewport.
+ */
+function SegmentMenu({
+  menu,
+  busy,
+  onTrash,
+  onClose,
+}: {
+  menu: { x: number; y: number; item: CollectorItem };
+  busy: boolean;
+  onTrash: () => void;
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [pos, setPos] = useState({ left: menu.x, top: menu.y });
+
+  // Clamp into the viewport once the real menu size is known.
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const r = el.getBoundingClientRect();
+    const pad = 8;
+    const left = Math.max(pad, Math.min(menu.x, window.innerWidth - r.width - pad));
+    const top = Math.max(pad, Math.min(menu.y, window.innerHeight - r.height - pad));
+    setPos({ left, top });
+  }, [menu.x, menu.y]);
+
+  // A mousedown outside closes it. A right-click on another segment lands here
+  // first (closing this one), then the panel re-opens a fresh menu there — so
+  // the menu appears to move to the newly-clicked segment.
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener("mousedown", onDown, true);
+    return () => window.removeEventListener("mousedown", onDown, true);
+  }, [onClose]);
+
+  const { item } = menu;
+  return (
+    <div
+      ref={ref}
+      role="menu"
+      className="fixed z-50 min-w-[200px] max-w-[300px] overflow-hidden rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-1 text-[11px] shadow-xl"
+      style={{ left: pos.left, top: pos.top }}
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+      }}
+    >
+      <div className="flex items-center gap-1.5 px-2 pb-1 pt-1.5">
+        <span className="shrink-0 text-[var(--color-muted)]">
+          {item.is_dir ? <Folder size={12} /> : <FileIcon size={12} />}
+        </span>
+        <span className="min-w-0 flex-1 truncate font-medium" title={item.name}>
+          {item.name}
+        </span>
+        <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatBytes(item.size)}</span>
+      </div>
+      <div
+        className="truncate px-2 pb-1.5 font-[var(--font-mono)] text-[10px] text-[var(--color-muted)]"
+        title={item.path}
+      >
+        {item.path}
+      </div>
+      <div className="mx-1 mb-1 h-px bg-[var(--color-border)]" />
+      <button
+        type="button"
+        role="menuitem"
+        disabled={busy}
+        onClick={() => {
+          onTrash();
+          onClose();
+        }}
+        className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-left text-[var(--color-fg)] hover:bg-red-500/15 hover:text-red-500 disabled:opacity-50"
+      >
+        <Trash2 size={13} className="shrink-0" />
+        {item.is_dir ? "Ordner in den Papierkorb" : "Datei in den Papierkorb"}
+      </button>
     </div>
   );
 }

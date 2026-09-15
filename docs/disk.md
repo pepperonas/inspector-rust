@@ -27,6 +27,7 @@ ein **Sonnenkranz-Diagramm** (Sunburst) der Ordnergrößen. `disk` (oder
 | Hover | Details in der Mitte + Detailzeile |
 | Leertaste / ＋ | die gewählte Zeile (Ordner **oder** Datei) in den **Sammler** nehmen — auch über Ordner hinweg |
 | `⌘⌫` / Entf | den Sammler in den **Papierkorb** — zweistufig: einmal armiert (rot, mit Hinweis), nochmal bestätigt; Esc bricht ab. Bei leerem Sammler trifft es die gewählte Zeile |
+| **Rechtsklick** auf ein Segment | Kontextmenü mit vollem Pfad → mit einem Klick sofort in den **Papierkorb** (s. u.) |
 | ＋ am Segment / an der Datei | in den Sammler (nie direkt löschen) |
 | `R` / ⟳ | den **aktuell gezeigten** Ordner neu scannen |
 
@@ -56,6 +57,17 @@ endgültiges Löschen — das gehört zu `clean` mit seiner Allowlist. Und der
 die Volume-Leiste bleibt darum absichtlich stehen. Was nicht verschoben
 werden konnte (Rechte, Pfad inzwischen weg), steht mit Grund unter dem
 Sammler und bleibt darin, damit nichts stillschweigend verloren geht.
+
+## Rechtsklick-Menü
+
+Ein **Sekundärklick auf ein Ring-Segment** öffnet ein Kontextmenü, das den
+getroffenen Ordner bzw. die Datei mit vollem Pfad nennt und ihn mit einem Klick
+in den **Papierkorb** verschiebt — Finders Sekundärklick, für den Fall, dass man
+den Sammler nicht braucht. Der Papierkorb ist wiederherstellbar, deshalb ist der
+Rechtsklick plus Menüklick bereits die bewusste Aktion (keine zusätzliche
+Rückfrage). Esc oder ein Klick daneben schließt das Menü; danach aktualisiert
+sich die Ansicht wie beim Sammler (lokaler Prune, kein Neu-Scan). Das synthetische
+„Sonstiges"-Segment hat keinen Pfad und öffnet darum kein Menü.
 
 ## Navigation
 
@@ -91,6 +103,10 @@ zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
 - Das Diagramm ist **begrenzt** (Top-Ordner je Ring, ~5 Ringe) — der Rest
   fällt in ein „Sonstiges"-Segment, damit es lesbar bleibt; die
   Größte-Dateien-Liste rechnet über alles.
+- Das Diagramm **füllt die Preview-Breite und wird nie am Rand abgeschnitten**:
+  die SVG-viewBox wird aus der Ring-Geometrie abgeleitet (`2×(hubR+Ringe·Ring)`
+  plus Rand), umschließt damit den äußersten Ring immer und skaliert linear auf
+  die verfügbare Breite herunter.
 
 ## Nicht enthalten
 

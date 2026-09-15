@@ -4,6 +4,17 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.173.0] - 2026-09-15
+
+### Added
+- **Right-click a ring segment in `disk` / `daisy`** for a context menu that names the exact folder or file (full path) and moves it to the Trash in one click — Finder's secondary-click, alongside the keyboard collector. The Trash is recoverable, so the right-click plus the menu click is the deliberate act (no extra confirm); Esc or a click outside closes it, and the view updates in place afterwards (local prune, no re-scan).
+
+### Fixed
+- **The `disk` / `daisy` sunburst no longer clips at the edges.** The SVG viewBox is now derived from the ring geometry (`2×(hubR + rings·ring)` plus padding) instead of a fixed 320 px the outer ring (radius 188) overran by 28 px on every side. It fills the preview width and scales down cleanly on narrower panels.
+
+### Changed
+- **Faster `disk` / `daisy` scans.** The parallel walk batches the live-progress counters per directory instead of one atomic per file (a contended cache line across worker threads), builds a file's full path only for the ~30 entries that make the largest-files list, and rejects non-contenders for that list in O(1). Sizes, counts and largest-files are byte-for-byte identical; a warm 108k-file scan went ~112 → ~101 ms (parallel).
+
 ## [0.172.0] - 2026-09-11
 
 ### Added

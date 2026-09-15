@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   sunburstArcs,
+  sunburstExtent,
   arcPath,
   nodeAt,
   segmentColor,
@@ -79,6 +80,38 @@ describe("sunburstArcs", () => {
     expect(z.path).toEqual([0, 0]);
     expect(nodeAt(root, z.path)?.name).toBe("z");
     expect(nodeAt(root, [9])).toBeNull();
+  });
+});
+
+describe("sunburstExtent — viewBox encloses the arcs (clipping regression)", () => {
+  // DiskPanel's real ring geometry + padding → the derived square viewBox.
+  const PANEL = { hubR: 58, ring: 26, rings: 5 };
+  const PAD = 6;
+  const VIEW = 2 * (sunburstExtent(PANEL) + PAD); // 2*(188+6) = 388
+  const CX = VIEW / 2; // 194
+
+  it("extent equals the outermost ring's outer radius", () => {
+    const deep = dir("root", [dir("a", [dir("b", [dir("c", [dir("d", [leaf("e", 10)])])])])]);
+    const maxR1 = Math.max(...sunburstArcs(deep, PANEL).map((a) => a.r1));
+    expect(sunburstExtent(PANEL)).toBe(58 + 5 * 26); // 188
+    expect(maxR1).toBe(sunburstExtent(PANEL)); // the arcs actually reach it
+  });
+
+  it("every drawn arc stays within [0, VIEW] around the centre", () => {
+    const deep = dir("root", [
+      dir("a", [dir("b", [dir("c", [dir("d", [leaf("e", 10)])])])]),
+      dir("f", [leaf("g", 5)]),
+    ]);
+    const maxR1 = Math.max(...sunburstArcs(deep, PANEL).map((a) => a.r1));
+    // The farthest any arc point sits from the centre is its outer radius r1.
+    expect(CX + maxR1).toBeLessThanOrEqual(VIEW); // 382 ≤ 388
+    expect(CX - maxR1).toBeGreaterThanOrEqual(0); //   6 ≥ 0
+    expect(VIEW - (CX + maxR1)).toBeGreaterThanOrEqual(PAD); // real margin
+  });
+
+  it("the old fixed 320 viewBox WOULD have clipped (regression witness)", () => {
+    // Centre 160, outer radius 188 → reaches 348 > 320: clipped 28px/side.
+    expect(320 / 2 + sunburstExtent(PANEL)).toBeGreaterThan(320);
   });
 });
 

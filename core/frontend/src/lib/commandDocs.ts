@@ -1368,6 +1368,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "**The list under the chart is the way into small folders.** The sunburst is area-proportional, so a 2 MB `src` next to a 20 GB `target` is a sub-pixel sliver you cannot click — the list has every child regardless of size (`↑↓` select, Enter opens).",
       "The path bar shows exactly which folder you are looking at; click any segment of it to jump straight there.",
       "**Deleting:** Space collects the selected row (folders and files, across folders), the bar shows the total, `⌘⌫` trashes the collection — press it once to arm, again to commit; Esc cancels. With an empty collector `⌘⌫` trashes the selected row alone. `⌫` alone still goes up a level.",
+      "**Right-click a ring segment** for a context menu that names the exact folder/file and moves it to the Trash in one click — Finder's secondary-click, for when you don't want the collector. Esc or a click outside closes it.",
       "Every ＋ elsewhere (the hovered segment's detail row, the largest-files list) only COLLECTS — the sole thing that actually trashes is the collector's button or `⌘⌫`, so a stray click can never delete.",
       "After a delete the chart and list update in place and you stay in the same folder — the bytes now live in the Trash, so the folder's numbers drop while the volume's free space does not.",
       "Sizes are on-disk (allocated blocks), so they match what the volume readout says — not apparent size.",

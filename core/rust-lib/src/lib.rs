@@ -817,6 +817,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::show_status_toast,
             commands::get_finder_automation_status,
             commands::open_finder_automation_settings,
+            commands::open_full_disk_access_settings,
             commands::force_reset_finder_automation_grant,
             commands::commit_transformed_text,
             commands::get_theme_preference,

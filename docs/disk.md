@@ -108,12 +108,16 @@ zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
   plus Rand), umschließt damit den äußersten Ring immer und skaliert linear auf
   die verfügbare Breite herunter.
 - Ein **leerer Ordner** (keine Einträge, 0 B) zeigt statt eines nackten
-  „0 B"-Rings einen klaren **Leer-Zustand**. Auf macOS ist `/home` ein leerer
-  `autofs`-Mount — `disk /home` bietet dann einen Knopf **„Persönlichen Ordner
-  öffnen"**, der direkt den Home-Ordner (`~`) scannt, statt nur auf `/Users/…`
-  zu verweisen. Das ist kein Scan-Fehler: `/home` ist tatsächlich 0 B. Im
-  Leer-Zustand sind Fußzeile und Hinweise auf das reduziert, was dann gilt
-  (höher / neu scannen / zurück).
+  „0 B"-Rings einen klaren **Leer-Zustand**; Fußzeile und Hinweise sind dann auf
+  das reduziert, was gilt (höher / neu scannen / zurück).
+- **`disk /home` öffnet direkt deinen Persönlichen Ordner.** Auf macOS ist
+  `/home` ein leerer `autofs`-Mount; `disk /home` erkennt das und scannt
+  **automatisch** dein Home (`~`) — kurze Übergangskarte, dann das Home-Diagramm
+  mit einem Hinweis, warum. Das ist kein Scan-Fehler: `/home` ist wirklich 0 B.
+- **Geschützte Ordner:** ist der gescannte Ordner nicht lesbar (macOS: **Full
+  Disk Access** fehlt), zeigt die Ansicht keine falsche „leer"-Karte, sondern
+  „Kein Zugriff" mit einem Knopf **„Full Disk Access öffnen"** (springt in die
+  Systemeinstellungen) und **„Erneut scannen"** für danach.
 
 ## Nicht enthalten
 

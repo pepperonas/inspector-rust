@@ -11,10 +11,10 @@ import {
   Plus,
   Check,
   X,
-  Home,
+  Lock,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { diskScan, diskTrashMany, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
+import { diskScan, diskTrashMany, openFullDiskAccess, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
 import {
   sunburstArcs,
   sunburstExtent,
@@ -156,6 +156,26 @@ export function DiskPanel({
     setTarget(argPath(arg));
   }, [arg]);
 
+  // `/home` on macOS is an empty `autofs` auto_home mount — someone who types
+  // `disk /home` (Linux muscle memory) means their real home folder, not an
+  // empty system mount. When the scan comes back as the empty /home mount,
+  // open `~` automatically (the backend's `expand_user` resolves it) instead
+  // of leaving a dead-end. `target !== "~"` stops it re-firing once redirected;
+  // matched on `root_path` (canonicalised to …/home), not the folder name, so a
+  // real empty folder literally named "home" is never redirected.
+  useEffect(() => {
+    if (
+      scan &&
+      !scan.access_denied && // a denied /home is a permission issue, not autofs-empty
+      target !== "~" &&
+      drill.length === 0 &&
+      scan.tree.child_count === 0 &&
+      /(?:^|\/)home$/.test(scan.root_path)
+    ) {
+      setTarget("~");
+    }
+  }, [scan, target, drill]);
+
   /**
    * Up one level. Inside the scanned tree that's instant (the sizes are
    * already known); at the scan root it re-scans the parent folder, which is
@@ -198,10 +218,11 @@ export function DiskPanel({
     }
   }, []);
 
-  /** Scan the real home folder — `~` is resolved by the backend's `expand_user`
-   *  (`disk_scan`). The empty-state offers this when `/home` turns out to be the
-   *  empty macOS autofs mount. */
-  const goHome = useCallback(() => setTarget("~"), []);
+  /** Open System Settings → Full Disk Access — offered when the scanned folder
+   *  is unreadable (a permission-denied root), so the user can grant access. */
+  const openFDA = useCallback(() => {
+    void openFullDiskAccess();
+  }, []);
 
   // Live progress while a scan is in flight.
   useEffect(() => {
@@ -479,12 +500,15 @@ export function DiskPanel({
   const reduce = prefersReducedMotion();
   // The folder has nothing to draw — no arcs, no rows, no collector/trash.
   const isEmpty = rows.length === 0;
-  // A genuinely empty scan ROOT of `/home` is almost always the macOS autofs
-  // auto_home mount (nobrowse, 0 entries). Rather than a dead-end message, the
-  // empty state then offers a button straight to the real home folder. Matched
-  // on `root_path` (canonicalised to …/home), not the folder NAME, so a real
-  // empty folder literally named "home" gets no false redirect.
-  const isHomeMount = drill.length === 0 && /(?:^|\/)home$/.test(scan.root_path);
+  // The empty /home mount → the effect above redirects to `~`. Until the home
+  // scan arrives the old /home scan is still in state, so show a transitional
+  // card, never the dead-end empty card. (Matched on `root_path`, not the
+  // folder name, so a real empty folder named "home" is untouched.)
+  const redirectingHome =
+    isEmpty && drill.length === 0 && /(?:^|\/)home$/.test(scan.root_path);
+  // After the redirect we're at the home root — say WHY (the user typed /home).
+  const redirectedFromHome =
+    target === "~" && drill.length === 0 && /(?:^|\/)home$/.test(argPath(arg) ?? "");
 
   return (
     <div
@@ -519,14 +543,25 @@ export function DiskPanel({
 
       <PathBar rootPath={scan.root_path} drillNames={drillNames} onGo={goTo} />
 
+      {redirectedFromHome && (
+        <p className="rounded-lg border border-[var(--color-accent)]/40 bg-[var(--color-accent)]/10 px-3 py-1.5 text-[11px] text-[var(--color-fg)]">
+          <code className="font-[var(--font-mono)]">/home</code> ist auf macOS ein leerer System-Mount — hier ist dein
+          Persönlicher Ordner.
+        </p>
+      )}
+
       {/* The sunburst. Fills the preview width up to the viewBox size and
           scales the whole viewBox down on narrower panels, so the outer ring
           is never clipped (the viewBox encloses the arcs by construction).
-          A folder with no children at all (e.g. a macOS autofs mount like
-          /home, which is genuinely empty) draws no arcs — show a clear empty
-          state instead of a lone "0 B" ring, which reads as broken. */}
-      {isEmpty ? (
-        <EmptyChart node={focusNode!} onGoHome={isHomeMount ? goHome : undefined} />
+          An empty /home (macOS autofs) redirects to ~ (transitional card);
+          any other empty folder draws no arcs, so show a clear empty state
+          instead of a lone "0 B" ring, which reads as broken. */}
+      {scan.access_denied ? (
+        <AccessDeniedCard name={focusNode!.name} onOpenSettings={openFDA} onRetry={() => run(target)} />
+      ) : redirectingHome ? (
+        <ScanningCard progress={null} label="Öffne deinen Persönlichen Ordner…" />
+      ) : isEmpty ? (
+        <EmptyChart node={focusNode!} />
       ) : (
       <div className="relative mx-auto w-full" style={{ maxWidth: VIEW }}>
         <svg
@@ -671,11 +706,11 @@ function Shell({ focused, children }: { focused: boolean; children: React.ReactN
   );
 }
 
-function ScanningCard({ progress }: { progress: DiskScanProgress | null }) {
+function ScanningCard({ progress, label = "Scanne…" }: { progress: DiskScanProgress | null; label?: string }) {
   return (
     <div className="flex flex-col items-center gap-3 rounded-xl border border-[var(--color-border)] p-6">
       <div className="disk-scan-orb" aria-hidden />
-      <p className="text-[12px] font-medium">Scanne…</p>
+      <p className="text-[12px] font-medium">{label}</p>
       {progress && (
         <p className="text-[11px] text-[var(--color-muted)] tabular-nums">
           {progress.items.toLocaleString("de-DE")} Einträge · {formatBytes(progress.bytes)}
@@ -1091,14 +1126,67 @@ function TopFiles({
 }
 
 /**
- * Shown when the scanned/drilled folder has no children at all. An empty folder
- * (e.g. a macOS autofs mount like `/home`, which is genuinely 0 B) draws no
- * arcs, so the sunburst would otherwise be a lone "0 B" ring — which reads as
- * broken. The header, path bar and ↑ button stay, so the user sees where they
- * are and can walk back out. When it's the `/home` autofs case, `onGoHome`
- * turns the dead-end into a one-click jump to the real home folder.
+ * Shown when the scanned folder is unreadable (`access_denied` — its `read_dir`
+ * was PermissionDenied). On macOS that's almost always missing Full Disk
+ * Access, so this offers a one-click jump to the exact settings pane and a
+ * re-scan for after granting. Distinct from an empty folder: this one is not
+ * empty, we just can't see into it.
  */
-function EmptyChart({ node, onGoHome }: { node: DiskNode; onGoHome?: () => void }) {
+function AccessDeniedCard({
+  name,
+  onOpenSettings,
+  onRetry,
+}: {
+  name: string;
+  onOpenSettings: () => void;
+  onRetry: () => void;
+}) {
+  return (
+    <div
+      className="mx-auto flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-amber-500/40 bg-amber-500/5 px-6 py-12 text-center"
+      style={{ maxWidth: VIEW }}
+    >
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-amber-500/15 text-amber-500">
+        <Lock size={26} />
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-[14px] font-semibold">Kein Zugriff auf „{name}“</p>
+        <p className="max-w-[300px] text-[11px] leading-relaxed text-[var(--color-muted)]">
+          Dieser Ordner ist geschützt. Damit Inspector Rust ihn lesen kann,
+          braucht es <strong>Full Disk Access</strong> in den Systemeinstellungen.
+        </p>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        <button
+          type="button"
+          onClick={onOpenSettings}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
+        >
+          <Lock size={13} /> Full Disk Access öffnen
+        </button>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-fg)] hover:bg-[var(--color-border)]/40"
+        >
+          <RefreshCw size={13} /> Erneut scannen
+        </button>
+      </div>
+      <p className="text-[10px] text-[var(--color-muted)]">
+        Nach dem Erteilen ggf. Inspector Rust neu starten.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * Shown when the scanned/drilled folder has no children at all (a genuinely
+ * empty folder). Drawing no arcs, the sunburst would otherwise be a lone "0 B"
+ * ring — which reads as broken; this states it plainly. (The special case of an
+ * empty macOS `/home` autofs mount never reaches here — it auto-redirects to the
+ * real home folder, see the redirect effect + `redirectingHome`.)
+ */
+function EmptyChart({ node }: { node: DiskNode }) {
   return (
     <div
       className="mx-auto flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center"
@@ -1113,26 +1201,9 @@ function EmptyChart({ node, onGoHome }: { node: DiskNode; onGoHome?: () => void 
           Keine Einträge · {formatBytes(node.size)}
         </p>
       </div>
-      {onGoHome ? (
-        <>
-          <p className="max-w-[300px] text-[11px] leading-relaxed text-[var(--color-muted)]">
-            Auf macOS ist <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">/home</code> nur
-            ein leerer System-Mount. Dein persönlicher Ordner liegt unter{" "}
-            <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">/Users</code>.
-          </p>
-          <button
-            type="button"
-            onClick={onGoHome}
-            className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
-          >
-            <Home size={14} /> Persönlichen Ordner öffnen
-          </button>
-        </>
-      ) : (
-        <p className="max-w-[280px] text-[11px] leading-relaxed text-[var(--color-muted)]">
-          Keine Dateien oder Unterordner in „{node.name}“.
-        </p>
-      )}
+      <p className="max-w-[280px] text-[11px] leading-relaxed text-[var(--color-muted)]">
+        Keine Dateien oder Unterordner in „{node.name}“.
+      </p>
     </div>
   );
 }

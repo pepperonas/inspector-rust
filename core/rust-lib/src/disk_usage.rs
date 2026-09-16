@@ -88,6 +88,12 @@ pub struct DiskScan {
     pub top_files: Vec<TopFile>,
     /// Files/dirs visited (for the "N items scanned" footer).
     pub items: u64,
+    /// The scanned folder itself could not be READ (its `read_dir` returned
+    /// PermissionDenied) — on macOS almost always missing Full Disk Access.
+    /// Without this an unreadable folder is indistinguishable from an empty one
+    /// (both walk to zero entries), so the UI would wrongly say "empty".
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub access_denied: bool,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -452,6 +458,14 @@ pub fn scan(
         return Err("Kein Ordner — bitte einen Ordner angeben.".into());
     }
     let root_dev = device_of(&meta);
+    // Can we even READ the root? A denied `read_dir` (macOS: missing Full Disk
+    // Access) walks to zero entries — same as a genuinely empty folder — so flag
+    // it, or the UI can't tell "blocked" from "empty". Cheap: opening the dir
+    // handle is the same syscall the walk is about to make.
+    let access_denied = matches!(
+        std::fs::read_dir(&root),
+        Err(ref e) if e.kind() == std::io::ErrorKind::PermissionDenied
+    );
     let mut top = TopK::new();
     let raw = walk(&root, 0, root_dev, &mut top, progress);
     let top = top.into_sorted();
@@ -477,6 +491,7 @@ pub fn scan(
         tree,
         top_files: top,
         items,
+        access_denied,
     })
 }
 
@@ -631,6 +646,38 @@ mod tests {
         assert_eq!(scan.tree.child_count, 2);
         assert_eq!(scan.tree.children[0].name, "big.bin");
         assert!(scan.items >= 3);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn scan_flags_a_permission_denied_root() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("ir-disk-denied-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        // 0o000 → the owner can't read_dir it either (owner bits are checked first).
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let prog = ScanProgress::default();
+        let result = super::scan(&dir, &[], &prog);
+        // Always restore perms so cleanup works, regardless of the assertions.
+        let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let scan = result.expect("a denied dir still scans — to an empty, FLAGGED result");
+        assert!(scan.access_denied, "a permission-denied root must be flagged");
+        assert_eq!(scan.tree.child_count, 0, "denied → walks to zero entries");
+    }
+
+    #[test]
+    fn a_readable_folder_is_not_flagged_denied() {
+        let base = std::env::temp_dir().join(format!("ir-disk-ok-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        std::fs::write(base.join("a.txt"), b"hi").unwrap();
+        let prog = ScanProgress::default();
+        let scan = super::scan(&base, &[], &prog).unwrap();
+        let _ = std::fs::remove_dir_all(&base);
+        assert!(!scan.access_denied);
     }
 
     #[test]

@@ -9,9 +9,11 @@ const diskScan = vi.fn<(path: string | null) => Promise<DiskScan>>();
 /** The batch-trash IPC: by default everything succeeds; a test can hand back
  *  a partial report to exercise the failure path. */
 const diskTrashMany = vi.fn<(paths: string[]) => Promise<{ trashed: string[]; failed: { path: string; error: string }[] }>>();
+const openFullDiskAccess = vi.fn<() => Promise<void>>();
 vi.mock("../lib/ipc", () => ({
   diskScan: (p: string | null) => diskScan(p),
   diskTrashMany: (paths: string[]) => diskTrashMany(paths),
+  openFullDiskAccess: () => openFullDiskAccess(),
 }));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: async () => () => undefined,
@@ -79,6 +81,8 @@ beforeEach(() => {
   diskScan.mockImplementation(async (p) => scanOf(p ?? "/Users/martin"));
   diskTrashMany.mockReset();
   diskTrashMany.mockImplementation(async (paths) => ({ trashed: paths, failed: [] }));
+  openFullDiskAccess.mockReset();
+  openFullDiskAccess.mockResolvedValue(undefined);
 });
 afterEach(cleanup);
 
@@ -449,7 +453,7 @@ describe("context menu (right-click a ring segment)", () => {
   });
 });
 
-describe("empty folder (no children) — no lone '0 B' ring", () => {
+describe("empty folder & /home auto-redirect", () => {
   function emptyScan(rootPath: string): DiskScan {
     const name = rootPath.split("/").filter(Boolean).pop() ?? "/";
     return {
@@ -466,37 +470,75 @@ describe("empty folder (no children) — no lone '0 B' ring", () => {
     };
   }
 
-  it("shows an empty state and draws no arcs", async () => {
-    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
+  it("auto-opens the real home folder for an empty /home (macOS autofs), no click", async () => {
+    // /home comes back empty; ~ has content (the real home).
+    diskScan.mockImplementation(async (p) =>
+      p === "~" ? scanOf("/Users/martin") : emptyScan(p ?? "/home"),
+    );
     const { container } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
-    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
-    // The lone-ring bug: the sunburst svg (viewBox 0 0 388 388) is not rendered
-    // at all for an empty folder — the empty state replaces it.
-    expect(container.querySelector('svg[viewBox="0 0 388 388"]')).toBeNull();
+    // Redirects on its own — no button, no dead-end — and lands on the home
+    // sunburst (content). One waitFor with a longer budget: the redirect is a
+    // two-scan chain (/home → effect → ~). The "Klick = reinzoomen" footer hint
+    // renders only for a NON-empty chart, so it proves the sunburst is up.
+    await waitFor(
+      () => {
+        expect(diskScan).toHaveBeenCalledWith("~");
+        expect(container.textContent).toContain("Klick = reinzoomen");
+      },
+      { timeout: 3000 },
+    );
+    // A note explains the redirect; the dead-end empty card never shows for /home.
+    expect(container.textContent).toContain("leerer System-Mount");
+    expect(container.textContent).not.toContain("Dieser Ordner ist leer");
   });
 
-  it("points an empty /home at /Users with an actionable button", async () => {
-    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
-    const { container, getByRole } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
-    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
-    expect(container.textContent).toContain("/Users");
-    // Not a dead-end: a real button offers the jump.
-    expect(getByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeTruthy();
+  it("shows a plain empty state (no redirect) for an ordinary empty folder", async () => {
+    diskScan.mockImplementation(async (p) => emptyScan(p ?? "/tmp/leer"));
+    const { container } = render(<DiskPanel arg="/tmp/leer" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("Dieser Ordner ist leer"));
+    // No sunburst (the lone-"0 B"-ring bug): the "Klick = reinzoomen" hint only
+    // renders for a non-empty chart. And no /home redirect/note.
+    expect(container.textContent).not.toContain("Klick = reinzoomen");
+    expect(diskScan).not.toHaveBeenCalledWith("~");
+    expect(container.textContent).not.toContain("System-Mount");
+  });
+});
+
+describe("permission denied — Full Disk Access", () => {
+  function deniedScan(rootPath: string): DiskScan {
+    const name = rootPath.split("/").filter(Boolean).pop() ?? "/";
+    return {
+      root_path: rootPath,
+      root_name: name,
+      total: 0,
+      volume_mount: "/",
+      volume_total: 1000,
+      volume_free: 700,
+      is_volume_root: false,
+      tree: dir(name, 0),
+      top_files: [],
+      items: 0,
+      access_denied: true,
+    };
+  }
+
+  it("shows an FDA prompt (not 'empty') and the button opens the settings", async () => {
+    diskScan.mockImplementation(async () => deniedScan("/Users/martin/Library/Mail"));
+    const { container, getByRole } = render(
+      <DiskPanel arg="/Users/martin/Library/Mail" focused onExit={() => {}} />,
+    );
+    await waitFor(() => expect(container.textContent).toContain("Full Disk Access"));
+    // A denied folder must NOT be mistaken for an empty one.
+    expect(container.textContent).not.toContain("Dieser Ordner ist leer");
+    fireEvent.click(getByRole("button", { name: /Full Disk Access öffnen/ }));
+    await waitFor(() => expect(openFullDiskAccess).toHaveBeenCalledTimes(1));
   });
 
-  it("the 'open home folder' button scans ~ (backend resolves it)", async () => {
-    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
-    const { getByRole } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
-    await waitFor(() => expect(getByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeTruthy());
-    fireEvent.click(getByRole("button", { name: /Persönlichen Ordner öffnen/ }));
-    await waitFor(() => expect(diskScan).toHaveBeenLastCalledWith("~"));
-  });
-
-  it("gives an ordinary empty folder no /home redirect", async () => {
-    diskScan.mockImplementation(async () => emptyScan("/tmp/leer"));
-    const { container, queryByRole } = render(<DiskPanel arg="/tmp/leer" focused onExit={() => {}} />);
-    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
-    expect(container.textContent).not.toContain("/Users");
-    expect(queryByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeNull();
+  it("does not redirect a denied /home — it prompts for access instead", async () => {
+    diskScan.mockImplementation(async (p) => deniedScan(p ?? "/home"));
+    const { container } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("Full Disk Access"));
+    // The autofs-empty redirect must not fire for a permission-denied root.
+    expect(diskScan).not.toHaveBeenCalledWith("~");
   });
 });

@@ -3114,6 +3114,26 @@ pub fn open_finder_automation_settings() -> Result<(), String> {
     }
 }
 
+/// Open System Settings → Privacy & Security → Full Disk Access, where the user
+/// grants the app read access to protected locations. Used by `disk` when a
+/// scan's root is permission-denied (an unreadable folder otherwise looks
+/// deceptively "empty"). Same deep-link scheme as the other privacy panes.
+#[tauri::command]
+pub fn open_full_disk_access_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles")
+            .status()
+            .map_err(map_err)?;
+        Ok(())
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("only macOS has the Full Disk Access permission".into())
+    }
+}
+
 /// Reset the Automation→Finder TCC entry and re-fire the prompt. The
 /// `AppleEvents` service in TCC keys both ends of the pair; a single
 /// reset by bundle id wipes our entry on every target app (currently

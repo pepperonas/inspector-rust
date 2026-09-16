@@ -2890,6 +2890,9 @@ export interface DiskScan {
   tree: DiskNode;
   top_files: DiskTopFile[];
   items: number;
+  /** The scanned folder itself was unreadable (macOS: missing Full Disk
+   *  Access). Omitted by the backend when false. */
+  access_denied?: boolean;
 }
 export interface DiskScanProgress {
   items: number;
@@ -3573,6 +3576,12 @@ export function getFinderAutomationStatus(): Promise<boolean> {
  *  with the per-app sub-toggles. */
 export function openFinderAutomationSettings(): Promise<void> {
   return invoke("open_finder_automation_settings");
+}
+
+/** Open System Settings → Privacy & Security → Full Disk Access — used by `disk`
+ *  when a scan's root is permission-denied. */
+export function openFullDiskAccess(): Promise<void> {
+  return invoke("open_full_disk_access_settings");
 }
 
 /** `tccutil reset AppleEvents` for Inspector Rust + re-probe (which

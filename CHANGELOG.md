@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.174.0] - 2026-09-16
+
+### Added
+- **`disk` / `daisy` now offers to open Full Disk Access when a folder is unreadable.** A protected folder (e.g. `~/Library/Mail`) used to look deceptively "empty" — its scan walks to zero entries just like a truly empty one. Inspector Rust now detects a permission-denied scan root and shows a clear "Kein Zugriff" card with a one-click **"Full Disk Access öffnen"** button (jumps straight to the System Settings pane) plus a re-scan. On macOS that's the permission the scan actually needs.
+
+### Changed
+- **`disk` / `daisy` on `/home` now just opens your real home folder.** On macOS `/home` is an empty `autofs` mount, so scanning it was a dead-end — and the earlier "open home" button was still one click too many. Inspector Rust now detects the empty `/home` mount and **automatically** scans your home folder (`~`) instead (a brief transitional card, then the home sunburst with a note explaining why). Any other genuinely empty folder still shows a clear "Dieser Ordner ist leer" state.
+
 ## [0.173.2] - 2026-09-16
 
 ### Changed

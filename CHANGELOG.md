@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.173.1] - 2026-09-16
+
+### Fixed
+- **`disk` / `daisy` on an empty folder no longer shows a lone "0 B" ring** that read as broken. A folder with no entries — e.g. macOS's `/home`, which is an empty `autofs` mount — now renders a clear "Ordner ist leer" state with its size; an empty `/home` additionally points you at `/Users`, where your home folder actually lives. The scan was already correct (`/home` really is 0 B); only the presentation was confusing.
+
 ## [0.173.0] - 2026-09-15
 
 ### Added

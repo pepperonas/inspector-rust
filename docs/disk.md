@@ -107,6 +107,11 @@ zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
   die SVG-viewBox wird aus der Ring-Geometrie abgeleitet (`2×(hubR+Ringe·Ring)`
   plus Rand), umschließt damit den äußersten Ring immer und skaliert linear auf
   die verfügbare Breite herunter.
+- Ein **leerer Ordner** (keine Einträge, 0 B) zeigt statt eines nackten
+  „0 B"-Rings einen klaren **Leer-Zustand**. Auf macOS ist `/home` ein leerer
+  `autofs`-Mount — `disk /home` weist dann zusätzlich auf `/Users/…` hin, wo der
+  Persönliche Ordner wirklich liegt. Das ist kein Scan-Fehler: `/home` ist
+  tatsächlich 0 B.
 
 ## Nicht enthalten
 

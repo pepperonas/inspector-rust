@@ -470,6 +470,13 @@ export function DiskPanel({
   const hoverNode = hover?.node ?? focusNode!;
   const hoverIsFocus = !hover;
   const reduce = prefersReducedMotion();
+  // A genuinely empty scan root of `/home` is almost always the macOS autofs
+  // auto_home mount (nobrowse, 0 entries) — point the user at /Users so an
+  // empty ring doesn't just read as "broken".
+  const emptyHint =
+    drill.length === 0 && /(?:^|\/)home$/.test(scan.root_path)
+      ? "Auf macOS ist /home ein leerer autofs-Mount — dein Persönlicher Ordner liegt unter /Users/…"
+      : undefined;
 
   return (
     <div
@@ -506,7 +513,13 @@ export function DiskPanel({
 
       {/* The sunburst. Fills the preview width up to the viewBox size and
           scales the whole viewBox down on narrower panels, so the outer ring
-          is never clipped (the viewBox encloses the arcs by construction). */}
+          is never clipped (the viewBox encloses the arcs by construction).
+          A folder with no children at all (e.g. a macOS autofs mount like
+          /home, which is genuinely empty) draws no arcs — show a clear empty
+          state instead of a lone "0 B" ring, which reads as broken. */}
+      {rows.length === 0 ? (
+        <EmptyChart node={focusNode!} hint={emptyHint} />
+      ) : (
       <div className="relative mx-auto w-full" style={{ maxWidth: VIEW }}>
         <svg
           viewBox={`0 0 ${VIEW} ${VIEW}`}
@@ -568,6 +581,7 @@ export function DiskPanel({
           </span>
         </div>
       </div>
+      )}
 
       {/* Volume readout (DaisyDisk's centre free-space, as a bar below). */}
       {scan.volume_total > 0 && (
@@ -1062,6 +1076,29 @@ function TopFiles({
           );
         })}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Shown when the scanned/drilled folder has no children at all. An empty folder
+ * (e.g. a macOS autofs mount like `/home`, which is genuinely 0 B) draws no
+ * arcs, so the sunburst would otherwise be a lone "0 B" ring — which reads as
+ * broken. The header, path bar and ↑ button stay, so the user sees where they
+ * are and can walk back out.
+ */
+function EmptyChart({ node, hint }: { node: DiskNode; hint?: string }) {
+  return (
+    <div
+      className="mx-auto flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] py-12 text-center"
+      style={{ maxWidth: VIEW }}
+    >
+      <Folder size={30} className="text-[var(--color-muted)]" />
+      <p className="text-[13px] font-medium">Ordner ist leer</p>
+      <p className="max-w-[280px] text-[11px] leading-snug text-[var(--color-muted)]">
+        Keine Dateien oder Unterordner in „{node.name}“ ({formatBytes(node.size)}).
+        {hint ? ` ${hint}` : ""}
+      </p>
     </div>
   );
 }

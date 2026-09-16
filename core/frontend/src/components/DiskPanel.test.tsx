@@ -448,3 +448,44 @@ describe("context menu (right-click a ring segment)", () => {
     expect(diskTrashMany).not.toHaveBeenCalled();
   });
 });
+
+describe("empty folder (no children) — no lone '0 B' ring", () => {
+  function emptyScan(rootPath: string): DiskScan {
+    const name = rootPath.split("/").filter(Boolean).pop() ?? "/";
+    return {
+      root_path: rootPath,
+      root_name: name,
+      total: 0,
+      volume_mount: "/",
+      volume_total: 1000,
+      volume_free: 700,
+      is_volume_root: false,
+      tree: dir(name, 0), // a directory with NO children (e.g. macOS autofs /home)
+      top_files: [],
+      items: 0,
+    };
+  }
+
+  it("shows an empty state and draws no arcs", async () => {
+    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
+    const { container } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
+    // The lone-ring bug: the sunburst svg (viewBox 0 0 388 388) is not rendered
+    // at all for an empty folder — the empty state replaces it.
+    expect(container.querySelector('svg[viewBox="0 0 388 388"]')).toBeNull();
+  });
+
+  it("points an empty /home at /Users (the macOS autofs gotcha)", async () => {
+    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
+    const { container } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
+    expect(container.textContent).toContain("/Users");
+  });
+
+  it("gives an ordinary empty folder no /home hint", async () => {
+    diskScan.mockImplementation(async () => emptyScan("/tmp/leer"));
+    const { container } = render(<DiskPanel arg="/tmp/leer" focused onExit={() => {}} />);
+    await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
+    expect(container.textContent).not.toContain("autofs");
+  });
+});

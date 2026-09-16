@@ -1379,6 +1379,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "The chart is bounded (top folders per ring, ~5 rings) so it stays legible — the largest-files list is computed over everything.",
       "A folder far smaller than its siblings gets no visible arc at all. That is honest, not a bug — the chart shows proportion; use the list below it to get in.",
       "Trashing is the only way to delete here — everything goes to the Trash (recoverable) and disk space is freed only when you empty it. There is deliberately no permanent delete; that belongs to `clean` with its allowlist, not to a free file browser.",
+      "An empty folder shows a plain \"empty\" state, not a chart — including macOS's `/home`, which is an empty `autofs` mount (`disk /home` really is 0 B; your home folder is under `/Users/…`).",
     ],
     related: ["loc", "stats"],
     see_also: "docs/disk.md",

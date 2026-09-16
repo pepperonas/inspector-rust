@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 // PERFORMANCE-PLAN A4 (v0.166.0): every preview panel, tab panel, game and
 // full-shell takeover below is `lazy` — the popup used to parse + JIT a single
 // ~950 KB chunk at launch for surfaces most opens never touch. Only the
@@ -251,6 +251,10 @@ function App() {
   const { notes, categories: noteCategories, refresh: refreshNotes } = useNotes();
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
+  // Measured width of the absolute tab strip → published as `--tab-reserve` on
+  // the header so the search input / title reserve exactly enough room (see the
+  // header block below). 0 until TabBar reports; the class fallback covers that.
+  const [tabStripW, setTabStripW] = useState(0);
   // Key-repeat guard (animation layer, Etappe 2/3): true while an arrow key
   // auto-repeats. The selection indicator + the preview crossfade switch to
   // instant so neither lags behind held-key navigation; a short settle
@@ -4705,8 +4709,21 @@ function App() {
           </Banner>
         )}
 
-        {/* Header — fixed height, tab buttons anchored top-right */}
-        <div className="relative shrink-0">
+        {/* Header — fixed height, tab buttons anchored top-right.
+            TabBar measures its own rendered width and reports it here; we
+            publish it as `--tab-reserve` so the search input / title (and the
+            clear button) reserve exactly enough room and never sit under the
+            tabs. +28px = the strip's right-3 offset (12) + a 16px gap, so the
+            clear × lands with clear air to the left of the tabs. Falls back to
+            the class default (260px) for the single pre-measure frame. */}
+        <div
+          className="relative shrink-0"
+          style={
+            tabStripW > 0
+              ? ({ "--tab-reserve": `${tabStripW + 28}px` } as CSSProperties)
+              : undefined
+          }
+        >
           {activeTab === "history" ? (
             <SearchBar
               ref={searchRef}
@@ -4715,7 +4732,7 @@ function App() {
               calcMode={calcResult !== null || convertResult !== null}
             />
           ) : (
-            <div className="flex h-14 items-center border-b border-[var(--color-border)] pl-4 pr-[260px]">
+            <div className="flex h-14 items-center border-b border-[var(--color-border)] pl-4 pr-[var(--tab-reserve,260px)]">
               <span className="text-[15px] font-semibold">
                 {activeTab === "snippets"
                   ? "Snippets"
@@ -4731,6 +4748,7 @@ function App() {
           )}
           <TabBar
             active={activeTab}
+            onWidth={setTabStripW}
             onSelect={(tab) => {
               setActiveTab(tab);
               if (tab === "snippets") void refreshSnippets();
@@ -5280,11 +5298,16 @@ function Banner({ className, children }: { className: string; children: React.Re
 function TabBar({
   active,
   onSelect,
+  onWidth,
 }: {
   active: TabId;
   onSelect: (tab: TabId) => void;
+  /** Report the strip's rendered width so the header can reserve exactly that
+      much room for the input/title — no hard-coded number to keep in sync. */
+  onWidth?: (w: number) => void;
 }) {
   const btnRefs = useRef<Partial<Record<TabId, HTMLButtonElement | null>>>({});
+  const rootRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ x: number; w: number } | null>(null);
 
   useLayoutEffect(() => {
@@ -5293,8 +5316,21 @@ function TabBar({
     setPill({ x: el.offsetLeft, w: el.offsetWidth });
   }, [active]);
 
+  // Measure pre-paint + keep it fresh (font load / DPI / window resize). A
+  // ResizeObserver re-reporting the same width is a no-op setState (React
+  // bails), so this can't loop. `onWidth` is App's setState → stable identity.
+  useLayoutEffect(() => {
+    const el = rootRef.current;
+    if (!el || !onWidth) return;
+    const report = () => onWidth(el.offsetWidth);
+    report();
+    const ro = new ResizeObserver(report);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [onWidth]);
+
   return (
-    <div className="absolute right-3 top-1/2 flex -translate-y-1/2 gap-1">
+    <div ref={rootRef} className="absolute right-3 top-1/2 flex -translate-y-1/2 gap-1">
       {/* The gliding indicator — behind the labels. */}
       {pill && (
         <span

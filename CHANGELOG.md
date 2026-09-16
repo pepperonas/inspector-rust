@@ -9,6 +9,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - **A clear (×) button in the search bar.** It appears at the right end of the input as soon as there's text and wipes the whole query in one click; the input keeps focus so you can type again immediately.
 
+### Fixed
+- **The search-bar clear (×) button no longer sits among the tabs.** The room reserved on the right for the tab strip was a stale hard-coded 260 px — too narrow for the six tabs — so the × landed on top of the tabs and was awkward to click. The reserve is now measured from the tab strip at runtime, so the × always keeps a clear gap to the left of the tabs (and the input/title never run under them, no matter how many tabs there are). Its hit target is a touch larger too.
+
 ## [0.174.0] - 2026-09-16
 
 ### Added

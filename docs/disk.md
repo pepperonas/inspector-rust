@@ -109,9 +109,11 @@ zu zeigen — wird frisch gescannt. Damit ist die Tiefe praktisch unbegrenzt.
   die verfügbare Breite herunter.
 - Ein **leerer Ordner** (keine Einträge, 0 B) zeigt statt eines nackten
   „0 B"-Rings einen klaren **Leer-Zustand**. Auf macOS ist `/home` ein leerer
-  `autofs`-Mount — `disk /home` weist dann zusätzlich auf `/Users/…` hin, wo der
-  Persönliche Ordner wirklich liegt. Das ist kein Scan-Fehler: `/home` ist
-  tatsächlich 0 B.
+  `autofs`-Mount — `disk /home` bietet dann einen Knopf **„Persönlichen Ordner
+  öffnen"**, der direkt den Home-Ordner (`~`) scannt, statt nur auf `/Users/…`
+  zu verweisen. Das ist kein Scan-Fehler: `/home` ist tatsächlich 0 B. Im
+  Leer-Zustand sind Fußzeile und Hinweise auf das reduziert, was dann gilt
+  (höher / neu scannen / zurück).
 
 ## Nicht enthalten
 

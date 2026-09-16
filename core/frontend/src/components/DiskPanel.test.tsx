@@ -475,17 +475,28 @@ describe("empty folder (no children) — no lone '0 B' ring", () => {
     expect(container.querySelector('svg[viewBox="0 0 388 388"]')).toBeNull();
   });
 
-  it("points an empty /home at /Users (the macOS autofs gotcha)", async () => {
+  it("points an empty /home at /Users with an actionable button", async () => {
     diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
-    const { container } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
+    const { container, getByRole } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
     await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
     expect(container.textContent).toContain("/Users");
+    // Not a dead-end: a real button offers the jump.
+    expect(getByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeTruthy();
   });
 
-  it("gives an ordinary empty folder no /home hint", async () => {
+  it("the 'open home folder' button scans ~ (backend resolves it)", async () => {
+    diskScan.mockImplementation(async () => emptyScan("/System/Volumes/Data/home"));
+    const { getByRole } = render(<DiskPanel arg="/home" focused onExit={() => {}} />);
+    await waitFor(() => expect(getByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeTruthy());
+    fireEvent.click(getByRole("button", { name: /Persönlichen Ordner öffnen/ }));
+    await waitFor(() => expect(diskScan).toHaveBeenLastCalledWith("~"));
+  });
+
+  it("gives an ordinary empty folder no /home redirect", async () => {
     diskScan.mockImplementation(async () => emptyScan("/tmp/leer"));
-    const { container } = render(<DiskPanel arg="/tmp/leer" focused onExit={() => {}} />);
+    const { container, queryByRole } = render(<DiskPanel arg="/tmp/leer" focused onExit={() => {}} />);
     await waitFor(() => expect(container.textContent).toContain("Ordner ist leer"));
-    expect(container.textContent).not.toContain("autofs");
+    expect(container.textContent).not.toContain("/Users");
+    expect(queryByRole("button", { name: /Persönlichen Ordner öffnen/ })).toBeNull();
   });
 });

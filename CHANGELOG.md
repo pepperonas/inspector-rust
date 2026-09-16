@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.173.2] - 2026-09-16
+
+### Changed
+- **The `disk` / `daisy` empty-folder state is now actionable, not a dead-end.** An empty `/home` (the macOS autofs mount) shows a one-click **"Persönlichen Ordner öffnen"** button that jumps straight to your home folder, instead of a dangling "/Users/…" note you couldn't act on. The card was refreshed (open-folder icon in a soft disc, clearer copy) and the footer + scan hints are trimmed to what actually applies when there is nothing to collect, right-click or trash.
+
 ## [0.173.1] - 2026-09-16
 
 ### Fixed

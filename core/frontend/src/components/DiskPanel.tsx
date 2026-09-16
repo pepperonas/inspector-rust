@@ -5,11 +5,13 @@ import {
   ChevronRight,
   Trash2,
   Folder,
+  FolderOpen,
   FileIcon,
   CornerLeftUp,
   Plus,
   Check,
   X,
+  Home,
 } from "lucide-react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { diskScan, diskTrashMany, type DiskScan, type DiskNode, type DiskScanProgress } from "../lib/ipc";
@@ -195,6 +197,11 @@ export function DiskPanel({
       setHover(null);
     }
   }, []);
+
+  /** Scan the real home folder — `~` is resolved by the backend's `expand_user`
+   *  (`disk_scan`). The empty-state offers this when `/home` turns out to be the
+   *  empty macOS autofs mount. */
+  const goHome = useCallback(() => setTarget("~"), []);
 
   // Live progress while a scan is in flight.
   useEffect(() => {
@@ -470,13 +477,14 @@ export function DiskPanel({
   const hoverNode = hover?.node ?? focusNode!;
   const hoverIsFocus = !hover;
   const reduce = prefersReducedMotion();
-  // A genuinely empty scan root of `/home` is almost always the macOS autofs
-  // auto_home mount (nobrowse, 0 entries) — point the user at /Users so an
-  // empty ring doesn't just read as "broken".
-  const emptyHint =
-    drill.length === 0 && /(?:^|\/)home$/.test(scan.root_path)
-      ? "Auf macOS ist /home ein leerer autofs-Mount — dein Persönlicher Ordner liegt unter /Users/…"
-      : undefined;
+  // The folder has nothing to draw — no arcs, no rows, no collector/trash.
+  const isEmpty = rows.length === 0;
+  // A genuinely empty scan ROOT of `/home` is almost always the macOS autofs
+  // auto_home mount (nobrowse, 0 entries). Rather than a dead-end message, the
+  // empty state then offers a button straight to the real home folder. Matched
+  // on `root_path` (canonicalised to …/home), not the folder NAME, so a real
+  // empty folder literally named "home" gets no false redirect.
+  const isHomeMount = drill.length === 0 && /(?:^|\/)home$/.test(scan.root_path);
 
   return (
     <div
@@ -517,8 +525,8 @@ export function DiskPanel({
           A folder with no children at all (e.g. a macOS autofs mount like
           /home, which is genuinely empty) draws no arcs — show a clear empty
           state instead of a lone "0 B" ring, which reads as broken. */}
-      {rows.length === 0 ? (
-        <EmptyChart node={focusNode!} hint={emptyHint} />
+      {isEmpty ? (
+        <EmptyChart node={focusNode!} onGoHome={isHomeMount ? goHome : undefined} />
       ) : (
       <div className="relative mx-auto w-full" style={{ maxWidth: VIEW }}>
         <svg
@@ -630,11 +638,13 @@ export function DiskPanel({
       />
 
       <p className="text-[10px] text-[var(--color-muted)]">
-        {scan.items.toLocaleString("de-DE")} Einträge gescannt · Klick = reinzoomen
+        {scan.items.toLocaleString("de-DE")} Einträge gescannt{isEmpty ? "" : " · Klick = reinzoomen"}
       </p>
       {focused && (
         <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
-          ⌫ höher · Leertaste sammeln · Rechtsklick: Menü · ⌘⌫ Papierkorb · R neu scannen · Esc zurück
+          {isEmpty
+            ? "⌫ höher · R neu scannen · Esc zurück"
+            : "⌫ höher · Leertaste sammeln · Rechtsklick: Menü · ⌘⌫ Papierkorb · R neu scannen · Esc zurück"}
         </p>
       )}
       {menu && (
@@ -1085,20 +1095,44 @@ function TopFiles({
  * (e.g. a macOS autofs mount like `/home`, which is genuinely 0 B) draws no
  * arcs, so the sunburst would otherwise be a lone "0 B" ring — which reads as
  * broken. The header, path bar and ↑ button stay, so the user sees where they
- * are and can walk back out.
+ * are and can walk back out. When it's the `/home` autofs case, `onGoHome`
+ * turns the dead-end into a one-click jump to the real home folder.
  */
-function EmptyChart({ node, hint }: { node: DiskNode; hint?: string }) {
+function EmptyChart({ node, onGoHome }: { node: DiskNode; onGoHome?: () => void }) {
   return (
     <div
-      className="mx-auto flex w-full flex-col items-center justify-center gap-2 rounded-xl border border-[var(--color-border)] py-12 text-center"
+      className="mx-auto flex w-full flex-col items-center justify-center gap-3 rounded-xl border border-dashed border-[var(--color-border)] px-6 py-12 text-center"
       style={{ maxWidth: VIEW }}
     >
-      <Folder size={30} className="text-[var(--color-muted)]" />
-      <p className="text-[13px] font-medium">Ordner ist leer</p>
-      <p className="max-w-[280px] text-[11px] leading-snug text-[var(--color-muted)]">
-        Keine Dateien oder Unterordner in „{node.name}“ ({formatBytes(node.size)}).
-        {hint ? ` ${hint}` : ""}
-      </p>
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--color-surface)] text-[var(--color-muted)]">
+        <FolderOpen size={28} />
+      </div>
+      <div className="space-y-0.5">
+        <p className="text-[14px] font-semibold">Dieser Ordner ist leer</p>
+        <p className="text-[11px] text-[var(--color-muted)] tabular-nums">
+          Keine Einträge · {formatBytes(node.size)}
+        </p>
+      </div>
+      {onGoHome ? (
+        <>
+          <p className="max-w-[300px] text-[11px] leading-relaxed text-[var(--color-muted)]">
+            Auf macOS ist <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">/home</code> nur
+            ein leerer System-Mount. Dein persönlicher Ordner liegt unter{" "}
+            <code className="rounded bg-[var(--color-surface)] px-1 font-[var(--font-mono)]">/Users</code>.
+          </p>
+          <button
+            type="button"
+            onClick={onGoHome}
+            className="mt-1 inline-flex items-center gap-1.5 rounded-lg bg-[var(--color-accent)] px-3 py-1.5 text-[12px] font-medium text-[var(--color-accent-fg)] transition-opacity hover:opacity-90"
+          >
+            <Home size={14} /> Persönlichen Ordner öffnen
+          </button>
+        </>
+      ) : (
+        <p className="max-w-[280px] text-[11px] leading-relaxed text-[var(--color-muted)]">
+          Keine Dateien oder Unterordner in „{node.name}“.
+        </p>
+      )}
     </div>
   );
 }

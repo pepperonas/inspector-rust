@@ -1,4 +1,4 @@
-import { Calculator, ChevronRight } from "lucide-react";
+import { Calculator, ChevronRight, X } from "lucide-react";
 import { forwardRef } from "react";
 
 interface Props {
@@ -46,6 +46,22 @@ export const SearchBar = forwardRef<HTMLInputElement, Props>(
             (calcMode ? "caret-rose-500" : "")
           }
         />
+        {value && (
+          // Clear the whole input. `onMouseDown preventDefault` keeps focus on
+          // the field (a plain click would blur it), so typing continues right
+          // after clearing. Sits at the right end of the input area, before the
+          // reserved tab strip (pr-[260px]).
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onChange("")}
+            title="Eingabe löschen"
+            aria-label="Eingabe löschen"
+            className="shrink-0 rounded-md p-1 text-[var(--color-muted)] transition-colors hover:bg-[var(--color-border)]/40 hover:text-[var(--color-fg)]"
+          >
+            <X size={16} />
+          </button>
+        )}
       </div>
     );
   },

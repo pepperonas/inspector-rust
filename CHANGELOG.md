@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.175.0] - 2026-09-16
+
+### Added
+- **A clear (×) button in the search bar.** It appears at the right end of the input as soon as there's text and wipes the whole query in one click; the input keeps focus so you can type again immediately.
+
 ## [0.174.0] - 2026-09-16
 
 ### Added

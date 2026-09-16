@@ -66,6 +66,7 @@ Sleep-Status im Footer (macOS) — EIN Indikator statt zweier (v0.152.0), immer 
 
 == Suchleisten-Commands ==
 Inline-Hilfe — `<command>?` / `<präfix>?` zeigt die volle Doku im Preview (Synopsis, Argumente/Flags, ≥3 Beispiele — klickbar → füllen die Suchleiste, Tipps, Caveats, verwandte Befehle, ←-Index-Chip); `?` allein = durchblätterbarer Befehls-Index (linke Liste, ↑↓ + Live-Doku rechts, Enter füllt den Befehl), `? <text>` = Volltext-Suche über alle Docs, `?<command>` OHNE Leerzeichen (z. B. `?snitch`) = direkt die Doku dieses Befehls. Literales `?` (in Templates/Globs/URLs/Argumenten) triggert nicht. Alles aus EINER Registry (commandDocs.ts), die auch die README-Command-Matrix + den Features-Tab generiert (docs/inline-help.md)
+Suchleiste-Löschen — ein ×-Knopf am rechten Ende der Eingabe (nur sichtbar, wenn Text da ist) löscht die komplette Eingabe mit einem Klick; der Fokus bleibt im Feld, sodass man sofort weitertippen kann (v0.175.0)
 Übersetzen — `tr`, `tren`, `trde`, `trde2it/2sp/2pl` u. a.: Live-Übersetzung in der Preview beim Tippen (keyless Google gtx + MyMemory-Fallback); Enter kopiert die Übersetzung, Shift+Enter öffnet Google Translate; Klick auf Quell-/Zieltext kopiert diesen. Doku docs/translation.md
 Web-Bangs — `g`, `ddg`, `gh`, `yt`, `npm`, `crates`, `so`, `mdn`, `wiki` <query>
 Dev-Tools — `uuid [n]`, `slug`, `hash` (SHA-256), `json` (pretty-print), `jwt` (decode)

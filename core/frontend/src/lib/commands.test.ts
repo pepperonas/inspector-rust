@@ -45,7 +45,7 @@ describe("COMMANDS catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
-    expect(COMMANDS.length).toBe(107);
+    expect(COMMANDS.length).toBe(108);
   });
 
   it("every keyword is unique", () => {
@@ -1290,6 +1290,14 @@ describe("db is dezibel", () => {
     // that is not a keyword stops parsing as the command, the auto-exit
     // effect fires on the same tick and the panel closes itself (v0.84.247).
     expect(parseCommand("dezibel")?.spec.kind).toBe("dezibel");
+  });
+});
+
+describe("lumen", () => {
+  it("parses as a no-argument live sensor command", () => {
+    const parsed = parseCommand("lumen");
+    expect(parsed?.spec.kind).toBe("lumen");
+    expect(parsed?.spec.requiresArg).toBe(false);
   });
 });
 

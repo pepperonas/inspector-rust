@@ -1303,10 +1303,19 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
   transform-origin: center;
 }
 
+@keyframes lumenSunPulse {
+  0%, 100% { transform: scale(0.96) rotate(0deg); }
+  50% { transform: scale(1.06) rotate(12deg); }
+}
+.lumen-sun {
+  animation: lumenSunPulse 3.2s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stat-heat-flow,
   .stat-heat-breathe,
-  .stat-fan-spin {
+  .stat-fan-spin,
+  .lumen-sun {
     animation: none !important;
   }
   /* Static ember state instead: the glow layer stays at a calm mid opacity,

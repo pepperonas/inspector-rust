@@ -48,6 +48,7 @@ const IpPanel = lazy(() => import("./components/IpPanel").then((m) => ({ default
 const TokensPanel = lazy(() => import("./components/TokensPanel").then((m) => ({ default: m.TokensPanel })));
 const ResizePanel = lazy(() => import("./components/ResizePanel").then((m) => ({ default: m.ResizePanel })));
 const DezibelPanel = lazy(() => import("./components/DezibelPanel").then((m) => ({ default: m.DezibelPanel })));
+const LumenPanel = lazy(() => import("./components/LumenPanel").then((m) => ({ default: m.LumenPanel })));
 const BluetoothPanel = lazy(() => import("./components/BluetoothPanel").then((m) => ({ default: m.BluetoothPanel })));
 const RandomPanel = lazy(() => import("./components/RandomPanel").then((m) => ({ default: m.RandomPanel })));
 const CommandHelp = lazy(() => import("./components/CommandHelp"));
@@ -320,6 +321,9 @@ function App() {
   // just routes Esc to the panel; there's no selection model.
   const [statsMode, setStatsMode] = useState(false);
   const [statsFocus, setStatsFocus] = useState(false);
+  // Lumen mode — lightweight read-only ambient-light polling. It appears as
+  // soon as the complete command is typed and unmounts when the query changes.
+  const [lumenMode, setLumenMode] = useState(false);
   // Iris mode — the mic-triggered red screen vignette. Unlike the other inline
   // panels this one is a TOGGLE: Enter arms it (and opens the calibration
   // panel), Enter on an already-armed session disarms it. The panel is only
@@ -1139,6 +1143,15 @@ function App() {
     }
   }, [isStatsCmd, statsMode]);
 
+  const isLumenCmd = parsedCommand?.spec.kind === "lumen";
+  useEffect(() => {
+    if (isLumenCmd && !lumenMode) {
+      setLumenMode(true);
+    } else if (!isLumenCmd && lumenMode) {
+      setLumenMode(false);
+    }
+  }, [isLumenCmd, lumenMode]);
+
   // Same auto-exit for iris mode (the panel, not the monitoring — that keeps
   // running in the background on purpose).
   const isIrisCmd = parsedCommand?.spec.kind === "iris";
@@ -1813,6 +1826,10 @@ function App() {
         label = "Live system stats";
         hint =
           "Enter → CPU / memory / disks / network / temps / fans / battery in the preview";
+        break;
+      case "lumen":
+        label = "Live ambient light";
+        hint = "Current illuminance in lux — when this device exposes a sensor";
         break;
       case "boom":
         label = "Audio enhancement";
@@ -3423,7 +3440,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3449,6 +3466,10 @@ function App() {
       }
       if (commandKind === "dezibel") {
         setDezibelMode(true);
+        return true;
+      }
+      if (commandKind === "lumen") {
+        setLumenMode(true);
         return true;
       }
       if (isTranslateKind(commandKind)) {
@@ -4859,6 +4880,10 @@ function App() {
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />
+                  </div>
+                ) : lumenMode ? (
+                  <div className="md3-pop-in h-full">
+                    <LumenPanel />
                   </div>
                 ) : boomMode ? (
                   <div className="md3-pop-in h-full">

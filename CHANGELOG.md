@@ -7,6 +7,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ## [0.175.0] - 2026-09-16
 
 ### Added
+- **New `lumen` command for live ambient-light readings.** Supported devices show their measured illuminance in lux with a logarithmic dark-to-daylight meter and a softly animated sun. macOS reads `CurrentLux` directly through IOKit, Linux uses available IIO illuminance channels, and unsupported hardware gets a compact unavailable state.
 - **A clear (×) button in the search bar.** It appears at the right end of the input as soon as there's text and wipes the whole query in one click; the input keeps focus so you can type again immediately.
 - **`stats` now shows every available temperature and fan sensor in dedicated live sections.** Temperature readings get animated cool-to-hot meters; fan icons rotate at a speed derived from their RPM. Unsupported or unavailable sensor groups stay completely hidden, and reduced-motion mode keeps the fan icons still.
 

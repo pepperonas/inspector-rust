@@ -5667,6 +5667,16 @@ pub async fn get_system_stats() -> Result<crate::system_stats::SystemStats, Stri
         .map_err(|e| format!("stats task: {e}"))
 }
 
+/// Current ambient-light reading for the `lumen` command. `None` means that
+/// this device/OS exposes no supported sensor; it is a normal hardware state.
+#[tauri::command]
+pub async fn get_ambient_light(
+) -> Result<Option<crate::ambient_light::AmbientLightReading>, String> {
+    tauri::async_runtime::spawn_blocking(crate::ambient_light::read)
+        .await
+        .map_err(|e| format!("ambient-light task: {e}"))
+}
+
 /// Downsampled system-stats history over the last `range_secs` seconds (for the
 /// Stats panel's "history" view). Backed by the always-on background sampler.
 #[tauri::command]

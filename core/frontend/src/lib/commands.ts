@@ -59,6 +59,7 @@ export type CommandKind =
   | "alias"
   | "benchmark"
   | "dezibel"
+  | "lumen"
   | "bluetooth"
   | "clown"
   | "bruno"
@@ -511,6 +512,13 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "dezibel",
     syntax: "dezibel",
     description: "Live-Lautstärke unter Vollaussteuerung — positive dB-Anzeige in der Vorschau (Mikrofon).",
+    requiresArg: false,
+  },
+  {
+    kind: "lumen",
+    keyword: "lumen",
+    syntax: "lumen",
+    description: "Live-Umgebungshelligkeit in Lux — sofern das Gerät einen Sensor bereitstellt.",
     requiresArg: false,
   },
   {

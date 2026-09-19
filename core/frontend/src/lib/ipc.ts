@@ -2112,6 +2112,16 @@ export function getSystemStats(): Promise<SystemStats> {
   return invoke("get_system_stats");
 }
 
+export interface AmbientLightReading {
+  lux: number;
+  source: string;
+}
+
+/** Current illuminance, or null when this device exposes no supported sensor. */
+export function getAmbientLight(): Promise<AmbientLightReading | null> {
+  return invoke("get_ambient_light");
+}
+
 /** One downsampled point of system-stats history (core time-series). */
 export interface StatsHistoryPoint {
   ts: number; // unix seconds

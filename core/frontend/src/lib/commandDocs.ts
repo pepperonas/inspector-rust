@@ -1472,6 +1472,32 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["uptime", "clean", "snitch"],
   },
   {
+    command: "lumen",
+    aliases: [],
+    category: CAT_INFO,
+    version_added: "0.175.0",
+    tagline: "Live ambient-light reading in lux, when the device exposes a sensor.",
+    tagline_de: "Live-Umgebungshelligkeit in Lux, sofern das Gerät einen Sensor bereitstellt.",
+    synopsis: "lumen",
+    description:
+      "Shows the device's ambient-light sensor live in the preview. The large lux value, lighting-condition label and logarithmic colour meter update several times per second, so both dark rooms and daylight remain readable on one scale. The panel appears as soon as the complete command is typed and stops polling when it closes.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "lumen", result: "Shows the current ambient illuminance in lux." },
+      { input: "lumen", result: "Cover the sensor to watch the live value fall." },
+      { input: "lumen?", result: "Shows this help without starting the live panel." },
+    ],
+    tips: [
+      "The meter is logarithmic: a move from 5 to 50 lx remains as visible as a move from 500 to 5,000 lx.",
+    ],
+    caveats: [
+      "Sensor availability depends on the hardware and OS. Unsupported devices show an explicit unavailable state instead of inventing a value.",
+      "The reading describes light arriving at the device sensor, not display brightness or a calibrated photographic exposure meter.",
+    ],
+    related: ["brightness", "stats"],
+  },
+  {
     command: "tokens",
     aliases: ["usage"],
     category: CAT_INFO,

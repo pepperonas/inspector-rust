@@ -1290,9 +1290,23 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
   text-shadow: 0 0 8px rgba(239, 68, 68, 0.6);
 }
 
+/* Fan speed is encoded directly in animation-duration by StatsPanel: higher
+   RPM spins faster. The icon rotates around its own centre without adding a
+   permanent compositor hint. */
+@keyframes statFanSpin {
+  to { transform: rotate(360deg); }
+}
+.stat-fan-spin {
+  animation-name: statFanSpin;
+  animation-timing-function: linear;
+  animation-iteration-count: infinite;
+  transform-origin: center;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .stat-heat-flow,
-  .stat-heat-breathe {
+  .stat-heat-breathe,
+  .stat-fan-spin {
     animation: none !important;
   }
   /* Static ember state instead: the glow layer stays at a calm mid opacity,

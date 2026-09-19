@@ -190,7 +190,7 @@ pub fn gather_scoped(scope: GatherScope) -> SystemStats {
         Some([load.one, load.five, load.fifteen])
     };
 
-    let mut temps = summarize_temps(&component_temps());
+    let mut temps = collect_temps(&component_temps());
     let fans = if full { read_fans() } else { Vec::new() };
     supplement_cpu_temp(&mut temps);
 
@@ -241,63 +241,76 @@ fn component_temps() -> Vec<TempStat> {
         .collect()
 }
 
-/// Collapse the raw (often dozens of cryptic, duplicated) `Components` sensors
-/// into a few clean, named rows — CPU / GPU / Battery / SSD — averaging each
-/// bucket. Pure; unit-tested. Cross-platform label heuristics: Apple-Silicon
-/// `PMU tdie*`, Linux `Core N` / `Package` / `Tctl`, Intel `TC0P` → CPU; etc.
-fn summarize_temps(raw: &[TempStat]) -> Vec<TempStat> {
-    let (mut cpu, mut gpu, mut batt, mut ssd) = (vec![], vec![], vec![], vec![]);
-    for t in raw {
-        let l = t.label.to_lowercase();
-        if l.contains("battery") || l.contains("gas gauge") {
-            batt.push(t.celsius);
-        } else if l.contains("nand") || l.contains("nvme") || l.contains("ssd") {
-            ssd.push(t.celsius);
-        } else if l.contains("gpu") || l.contains("tg0") {
-            gpu.push(t.celsius);
-        } else if l.contains("tdie")
-            || l.contains("cpu")
-            || l.contains("core")
-            || l.contains("package")
-            || l.contains("tctl") // AMD CPU control temp
-            || l.contains("tccd") // AMD CCD
-            || l.contains("tc0") // Intel Mac SMC CPU proximity (TC0P/TC0D)
-        {
-            cpu.push(t.celsius);
-        }
-    }
-    let round1 = |xs: &[f32]| (xs.iter().sum::<f32>() / xs.len() as f32 * 10.0).round() / 10.0;
-    let mut out = Vec::new();
-    for (label, bucket) in [
-        ("CPU", &cpu),
-        ("GPU", &gpu),
-        ("Battery", &batt),
-        ("SSD", &ssd),
-    ] {
-        if !bucket.is_empty() {
-            out.push(TempStat {
-                label: label.to_string(),
-                celsius: round1(bucket),
-            });
-        }
-    }
-    out
+/// Preserve every valid hardware temperature reported by the OS. The old
+/// implementation averaged sensors into CPU/GPU/Battery/SSD buckets, which
+/// hid useful per-core, per-die and per-drive readings. Duplicate labels get a
+/// stable suffix so the frontend can render every sensor independently.
+fn collect_temps(raw: &[TempStat]) -> Vec<TempStat> {
+    let mut valid: Vec<&TempStat> = raw
+        .iter()
+        .filter(|t| {
+            t.celsius.is_finite()
+                && t.celsius > 0.0
+                && t.celsius < 150.0
+                && !t.label.trim().is_empty()
+        })
+        .collect();
+    valid.sort_by(|a, b| {
+        a.label
+            .to_lowercase()
+            .cmp(&b.label.to_lowercase())
+            .then_with(|| a.celsius.total_cmp(&b.celsius))
+    });
+    let mut seen = std::collections::HashMap::<String, usize>::new();
+    valid
+        .into_iter()
+        .map(|t| {
+            let base = t.label.trim();
+            let count = seen.entry(base.to_string()).or_insert(0);
+            *count += 1;
+            let label = if *count == 1 {
+                base.to_string()
+            } else {
+                format!("{base} #{count}")
+            };
+            TempStat {
+                label,
+                celsius: (t.celsius * 10.0).round() / 10.0,
+            }
+        })
+        .collect()
 }
 
-/// If summarising produced no CPU temperature, fall back to the SMC per-core
-/// average (macOS). No-op on non-macOS / when a CPU temp already exists.
+/// If the platform did not expose a CPU sensor through `sysinfo`, use every
+/// thermal sensor available through the macOS SMC. The average remains a final
+/// fallback for older SMC layouts that expose values without readable keys.
 fn supplement_cpu_temp(temps: &mut Vec<TempStat>) {
     #[cfg(target_os = "macos")]
     {
-        if !temps.iter().any(|t| t.label == "CPU") {
-            if let Some(c) = macos_smc::cpu_temperature() {
-                temps.insert(
-                    0,
-                    TempStat {
-                        label: "CPU".to_string(),
-                        celsius: (c * 10.0).round() / 10.0,
-                    },
-                );
+        let has_cpu = temps.iter().any(|t| {
+            let label = t.label.to_lowercase();
+            label.contains("cpu")
+                || label.contains("core")
+                || label.contains("package")
+                || label.contains("tdie")
+                || label.contains("tctl")
+                || label.contains("tccd")
+                || label.contains("tc0")
+        });
+        if !has_cpu {
+            let smc_temps = macos_smc::temperatures();
+            if smc_temps.is_empty() {
+                if let Some(c) = macos_smc::cpu_temperature() {
+                    temps.insert(
+                        0,
+                        TempStat {
+                            label: "CPU".to_string(),
+                            celsius: (c * 10.0).round() / 10.0,
+                        },
+                    );
+                }
+            } else {
+                temps.extend(smc_temps);
             }
         }
     }
@@ -418,7 +431,7 @@ mod linux_hwmon {
 
 #[cfg(target_os = "macos")]
 mod macos_smc {
-    use super::FanStat;
+    use super::{FanStat, TempStat};
     use std::ffi::c_void;
     use std::os::raw::c_char;
     use std::sync::OnceLock;
@@ -645,6 +658,42 @@ mod macos_smc {
         out
     }
 
+    /// Every readable CPU thermal key exposed by AppleSMC. Apple Silicon does
+    /// not surface these through `sysinfo::Components`, so retaining the
+    /// individual readings is the only way to show all available sensors.
+    pub fn temperatures() -> Vec<TempStat> {
+        let Some(conn) = open() else {
+            return Vec::new();
+        };
+        let keys = relevant_keys(conn);
+        let mut out = Vec::new();
+        for (idx, &key) in keys.cpu_temps.iter().enumerate() {
+            let Some((typ, bytes, size)) = read_key(conn, key) else { continue };
+            let Some(value) = decode(typ, &bytes[..size]) else { continue };
+            if value.is_finite() && value > 5.0 && value < 120.0 {
+                out.push(TempStat {
+                    label: temperature_label(key, idx),
+                    celsius: (value * 10.0).round() / 10.0,
+                });
+            }
+        }
+        close(conn);
+        out
+    }
+
+    fn temperature_label(key: u32, index: usize) -> String {
+        let raw = fourcc_str(key);
+        let sensor = raw.chars().skip(2).filter(char::is_ascii_digit).collect::<String>();
+        let number = if sensor.is_empty() { (index + 1).to_string() } else { sensor };
+        match raw.get(..2) {
+            Some("Tp") => format!("CPU P-core {number}"),
+            Some("Te") => format!("CPU E-core {number}"),
+            Some("Tf") => format!("CPU sensor {number}"),
+            Some("TC") => format!("CPU proximity {number}"),
+            _ => format!("CPU sensor {number}"),
+        }
+    }
+
     /// Average the in-range per-core thermal sensors → a single CPU temperature.
     pub fn cpu_temperature() -> Option<f32> {
         let conn = open()?;
@@ -710,8 +759,8 @@ mod macos_smc {
 }
 
 #[cfg(test)]
-mod summarize_tests {
-    use super::{summarize_temps, TempStat};
+mod temperature_tests {
+    use super::{collect_temps, TempStat};
 
     fn t(label: &str, c: f32) -> TempStat {
         TempStat {
@@ -721,73 +770,66 @@ mod summarize_tests {
     }
 
     #[test]
-    fn buckets_and_averages_apple_silicon_labels() {
+    fn preserves_every_available_sensor() {
         let raw = vec![
             t("PMU tdie0", 46.0),
             t("PMU tdie1", 48.0),
             t("gas gauge battery", 31.0),
             t("NAND CH0 temp", 39.0),
-            t("PMU tdev4", 35.0), // unclassified → dropped
+            t("PMU tdev4", 35.0),
         ];
-        let out = summarize_temps(&raw);
-        // CPU = mean(46,48)=47.0; ordered CPU, Battery, SSD; tdev dropped.
-        assert_eq!(out.len(), 3);
-        assert_eq!(out[0].label, "CPU");
-        assert_eq!(out[0].celsius, 47.0);
-        assert_eq!(out[1].label, "Battery");
-        assert_eq!(out[2].label, "SSD");
+        let out = collect_temps(&raw);
+        assert_eq!(out.len(), raw.len());
+        let labels: Vec<&str> = out.iter().map(|value| value.label.as_str()).collect();
+        assert!(labels.contains(&"PMU tdie0"));
+        assert!(labels.contains(&"PMU tdie1"));
+        assert!(labels.contains(&"PMU tdev4"));
     }
 
     #[test]
-    fn linux_intel_cpu_labels_classify_as_cpu() {
-        let raw = vec![t("Core 0", 50.0), t("Package id 0", 52.0), t("TC0P", 48.0)];
-        let out = summarize_temps(&raw);
-        assert_eq!(out.len(), 1);
-        assert_eq!(out[0].label, "CPU");
-        assert_eq!(out[0].celsius, 50.0); // mean(50,52,48)
+    fn duplicate_labels_receive_stable_suffixes() {
+        let raw = vec![t("Core", 50.0), t("Core", 52.0), t("Core", 48.0)];
+        let out = collect_temps(&raw);
+        let labels: Vec<&str> = out.iter().map(|value| value.label.as_str()).collect();
+        assert_eq!(labels, vec!["Core", "Core #2", "Core #3"]);
+        assert_eq!(out.iter().map(|value| value.celsius).collect::<Vec<_>>(), vec![48.0, 50.0, 52.0]);
+    }
+
+    #[test]
+    fn sensors_sort_case_insensitively_for_a_stable_panel() {
+        let out = collect_temps(&[t("zeta", 40.0), t("Alpha", 50.0), t("beta", 45.0)]);
+        let labels: Vec<&str> = out.iter().map(|value| value.label.as_str()).collect();
+        assert_eq!(labels, vec!["Alpha", "beta", "zeta"]);
+    }
+
+    #[test]
+    fn labels_are_trimmed_before_display() {
+        let out = collect_temps(&[t("  CPU package  ", 60.0)]);
+        assert_eq!(out[0].label, "CPU package");
     }
 
     #[test]
     fn empty_input_yields_empty() {
-        assert!(summarize_temps(&[]).is_empty());
+        assert!(collect_temps(&[]).is_empty());
     }
 
     #[test]
-    fn all_four_buckets_are_ordered_cpu_gpu_battery_ssd() {
+    fn invalid_values_and_blank_labels_are_omitted() {
         let raw = vec![
-            t("nvme temp", 40.0),        // SSD
-            t("battery", 30.0),          // Battery
-            t("GPU die", 55.0),          // GPU
-            t("Core 0", 50.0),           // CPU
+            t("", 40.0),
+            t("zero", 0.0),
+            t("too hot", 150.0),
+            t("nan", f32::NAN),
+            t("CPU", 55.0),
         ];
-        let out = summarize_temps(&raw);
-        let labels: Vec<&str> = out.iter().map(|o| o.label.as_str()).collect();
-        assert_eq!(labels, vec!["CPU", "GPU", "Battery", "SSD"]);
-    }
-
-    #[test]
-    fn gpu_and_tg0_labels_bucket_as_gpu() {
-        let raw = vec![t("TG0D", 60.0), t("gpu proximity", 62.0)];
-        let out = summarize_temps(&raw);
+        let out = collect_temps(&raw);
         assert_eq!(out.len(), 1);
-        assert_eq!(out[0].label, "GPU");
-        assert_eq!(out[0].celsius, 61.0); // mean(60,62)
+        assert_eq!(out[0].label, "CPU");
     }
 
     #[test]
-    fn classification_is_case_insensitive() {
-        // Uppercase labels still classify (the matcher lowercases first).
-        let raw = vec![t("TDIE 0", 44.0), t("NAND FLASH", 38.0)];
-        let out = summarize_temps(&raw);
-        let labels: Vec<&str> = out.iter().map(|o| o.label.as_str()).collect();
-        assert_eq!(labels, vec!["CPU", "SSD"]);
-    }
-
-    #[test]
-    fn averages_round_to_one_decimal() {
-        // mean(45.0, 46.0, 46.0) = 45.6667 → rounded to 45.7.
-        let raw = vec![t("cpu a", 45.0), t("cpu b", 46.0), t("cpu c", 46.0)];
-        let out = summarize_temps(&raw);
+    fn rounds_values_to_one_decimal() {
+        let out = collect_temps(&[t("CPU", 45.6667)]);
         assert_eq!(out[0].celsius, 45.7);
     }
 }

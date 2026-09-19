@@ -71,3 +71,24 @@ export function rateFormatterFor(target: number): (v: number) => string {
   const f = bytesFormatterFor(target);
   return (v) => `${f(v)}/s`;
 }
+
+/** Map a temperature onto the panel's 20–100 °C visual scale. */
+export function temperatureLevel(celsius: number): number {
+  if (!Number.isFinite(celsius)) return 0;
+  return Math.max(0, Math.min(100, ((celsius - 20) / 80) * 100));
+}
+
+/** Temperature colour bands: cool accent → warm orange → amber → red. */
+export function temperatureColor(celsius: number): string {
+  if (celsius >= 85) return "#ef4444";
+  if (celsius >= 70) return "#f59e0b";
+  if (celsius >= 55) return "#fb923c";
+  return "var(--color-accent)";
+}
+
+/** RPM-dependent fan period, bounded so slow fans still move and fast fans
+ * remain legible. Zero RPM means a stationary icon. */
+export function fanDuration(rpm: number): string {
+  if (!Number.isFinite(rpm) || rpm <= 0) return "0s";
+  return `${Math.max(0.35, Math.min(2.4, 2400 / rpm)).toFixed(2)}s`;
+}

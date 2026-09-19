@@ -1457,7 +1457,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "Live-System-Dashboard — CPU/RAM/Akku/Sensoren/Disks/Netz + Verlauf.",
     synopsis: "stats",
     description:
-      "A read-only, auto-refreshing dashboard in the preview: CPU (overall + per-core), memory/swap, battery & instantaneous watts, temps/fans, disks, live network throughput, host/uptime. A Live/History toggle plots the last 1h/6h/24h/7d per metric (an always-on background collector samples every 60 s). ↑/↓ scroll, Esc exits.",
+      "A read-only, auto-refreshing dashboard in the preview: CPU (overall + per-core), memory/swap, battery & instantaneous watts, every temperature sensor exposed by the device, animated fan RPM, disks, live network throughput, host/uptime. Temperature and fan cards appear only when the platform reports values. A Live/History toggle plots the last 1h/6h/24h/7d per metric (an always-on background collector samples every 60 s). ↑/↓ scroll, Esc exits.",
     arguments: [],
     flags: [],
     examples: [
@@ -1465,7 +1465,9 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "stats", result: "Toggle to History for per-metric line charts." },
       { input: "stats", result: "Watch live power draw (watts) + fan RPM." },
     ],
-    tips: ["Sources degrade gracefully — a missing sensor is omitted, never faked."],
+    tips: [
+      "Sources degrade gracefully — missing temperature/fan sensors and their whole empty sections are omitted, never faked.",
+    ],
     caveats: ["Fan RPM: macOS SMC / Linux hwmon only; Windows has no rootless fan API."],
     related: ["uptime", "clean", "snitch"],
   },

@@ -79,8 +79,8 @@ pub struct StatsHistory {
 }
 
 /// Reduce a full `SystemStats` snapshot to the stored core series. Pure +
-/// unit-tested. CPU temperature is the summarised `"CPU"` bucket from
-/// `system_stats::summarize_temps`; power/battery come from the battery stat.
+/// unit-tested. CPU temperature is the first CPU-labelled sensor from the
+/// complete temperature list; power/battery come from the battery stat.
 pub fn sample_from(s: &crate::system_stats::SystemStats) -> StatsSample {
     let mem = if s.mem_total > 0 {
         s.mem_used as f64 / s.mem_total as f64 * 100.0
@@ -93,11 +93,17 @@ pub fn sample_from(s: &crate::system_stats::SystemStats) -> StatsSample {
         net_rx: s.net_rx_per_sec as f64,
         net_tx: s.net_tx_per_sec as f64,
         power: s.battery.as_ref().and_then(|b| b.power_watts).map(|w| w as f64),
-        cpu_temp: s
-            .temps
-            .iter()
-            .find(|t| t.label == "CPU")
-            .map(|t| t.celsius as f64),
+        cpu_temp: s.temps.iter().find_map(|t| {
+            let label = t.label.to_lowercase();
+            (label.contains("cpu")
+                || label.contains("core")
+                || label.contains("package")
+                || label.contains("tdie")
+                || label.contains("tctl")
+                || label.contains("tccd")
+                || label.contains("tc0"))
+            .then_some(t.celsius as f64)
+        }),
         battery: s.battery.as_ref().map(|b| b.percent as f64),
     }
 }

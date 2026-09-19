@@ -34,6 +34,9 @@ import {
   isHot,
   bytesFormatterFor,
   rateFormatterFor,
+  temperatureLevel,
+  temperatureColor,
+  fanDuration,
 } from "../lib/stats-anim";
 import { prefersReducedMotion } from "../lib/md3-motion";
 
@@ -45,7 +48,7 @@ import { prefersReducedMotion } from "../lib/md3-motion";
  * way Brightness/Sound do — only Esc is handled while `focused`.
  *
  * Sources are best-effort per OS (see `system_stats.rs`): CPU/mem/disk/net via
- * sysinfo, temps via Components (summarised), fans via SMC/hwmon, battery &
+ * sysinfo, every available temp via Components/SMC, fans via SMC/hwmon, battery &
  * power draw via starship-battery.
  */
 const POLL_MS = 1500;
@@ -238,7 +241,8 @@ export function StatsPanel({
           <CpuSection s={stats} />
           <MemorySection s={stats} />
           {stats.battery && <BatterySection b={stats.battery} />}
-          <SensorsSection s={stats} />
+          <TemperatureSection temps={stats.temps} />
+          <FanSection fans={stats.fans} />
           <DisksSection s={stats} />
           <NetworkSection s={stats} />
           <HostSection s={stats} />
@@ -856,38 +860,102 @@ function BatterySection({ b }: { b: NonNullable<SystemStats["battery"]> }) {
   );
 }
 
-function SensorsSection({ s }: { s: SystemStats }) {
-  if (s.temps.length === 0 && s.fans.length === 0) return null;
+function TemperatureMeter({ celsius }: { celsius: number }) {
+  const fillRef = useRef<HTMLDivElement>(null);
+  const markerRef = useRef<HTMLDivElement>(null);
+  const level = temperatureLevel(celsius);
+  const reassert = useStatTween(level, (value) => {
+    const pct = clampPct(value);
+    if (fillRef.current) fillRef.current.style.transform = `scaleX(${pct / 100})`;
+    if (markerRef.current) markerRef.current.style.left = `${pct}%`;
+  });
+  useLayoutEffect(reassert);
   return (
-    <Card icon={<Thermometer size={14} />} title="Sensors">
-      {s.temps.length > 0 && (
-        <div className="grid grid-cols-2 gap-x-3 gap-y-1">
-          {s.temps.map((t) => (
-            <Kv
-              key={t.label}
-              k={t.label}
-              v={<TweenNum value={t.celsius} fmt={(v) => `${v.toFixed(1)}°C`} />}
-            />
-          ))}
-        </div>
-      )}
-      {s.fans.length > 0 && (
-        <div className="mt-1.5 grid grid-cols-2 gap-x-3 gap-y-1">
-          {s.fans.map((f) => (
-            <div
-              key={f.label}
-              className="flex items-center justify-between gap-2 text-[11px]"
-            >
-              <span className="flex items-center gap-1 text-[var(--color-muted)]">
-                <Fan size={11} /> {f.label}
+    <div className="relative h-2 overflow-visible rounded-full bg-[var(--color-border)]/70">
+      <div
+        ref={fillRef}
+        className="absolute inset-0 origin-left rounded-full"
+        style={{
+          background:
+            "linear-gradient(90deg, var(--color-accent), #f59e0b 68%, #ef4444)",
+        }}
+      />
+      <div
+        ref={markerRef}
+        className="absolute top-1/2 h-2.5 w-2.5 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-[var(--color-bg)]"
+        style={{
+          backgroundColor: temperatureColor(celsius),
+          boxShadow: `0 0 8px ${temperatureColor(celsius)}`,
+        }}
+      />
+    </div>
+  );
+}
+
+function TemperatureSection({ temps }: { temps: SystemStats["temps"] }) {
+  if (temps.length === 0) return null;
+  return (
+    <Card
+      icon={<Thermometer size={14} />}
+      title="Temperatures"
+      right={`${temps.length} sensor${temps.length === 1 ? "" : "s"}`}
+    >
+      <div className="flex flex-col gap-2.5">
+        {temps.map((temp, index) => (
+          <div key={`${temp.label}-${index}`}>
+            <div className="mb-1 flex items-center justify-between gap-3 text-[11px]">
+              <span className="min-w-0 truncate text-[var(--color-muted)]" title={temp.label}>
+                {temp.label}
               </span>
-              <span className="tabular-nums">
-                <TweenNum value={f.rpm} fmt={(v) => `${Math.round(v)} rpm`} />
+              <span
+                className="shrink-0 font-medium tabular-nums"
+                style={{ color: temperatureColor(temp.celsius) }}
+              >
+                <TweenNum value={temp.celsius} fmt={(value) => `${value.toFixed(1)}°C`} />
               </span>
             </div>
-          ))}
-        </div>
-      )}
+            <TemperatureMeter celsius={temp.celsius} />
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function FanSection({ fans }: { fans: SystemStats["fans"] }) {
+  if (fans.length === 0) return null;
+  return (
+    <Card icon={<Fan size={14} />} title="Fans" right={`${fans.length}`}>
+      <div className="flex flex-col gap-2.5">
+        {fans.map((fan, index) => (
+          <div
+            key={`${fan.label}-${index}`}
+            className="flex items-center gap-2.5 rounded-lg bg-[var(--color-border)]/20 px-2.5 py-2"
+          >
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--color-accent)]/10 text-[var(--color-accent)]">
+              <Fan
+                size={18}
+                className={fan.rpm > 0 ? "stat-fan-spin" : undefined}
+                style={{ animationDuration: fanDuration(fan.rpm) }}
+              />
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
+                <span className="truncate text-[var(--color-muted)]" title={fan.label}>
+                  {fan.label}
+                </span>
+                <span className="shrink-0 font-medium tabular-nums">
+                  <TweenNum
+                    value={fan.rpm}
+                    fmt={(value) => `${Math.max(0, Math.round(value))} rpm`}
+                  />
+                </span>
+              </div>
+              <Bar pct={clampPct(fan.rpm / 60)} color="var(--color-accent)" />
+            </div>
+          </div>
+        ))}
+      </div>
     </Card>
   );
 }

@@ -9,6 +9,9 @@ import {
   isHot,
   bytesFormatterFor,
   rateFormatterFor,
+  temperatureLevel,
+  temperatureColor,
+  fanDuration,
 } from "./stats-anim";
 import { humanBytes } from "./format-stats";
 
@@ -93,5 +96,31 @@ describe("unit-stable byte formatting for tweens", () => {
     const f = rateFormatterFor(2 * 1024 ** 2);
     expect(f(2 * 1024 ** 2)).toBe("2.0 MB/s");
     expect(f(1024 ** 2 / 2)).toBe("0.5 MB/s"); // unit stays MB/s mid-tween
+  });
+});
+
+describe("sensor visuals", () => {
+  it("maps 20–100 °C onto the full meter and clamps extremes", () => {
+    expect(temperatureLevel(0)).toBe(0);
+    expect(temperatureLevel(20)).toBe(0);
+    expect(temperatureLevel(60)).toBe(50);
+    expect(temperatureLevel(100)).toBe(100);
+    expect(temperatureLevel(150)).toBe(100);
+    expect(temperatureLevel(NaN)).toBe(0);
+  });
+
+  it("moves through the temperature colour bands", () => {
+    expect(temperatureColor(40)).toBe("var(--color-accent)");
+    expect(temperatureColor(55)).toBe("#fb923c");
+    expect(temperatureColor(70)).toBe("#f59e0b");
+    expect(temperatureColor(85)).toBe("#ef4444");
+  });
+
+  it("speeds the fan up with RPM and stops at zero", () => {
+    expect(fanDuration(0)).toBe("0s");
+    expect(fanDuration(NaN)).toBe("0s");
+    expect(fanDuration(1000)).toBe("2.40s");
+    expect(fanDuration(2000)).toBe("1.20s");
+    expect(fanDuration(10_000)).toBe("0.35s");
   });
 });

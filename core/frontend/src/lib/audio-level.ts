@@ -18,6 +18,11 @@ export function rmsToDbfs(amplitude: number, silentDb = -120): number {
   return amplitude > 1e-5 ? 20 * Math.log10(amplitude) : silentDb;
 }
 
+/** Convert a dBFS reading to its positive distance below digital full scale. */
+export function dbfsToDisplayDb(dbfs: number): number {
+  return Math.max(0, -dbfs);
+}
+
 /** Map a dBFS value onto a 0..1 gauge within `[floorDb, ceilDb]` (clamped).
  *  Below the floor → 0, above the ceiling → 1. */
 export function dbfsToLevel(db: number, floorDb: number, ceilDb: number): number {

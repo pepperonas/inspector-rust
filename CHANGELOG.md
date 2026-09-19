@@ -11,6 +11,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ### Fixed
 - **The search-bar clear (×) button no longer sits among the tabs.** The room reserved on the right for the tab strip was a stale hard-coded 260 px — too narrow for the six tabs — so the × landed on top of the tabs and was awkward to click. The reserve is now measured from the tab strip at runtime, so the × always keeps a clear gap to the left of the tabs (and the input/title never run under them, no matter how many tabs there are). Its hit target is a touch larger too.
+- **`dezibel` / `db` no longer shows negative values in the preview.** The meter still measures dBFS internally, but the visible readout now shows the positive distance below digital full scale (for example, `20 dB` instead of `-20 dB`), while keeping the existing smoothing and gauge mapping.
 
 ## [0.174.0] - 2026-09-16
 

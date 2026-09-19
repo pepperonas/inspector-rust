@@ -1637,7 +1637,7 @@ function App() {
         hint = "Verbinden · Trennen · Entkoppeln — ⏎ übergibt die Pfeiltasten";
         break;
       case "dezibel":
-        label = "Lautstärke messen — live in dBFS";
+        label = "Lautstärke messen — live unter Vollaussteuerung";
         hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
         break;
       case "optim":

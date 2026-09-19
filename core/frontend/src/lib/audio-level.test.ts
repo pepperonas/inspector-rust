@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "./audio-level";
+import { rms, rmsToDbfs, dbfsToDisplayDb, dbfsToLevel, smoothStep } from "./audio-level";
 
 describe("rms", () => {
   it("is 0 for an empty or silent buffer", () => {
@@ -30,6 +30,18 @@ describe("rmsToDbfs", () => {
     expect(rmsToDbfs(1e-9)).toBe(-120);
     expect(rmsToDbfs(0, -90)).toBe(-90);
     expect(Number.isFinite(rmsToDbfs(0))).toBe(true);
+  });
+});
+
+describe("dbfsToDisplayDb", () => {
+  it("shows the distance below full scale as a positive value", () => {
+    expect(dbfsToDisplayDb(-20)).toBe(20);
+    expect(dbfsToDisplayDb(-6)).toBe(6);
+  });
+
+  it("keeps full scale at zero and never returns a negative value", () => {
+    expect(dbfsToDisplayDb(0)).toBe(0);
+    expect(dbfsToDisplayDb(3)).toBe(0);
   });
 });
 

@@ -1,6 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
-import { rms, rmsToDbfs, dbfsToLevel, smoothStep } from "../lib/audio-level";
+import {
+  rms,
+  rmsToDbfs,
+  dbfsToDisplayDb,
+  dbfsToLevel,
+  smoothStep,
+} from "../lib/audio-level";
 import { warmContext } from "../lib/warm-audio";
 import { startFedMic, type FedMic } from "../lib/mic-feed";
 
@@ -137,6 +143,10 @@ export function DezibelPanel() {
 
   const accent = "var(--color-accent)";
   const norm = db === null ? 0 : dbfsToLevel(db, FLOOR_DB, CEIL_DB);
+  // Show the distance below full scale as a positive, user-facing value.
+  // The internal dBFS value remains negative below 0 dBFS and is still used
+  // for the meter mapping.
+  const displayDb = db === null ? null : dbfsToDisplayDb(db);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
       <div
@@ -148,8 +158,10 @@ export function DezibelPanel() {
           opacity: 0.6 + norm * 0.4,
         }}
       >
-        <span className="text-[44px] font-semibold leading-none">{db === null ? "—" : db}</span>
-        <span className="text-[16px] font-medium opacity-70">dBFS</span>
+        <span className="text-[44px] font-semibold leading-none">
+          {displayDb === null ? "—" : displayDb}
+        </span>
+        <span className="text-[16px] font-medium opacity-70">dB</span>
       </div>
       <div className="h-[6px] w-full max-w-[260px] overflow-hidden rounded-full bg-[var(--color-border)]/50">
         <div
@@ -162,9 +174,10 @@ export function DezibelPanel() {
         />
       </div>
       <div className="text-center text-[11px] leading-relaxed text-[var(--color-muted)]">
-        0 dBFS ist Vollaussteuerung — Zimmerlautstärke liegt darunter, also negativ.
+        0 dB ist Vollaussteuerung — höhere Werte liegen entsprechend darunter.
         <br />
-        Skala {FLOOR_DB} … {CEIL_DB} dBFS · Esc schließt und gibt das Mikrofon frei.
+        Messbereich 0 … {Math.abs(FLOOR_DB)} dB unter Vollaussteuerung · Esc schließt und
+        gibt das Mikrofon frei.
       </div>
     </div>
   );

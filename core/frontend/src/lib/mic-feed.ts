@@ -13,10 +13,28 @@
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { micCaptureStart, micCaptureStop } from "./ipc";
 
-// ONE native mic capture is shared by all consumers (BPM detector + disco).
-// Ref-count so the first consumer starts it and the last one stops it — a
-// consumer stopping while another is still listening must NOT kill the stream.
+// ONE native mic capture is shared by all consumers (BPM detector + disco +
+// the dezibel meter). Ref-count so the first consumer starts it and the last
+// one stops it — a consumer stopping while another is still listening must NOT
+// kill the stream.
 let refCount = 0;
+
+/** Ref-counted start of the shared native capture (first consumer starts it). */
+async function acquireCapture(): Promise<void> {
+  if (refCount === 0) await micCaptureStart();
+  refCount++;
+}
+
+/** A one-shot release for one consumer; stops the capture when the last leaves. */
+function makeRelease(): () => void {
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    refCount = Math.max(0, refCount - 1);
+    if (refCount === 0) void micCaptureStop();
+  };
+}
 
 interface AudioChunk {
   rate: number;
@@ -65,15 +83,8 @@ export interface FedMic {
  */
 export async function startFedMic(ctx: AudioContext): Promise<FedMic> {
   // First consumer starts the native capture; later consumers share it.
-  if (refCount === 0) await micCaptureStart();
-  refCount++;
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    refCount = Math.max(0, refCount - 1);
-    if (refCount === 0) void micCaptureStop();
-  };
+  await acquireCapture();
+  const release = makeRelease();
 
   const cap = Math.max(1, Math.floor(ctx.sampleRate * 1.5)); // ~1.5 s ring
   const ring = new Float32Array(cap);
@@ -146,4 +157,56 @@ export async function startFedMic(ctx: AudioContext): Promise<FedMic> {
   }
 
   return { source: feed, stop: teardown };
+}
+
+/**
+ * Subscribe to the shared capture's loudness (event `mic-level`, dBFS computed
+ * in Rust) for the `dezibel` meter — deliberately WITHOUT any Web-Audio graph.
+ *
+ * The meter only needs one number, and re-deriving it in JS (ScriptProcessor →
+ * analyser off the warm AudioContext) had two failure modes that a level meter
+ * must not have: a suspended warm context starved the analyser (the reading was
+ * "far too low"), and the graph setup could throw ("Audio capture failed") even
+ * though the mic was fine. Rust already computes the calibrated level on the
+ * raw chunk (the `iris` path), so we just listen for it.
+ *
+ * Ref-counted through the SAME `acquireCapture`/`makeRelease` as `startFedMic`,
+ * so running `bpm`/`disco` alongside opens no second native stream. Resolves on
+ * the first level event; rejects if none arrives within 2.8 s (no mic), so the
+ * caller can show an honest error instead of a meter frozen at silence.
+ */
+export async function subscribeMicLevel(onDbfs: (dbfs: number) => void): Promise<() => void> {
+  await acquireCapture();
+  const release = makeRelease();
+
+  let gotFirst = false;
+  let onFirst: () => void = () => undefined;
+  const firstLevel = new Promise<void>((res) => {
+    onFirst = res;
+  });
+
+  const unlisten: UnlistenFn = await listen<{ dbfs: number }>("mic-level", (e) => {
+    if (!gotFirst) {
+      gotFirst = true;
+      onFirst();
+    }
+    onDbfs(e.payload.dbfs);
+  });
+
+  const teardown = () => {
+    unlisten();
+    release();
+  };
+
+  const timeout = new Promise<never>((_res, rej) =>
+    window.setTimeout(() => rej(new Error("No audio from the microphone")), 2800),
+  );
+  try {
+    await Promise.race([firstLevel, timeout]);
+  } catch (e) {
+    teardown();
+    throw e;
+  }
+
+  return teardown;
 }

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Pause, Play, Square } from "lucide-react";
+import { ChevronDown, Pause, Play, Square } from "lucide-react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { LogicalSize } from "@tauri-apps/api/dpi";
 import { pauseScreenRecord, resumeScreenRecord, stopScreenRecord } from "../lib/ipc";
 
 /**
@@ -10,21 +12,54 @@ import { pauseScreenRecord, resumeScreenRecord, stopScreenRecord } from "../lib/
  * segment); Resume → `resumeScreenRecord` (fresh segment); Stop →
  * `stopScreenRecord` (concats the segments into the final MP4, reveals it,
  * closes this window). The bar (except the buttons) is a drag region.
+ *
+ * Collapse toggle (top-left chevron): while a recording runs in the background
+ * the bar can be in the way, so a click shrinks the whole WINDOW to a tiny nub
+ * (x AND y) showing only the chevron; another click restores it. It resizes the
+ * Tauri window, not just CSS — the window is transparent, so a CSS-only collapse
+ * would leave the full-size (invisible) window still occupying/capturing the
+ * screen. The chevron rotation is the animated state switch.
  */
+const EXPANDED_W = 312;
+const EXPANDED_H = 54;
+// "Extremely minimised": ~7% of the bar's area, still a comfortable tap target.
+const NUB_W = 36;
+const NUB_H = 30;
+
 export function RecordStopBar() {
   const [elapsed, setElapsed] = useState(0);
   const [paused, setPaused] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const pausedRef = useRef(false);
+  const resizingRef = useRef(false);
 
-  // Tick once per second; only advance while actively recording.
+  // Tick once per second; only advance while actively recording. Keeps running
+  // while collapsed (the recording continues), so the time is current on expand.
   useEffect(() => {
     const id = window.setInterval(() => {
       if (!pausedRef.current) setElapsed((s) => s + 1);
     }, 1000);
     return () => window.clearInterval(id);
   }, []);
+
+  const toggleCollapsed = async () => {
+    if (resizingRef.current) return;
+    resizingRef.current = true;
+    const next = !collapsed;
+    setCollapsed(next); // chevron animates immediately
+    try {
+      await getCurrentWebviewWindow().setSize(
+        next ? new LogicalSize(NUB_W, NUB_H) : new LogicalSize(EXPANDED_W, EXPANDED_H),
+      );
+    } catch (e) {
+      console.error("resize stop bar", e);
+      setCollapsed(!next); // revert the UI if the window didn't actually resize
+    } finally {
+      resizingRef.current = false;
+    }
+  };
 
   const togglePause = async () => {
     if (busy || stopping) return;
@@ -55,12 +90,42 @@ export function RecordStopBar() {
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
   const ss = String(elapsed % 60).padStart(2, "0");
 
-  return (
-    <div
-      className="flex h-screen w-screen items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[var(--color-fg)] shadow-2xl"
+  // The collapse toggle — top-left in both states. Chevron points up when
+  // expanded (click folds the bar away) and down when collapsed (click unfolds
+  // it); the rotation is the animated switch (disabled under reduced motion).
+  const chevron = (
+    <button
+      onClick={toggleCollapsed}
+      title={collapsed ? "Ausklappen" : "Einklappen"}
+      aria-label={collapsed ? "Ausklappen" : "Einklappen"}
+      className="flex shrink-0 items-center justify-center rounded-md p-1 text-[var(--color-muted)] hover:bg-[var(--color-bg)] hover:text-[var(--color-fg)]"
     >
-      {/* Drag handle: the left portion (dot + time + paused label) drags
-          the window; buttons are intentionally outside the drag region. */}
+      <ChevronDown
+        size={16}
+        className={
+          "transition-transform duration-(--duration-slow) ease-sharp motion-reduce:transition-none " +
+          (collapsed ? "" : "rotate-180")
+        }
+      />
+    </button>
+  );
+
+  if (collapsed) {
+    // Tiny nub: only the chevron, centred. Not a drag region — dragging is done
+    // on the expanded bar's top area; collapsed prioritises minimal footprint.
+    return (
+      <div className="flex h-screen w-screen items-center justify-center rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-fg)] shadow-2xl">
+        {chevron}
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-screen w-screen items-center gap-2.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-surface)] px-3 text-[var(--color-fg)] shadow-2xl">
+      {chevron}
+      {/* Drag handle: the middle portion (dot + time + paused label) drags the
+          window; the chevron and buttons are intentionally outside the drag
+          region so their clicks work. */}
       <div data-tauri-drag-region className="flex flex-1 items-center gap-2.5">
         <span
           className={

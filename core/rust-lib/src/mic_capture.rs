@@ -119,6 +119,21 @@ pub(crate) fn chunk_rms(chunk: &[f32]) -> f32 {
     (sum / chunk.len() as f64).sqrt() as f32
 }
 
+/// dBFS of a mono chunk (`20·log10(rms)`), with a finite floor for silence so
+/// the reading never becomes `-inf`/NaN. This is the level the `dezibel` meter
+/// displays (after the shared `spl = dBFS + 90` offset on the frontend), and
+/// the same calibrated path `iris` uses — mirrors `lib/audio-level.ts`'s
+/// `rmsToDbfs` (silence floor -120) so the Rust source of truth and the TS
+/// display convention agree.
+pub(crate) fn chunk_dbfs(chunk: &[f32]) -> f32 {
+    let r = chunk_rms(chunk);
+    if r > 1e-5 {
+        20.0 * r.log10()
+    } else {
+        -120.0
+    }
+}
+
 /// One capture session. `Ok(true)` = stopped by request; `Ok(false)` = the
 /// stream died (device gone/switched) and the caller should reopen.
 fn run(app: &AppHandle, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, String> {
@@ -204,6 +219,17 @@ fn run(app: &AppHandle, sink: &Sink, stop: &Arc<AtomicBool>) -> Result<bool, Str
         match &sink {
             Sink::Chunks(on_chunk) => on_chunk(&chunk, rate),
             Sink::Pcm(event) => {
+                // Companion loudness for the `dezibel` meter, computed HERE in
+                // Rust on the raw chunk — the same calibrated `chunk_rms` path
+                // iris uses. The meter therefore never re-derives the level
+                // from a JS Web-Audio round-trip (ScriptProcessor + analyser),
+                // which had two failure modes: a suspended warm context
+                // starved the analyser (reading "far too low"), and the graph
+                // setup could throw ("Audio capture failed") even though the
+                // mic was fine. One tiny event; the PCM the BPM/disco path
+                // needs still ships below.
+                let _ = app.emit("mic-level", serde_json::json!({ "dbfs": chunk_dbfs(&chunk) }));
+
                 let mut bytes = Vec::with_capacity(chunk.len() * 2);
                 for &s in &chunk {
                     let v =
@@ -304,5 +330,34 @@ mod tests {
     fn sink_labels_identify_the_mode_in_logs() {
         assert_eq!(Sink::Pcm("mic-audio").label(), "mic-audio");
         assert_eq!(Sink::Chunks(Box::new(|_, _| {})).label(), "chunks");
+    }
+
+    // `chunk_dbfs` is the number the dezibel meter shows (the fix that moved
+    // the level off the fragile JS audio graph). It must never be -inf/NaN and
+    // must track the RMS the same way `lib/audio-level.ts::rmsToDbfs` does.
+    #[test]
+    fn silence_is_the_finite_floor_not_negative_infinity() {
+        assert_eq!(chunk_dbfs(&[0.0; 512]), -120.0);
+        assert_eq!(chunk_dbfs(&[]), -120.0);
+        assert!(chunk_dbfs(&[0.0; 8]).is_finite());
+    }
+
+    #[test]
+    fn full_scale_is_about_zero_dbfs() {
+        // A full-scale square wave is RMS 1.0 → 0 dBFS.
+        let sq: Vec<f32> = (0..256).map(|i| if i % 2 == 0 { 1.0 } else { -1.0 }).collect();
+        assert!(chunk_dbfs(&sq).abs() < 1e-3, "{}", chunk_dbfs(&sq));
+    }
+
+    #[test]
+    fn a_quarter_amplitude_is_about_minus_twelve_db() {
+        // Halving amplitude is -6 dB; a quarter is -12 dB. Pins the log law so
+        // a scaling regression (e.g. amplitude→power confusion) is caught.
+        let sine: Vec<f32> = (0..4096)
+            .map(|i| 0.25 * (std::f32::consts::TAU * 8.0 * i as f32 / 4096.0).sin())
+            .collect();
+        // 0.25 × (1/√2) ≈ 0.1768 → 20·log10 ≈ -15.05 dBFS.
+        let d = chunk_dbfs(&sine);
+        assert!((d - (-15.05)).abs() < 0.2, "{d}");
     }
 }

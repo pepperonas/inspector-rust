@@ -1,30 +1,26 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
-import {
-  rms,
-  rmsToDbfs,
-  dbfsToDisplayDb,
-  dbfsToLevel,
-  smoothStep,
-} from "../lib/audio-level";
-import { warmContext } from "../lib/warm-audio";
-import { startFedMic, type FedMic } from "../lib/mic-feed";
+import { dbfsToDisplayDb, dbfsToLevel, smoothStep } from "../lib/audio-level";
+import { subscribeMicLevel } from "../lib/mic-feed";
 
 /**
  * `dezibel` / `db` — live microphone loudness in the preview column.
  *
- * The audio path and the animation are the BPM detector's dB readout, lifted
- * out of it rather than re-invented: the same native shared capture
- * (`startFedMic`), the same full-band analyser settings, the same
- * `smoothStep(cur, rmsToDbfs(rms(buf)), 0.5, 0.12)` attack/release, the same
- * `dbfsToLevel(db, -60, -6)` gauge mapping and the same ~7 Hz readout throttle
- * (see `BpmDetector.tsx`, the `dbRef` line in its rAF tick and the readout
- * interval). The visual language is the same too: a mono tabular number whose
- * glow, scale and opacity ride the level, over a thin meter bar.
+ * ⚠️ The level is computed in RUST on the raw capture chunk (`chunk_dbfs`, the
+ * calibrated `iris` path) and arrives as the `mic-level` event — this panel
+ * does NOT build a Web-Audio graph. It used to (ScriptProcessor → analyser off
+ * the shared warm AudioContext, copied from the BPM detector), which gave it
+ * two failure modes a meter must not have: a suspended warm context starved
+ * the analyser so the reading was "far too low", and the graph setup could
+ * throw ("Audio capture failed") even when the mic was working. Reading the
+ * one number Rust already computes removes both — see `lib/mic-feed.ts`
+ * `subscribeMicLevel` and `mic_capture.rs` `chunk_dbfs`.
  *
- * ⚠️ The value is read on every animation frame but pushed into React only
- * ~7×/s. That split is the point: the meter must not re-render the tree at
- * frame rate, and a number changing 60×/s is unreadable anyway.
+ * Smoothing + display are unchanged: `smoothStep(cur, dbfs, 0.5, 0.12)` on a
+ * 60 Hz rAF reading the latest event value (fast attack / slow release), the
+ * `dbfsToLevel(db, -60, -6)` gauge, and the ~7 Hz React readout throttle. The
+ * value is read every frame but pushed into React only ~7×/s: the meter must
+ * not re-render at frame rate, and a number changing 60×/s is unreadable.
  */
 const READOUT_MS = 140;
 /** dBFS window the gauge spans — identical to the BPM readout's. */
@@ -42,12 +38,13 @@ export function DezibelPanel() {
   const [attempt, setAttempt] = useState(0);
 
   const dbRef = useRef(SILENT_DB);
+  // Latest dBFS from the `mic-level` event; the rAF loop smooths toward it so
+  // the attack/release feel is frame-rate-based, not tied to the ~25 Hz events.
+  const targetRef = useRef(SILENT_DB);
   const rafRef = useRef<number | null>(null);
-  const fedMicRef = useRef<FedMic | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
 
-  // Throttled readout — keeps React churn off the hot path (BpmDetector does
-  // exactly this at the same cadence).
+  // Throttled readout — keeps React churn off the hot path (the meter must not
+  // re-render the tree at frame rate).
   useEffect(() => {
     const id = window.setInterval(() => {
       setDb(dbRef.current <= SILENT_DB ? null : Math.round(dbRef.current));
@@ -57,39 +54,30 @@ export function DezibelPanel() {
 
   useEffect(() => {
     let cancelled = false;
+    let unsubscribe: (() => void) | null = null;
+
+    const tick = () => {
+      // Attack fast, release slow — a calm meter that still catches peaks.
+      dbRef.current = smoothStep(dbRef.current, targetRef.current, 0.5, 0.12);
+      rafRef.current = requestAnimationFrame(tick);
+    };
 
     (async () => {
       try {
-        // Native capture (Rust/cpal) through the SHARED warm context — the
-        // webview's getUserMedia makes macOS reconfigure the shared audio
-        // device and briefly stutters other apps' playback. `startFedMic` is
-        // ref-counted, so running `bpm`/`disco` alongside opens no second
-        // stream.
-        const ctx = warmContext();
-        const fed = await startFedMic(ctx);
+        // The level is computed in Rust on the raw capture chunk and arrives as
+        // `mic-level` — no Web-Audio graph here (see the header note). Shared,
+        // ref-counted native capture, so running `bpm`/`disco` alongside opens
+        // no second stream.
+        const unsub = await subscribeMicLevel((dbfs) => {
+          targetRef.current = dbfs;
+        });
         if (cancelled) {
-          fed.stop();
+          unsub();
           return;
         }
-        fedMicRef.current = fed;
-
-        const analyser = ctx.createAnalyser();
-        analyser.fftSize = 2048;
-        analyser.smoothingTimeConstant = 0.78;
-        fed.source.connect(analyser);
-        analyserRef.current = analyser;
-
+        unsubscribe = unsub;
         setErrorMessage(null);
         setPhase("listening");
-
-        const buf = new Float32Array(analyser.fftSize);
-        const tick = () => {
-          if (cancelled || !analyserRef.current) return;
-          analyserRef.current.getFloatTimeDomainData(buf);
-          // Attack fast, release slow — a calm meter that still catches peaks.
-          dbRef.current = smoothStep(dbRef.current, rmsToDbfs(rms(buf)), 0.5, 0.12);
-          rafRef.current = requestAnimationFrame(tick);
-        };
         rafRef.current = requestAnimationFrame(tick);
       } catch (err) {
         if (cancelled) return;
@@ -105,13 +93,12 @@ export function DezibelPanel() {
         cancelAnimationFrame(rafRef.current);
         rafRef.current = null;
       }
-      // Stop the native stream + the feed nodes. NEVER close the context — it
-      // is the shared warm one and stays warm for the next consumer.
-      fedMicRef.current?.stop();
-      fedMicRef.current = null;
-      analyserRef.current?.disconnect();
-      analyserRef.current = null;
+      // Release our ref on the shared native capture (stops it only when the
+      // last consumer leaves).
+      unsubscribe?.();
+      unsubscribe = null;
       dbRef.current = SILENT_DB;
+      targetRef.current = SILENT_DB;
     };
   }, [attempt]);
 
@@ -143,9 +130,8 @@ export function DezibelPanel() {
 
   const accent = "var(--color-accent)";
   const norm = db === null ? 0 : dbfsToLevel(db, FLOOR_DB, CEIL_DB);
-  // Show the distance below full scale as a positive, user-facing value.
-  // The internal dBFS value remains negative below 0 dBFS and is still used
-  // for the meter mapping.
+  // Estimated sound pressure level (SPL) in positive dB (dBFS + 90).
+  // The internal dBFS value remains negative below 0 dBFS and drives the meter mapping.
   const displayDb = db === null ? null : dbfsToDisplayDb(db);
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 px-6">
@@ -174,10 +160,9 @@ export function DezibelPanel() {
         />
       </div>
       <div className="text-center text-[11px] leading-relaxed text-[var(--color-muted)]">
-        0 dB ist Vollaussteuerung — höhere Werte liegen entsprechend darunter.
+        Schalldruckpegel-Schätzung (SPL) · Zimmerlautstärke ca. 35–50 dB, Sprache 60–75 dB.
         <br />
-        Messbereich 0 … {Math.abs(FLOOR_DB)} dB unter Vollaussteuerung · Esc schließt und
-        gibt das Mikrofon frei.
+        Skala ca. {FLOOR_DB + 90} … {CEIL_DB + 90} dB · Esc schließt und gibt das Mikrofon frei.
       </div>
     </div>
   );

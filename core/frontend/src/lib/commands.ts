@@ -62,6 +62,7 @@ export type CommandKind =
   | "lumen"
   | "bluetooth"
   | "btsniff"
+  | "mailcheck"
   | "clown"
   | "bruno"
   | "timer"
@@ -530,6 +531,36 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     syntax: "blecap",
     description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
     requiresArg: false,
+  },
+  // ── mailcheck: E-Mail-Zustellbarkeit prüfen (Syntax → DNS/MX → SMTP) ──
+  {
+    kind: "mailcheck",
+    keyword: "mailcheck",
+    syntax: "mailcheck <email>",
+    description:
+      "E-Mail-Zustellbarkeit prüfen — Syntax, Domain, MX-Records und nicht-invasive SMTP-Prüfung.",
+    requiresArg: true,
+  },
+  {
+    kind: "mailcheck",
+    keyword: "emailcheck",
+    syntax: "emailcheck <email>",
+    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    requiresArg: true,
+  },
+  {
+    kind: "mailcheck",
+    keyword: "mailverify",
+    syntax: "mailverify <email>",
+    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    requiresArg: true,
+  },
+  {
+    kind: "mailcheck",
+    keyword: "mxcheck",
+    syntax: "mxcheck <email>",
+    description: "E-Mail-Prüfung — Alias von `mailcheck` (gleicher Befehl).",
+    requiresArg: true,
   },
   {
     kind: "benchmark",

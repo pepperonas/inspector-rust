@@ -7762,3 +7762,13 @@ pub async fn btsniff_live_export_json(
     .await
     .map_err(|e| e.to_string())?
 }
+
+/// Layered e-mail deliverability check (syntax → DNS/MX → non-invasive SMTP).
+/// All network work is bounded by tight timeouts inside `mailcheck::check`; it
+/// runs on `spawn_blocking` so the UI never blocks. Never sends mail.
+#[tauri::command]
+pub async fn mailcheck_run(email: String) -> Result<crate::mailcheck::MailCheckResult, String> {
+    tauri::async_runtime::spawn_blocking(move || crate::mailcheck::check(&email))
+        .await
+        .map_err(|e| format!("mailcheck task: {e}"))
+}

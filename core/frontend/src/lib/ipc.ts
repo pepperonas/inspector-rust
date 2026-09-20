@@ -3815,3 +3815,11 @@ export function btsniffLivePacket(index: number): Promise<BtLiveDetail> {
 export function btsniffLiveExportJson(path: string): Promise<void> {
   return invoke("btsniff_live_export_json", { path });
 }
+
+// ── mailcheck ─────────────────────────────────────────────────────────────────
+import type { MailCheckResult } from "./mailcheck";
+
+/** Layered e-mail deliverability check (syntax → DNS/MX → non-invasive SMTP). */
+export function mailcheckRun(email: string): Promise<MailCheckResult> {
+  return invoke("mailcheck_run", { email });
+}

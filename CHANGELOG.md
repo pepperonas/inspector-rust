@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.181.0] - 2026-09-20
+
+### Added
+- **New `mailcheck <email>` command — layered, honest e-mail deliverability checks.** In the preview it runs independent stages: syntax, domain, DNS resolution + MX records (a minimal DNS-over-UDP resolver in the Rust backend, listed by preference, with the A record as an implicit mail exchanger when there's no MX), and — where outbound port 25 is reachable — a **non-invasive SMTP probe** (EHLO, `MAIL FROM:<>`, `RCPT TO`, then QUIT; it never sends a mail, never authenticates, never probes aggressively). It flags known disposable domains and detects catch-all servers via one extra RCPT in the same session. The headline (DELIVERABLE / DELIVERABLE LIKELY / RISKY / UNDELIVERABLE / INVALID) is derived deterministically from the signals actually obtained — it **never claims a mailbox "exists"**, because most servers deliberately prevent recipient enumeration and port 25 is often blocked (so the mailbox stage is frequently, and honestly, "Inconclusive"). All network work is in Rust with tight timeouts (`spawn_blocking`, so the UI never blocks) and no credentials are involved. Aliases `emailcheck`/`mailverify`/`mxcheck`; cross-platform. The DNS response parser is defensive (fuzz-tested, never panics on malformed replies).
+
 ## [0.180.0] - 2026-09-20
 
 ### Added

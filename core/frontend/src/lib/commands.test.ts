@@ -46,7 +46,8 @@ describe("COMMANDS catalogue", () => {
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
     // +4 for `btsniff` and its `btcap`/`btcapture`/`blecap` aliases.
-    expect(COMMANDS.length).toBe(112);
+    // +4 for `mailcheck` and its `emailcheck`/`mailverify`/`mxcheck` aliases.
+    expect(COMMANDS.length).toBe(116);
   });
 
   it("every keyword is unique", () => {

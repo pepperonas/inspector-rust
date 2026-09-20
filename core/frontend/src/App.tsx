@@ -36,6 +36,7 @@ import type { AdbView } from "./components/AdbPanel";
 const AdbPanel = lazy(() => import("./components/AdbPanel").then((m) => ({ default: m.AdbPanel })));
 const DiskPanel = lazy(() => import("./components/DiskPanel").then((m) => ({ default: m.DiskPanel })));
 const BluetoothCapturePanel = lazy(() => import("./components/BluetoothCapturePanel").then((m) => ({ default: m.BluetoothCapturePanel })));
+const MailCheckPanel = lazy(() => import("./components/MailCheckPanel").then((m) => ({ default: m.MailCheckPanel })));
 const ClockPanel = lazy(() => import("./components/ClockPanel").then((m) => ({ default: m.ClockPanel })));
 const RickrollPanel = lazy(() => import("./components/RickrollPanel").then((m) => ({ default: m.RickrollPanel })));
 const RepoPanel = lazy(() => import("./components/RepoPanel").then((m) => ({ default: m.RepoPanel })));
@@ -438,6 +439,10 @@ function App() {
   // Enter hands the panel keyboard focus for list navigation.
   const [btsniffMode, setBtsniffMode] = useState(false);
   const [btsniffFocus, setBtsniffFocus] = useState(false);
+  // mailcheck mode — layered e-mail deliverability check. Enter-activated (it
+  // does DNS/SMTP), the email arg drives the panel.
+  const [mailcheckMode, setMailcheckMode] = useState(false);
+  const [mailcheckFocus, setMailcheckFocus] = useState(false);
   // clock mode (v0.121.0) — world clock. Enter-activated (the search field
   // needs focus for autocomplete).
   const [clockMode, setClockMode] = useState(false);
@@ -1414,6 +1419,14 @@ function App() {
       setDiskFocus(false);
     }
   }, [isDiskCmd, diskMode]);
+  const isMailcheckCmd = parsedCommand?.spec.kind === "mailcheck";
+  useEffect(() => {
+    // Enter-activated (network) — auto-close when the query stops being mailcheck.
+    if (!isMailcheckCmd && mailcheckMode) {
+      setMailcheckMode(false);
+      setMailcheckFocus(false);
+    }
+  }, [isMailcheckCmd, mailcheckMode]);
   const isBtsniffCmd = parsedCommand?.spec.kind === "btsniff";
   useEffect(() => {
     // Show-while-fully-typed: the analyzer panel has no heavy mount side-effect
@@ -1961,6 +1974,10 @@ function App() {
       case "btsniff":
         label = "Bluetooth-Analyzer";
         hint = "Enter → Live-BLE-Scan (macOS) oder .pklg / btsnoop / pcapng importieren; HCI/ATT/GATT, Byte-Diff";
+        break;
+      case "mailcheck":
+        label = arg ? `Mail Check: ${arg}` : "E-Mail-Zustellbarkeit prüfen";
+        hint = "Enter → Syntax · Domain · MX-Records · nicht-invasive SMTP-Prüfung (keine Mail wird gesendet)";
         break;
       case "adb": {
         const v = arg.trim().toLowerCase();
@@ -3404,6 +3421,8 @@ function App() {
     setDiskFocus(false);
     setBtsniffMode(false);
     setBtsniffFocus(false);
+    setMailcheckMode(false);
+    setMailcheckFocus(false);
     setClockMode(false);
     setClockFocus(false);
     setRickMode(false);
@@ -3547,7 +3566,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -3559,6 +3578,7 @@ function App() {
           commandKind === "loc" ||
           commandKind === "adb" ||
           commandKind === "disk" ||
+          commandKind === "mailcheck" ||
           commandKind === "repo" ||
           commandKind === "repo-export" ||
           commandKind === "nosleep" ||
@@ -4079,6 +4099,10 @@ function App() {
         setBtsniffMode(true);
         setBtsniffFocus(true);
         return true;
+      } else if (commandKind === "mailcheck") {
+        setMailcheckMode(true);
+        setMailcheckFocus(true);
+        return true;
       } else if (commandKind === "adb") {
         // Android control panel; the arg picks the view (remote/apps/wifi).
         const view = arg.trim().toLowerCase();
@@ -4529,6 +4553,7 @@ function App() {
       !adbFocus &&
       !diskFocus &&
       !btsniffFocus &&
+      !mailcheckFocus &&
       !clockFocus &&
       !rickFocus &&
       !repoFocus &&
@@ -5141,6 +5166,18 @@ function App() {
                       onExit={() => {
                         setBtsniffMode(false);
                         setBtsniffFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : mailcheckMode ? (
+                  <div className="md3-pop-in h-full">
+                    <MailCheckPanel
+                      email={isMailcheckCmd ? (parsedCommand?.arg ?? "") : ""}
+                      focused={mailcheckFocus}
+                      onExit={() => {
+                        setMailcheckMode(false);
+                        setMailcheckFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

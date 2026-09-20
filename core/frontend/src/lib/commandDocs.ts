@@ -697,6 +697,38 @@ export const COMMAND_DOCS: CommandDoc[] = [
     see_also: "docs/bluetooth-capture.md",
   },
   {
+    command: "mailcheck",
+    aliases: ["emailcheck", "mailverify", "mxcheck"],
+    category: CAT_INFO,
+    version_added: "0.181.0",
+    tagline: "Check e-mail deliverability — syntax, DNS/MX, and a non-invasive SMTP probe.",
+    tagline_de:
+      "E-Mail-Zustellbarkeit prüfen — Syntax, DNS/MX und eine nicht-invasive SMTP-Prüfung.",
+    synopsis: "mailcheck <email>   ·   emailcheck · mailverify · mxcheck",
+    description:
+      "Runs layered, honest checks on an address and shows each stage in the preview: syntax, the domain, DNS resolution + MX records (a minimal DNS-over-UDP query, listed by preference), and — where port 25 is reachable — a non-invasive SMTP probe (EHLO, `MAIL FROM:<>`, `RCPT TO`, then QUIT; it never sends a mail or authenticates). It also flags known disposable domains and, from one extra RCPT in the same session, whether the server is catch-all. The headline is derived deterministically from the signals actually obtained — it never claims a mailbox 'exists', because most servers deliberately prevent recipient enumeration.",
+    arguments: [
+      { name: "email", required: true, description: "The address to check, e.g. hello@example.com." },
+    ],
+    flags: [],
+    examples: [
+      { input: "mailcheck hello@example.com", result: "Syntax ✓ · MX records · SMTP verdict · disposable/catch-all." },
+      { input: "mxcheck user@sub.example.co.uk", result: "Same check (alias)." },
+      { input: "mailcheck?", result: "This help." },
+    ],
+    tips: [
+      "An 'Inconclusive' mailbox is the normal, honest result — most mail servers accept every recipient or hide whether a mailbox exists.",
+      "A catch-all server accepts every address, so 'accepted' there does not confirm the specific mailbox — the panel says so.",
+      "Outbound port 25 is often blocked (ISPs/cloud), so the SMTP stage may be unreachable; the DNS/MX result is still meaningful.",
+    ],
+    caveats: [
+      "It never sends mail, never authenticates, and issues no aggressive probes — mailbox existence often cannot be verified, by design.",
+      "The disposable-domain list is a curated heads-up, not exhaustive.",
+      "All checks run in the Rust backend with short timeouts; nothing is stored or transmitted beyond the DNS/SMTP lookups themselves.",
+    ],
+    related: ["ip", "snitch"],
+  },
+  {
     command: "dezibel",
     aliases: ["db"],
     category: CAT_SYS,

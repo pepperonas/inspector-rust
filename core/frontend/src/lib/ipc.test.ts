@@ -391,3 +391,11 @@ describe("btsniff — live capture wrappers", () => {
     expect(mockInvoke).toHaveBeenCalledWith("btsniff_live_export_json", { path: "/tmp/live.json" });
   });
 });
+
+describe("mailcheck wrapper", () => {
+  it("mailcheckRun passes the email", async () => {
+    mockInvoke.mockResolvedValue({ email: "a@b.com", overall: "invalid" });
+    await ipc.mailcheckRun("a@b.com");
+    expect(mockInvoke).toHaveBeenCalledWith("mailcheck_run", { email: "a@b.com" });
+  });
+});

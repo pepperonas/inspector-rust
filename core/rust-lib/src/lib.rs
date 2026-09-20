@@ -50,6 +50,7 @@ mod keepalive;
 mod loc;
 mod loc_export;
 mod logging;
+mod mailcheck;
 mod md_to_pdf;
 mod media_name;
 mod media_trim;
@@ -984,6 +985,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_all,
             commands::weather_fetch,
             commands::ip_fetch,
+            commands::mailcheck_run,
             commands::btsniff_open_file,
             commands::btsniff_packet,
             commands::btsniff_stats,

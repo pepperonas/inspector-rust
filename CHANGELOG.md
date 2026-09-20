@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.176.0] - 2026-09-20
+
+### Added
+- **The screen-recording control bar can be collapsed and moved.** A chevron top-left folds the floating bar to a tiny nub (and back) so it isn't in the way while the recording runs in the background; the top area drags it anywhere. Collapsing shrinks the actual window in both dimensions (~7 % of its size), so it truly frees the screen while staying one click from expanding again.
+
+### Fixed
+- **The `dezibel` / `db` meter works again.** It showed "Audio capture failed" (and before that, values far too low). The microphone level is now computed natively and delivered as an event, instead of through a fragile in-page audio graph that a background audio state could starve. Underlying cause: event listening (and window resizing) needed to be granted explicitly in the app's capabilities — the default grant wasn't taking effect at runtime, which had also quietly degraded other live-updating parts of the app.
+
 ## [0.175.0] - 2026-09-16
 
 ### Added

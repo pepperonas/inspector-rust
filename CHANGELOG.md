@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.177.0] - 2026-09-20
+
+### Added
+- **The popup overlay can be collapsed to a tiny nub and moved.** A chevron at the top-left folds the whole window down to a small handle (minimised in both width and height, ~1 % of its area) so it's out of the way while something runs in the background, and expands it again with another click; the chevron flip is animated. A slim strip along the top is a drag handle — grab it to move the overlay anywhere on screen. Collapsed, it stays put and visible until you expand or dismiss it; each fresh open starts expanded.
+
 ## [0.176.0] - 2026-09-20
 
 ### Added

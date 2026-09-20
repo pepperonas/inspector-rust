@@ -1,4 +1,12 @@
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { ChevronDown } from "lucide-react";
+import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
+import { LogicalSize } from "@tauri-apps/api/dpi";
+
+// Collapsed popup nub — extremely minimised in x AND y (just the chevron), so
+// the overlay stays reachable while occupying almost no screen.
+const POPUP_NUB_W = 48;
+const POPUP_NUB_H = 36;
 // PERFORMANCE-PLAN A4 (v0.166.0): every preview panel, tab panel, game and
 // full-shell takeover below is `lazy` — the popup used to parse + JIT a single
 // ~950 KB chunk at launch for surfaces most opens never touch. Only the
@@ -256,6 +264,69 @@ function App() {
   // the header so the search input / title reserve exactly enough room (see the
   // header block below). 0 until TabBar reports; the class fallback covers that.
   const [tabStripW, setTabStripW] = useState(0);
+
+  // Collapse/move the popup overlay (top-left chevron + drag-by-top-strip).
+  // Collapsing shrinks the whole window to a tiny nub in x AND y so it's out of
+  // the way while something runs in the background; the chevron expands it back.
+  // `expandedSizeRef` remembers the size to restore; `collapsedRef` mirrors the
+  // state for the window-shown handler (closure-stale-safe).
+  const [collapsed, setCollapsed] = useState(false);
+  const collapsedRef = useRef(false);
+  const expandedSizeRef = useRef<{ w: number; h: number } | null>(null);
+  const collapseBusyRef = useRef(false);
+
+  // Remember the expanded (preset) size once, so expanding restores it exactly.
+  useEffect(() => {
+    void (async () => {
+      try {
+        const win = getCurrentWebviewWindow();
+        const s = await win.outerSize();
+        const sf = await win.scaleFactor();
+        if (!collapsedRef.current) {
+          expandedSizeRef.current = { w: Math.round(s.width / sf), h: Math.round(s.height / sf) };
+        }
+      } catch {
+        /* window API unavailable — collapse falls back to a default size */
+      }
+    })();
+  }, []);
+
+  const toggleCollapsed = useCallback(async () => {
+    if (collapseBusyRef.current) return;
+    collapseBusyRef.current = true;
+    const win = getCurrentWebviewWindow();
+    const next = !collapsedRef.current;
+    try {
+      if (next) {
+        // Capture the current (expanded) size before shrinking.
+        try {
+          const s = await win.outerSize();
+          const sf = await win.scaleFactor();
+          expandedSizeRef.current = { w: Math.round(s.width / sf), h: Math.round(s.height / sf) };
+        } catch {
+          /* keep whatever expandedSizeRef already holds */
+        }
+        collapsedRef.current = true;
+        setCollapsed(true);
+        // Keep the nub visible even when focus leaves (so you can use the app
+        // behind it); cleared on expand. Independent of the close-on-blur pref.
+        void setSuppressHide(true).catch(() => undefined);
+        await win.setSize(new LogicalSize(POPUP_NUB_W, POPUP_NUB_H));
+      } else {
+        collapsedRef.current = false;
+        setCollapsed(false);
+        const e = expandedSizeRef.current ?? { w: 700, h: 500 };
+        await win.setSize(new LogicalSize(e.w, e.h));
+        void setSuppressHide(false).catch(() => undefined);
+      }
+    } catch (err) {
+      console.error("toggle collapse", err);
+      collapsedRef.current = !next;
+      setCollapsed(!next);
+    } finally {
+      collapseBusyRef.current = false;
+    }
+  }, []);
   // Key-repeat guard (animation layer, Etappe 2/3): true while an arrow key
   // auto-repeats. The selection indicator + the preview crossfade switch to
   // instant so neither lags behind held-key navigation; a short settle
@@ -1650,7 +1721,7 @@ function App() {
         hint = "Verbinden · Trennen · Entkoppeln — ⏎ übergibt die Pfeiltasten";
         break;
       case "dezibel":
-        label = "Lautstärke messen — live unter Vollaussteuerung";
+        label = "Lautstärke messen — live in dB";
         hint = "Öffnet das Mikrofon; die Anzeige folgt dem Pegel (Esc gibt es frei)";
         break;
       case "optim":
@@ -3048,6 +3119,15 @@ function App() {
   // app's lifetime.
   useTauriEvent("window-shown", () => {
     showGenRef.current += 1; // invalidate any in-flight hide (see hidePopup)
+    // A fresh open is always expanded — if it was hidden while collapsed,
+    // restore the window to its expanded size + clear the collapsed state.
+    if (collapsedRef.current) {
+      collapsedRef.current = false;
+      setCollapsed(false);
+      const e = expandedSizeRef.current ?? { w: 700, h: 500 };
+      void getCurrentWebviewWindow().setSize(new LogicalSize(e.w, e.h)).catch(() => undefined);
+      void setSuppressHide(false).catch(() => undefined);
+    }
     setActiveTab("history");
     setQuery("");
     setSelected(0);
@@ -4567,6 +4647,34 @@ function App() {
   return (
     <div className="flex h-screen w-screen p-2">
       <div ref={shellRef} className="app-shell fade-in flex h-full w-full flex-col">
+        {/* Top strip: collapse toggle (top-left, animated chevron) + a drag
+            handle across the rest, so the overlay can be folded to a nub and
+            moved out of the way while something runs in the background. Kept
+            slim so it barely changes the familiar header. */}
+        <div className={"flex shrink-0 items-center " + (collapsed ? "h-full justify-center" : "h-[22px]")}>
+          <button
+            onClick={() => void toggleCollapsed()}
+            title={collapsed ? "Ausklappen" : "Einklappen"}
+            aria-label={collapsed ? "Overlay ausklappen" : "Overlay einklappen"}
+            className={
+              "flex items-center justify-center text-[var(--color-muted)] hover:text-[var(--color-fg)] " +
+              (collapsed ? "h-full w-full" : "h-full shrink-0 px-1.5")
+            }
+          >
+            <ChevronDown
+              size={collapsed ? 18 : 14}
+              className={
+                "transition-transform duration-(--duration-slow) ease-sharp motion-reduce:transition-none " +
+                (collapsed ? "" : "rotate-180")
+              }
+            />
+          </button>
+          {!collapsed && <div data-tauri-drag-region className="h-full flex-1" />}
+        </div>
+        {/* Everything below the strip is hidden while collapsed (the window is
+            a tiny nub then); only the strip's chevron remains, to expand. */}
+        {!collapsed && (
+          <>
         {/* Paste-failure banner — sticky at the top, click-to-dismiss. */}
         {pasteError && (
           <Banner
@@ -5287,6 +5395,8 @@ function App() {
             void wakelockSet(!darkWakeRef.current, "wakelock", "dark", true);
           }}
         />
+          </>
+        )}
       </div>
     </div>
   );

@@ -101,7 +101,7 @@
   [![PRs welcome](https://img.shields.io/badge/PRs-welcome-brightgreen?style=flat-square)](./CONTRIBUTING.md)
   [![Code Style](https://img.shields.io/badge/code%20style-clippy%20%2B%20eslint-orange?style=flat-square)](./scripts/check.sh)
   [![Commands](https://img.shields.io/badge/commands-66-4f46e5?style=flat-square)](#commands)
-  [![Docs](https://img.shields.io/badge/docs-26%20pages-0ea5e9?style=flat-square)](./docs)
+  [![Docs](https://img.shields.io/badge/docs-27%20pages-0ea5e9?style=flat-square)](./docs)
   [![Rust modules](https://img.shields.io/badge/rust%20modules-93-CE422B?style=flat-square&logo=rust&logoColor=white)](./core/rust-lib/src)
   [![Crates](https://img.shields.io/badge/crates-864-brightgreen?style=flat-square&logo=rust&logoColor=white)](./Cargo.lock)
   [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
@@ -273,6 +273,7 @@
   [![Fake test data](https://img.shields.io/badge/faker-70%2B%20generators%20·%2014%20locales-blueviolet?style=flat-square)](./docs/faker.md)
   [![Security builders](https://img.shields.io/badge/sec-nmap%20·%20sqlmap%20·%20ferox%20·%20john-darkgreen?style=flat-square)](./docs/security-builder.md)
   [![Bluetooth capture](https://img.shields.io/badge/btsniff-HCI%20·%20ATT%20·%20GATT%20analyzer-darkgreen?style=flat-square)](./docs/bluetooth-capture.md)
+  [![Mail check](https://img.shields.io/badge/mailcheck-syntax%20·%20MX%20·%20SMTP-0ea5e9?style=flat-square)](./docs/mailcheck.md)
   [![Inline help](https://img.shields.io/badge/%3F-inline%20command%20help-e11d48?style=flat-square)](./docs/inline-help.md)
   [![Lineage rails](https://img.shields.io/badge/clipboard-copy%20shapes%20%2B%20lineage-1f6feb?style=flat-square)](./docs/clipboard-shapes.md)
   [![Live translation](https://img.shields.io/badge/translate-live%20preview%20·%20keyless-blueviolet?style=flat-square)](./docs/translation.md)
@@ -1040,6 +1041,7 @@ Entwurfsentscheidungen, Fehlerbilder und die Fallen, die es gekostet hat.
 | [figlet.md](./docs/figlet.md) | `figlet` — ASCII banners and the bundled font set |
 | [security-builder.md](./docs/security-builder.md) | `sec` — guided pentest command builders |
 | [bluetooth-capture.md](./docs/bluetooth-capture.md) | `btsniff` — Bluetooth-Capture-Analyse (HCI/ATT/GATT-Dekodierung + Byte-Diff) |
+| [mailcheck.md](./docs/mailcheck.md) | `mailcheck` — geschichtete E-Mail-Zustellbarkeit (Syntax · DNS/MX · nicht-invasives SMTP) |
 | [cleanup.md](./docs/cleanup.md) | `clean` — the allowlist and the safety guarantees |
 | [translation.md](./docs/translation.md) | `tr*` — the provider strategy |
 | [ai-prompts.md](./docs/ai-prompts.md) | The bundled AI prompt snippets |

@@ -727,6 +727,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       "All checks run in the Rust backend with short timeouts; nothing is stored or transmitted beyond the DNS/SMTP lookups themselves.",
     ],
     related: ["ip", "snitch"],
+    see_also: "docs/mailcheck.md",
   },
   {
     command: "dezibel",

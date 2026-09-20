@@ -608,24 +608,26 @@ export const COMMAND_DOCS: CommandDoc[] = [
     version_added: "0.33.0",
     tagline: "German net-pay calculator — employees AND freelancers (tax year 2025).",
     tagline_de: "Netto-Rechner Deutschland — Angestellte UND Selbständige (Steuerjahr 2025).",
-    synopsis: "bruno <€>[m|j]   ·   bruno <gewinn>[m]f   ·   bruno <einnahmen>-<ausgaben>f",
+    synopsis: "bruno <€>[m|j]   ·   bruno frei|gewerbe|selbst <gewinn>[m]   ·   bruno frei <einnahmen>-<ausgaben>",
     description:
-      "Computes German net pay (simplified §32a tariff, tax year 2025). Employee mode: gross salary with the employee share of social insurance; suffix `m` = monthly, `j` = yearly. Freelancer/self-employed mode (`f` suffix): yearly PROFIT — or `income-expenses` — with voluntary GKV (min/max assessment bounds) or a fixed PKV premium, full care-insurance rate, no pension/unemployment contributions, Grund- or Splittingtarif, and (for Gewerbebetriebe) Gewerbesteuer incl. the §35 income-tax credit. Personal parameters come from Settings → Bruno. VAT is a pass-through (§19 small-business hint only). Not tax advice.",
-    arguments: [{ name: "€", required: true, description: "Gross amount (employee) or profit (self-employed with `f`); `einnahmen-ausgaben` computes the profit. Optional suffix `m` (monthly) or `j` (yearly).", default: undefined }],
-    flags: [
-      { flag: "f", value_type: undefined, description: "Self-employed calculation (freelancer/Gewerbe — set the Rechtsform, KV type, Hebesatz etc. in Settings → Bruno).", default: "employee mode" },
+      "Computes German net pay (simplified §32a tariff, tax year 2025). Employee mode: gross salary with the employee share of social insurance; suffix `m` = monthly, `j` = yearly. Self-employed mode via a leading keyword — `frei` (Freiberufler, no Gewerbesteuer), `gewerbe` (Gewerbebetrieb, incl. Gewerbesteuer + the §35 income-tax credit) or `selbst` (uses the business type saved in Settings): the number is the yearly PROFIT (Gewinn) — or `einnahmen-ausgaben` — with voluntary GKV (min/max assessment bounds) or a fixed PKV premium, full care-insurance rate, no pension/unemployment contributions, and Grund- or Splittingtarif. Personal parameters come from Settings → Bruno. VAT is a pass-through (§19 small-business hint only). Not tax advice.",
+    arguments: [
+      { name: "mode", required: false, description: "`frei` (Freiberufler, no Gewerbesteuer) · `gewerbe` (with GewSt + §35) · `selbst` (business type from Settings). Omit for employee mode.", default: "employee" },
+      { name: "€", required: true, description: "Yearly gross (employee) or yearly profit (self-employed); `einnahmen-ausgaben` computes the profit. Optional suffix `m` (monthly) / `j` (yearly).", default: undefined },
     ],
+    flags: [],
     examples: [
       { input: "bruno 4500", result: "Employee net pay for €4500 gross with your Settings defaults." },
-      { input: "bruno 80000f", result: "Freelancer: net from €80k yearly profit (GKV/PKV per Settings)." },
-      { input: "bruno 90000-15000f", result: "Self-employed: €90k income − €15k expenses → profit → net." },
+      { input: "bruno frei 80000", result: "Freiberufler: net from €80k yearly profit, no Gewerbesteuer." },
+      { input: "bruno gewerbe 80000", result: "Gewerbebetrieb: same profit, incl. Gewerbesteuer + §35 credit." },
+      { input: "bruno selbst 90000-15000", result: "Self-employed (Settings business type): €90k − €15k expenses → profit → net." },
     ],
     tips: [
-      "Set tax class / Bundesland / children / church / health surcharge — and the freelancer options (Rechtsform, GewSt-Hebesatz, GKV/PKV, Splitting) — in Settings → Bruno once.",
-      "**Tab flips the mode** while the bruno row is selected — Angestellter ↔ Unternehmer without retyping the amount (the `f` suffix is rewritten for you; `einnahmen-ausgaben` resolves into the profit that was on screen).",
+      "Set tax class / Bundesland / children / church / health surcharge — and the self-employed options (KV type, GewSt-Hebesatz, Splitting) — in Settings → Bruno once. `frei`/`gewerbe` pin the business type inline; `selbst` uses the saved one.",
+      "**Tab flips the mode** while the bruno row is selected — Angestellter ↔ Unternehmer without retyping the amount (it rewrites to `selbst`; `einnahmen-ausgaben` resolves into the profit that was on screen).",
       "Enter pastes the period-matched net amount; Shift+Enter copies the COMPLETE breakdown (assumptions + every deduction row + net) as aligned plain text — ready for a mail or note. Works in both modes.",
       "The preview's **Export row writes the breakdown as HTML or PDF** to Downloads — the shared report design (like `loc`/`pagespeed`), with signature and seal.",
-      "`bruno 7000mf` reads the €7 000 as MONTHLY profit (m and f combine).",
+      "`bruno frei 7000m` reads the €7 000 as MONTHLY profit.",
     ],
     caveats: [
       "A simplified model — not tax advice.",

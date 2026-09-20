@@ -357,10 +357,48 @@ const SELF_BASE: BrunoSelfInput = {
 };
 
 describe("parseBrunoCommand — self-employed forms", () => {
-  it("`f` suffix flags the self-employed calculation", () => {
+  it("`frei` keyword → self-employed, businessType freiberufler", () => {
+    expect(parseBrunoCommand("bruno frei 80000")).toMatchObject({
+      yearlyGross: 80000, period: "yearly", self: true, businessType: "freiberufler",
+    });
+    expect(parseBrunoCommand("bruno freiberufler 80000")).toMatchObject({
+      self: true, businessType: "freiberufler",
+    });
+    expect(parseBrunoCommand("BRUNO FREI 80000")).toMatchObject({ businessType: "freiberufler" });
+  });
+
+  it("`gewerbe` keyword → self-employed, businessType gewerbe", () => {
+    expect(parseBrunoCommand("bruno gewerbe 80000")).toMatchObject({
+      yearlyGross: 80000, self: true, businessType: "gewerbe",
+    });
+  });
+
+  it("`selbst` / `unternehmer` → self-employed, businessType from the saved default (undefined here)", () => {
+    expect(parseBrunoCommand("bruno selbst 80000")).toMatchObject({ self: true });
+    expect(parseBrunoCommand("bruno selbst 80000")?.businessType).toBeUndefined();
+    expect(parseBrunoCommand("bruno unternehmer 80000")).toMatchObject({ self: true });
+    expect(parseBrunoCommand("bruno unternehmer 80000")?.businessType).toBeUndefined();
+  });
+
+  it("keyword requires a space before the amount", () => {
+    expect(parseBrunoCommand("bruno frei80000")).toBeNull();
+    expect(parseBrunoCommand("bruno gewerbe80000")).toBeNull();
+  });
+
+  it("keyword combines with the period + expenses forms", () => {
+    expect(parseBrunoCommand("bruno frei 7000m")).toMatchObject({
+      yearlyGross: 84000, period: "monthly", self: true, businessType: "freiberufler",
+    });
+    expect(parseBrunoCommand("bruno gewerbe 90000-15000")).toMatchObject({
+      yearlyGross: 75000, self: true, businessType: "gewerbe", expenses: 15000,
+    });
+  });
+
+  it("legacy `f` suffix still flags self-employed (businessType = saved default)", () => {
     expect(parseBrunoCommand("bruno 80000f")).toMatchObject({
       yearlyGross: 80000, period: "yearly", self: true,
     });
+    expect(parseBrunoCommand("bruno 80000f")?.businessType).toBeUndefined();
     expect(parseBrunoCommand("bruno 80000 f")).toMatchObject({ self: true });
   });
 
@@ -610,27 +648,35 @@ describe("brunoSelfAssumptions", () => {
 });
 
 describe("toggleSelfMode — Modus ohne Neutippen wechseln", () => {
-  it("schaltet in beide Richtungen und bleibt parsebar", () => {
-    expect(toggleSelfMode("bruno 60000")).toBe("bruno 60000f");
-    expect(toggleSelfMode("bruno 60000f")).toBe("bruno 60000");
+  it("schaltet in beide Richtungen und bleibt parsebar (Angestellter ↔ selbst)", () => {
+    expect(toggleSelfMode("bruno 60000")).toBe("bruno selbst 60000");
+    expect(toggleSelfMode("bruno selbst 60000")).toBe("bruno 60000");
     // Das Ergebnis muss wieder durch den Parser gehen, sonst ist der Wechsel
     // eine Sackgasse.
     const a = parseBrunoCommand(toggleSelfMode("bruno 60000"));
     expect(a?.self).toBe(true);
     expect(a?.yearlyGross).toBe(60000);
+    expect(a?.businessType).toBeUndefined(); // `selbst` → Settings-Default
+  });
+
+  it("flippt auch die spezifischen Keywords + das Legacy-`f` zurück zum Angestellten", () => {
+    expect(toggleSelfMode("bruno frei 80000")).toBe("bruno 80000");
+    expect(toggleSelfMode("bruno gewerbe 80000")).toBe("bruno 80000");
+    expect(toggleSelfMode("bruno 60000f")).toBe("bruno 60000");
   });
 
   it("behält den Monatsbezug", () => {
-    expect(toggleSelfMode("bruno 5000m")).toBe("bruno 5000mf");
-    const r = parseBrunoCommand("bruno 5000mf");
+    expect(toggleSelfMode("bruno 5000m")).toBe("bruno selbst 5000m");
+    const r = parseBrunoCommand("bruno selbst 5000m");
     expect(r?.period).toBe("monthly");
     expect(r?.yearlyGross).toBe(60000);
+    expect(r?.self).toBe(true);
   });
 
   it("löst die Einnahmen-Ausgaben-Form auf, statt eine ungültige Eingabe zu erzeugen", () => {
     // ⚠️ `parseBrunoCommand` weist `einnahmen-ausgaben` für Angestellte ab.
     // Der Betrag behält seine Bedeutung: der GEWINN, der auf dem Schirm stand.
-    const out = toggleSelfMode("bruno 90000-15000f");
+    const out = toggleSelfMode("bruno frei 90000-15000");
     expect(out).toBe("bruno 75000");
     expect(parseBrunoCommand(out)?.yearlyGross).toBe(75000);
     expect(parseBrunoCommand(out)?.self).toBe(false);

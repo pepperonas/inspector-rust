@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.178.0] - 2026-09-20
+
+### Changed
+- **`bruno`'s self-employed calculation now uses a leading keyword instead of the `f` suffix.** Type `bruno frei 80000` (Freiberufler, no Gewerbesteuer), `bruno gewerbe 80000` (Gewerbebetrieb, incl. Gewerbesteuer + §35 credit) or `bruno selbst 80000` (business type from Settings). The number is the yearly **profit** (Gewinn); `bruno frei 90000-15000` still computes income − expenses. Putting `frei`/`gewerbe` in the command pins the biggest accuracy lever — Gewerbesteuer — inline instead of hiding it in a Settings default, so the right result needs no prior setup. Tab still flips employee ↔ self-employed; the old `bruno 80000f` suffix keeps working.
+
 ## [0.177.0] - 2026-09-20
 
 ### Added

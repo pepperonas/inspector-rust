@@ -2295,6 +2295,10 @@ function App() {
       // Selbständigen-Rechnung (`f`-Suffix): eigener Rechenkern; die
       // employee-förmigen Kopf-Felder spiegeln die Kernzahlen, damit
       // Zeilen-Rendering + Enter-Paste unverändert funktionieren.
+      // A `frei`/`gewerbe` keyword pins the business type; `selbst`/`f` fall
+      // back to the saved Settings default.
+      const businessType =
+        parsed.businessType ?? (d.business_type === "gewerbe" ? "gewerbe" : "freiberufler");
       const sr = computeBrunoSelf({
         yearlyProfit: parsed.yearlyGross,
         state: d.state as GermanState,
@@ -2304,7 +2308,7 @@ function App() {
         kvType: d.kv_type === "pkv" ? "pkv" : "gkv",
         pkvMonthly: d.pkv_monthly,
         kvSickPay: d.kv_sick_pay,
-        businessType: d.business_type === "gewerbe" ? "gewerbe" : "freiberufler",
+        businessType,
         hebesatz: d.hebesatz,
         married: d.self_married,
       });
@@ -2328,7 +2332,7 @@ function App() {
           isChurchMember: d.is_church_member,
           self: {
             ...sr,
-            businessType: d.business_type === "gewerbe" ? "gewerbe" : "freiberufler",
+            businessType,
             hebesatz: d.hebesatz,
             kvType: d.kv_type === "pkv" ? "pkv" : "gkv",
             kvSickPay: d.kv_sick_pay,

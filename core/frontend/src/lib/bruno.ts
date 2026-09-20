@@ -219,14 +219,19 @@ export function computeBruno(input: BrunoInput): BrunoResult {
 // ── Parser ─────────────────────────────────────────────────────────
 
 export interface BrunoCommand {
-  /** Yearly gross (employee) or yearly PROFIT (self-employed, `f` suffix),
+  /** Yearly gross (employee) or yearly PROFIT (self-employed keyword),
    *  in EUR. Monthly input and `income - expenses` are normalised here. */
   yearlyGross: number;
   /** What the user typed: `m` = monatlich, `j`/`y` = jährlich,
    *  `null` = no suffix → defaults to yearly. */
   period: "monthly" | "yearly";
-  /** `f` suffix → freelancer / self-employed calculation. */
+  /** A leading `frei`/`gewerbe`/`selbst` keyword (or the legacy `f` suffix) →
+   *  self-employed calculation. */
   self: boolean;
+  /** Business type when the keyword pinned it (`frei` → freiberufler,
+   *  `gewerbe` → gewerbe). `undefined` for the generic `selbst` keyword / legacy
+   *  `f` → the caller falls back to the saved Settings default. */
+  businessType?: BrunoBusinessType;
   /** The Betriebsausgaben when the `income - expenses` form was used
    *  (already subtracted from `yearlyGross`; kept for the preview line). */
   expenses?: number;
@@ -234,52 +239,68 @@ export interface BrunoCommand {
 
 /**
  * Parse a `bruno`-family command. Accepts:
- *   `bruno 60000`         → 60.000 € yearly
- *   `bruno 5000m`         → 5.000 € monthly → 60.000 € yearly
- *   `bruno 60000j`        → explicit yearly
- *   `bruno 60.000`        → German thousands separator
- *   `bruno 60,000.50`     → US format
- *   `bruno 4.500,75 m`    → German with monthly suffix
+ *   `bruno 60000`             → 60.000 € yearly (employee)
+ *   `bruno 5000m`             → 5.000 € monthly → 60.000 € yearly
+ *   `bruno 60000j`            → explicit yearly
+ *   `bruno 60.000`            → German thousands separator
+ *   `bruno 60,000.50`         → US format
+ *   `bruno 4.500,75 m`        → German with monthly suffix
+ *   `bruno frei 80000`        → Freiberufler (self-employed, no Gewerbesteuer)
+ *   `bruno gewerbe 80000`     → Gewerbetreibender (Gewerbesteuer + § 35)
+ *   `bruno selbst 80000`      → self-employed, business type from saved default
+ *   `bruno frei 90000-15000`  → Einnahmen − Betriebsausgaben → Gewinn
+ *   `bruno 80000f`            → legacy suffix (= `selbst`, still parses)
  *
- * Returns `null` when the input isn't a complete bruno command
- * (e.g. `bruno`, `bruno abc`, empty arg).
+ * The self-employed number is the yearly PROFIT (Gewinn). Returns `null` when
+ * the input isn't a complete bruno command (e.g. `bruno`, `bruno abc`).
  */
 export function parseBrunoCommand(query: string): BrunoCommand | null {
   const trimmed = query.trimStart();
-  // Accept `bruno`, optional space, then the amount (optionally minus
-  // expenses: `90000-15000`), an optional period suffix and an optional `f`
-  // (freelancer/self-employed). The amounts are captured loosely; we re-parse
-  // with normaliseAmount below. Backward-compatible: every pre-existing form
-  // parses exactly as before (`self: false`, no expenses).
-  const m = trimmed.match(/^bruno\b\s*([\d.,]+)(?:\s*-\s*([\d.,]+))?\s*([mjy])?\s*(f)?\s*$/i);
+  // Accept `bruno`, an optional self-employed KEYWORD (`frei[beruf[ler]]` /
+  // `gewerbe` / `selbst` / `unternehmer` / `self`), then the amount (optionally
+  // minus expenses: `90000-15000`), an optional period suffix and the optional
+  // legacy `f`. Amounts are captured loosely and re-parsed with normaliseAmount.
+  // Backward-compatible: every pre-existing form (incl. `…f`) parses as before.
+  const m = trimmed.match(
+    /^bruno\b\s*(?:(frei(?:beruf(?:ler)?)?|gewerbe|selbst|unternehmer|self)\s+)?([\d.,]+)(?:\s*-\s*([\d.,]+))?\s*([mjy])?\s*(f)?\s*$/i,
+  );
   if (!m) return null;
-  const amount = normaliseAmount(m[1]);
+  const amount = normaliseAmount(m[2]);
   if (amount === null || amount <= 0) return null;
-  const self = (m[4] ?? "").toLowerCase() === "f";
+  const keyword = (m[1] ?? "").toLowerCase();
+  const self = keyword !== "" || (m[5] ?? "").toLowerCase() === "f";
+  // A pinned keyword sets the business type; `selbst`/`unternehmer`/`self` and
+  // the legacy `f` leave it undefined → the caller uses the saved default.
+  const businessType: BrunoBusinessType | undefined = keyword.startsWith("frei")
+    ? "freiberufler"
+    : keyword === "gewerbe"
+      ? "gewerbe"
+      : undefined;
   // The `income - expenses` form is only meaningful for the self-employed
   // calculation (Einnahmen − Betriebsausgaben). Reject it for employees.
   let expenses: number | undefined;
-  if (m[2] !== undefined) {
+  if (m[3] !== undefined) {
     if (!self) return null;
-    const e = normaliseAmount(m[2]);
+    const e = normaliseAmount(m[3]);
     if (e === null || e < 0) return null;
     expenses = e;
   }
-  const periodChar = (m[3] ?? "j").toLowerCase();
+  const periodChar = (m[4] ?? "j").toLowerCase();
   const period = periodChar === "m" ? "monthly" : "yearly";
   const base = expenses !== undefined ? amount - expenses : amount;
   if (base <= 0) return null;
   const yearlyGross = period === "monthly" ? base * 12 : base;
-  return { yearlyGross, period, self, expenses };
+  return { yearlyGross, period, self, businessType, expenses };
 }
 
 /**
- * Flip a bruno query between employee and self-employed mode.
+ * Flip a bruno query between employee and self-employed mode (Tab on the row).
  *
- * ⚠️ Until now the ONLY way to change mode was to retype the argument with or
- * without an `f`. This makes it a one-key operation while keeping the suffix as
- * the source of truth — the query stays the single place the mode lives, so
- * nothing else in the pipeline has to learn about a second one.
+ * The query stays the single source of truth for the mode. Self → employee
+ * drops the keyword; employee → self uses the generic `selbst` keyword, which
+ * takes the saved Settings business type. A specific `frei`/`gewerbe` pin is
+ * NOT preserved across a round-trip — Tab is a quick binary flip; retype
+ * `frei`/`gewerbe` to be explicit.
  *
  * ⚠️ Switching AWAY from self-employed also drops the `einnahmen-ausgaben`
  * form, because the parser rejects it for employees (`parseBrunoCommand`) — the
@@ -297,7 +318,7 @@ export function toggleSelfMode(query: string): string {
   // Keep German formatting out of it: a plain number always re-parses.
   const num = Number.isInteger(amount) ? String(amount) : amount.toFixed(2);
   const per = parsed.period === "monthly" ? "m" : "";
-  return parsed.self ? `bruno ${num}${per}` : `bruno ${num}${per}f`;
+  return parsed.self ? `bruno ${num}${per}` : `bruno selbst ${num}${per}`;
 }
 
 /**

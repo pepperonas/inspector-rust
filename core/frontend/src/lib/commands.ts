@@ -468,9 +468,9 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
   {
     kind: "bruno",
     keyword: "bruno",
-    syntax: "bruno <€>[m|j][f]",
+    syntax: "bruno [frei|gewerbe|selbst] <€>[m|j]",
     description:
-      "Brutto → Netto (2025). `bruno 60000` jährlich · `bruno 5000m` monatlich · Suffix `f` = Unternehmer/Selbständige (Gewinn statt Brutto) · ⇥ wechselt den Modus",
+      "Brutto → Netto (2025). `bruno 60000` jährlich · `bruno 5000m` monatlich · `bruno frei 80000` / `bruno gewerbe 80000` = Selbständige (Jahresgewinn; frei = keine Gewerbesteuer) · `bruno selbst 80000` nutzt den Settings-Betriebstyp · ⇥ wechselt den Modus",
     requiresArg: true,
   },
   // ── Timer ─────────────────────────────────────────────────────────

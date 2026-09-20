@@ -70,6 +70,65 @@ export interface OpenResult {
   stats: CaptureStats;
 }
 
+// ── live capture (Stage 2) ──
+
+export type CaptureState =
+  | "unavailable"
+  | "idle"
+  | "starting"
+  | "capturing"
+  | "paused_view"
+  | "stopping"
+  | "stopped"
+  | "error";
+
+export type BackendAvailability = "available" | "unsupported_platform";
+
+export interface SetupStatus {
+  availability: BackendAvailability;
+  message: string;
+  source_label: string;
+}
+
+export interface LiveStatus {
+  state: CaptureState;
+  error: string | null;
+  started_at_ms: number;
+  view_paused: boolean;
+  packets: number;
+  buffered: number;
+  dropped: number;
+  stats: CaptureStats;
+}
+
+/** Is the session actively running (backend live), incl. a frozen view? */
+export function isLiveRunning(state: CaptureState): boolean {
+  return state === "starting" || state === "capturing" || state === "paused_view";
+}
+
+/** Live clock: `MM:SS.mmm`, or `H:MM:SS.mmm` once past an hour (§3/§4). */
+export function formatLiveDuration(ms: number): string {
+  if (ms < 0) ms = 0;
+  const totalMs = Math.floor(ms);
+  const msPart = totalMs % 1000;
+  const totalSec = Math.floor(totalMs / 1000);
+  const s = totalSec % 60;
+  const m = Math.floor(totalSec / 60) % 60;
+  const h = Math.floor(totalSec / 3600);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const p3 = (n: number) => String(n).padStart(3, "0");
+  return h > 0 ? `${h}:${p2(m)}:${p2(s)}.${p3(msPart)}` : `${p2(m)}:${p2(s)}.${p3(msPart)}`;
+}
+
+/** Default capture filename (§3), timestamped, no device data. */
+export function defaultCaptureFilename(now: Date): string {
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const stamp =
+    `${now.getFullYear()}-${p2(now.getMonth() + 1)}-${p2(now.getDate())}` +
+    `_${p2(now.getHours())}-${p2(now.getMinutes())}-${p2(now.getSeconds())}`;
+  return `inspector-bluetooth-${stamp}.pklg`;
+}
+
 /** Short uppercase tag for the TYPE column — mirrors Rust `BtProtocol::tag`. */
 export function protocolTag(p: BtProtocol): string {
   switch (p) {

@@ -181,8 +181,8 @@ fn parse_pklg(data: &[u8]) -> Vec<RawRec> {
     let mut out = Vec::new();
     let mut pos = 0usize;
     while pos + 4 <= data.len() && out.len() < MAX_PACKETS {
-        let len = u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]])
-            as usize;
+        let len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         // `len` counts the 8-byte timestamp + 1 type byte + payload.
         if !(9..=MAX_RECORD_LEN).contains(&len) {
             break; // corrupt / not actually pklg — stop, keep what we have
@@ -223,9 +223,8 @@ fn parse_btsnoop(data: &[u8]) -> Result<Vec<RawRec>, ParseError> {
     let mut out = Vec::new();
     let mut pos = 16usize;
     while pos + 24 <= data.len() && out.len() < MAX_PACKETS {
-        let incl =
-            u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
-                as usize;
+        let incl = u32::from_be_bytes([data[pos + 4], data[pos + 5], data[pos + 6], data[pos + 7]])
+            as usize;
         let flags =
             u32::from_be_bytes([data[pos + 8], data[pos + 9], data[pos + 10], data[pos + 11]]);
         let ts = i64::from_be_bytes([
@@ -480,8 +479,7 @@ fn push_pcapng_packet(out: &mut Vec<RawRec>, linktype: u16, packet: &[u8], unix_
         201 => {
             // 4-byte big-endian direction pseudo-header (0=sent, 1=recv), then H4.
             if packet.len() >= 5 {
-                let sent =
-                    u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]) == 0;
+                let sent = u32::from_be_bytes([packet[0], packet[1], packet[2], packet[3]]) == 0;
                 let src = if sent {
                     BtDirection::Tx
                 } else {
@@ -561,7 +559,10 @@ mod tests {
             detect_format(&[0x0a, 0x0d, 0x0d, 0x0a, 0, 0, 0, 0]),
             CaptureFormat::Pcapng
         );
-        assert_eq!(detect_format(b"\x00\x01\x02\x03random"), CaptureFormat::Unknown);
+        assert_eq!(
+            detect_format(b"\x00\x01\x02\x03random"),
+            CaptureFormat::Unknown
+        );
     }
 
     // ── pklg ──
@@ -599,7 +600,7 @@ mod tests {
     #[test]
     fn pklg_truncated_final_record_keeps_the_rest() {
         let mut buf = pklg_rec(0x01, 1, 0, &[0x0e, 0x00]); // one good event
-        // a length claiming more bytes than remain
+                                                           // a length claiming more bytes than remain
         buf.extend_from_slice(&999u32.to_be_bytes());
         buf.extend_from_slice(&[0u8; 4]);
         let pkts = parse(&buf).unwrap();
@@ -614,10 +615,18 @@ mod tests {
         // A COMMAND record whose flag bit0 lies (=1, "received"); we must still
         // report Tx because a command is always host→controller.
         let cmd = [0x01u8, 0x0c, 0x20, 0x02, 0x01, 0x00]; // H4 0x01 + LE Set Scan Enable
-        buf.extend(btsnoop_rec(0x03, BTSNOOP_EPOCH_DELTA_US as i64 + 1_000_000, &cmd));
+        buf.extend(btsnoop_rec(
+            0x03,
+            BTSNOOP_EPOCH_DELTA_US as i64 + 1_000_000,
+            &cmd,
+        ));
         // An EVENT record with flag bit0=0 ("sent"); must still be Rx.
         let evt = [0x04u8, 0x0e, 0x04, 0x01, 0x0c, 0x20, 0x00]; // H4 0x04 + Command Complete
-        buf.extend(btsnoop_rec(0x02, BTSNOOP_EPOCH_DELTA_US as i64 + 2_000_000, &evt));
+        buf.extend(btsnoop_rec(
+            0x02,
+            BTSNOOP_EPOCH_DELTA_US as i64 + 2_000_000,
+            &evt,
+        ));
 
         let pkts = parse(&buf).unwrap();
         assert_eq!(pkts.len(), 2);
@@ -656,8 +665,10 @@ mod tests {
 
     #[test]
     fn btsnoop_short_header_errors_cleanly() {
-        assert!(matches!(parse(b"btsnoop\0short"), Err(ParseError::UnknownFormat))
-            || matches!(parse(b"btsnoop\0short"), Err(ParseError::BadHeader(_))));
+        assert!(
+            matches!(parse(b"btsnoop\0short"), Err(ParseError::UnknownFormat))
+                || matches!(parse(b"btsnoop\0short"), Err(ParseError::BadHeader(_)))
+        );
     }
 
     // ── pcapng ──

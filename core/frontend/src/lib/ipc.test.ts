@@ -360,3 +360,34 @@ describe("btsniff — Bluetooth capture analyzer wrappers", () => {
     });
   });
 });
+
+describe("btsniff — live capture wrappers", () => {
+  it("setup/start/stop/pause/resume/clear/status are args-free with the right names", async () => {
+    const cases: [string, () => Promise<unknown>][] = [
+      ["btsniff_setup_status", ipc.btsniffSetupStatus],
+      ["btsniff_live_start", ipc.btsniffLiveStart],
+      ["btsniff_live_stop", ipc.btsniffLiveStop],
+      ["btsniff_live_pause", ipc.btsniffLivePause],
+      ["btsniff_live_resume", ipc.btsniffLiveResume],
+      ["btsniff_live_clear", ipc.btsniffLiveClear],
+      ["btsniff_live_status", ipc.btsniffLiveStatus],
+    ];
+    for (const [name, fn] of cases) {
+      mockInvoke.mockReset();
+      mockInvoke.mockResolvedValue({});
+      await fn();
+      expect(mockInvoke).toHaveBeenCalledWith(name);
+    }
+  });
+
+  it("btsniffLivePacket passes the numeric index", async () => {
+    mockInvoke.mockResolvedValue({ index: 7, raw: [], decoded: [] });
+    await ipc.btsniffLivePacket(7);
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_live_packet", { index: 7 });
+  });
+
+  it("btsniffLiveExportJson passes the path", async () => {
+    await ipc.btsniffLiveExportJson("/tmp/live.json");
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_live_export_json", { path: "/tmp/live.json" });
+  });
+});

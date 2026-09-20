@@ -15,6 +15,9 @@ import {
   hexString,
   decodedText,
   diffChanged,
+  isLiveRunning,
+  formatLiveDuration,
+  defaultCaptureFilename,
   type BtPacketSlim,
 } from "./bluetooth-capture";
 
@@ -175,5 +178,29 @@ describe("hex dump / copy", () => {
     expect(diffChanged([false, true], 1)).toBe(true);
     expect(diffChanged([false, true], 0)).toBe(false);
     expect(diffChanged([false], 9)).toBe(false);
+  });
+});
+
+describe("live capture helpers", () => {
+  it("isLiveRunning covers the active states only", () => {
+    expect(isLiveRunning("starting")).toBe(true);
+    expect(isLiveRunning("capturing")).toBe(true);
+    expect(isLiveRunning("paused_view")).toBe(true);
+    expect(isLiveRunning("idle")).toBe(false);
+    expect(isLiveRunning("stopped")).toBe(false);
+    expect(isLiveRunning("error")).toBe(false);
+  });
+
+  it("formatLiveDuration is MM:SS.mmm under an hour, H:MM:SS.mmm past it", () => {
+    expect(formatLiveDuration(0)).toBe("00:00.000");
+    expect(formatLiveDuration(1_042)).toBe("00:01.042");
+    expect(formatLiveDuration(62_381)).toBe("01:02.381");
+    expect(formatLiveDuration(3_600_000 + 62_381)).toBe("1:01:02.381");
+    expect(formatLiveDuration(-5)).toBe("00:00.000");
+  });
+
+  it("defaultCaptureFilename is timestamped .pklg with no device data", () => {
+    const d = new Date(2026, 2, 7, 5, 31, 42); // local time
+    expect(defaultCaptureFilename(d)).toBe("inspector-bluetooth-2026-03-07_05-31-42.pklg");
   });
 });

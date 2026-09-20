@@ -131,8 +131,7 @@ fn decode_command(data: &[u8]) -> Decoded {
         Some(n) => n.to_string(),
         None => format!("HCI Command OGF 0x{ogf:02X} OCF 0x{ocf:03X}"),
     };
-    d.fields
-        .push(("Opcode".into(), format!("0x{opcode:04X}")));
+    d.fields.push(("Opcode".into(), format!("0x{opcode:04X}")));
     d.fields.push(("OGF".into(), format!("0x{ogf:02X}")));
     d.fields.push(("OCF".into(), format!("0x{ocf:03X}")));
     if let Some(&plen) = data.get(2) {
@@ -164,8 +163,7 @@ fn decode_event(data: &[u8]) -> Decoded {
         );
         d.summary = subname.unwrap_or("LE Meta Event").to_string();
         if let Some(s) = sub {
-            d.fields
-                .push(("Subevent".into(), format!("0x{s:02X}")));
+            d.fields.push(("Subevent".into(), format!("0x{s:02X}")));
         }
         return d;
     }
@@ -235,23 +233,18 @@ fn decode_att(d: &mut Decoded, p: &[u8]) {
     let name = att_name(op);
     d.opcode = Some(name.to_string());
     // Opcodes that carry an attribute handle at bytes [1..3].
-    let carries_handle = matches!(
-        op,
-        0x0a | 0x0c | 0x12 | 0x16 | 0x1b | 0x1d | 0x52 | 0xd2
-    );
+    let carries_handle = matches!(op, 0x0a | 0x0c | 0x12 | 0x16 | 0x1b | 0x1d | 0x52 | 0xd2);
     if carries_handle {
         if let Some(h) = u16le(p, 1) {
             d.att_handle = Some(h);
-            d.fields
-                .push(("ATT Handle".into(), format!("0x{h:04X}")));
+            d.fields.push(("ATT Handle".into(), format!("0x{h:04X}")));
         }
     }
     // Read By Type / Read By Group Type requests carry a type UUID after the
     // start/end handle pair (bytes 5..).
     if op == 0x08 || op == 0x10 {
         if let (Some(s), Some(e)) = (u16le(p, 1), u16le(p, 3)) {
-            d.fields
-                .push(("Start handle".into(), format!("0x{s:04X}")));
+            d.fields.push(("Start handle".into(), format!("0x{s:04X}")));
             d.fields.push(("End handle".into(), format!("0x{e:04X}")));
         }
         if let Some(u) = format_uuid(p.get(5..).unwrap_or(&[])) {
@@ -261,13 +254,12 @@ fn decode_att(d: &mut Decoded, p: &[u8]) {
     }
     // Value-bearing ops: expose the value length; the bytes live in `raw`.
     let value = match op {
-        0x0b => p.get(1..),                 // Read Response
+        0x0b => p.get(1..),                      // Read Response
         0x12 | 0x52 | 0x1b | 0x1d => p.get(3..), // Write/Notify/Indicate value
         _ => None,
     };
     if let Some(v) = value {
-        d.fields
-            .push(("Value length".into(), v.len().to_string()));
+        d.fields.push(("Value length".into(), v.len().to_string()));
     }
     // Summary: name + handle where we have one.
     d.summary = match d.att_handle {
@@ -395,7 +387,11 @@ mod tests {
     #[test]
     fn command_le_set_scan_enable() {
         // opcode 0x200c LE, plen 2, enable 1 filter 0
-        let d = decode(HciKind::Command, BtDirection::Tx, &[0x0c, 0x20, 0x02, 0x01, 0x00]);
+        let d = decode(
+            HciKind::Command,
+            BtDirection::Tx,
+            &[0x0c, 0x20, 0x02, 0x01, 0x00],
+        );
         assert_eq!(d.protocol, BtProtocol::HciCmd);
         assert_eq!(d.opcode.as_deref(), Some("LE Set Scan Enable"));
         assert!(d.summary.contains("Scan Enable"));
@@ -410,7 +406,11 @@ mod tests {
 
     #[test]
     fn event_command_complete_and_le_meta() {
-        let cc = decode(HciKind::Event, BtDirection::Rx, &[0x0e, 0x04, 0x01, 0x03, 0x0c, 0x00]);
+        let cc = decode(
+            HciKind::Event,
+            BtDirection::Rx,
+            &[0x0e, 0x04, 0x01, 0x03, 0x0c, 0x00],
+        );
         assert_eq!(cc.opcode.as_deref(), Some("Command Complete"));
         let meta = decode(HciKind::Event, BtDirection::Rx, &[0x3e, 0x0c, 0x02]);
         assert_eq!(meta.opcode.as_deref(), Some("LE Advertising Report"));
@@ -463,8 +463,8 @@ mod tests {
     fn read_by_group_type_extracts_uuid() {
         // ATT 0x10, start 0x0001 end 0xFFFF, type UUID 0x2800 (Primary Service)
         let data = [
-            0x40, 0x00, 0x0b, 0x00, 0x07, 0x00, 0x04, 0x00,
-            0x10, 0x01, 0x00, 0xff, 0xff, 0x00, 0x28,
+            0x40, 0x00, 0x0b, 0x00, 0x07, 0x00, 0x04, 0x00, 0x10, 0x01, 0x00, 0xff, 0xff, 0x00,
+            0x28,
         ];
         let d = decode(HciKind::Acl, BtDirection::Tx, &data);
         assert_eq!(d.uuid.as_deref(), Some("2800"));
@@ -475,8 +475,8 @@ mod tests {
         assert_eq!(format_uuid(&[0x19, 0x2a]).as_deref(), Some("2A19"));
         // 0000180f-0000-1000-8000-00805f9b34fb little-endian on the wire
         let le = [
-            0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00,
-            0x00, 0x0f, 0x18, 0x00, 0x00,
+            0xfb, 0x34, 0x9b, 0x5f, 0x80, 0x00, 0x00, 0x80, 0x00, 0x10, 0x00, 0x00, 0x0f, 0x18,
+            0x00, 0x00,
         ];
         assert_eq!(
             format_uuid(&le).as_deref(),

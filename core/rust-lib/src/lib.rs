@@ -1,110 +1,110 @@
 //! `inspector-rust-core` — shared, OS-independent app logic for Inspector Rust.
 
 mod adb;
+mod alarm;
+mod ambient_light;
 mod app_launcher;
 mod audio;
 mod audio_swap;
+mod auto_backup;
 mod auto_expand;
-mod media_trim;
-mod social_dl;
 mod backup;
+mod beat;
+mod bench;
+mod bench_export;
+mod bluetooth;
+mod bluetooth_capture;
+mod boom;
 mod brightness;
-mod ambient_light;
-mod edr;
 mod bruno;
-mod cli_dispatch;
+mod bruno_export;
 mod cleaner;
+mod cli_dispatch;
 mod clipboard_watcher;
+mod color_loupe;
 mod commands;
 mod crypto;
 mod cutout;
 mod cutout_ml;
 mod db;
-mod disk_usage;
-mod bench;
-mod bench_export;
-mod bluetooth;
-mod bluetooth_capture;
-mod bruno_export;
-mod auto_backup;
-mod device_sync;
-mod pagespeed;
-mod pagespeed_export;
-mod path_arg;
 #[cfg(target_os = "linux")]
 mod desktop_shortcuts;
+mod device_sync;
+mod disk_usage;
+mod edr;
+#[cfg(target_os = "macos")]
+mod esc_watch;
 mod expander;
 mod faker;
 mod figlet;
+mod finder_selection;
+mod frontmost_app;
+mod gestures;
 mod hotkey;
 mod hue;
-#[cfg(target_os = "macos")]
-mod snitch;
-mod sync;
-mod shazam;
-mod translate;
-mod weather;
-mod token_usage;
-mod beat;
-mod iris;
-mod mic_capture;
 mod image_ops;
+mod input_lock;
+mod ip;
+mod iris;
+mod keepalive;
 mod loc;
 mod loc_export;
 mod logging;
 mod md_to_pdf;
+mod media_name;
+mod media_trim;
 mod meme;
+mod mic_capture;
 mod models;
 mod nosleep;
 mod notes;
-mod media_name;
-mod xhype;
-mod shell_alias;
 mod ocr;
-mod totp_import;
-mod totp_store;
-mod paste;
-mod recolor;
-mod input_lock;
 #[cfg(target_os = "macos")]
-mod esc_watch;
-mod report_style;
-mod repo_stats;
+mod osascript_util;
+mod pagespeed;
+mod pagespeed_export;
+mod paste;
+mod path_arg;
+mod qr;
+mod recolor;
 mod region_picker;
+mod repo_stats;
+mod report_style;
 mod screen_picker;
 mod screen_record;
-mod sec;
 mod screen_recording;
-mod frontmost_app;
 mod screenshot_editor;
 mod screenshot_preview;
+mod sec;
 mod seed;
 mod settings;
+mod shazam;
+mod shell_alias;
 mod sleep_status;
 mod snippet_template;
 mod snippets;
+#[cfg(target_os = "macos")]
+mod snitch;
+mod social_dl;
 mod sound;
+mod stats_history;
 mod status_toast;
-mod alarm;
-mod tracking;
-mod color_loupe;
-mod gestures;
-mod keepalive;
-mod window_snap;
-mod window_palette;
+mod sync;
 mod system_commands;
 mod system_stats;
-mod stats_history;
-mod boom;
-mod finder_selection;
-#[cfg(target_os = "macos")]
-mod osascript_util;
 mod text_field;
 mod timer;
+mod token_usage;
+mod totp_import;
+mod totp_store;
+mod tracking;
+mod translate;
 mod ui_state;
 mod wakelock;
-mod qr;
-mod ip;
+mod weather;
+mod window_palette;
+mod window_snap;
+mod xhype;
 
 pub use ui_state::UiState;
 
@@ -990,6 +990,15 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::btsniff_export_json,
             commands::btsniff_default_filename,
             commands::btsniff_sanitize_filename,
+            commands::btsniff_setup_status,
+            commands::btsniff_live_start,
+            commands::btsniff_live_stop,
+            commands::btsniff_live_pause,
+            commands::btsniff_live_resume,
+            commands::btsniff_live_clear,
+            commands::btsniff_live_status,
+            commands::btsniff_live_packet,
+            commands::btsniff_live_export_json,
             commands::token_usage_fetch,
             commands::iris_start,
             commands::iris_stop,
@@ -1277,7 +1286,9 @@ mod tray_icon_tests {
     const ICON: &[u8] = include_bytes!("../assets/tray-hat.png");
 
     fn decoded() -> image::RgbaImage {
-        image::load_from_memory(ICON).expect("tray icon must decode").to_rgba8()
+        image::load_from_memory(ICON)
+            .expect("tray icon must decode")
+            .to_rgba8()
     }
 
     #[test]

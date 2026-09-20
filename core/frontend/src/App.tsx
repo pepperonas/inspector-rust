@@ -1959,8 +1959,8 @@ function App() {
         hint = "Enter → Sunburst der Ordnergrößen, Drill-down, größte Dateien";
         break;
       case "btsniff":
-        label = "Bluetooth-Capture analysieren";
-        hint = "Enter → .pklg / btsnoop / pcapng importieren; HCI/ATT/GATT dekodiert, Byte-Diff";
+        label = "Bluetooth-Analyzer";
+        hint = "Enter → Live-BLE-Scan (macOS) oder .pklg / btsnoop / pcapng importieren; HCI/ATT/GATT, Byte-Diff";
         break;
       case "adb": {
         const v = arg.trim().toLowerCase();

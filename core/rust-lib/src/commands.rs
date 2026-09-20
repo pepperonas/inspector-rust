@@ -3,16 +3,18 @@ use std::sync::atomic::Ordering;
 use tauri::{AppHandle, Emitter, Manager, State};
 
 use crate::auto_expand;
-use crate::gestures;
-use crate::keepalive;
 use crate::backup::{self, BackupImportResult};
 use crate::cleaner;
-use crate::meme;
 use crate::clipboard_watcher::WatcherState;
 use crate::cutout_ml;
 use crate::db::{self, DbHandle};
+#[cfg(target_os = "linux")]
+use crate::desktop_shortcuts;
 use crate::expander;
+use crate::gestures;
 use crate::hotkey::{self, ExpanderShortcutState};
+use crate::keepalive;
+use crate::meme;
 use crate::models::ClipEntry;
 use crate::notes::{self, Note};
 use crate::ocr;
@@ -23,8 +25,6 @@ use crate::screen_recording;
 use crate::seed;
 use crate::settings;
 use crate::snippets::{self, ImportResult, Snippet};
-#[cfg(target_os = "linux")]
-use crate::desktop_shortcuts;
 use crate::ui_state::UiState;
 
 fn map_err<E: std::fmt::Display>(e: E) -> String {
@@ -189,10 +189,7 @@ pub fn set_lineage_highlight(db: State<'_, DbHandle>, value: bool) -> Result<(),
 
 /// Persist a new value for `paste.plain_text_only`.
 #[tauri::command]
-pub fn set_paste_plain_text_only(
-    db: State<'_, DbHandle>,
-    value: bool,
-) -> Result<(), String> {
+pub fn set_paste_plain_text_only(db: State<'_, DbHandle>, value: bool) -> Result<(), String> {
     settings::set(
         &db,
         KEY_PLAIN_TEXT_ONLY,
@@ -211,10 +208,7 @@ pub fn get_ocr_save_source_image(db: State<'_, DbHandle>) -> Result<bool, String
 
 /// Persist a new value for `ocr.save_source_image`.
 #[tauri::command]
-pub fn set_ocr_save_source_image(
-    db: State<'_, DbHandle>,
-    value: bool,
-) -> Result<(), String> {
+pub fn set_ocr_save_source_image(db: State<'_, DbHandle>, value: bool) -> Result<(), String> {
     settings::set(
         &db,
         KEY_OCR_SAVE_SOURCE,
@@ -243,10 +237,7 @@ pub fn get_input_lock_chord(db: State<'_, DbHandle>) -> Result<Vec<String>, Stri
 /// chords so the user can never lock themselves out by saving an
 /// unusable chord.
 #[tauri::command]
-pub fn set_input_lock_chord(
-    db: State<'_, DbHandle>,
-    keys: Vec<String>,
-) -> Result<(), String> {
+pub fn set_input_lock_chord(db: State<'_, DbHandle>, keys: Vec<String>) -> Result<(), String> {
     if keys.is_empty() {
         return Err("chord cannot be empty".into());
     }
@@ -256,18 +247,14 @@ pub fn set_input_lock_chord(
     if !any_valid {
         return Err("chord contains no recognised keys".into());
     }
-    let json =
-        serde_json::to_string(&keys).map_err(|e| format!("serialise chord: {e}"))?;
+    let json = serde_json::to_string(&keys).map_err(|e| format!("serialise chord: {e}"))?;
     settings::set(&db, KEY_INPUT_LOCK_CHORD, &json).map_err(map_err)
 }
 
 /// Activate the input lock. Reads the persisted unlock chord from
 /// settings and hands it to `input_lock::start_input_lock`.
 #[tauri::command]
-pub fn start_input_lock(
-    db: State<'_, DbHandle>,
-    app: AppHandle,
-) -> Result<(), String> {
+pub fn start_input_lock(db: State<'_, DbHandle>, app: AppHandle) -> Result<(), String> {
     let chord = get_input_lock_chord(db)?;
     // Hide the popup so the user isn't visually staring at an open
     // window that can no longer accept clicks.
@@ -303,9 +290,7 @@ pub fn cancel_timer(
 }
 
 #[tauri::command]
-pub fn list_timers(
-    state: State<'_, crate::timer::TimerRegistry>,
-) -> Vec<crate::timer::TimerView> {
+pub fn list_timers(state: State<'_, crate::timer::TimerRegistry>) -> Vec<crate::timer::TimerView> {
     crate::timer::list(state.inner())
 }
 
@@ -439,7 +424,9 @@ pub fn parse_project_map(raw: &str) -> Vec<(String, String)> {
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let Some((k, v)) = line.split_once('=') else { continue };
+        let Some((k, v)) = line.split_once('=') else {
+            continue;
+        };
         let (k, v) = (k.trim(), v.trim());
         if k.is_empty() || v.is_empty() {
             continue;
@@ -479,14 +466,39 @@ pub fn set_slot_config(db: State<'_, DbHandle>, config: SlotConfig) -> Result<()
     let s = |k: &str, v: String| crate::settings::set(&db, k, &v).map_err(map_err);
     // Clamped so a hand-edited value can neither disable the consolidation
     // silently nor make every event its own slot again.
-    s("track.slot.bridge_gap_s", config.bridge_gap_s.clamp(0, 3600).to_string())?;
-    s("track.slot.noise_s", config.noise_s.clamp(0, 900).to_string())?;
-    s("track.slot.min_break_s", config.min_break_s.clamp(60, 7200).to_string())?;
-    s("track.slot.min_slot_s", config.min_slot_s.clamp(60, 14400).to_string())?;
-    s("track.slot.grid_min", config.grid_min.clamp(0, 60).to_string())?;
-    s("track.slot.neighbour_gap_s", config.neighbour_gap_s.clamp(0, 3600).to_string())?;
+    s(
+        "track.slot.bridge_gap_s",
+        config.bridge_gap_s.clamp(0, 3600).to_string(),
+    )?;
+    s(
+        "track.slot.noise_s",
+        config.noise_s.clamp(0, 900).to_string(),
+    )?;
+    s(
+        "track.slot.min_break_s",
+        config.min_break_s.clamp(60, 7200).to_string(),
+    )?;
+    s(
+        "track.slot.min_slot_s",
+        config.min_slot_s.clamp(60, 14400).to_string(),
+    )?;
+    s(
+        "track.slot.grid_min",
+        config.grid_min.clamp(0, 60).to_string(),
+    )?;
+    s(
+        "track.slot.neighbour_gap_s",
+        config.neighbour_gap_s.clamp(0, 3600).to_string(),
+    )?;
     s("track.slot.project_map", config.project_map.clone())?;
-    s("track.private_filter", if config.private_filter { "1".into() } else { "0".into() })?;
+    s(
+        "track.private_filter",
+        if config.private_filter {
+            "1".into()
+        } else {
+            "0".into()
+        },
+    )?;
     s("track.private_apps", config.private_apps.clone())?;
     Ok(())
 }
@@ -499,7 +511,10 @@ pub fn track_slots(
     date: String,
 ) -> Result<Vec<crate::tracking::slots::Slot>, String> {
     let cfg = slot_config(&db);
-    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    let names: Vec<String> = parse_project_map(&cfg.project_map)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
     crate::tracking::day_slots(&db, &date, &(&cfg).into(), &names)
 }
 
@@ -511,7 +526,10 @@ pub fn track_slots_range(
     to: String,
 ) -> Result<Vec<(String, Vec<crate::tracking::slots::Slot>)>, String> {
     let cfg = slot_config(&db);
-    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    let names: Vec<String> = parse_project_map(&cfg.project_map)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
     crate::tracking::range_slots(&db, &from, &to, &(&cfg).into(), &names)
 }
 
@@ -778,13 +796,28 @@ pub fn get_timesheet_config(db: State<'_, DbHandle>) -> TimesheetConfig {
 }
 
 #[tauri::command]
-pub fn set_timesheet_config(db: State<'_, DbHandle>, config: TimesheetConfig) -> Result<(), String> {
+pub fn set_timesheet_config(
+    db: State<'_, DbHandle>,
+    config: TimesheetConfig,
+) -> Result<(), String> {
     let s = |k: &str, v: &str| crate::settings::set(&db, k, v).map_err(map_err);
-    s("track.idle_seconds", &config.idle_seconds.max(10).to_string())?;
-    s("track.retention_days", &config.retention_days.max(0).to_string())?;
-    s("track.claude_watcher", if config.claude_watcher { "1" } else { "0" })?;
+    s(
+        "track.idle_seconds",
+        &config.idle_seconds.max(10).to_string(),
+    )?;
+    s(
+        "track.retention_days",
+        &config.retention_days.max(0).to_string(),
+    )?;
+    s(
+        "track.claude_watcher",
+        if config.claude_watcher { "1" } else { "0" },
+    )?;
     s("track.denylist", &config.denylist)?;
-    s("track.daily_goal_minutes", &config.daily_goal_minutes.max(0).to_string())?;
+    s(
+        "track.daily_goal_minutes",
+        &config.daily_goal_minutes.max(0).to_string(),
+    )?;
     Ok(())
 }
 
@@ -812,9 +845,15 @@ pub fn track_export_projects(
     let detail = crate::tracking::export::Detail::parse(detail.as_deref().unwrap_or("full"));
     let proj = project.as_deref().filter(|p| !p.is_empty());
     let (content, ext) = if format == "html" {
-        (crate::tracking::export::project_html(&events, from_ms, to_ms, now, detail, proj), "html")
+        (
+            crate::tracking::export::project_html(&events, from_ms, to_ms, now, detail, proj),
+            "html",
+        )
     } else {
-        (crate::tracking::export::project_csv(&events, now, detail, proj), "csv")
+        (
+            crate::tracking::export::project_csv(&events, now, detail, proj),
+            "csv",
+        )
     };
     // Filename: include a sanitized project slug when scoped to one client.
     let slug = proj
@@ -892,21 +931,33 @@ pub async fn track_export(
             .unwrap_or_default()
     };
     let cfg = slot_config(&db);
-    let names: Vec<String> = parse_project_map(&cfg.project_map).into_iter().map(|(k, _)| k).collect();
+    let names: Vec<String> = parse_project_map(&cfg.project_map)
+        .into_iter()
+        .map(|(k, _)| k)
+        .collect();
     // Per-project, overlap-corrected consolidation (robust to parallel Claude
     // sessions, unlike the timeline slots which need one focus at a time).
-    let project_days =
-        crate::tracking::range_project_totals(&db, &to_date(from), &to_date(to - 1), &(&cfg).into(), &names)
-            .unwrap_or_default();
+    let project_days = crate::tracking::range_project_totals(
+        &db,
+        &to_date(from),
+        &to_date(to - 1),
+        &(&cfg).into(),
+        &names,
+    )
+    .unwrap_or_default();
     // ⚠️ `pdf` rendert dasselbe HTML durch WebKit — deshalb ist dieser Befehl
     // `async`: ein synchroner liefe AUF dem Hauptthread und wartete auf sich selbst.
     let (content, ext) = match format.as_str() {
         "html" | "pdf" => {
-            let tokens = crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
+            let tokens =
+                crate::tracking::db::claude_tokens_by_project(&db, from, to).unwrap_or_default();
             let doc = crate::tracking::export::html(&events, &tokens, from, to, now, &project_days);
             (doc, if format == "pdf" { "pdf" } else { "html" })
         }
-        "csv" => (crate::tracking::export::csv(&events, now, &project_days), "csv"),
+        "csv" => (
+            crate::tracking::export::csv(&events, now, &project_days),
+            "csv",
+        ),
         other => return Err(format!("Unbekanntes Format: {other}")),
     };
     let dir = dirs::download_dir().ok_or_else(|| "no Downloads folder".to_string())?;
@@ -926,7 +977,9 @@ pub async fn track_export(
 /// Return the cached app index. Frontend fuzzy-matches against this
 /// list in the popup search bar; one shot at popup-mount, no polling.
 #[tauri::command]
-pub fn list_apps(state: State<'_, crate::app_launcher::AppIndex>) -> Vec<crate::app_launcher::AppEntry> {
+pub fn list_apps(
+    state: State<'_, crate::app_launcher::AppIndex>,
+) -> Vec<crate::app_launcher::AppEntry> {
     state.inner().apps.lock().clone()
 }
 
@@ -972,9 +1025,7 @@ pub fn get_app_icon(
 // ── Bruno (Brutto-Netto-Rechner) ──────────────────────────────────────
 
 #[tauri::command]
-pub fn bruno_get_defaults(
-    db: State<'_, DbHandle>,
-) -> Result<crate::bruno::BrunoDefaults, String> {
+pub fn bruno_get_defaults(db: State<'_, DbHandle>) -> Result<crate::bruno::BrunoDefaults, String> {
     crate::bruno::get_defaults(&db).map_err(map_err)
 }
 
@@ -1045,7 +1096,12 @@ pub fn figlet_gallery(
     max_lines: usize,
     max_cols: usize,
 ) -> Vec<crate::figlet::FigletSample> {
-    crate::figlet::gallery(&text, &fonts, max_lines.clamp(1, 12), max_cols.clamp(8, 200))
+    crate::figlet::gallery(
+        &text,
+        &fonts,
+        max_lines.clamp(1, 12),
+        max_cols.clamp(8, 200),
+    )
 }
 
 #[tauri::command]
@@ -1272,9 +1328,7 @@ fn resolve_repo_target(target: Option<String>) -> Result<RepoTarget, String> {
             #[cfg(target_os = "macos")]
             {
                 let sel = crate::finder_selection::read().unwrap_or_default();
-                let git = sel
-                    .into_iter()
-                    .find(|p| p.join(".git").exists());
+                let git = sel.into_iter().find(|p| p.join(".git").exists());
                 match git {
                     Some(p) => Ok(RepoTarget::Local(p)),
                     None => Err("repo.no_target".to_string()),
@@ -1346,7 +1400,9 @@ const KEY_CLOCK_ZONES: &str = "clock.zones";
 /// + supplies defaults when empty). Empty string = never set.
 #[tauri::command]
 pub fn get_clock_zones(db: State<'_, DbHandle>) -> Result<String, String> {
-    Ok(settings::get(&db, KEY_CLOCK_ZONES).map_err(map_err)?.unwrap_or_default())
+    Ok(settings::get(&db, KEY_CLOCK_ZONES)
+        .map_err(map_err)?
+        .unwrap_or_default())
 }
 
 /// Persist the zone list. `zones_json` is a JSON array of tz-id strings,
@@ -1386,7 +1442,10 @@ fn finder_folder() -> Option<std::path::PathBuf> {
 }
 
 #[tauri::command]
-pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::disk_usage::DiskScan, String> {
+pub async fn disk_scan(
+    app: AppHandle,
+    path: Option<String>,
+) -> Result<crate::disk_usage::DiskScan, String> {
     use std::sync::Arc;
     // Bare `disk` prefers the folder selected in Finder (the `touch`/`loc`
     // convention), then falls back to home. A selected FILE resolves to its
@@ -1397,7 +1456,9 @@ pub async fn disk_scan(app: AppHandle, path: Option<String>) -> Result<crate::di
         // gives as an example. Taken literally it is a relative folder named
         // `~`, which does not exist.
         Some(p) => crate::path_arg::expand_user(p, home.as_deref()),
-        None => finder_folder().or(home).ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
+        None => finder_folder()
+            .or(home)
+            .ok_or_else(|| "Kein Home-Verzeichnis".to_string())?,
     };
     // Disks (mount, total, free) from sysinfo — passed into the pure scanner.
     let disks: Vec<(String, u64, u64)> = {
@@ -1494,9 +1555,7 @@ pub struct AdbStatus {
 }
 
 #[tauri::command]
-pub async fn adb_status(
-    state: State<'_, crate::adb::AdbRecordState>,
-) -> Result<AdbStatus, String> {
+pub async fn adb_status(state: State<'_, crate::adb::AdbRecordState>) -> Result<AdbStatus, String> {
     let recording = crate::adb::record_active(&state);
     tauri::async_runtime::spawn_blocking(move || {
         let found = crate::adb::adb_path().is_some();
@@ -1505,7 +1564,11 @@ pub async fn adb_status(
         } else {
             Vec::new()
         };
-        Ok(AdbStatus { found, devices, recording })
+        Ok(AdbStatus {
+            found,
+            devices,
+            recording,
+        })
     })
     .await
     .map_err(|e| format!("adb task: {e}"))?
@@ -1611,11 +1674,9 @@ pub async fn adb_app_action(
     action: String,
     package: String,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        crate::adb::app_action(&serial, &action, &package)
-    })
-    .await
-    .map_err(|e| format!("adb task: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || crate::adb::app_action(&serial, &action, &package))
+        .await
+        .map_err(|e| format!("adb task: {e}"))?
 }
 
 #[tauri::command]
@@ -1713,7 +1774,11 @@ pub fn wakelock_set(
     // it synchronously (or after a window-only hide) left it off-screen.
     // Brand the toast by which keyword was used (`caffeine` vs `wakelock`);
     // both drive the identical animation/behaviour.
-    let label = if source.as_deref() == Some("caffeine") { "Caffeine" } else { "Wakelock" };
+    let label = if source.as_deref() == Some("caffeine") {
+        "Caffeine"
+    } else {
+        "Wakelock"
+    };
     let (title, subtitle) = if new_state {
         match wl_mode {
             crate::wakelock::WakelockMode::Dark => (
@@ -1755,7 +1820,9 @@ pub struct WakelockStatus {
 fn wakelock_status(state: &State<'_, crate::wakelock::WakelockState>) -> WakelockStatus {
     WakelockStatus {
         on: crate::wakelock::is_enabled(state.inner()),
-        mode: crate::wakelock::current_mode(state.inner()).as_str().to_string(),
+        mode: crate::wakelock::current_mode(state.inner())
+            .as_str()
+            .to_string(),
     }
 }
 
@@ -1771,7 +1838,12 @@ pub fn wakelock_get(state: State<'_, crate::wakelock::WakelockState>) -> Wakeloc
 pub fn show_status_toast(app: AppHandle, kind: String, on: bool, title: String, subtitle: String) {
     crate::status_toast::announce(
         &app,
-        crate::status_toast::StatusToast { kind, on, title, subtitle },
+        crate::status_toast::StatusToast {
+            kind,
+            on,
+            title,
+            subtitle,
+        },
     );
 }
 
@@ -1817,10 +1889,7 @@ pub fn get_theme_preference(db: State<'_, DbHandle>) -> Result<String, String> {
 /// Persist the theme preference. Rejects anything that isn't one of
 /// the three valid values rather than silently storing garbage.
 #[tauri::command]
-pub fn set_theme_preference(
-    db: State<'_, DbHandle>,
-    theme: String,
-) -> Result<(), String> {
+pub fn set_theme_preference(db: State<'_, DbHandle>, theme: String) -> Result<(), String> {
     let normalised = normalise_theme(&theme);
     if normalised != theme {
         return Err(format!(
@@ -1846,8 +1915,12 @@ pub fn get_sound_enabled(db: State<'_, DbHandle>) -> Result<bool, String> {
 /// the change takes effect without a relaunch).
 #[tauri::command]
 pub fn set_sound_enabled(db: State<'_, DbHandle>, enabled: bool) -> Result<(), String> {
-    settings::set(&db, KEY_SOUND_ENABLED, if enabled { "true" } else { "false" })
-        .map_err(map_err)?;
+    settings::set(
+        &db,
+        KEY_SOUND_ENABLED,
+        if enabled { "true" } else { "false" },
+    )
+    .map_err(map_err)?;
     crate::sound::set_enabled(enabled);
     Ok(())
 }
@@ -2060,11 +2133,7 @@ pub fn get_crt_animation(db: State<'_, DbHandle>) -> CrtAnimation {
 /// `window-shown` handler, so the frontend caches the value and cannot read it
 /// at animation time. Returns the stored value.
 #[tauri::command]
-pub fn set_crt_animation(
-    app: AppHandle,
-    db: State<'_, DbHandle>,
-    ms: u32,
-) -> Result<u32, String> {
+pub fn set_crt_animation(app: AppHandle, db: State<'_, DbHandle>, ms: u32) -> Result<u32, String> {
     let stored = normalise_crt_ms(Some(&ms.to_string()));
     settings::set(&db, KEY_CRT_MS, &stored.to_string()).map_err(map_err)?;
     let _ = app.emit("crt-animation-changed", stored);
@@ -2244,8 +2313,12 @@ pub fn set_popup_close_on_blur(
     state: State<'_, UiState>,
     close: bool,
 ) -> Result<(), String> {
-    crate::settings::set(&db, "popup.close_on_blur", if close { "true" } else { "false" })
-        .map_err(map_err)?;
+    crate::settings::set(
+        &db,
+        "popup.close_on_blur",
+        if close { "true" } else { "false" },
+    )
+    .map_err(map_err)?;
     // Live effect — the window-event handler reads this atomic.
     state.close_on_blur.store(close, Ordering::SeqCst);
     Ok(())
@@ -2257,21 +2330,18 @@ pub fn set_popup_close_on_blur(
 pub fn list_snippets(db: State<'_, DbHandle>) -> Result<Vec<Snippet>, String> {
     // Through the read cache (A5): the Snippets tab poll/refresh no longer
     // decrypts every body per call.
-    snippets::list_all_cached(&db).map(|v| (*v).clone()).map_err(map_err)
+    snippets::list_all_cached(&db)
+        .map(|v| (*v).clone())
+        .map_err(map_err)
 }
 
 #[tauri::command]
-pub fn get_snippet_storage(
-    db: State<'_, DbHandle>,
-) -> Result<snippets::SnippetStorage, String> {
+pub fn get_snippet_storage(db: State<'_, DbHandle>) -> Result<snippets::SnippetStorage, String> {
     snippets::storage_stats(&db).map_err(map_err)
 }
 
 #[tauri::command]
-pub fn find_snippets(
-    db: State<'_, DbHandle>,
-    query: String,
-) -> Result<Vec<Snippet>, String> {
+pub fn find_snippets(db: State<'_, DbHandle>, query: String) -> Result<Vec<Snippet>, String> {
     snippets::find_by_query(&db, &query).map_err(map_err)
 }
 
@@ -2296,7 +2366,7 @@ pub fn upsert_snippet(
     };
     if result.is_ok() {
         auto_expand::rebuild_table(&db, &ae);
-    crate::sync::request_sync();
+        crate::sync::request_sync();
     }
     result
 }
@@ -2406,8 +2476,7 @@ pub fn import_snippets_from_file(
     ae: State<'_, auto_expand::AutoExpandState>,
     path: String,
 ) -> Result<ImportResult, String> {
-    let json = std::fs::read_to_string(&path)
-        .map_err(|e| format!("read {path}: {e}"))?;
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
     let r = backup::import_snippets_json(&db, &json).map_err(map_err)?;
     auto_expand::rebuild_table(&db, &ae);
     crate::sync::request_sync();
@@ -2588,8 +2657,7 @@ pub fn paste_note_formatted(
 
     hotkey::hide_popup(&app);
     watcher.mark_self_write(note.content_type, &note.content_data);
-    paste::paste_payload(note.content_type, &note.content_data, &note.content_text)
-        .map_err(map_err)
+    paste::paste_payload(note.content_type, &note.content_data, &note.content_text).map_err(map_err)
 }
 
 // ── Backup (full app export / import) ────────────────────────────────────────
@@ -2658,8 +2726,8 @@ pub async fn save_backup_to_file(
     };
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let json = backup::export_json_maybe_encrypted(&db, opts, password.as_deref())
-            .map_err(map_err)?;
+        let json =
+            backup::export_json_maybe_encrypted(&db, opts, password.as_deref()).map_err(map_err)?;
         std::fs::write(&path, &json).map_err(|e| format!("write {path}: {e}"))?;
         Ok(json.len())
     })
@@ -2678,8 +2746,7 @@ pub async fn import_backup(
 ) -> Result<BackupImportResult, String> {
     let db = db.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let json = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {path}: {e}"))?;
+        let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
         backup::import_json_maybe_encrypted(&db, &json, password.as_deref()).map_err(map_err)
     })
     .await
@@ -2692,8 +2759,7 @@ pub async fn import_backup(
 pub async fn is_backup_encrypted(path: String) -> Result<bool, String> {
     // async — reads the whole (possibly large) backup file.
     tauri::async_runtime::spawn_blocking(move || {
-        let json = std::fs::read_to_string(&path)
-            .map_err(|e| format!("read {path}: {e}"))?;
+        let json = std::fs::read_to_string(&path).map_err(|e| format!("read {path}: {e}"))?;
         Ok(backup::is_encrypted(&json))
     })
     .await
@@ -2843,7 +2909,9 @@ pub async fn set_boom_config(
 // ── Window palette (Moom-style hover palette) ─────────────────────────────────
 
 #[tauri::command]
-pub fn get_window_palette_config(db: State<'_, DbHandle>) -> crate::window_palette::WindowPaletteConfig {
+pub fn get_window_palette_config(
+    db: State<'_, DbHandle>,
+) -> crate::window_palette::WindowPaletteConfig {
     crate::window_palette::WindowPaletteConfig::load(&db)
 }
 
@@ -2988,8 +3056,8 @@ pub struct ExpanderConfig {
 #[tauri::command]
 pub fn get_expander_config(db: State<'_, DbHandle>) -> Result<ExpanderConfig, String> {
     let enabled = settings::get_bool(&db, expander::KEY_ENABLED, false).map_err(map_err)?;
-    let hotkey = settings::get_or(&db, expander::KEY_HOTKEY, expander::DEFAULT_HOTKEY)
-        .map_err(map_err)?;
+    let hotkey =
+        settings::get_or(&db, expander::KEY_HOTKEY, expander::DEFAULT_HOTKEY).map_err(map_err)?;
     Ok(ExpanderConfig {
         enabled,
         hotkey,
@@ -3355,8 +3423,7 @@ pub fn set_expander_config(
 /// Read the user-configured popup hotkey (or the default if never set).
 #[tauri::command]
 pub fn get_popup_hotkey(db: State<'_, DbHandle>) -> Result<String, String> {
-    settings::get_or(&db, hotkey::KEY_POPUP_HOTKEY, hotkey::DEFAULT_POPUP_HOTKEY)
-        .map_err(map_err)
+    settings::get_or(&db, hotkey::KEY_POPUP_HOTKEY, hotkey::DEFAULT_POPUP_HOTKEY).map_err(map_err)
 }
 
 /// The hard-coded default. Used by the frontend to display "reset" / "default" hints.
@@ -3387,8 +3454,12 @@ pub fn set_popup_hotkey(
 /// Read the user-configured clipboard-history hotkey (or the default).
 #[tauri::command]
 pub fn get_history_hotkey(db: State<'_, DbHandle>) -> Result<String, String> {
-    settings::get_or(&db, hotkey::KEY_HISTORY_HOTKEY, hotkey::DEFAULT_HISTORY_HOTKEY)
-        .map_err(map_err)
+    settings::get_or(
+        &db,
+        hotkey::KEY_HISTORY_HOTKEY,
+        hotkey::DEFAULT_HISTORY_HOTKEY,
+    )
+    .map_err(map_err)
 }
 
 /// The hard-coded default for the clipboard-history hotkey.
@@ -3505,9 +3576,7 @@ pub fn totp_current_code(
 /// Current codes for every entry in one shot — the management
 /// overlay polls this once a second instead of N IPCs.
 #[tauri::command]
-pub fn totp_current_codes_all(
-    db: State<'_, DbHandle>,
-) -> Result<Vec<TotpCodeEntry>, String> {
+pub fn totp_current_codes_all(db: State<'_, DbHandle>) -> Result<Vec<TotpCodeEntry>, String> {
     let codes = crate::totp_store::current_codes_all(&db).map_err(map_err)?;
     Ok(codes
         .into_iter()
@@ -3543,10 +3612,7 @@ pub struct TotpImportResult {
 }
 
 #[tauri::command]
-pub fn totp_import(
-    db: State<'_, DbHandle>,
-    input: String,
-) -> Result<TotpImportResult, String> {
+pub fn totp_import(db: State<'_, DbHandle>, input: String) -> Result<TotpImportResult, String> {
     let parsed = match crate::totp_import::import_auto(&input) {
         Ok(p) => p,
         Err(e) => {
@@ -3596,7 +3662,12 @@ pub fn totp_import(
         .map(|c| c.saturating_sub(parsed_len))
         .unwrap_or(0);
     failed += unsupported;
-    Ok(TotpImportResult { added, skipped, failed, error: None })
+    Ok(TotpImportResult {
+        added,
+        skipped,
+        failed,
+        error: None,
+    })
 }
 
 /// Import TOTP entries from a **file path** (drag-and-drop). Reads the file as
@@ -3671,9 +3742,7 @@ pub fn trigger_expand_at_cursor(app: AppHandle) -> Result<(), String> {
 /// auto-expand event tap on the main run loop, system-wide keystroke delivery
 /// with it. `spawn_blocking` keeps the main thread free to run the closure.
 #[tauri::command]
-pub async fn diagnose_expand_at_cursor(
-    app: AppHandle,
-) -> Result<expander::DiagnoseResult, String> {
+pub async fn diagnose_expand_at_cursor(app: AppHandle) -> Result<expander::DiagnoseResult, String> {
     tauri::async_runtime::spawn_blocking(move || diagnose_expand_blocking(app))
         .await
         .map_err(|e| format!("diagnose task: {e}"))?
@@ -3757,7 +3826,10 @@ pub fn set_direct_slots(
         })
         .collect();
     for s in &parsed {
-        if snippets::get_by_id(&db, s.snippet_id).map_err(map_err)?.is_none() {
+        if snippets::get_by_id(&db, s.snippet_id)
+            .map_err(map_err)?
+            .is_none()
+        {
             return Err(format!("snippet id {} no longer exists", s.snippet_id));
         }
     }
@@ -3809,7 +3881,10 @@ pub fn recolor_image_entry(
     // Use the brightness/dimensions plus the chosen tint as the
     // human-readable preview line. Keeps it visually distinct from the
     // source entry in the history list.
-    let summary = format!("[image · tinted #{}]", hex.trim_start_matches('#').to_uppercase());
+    let summary = format!(
+        "[image · tinted #{}]",
+        hex.trim_start_matches('#').to_uppercase()
+    );
 
     let new_id = db::upsert_clip(
         &db,
@@ -3914,10 +3989,7 @@ pub fn figlet_copy_png(
 /// is in [0, 1] — frontend treats anything below ~0.1 as "looks
 /// monochrome, recolor button worth showing".
 #[tauri::command]
-pub fn image_chromaticity(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<f32, String> {
+pub fn image_chromaticity(db: State<'_, DbHandle>, id: i64) -> Result<f32, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -3978,7 +4050,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
         Err(e) => {
             // Distinguish "user cancelled" from a real error.
             if e.downcast_ref::<region_picker::Cancelled>().is_some() {
-                return Ok(OcrResult { text: String::new(), cancelled: true, chars: 0 });
+                return Ok(OcrResult {
+                    text: String::new(),
+                    cancelled: true,
+                    chars: 0,
+                });
             }
             return Err(format!("region capture failed: {e:#}"));
         }
@@ -3987,7 +4063,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     let text = ocr::recognize(&png_bytes).map_err(|e| format!("ocr failed: {e:#}"))?;
     let trimmed = text.trim();
     if trimmed.is_empty() {
-        return Ok(OcrResult { text: String::new(), cancelled: false, chars: 0 });
+        return Ok(OcrResult {
+            text: String::new(),
+            cancelled: false,
+            chars: 0,
+        });
     }
 
     // Write to system clipboard. Mark first so the watcher doesn't
@@ -3995,8 +4075,7 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     if let Some(watcher) = app.try_state::<WatcherState>() {
         watcher.mark_self_write(crate::models::ContentType::Text, trimmed);
     }
-    let ctx = ClipboardContext::new()
-        .map_err(|e| format!("clipboard ctx init: {e:?}"))?;
+    let ctx = ClipboardContext::new().map_err(|e| format!("clipboard ctx init: {e:?}"))?;
     ctx.set_text(trimmed.to_string())
         .map_err(|e| format!("set_text: {e:?}"))?;
 
@@ -4044,7 +4123,11 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     crate::sound::play(crate::sound::Sound::Ocr);
 
     let chars = trimmed.chars().count();
-    Ok(OcrResult { text: trimmed.to_string(), cancelled: false, chars })
+    Ok(OcrResult {
+        text: trimmed.to_string(),
+        cancelled: false,
+        chars,
+    })
 }
 
 /// IPC entry point — the menu / button caller. Dispatched to a thread
@@ -4115,7 +4198,10 @@ pub fn run_capture_pipeline(
         Ok(b) => b,
         Err(e) => {
             if e.downcast_ref::<region_picker::Cancelled>().is_some() {
-                return Ok(ScreenshotResult { cancelled: true, bytes: 0 });
+                return Ok(ScreenshotResult {
+                    cancelled: true,
+                    bytes: 0,
+                });
             }
             return Err(format!("{} capture failed: {e:#}", mode.as_str()));
         }
@@ -4145,9 +4231,7 @@ pub fn run_capture_pipeline(
     // capturing this as a separate clipboard event.
     {
         use base64::{engine::general_purpose::STANDARD as B64, Engine};
-        use clipboard_rs::{
-            common::RustImage, Clipboard, ClipboardContext, RustImageData,
-        };
+        use clipboard_rs::{common::RustImage, Clipboard, ClipboardContext, RustImageData};
         let b64 = B64.encode(&png_bytes);
         if let Some(watcher) = app.try_state::<WatcherState>() {
             watcher.mark_self_write(crate::models::ContentType::Image, &b64);
@@ -4174,28 +4258,24 @@ pub fn run_capture_pipeline(
     // floating preview stays put.
     let pinned = app
         .try_state::<crate::screenshot_preview::PendingScreenshot>()
-        .map(|p| {
-            p.inner()
-                .pinned
-                .load(std::sync::atomic::Ordering::SeqCst)
-        })
+        .map(|p| p.inner().pinned.load(std::sync::atomic::Ordering::SeqCst))
         .unwrap_or(false);
 
     if !pinned {
-        if let Some(pending) =
-            app.try_state::<crate::screenshot_preview::PendingScreenshot>()
-        {
+        if let Some(pending) = app.try_state::<crate::screenshot_preview::PendingScreenshot>() {
             // `replace` hands back the superseded capture so its temp PNG can
             // be deleted — overwriting it silently leaked one file per
             // ignored preview (see discard_superseded).
-            let old = pending.inner().current.lock().replace(
-                crate::screenshot_preview::Pending {
+            let old = pending
+                .inner()
+                .current
+                .lock()
+                .replace(crate::screenshot_preview::Pending {
                     path: temp_path.clone(),
                     app_name: captured_app_name.clone(),
                     // A fresh capture lives in the cache dir — discardable.
                     saved: false,
-                },
-            );
+                });
             crate::screenshot_preview::discard_superseded(old);
         } else {
             tracing::warn!("PendingScreenshot state missing — preview won't work");
@@ -4207,7 +4287,9 @@ pub fn run_capture_pipeline(
             tracing::warn!("screenshot preview window: {e:#}");
         }
     } else {
-        tracing::info!("screenshot preview pinned — keeping existing preview, new PNG only goes to clipboard");
+        tracing::info!(
+            "screenshot preview pinned — keeping existing preview, new PNG only goes to clipboard"
+        );
         // The new capture is already on the clipboard AND in history (the
         // history row carries the bytes itself) — with no preview to feed,
         // its temp file has no further reader. Unstashed it was unreachable
@@ -4220,7 +4302,10 @@ pub fn run_capture_pipeline(
     let _ = app.emit("clipboard-changed", ());
     crate::sound::play(crate::sound::Sound::Screenshot);
 
-    Ok(ScreenshotResult { cancelled: false, bytes: png_bytes.len() })
+    Ok(ScreenshotResult {
+        cancelled: false,
+        bytes: png_bytes.len(),
+    })
 }
 
 /// IPC entry point. Same threading note as `ocr_region` — the Tauri
@@ -4404,25 +4489,22 @@ fn build_loupe_overlay(app: &AppHandle) {
     if let Some(existing) = app.get_webview_window(LOUPE_LABEL) {
         let _ = existing.close();
     }
-    let win = match WebviewWindowBuilder::new(
-        app,
-        LOUPE_LABEL,
-        WebviewUrl::App("index.html".into()),
-    )
-    .title("Color loupe")
-    .decorations(false)
-    .transparent(true)
-    .always_on_top(true)
-    .skip_taskbar(true)
-    .visible(false)
-    .build()
-    {
-        Ok(w) => w,
-        Err(e) => {
-            tracing::warn!("build color loupe overlay: {e}");
-            return;
-        }
-    };
+    let win =
+        match WebviewWindowBuilder::new(app, LOUPE_LABEL, WebviewUrl::App("index.html".into()))
+            .title("Color loupe")
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .visible(false)
+            .build()
+        {
+            Ok(w) => w,
+            Err(e) => {
+                tracing::warn!("build color loupe overlay: {e}");
+                return;
+            }
+        };
     // Cover the cursor's monitor (same approach + caveats as the record overlay).
     let monitors = win.available_monitors().unwrap_or_default();
     let geom = crate::screenshot_preview::pick_cursor_monitor_globally(&monitors)
@@ -4462,12 +4544,15 @@ fn arm_loupe_escape(app: &AppHandle) {
     let esc = Shortcut::new(None, Code::Escape);
     let _ = app.global_shortcut().unregister(esc);
     let app2 = app.clone();
-    if let Err(e) = app.global_shortcut().on_shortcut(esc, move |_a, _sc, event| {
-        if event.state == ShortcutState::Pressed {
-            let app3 = app2.clone();
-            std::thread::spawn(move || do_cancel_loupe(&app3));
-        }
-    }) {
+    if let Err(e) = app
+        .global_shortcut()
+        .on_shortcut(esc, move |_a, _sc, event| {
+            if event.state == ShortcutState::Pressed {
+                let app3 = app2.clone();
+                std::thread::spawn(move || do_cancel_loupe(&app3));
+            }
+        })
+    {
         tracing::debug!("arm_loupe_escape: couldn't register global Esc: {e:#}");
     }
 }
@@ -4518,9 +4603,7 @@ fn do_cancel_loupe(app: &AppHandle) {
 
 /// The loupe overlay fetches its snapshot + mode.
 #[tauri::command]
-pub fn color_loupe_data(
-    state: State<'_, crate::color_loupe::LoupeState>,
-) -> Option<LoupeData> {
+pub fn color_loupe_data(state: State<'_, crate::color_loupe::LoupeState>) -> Option<LoupeData> {
     state.0.lock().as_ref().map(|s| LoupeData {
         b64: s.b64.clone(),
         event_mode: s.event_mode,
@@ -4562,10 +4645,12 @@ fn finder_item_from_path(p: &std::path::Path) -> FinderItem {
     let is_image = p
         .extension()
         .and_then(|s| s.to_str())
-        .map(|e| matches!(
-            e.to_ascii_lowercase().as_str(),
-            "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "heic" | "heif" | "tiff" | "tif"
-        ))
+        .map(|e| {
+            matches!(
+                e.to_ascii_lowercase().as_str(),
+                "png" | "jpg" | "jpeg" | "webp" | "gif" | "bmp" | "heic" | "heif" | "tiff" | "tif"
+            )
+        })
         .unwrap_or(false);
     FinderItem {
         path: p.display().to_string(),
@@ -4698,7 +4783,10 @@ pub fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String>
     // synchronously (the frontend can show it) before we spawn.
     let arg_path = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
     let paths: Vec<std::path::PathBuf> = if let Some(p) = arg_path {
-        vec![crate::path_arg::expand_user(&p, dirs::home_dir().as_deref())]
+        vec![crate::path_arg::expand_user(
+            &p,
+            dirs::home_dir().as_deref(),
+        )]
     } else {
         #[cfg(target_os = "macos")]
         {
@@ -4706,7 +4794,9 @@ pub fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String>
         }
         #[cfg(not(target_os = "macos"))]
         {
-            return Err("md2pdf: pass a file path (selection reading is macOS-only for now)".into());
+            return Err(
+                "md2pdf: pass a file path (selection reading is macOS-only for now)".into(),
+            );
         }
     };
     if paths.is_empty() {
@@ -4750,8 +4840,7 @@ pub fn run_finder_selection_pipeline(app: &AppHandle) {
     let _ = crate::hotkey::show_popup(app);
     match items_result {
         Ok(paths) => {
-            let items: Vec<FinderItem> =
-                paths.iter().map(|p| finder_item_from_path(p)).collect();
+            let items: Vec<FinderItem> = paths.iter().map(|p| finder_item_from_path(p)).collect();
             let _ = app.emit("finder-selection-loaded", items);
         }
         Err(e) => {
@@ -4948,10 +5037,21 @@ pub fn strip_vowels(s: &str) -> String {
         .filter(|c| {
             !matches!(
                 c,
-                'a' | 'e' | 'i' | 'o' | 'u'
-                    | 'A' | 'E' | 'I' | 'O' | 'U'
-                    | 'ä' | 'ö' | 'ü'
-                    | 'Ä' | 'Ö' | 'Ü'
+                'a' | 'e'
+                    | 'i'
+                    | 'o'
+                    | 'u'
+                    | 'A'
+                    | 'E'
+                    | 'I'
+                    | 'O'
+                    | 'U'
+                    | 'ä'
+                    | 'ö'
+                    | 'ü'
+                    | 'Ä'
+                    | 'Ö'
+                    | 'Ü'
             )
         })
         .collect()
@@ -5017,8 +5117,14 @@ mod window_size_tests {
         let (sw, sh) = window_size_dimensions("small");
         let (mw, mh) = window_size_dimensions("medium");
         let (lw, lh) = window_size_dimensions("large");
-        assert!(sw < mw && mw < lw, "widths must increase small < medium < large");
-        assert!(sh < mh && mh < lh, "heights must increase small < medium < large");
+        assert!(
+            sw < mw && mw < lw,
+            "widths must increase small < medium < large"
+        );
+        assert!(
+            sh < mh && mh < lh,
+            "heights must increase small < medium < large"
+        );
         // Medium stays the historical default the window ships with.
         assert_eq!((mw, mh), (700.0, 500.0));
     }
@@ -5103,7 +5209,14 @@ mod crt_animation_tests {
     fn unset_blank_and_garbage_fall_back_to_the_default() {
         // A hand-edited settings DB must never wedge the popup shut (0 would be
         // "off", which is a legitimate choice — but only when actually written).
-        for raw in [None, Some(""), Some("   "), Some("fast"), Some("-1"), Some("1.5")] {
+        for raw in [
+            None,
+            Some(""),
+            Some("   "),
+            Some("fast"),
+            Some("-1"),
+            Some("1.5"),
+        ] {
             assert_eq!(normalise_crt_ms(raw), CRT_MS_DEFAULT, "raw={raw:?}");
         }
     }
@@ -5174,18 +5287,33 @@ mod save_image_name_tests {
 
     #[test]
     fn summary_derives_kind_and_label() {
-        assert_eq!(image_basename_from_summary("[figlet · Hello]"), "figlet-hello");
+        assert_eq!(
+            image_basename_from_summary("[figlet · Hello]"),
+            "figlet-hello"
+        );
         assert_eq!(image_basename_from_summary("[qr · 123 B]"), "qr-123-b");
-        assert_eq!(image_basename_from_summary("[screenshot · 4 KB]"), "screenshot-4-kb");
+        assert_eq!(
+            image_basename_from_summary("[screenshot · 4 KB]"),
+            "screenshot-4-kb"
+        );
     }
 
     #[test]
     fn plain_or_unparseable_summaries_fall_back() {
-        assert_eq!(image_basename_from_summary("[image 640×480]"), "inspector-rust-image");
-        assert_eq!(image_basename_from_summary("random text"), "inspector-rust-image");
+        assert_eq!(
+            image_basename_from_summary("[image 640×480]"),
+            "inspector-rust-image"
+        );
+        assert_eq!(
+            image_basename_from_summary("random text"),
+            "inspector-rust-image"
+        );
         assert_eq!(image_basename_from_summary(""), "inspector-rust-image");
         // `[image · label]` — the generic kind stays generic on purpose.
-        assert_eq!(image_basename_from_summary("[image · x]"), "inspector-rust-image");
+        assert_eq!(
+            image_basename_from_summary("[image · x]"),
+            "inspector-rust-image"
+        );
     }
 
     #[test]
@@ -5245,10 +5373,7 @@ fn clear_eyedropper_no_popup(app: &AppHandle) {
 /// this is a "save the cutout to a file" action, not a clipboard
 /// modification.
 #[tauri::command]
-pub fn cut_out_image_entry(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<String, String> {
+pub fn cut_out_image_entry(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -5298,7 +5423,11 @@ fn image_basename_from_summary(summary: &str) -> String {
             let kind = sanitize_file_slug(kind);
             let label = sanitize_file_slug(label);
             if !kind.is_empty() && kind != "image" {
-                return if label.is_empty() { kind } else { format!("{kind}-{label}") };
+                return if label.is_empty() {
+                    kind
+                } else {
+                    format!("{kind}-{label}")
+                };
             }
         }
     }
@@ -5327,10 +5456,7 @@ fn write_png_to_downloads(png_bytes: &[u8], base: &str) -> Result<std::path::Pat
 /// useful after a recolor since the new tinted entry only lives in the SQLite
 /// history otherwise.
 #[tauri::command]
-pub fn save_image_entry_to_downloads(
-    db: State<'_, DbHandle>,
-    id: i64,
-) -> Result<String, String> {
+pub fn save_image_entry_to_downloads(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -5360,7 +5486,11 @@ pub fn figlet_save_png(png_b64: String, label: String) -> Result<String, String>
         .decode(png_b64.as_bytes())
         .map_err(|e| format!("base64 decode: {e}"))?;
     let slug = sanitize_file_slug(&label);
-    let base = if slug.is_empty() { "figlet".to_string() } else { format!("figlet-{slug}") };
+    let base = if slug.is_empty() {
+        "figlet".to_string()
+    } else {
+        format!("figlet-{slug}")
+    };
     let out_path = write_png_to_downloads(&bytes, &base)?;
     reveal_in_file_manager(&out_path);
     Ok(out_path.to_string_lossy().into_owned())
@@ -5443,10 +5573,7 @@ pub fn linux_apply_desktop_shortcuts(
     db: State<'_, DbHandle>,
     bindings: Vec<LinuxShortcutBindingInput>,
 ) -> Result<(), String> {
-    let pairs: Vec<(String, String)> = bindings
-        .into_iter()
-        .map(|b| (b.id, b.binding))
-        .collect();
+    let pairs: Vec<(String, String)> = bindings.into_iter().map(|b| (b.id, b.binding)).collect();
     desktop_shortcuts::apply_shortcut_setup(&db, pairs).map_err(map_err)
 }
 
@@ -5604,11 +5731,7 @@ pub fn get_monitor_brightness(id: u32) -> Result<u8, String> {
 /// Set monitor `id` to `percent` (0–100). The frontend debounces during a
 /// slider drag so we don't flood the (sometimes slow) DDC bus.
 #[tauri::command]
-pub fn set_monitor_brightness(
-    db: State<'_, DbHandle>,
-    id: u32,
-    percent: u8,
-) -> Result<(), String> {
+pub fn set_monitor_brightness(db: State<'_, DbHandle>, id: u32, percent: u8) -> Result<(), String> {
     crate::brightness::set(id, percent)?;
     // Remember the level so a restart re-applies it (gamma dies with the app).
     crate::brightness::persist_current(&db, id);
@@ -5670,8 +5793,8 @@ pub async fn get_system_stats() -> Result<crate::system_stats::SystemStats, Stri
 /// Current ambient-light reading for the `lumen` command. `None` means that
 /// this device/OS exposes no supported sensor; it is a normal hardware state.
 #[tauri::command]
-pub async fn get_ambient_light(
-) -> Result<Option<crate::ambient_light::AmbientLightReading>, String> {
+pub async fn get_ambient_light() -> Result<Option<crate::ambient_light::AmbientLightReading>, String>
+{
     tauri::async_runtime::spawn_blocking(crate::ambient_light::read)
         .await
         .map_err(|e| format!("ambient-light task: {e}"))
@@ -5708,7 +5831,11 @@ pub async fn hue_status(db: State<'_, DbHandle>) -> Result<crate::hue::HueStatus
             (Some(ip), Some(u)) => crate::hue::list_lights(ip, u).is_ok(),
             _ => false,
         };
-        crate::hue::HueStatus { connected, bridge_ip, paired }
+        crate::hue::HueStatus {
+            connected,
+            bridge_ip,
+            paired,
+        }
     })
     .await
     .map_err(|e| format!("hue task: {e}"))
@@ -6043,16 +6170,19 @@ fn arm_overlay_escape(app: &AppHandle) {
     let esc = Shortcut::new(None, Code::Escape);
     let _ = app.global_shortcut().unregister(esc); // clear any stale registration
     let app2 = app.clone();
-    if let Err(e) = app.global_shortcut().on_shortcut(esc, move |_a, _sc, event| {
-        if event.state == ShortcutState::Pressed {
-            // Defer off the shortcut callback (closing a window + unregistering
-            // from inside the dispatch is best avoided).
-            let app3 = app2.clone();
-            std::thread::spawn(move || {
-                let _ = cancel_record_overlay(app3);
-            });
-        }
-    }) {
+    if let Err(e) = app
+        .global_shortcut()
+        .on_shortcut(esc, move |_a, _sc, event| {
+            if event.state == ShortcutState::Pressed {
+                // Defer off the shortcut callback (closing a window + unregistering
+                // from inside the dispatch is best avoided).
+                let app3 = app2.clone();
+                std::thread::spawn(move || {
+                    let _ = cancel_record_overlay(app3);
+                });
+            }
+        })
+    {
         tracing::debug!("arm_overlay_escape: couldn't register global Esc: {e:#}");
     }
 }
@@ -6155,18 +6285,19 @@ fn open_record_stop_bar(app: &AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(RECORD_STOP_LABEL) {
         let _ = existing.close();
     }
-    let win = WebviewWindowBuilder::new(app, RECORD_STOP_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Recording")
-        .inner_size(312.0, 54.0)
-        .resizable(false)
-        .decorations(false)
-        .transparent(true)
-        .always_on_top(true)
-        .skip_taskbar(true)
-        .shadow(true)
-        .visible(false)
-        .build()
-        .map_err(|e| format!("build stop bar: {e}"))?;
+    let win =
+        WebviewWindowBuilder::new(app, RECORD_STOP_LABEL, WebviewUrl::App("index.html".into()))
+            .title("Recording")
+            .inner_size(312.0, 54.0)
+            .resizable(false)
+            .decorations(false)
+            .transparent(true)
+            .always_on_top(true)
+            .skip_taskbar(true)
+            .shadow(true)
+            .visible(false)
+            .build()
+            .map_err(|e| format!("build stop bar: {e}"))?;
     // Position at the top-centre of the primary monitor's work area so it
     // never clips below the screen (the previous bottom-centre placement
     // could land behind the Windows taskbar or outside the visible bounds).
@@ -6230,7 +6361,9 @@ fn reveal_in_file_manager(path: &std::path::Path) {
     {
         use std::os::windows::process::CommandExt;
         let arg = format!("/select,\"{}\"", path.display());
-        let _ = std::process::Command::new("explorer.exe").raw_arg(arg).spawn();
+        let _ = std::process::Command::new("explorer.exe")
+            .raw_arg(arg)
+            .spawn();
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -6258,16 +6391,17 @@ pub fn build_audio_swap_overlay(app: &AppHandle) -> Result<(), String> {
         let _ = existing.set_focus();
         return Ok(());
     }
-    let win = WebviewWindowBuilder::new(app, AUDIO_SWAP_LABEL, WebviewUrl::App("index.html".into()))
-        .title("Replace / overlay audio")
-        .inner_size(560.0, 660.0)
-        .min_inner_size(460.0, 540.0)
-        .resizable(true)
-        .always_on_top(true)
-        .center()
-        .visible(true)
-        .build()
-        .map_err(|e| format!("build audio-swap overlay: {e}"))?;
+    let win =
+        WebviewWindowBuilder::new(app, AUDIO_SWAP_LABEL, WebviewUrl::App("index.html".into()))
+            .title("Replace / overlay audio")
+            .inner_size(560.0, 660.0)
+            .min_inner_size(460.0, 540.0)
+            .resizable(true)
+            .always_on_top(true)
+            .center()
+            .visible(true)
+            .build()
+            .map_err(|e| format!("build audio-swap overlay: {e}"))?;
     let _ = win.set_focus();
     Ok(())
 }
@@ -6280,7 +6414,11 @@ pub fn open_audio_swap_overlay(app: AppHandle) -> Result<(), String> {
 /// The Finder-selected video path (if any) the overlay should preload.
 #[tauri::command]
 pub fn audio_swap_get_selected_video(state: State<'_, AudioSwapState>) -> Option<String> {
-    state.video.lock().clone().map(|p| p.to_string_lossy().into_owned())
+    state
+        .video
+        .lock()
+        .clone()
+        .map(|p| p.to_string_lossy().into_owned())
 }
 
 /// Media duration in seconds (video or audio), for the overlay's timeline.
@@ -6418,7 +6556,10 @@ pub struct BenchPlan {
 #[tauri::command]
 pub async fn bench_plan() -> Result<BenchPlan, String> {
     tauri::async_runtime::spawn_blocking(|| BenchPlan {
-        workloads: crate::bench::WORKLOADS.iter().map(|w| w.name.to_string()).collect(),
+        workloads: crate::bench::WORKLOADS
+            .iter()
+            .map(|w| w.name.to_string())
+            .collect(),
         estimated_seconds: crate::bench::estimated_seconds(),
         threads: crate::bench::thread_count(),
         baseline_machine: crate::bench::BASELINE_MACHINE.to_string(),
@@ -6452,7 +6593,9 @@ pub async fn bench_run(app: AppHandle) -> Result<crate::bench::BenchRun, String>
 
 #[tauri::command]
 pub async fn bench_history() -> Result<Vec<crate::bench::BenchRun>, String> {
-    tauri::async_runtime::spawn_blocking(crate::bench::history).await.map_err(|e| e.to_string())
+    tauri::async_runtime::spawn_blocking(crate::bench::history)
+        .await
+        .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -6492,8 +6635,14 @@ pub async fn bench_export(
             .collect();
         match picked.len() {
             0 => Err("Kein Lauf ausgewählt".to_string()),
-            1 => Ok((crate::bench_export::build_html(&picked[0]), "benchmark".to_string())),
-            n => Ok((crate::bench_export::build_compare_html(&picked), format!("benchmark-vergleich-{n}"))),
+            1 => Ok((
+                crate::bench_export::build_html(&picked[0]),
+                "benchmark".to_string(),
+            )),
+            n => Ok((
+                crate::bench_export::build_compare_html(&picked),
+                format!("benchmark-vergleich-{n}"),
+            )),
         }
     })
     .await
@@ -6664,7 +6813,9 @@ pub fn set_meme_dir(db: State<'_, DbHandle>, dir: String) -> Result<(), String> 
 /// blocked set. Drives the `snitch` app-toggle panel.
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub async fn snitch_list_apps(db: State<'_, DbHandle>) -> Result<Vec<crate::snitch::AppConnections>, String> {
+pub async fn snitch_list_apps(
+    db: State<'_, DbHandle>,
+) -> Result<Vec<crate::snitch::AppConnections>, String> {
     let blocked = crate::snitch::load_blocked(&db);
     let conns = crate::snitch::live_connections();
     Ok(crate::snitch::apps_from_connections(&conns, &blocked))
@@ -6703,7 +6854,10 @@ pub async fn snitch_home() -> Result<Option<crate::snitch::GeoLocation>, String>
 /// Set the blocked-app set (persisted + written to the daemon-readable file).
 #[cfg(target_os = "macos")]
 #[tauri::command]
-pub async fn snitch_set_blocked(db: State<'_, DbHandle>, blocked: Vec<String>) -> Result<(), String> {
+pub async fn snitch_set_blocked(
+    db: State<'_, DbHandle>,
+    blocked: Vec<String>,
+) -> Result<(), String> {
     crate::snitch::save_blocked(&db, &blocked);
     Ok(())
 }
@@ -6900,9 +7054,11 @@ pub async fn translate_text(
     source: String,
     target: String,
 ) -> Result<crate::translate::Translation, String> {
-    tauri::async_runtime::spawn_blocking(move || crate::translate::translate(&text, &source, &target))
-        .await
-        .map_err(|e| format!("translate task: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::translate::translate(&text, &source, &target)
+    })
+    .await
+    .map_err(|e| format!("translate task: {e}"))?
 }
 
 // ------------------------------------------------------------------- iris
@@ -7229,8 +7385,16 @@ pub async fn bruno_export(
     format: String,
 ) -> Result<String, String> {
     let html = crate::bruno_export::build_html(&report);
-    let mode = if report.mode == "self" { "unternehmer" } else { "angestellt" };
-    let stem = crate::media_name::sanitize_stem(&format!("netto-{}-{}", mode, report.base_year.round() as i64));
+    let mode = if report.mode == "self" {
+        "unternehmer"
+    } else {
+        "angestellt"
+    };
+    let stem = crate::media_name::sanitize_stem(&format!(
+        "netto-{}-{}",
+        mode,
+        report.base_year.round() as i64
+    ));
     let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
     let ext = match format.as_str() {
         "html" => "html",
@@ -7326,9 +7490,13 @@ pub async fn pagespeed_export(
 
 /// Export a QR PNG or printable STL to Downloads without changing the clipboard.
 #[tauri::command]
-pub async fn qr_save(png_b64: Option<String>, matrix: Option<Vec<Vec<bool>>>) -> Result<String, String> {
+pub async fn qr_save(
+    png_b64: Option<String>,
+    matrix: Option<Vec<Vec<bool>>>,
+) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || crate::qr::save(png_b64, matrix))
-        .await.map_err(|e| e.to_string())?
+        .await
+        .map_err(|e| e.to_string())?
 }
 
 /// Fetch the caller's public IP and approximate ISP geolocation.
@@ -7355,7 +7523,7 @@ pub async fn btsniff_open_file(
             .await
             .map_err(|e| e.to_string())?
             .map_err(|e| e.to_string())?;
-    Ok(crate::bluetooth_capture::store(&state.0, loaded))
+    Ok(crate::bluetooth_capture::store(&state.session, loaded))
 }
 
 /// Inspector detail for one packet (bytes + decoded fields + byte-diff mask).
@@ -7364,7 +7532,7 @@ pub fn btsniff_packet(
     index: usize,
     state: State<'_, crate::bluetooth_capture::BtSniffState>,
 ) -> Result<crate::bluetooth_capture::models::BtPacketDetail, String> {
-    crate::bluetooth_capture::packet_detail(&state.0, index).map_err(|e| e.to_string())
+    crate::bluetooth_capture::packet_detail(&state.session, index).map_err(|e| e.to_string())
 }
 
 /// The current session summary (recomputed from the packets).
@@ -7372,7 +7540,7 @@ pub fn btsniff_packet(
 pub fn btsniff_stats(
     state: State<'_, crate::bluetooth_capture::BtSniffState>,
 ) -> crate::bluetooth_capture::models::CaptureStats {
-    crate::bluetooth_capture::stats(&state.0)
+    crate::bluetooth_capture::stats(&state.session)
 }
 
 /// Serialise the loaded session to JSON and write it to `path`.
@@ -7384,7 +7552,7 @@ pub async fn btsniff_export_json(
     // Building the JSON borrows the session (no await held across the lock);
     // this runs on the async runtime, not the main thread. The file write goes
     // to spawn_blocking.
-    let json = crate::bluetooth_capture::export_json(&state.0).map_err(|e| e.to_string())?;
+    let json = crate::bluetooth_capture::export_json(&state.session).map_err(|e| e.to_string())?;
     tauri::async_runtime::spawn_blocking(move || {
         std::fs::write(&path, json).map_err(|e| e.to_string())
     })
@@ -7403,4 +7571,194 @@ pub fn btsniff_default_filename() -> String {
 #[tauri::command]
 pub fn btsniff_sanitize_filename(name: String) -> String {
     crate::bluetooth_capture::export::sanitize_export_name(&name, chrono::Local::now())
+}
+
+// ── btsniff LIVE capture (Stage 2) ────────────────────────────────────────
+// A CoreBluetooth BLE advertisement scanner on macOS; a clean "macOS only"
+// report elsewhere (§28). The state machine + buffer + batching live in
+// `bluetooth_capture::{capture,live}` (pure, tested); this layer owns the Tauri
+// event stream + the backend calls.
+use crate::bluetooth_capture::live::{self, LiveShared, LiveStatus, SetupStatus};
+use crate::bluetooth_capture::models::CaptureState;
+
+/// Is a live backend available on this platform + what to tell the user (§16).
+#[tauri::command]
+pub fn btsniff_setup_status() -> SetupStatus {
+    #[cfg(target_os = "macos")]
+    {
+        crate::bluetooth_capture::macos::setup_status()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        live::unsupported_setup()
+    }
+}
+
+/// Batched emitter: every ~120 ms it streams newly-captured packets (unless the
+/// view is paused) + a status tick (drives the counters/clock/state), and exits
+/// once the session reaches a terminal state — so no timer/thread leaks (§20).
+fn spawn_live_emitter(app: AppHandle, live: std::sync::Arc<LiveShared>) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(std::time::Duration::from_millis(120));
+        let batch = live.drain_for_emit();
+        if !batch.is_empty() {
+            let _ = app.emit("btsniff-packet", &batch);
+        }
+        let status = live.status();
+        let _ = app.emit("btsniff-state", &status);
+        if matches!(
+            status.state,
+            CaptureState::Stopped | CaptureState::Idle | CaptureState::Error
+        ) {
+            break;
+        }
+    });
+}
+
+#[tauri::command]
+pub fn btsniff_live_start(
+    app: AppHandle,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<LiveStatus, String> {
+    let live = state.live.clone();
+    // Already running? No-op (idempotent start).
+    if matches!(
+        live.state(),
+        CaptureState::Starting | CaptureState::Capturing | CaptureState::PausedView
+    ) {
+        return Ok(live.status());
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = &app;
+        live.set_error("Live Bluetooth capture is currently available on macOS only.");
+        return Ok(live.status());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        // A lingering Stopped/Error session returns to Idle first.
+        if matches!(live.state(), CaptureState::Stopped | CaptureState::Error) {
+            let _ = live.transition(CaptureState::Idle);
+        }
+        // Fresh buffer + clock; view unpaused.
+        {
+            live.store
+                .lock()
+                .map_err(|_| "live store poisoned")?
+                .clear();
+            let mut meta = live.meta.lock().map_err(|_| "live meta poisoned")?;
+            meta.view_paused = false;
+            meta.started_at_ms = live::now_ms();
+        }
+        live.transition(CaptureState::Starting)?;
+        // The delegate drives Starting → Capturing (or → Error) from the
+        // CoreBluetooth state callback.
+        crate::bluetooth_capture::macos::start(&app, live.clone())?;
+        spawn_live_emitter(app.clone(), live.clone());
+        Ok(live.status())
+    }
+}
+
+#[tauri::command]
+pub fn btsniff_live_stop(
+    app: AppHandle,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<LiveStatus, String> {
+    let live = state.live.clone();
+    if matches!(
+        live.state(),
+        CaptureState::Capturing | CaptureState::PausedView
+    ) {
+        let _ = live.transition(CaptureState::Stopping);
+    }
+    #[cfg(target_os = "macos")]
+    {
+        crate::bluetooth_capture::macos::stop(&app)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = &app;
+    }
+    // resume the view so the captured packets are all visible, then finalise
+    if let Ok(mut meta) = live.meta.lock() {
+        meta.view_paused = false;
+    }
+    let _ = live.transition(CaptureState::Stopped);
+    Ok(live.status())
+}
+
+/// Pause the VIEW only — the backend keeps capturing into the buffer (§9).
+#[tauri::command]
+pub fn btsniff_live_pause(
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<LiveStatus, String> {
+    let live = state.live.clone();
+    live.transition(CaptureState::PausedView)?;
+    if let Ok(mut meta) = live.meta.lock() {
+        meta.view_paused = true;
+    }
+    Ok(live.status())
+}
+
+#[tauri::command]
+pub fn btsniff_live_resume(
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<LiveStatus, String> {
+    let live = state.live.clone();
+    if let Ok(mut meta) = live.meta.lock() {
+        meta.view_paused = false;
+    }
+    live.transition(CaptureState::Capturing)?;
+    Ok(live.status())
+}
+
+/// Clear the current live buffer (the frontend confirms first if unsaved).
+#[tauri::command]
+pub fn btsniff_live_clear(
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<LiveStatus, String> {
+    let live = state.live.clone();
+    live.store
+        .lock()
+        .map_err(|_| "live store poisoned")?
+        .clear();
+    Ok(live.status())
+}
+
+#[tauri::command]
+pub fn btsniff_live_status(state: State<'_, crate::bluetooth_capture::BtSniffState>) -> LiveStatus {
+    state.live.status()
+}
+
+/// Inspector detail for a live packet (bytes + decoded + byte-diff), by stable index.
+#[tauri::command]
+pub fn btsniff_live_packet(
+    index: u32,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<crate::bluetooth_capture::models::BtPacketDetail, String> {
+    let store = state.live.store.lock().map_err(|_| "live store poisoned")?;
+    let pos = store
+        .position_of(index)
+        .ok_or_else(|| "packet no longer in buffer".to_string())?;
+    crate::bluetooth_capture::diff::detail(store.packets(), pos)
+        .ok_or_else(|| "packet not found".to_string())
+}
+
+/// Export the live session to JSON (§13). `.pklg`/pcapng writing of synthesised
+/// advertisement records is a documented follow-up; the analyzer READS all
+/// three formats today.
+#[tauri::command]
+pub async fn btsniff_live_export_json(
+    path: String,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<(), String> {
+    let json = {
+        let store = state.live.store.lock().map_err(|_| "live store poisoned")?;
+        crate::bluetooth_capture::export::build_json("live-ble", store.packets(), &store.stats())
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&path, json).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
 }

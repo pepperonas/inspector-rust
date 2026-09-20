@@ -3769,3 +3769,49 @@ export function btsniffDefaultFilename(): Promise<string> {
 export function btsniffSanitizeFilename(name: string): Promise<string> {
   return invoke("btsniff_sanitize_filename", { name });
 }
+
+// ── btsniff live capture (Stage 2) ────────────────────────────────────────────
+import type {
+  BtPacketDetail as BtLiveDetail,
+  LiveStatus,
+  SetupStatus,
+} from "./bluetooth-capture";
+
+/** Whether a live capture backend exists on this platform (§16). */
+export function btsniffSetupStatus(): Promise<SetupStatus> {
+  return invoke("btsniff_setup_status");
+}
+
+export function btsniffLiveStart(): Promise<LiveStatus> {
+  return invoke("btsniff_live_start");
+}
+
+export function btsniffLiveStop(): Promise<LiveStatus> {
+  return invoke("btsniff_live_stop");
+}
+
+/** Freeze the VIEW only — the backend keeps capturing into the buffer (§9). */
+export function btsniffLivePause(): Promise<LiveStatus> {
+  return invoke("btsniff_live_pause");
+}
+
+export function btsniffLiveResume(): Promise<LiveStatus> {
+  return invoke("btsniff_live_resume");
+}
+
+export function btsniffLiveClear(): Promise<LiveStatus> {
+  return invoke("btsniff_live_clear");
+}
+
+export function btsniffLiveStatus(): Promise<LiveStatus> {
+  return invoke("btsniff_live_status");
+}
+
+/** Inspector detail for a live packet, by its stable index. */
+export function btsniffLivePacket(index: number): Promise<BtLiveDetail> {
+  return invoke("btsniff_live_packet", { index });
+}
+
+export function btsniffLiveExportJson(path: string): Promise<void> {
+  return invoke("btsniff_live_export_json", { path });
+}

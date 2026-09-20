@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.180.0] - 2026-09-20
+
+### Added
+- **`btsniff` gains a live BLE scan (macOS) — Stage 2.** Alongside importing a capture file, pressing *Capture starten* now runs a CoreBluetooth advertisement scanner: every nearby advertising Bluetooth LE device is logged live (identifier, name, RSSI, service UUIDs, manufacturer-data bytes) into the same virtualised timeline, with a LIVE clock + pulsing dot, **Pause** (freezes the view only — the backend keeps capturing and *Resume* flushes the buffered packets), **Stop**, **Leeren**, auto-scroll with a "↓ N neue Pakete" jump, an explicit state machine, a bounded buffer that sheds oldest-first with a visible dropped count (never a silent loss), setup detection, a first-run privacy note, and Space/⌘F/⌘S keyboard controls. The manufacturer-data payload feeds the hex dump + byte-diff, so you can watch a beacon's bytes change. ⚠️ Honest scope: this is a BLE **advertisement scanner**, not a wire sniffer of another app's session — macOS has no public promiscuous-HCI API, so to reverse a phone app ↔ device session, record an Android `btsnoop_hci.log` and import it. Live scan is macOS-only (CoreBluetooth, needs the Bluetooth permission); other platforms keep full file-import with a clean message. Export is JSON.
+
 ## [0.179.0] - 2026-09-20
 
 ### Added

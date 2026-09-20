@@ -423,6 +423,17 @@ if [[ -f "${INFO_PLIST}" ]]; then
   else
     echo "  ⚠ plutil replace of NSMicrophoneUsageDescription failed — Microphone prompt may show generic copy"
   fi
+
+  # Same trick for NSBluetoothAlwaysUsageDescription — required by macOS
+  # before CoreBluetooth can scan. Used by the `btsniff` live BLE scanner
+  # (v0.180.0+) to log advertising devices in real time.
+  BT_DESC='Inspector Rust uses Bluetooth for the "btsniff" live scan — it lists nearby advertising Bluetooth LE devices for inspection. Captures stay on this Mac.'
+  if plutil -replace NSBluetoothAlwaysUsageDescription -string "${BT_DESC}" \
+       "${INFO_PLIST}" 2>/dev/null; then
+    echo "▸ Injected NSBluetoothAlwaysUsageDescription into Info.plist"
+  else
+    echo "  ⚠ plutil replace of NSBluetoothAlwaysUsageDescription failed — Bluetooth prompt may show generic copy"
+  fi
 fi
 
 # Bundle the boom Audio driver into the app's Resources. NOT via tauri.conf

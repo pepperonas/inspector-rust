@@ -68,9 +68,7 @@ pub fn compute(packets: &[BtPacket]) -> CaptureStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bluetooth_capture::decode::{
-        ATT_NOTIFICATION, ATT_READ_REQUEST, ATT_WRITE_COMMAND,
-    };
+    use crate::bluetooth_capture::decode::{ATT_NOTIFICATION, ATT_READ_REQUEST, ATT_WRITE_COMMAND};
 
     #[allow(clippy::too_many_arguments)]
     fn pkt(
@@ -112,7 +110,17 @@ mod tests {
     #[test]
     fn counts_direction_bytes_and_att_ops() {
         let pkts = vec![
-            pkt(0, 0, BtDirection::Tx, BtProtocol::HciCmd, None, None, None, Some("Reset"), 4),
+            pkt(
+                0,
+                0,
+                BtDirection::Tx,
+                BtProtocol::HciCmd,
+                None,
+                None,
+                None,
+                Some("Reset"),
+                4,
+            ),
             pkt(
                 1,
                 1_000,

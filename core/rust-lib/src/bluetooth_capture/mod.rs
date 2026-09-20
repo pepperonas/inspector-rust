@@ -9,11 +9,16 @@
 //! The existing `bt` / `bluetooth` command (`crate::bluetooth`) is unrelated
 //! and must not be touched.
 
+pub mod capture;
 pub mod decode;
 pub mod diff;
 pub mod export;
+pub mod live;
 pub mod models;
 pub mod parser;
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -38,13 +43,20 @@ pub struct CaptureSession {
     pub source_label: Option<String>,
 }
 
-/// Tauri-managed handle around the session (the interior `Mutex` is what the
-/// free functions take, so they stay unit-testable with a bare `Mutex`).
-pub struct BtSniffState(pub Mutex<CaptureSession>);
+/// Tauri-managed handle. `session` is the analyzer (file) session; `live` is
+/// the Stage-2 live-capture session. The interior `Mutex`/`Arc` are what the
+/// free functions take, so they stay unit-testable without Tauri.
+pub struct BtSniffState {
+    pub session: Mutex<CaptureSession>,
+    pub live: std::sync::Arc<live::LiveShared>,
+}
 
 impl Default for BtSniffState {
     fn default() -> Self {
-        Self(Mutex::new(CaptureSession::default()))
+        Self {
+            session: Mutex::new(CaptureSession::default()),
+            live: std::sync::Arc::new(live::LiveShared::default()),
+        }
     }
 }
 
@@ -214,7 +226,9 @@ mod tests {
             0x02,
             2,
             0,
-            &[0x40, 0x00, 0x08, 0x00, 0x04, 0x00, 0x04, 0x00, 0x52, 0x25, 0x00, 0x61, 0x64, 0x00],
+            &[
+                0x40, 0x00, 0x08, 0x00, 0x04, 0x00, 0x04, 0x00, 0x52, 0x25, 0x00, 0x61, 0x64, 0x00,
+            ],
         ));
         let path = write_temp("session.pklg", &buf);
 
@@ -232,7 +246,12 @@ mod tests {
         // detail for the ATT write
         let d = packet_detail(&session, 1).unwrap();
         assert_eq!(d.att_handle, Some(0x0025));
-        assert_eq!(d.raw, vec![0x40, 0x00, 0x08, 0x00, 0x04, 0x00, 0x04, 0x00, 0x52, 0x25, 0x00, 0x61, 0x64, 0x00]);
+        assert_eq!(
+            d.raw,
+            vec![
+                0x40, 0x00, 0x08, 0x00, 0x04, 0x00, 0x04, 0x00, 0x52, 0x25, 0x00, 0x61, 0x64, 0x00
+            ]
+        );
 
         let json = export_json(&session).unwrap();
         assert!(json.contains("\"format\": \"pklg\""));
@@ -245,7 +264,10 @@ mod tests {
             packet_detail(&session, 0),
             Err(SessionError::NoSession)
         ));
-        assert!(matches!(export_json(&session), Err(SessionError::NoSession)));
+        assert!(matches!(
+            export_json(&session),
+            Err(SessionError::NoSession)
+        ));
     }
 
     #[test]

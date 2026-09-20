@@ -2983,7 +2983,7 @@ checksum = "36eee07d8e02bd95bf52b2e642cf13d33701b94c6e4b04fbf1d1fb07e9cb19e7"
 
 [[package]]
 name = "inspector-rust-core"
-version = "0.179.0"
+version = "0.180.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3006,6 +3006,8 @@ dependencies = [
  "ndarray",
  "notify",
  "objc2 0.6.4",
+ "objc2-core-bluetooth",
+ "objc2-foundation 0.3.2",
  "ort",
  "oxipng",
  "parking_lot",
@@ -3039,7 +3041,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-linux"
-version = "0.179.0"
+version = "0.180.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3053,7 +3055,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-macos"
-version = "0.179.0"
+version = "0.180.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -3067,7 +3069,7 @@ dependencies = [
 
 [[package]]
 name = "inspector-rust-win"
-version = "0.179.0"
+version = "0.180.0"
 dependencies = [
  "inspector-rust-core",
  "tauri",
@@ -4103,6 +4105,17 @@ name = "objc2-cloud-kit"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73ad74d880bb43877038da939b7427bba67e9dd42004a18b809ba7d87cee241c"
+dependencies = [
+ "bitflags 2.11.1",
+ "objc2 0.6.4",
+ "objc2-foundation 0.3.2",
+]
+
+[[package]]
+name = "objc2-core-bluetooth"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "79b30b9eacc37434a61377866f68b27acef9fa5496f25cc9ca8b2549032e0394"
 dependencies = [
  "bitflags 2.11.1",
  "objc2 0.6.4",

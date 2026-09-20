@@ -234,10 +234,7 @@ mod tests {
             "ninebot.json"
         );
         // empty after cleaning → timestamp default
-        assert_eq!(
-            sanitize_export_name("//", now),
-            default_json_filename(now)
-        );
+        assert_eq!(sanitize_export_name("//", now), default_json_filename(now));
         assert_eq!(sanitize_export_name("", now), default_json_filename(now));
     }
 }

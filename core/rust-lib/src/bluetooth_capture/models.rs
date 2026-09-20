@@ -197,10 +197,7 @@ mod tests {
 
     #[test]
     fn direction_and_protocol_serialize_snake_case() {
-        assert_eq!(
-            serde_json::to_string(&BtDirection::Tx).unwrap(),
-            "\"tx\""
-        );
+        assert_eq!(serde_json::to_string(&BtDirection::Tx).unwrap(), "\"tx\"");
         assert_eq!(
             serde_json::to_string(&BtProtocol::HciCmd).unwrap(),
             "\"hci_cmd\""

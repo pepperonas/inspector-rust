@@ -326,3 +326,37 @@ describe("social download — the trim section must actually reach Rust", () => 
     expect(mockInvoke).toHaveBeenCalledWith("social_audio_proxy", { url: "https://youtu.be/x" });
   });
 });
+
+describe("btsniff — Bluetooth capture analyzer wrappers", () => {
+  it("btsniffOpenFile passes the path", async () => {
+    mockInvoke.mockResolvedValue({ format: "pklg", source_label: "x", packets: [], stats: {} });
+    await ipc.btsniffOpenFile("/tmp/scan.pklg");
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_open_file", { path: "/tmp/scan.pklg" });
+  });
+
+  it("btsniffPacket passes the numeric index", async () => {
+    mockInvoke.mockResolvedValue({ index: 3, raw: [], decoded: [] });
+    await ipc.btsniffPacket(3);
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_packet", { index: 3 });
+  });
+
+  it("btsniffStats and btsniffDefaultFilename are args-free", async () => {
+    await ipc.btsniffStats();
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_stats");
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue("inspector-bluetooth-analysis-x.json");
+    await ipc.btsniffDefaultFilename();
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_default_filename");
+  });
+
+  it("btsniffExportJson passes the path; btsniffSanitizeFilename passes the name", async () => {
+    await ipc.btsniffExportJson("/tmp/out.json");
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_export_json", { path: "/tmp/out.json" });
+    mockInvoke.mockReset();
+    mockInvoke.mockResolvedValue("clean.json");
+    await ipc.btsniffSanitizeFilename("dirty AA:BB:CC:DD:EE:FF");
+    expect(mockInvoke).toHaveBeenCalledWith("btsniff_sanitize_filename", {
+      name: "dirty AA:BB:CC:DD:EE:FF",
+    });
+  });
+});

@@ -664,6 +664,37 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["sound", "boom"],
   },
   {
+    command: "btsniff",
+    aliases: ["btcap", "btcapture", "blecap"],
+    category: CAT_SEC,
+    version_added: "0.179.0",
+    tagline: "Analyse a Bluetooth capture — decode HCI/ATT/GATT, byte-diff for reversing.",
+    tagline_de:
+      "Bluetooth-Capture analysieren — HCI/ATT/GATT dekodieren, Byte-Diff zum Reversen.",
+    synopsis: "btsniff   ·   btcap · btcapture · blecap",
+    description:
+      "Imports a Bluetooth HCI capture — `.pklg` (macOS PacketLogger), `btsnoop_hci.log` (Android / BlueZ) or `.pcapng` (Wireshark) — and decodes it: HCI commands/events, ACL, L2CAP, ATT and GATT operations, each classified with direction (→ TX / ← RX), connection + attribute handle and UUID. A virtualised timeline scrolls a huge session smoothly; picking a packet opens an inspector with the decoded fields, a hex dump, and a **byte-diff against the previous packet on the same ATT handle** — so a value an app pokes repeatedly stands out. Filter by layer (HCI/ACL/L2CAP/ATT/GATT) or direction, full-text search opcodes/handles/UUIDs, and export the whole analysis to JSON. Distinct from the `bt` device manager — this reads capture files, it does not pair devices.",
+    arguments: [],
+    flags: [],
+    examples: [
+      { input: "btsniff", result: "Opens the analyzer; pick or drag in a capture file." },
+      { input: "btcap", result: "Same command, short form." },
+      { input: "btsniff?", result: "This help." },
+    ],
+    tips: [
+      "The byte-diff highlights exactly the bytes that changed since the last write to the same characteristic — the fastest way to find the payload field an app is toggling.",
+      "Filter to **GATT** to see only the value-bearing reads/writes/notifications and skip the connection-setup chatter.",
+      "Drag a `btsnoop_hci.log` straight from Finder onto the panel to import it.",
+    ],
+    caveats: [
+      "This analyses **exported capture files** — it does not sniff live traffic. macOS has no public promiscuous-HCI capture API; produce a `.pklg` with Apple's PacketLogger, a `btsnoop_hci.log` via Android HCI-snoop logging, or a `.pcapng` from Wireshark, then import it here.",
+      "Capture files are untrusted input: a corrupt or truncated file is parsed best-effort (the readable packets survive) rather than rejected.",
+      "The export filename is timestamp-only and any custom name is stripped of MAC-address runs — a device address never lands in a filename.",
+    ],
+    related: ["bluetooth", "sec"],
+    see_also: "docs/bluetooth-capture.md",
+  },
+  {
     command: "dezibel",
     aliases: ["db"],
     category: CAT_SYS,

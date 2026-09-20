@@ -35,6 +35,7 @@ const PagespeedPanel = lazy(() => import("./components/PagespeedPanel").then((m)
 import type { AdbView } from "./components/AdbPanel";
 const AdbPanel = lazy(() => import("./components/AdbPanel").then((m) => ({ default: m.AdbPanel })));
 const DiskPanel = lazy(() => import("./components/DiskPanel").then((m) => ({ default: m.DiskPanel })));
+const BluetoothCapturePanel = lazy(() => import("./components/BluetoothCapturePanel").then((m) => ({ default: m.BluetoothCapturePanel })));
 const ClockPanel = lazy(() => import("./components/ClockPanel").then((m) => ({ default: m.ClockPanel })));
 const RickrollPanel = lazy(() => import("./components/RickrollPanel").then((m) => ({ default: m.RickrollPanel })));
 const RepoPanel = lazy(() => import("./components/RepoPanel").then((m) => ({ default: m.RepoPanel })));
@@ -433,6 +434,10 @@ function App() {
   // path override; bare `disk` scans the home dir.
   const [diskMode, setDiskMode] = useState(false);
   const [diskFocus, setDiskFocus] = useState(false);
+  // btsniff mode — Bluetooth capture analyzer. Show-while-typed (like adb);
+  // Enter hands the panel keyboard focus for list navigation.
+  const [btsniffMode, setBtsniffMode] = useState(false);
+  const [btsniffFocus, setBtsniffFocus] = useState(false);
   // clock mode (v0.121.0) — world clock. Enter-activated (the search field
   // needs focus for autocomplete).
   const [clockMode, setClockMode] = useState(false);
@@ -1409,6 +1414,18 @@ function App() {
       setDiskFocus(false);
     }
   }, [isDiskCmd, diskMode]);
+  const isBtsniffCmd = parsedCommand?.spec.kind === "btsniff";
+  useEffect(() => {
+    // Show-while-fully-typed: the analyzer panel has no heavy mount side-effect
+    // (nothing reads a file until the user imports), so it renders in the
+    // preview as soon as the keyword is complete; Enter hands it focus.
+    if (isBtsniffCmd && !btsniffMode) {
+      setBtsniffMode(true);
+    } else if (!isBtsniffCmd && btsniffMode) {
+      setBtsniffMode(false);
+      setBtsniffFocus(false);
+    }
+  }, [isBtsniffCmd, btsniffMode]);
   const isAdbCmd = parsedCommand?.spec.kind === "adb";
   useEffect(() => {
     // Show-while-fully-typed (v0.130.0): the complete keyword already
@@ -1940,6 +1957,10 @@ function App() {
       case "disk":
         label = arg ? `Speicher: ${arg}` : "Speicher analysieren (DaisyDisk-Stil)";
         hint = "Enter → Sunburst der Ordnergrößen, Drill-down, größte Dateien";
+        break;
+      case "btsniff":
+        label = "Bluetooth-Capture analysieren";
+        hint = "Enter → .pklg / btsnoop / pcapng importieren; HCI/ATT/GATT dekodiert, Byte-Diff";
         break;
       case "adb": {
         const v = arg.trim().toLowerCase();
@@ -3381,6 +3402,8 @@ function App() {
     setAdbFocus(false);
     setDiskMode(false);
     setDiskFocus(false);
+    setBtsniffMode(false);
+    setBtsniffFocus(false);
     setClockMode(false);
     setClockFocus(false);
     setRickMode(false);
@@ -3524,7 +3547,7 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
@@ -4052,6 +4075,10 @@ function App() {
         setDiskMode(true);
         setDiskFocus(true);
         return true;
+      } else if (commandKind === "btsniff") {
+        setBtsniffMode(true);
+        setBtsniffFocus(true);
+        return true;
       } else if (commandKind === "adb") {
         // Android control panel; the arg picks the view (remote/apps/wifi).
         const view = arg.trim().toLowerCase();
@@ -4501,6 +4528,7 @@ function App() {
       !pagespeedFocus &&
       !adbFocus &&
       !diskFocus &&
+      !btsniffFocus &&
       !clockFocus &&
       !rickFocus &&
       !repoFocus &&
@@ -5102,6 +5130,17 @@ function App() {
                       onExit={() => {
                         setDiskMode(false);
                         setDiskFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                    />
+                  </div>
+                ) : btsniffMode ? (
+                  <div className="md3-pop-in h-full">
+                    <BluetoothCapturePanel
+                      focused={btsniffFocus}
+                      onExit={() => {
+                        setBtsniffMode(false);
+                        setBtsniffFocus(false);
                         requestAnimationFrame(() => searchRef.current?.focus());
                       }}
                     />

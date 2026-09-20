@@ -24,6 +24,7 @@ mod disk_usage;
 mod bench;
 mod bench_export;
 mod bluetooth;
+mod bluetooth_capture;
 mod bruno_export;
 mod auto_backup;
 mod device_sync;
@@ -283,6 +284,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(alarm::AlarmState::default());
             app.manage(commands::MicCaptureState::default());
             app.manage(iris::IrisState::default());
+            app.manage(bluetooth_capture::BtSniffState::default());
             app.manage(tracking::TrackerState::default());
             // Restore the last tracking state: if a session was still active
             // when the app last closed (crash / quit / update), resume it so
@@ -982,6 +984,12 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_all,
             commands::weather_fetch,
             commands::ip_fetch,
+            commands::btsniff_open_file,
+            commands::btsniff_packet,
+            commands::btsniff_stats,
+            commands::btsniff_export_json,
+            commands::btsniff_default_filename,
+            commands::btsniff_sanitize_filename,
             commands::token_usage_fetch,
             commands::iris_start,
             commands::iris_stop,

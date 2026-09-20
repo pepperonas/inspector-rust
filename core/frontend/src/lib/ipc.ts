@@ -3732,3 +3732,40 @@ export interface IpReport {
 export function ipFetch(): Promise<IpReport> {
   return invoke("ip_fetch");
 }
+
+// ── btsniff: Bluetooth capture analyzer ──────────────────────────────────────
+import type {
+  BtPacketDetail,
+  CaptureStats,
+  OpenResult,
+} from "./bluetooth-capture";
+
+/** Load + parse a capture file (.pklg / btsnoop / pcapng) into the session. */
+export function btsniffOpenFile(path: string): Promise<OpenResult> {
+  return invoke("btsniff_open_file", { path });
+}
+
+/** Inspector detail for one packet (bytes + decoded fields + byte-diff mask). */
+export function btsniffPacket(index: number): Promise<BtPacketDetail> {
+  return invoke("btsniff_packet", { index });
+}
+
+/** The current session summary. */
+export function btsniffStats(): Promise<CaptureStats> {
+  return invoke("btsniff_stats");
+}
+
+/** Serialise the loaded session to JSON and write it to `path`. */
+export function btsniffExportJson(path: string): Promise<void> {
+  return invoke("btsniff_export_json", { path });
+}
+
+/** The timestamped default export filename (no device data). */
+export function btsniffDefaultFilename(): Promise<string> {
+  return invoke("btsniff_default_filename");
+}
+
+/** Sanitise a user-edited export filename (strips paths + MAC addresses). */
+export function btsniffSanitizeFilename(name: string): Promise<string> {
+  return invoke("btsniff_sanitize_filename", { name });
+}

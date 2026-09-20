@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.179.0] - 2026-09-20
+
+### Added
+- **New `btsniff` command — a Bluetooth capture analyzer.** Import a `.pklg` (macOS PacketLogger), `btsnoop_hci.log` (Android/BlueZ) or `.pcapng` (Wireshark) capture and it decodes the whole session — HCI commands/events, ACL, L2CAP, ATT and GATT operations — each with direction (→ TX / ← RX), connection and attribute handle, and UUID. A virtualised timeline scrolls a large capture smoothly; filters (HCI/ACL/L2CAP/ATT/GATT/TX/RX) and full-text search narrow it; picking a packet opens an inspector with the decoded fields, a hex dump, and a **byte-diff against the previous packet on the same attribute** — the payload byte an app keeps changing stands out, which is exactly what you want when reverse-engineering a device protocol. Export the analysis to JSON (timestamp-only filename, MAC addresses stripped from any custom name). It analyses **exported capture files**, not live traffic (macOS exposes no public promiscuous-HCI API), and the defensive parser never panics on a corrupt or truncated file. Aliases `btcap`/`btcapture`/`blecap`; it is separate from the existing `bt` device manager and works cross-platform (a CoreBluetooth live-GATT mode is planned, macOS-only).
+
 ## [0.178.0] - 2026-09-20
 
 ### Changed

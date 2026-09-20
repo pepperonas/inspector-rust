@@ -45,7 +45,8 @@ describe("COMMANDS catalogue", () => {
     // The meme command is build-flag-gated (MEME_ENABLED); the test env leaves
     // VITE_IR_MEME unset → enabled → present.
     // +2 for `benchmark` and its `performance` spelling (v0.150.0).
-    expect(COMMANDS.length).toBe(108);
+    // +4 for `btsniff` and its `btcap`/`btcapture`/`blecap` aliases.
+    expect(COMMANDS.length).toBe(112);
   });
 
   it("every keyword is unique", () => {

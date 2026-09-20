@@ -61,6 +61,7 @@ export type CommandKind =
   | "dezibel"
   | "lumen"
   | "bluetooth"
+  | "btsniff"
   | "clown"
   | "bruno"
   | "timer"
@@ -499,6 +500,36 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     description: "Bluetooth-Geräte — Alias von `bluetooth` (gleicher Befehl, Kurzform).",
     requiresArg: false,
     platform: ["mac"],
+  },
+  // ── btsniff: Bluetooth-Capture-Analyse (eigenständig vom bt-Befehl) ──
+  {
+    kind: "btsniff",
+    keyword: "btsniff",
+    syntax: "btsniff",
+    description:
+      "Bluetooth-Capture analysieren — .pklg / btsnoop / pcapng importieren, HCI/ATT/GATT dekodiert.",
+    requiresArg: false,
+  },
+  {
+    kind: "btsniff",
+    keyword: "btcap",
+    syntax: "btcap",
+    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    requiresArg: false,
+  },
+  {
+    kind: "btsniff",
+    keyword: "btcapture",
+    syntax: "btcapture",
+    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    requiresArg: false,
+  },
+  {
+    kind: "btsniff",
+    keyword: "blecap",
+    syntax: "blecap",
+    description: "Bluetooth-Capture-Analyse — Alias von `btsniff` (gleicher Befehl).",
+    requiresArg: false,
   },
   {
     kind: "benchmark",

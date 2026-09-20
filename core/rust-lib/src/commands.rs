@@ -7338,3 +7338,69 @@ pub async fn ip_fetch() -> Result<crate::ip::IpReport, String> {
         .await
         .map_err(|e| format!("ip task: {e}"))?
 }
+
+// ── btsniff: Bluetooth capture analyzer ──────────────────────────────────
+// Stage 1 — deterministic file analyzer (.pklg / btsnoop / pcapng). The
+// heavy IO/parse runs in `spawn_blocking`; committing to the session state is
+// a quick locked write. The live-GATT backend (Stage 2) will add commands.
+
+/// Load + parse a capture file into the analysis session.
+#[tauri::command]
+pub async fn btsniff_open_file(
+    path: String,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<crate::bluetooth_capture::OpenResult, String> {
+    let loaded =
+        tauri::async_runtime::spawn_blocking(move || crate::bluetooth_capture::load(&path))
+            .await
+            .map_err(|e| e.to_string())?
+            .map_err(|e| e.to_string())?;
+    Ok(crate::bluetooth_capture::store(&state.0, loaded))
+}
+
+/// Inspector detail for one packet (bytes + decoded fields + byte-diff mask).
+#[tauri::command]
+pub fn btsniff_packet(
+    index: usize,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<crate::bluetooth_capture::models::BtPacketDetail, String> {
+    crate::bluetooth_capture::packet_detail(&state.0, index).map_err(|e| e.to_string())
+}
+
+/// The current session summary (recomputed from the packets).
+#[tauri::command]
+pub fn btsniff_stats(
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> crate::bluetooth_capture::models::CaptureStats {
+    crate::bluetooth_capture::stats(&state.0)
+}
+
+/// Serialise the loaded session to JSON and write it to `path`.
+#[tauri::command]
+pub async fn btsniff_export_json(
+    path: String,
+    state: State<'_, crate::bluetooth_capture::BtSniffState>,
+) -> Result<(), String> {
+    // Building the JSON borrows the session (no await held across the lock);
+    // this runs on the async runtime, not the main thread. The file write goes
+    // to spawn_blocking.
+    let json = crate::bluetooth_capture::export_json(&state.0).map_err(|e| e.to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        std::fs::write(&path, json).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
+/// The timestamped default filename for a JSON export (never any device data).
+#[tauri::command]
+pub fn btsniff_default_filename() -> String {
+    crate::bluetooth_capture::export::default_json_filename_now()
+}
+
+/// Sanitise a user-edited export filename before it becomes the save-dialog
+/// suggestion — strips path parts, control chars, and MAC-address runs (§21).
+#[tauri::command]
+pub fn btsniff_sanitize_filename(name: String) -> String {
+    crate::bluetooth_capture::export::sanitize_export_name(&name, chrono::Local::now())
+}

@@ -1155,6 +1155,29 @@ export function setWindowSnapConfig(config: WindowSnapConfig): Promise<WindowSna
   return invoke("set_window_snap_config", { config });
 }
 
+/** Cursor wrap-around ("Infinity Monitor"): the pointer reappears on the
+ *  opposite outer edge of the display arrangement. On by default; macOS only. */
+export interface CursorWrapConfig {
+  enabled: boolean;
+  left: boolean;
+  right: boolean;
+  top: boolean;
+  bottom: boolean;
+  /** Points near a corner (along the pressed edge) where wrapping is suppressed
+   *  so macOS Hot Corners stay reachable. */
+  corner_deadzone_px: number;
+  /** Wrap even while a mouse button is held (a drag). Off by default. */
+  wrap_during_drag: boolean;
+}
+
+export function getCursorWrapConfig(): Promise<CursorWrapConfig> {
+  return invoke("get_cursor_wrap_config");
+}
+
+export function setCursorWrapConfig(config: CursorWrapConfig): Promise<CursorWrapConfig> {
+  return invoke("set_cursor_wrap_config", { config });
+}
+
 /** boom — system-wide audio enhancement (macOS, driverless). */
 export interface BoomEffects {
   bass: number;

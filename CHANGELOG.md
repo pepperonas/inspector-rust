@@ -4,6 +4,11 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.182.0] - 2026-09-22
+
+### Added
+- **New cursor wrap-around — "Infinity Monitor" (SopoNext) reimplemented inline; ON by default.** When the pointer is pushed past a **true outer edge** of your display arrangement it reappears on the opposite outer edge (Pac-Man wrap), so a trackpad user never has to swipe all the way back across a wide or multi-monitor desktop. **Multi-monitor-correct:** it wraps only where one point past the edge lands on no display — internal seams between adjacent monitors are never wrapped (macOS already flows the cursor across them), and the warp target is clamped into a real display so an offset/L-shaped arrangement never lands the pointer in a gap. A configurable **corner dead-zone** (default 8 px) keeps macOS Hot Corners reachable, and wrapping is **suppressed mid-drag** by default so it can't drop a window/selection drag. Fully configurable + toggleable in **Settings → Cursor wrap-around** (per-edge, dead-zone, drag). macOS only (listen-only `CGEventTap` + `CGWarpMouseCursorPosition` on a dedicated run-loop thread); needs Accessibility. The wrap geometry is a pure, exhaustively unit-tested core.
+
 ## [0.181.0] - 2026-09-20
 
 ### Added

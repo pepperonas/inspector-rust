@@ -2997,6 +2997,27 @@ pub fn set_window_snap_config(
     Ok(crate::window_snap::WindowSnapConfig::load(&db))
 }
 
+// ── Cursor wrap-around ("Infinity Monitor") ──────────────────────────────────
+
+/// Current cursor-wrap config (on by default).
+#[tauri::command]
+pub fn get_cursor_wrap_config(db: State<'_, DbHandle>) -> crate::cursor_wrap::CursorWrapConfig {
+    crate::cursor_wrap::CursorWrapConfig::load(&db)
+}
+
+/// Persist a new cursor-wrap config and (re)start/stop the wrap monitor.
+#[tauri::command]
+pub fn set_cursor_wrap_config(
+    app: AppHandle,
+    db: State<'_, DbHandle>,
+    cw: State<'_, crate::cursor_wrap::CursorWrapState>,
+    config: crate::cursor_wrap::CursorWrapConfig,
+) -> Result<crate::cursor_wrap::CursorWrapConfig, String> {
+    config.save(&db).map_err(map_err)?;
+    crate::cursor_wrap::apply(&app, &db, &cw);
+    Ok(crate::cursor_wrap::CursorWrapConfig::load(&db))
+}
+
 // ── Keep-alive (always running) ──────────────────────────────────────────────
 
 /// Is the keep-alive supervisor installed (app auto-relaunches when not running)?

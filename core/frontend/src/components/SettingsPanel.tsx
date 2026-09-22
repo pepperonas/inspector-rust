@@ -100,6 +100,9 @@ import {
   getWindowSnapConfig,
   setWindowSnapConfig,
   type WindowSnapConfig,
+  getCursorWrapConfig,
+  setCursorWrapConfig,
+  type CursorWrapConfig,
   getWindowPaletteConfig,
   setWindowPaletteConfig,
   type WindowPaletteConfig,
@@ -461,6 +464,31 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
       setPaletteCfg(paletteCfg);
     } finally {
       setPaletteBusy(false);
+    }
+  };
+
+  // ── Cursor wrap-around ("Infinity Monitor", macOS) ───────────────────────
+  const [wrapCfg, setWrapCfg] = useState<CursorWrapConfig | null>(null);
+  const [wrapBusy, setWrapBusy] = useState(false);
+  useEffect(() => {
+    if (!IS_MAC) return;
+    getCursorWrapConfig()
+      .then(setWrapCfg)
+      .catch(() => setWrapCfg(null));
+  }, []);
+  const patchWrap = async (patch: Partial<CursorWrapConfig>) => {
+    if (!wrapCfg) return;
+    setWrapBusy(true);
+    const previous = wrapCfg;
+    const optimistic = { ...wrapCfg, ...patch };
+    setWrapCfg(optimistic);
+    try {
+      setWrapCfg(await setCursorWrapConfig(optimistic));
+    } catch (e) {
+      console.error("cursor-wrap config failed", e);
+      setWrapCfg(previous);
+    } finally {
+      setWrapBusy(false);
     }
   };
 
@@ -1519,6 +1547,102 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                     </span>
                   </div>
                 </Row>
+              )}
+            </Section>
+          </div>
+        )}
+
+        {/* Cursor wrap-around — pointer reappears on the opposite outer edge (macOS). */}
+        {IS_MAC && (
+          <div className="mb-6">
+            <Section
+              icon={<MousePointerClick size={16} className="text-[var(--color-accent)]" />}
+              id="cursor-wrap"
+              title="Cursor wrap-around"
+              subtitle="When the pointer is pushed past an outer edge of your display arrangement, it reappears on the opposite side (Pac-Man wrap) — so you never have to swipe all the way back across a wide or multi-monitor desktop. Inspired by Infinity Monitor. On by default. Needs Accessibility (System Settings → Privacy & Security → Accessibility)."
+            >
+              <Row label="Enable wrap-around">
+                <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                  <input
+                    type="checkbox"
+                    checked={wrapCfg?.enabled ?? false}
+                    disabled={wrapCfg === null || wrapBusy}
+                    onChange={(e) => void patchWrap({ enabled: e.target.checked })}
+                    className="accent-[var(--color-accent)]"
+                  />
+                  <span className="text-[var(--color-muted)]">
+                    {wrapCfg === null
+                      ? "Loading…"
+                      : wrapCfg.enabled
+                        ? "On — the pointer wraps at the outer edges"
+                        : "Off"}
+                  </span>
+                </label>
+              </Row>
+              {wrapCfg?.enabled && (
+                <>
+                  <Row label="Active edges">
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12px]">
+                      {(
+                        [
+                          ["left", "Left"],
+                          ["right", "Right"],
+                          ["top", "Top"],
+                          ["bottom", "Bottom"],
+                        ] as const
+                      ).map(([key, label]) => (
+                        <label key={key} className="flex cursor-pointer items-center gap-1.5">
+                          <input
+                            type="checkbox"
+                            checked={wrapCfg[key]}
+                            disabled={wrapBusy}
+                            onChange={(e) => void patchWrap({ [key]: e.target.checked })}
+                            className="accent-[var(--color-accent)]"
+                          />
+                          <span className="text-[var(--color-muted)]">{label}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </Row>
+                  <Row label="Corner dead-zone">
+                    <div className="flex flex-col gap-1.5 text-[12px]">
+                      <select
+                        value={String(wrapCfg.corner_deadzone_px)}
+                        disabled={wrapBusy}
+                        onChange={(e) =>
+                          void patchWrap({ corner_deadzone_px: Number(e.target.value) })
+                        }
+                        className="w-56 rounded border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1 text-[12px] text-[var(--color-fg)]"
+                      >
+                        <option value="0">Off — corners wrap too</option>
+                        <option value="8">8 px (default)</option>
+                        <option value="16">16 px</option>
+                        <option value="24">24 px</option>
+                        <option value="40">40 px</option>
+                      </select>
+                      <span className="text-[var(--color-muted)]">
+                        Near a corner the pointer does NOT wrap, so macOS Hot
+                        Corners stay reachable.
+                      </span>
+                    </div>
+                  </Row>
+                  <Row label="While dragging">
+                    <label className="flex cursor-pointer items-center gap-2 text-[12px]">
+                      <input
+                        type="checkbox"
+                        checked={wrapCfg.wrap_during_drag}
+                        disabled={wrapBusy}
+                        onChange={(e) => void patchWrap({ wrap_during_drag: e.target.checked })}
+                        className="accent-[var(--color-accent)]"
+                      />
+                      <span className="text-[var(--color-muted)]">
+                        {wrapCfg.wrap_during_drag
+                          ? "Wraps even mid-drag"
+                          : "Off — won't wrap while a button is held (won't drop a drag)"}
+                      </span>
+                    </label>
+                  </Row>
+                </>
               )}
             </Section>
           </div>

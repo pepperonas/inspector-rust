@@ -24,6 +24,7 @@ mod clipboard_watcher;
 mod color_loupe;
 mod commands;
 mod crypto;
+mod cursor_wrap;
 mod cutout;
 mod cutout_ml;
 mod db;
@@ -310,6 +311,7 @@ pub fn run(context: tauri::Context<Wry>) {
             app.manage(gestures::GestureState::default());
             app.manage(window_snap::WindowSnapState);
             app.manage(window_palette::WindowPaletteState);
+            app.manage(cursor_wrap::CursorWrapState);
             app.manage(hotkey::ActionShortcutState::default());
 
             // App-launcher cache. Manage an empty index immediately, then fill
@@ -477,6 +479,13 @@ pub fn run(context: tauri::Context<Wry>) {
             {
                 let wp = app.state::<window_palette::WindowPaletteState>();
                 window_palette::apply(app.handle(), &db_handle, wp.inner());
+            }
+
+            // Cursor wrap-around ("Infinity Monitor"). macOS-only monitor,
+            // ON by default — `apply` starts it unless the user turned it off.
+            {
+                let cw = app.state::<cursor_wrap::CursorWrapState>();
+                cursor_wrap::apply(app.handle(), &db_handle, cw.inner());
             }
 
             // boom audio engine — (re)start if it was left enabled (off by default).
@@ -690,6 +699,8 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::set_keepalive_enabled,
             commands::get_window_snap_config,
             commands::set_window_snap_config,
+            commands::get_cursor_wrap_config,
+            commands::set_cursor_wrap_config,
             commands::get_window_palette_config,
             commands::set_window_palette_config,
             commands::window_palette_context,

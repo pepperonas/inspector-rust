@@ -17,6 +17,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **GitHub analyses go through a clone cache** (max. 5 repos / 2 GB) instead of a throw-away bare clone: the next analysis is a `git fetch`, and cloning copies the cached repo instead of downloading it again.
 - **Export writes the selected range** and uses the statistics already in the panel instead of re-cloning the repo; the HTML/PDF report gained the heatmap, calendar, hotspot, bus-factor and co-change sections.
 
+### Fixed (review pass)
+- A URL with non-ASCII characters (`github.com/o/éabc`) no longer panics the Rust parser — it is simply not a repo.
+- Two analyses of the same repo at once (reopening the panel mid-clone, editing the argument) no longer destroy each other: every cache entry has a process-wide lock, eviction skips entries in use, and the panel re-analyses only after typing settles.
+- An expired or revoked stored token no longer breaks **public** repos: an auth failure with a token is retried once without it.
+- A filled cache whose `origin/HEAD` went missing (default branch renamed) is repaired instead of showing "no commits".
+- The error card now has a real **Erneut versuchen** button (the hint used to promise an `R` shortcut that didn't exist).
+- Aggregating all five ranges is about twice as fast on large histories (30 000 commits: 1.58 s → 0.87 s).
+
 ## [0.182.0] - 2026-09-22
 
 ### Added

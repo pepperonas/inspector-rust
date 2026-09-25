@@ -39,6 +39,38 @@ wird **ab dem letzten Commit**, nicht ab heute: bei einem Repo, an dem seit
 Monaten niemand arbeitet, wären „30 Tage" sonst leer. Ein Zeitraum ohne
 Commits zeigt „Keine Commits in diesem Zeitraum".
 
+## Aktivität 24 h / 7 Tage
+
+Ganz oben im Panel steht, was **zuletzt** passiert ist — unabhängig vom gewählten
+Zeitraum, gemessen ab jetzt:
+
+| Fenster | Zeitraum | verglichen mit |
+|---|---|---|
+| 24 h | die letzten 24 Stunden | den 24 Stunden davor |
+| 7 Tage | die letzten 7 × 24 Stunden | den 7 Tagen davor |
+
+Die Fenster sind halboffen: ein Commit genau vor 24 Stunden zählt zur Vorperiode,
+nie doppelt. Maßgeblich ist der **Commit-Zeitpunkt**, nicht das Autor-Datum — ein
+heute per Rebase oder Cherry-Pick neu geschriebener alter Commit ist heute
+passiert. Neben jeder Zahl steht die Veränderung zur Vorperiode (↑ / ↓ / ±0), in
+neutraler Farbe: weniger ist nicht automatisch schlechter.
+
+**Aus Git** (Haupt-Branch, ohne Merge-Commits): Commits, Zeilen +/−, geänderte
+Dateien, aktive Mitwirkende, neue Tags (annotierte Tags mit ihrem eigenen Datum,
+einfache mit dem Datum des markierten Commits).
+
+**Von GitHub** (nur GitHub-Repos, nachgeladen): Pushes auf alle Branches,
+Pull Requests geöffnet und gemergt, Issues geöffnet und geschlossen. Grenzen:
+
+- Ein Push-Ereignis enthält seit 2025 keine Commit-Anzahl mehr — gezählt werden
+  Pushes, nicht gepushte Commits.
+- Die Events-API liefert höchstens 300 Ereignisse; ist die Grenze erreicht,
+  steht „≥ n“.
+- GitHub meldet Ereignisse mit 30 Sekunden bis einigen Stunden Verzögerung —
+  ein gerade eben gemachter Push fehlt eventuell noch.
+- Private Repos brauchen `gh auth login` oder ein Token (Settings →
+  Repositories); ohne Token gilt das kleine anonyme Abfragelimit.
+
 ## Code-Änderungen
 
 Direkt unter den Zeitraum-Chips steht die Karte **Code-Änderungen**:

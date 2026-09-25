@@ -4,6 +4,13 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.185.0] - 2026-09-25
+
+### Added
+- **What happened in the last 24 hours and 7 days — at the top of the `repo` panel.** A new **Aktivität 24 h / 7 Tage** card shows commits, lines added / removed, files changed, active contributors and new tags, each with the change vs the equally long period before (↑ / ↓ / ±0, deliberately neutral colours — fewer isn't automatically worse). Windows are rolling from now and half-open, so a commit exactly 24 h old counts to the previous day, never twice; the time used is the **commit** time, so a commit rewritten today (rebase, cherry-pick) counts today.
+- **GitHub numbers for GitHub repos:** pushes (Events API — since 2025 a push event no longer carries its commit count, so pushes are counted), pull requests opened / merged and issues opened / closed (pull requests filtered out of the issues list). Loaded separately after the analysis, with the saved token or `gh` login; rate limits, missing access and network errors show a hint while the git numbers stay. The Events API returns at most 300 events — when that cap is reached the count reads **≥ n**. GitHub also delivers events with a delay of up to several hours; the card says so.
+- The HTML/PDF export leads with the same table (GitHub rows when they were loaded).
+
 ## [0.184.0] - 2026-09-25
 
 ### Added

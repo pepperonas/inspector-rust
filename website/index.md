@@ -25,6 +25,13 @@ Files in the current release:
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
 
+### In numbers
+
+Counted from the source code, updated with every change:
+
+- **Lines of code:** <!--# include virtual="/ssi/stat-loc.txt" stub="none" --> (<!--# include virtual="/ssi/stat-loc-detail.txt" stub="none" -->)
+- **Unit tests:** <!--# include virtual="/ssi/stat-tests.txt" stub="none" --> (<!--# include virtual="/ssi/stat-tests-detail.txt" stub="none" -->)
+
 ### A look inside
 
 - **Clipboard history** — Every copy, searchable as you type — with a preview, notes and pins. ([image](https://inspector-rust.celox.io/assets/gallery/history.jpg))
@@ -55,7 +62,7 @@ The complete feature catalogue, mirrored from the repository:
 ## Verify
 
 <!--# include virtual="/ssi/checksums.md" stub="none" -->
-
+['- **Lines of code:** <!--# include virtual="/ssi/stat-loc.txt" stub="none" --> (<!--# include virtual="/ssi/stat-loc-detail.txt" stub="none" -->)', '- **Unit tests:** <!--# include virtual="/ssi/stat-tests.txt" stub="none" --> (<!--# include virtual="/ssi/stat-tests-detail.txt" stub="none" -->)']
 - Compare the file with the SHA-256 shown here: `shasum -a 256` on macOS and Linux, `Get-FileHash` in PowerShell.
 
 ## FAQ

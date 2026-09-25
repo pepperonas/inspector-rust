@@ -27,7 +27,7 @@
 // Set IR_SKIP_BADGES=1 to make the posttest hook a no-op (fast local `npm test`).
 
 import { execFileSync } from "node:child_process";
-import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -285,11 +285,25 @@ function writeEdits(edits) {
 // only way out was the hand edit the whole file exists to forbid. Counts first,
 // then the gated test-count badges — the suites still gate everything that
 // actually depends on them.
-function writeMetricBadges(metrics) {
+function writeMetricBadges(metrics, loc) {
   return writeEdits({
-    "README.md": (s) => applyMetricBadges(s, metrics),
-    "README.de.md": (s) => applyMetricBadges(s, metrics),
+    "README.md": (s) => applyLocBadges(applyMetricBadges(s, metrics), loc),
+    "README.de.md": (s) => applyLocBadges(applyMetricBadges(s, metrics), loc),
   });
+}
+
+// Lines of code are a file count too — written before the suites for the same
+// reason as the catalogue badges: `repo-stats.test.ts` pins the website file's
+// LOC to the README badge, and writing only one of them before a red suite
+// would lock both at the old value (the v0.169.0 guard-vs-fixer deadlock).
+function applyLocBadges(s, { locK, rustK, tsK }) {
+  for (const [k, v] of Object.entries({ locK, rustK, tsK })) {
+    if (!Number.isFinite(v)) throw new Error(`LOC metric '${k}' is ${v} — refusing to write it into the README`);
+  }
+  return s
+    .replace(/lines%20of%20code-~\d+k/g, `lines%20of%20code-~${locK}k`)
+    .replace(/badge\/Rust-~\d+k%20LoC/g, `badge/Rust-~${rustK}k%20LoC`)
+    .replace(/badge\/TypeScript-~\d+k%20LoC/g, `badge/TypeScript-~${tsK}k%20LoC`);
 }
 
 function rewriteBadges({ locK, rustK, tsK, total, rust, fe, ...metrics }) {
@@ -362,6 +376,47 @@ function rewriteBadges({ locK, rustK, tsK, total, rust, fe, ...metrics }) {
   return writeEdits(edits);
 }
 
+// ── .github/repo-stats.json (the website's numbers) ─────────────────────────
+//
+// The product page shows lines of code and unit tests. Its release timer reads
+// this file from GitHub every 15 minutes, so the numbers follow every push
+// without a deploy. It is written from the SAME values as the README badges,
+// in the same two phases (counts before the suites, LOC + tests after them) —
+// `repo-stats.test.ts` pins that file and README never disagree, and that
+// parity would deadlock if the file lagged a phase behind the README.
+
+const STATS_PATH = ".github/repo-stats.json";
+const STATS_ORDER = [
+  "loc", "loc_rust", "loc_ts", "tests", "tests_rust", "tests_frontend",
+  "commands", "features", "docs", "modules", "crates", "ipc", "components", "suites", "tables", "events",
+];
+
+function writeStats(patch) {
+  const path = join(ROOT, STATS_PATH);
+  let before = "";
+  let current = {};
+  try {
+    before = readFileSync(path, "utf8");
+    current = JSON.parse(before);
+  } catch {
+    /* first run: start empty */
+  }
+  const merged = { ...current, ...patch };
+  for (const [k, v] of Object.entries(patch)) {
+    if (!Number.isInteger(v) || v < 0) throw new Error(`repo-stats '${k}' is ${v} — refusing to publish it`);
+  }
+  // Stable key order (known keys first), no timestamp: re-running must be a no-op.
+  const keys = [...STATS_ORDER.filter((k) => k in merged), ...Object.keys(merged).filter((k) => !STATS_ORDER.includes(k)).sort()];
+  const after = JSON.stringify(Object.fromEntries(keys.map((k) => [k, merged[k]])), null, 2) + "\n";
+  if (after === before) {
+    console.log(`   ${STATS_PATH} already current`);
+    return;
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, after);
+  console.log(`   updated ${STATS_PATH}`);
+}
+
 // ── Main ─────────────────────────────────────────────────────────────────────
 
 console.log("── Counting lines of code…");
@@ -373,7 +428,8 @@ console.log(`   Rust ${rLoc} · Frontend ${fLoc} → ${loc} (~${locK}k)`);
 
 console.log("── Writing catalogue badges (file counts — no test can change them)…");
 const metrics = countMetrics();
-writeMetricBadges(metrics);
+writeMetricBadges(metrics, { locK, rustK: Math.round(rLoc / 1000), tsK: Math.round(fLoc / 1000) });
+writeStats({ ...metrics, loc, loc_rust: rLoc, loc_ts: fLoc });
 
 console.log("── Running cargo test --workspace…");
 const rust = rustTests();
@@ -396,6 +452,7 @@ rewriteBadges({
   fe,
   ...metrics,
 });
+writeStats({ tests: total, tests_rust: rust, tests_frontend: fe });
 console.log(
   `✓ Badges: ~${locK}k LOC · ${total} tests (${rust} Rust + ${fe} frontend).`,
 );

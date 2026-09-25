@@ -9,6 +9,8 @@ and writes, each file only when its content changed:
   <webroot>/ssi/*            the same facts as tiny fragments, pulled into index.html / index.md by nginx
                              SSI — so they are in the document without JavaScript
   <webroot>/changelog.md     CHANGELOG.md from the default branch, for the changelog dialog
+  <webroot>/ssi/stat-*.txt   the project's counts (site.json "repo_stats", a JSON file in the repository,
+                             e.g. lines of code and unit tests), formatted for the page
   <webroot>/ssi/features.*   the project's feature catalogue (site.json "feature_catalog", a text file in
                              the repo), rendered as HTML + Markdown — new features appear without a deploy
   /etc/nginx/inspector-rust-download.conf
@@ -30,6 +32,21 @@ CONFIG = json.loads(r'''{
  "nginx_include": "/etc/nginx/inspector-rust-download.conf",
  "nginx_var": "inspector_rust",
  "feature_catalog": "features.txt",
+ "repo_stats": {
+  "path": ".github/repo-stats.json",
+  "items": [
+   {
+    "key": "loc",
+    "format": "k",
+    "detail": "{loc_rust:k} Rust · {loc_ts:k} TypeScript"
+   },
+   {
+    "key": "tests",
+    "format": "int",
+    "detail": "{tests_rust} Rust · {tests_frontend} TypeScript"
+   }
+  ]
+ },
  "targets": [
   {
    "id": "macos",
@@ -80,6 +97,10 @@ CHANGELOG_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/CHANGELOG.md
 CHANGELOG_MAX = 2_000_000
 FEATURES_PATH = CONFIG.get("feature_catalog")
 FEATURES_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{FEATURES_PATH}" if FEATURES_PATH else None
+STATS_CFG = CONFIG.get("repo_stats") or None
+STATS_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{STATS_CFG['path']}" if STATS_CFG else None
+STAT_KEY = re.compile(r"^[a-z0-9_]{1,40}$")
+STAT_REF = re.compile(r"\{([a-z0-9_]+)(?::(k|int))?\}")
 
 
 def get(url, accept=None):
@@ -206,6 +227,54 @@ def fetch_features():
     return feature_fragments(areas)
 
 
+def format_stat(value, fmt):
+    """"~185k" for fmt "k" (a count under 1000 stays exact), else digits grouped with a narrow no-break
+    space — neutral in every page language, where "4,570" would read as a decimal in German."""
+    if fmt == "k" and value >= 1000:
+        return f"~{round(value / 1000)}k"
+    return f"{value:,}".replace(",", "\u202f")
+
+
+def _stat_value(data, key):
+    v = data.get(key)
+    # bool is an int in Python — a stray true must not show up as "1".
+    if isinstance(v, bool) or not isinstance(v, int) or v < 0:
+        raise ValueError(f"repo stats: '{key}' is {v!r}, expected a non-negative integer")
+    return v
+
+
+def parse_stats(body):
+    try:
+        data = json.loads(body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise ValueError(f"repo stats: not JSON ({e})")
+    if not isinstance(data, dict):
+        raise ValueError("repo stats: expected a JSON object")
+    return data
+
+
+def stats_fragments(data, items):
+    """One value and one detail fragment per configured item. Any bad or missing number raises, so the
+    page keeps the last good set instead of showing half of a new one."""
+    out = {}
+    for item in items:
+        key, fmt = item["key"], item.get("format", "int")
+        if not STAT_KEY.match(key):
+            raise ValueError(f"repo stats: key {key!r} is not a safe name")
+        out[f"stat-{key}.txt"] = format_stat(_stat_value(data, key), fmt)
+        detail = STAT_REF.sub(lambda m: format_stat(_stat_value(data, m.group(1)), m.group(2) or "int"),
+                              item.get("detail", ""))
+        out[f"stat-{key}-detail.txt"] = html.escape(detail, quote=False)
+    return out
+
+
+def fetch_stats():
+    body = get(STATS_URL)
+    if len(body) > 100_000:
+        raise ValueError("repo stats file too large")
+    return stats_fragments(parse_stats(body), STATS_CFG["items"])
+
+
 def mb(size):
     return f"{size / 1048576:.1f} MB"
 
@@ -307,6 +376,14 @@ def main():
         except Exception as e:  # the page keeps showing the last good list
             print(f"{CONFIG['slug']}-latest: features not refreshed ({e})", file=sys.stderr)
 
+    changed_stats = False
+    if STATS_URL:
+        try:
+            for name, text in fetch_stats().items():
+                changed_stats |= write_if_changed(os.path.join(ssi_dir, name), text)
+        except Exception as e:  # the page keeps showing the last good numbers
+            print(f"{CONFIG['slug']}-latest: repo stats not refreshed ({e})", file=sys.stderr)
+
     conf = download_conf(d)
     changed_conf = False
     if not same(NGINX_INC, conf) and not os.environ.get("SITE_NO_NGINX"):
@@ -331,7 +408,8 @@ def main():
         f"{CONFIG['slug']}-latest: {d['version']} targets={','.join(a['target'] for a in d['assets'])} "
         f"json={'new' if changed_json else 'same'} ssi={'new' if changed_ssi else 'same'} "
         f"changelog={'new' if changed_log else 'same'} "
-        f"features={'new' if changed_feat else ('off' if not FEATURES_URL else 'same')} nginx={'reloaded' if changed_conf else 'same'}"
+        f"features={'new' if changed_feat else ('off' if not FEATURES_URL else 'same')} "
+        f"stats={'new' if changed_stats else ('off' if not STATS_URL else 'same')} nginx={'reloaded' if changed_conf else 'same'}"
     )
     return 0
 

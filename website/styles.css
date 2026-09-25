@@ -258,6 +258,25 @@ h1 {
   background: #000; box-shadow: 0 30px 80px -30px color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
+/* Repo stats: counts from the repository (lines of code, tests …), refreshed by the release timer. */
+.repo-stats { padding-top: 8px; padding-bottom: 8px; }
+.rs-list {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 14px; margin: 0;
+}
+.rs-item {
+  padding: 20px 22px; border-radius: var(--r-xl);
+  background: var(--surface-low); border: 1px solid var(--outline-variant);
+}
+.rs-item dt { font-size: .82rem; letter-spacing: .06em; text-transform: uppercase; color: var(--on-variant); }
+.rs-item dd { margin: 6px 0 0; display: flex; flex-direction: column; gap: 4px; }
+.rs-value {
+  font: 700 clamp(1.9rem, 4vw, 2.4rem)/1.1 var(--mono); letter-spacing: -.02em;
+  font-variant-numeric: tabular-nums; color: var(--on-bg);
+}
+.rs-detail { font: 500 .85rem/1.4 var(--mono); color: var(--on-variant); }
+.rs-detail:empty { display: none; }
+.rs-note { margin: 12px 0 0; font-size: .85rem; color: var(--on-variant); }
+
 /* Gallery: captioned mockups; a click opens the large view (#shot-view). */
 .shot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 22px; }
 .shot { margin: 0; display: flex; flex-direction: column; gap: 12px; }

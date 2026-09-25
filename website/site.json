@@ -10,7 +10,7 @@
  "tagline": "One hotkey. Everything you copy, and a lot more.",
  "license": "MIT",
  "year": 2026,
- "asset_version": 4,
+ "asset_version": 5,
  "theme_source": "core/frontend/src/styles.css — @theme (dark)",
  "theme": {
   "bg": "#0c0d11",
@@ -793,5 +793,34 @@
   }
  },
  "feature_catalog": "features.txt",
- "feature_catalog_lang": "de"
+ "feature_catalog_lang": "de",
+ "repo_stats": {
+  "path": ".github/repo-stats.json",
+  "items": [
+   {
+    "key": "loc",
+    "format": "k",
+    "detail": "{loc_rust:k} Rust · {loc_ts:k} TypeScript",
+    "label": {
+     "en": "Lines of code",
+     "de": "Zeilen Code",
+     "es": "Líneas de código",
+     "it": "Righe di codice",
+     "fr": "Lignes de code"
+    }
+   },
+   {
+    "key": "tests",
+    "format": "int",
+    "detail": "{tests_rust} Rust · {tests_frontend} TypeScript",
+    "label": {
+     "en": "Unit tests",
+     "de": "Unit-Tests",
+     "es": "Tests unitarios",
+     "it": "Test unitari",
+     "fr": "Tests unitaires"
+    }
+   }
+  ]
+ }
 }

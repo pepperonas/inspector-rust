@@ -1,0 +1,18 @@
+{
+  "loc": 185413,
+  "loc_rust": 95234,
+  "loc_ts": 90179,
+  "tests": 4575,
+  "tests_rust": 1745,
+  "tests_frontend": 2830,
+  "commands": 66,
+  "features": 188,
+  "docs": 27,
+  "modules": 97,
+  "crates": 864,
+  "ipc": 419,
+  "components": 85,
+  "suites": 235,
+  "tables": 16,
+  "events": 55
+}

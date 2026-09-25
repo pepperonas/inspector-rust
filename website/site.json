@@ -10,7 +10,7 @@
  "tagline": "One hotkey. Everything you copy, and a lot more.",
  "license": "MIT",
  "year": 2026,
- "asset_version": 1,
+ "asset_version": 2,
  "theme_source": "core/frontend/src/styles.css — @theme (dark)",
  "theme": {
   "bg": "#0c0d11",
@@ -454,6 +454,22 @@
    "es": "Inspector Rust no tiene servidor ni cuenta. El portapapeles, los fragmentos, las notas y los secretos 2FA se cifran con una clave guardada en el llavero de tu sistema. Los comandos que necesitan internet, como el tiempo o la traducción, solo contactan con su proveedor cuando los ejecutas.",
    "it": "Inspector Rust non ha server né account. Appunti, frammenti, note e segreti 2FA sono cifrati con una chiave conservata nel portachiavi del sistema. I comandi che richiedono internet, come meteo o traduzione, contattano il loro fornitore solo quando li esegui.",
    "fr": "Inspector Rust n’a ni serveur ni compte. Presse-papiers, extraits, notes et secrets 2FA sont chiffrés avec une clé conservée dans le trousseau de votre système. Les commandes qui ont besoin d’internet, comme la météo ou la traduction, ne contactent leur fournisseur que lorsque vous les lancez."
-  }
+  },
+  "agent_queries": [
+   "Download the latest Inspector Rust for macOS, Windows or Linux",
+   "Which version of Inspector Rust is current?",
+   "How do I open Inspector Rust on macOS when it says the app is damaged?",
+   "Free open-source clipboard manager with a text expander"
+  ],
+  "tags": [
+   "clipboard-manager",
+   "text-expander",
+   "command-palette",
+   "open-source",
+   "macos",
+   "windows",
+   "linux"
+  ],
+  "skill_description": "Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows."
  }
 }

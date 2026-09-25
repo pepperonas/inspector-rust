@@ -73,7 +73,7 @@ server {
         if ($inspector_rust_wants_markdown) { rewrite ^ /index.md last; }
         try_files /index.html =404;
         add_header Vary "Accept" always;
-        add_header Link '</llms.txt>; rel="alternate"; type="text/markdown", </index.md>; rel="alternate"; type="text/markdown", </latest.json>; rel="alternate"; type="application/json"' always;
+        add_header Link '</llms.txt>; rel="alternate"; type="text/markdown", </index.md>; rel="alternate"; type="text/markdown", </latest.json>; rel="alternate"; type="application/json", </.well-known/ai-catalog.json>; rel="ai-catalog"; type="application/json"' always;
         add_header Cache-Control "no-cache" always;
         add_header Strict-Transport-Security "max-age=31536000" always;
         add_header X-Content-Type-Options "nosniff" always;
@@ -89,6 +89,27 @@ server {
         add_header Cache-Control "no-cache" always;
         add_header X-Content-Type-Options "nosniff" always;
     }
+    # Agent resource discovery (ARD): the catalog, also under the spec's newer name, and the skill it lists.
+    location = /.well-known/ai-catalog.json {
+        default_type application/json;
+        add_header Cache-Control "no-cache" always;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+    location = /.well-known/ard.json {
+        alias /var/www/inspector-rust.celox.io/.well-known/ai-catalog.json;
+        default_type application/json;
+        add_header Cache-Control "no-cache" always;
+        add_header Access-Control-Allow-Origin "*" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+    location ~ ^/skills/.+\.md$ {
+        types { }
+        default_type text/markdown;
+        add_header Cache-Control "no-cache" always;
+        add_header X-Content-Type-Options "nosniff" always;
+    }
+
     # Copied from GitHub by the timer; read by the changelog dialog and by agents.
     location = /changelog.md {
         types { }

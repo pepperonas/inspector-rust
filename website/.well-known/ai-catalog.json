@@ -1,0 +1,32 @@
+{
+  "specVersion": "1.0",
+  "host": {
+    "displayName": "Inspector Rust",
+    "identifier": "did:web:inspector-rust.celox.io",
+    "documentationUrl": "https://inspector-rust.celox.io/llms.txt"
+  },
+  "entries": [
+    {
+      "identifier": "urn:air:inspector-rust.celox.io:skills:get-inspector-rust",
+      "displayName": "Get Inspector Rust",
+      "type": "text/markdown; profile=\"urn:air:agent-skills\"",
+      "url": "https://inspector-rust.celox.io/skills/get-inspector-rust/SKILL.md",
+      "description": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
+      "tags": [
+        "clipboard-manager",
+        "text-expander",
+        "command-palette",
+        "open-source",
+        "macos",
+        "windows",
+        "linux"
+      ],
+      "representativeQueries": [
+        "Download the latest Inspector Rust for macOS, Windows or Linux",
+        "Which version of Inspector Rust is current?",
+        "How do I open Inspector Rust on macOS when it says the app is damaged?",
+        "Free open-source clipboard manager with a text expander"
+      ]
+    }
+  ]
+}

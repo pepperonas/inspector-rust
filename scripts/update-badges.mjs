@@ -235,7 +235,11 @@ function countMetrics() {
 // READMEs: a rule that exists in only one language IS the drift it was written
 // to prevent (docs-22/modules-84 once sat beside the English 24/87 for weeks).
 // The "%20Seiten" variant simply doesn't match in the English file.
-function applyMetricBadges(s, { commands, docs, modules, crates, features, ipc, components, suites, tables, events }) {
+function applyMetricBadges(s, metrics) {
+  const { commands, docs, modules, crates, features, ipc, components, suites, tables, events } = metrics;
+  for (const [k, v] of Object.entries({ commands, docs, modules, crates, features, ipc, components, suites, tables, events })) {
+    if (!Number.isFinite(v)) throw new Error(`badge metric '${k}' is ${v} — refusing to write it into the README`);
+  }
   return s
     .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
     .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
@@ -245,11 +249,11 @@ function applyMetricBadges(s, { commands, docs, modules, crates, features, ipc, 
     .replace(/badge\/features-\d+/g, `badge/features-${features}`)
     // A second, capital-R modules badge once sat at 71 beside the computed 97.
     .replace(/badge\/Rust%20modules-\d+/g, `badge/Rust%20modules-${modules}`)
-    .replace(/badge\/IPC%20commands-\d+/g, `badge/IPC%20commands-${ipc}`)
-    .replace(/badge\/UI%20components-\d+/g, `badge/UI%20components-${components}`)
-    .replace(/badge\/test%20suites-\d+/g, `badge/test%20suites-${suites}`)
-    .replace(/badge\/SQLite%20tables-\d+/g, `badge/SQLite%20tables-${tables}`)
-    .replace(/badge\/events-\d+/g, `badge/events-${events}`);
+    .replace(/badge\/IPC%20commands-(?:\d+|undefined)/g, `badge/IPC%20commands-${ipc}`)
+    .replace(/badge\/UI%20components-(?:\d+|undefined)/g, `badge/UI%20components-${components}`)
+    .replace(/badge\/test%20suites-(?:\d+|undefined)/g, `badge/test%20suites-${suites}`)
+    .replace(/badge\/SQLite%20tables-(?:\d+|undefined)/g, `badge/SQLite%20tables-${tables}`)
+    .replace(/badge\/events-(?:\d+|undefined)/g, `badge/events-${events}`);
 }
 
 function writeEdits(edits) {
@@ -288,8 +292,9 @@ function writeMetricBadges(metrics) {
   });
 }
 
-function rewriteBadges({ locK, rustK, tsK, total, rust, fe, commands, docs, modules, crates, features }) {
-  const metrics = { commands, docs, modules, crates, features };
+function rewriteBadges({ locK, rustK, tsK, total, rust, fe, ...metrics }) {
+  // ⚠️ Pass EVERY metric through — a hand-picked subset once wrote
+  // "IPC%20commands-undefined" into both READMEs (v0.185.0).
   const edits = {
     "README.md": (s) =>
       applyMetricBadges(s, metrics)

@@ -5,6 +5,8 @@
  * tested.
  */
 
+import type { RangeKey } from "./ipc";
+
 export const WEEKDAY_LABELS = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] as const;
 
 /** Category → colour (repo2viz-ish palette). Unknowns fall back to grey. */
@@ -77,4 +79,58 @@ export function sparkPoints(commits: readonly number[], w: number, h: number, pa
 /** Total churn (ins+del) for the header readout. */
 export function totalChurn(insertions: number, deletions: number): number {
   return insertions + deletions;
+}
+
+export const RANGES: readonly { key: RangeKey; label: string }[] = [
+  { key: "d30", label: "30 T" },
+  { key: "d90", label: "90 T" },
+  { key: "d180", label: "180 T" },
+  { key: "y1", label: "1 J" },
+  { key: "all", label: "Gesamt" },
+];
+
+/** 0 (none) … 4 (max) — four visible steps like GitHub's calendar. */
+export function heatLevel(v: number, max: number): 0 | 1 | 2 | 3 | 4 {
+  if (v <= 0 || max <= 0) return 0;
+  return Math.max(1, Math.min(4, Math.ceil((v / max) * 4))) as 1 | 2 | 3 | 4;
+}
+
+function dayOrdinal(date: string): number | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date);
+  if (!m) return null;
+  return Math.floor(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 86_400_000);
+}
+
+/** Week-column / weekday-row placement, Monday first — mirrors Rust
+ *  `calendar_svg` (1970-01-01 was a Thursday → weekday = (ord+3) mod 7). */
+export function calendarCells(days: readonly { date: string; commits: number }[]) {
+  const parsed = days
+    .map((d) => ({ d, o: dayOrdinal(d.date) }))
+    .filter((x): x is { d: { date: string; commits: number }; o: number } => x.o !== null);
+  if (parsed.length === 0) return [];
+  const wd = (o: number) => (((o + 3) % 7) + 7) % 7;
+  const first = Math.min(...parsed.map((x) => x.o));
+  const start = first - wd(first);
+  return parsed.map(({ d, o }) => ({
+    col: Math.floor((o - start) / 7),
+    row: wd(o),
+    date: d.date,
+    commits: d.commits,
+  }));
+}
+
+export function repoErrorHint(err: string): { title: string; body: string } {
+  if (err.includes("repo.no_target"))
+    return {
+      title: "Kein Repository.",
+      body: "Eine GitHub-URL einfügen — oder im Finder einen Ordner mit .git auswählen.",
+    };
+  if (err.startsWith("repo.auth"))
+    return {
+      title: "Kein Zugriff auf das Repository.",
+      body: "Privat oder nicht vorhanden. `gh auth login` im Terminal ausführen oder ein Token in Settings → Repositories hinterlegen.",
+    };
+  if (err.startsWith("repo.network"))
+    return { title: "Keine Verbindung zu GitHub.", body: "Netz prüfen und mit R erneut versuchen." };
+  return { title: "Analyse fehlgeschlagen", body: err.replace(/^repo\.git:\s*/, "") };
 }

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays } from "lucide-react";
-import { repoAnalyze, repoExport, type RepoStats } from "../lib/ipc";
+import { listen } from "@tauri-apps/api/event";
+import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays, Download } from "lucide-react";
+import { repoAnalyze, repoExport, repoClone, type RepoAnalysis, type RepoProgress, type RangeKey } from "../lib/ipc";
 import { ExportRow, type ExportFormat } from "./ExportRow";
 import {
   WEEKDAY_LABELS,
@@ -11,6 +12,10 @@ import {
   peakLabel,
   sparkPoints,
   totalChurn,
+  RANGES,
+  heatLevel,
+  calendarCells,
+  repoErrorHint,
 } from "../lib/repo";
 
 /**
@@ -33,7 +38,9 @@ export function RepoPanel({
   focused: boolean;
   onExit: () => void;
 }) {
-  const [stats, setStats] = useState<RepoStats | null>(null);
+  const [analysis, setAnalysis] = useState<RepoAnalysis | null>(null);
+  const [range, setRange] = useState<RangeKey>("all");
+  const stats = analysis?.ranges.find((r) => r.range === range)?.stats ?? null;
   const [err, setErr] = useState<string | null>(null);
   const [busy, setBusy] = useState(true);
   const [phase, setPhase] = useState("Analysiere…");
@@ -52,7 +59,7 @@ export function RepoPanel({
     repoAnalyze(target)
       .then((s) => {
         if (!aliveRef.current || seq !== seqRef.current) return;
-        setStats(s);
+        setAnalysis(s);
         setBusy(false);
       })
       .catch((e) => {
@@ -61,6 +68,20 @@ export function RepoPanel({
         setBusy(false);
       });
   }, [target]);
+
+  const [progress, setProgress] = useState<RepoProgress | null>(null);
+  useEffect(() => {
+    let off: (() => void) | undefined;
+    let dead = false;
+    void listen<RepoProgress>("repo-progress", (e) => setProgress(e.payload)).then((u) => {
+      if (dead) u();
+      else off = u;
+    });
+    return () => {
+      dead = true;
+      off?.();
+    };
+  }, []);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -73,15 +94,31 @@ export function RepoPanel({
   const [exporting, setExporting] = useState<string | null>(null);
   const doExport = useCallback(
     (fmt: ExportFormat = "html") => {
+      if (!stats) return;
       setExporting(fmt);
       setNote("Exportiere…");
-      repoExport(target, fmt === "pdf" ? "pdf" : "html")
+      repoExport(stats, range, fmt === "pdf" ? "pdf" : "html")
         .then((path) => setNote(`Gespeichert: ${path.split("/").pop()}`))
         .catch((e) => setNote(String(e)))
         .finally(() => setExporting(null));
     },
-    [target],
+    [stats, range],
   );
+
+  const [cloning, setCloning] = useState(false);
+  const doClone = useCallback(() => {
+    const url = analysis?.github?.web_url;
+    if (!url || cloning) return;
+    setCloning(true);
+    setNote("Klone…");
+    repoClone(url)
+      .then((path) => setNote(`Geklont nach ${path}`))
+      .catch((e) => setNote(repoErrorHint(String(e)).title))
+      .finally(() => {
+        setCloning(false);
+        setProgress(null);
+      });
+  }, [analysis, cloning]);
 
   // Auto-export once the analysis is on screen (the `export` command path).
   const exportedRef = useRef(false);
@@ -109,6 +146,9 @@ export function RepoPanel({
         e.preventDefault();
         e.stopPropagation();
         onExit();
+      } else if (chord && (e.key === "k" || e.key === "K")) {
+        e.preventDefault();
+        doClone();
       } else if (chord && (e.key === "e" || e.key === "E")) {
         e.preventDefault();
         doExport("html");
@@ -123,7 +163,7 @@ export function RepoPanel({
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
-  }, [focused, onExit, doExport]);
+  }, [focused, onExit, doExport, doClone]);
 
   if (busy && !stats) {
     return (
@@ -131,33 +171,34 @@ export function RepoPanel({
         <div className="flex flex-col items-center gap-2 rounded-xl border border-[var(--color-border)] p-6">
           <div className="disk-scan-orb" aria-hidden />
           <p className="text-[12px] font-medium">{phase}</p>
-          <p className="text-[11px] text-[var(--color-muted)]">Große Repos brauchen einen Moment.</p>
+          {progress?.op === "analyze" ? (
+            <p className="text-[11px] tabular-nums text-[var(--color-muted)]">{progress.phase} · {progress.percent} %</p>
+          ) : (
+            <p className="text-[11px] text-[var(--color-muted)]">Große Repos brauchen einen Moment.</p>
+          )}
         </div>
       </Shell>
     );
   }
   if (err) {
-    const noTarget = err.includes("repo.no_target");
+    const hint = repoErrorHint(err);
     return (
       <Shell focused={focused}>
         <div className="rounded-xl border border-[var(--color-border)] p-4">
-          <p className="text-[12px] font-medium">{noTarget ? "Kein Repository." : "Analyse fehlgeschlagen"}</p>
-          <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">
-            {noTarget
-              ? "Eine GitHub-URL angeben (repo https://github.com/user/projekt) — oder im Finder einen Ordner mit .git auswählen."
-              : err}
-          </p>
+          <p className="text-[12px] font-medium">{hint.title}</p>
+          <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">{hint.body}</p>
         </div>
       </Shell>
     );
   }
-  if (!stats) return <Shell focused={focused}>{null}</Shell>;
+  if (!analysis || !stats) return <Shell focused={focused}>{null}</Shell>;
 
   const churn = totalChurn(stats.insertions, stats.deletions);
   const wdMax = Math.max(1, ...stats.by_weekday);
   const hrMax = Math.max(1, ...stats.by_hour);
   const catMax = Math.max(1, ...stats.categories.map((c) => c.commits));
   const fileMax = Math.max(1, ...stats.top_files.map((f) => f.changes));
+  const heatMax = Math.max(1, ...stats.heatmap.flat());
 
   return (
     <div ref={scrollRef} className="flex h-full flex-col gap-3 overflow-y-auto p-4 text-[var(--color-fg)] [contain:paint]">
@@ -175,7 +216,43 @@ export function RepoPanel({
       <p className="-mt-1 text-[10px] text-[var(--color-muted)]">
         {shortDate(stats.first_commit)} → {shortDate(stats.last_commit)}
       </p>
-      {note && <p className="text-[11px] text-emerald-500">{note}</p>}
+      <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Zeitraum">
+        {RANGES.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            onClick={() => setRange(r.key)}
+            aria-pressed={range === r.key}
+            className={
+              "rounded-full border px-2 py-0.5 text-[10px] transition-colors duration-(--duration-fast) ease-sharp " +
+              (range === r.key
+                ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-[var(--color-accent-fg)]"
+                : "border-[var(--color-border)] text-[var(--color-muted)] hover:text-[var(--color-fg)]")
+            }
+          >
+            {r.label}
+          </button>
+        ))}
+      </div>
+      <p className="-mt-1 text-[10px] text-[var(--color-muted)]">
+        Zeiträume zählen ab dem letzten Commit ({shortDate(analysis.ranges.find((r) => r.range === "all")?.stats.last_commit ?? "")}).
+      </p>
+      {analysis.github && (
+        <button
+          type="button"
+          onClick={doClone}
+          disabled={cloning}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2 py-1.5 text-[12px] hover:border-[var(--color-accent)] disabled:opacity-60"
+        >
+          <Download size={13} />
+          {cloning
+            ? progress?.op === "clone"
+              ? `${progress.phase} · ${progress.percent} %`
+              : "Klone…"
+            : `Klonen (${analysis.github.owner}/${analysis.github.repo})`}
+        </button>
+      )}
+      {note && <p className="break-all text-[11px] text-emerald-500">{note}</p>}
       <ExportRow
         formats={["html", "pdf"]}
         busy={exporting}
@@ -183,14 +260,21 @@ export function RepoPanel({
         onExport={(f) => doExport(f)}
       />
 
+      {stats.commits === 0 ? (
+        <p className="rounded-xl border border-[var(--color-border)] p-4 text-[12px] text-[var(--color-muted)]">
+          Keine Commits in diesem Zeitraum.
+        </p>
+      ) : (
+        <>
       {/* KPI tiles. */}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-4 gap-1.5">
         <Kpi icon={<GitCommit size={12} />} value={formatNum(stats.commits)} label="Commits" />
         <Kpi icon={<Users size={12} />} value={formatNum(stats.contributors)} label="Mitwirkende" />
         <Kpi icon={<CalendarDays size={12} />} value={formatNum(stats.active_days)} label="Aktive Tage" />
         <Kpi icon={<Flame size={12} />} value={formatNum(stats.longest_streak)} label="Längste Serie" />
         <Kpi value={`+${formatNum(stats.insertions)}`} label="Zeilen ein" tone="pos" />
         <Kpi value={`−${formatNum(stats.deletions)}`} label="Zeilen aus" tone="neg" />
+        <Kpi value={String(stats.bus_factor)} label="Bus-Faktor" />
       </div>
 
       {/* Month timeline sparkline. */}
@@ -233,6 +317,73 @@ export function RepoPanel({
         </div>
       </Card>
 
+      <Card title="Heatmap Wochentag × Stunde">
+        <div className="grid gap-[2px]" style={{ gridTemplateColumns: "18px repeat(24, 1fr)" }}>
+          {stats.heatmap.map((row, d) => {
+            return [
+              <span key={`l${d}`} className="text-[9px] text-[var(--color-muted)]">{WEEKDAY_LABELS[d]}</span>,
+              ...row.map((v, h) => (
+                <span
+                  key={`${d}-${h}`}
+                  title={`${WEEKDAY_LABELS[d]} ${h} Uhr: ${v}`}
+                  className="aspect-square rounded-[2px]"
+                  style={{ background: "var(--color-accent)", opacity: [0.07, 0.3, 0.5, 0.75, 1][heatLevel(v, heatMax)] }}
+                />
+              )),
+            ];
+          })}
+        </div>
+      </Card>
+      {(range === "y1" || range === "all") && stats.calendar.length > 0 && (
+        <Card title="Beitragskalender">
+          {(() => {
+            const cells = calendarCells(stats.calendar);
+            const cols = Math.max(...cells.map((c) => c.col)) + 1;
+            const max = Math.max(1, ...cells.map((c) => c.commits));
+            return (
+              <svg viewBox={`0 0 ${cols * 10} 70`} className="w-full" role="img" aria-label="Beitragskalender">
+                {cells.map((c) => (
+                  <rect key={c.date} x={c.col * 10} y={c.row * 10} width={8} height={8} rx={1.5} fill="#2e9e5b" fillOpacity={[0.07, 0.3, 0.5, 0.75, 1][heatLevel(c.commits, max)]}>
+                    <title>{`${c.date}: ${c.commits}`}</title>
+                  </rect>
+                ))}
+              </svg>
+            );
+          })()}
+        </Card>
+      )}
+      {stats.hotspots.length > 0 && (
+        <Card title="Hotspots · viel geändert, ≤ 2 Autoren">
+          <RankList
+            rows={stats.hotspots.map((h) => ({ label: h.path, bar: barPct(h.changes, stats.hotspots[0].changes), value: `${h.changes}× · ${h.authors} Autor${h.authors === 1 ? "" : "en"}` }))}
+            mono
+          />
+        </Card>
+      )}
+      {stats.dir_bus_factor.length > 0 && (
+        <Card title={`Bus-Faktor · gesamt ${stats.bus_factor}`}>
+          <div className="flex flex-col gap-0.5 text-[11px]">
+            {stats.dir_bus_factor.map((d) => (
+              <div key={d.dir} className="flex justify-between gap-2">
+                <span className="truncate font-[var(--font-mono)]">{d.dir}</span>
+                <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{formatNum(d.commits)} · {d.authors} Autoren · BF {d.bus_factor}</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
+      {stats.co_change.length > 0 && (
+        <Card title="Co-Change · oft zusammen geändert">
+          <div className="flex flex-col gap-0.5 text-[11px]">
+            {stats.co_change.map((p) => (
+              <div key={`${p.a}|${p.b}`} className="flex justify-between gap-2">
+                <span className="min-w-0 truncate font-[var(--font-mono)]" title={`${p.a} ↔ ${p.b}`}>{p.a} ↔ {p.b}</span>
+                <span className="shrink-0 tabular-nums text-[var(--color-muted)]">{p.count}×</span>
+              </div>
+            ))}
+          </div>
+        </Card>
+      )}
       {/* Commit categories. */}
       {stats.categories.length > 0 && (
         <Card title="Commit-Kategorien">
@@ -282,11 +433,16 @@ export function RepoPanel({
         </Card>
       </div>
 
+        </>
+      )}
+
       <p className="text-[10px] text-[var(--color-muted)]">
         {formatNum(churn)} Zeilen bewegt · ⌀ {stats.avg_msg_len} Zeichen/Message · orientiert an repo2viz
       </p>
       {focused && (
-        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">E = HTML-Export · Esc schließen</p>
+        <p className="mt-auto pt-1 text-[11px] text-[var(--color-muted)]">
+          ⌘E HTML · ⌘P PDF{analysis.github ? " · ⌘K klonen" : ""} · Esc schließen
+        </p>
       )}
     </div>
   );

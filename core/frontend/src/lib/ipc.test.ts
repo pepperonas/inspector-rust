@@ -399,3 +399,23 @@ describe("mailcheck wrapper", () => {
     expect(mockInvoke).toHaveBeenCalledWith("mailcheck_run", { email: "a@b.com" });
   });
 });
+
+describe("repo wrappers (v0.183.0)", () => {
+  it("repoExport passes the panel's stats + range + format", async () => {
+    const stats = { commits: 3 } as unknown as ipc.RepoStats;
+    await ipc.repoExport(stats, "d90", "pdf");
+    expect(mockInvoke).toHaveBeenCalledWith("repo_export", { stats, range: "d90", format: "pdf" });
+  });
+  it("repoClone passes the url", async () => {
+    await ipc.repoClone("u");
+    expect(mockInvoke).toHaveBeenCalledWith("repo_clone", { url: "u" });
+  });
+  it("setRepoCloneDir passes the dir", async () => {
+    await ipc.setRepoCloneDir("/x");
+    expect(mockInvoke).toHaveBeenCalledWith("set_repo_clone_dir", { dir: "/x" });
+  });
+  it("setGithubToken passes the token", async () => {
+    await ipc.setGithubToken("t");
+    expect(mockInvoke).toHaveBeenCalledWith("set_github_token", { token: "t" });
+  });
+});

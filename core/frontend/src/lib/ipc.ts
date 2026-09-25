@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { BackupImportResult, ClipEntry, Note, Snippet } from "./types";
+import type { RepoUrl } from "./repo-url";
 
 // ── Clipboard history ────────────────────────────────────────────────────────
 
@@ -2847,13 +2848,18 @@ export function aliasDelete(name: string): Promise<string> {
   return invoke("alias_delete", { name });
 }
 
-// ── repo — git activity stats (v0.123.0) ────────────────────────────────────
+// ── repo — git activity stats (v0.123.0; ranges + clone v0.183.0) ──────────
 
+export type RangeKey = "d30" | "d90" | "d180" | "y1" | "all";
 export interface RepoMonth { month: string; commits: number }
 export interface RepoFile { path: string; changes: number; churn: number }
 export interface RepoExt { ext: string; commits: number; churn: number }
 export interface RepoAuthor { name: string; commits: number; churn: number }
 export interface RepoCat { cat: string; commits: number }
+export interface RepoDayCount { date: string; commits: number }
+export interface RepoHotspot { path: string; changes: number; authors: number }
+export interface RepoDirStat { dir: string; commits: number; authors: number; bus_factor: number }
+export interface RepoCoChange { a: string; b: string; count: number }
 export interface RepoStats {
   name: string;
   source: string;
@@ -2873,19 +2879,39 @@ export interface RepoStats {
   categories: RepoCat[];
   longest_streak: number;
   avg_msg_len: number;
+  heatmap: number[][];
+  calendar: RepoDayCount[];
+  hotspots: RepoHotspot[];
+  bus_factor: number;
+  dir_bus_factor: RepoDirStat[];
+  co_change: RepoCoChange[];
 }
+export interface RangedStats { range: RangeKey; stats: RepoStats }
+export interface RepoAnalysis { name: string; source: string; github: RepoUrl | null; ranges: RangedStats[] }
+export interface RepoConfig { clone_dir: string; has_token: boolean; gh_available: boolean }
+export interface RepoProgress { op: "analyze" | "clone"; phase: string; percent: number }
 
 /** Analyse a repo. `target`: a git URL, a local path, or null for the
  *  Finder-selected .git folder. Sentinel "repo.no_target" = nothing to scan. */
-export function repoAnalyze(target: string | null): Promise<RepoStats> {
+export function repoAnalyze(target: string | null): Promise<RepoAnalysis> {
   return invoke("repo_analyze", { target });
 }
-/** Analyse + write the report to ~/Downloads; returns the path. */
-export function repoExport(
-  target: string | null,
-  format: "html" | "pdf" = "html",
-): Promise<string> {
-  return invoke("repo_export", { target, format });
+/** Write one range's stats to ~/Downloads (no re-clone); returns the path. */
+export function repoExport(stats: RepoStats, range: RangeKey, format: "html" | "pdf" = "html"): Promise<string> {
+  return invoke("repo_export", { stats, range, format });
+}
+/** Clone into the configured folder (`name (2)` … when taken); returns the path. */
+export function repoClone(url: string): Promise<string> {
+  return invoke("repo_clone", { url });
+}
+export function getRepoConfig(): Promise<RepoConfig> {
+  return invoke("get_repo_config");
+}
+export function setRepoCloneDir(dir: string): Promise<void> {
+  return invoke("set_repo_clone_dir", { dir });
+}
+export function setGithubToken(token: string): Promise<void> {
+  return invoke("set_github_token", { token });
 }
 
 // ── clock — world clock zone persistence (v0.121.0) ─────────────────────────

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { RANGES, heatLevel, calendarCells, repoErrorHint } from "./repo";
 import {
   WEEKDAY_LABELS,
   categoryColor,
@@ -49,5 +50,32 @@ describe("repo display helpers", () => {
 
   it("totalChurn sums", () => {
     expect(totalChurn(100, 40)).toBe(140);
+  });
+});
+
+describe("repo ranges + heat + calendar", () => {
+  it("offers the five ranges in order", () => {
+    expect(RANGES.map((r) => r.key)).toEqual(["d30", "d90", "d180", "y1", "all"]);
+  });
+  it("maps a value to 0..4 and never divides by zero", () => {
+    expect(heatLevel(0, 10)).toBe(0);
+    expect(heatLevel(10, 10)).toBe(4);
+    expect(heatLevel(1, 10)).toBe(1);
+    expect(heatLevel(5, 0)).toBe(0);
+  });
+  it("places days Monday-first in week columns (same as Rust calendar_svg)", () => {
+    const cells = calendarCells([
+      { date: "2026-08-24", commits: 2 }, // Monday
+      { date: "2026-08-30", commits: 1 }, // Sunday
+      { date: "2026-08-31", commits: 1 }, // next Monday
+    ]);
+    expect(cells.map((c) => [c.col, c.row])).toEqual([[0, 0], [0, 6], [1, 0]]);
+    expect(calendarCells([])).toEqual([]);
+  });
+  it("turns sentinels into human hints", () => {
+    expect(repoErrorHint("repo.auth: remote: Repository not found").title).toMatch(/Kein Zugriff/);
+    expect(repoErrorHint("repo.network: Could not resolve host").title).toMatch(/Keine Verbindung/);
+    expect(repoErrorHint("repo.no_target").title).toMatch(/Kein Repository/);
+    expect(repoErrorHint("irgendwas").title).toMatch(/fehlgeschlagen/);
   });
 });

@@ -994,6 +994,64 @@ pub fn calendar_svg(days: &[DayCount]) -> String {
 /// Build the self-contained HTML export for one range (no external requests —
 /// inline CSS + inline SVG, both survive the PDF render). Pure; tested structurally.
 pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
+    build_html_with(stats, range, None, None)
+}
+
+fn delta(cur: u64, prev: u64) -> String {
+    match cur.cmp(&prev) {
+        std::cmp::Ordering::Greater => format!("↑ {}", cur - prev),
+        std::cmp::Ordering::Less => format!("↓ {}", prev - cur),
+        std::cmp::Ordering::Equal => "±0".into(),
+    }
+}
+
+fn activity_row(label: &str, d: u64, dp: u64, w: u64, wp: u64, capped: bool) -> String {
+    let ge = if capped { "≥ " } else { "" };
+    format!(
+        "<tr><td>{label}</td><td>{ge}{d} <span class=\"dl\">{}</span></td><td>{ge}{w} <span class=\"dl\">{}</span></td></tr>",
+        delta(d, dp),
+        delta(w, wp)
+    )
+}
+
+fn activity_section(r: &crate::repo_activity::RecentActivity, gh: Option<&crate::github_api::GithubActivity>) -> String {
+    let mut rows = String::new();
+    let g = |f: fn(&crate::repo_activity::ActivityCounts) -> u64| (f(&r.day), f(&r.day_prev), f(&r.week), f(&r.week_prev));
+    for (label, (d, dp, w, wp)) in [
+        ("Commits", g(|c| c.commits)),
+        ("Zeilen +", g(|c| c.insertions)),
+        ("Zeilen −", g(|c| c.deletions)),
+        ("Dateien", g(|c| c.files)),
+        ("Mitwirkende", g(|c| c.authors)),
+        ("Tags", g(|c| c.tags)),
+    ] {
+        rows.push_str(&activity_row(label, d, dp, w, wp, false));
+    }
+    if let Some(gh) = gh {
+        let h = |f: fn(&crate::github_api::GithubCounts) -> u64| (f(&gh.day), f(&gh.day_prev), f(&gh.week), f(&gh.week_prev));
+        let (d, dp, w, wp) = h(|c| c.pushes);
+        rows.push_str(&activity_row("Pushes", d, dp, w, wp, gh.pushes_capped));
+        for (label, (d, dp, w, wp)) in [
+            ("PRs geöffnet", h(|c| c.prs_opened)),
+            ("PRs gemergt", h(|c| c.prs_merged)),
+            ("Issues geöffnet", h(|c| c.issues_opened)),
+            ("Issues geschlossen", h(|c| c.issues_closed)),
+        ] {
+            rows.push_str(&activity_row(label, d, dp, w, wp, false));
+        }
+    }
+    format!(
+        "<section><h2>Aktivität 24 h / 7 Tage</h2><table class=\"act\"><thead><tr><th>Wert</th><th>24 h</th><th>7 Tage</th></tr></thead><tbody>{rows}</tbody></table><p class=\"rp-lede\">Vergleich jeweils zur gleich langen Vorperiode. Git: Haupt-Branch ohne Merges · Pushes: alle Branches.</p></section>"
+    )
+}
+
+/// Export with the optional 24 h / 7 d activity table at the top.
+pub fn build_html_with(
+    stats: &RepoStats,
+    range: RangeKey,
+    recent: Option<&crate::repo_activity::RecentActivity>,
+    github: Option<&crate::github_api::GithubActivity>,
+) -> String {
     if stats.commits == 0 {
         return rs::shell(
             "Repo-Aktivität",
@@ -1080,6 +1138,7 @@ pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
 
     let body = format!(
         r#"{stats}
+{recent}
 {code_changes}
 <section><h2>Commits nach Wochentag</h2>{wd}</section>
 <section><h2>Commits nach Stunde</h2>{hr}</section>
@@ -1117,6 +1176,7 @@ pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
         authors = author_rows,
         heat = heatmap_svg(&stats.heatmap),
         code_changes = code_changes,
+        recent = recent.map(|r| activity_section(r, github)).unwrap_or_default(),
         activity_title = activity_title,
         calendar = calendar,
         hot = hot_rows,
@@ -1144,8 +1204,11 @@ const REPO_CSS: &str = r#"
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
 .heat, .cal, .churn { display:block; max-width:100% }
 .churn-kpis { display:flex; gap:18px; font-size:15px; font-weight:600; margin:0 0 8px; font-variant-numeric:tabular-nums }
+.dl { color:var(--muted); font-size:10.5px; margin-left:4px }
 .churn-kpis .add { color:#2e9e5b } .churn-kpis .del { color:#d0493f }
 td:nth-child(2), td:nth-child(3), td:nth-child(4), th:nth-child(2), th:nth-child(3), th:nth-child(4) { width:88px }
+.act td, .act th { width:auto; white-space:nowrap }
+.dl { white-space:nowrap }
 "#;
 
 #[cfg(test)]
@@ -1275,7 +1338,7 @@ mod tests {
             let a = analyze_local(std::path::Path::new(&repo)).unwrap();
             for r in &a.ranges {
                 let name = format!("repo-report-{}.html", serde_json::to_string(&r.range).unwrap().trim_matches('"'));
-                std::fs::write(dir.join(name), build_html(&r.stats, r.range)).unwrap();
+                std::fs::write(dir.join(name), build_html_with(&r.stats, r.range, Some(&a.recent), None)).unwrap();
             }
             return;
         }
@@ -1541,6 +1604,27 @@ mod tests {
         // Old-format record (no trailing field) still parses, time unknown.
         let old = format!("{REC}sha{FLD}2020-01-01T00:00:00+00:00{FLD}A{FLD}a@x{FLD}feat: x\n");
         assert_eq!(parse_commits(&old)[0].committed, None);
+    }
+
+    #[test]
+    fn html_leads_with_recent_activity_when_given() {
+        use crate::repo_activity::{ActivityCounts, RecentActivity};
+        let s = parse_git_log(&synth_log());
+        let recent = RecentActivity {
+            now: 0,
+            day: ActivityCounts { commits: 3, insertions: 10, deletions: 2, files: 4, authors: 1, tags: 0 },
+            day_prev: ActivityCounts { commits: 1, ..Default::default() },
+            week: ActivityCounts { commits: 9, ..Default::default() },
+            week_prev: ActivityCounts { commits: 12, ..Default::default() },
+        };
+        let gh = crate::github_api::GithubActivity { pushes_capped: true, ..Default::default() };
+        let html = build_html_with(&s, RangeKey::All, Some(&recent), Some(&gh));
+        let a = html.find("Aktivität 24 h / 7 Tage").expect("section");
+        assert!(a < html.find("Code-Änderungen").unwrap());
+        assert!(html.contains("↑ 2") && html.contains("↓ 3"), "deltas vs previous period");
+        assert!(html.contains("Pushes") && html.contains("≥"), "capped push count marked");
+        let plain = build_html(&s, RangeKey::All);
+        assert!(!plain.contains("Aktivität 24 h / 7 Tage"));
     }
 
     /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`

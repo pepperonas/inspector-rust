@@ -1399,6 +1399,8 @@ pub async fn repo_export(
     stats: crate::repo_stats::RepoStats,
     range: String,
     format: Option<String>,
+    recent: Option<crate::repo_activity::RecentActivity>,
+    github: Option<crate::github_api::GithubActivity>,
 ) -> Result<String, String> {
     let ext = match format.as_deref().unwrap_or("html") {
         "html" => "html",
@@ -1407,7 +1409,7 @@ pub async fn repo_export(
     };
     let range = crate::repo_stats::RangeKey::parse(&range).ok_or_else(|| format!("Unbekannter Zeitraum: {range}"))?;
     let (_name, slug) = crate::repo_stats::repo_identity(&stats.source);
-    let html = crate::repo_stats::build_html(&stats, range);
+    let html = crate::repo_stats::build_html_with(&stats, range, recent.as_ref(), github.as_ref());
     let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
     let suffix = if range == crate::repo_stats::RangeKey::All { String::new() } else { format!("-{}", serde_json::to_string(&range).unwrap_or_default().trim_matches('"')) };
     let out = dir.join(format!("{slug}-activity{suffix}.{ext}"));

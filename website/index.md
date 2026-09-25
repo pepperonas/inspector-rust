@@ -25,6 +25,12 @@ Files in the current release:
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
 
+### Every feature
+
+The complete feature catalogue, mirrored from the repository:
+
+<!--# include virtual="/ssi/features.md" stub="none" -->
+
 ## Install
 
 1. **Download for your system** — DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.

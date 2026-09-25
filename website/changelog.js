@@ -1,10 +1,18 @@
-// Changelog dialog. The server copies CHANGELOG.md from GitHub next to this page (ftr-latest.py,
+// Changelog dialog. The server copies CHANGELOG.md from GitHub next to this page (the release timer,
 // every 15 minutes), so it is always current without visitors calling GitHub themselves.
-// A deliberately small Markdown renderer for what the changelog actually uses: headings, nested
-// bullet and numbered lists, paragraphs, **bold**, *emphasis*, `code`, [links](https://…), <https://…>.
-// Every piece of text is escaped first; only http(s) links become anchors.
+// A deliberately small Markdown renderer for what changelogs actually use: headings, nested bullet
+// and numbered lists, paragraphs, fenced code, pipe tables, **bold**, *emphasis*, `code`,
+// [links](https://…), <https://…>. Every piece of text is escaped first; only http(s) links become
+// anchors.
+//
+// Rendering is paged by version: the newest BATCH_FIRST sections render when the dialog opens, the
+// rest on demand. A long-lived project's changelog runs to hundreds of releases and more than half a
+// megabyte — rendering all of it at once built ~11 000 DOM nodes and stalled older machines.
 (function () {
   'use strict';
+
+  var BATCH_FIRST = 10;
+  var BATCH_MORE = 25;
 
   function esc(s) {
     return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -27,17 +35,34 @@
     return s;
   }
 
-  function render(md) {
-    var lines = md.replace(/\r/g, '').split('\n');
-    // Start at the first version section; drop reference-style link definitions at the end.
-    var start = lines.findIndex(function (l) { return /^## \[/.test(l); });
-    if (start < 0) start = 0;
-    lines = lines.slice(start).filter(function (l) { return !/^\[[^\]]+\]:\s+https?:\/\//.test(l); });
+  // "[1.11.0] - 2026-09-25" — the separator may be a hyphen, an en dash or an em dash; changelogs
+  // switch between them over the years, and a missed one turns every later release into a sub-heading.
+  var VERSION = /^\[([^\]]+)\](?:\s*[-–—]\s*(.*))?$/;
 
+  // Split into one chunk per "## " section. The preamble before the first section and
+  // reference-style link definitions are dropped; an empty section (typically "Unreleased") too.
+  function sections(md) {
+    var lines = md.replace(/\r/g, '').split('\n')
+      .filter(function (l) { return !/^\[[^\]]+\]:\s+https?:\/\//.test(l); });
+    var out = [];
+    var cur = null;
+    lines.forEach(function (l) {
+      if (/^## /.test(l)) { cur = [l]; out.push(cur); } else if (cur) { cur.push(l); }
+    });
+    return out.filter(function (s) { return s.slice(1).some(function (l) { return /\S/.test(l); }); });
+  }
+
+  function isTableRow(l) { return /^\s*\|.*\|\s*$/.test(l); }
+  function isTableRule(l) { return /^\s*\|[\s:|-]+\|\s*$/.test(l) && /-/.test(l); }
+  function cells(l) { return l.trim().replace(/^\||\|$/g, '').split('|').map(function (c) { return c.trim(); }); }
+
+  function renderSection(lines) {
     var out = [];
     var para = [];
     var stack = []; // open lists: {indent, tag}
     var item = null; // text of the list item being collected
+    var fence = null; // lines of an open ``` block
+    var table = null; // rows of a pipe table being collected
 
     function flushPara() {
       if (para.length) { out.push('<p>' + inline(para.join(' ')) + '</p>'); para = []; }
@@ -51,21 +76,41 @@
         out.push('</li></' + stack.pop().tag + '>');
       }
     }
+    function flushTable() {
+      if (!table) return;
+      var rows = table.filter(function (r) { return !isTableRule(r); }).map(cells);
+      var head = table.length > 1 && isTableRule(table[1]) ? rows.shift() : null;
+      var html = '<div class="cl-table"><table>';
+      if (head) html += '<thead><tr>' + head.map(function (c) { return '<th>' + inline(c) + '</th>'; }).join('') + '</tr></thead>';
+      html += '<tbody>' + rows.map(function (r) {
+        return '<tr>' + r.map(function (c) { return '<td>' + inline(c) + '</td>'; }).join('') + '</tr>';
+      }).join('') + '</tbody></table></div>';
+      out.push(html);
+      table = null;
+    }
 
     lines.forEach(function (line) {
-      var h = /^(#{2,4}) (.*)$/.exec(line);
+      if (fence) {
+        if (/^\s*```/.test(line)) { out.push('<pre><code>' + esc(fence.join('\n')) + '</code></pre>'); fence = null; }
+        else fence.push(line);
+        return;
+      }
+      if (/^\s*```/.test(line)) { flushPara(); flushItem(); flushTable(); fence = []; return; }
+      if (isTableRow(line)) { flushPara(); flushItem(); (table = table || []).push(line); return; }
+      flushTable();
+
+      var h = /^(#{2,6}) (.*)$/.exec(line);
       var li = /^( *)([-*]|\d+\.) (.*)$/.exec(line);
       if (h) {
         flushPara(); closeLists(0);
-        var level = h[1].length;
-        var text = h[2];
-        // "## [1.11.0] - 2026-09-25" reads better as "1.11.0 · 2026-09-25".
-        var ver = /^\[([^\]]+)\](?:\s*-\s*(.*))?$/.exec(text);
-        if (level === 2 && ver) {
+        var ver = VERSION.exec(h[2]);
+        if (h[1].length === 2 && ver) {
           out.push('<h3 class="cl-version"><span>' + esc(ver[1]) + '</span>' +
             (ver[2] ? '<time>' + esc(ver[2]) + '</time>' : '') + '</h3>');
+        } else if (h[1].length === 2) {
+          out.push('<h3 class="cl-version"><span>' + inline(h[2]) + '</span></h3>');
         } else {
-          out.push('<h4>' + inline(text) + '</h4>');
+          out.push('<h4>' + inline(h[2]) + '</h4>');
         }
       } else if (li) {
         flushPara();
@@ -99,21 +144,51 @@
         para.push(line.trim());
       }
     });
-    flushPara(); closeLists(0);
-    // An empty "Unreleased" section is noise on a public page.
-    return out.join('\n').replace(/<h3 class="cl-version"><span>Unreleased<\/span><\/h3>\s*(?=<h3)/, '');
+    if (fence) out.push('<pre><code>' + esc(fence.join('\n')) + '</code></pre>');
+    flushTable(); flushPara(); closeLists(0);
+    return out.join('\n');
+  }
+
+  var api = { sections: sections, renderSection: renderSection, inline: inline, VERSION: VERSION,
+    BATCH_FIRST: BATCH_FIRST, BATCH_MORE: BATCH_MORE };
+  if (typeof document === 'undefined') {
+    if (typeof module !== 'undefined') module.exports = api;
+    return;
   }
 
   var dialog = document.getElementById('changelog');
   var body = document.getElementById('changelog-body');
+  var moreLabel = document.getElementById('changelog-more');
   var loaded = false;
+  var pending = [];
+
+  function renderNext(n) {
+    var old = body.querySelector('.cl-more');
+    if (old) old.remove();
+    var html = pending.splice(0, n).map(renderSection).join('\n');
+    body.insertAdjacentHTML('beforeend', html);
+    if (pending.length) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'cl-more';
+      b.textContent = ((moreLabel && moreLabel.textContent) || 'Older versions') + ' (' + pending.length + ')';
+      b.addEventListener('click', function () { renderNext(BATCH_MORE); });
+      body.appendChild(b);
+    }
+  }
 
   function load() {
     if (loaded) return;
     body.setAttribute('aria-busy', 'true');
     fetch('changelog.md', { cache: 'no-cache' })
       .then(function (r) { if (!r.ok) throw new Error(r.status); return r.text(); })
-      .then(function (md) { body.innerHTML = render(md); loaded = true; })
+      .then(function (md) {
+        pending = sections(md);
+        if (!pending.length) throw new Error('empty');
+        body.innerHTML = '';
+        renderNext(BATCH_FIRST);
+        loaded = true;
+      })
       .catch(function () {
         body.innerHTML = '<p>' + esc(document.getElementById('changelog-error').textContent) +
           ' <a href="https://github.com/pepperonas/inspector-rust/blob/main/CHANGELOG.md" target="_blank" rel="noopener noreferrer">GitHub</a></p>';

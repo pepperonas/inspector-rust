@@ -64,6 +64,7 @@ file only when its content changed:
 | `latest.json` — `version`, `published`, `notes`, `assets[]` (`target`, `label`, `short`, `requirement`, `name`, `url`, `size`, `sha256` from the API's `digest`), plus the first target's `name`/`url`/`size`/`sha256` at the top level | The page's JavaScript (button, localised meta line, other platforms, checksums) and agents |
 | `ssi/version.txt`, `size.txt`, `date.txt`, `sha.txt`, `meta.html`, `others.html`, `checksums.html`, `checksums.md`, `files.md` | nginx SSI in `index.html` (meta line, other platforms, checksums, JSON-LD `softwareVersion`/`fileSize`/`dateModified`) and `index.md` |
 | `changelog.md` — `CHANGELOG.md` from the default branch via `raw.githubusercontent.com` | The changelog dialog and agents |
+| `ssi/features.html`, `features.md`, `features-count.txt`, `features-areas.txt` — only with `feature_catalog` in `site.json`: the repo's feature catalogue, parsed (`parse_catalog`) and escaped | The **Every feature** section in `index.html` and `index.md` |
 | `/etc/nginx/inspector-rust-download.conf` — `/download/<target>` → 302 to that asset; `/download` → the visitor's platform (a `map` on `User-Agent` in the vhost, first target by default) | The download button in the HTML and every link that should survive releases |
 
 A failed GitHub call, a release missing a required target, or a changelog that does not start with
@@ -209,5 +210,11 @@ keyboard, both dialogs, zero console messages, zero horizontal overflow.
   remember "does not exist" for minutes.
 - **`deploy.sh` uses `rsync --delete`** — anything the timer writes into the webroot must be listed
   in its excludes, or a deploy deletes it until the next timer run.
+- **The changelog dialog renders by version, in batches** (10 on open, 25 per "Older versions"). A
+  changelog with 539 releases rendered at once built ~11 000 DOM nodes (750 KB of HTML) and stalled
+  older machines. Version headings accept `-`, `–` and `—` as separator — a project that switched to
+  the em dash had 494 of its releases shown as sub-headings. Pinned in `tests/changelog.test.cjs`.
+- **No `backdrop-filter` on the fixed top bar.** It re-blurs everything under it on every scroll
+  frame; on a 2015 Intel Mac scrolling dropped to ~24 fps.
 - **Hero images:** a 1024 px banner stretched over a 1440 px screen looks soft. Deliver at least the
   display width, in two sizes.

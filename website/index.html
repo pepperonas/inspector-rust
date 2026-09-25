@@ -17,9 +17,9 @@
   <meta name="color-scheme" content="dark">
   <meta name="format-detection" content="telephone=no">
   <link rel="canonical" href="https://inspector-rust.celox.io/">
-  <link rel="icon" href="assets/mark.svg?v=2" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=2">
-  <link rel="preload" as="image" type="image/webp" imagesrcset="assets/hero-1400.webp?v=2 1400w, assets/hero-2400.webp?v=2 2400w" imagesizes="100vw">
+  <link rel="icon" href="assets/mark.svg?v=3" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=3">
+  <link rel="preload" as="image" type="image/webp" imagesrcset="assets/hero-1400.webp?v=3 1400w, assets/hero-2400.webp?v=3 2400w" imagesizes="100vw">
   <!-- For agents and tools: machine-readable facts about the app and its newest release. -->
   <link rel="ai-catalog" href="/.well-known/ai-catalog.json" type="application/json">
   <link rel="alternate" type="text/markdown" href="/llms.txt" title="Inspector Rust for LLMs and agents">
@@ -37,8 +37,8 @@
   <meta property="og:locale:alternate" content="es_ES">
   <meta property="og:locale:alternate" content="it_IT">
   <meta property="og:locale:alternate" content="fr_FR">
-  <meta property="og:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=2">
-  <meta property="og:image:secure_url" content="https://inspector-rust.celox.io/assets/og.jpg?v=2">
+  <meta property="og:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
+  <meta property="og:image:secure_url" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
@@ -46,7 +46,7 @@
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Inspector Rust — one hotkey for everything you copy">
   <meta name="twitter:description" content="Clipboard history, text expander and 66 commands behind Ctrl+Space. Free and open source for macOS, Windows and Linux.">
-  <meta name="twitter:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=2">
+  <meta name="twitter:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
   <meta name="twitter:image:alt" content="Inspector Rust panels on a dark background: a live audio equalizer, a disk-usage sunburst and a five-day weather forecast">
 
   <script type="application/ld+json">
@@ -58,7 +58,7 @@
   "name": "Inspector Rust",
   "description": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
   "url": "https://inspector-rust.celox.io/",
-  "image": "https://inspector-rust.celox.io/assets/og.jpg?v=2",
+  "image": "https://inspector-rust.celox.io/assets/og.jpg?v=3",
   "operatingSystem": "macOS 11 or later (Apple silicon), Windows 10/11 (x64), Linux x86-64",
   "applicationCategory": "UtilitiesApplication",
   "downloadUrl": "https://inspector-rust.celox.io/download",
@@ -112,7 +112,7 @@
    "url": "https://celox.io"
   },
   "applicationSubCategory": "Clipboard manager and command palette",
-  "screenshot": "https://inspector-rust.celox.io/assets/screens.jpg?v=2"
+  "screenshot": "https://inspector-rust.celox.io/assets/screens.jpg?v=3"
  },
  {
   "@context": "https://schema.org",
@@ -198,18 +198,18 @@
 ]
   </script>
 
-  <link rel="stylesheet" href="styles.css?v=2">
-  <script src="i18n.js?v=2" defer></script>
-  <script src="app.js?v=2" defer></script>
-  <script src="changelog.js?v=2" defer></script>
-  <script src="webmcp.js?v=2" defer></script>
+  <link rel="stylesheet" href="styles.css?v=3">
+  <script src="i18n.js?v=3" defer></script>
+  <script src="app.js?v=3" defer></script>
+  <script src="changelog.js?v=3" defer></script>
+  <script src="webmcp.js?v=3" defer></script>
 </head>
 <body>
   <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
   <header class="bar">
     <a class="brand" href="#top" aria-label="Inspector Rust">
-      <img src="assets/mark.svg?v=2" alt="" width="28" height="28">
+      <img src="assets/mark.svg?v=3" alt="" width="28" height="28">
       <span>Inspector Rust</span>
     </a>
     <nav class="bar-links" aria-label="Main">
@@ -242,8 +242,8 @@
     <section class="hero" id="top">
       <picture class="hero-bg" aria-hidden="true">
         <source type="image/webp" sizes="100vw"
-                srcset="assets/hero-1400.webp?v=2 1400w, assets/hero-2400.webp?v=2 2400w">
-        <img src="assets/hero.jpg?v=2" alt="" width="2400" height="1200" fetchpriority="high">
+                srcset="assets/hero-1400.webp?v=3 1400w, assets/hero-2400.webp?v=3 2400w">
+        <img src="assets/hero.jpg?v=3" alt="" width="2400" height="1200" fetchpriority="high">
       </picture>
       <div class="hero-scrim" aria-hidden="true"></div>
 
@@ -306,12 +306,24 @@
     <section class="section shots" aria-labelledby="s-h">
       <h2 id="s-h" data-i18n="s.h">Panels that open right in the popup</h2>
       <picture>
-        <source srcset="assets/screens.webp?v=2" type="image/webp">
-        <img src="assets/screens.jpg?v=2" width="1600" height="1126" loading="lazy" decoding="async"
+        <source srcset="assets/screens.webp?v=3" type="image/webp">
+        <img src="assets/screens.jpg?v=3" width="1600" height="1126" loading="lazy" decoding="async"
              data-i18n-alt="s.alt" alt="Four panels: the weather forecast, the audio equalizer, Philips Hue lamp control and the month calendar">
       </picture>
     </section>
 
+    <section class="section catalog" id="all-features" aria-labelledby="fc-h">
+      <h2 id="fc-h" data-i18n="fc.h">Every feature</h2>
+      <p class="fc-lead"><span data-i18n="fc.lead">The complete list, straight from the project's feature catalogue and updated automatically with every change.</span>
+        <span class="fc-total"><b><!--# include virtual="/ssi/features-count.txt" stub="none" --></b> <span data-i18n="fc.features">features</span> · <b><!--# include virtual="/ssi/features-areas.txt" stub="none" --></b> <span data-i18n="fc.areas">areas</span></span></p>
+      <div class="fc-tools">
+        <input type="search" id="fc-search" class="fc-search" autocomplete="off" spellcheck="false"
+               data-i18n-placeholder="fc.search" placeholder="Filter features" data-i18n-aria="fc.search" aria-label="Filter features">
+        <button type="button" class="fc-toggle" id="fc-toggle"><span data-i18n="fc.expand">Expand all</span><span data-i18n="fc.collapse" hidden>Collapse all</span></button>
+      </div>
+      <p class="fc-empty" id="fc-empty" hidden data-i18n="fc.empty">No feature matches.</p>
+      <div class="fc-list" id="fc-list" lang="de"><!--# include virtual="/ssi/features.html" stub="none" --></div>
+    </section>
     <section class="section" id="install" aria-labelledby="i-h">
       <h2 id="i-h" data-i18n="i.h">Install in three steps</h2>
       <ol class="steps">
@@ -439,6 +451,7 @@ THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRES
       <p class="cl-loading" data-i18n="cl.loading">Loading…</p>
     </div>
     <p hidden id="changelog-error" data-i18n="cl.error">The changelog could not be loaded. Read it on</p>
+    <p hidden id="changelog-more" data-i18n="cl.more">Older versions</p>
   </dialog>
 
   <svg class="defs" width="0" height="0" aria-hidden="true">

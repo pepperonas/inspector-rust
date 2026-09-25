@@ -404,6 +404,18 @@ h1 {
 .changelog-body strong { color: var(--on-bg); }
 .changelog-body em { color: var(--on-bg); font-style: italic; font-weight: 400; }
 .changelog-body code { font-size: .92em; padding: 1px 5px; border-radius: 6px; background: var(--surface-high); color: var(--on-bg); }
+.changelog-body pre { margin: 10px 0; padding: 12px 14px; border-radius: 12px; background: var(--surface-high); overflow-x: auto; }
+.changelog-body pre code { padding: 0; background: none; font-size: .86em; white-space: pre; }
+.changelog-body .cl-table { margin: 10px 0; overflow-x: auto; }
+.changelog-body table { border-collapse: collapse; font-size: .9em; }
+.changelog-body th, .changelog-body td { padding: 6px 10px; border-bottom: 1px solid var(--outline-variant); text-align: left; vertical-align: top; }
+.changelog-body th { color: var(--on-bg); font-weight: 700; }
+.cl-more {
+  display: block; margin: 24px auto 4px; min-height: 44px; padding: 10px 20px; border-radius: 999px;
+  border: 1px solid var(--outline-variant); background: var(--surface-high); color: var(--on-bg);
+  font: inherit; font-weight: 600; cursor: pointer; transition: background-color .2s;
+}
+.cl-more:hover { background: color-mix(in srgb, var(--primary) 14%, var(--surface-high)); }
 .cl-loading { color: var(--on-variant); }
 @keyframes dialog-in { from { opacity: 0; transform: translateY(12px) scale(.97); } }
 
@@ -433,3 +445,39 @@ h1 {
 .checksums dt { color: var(--on-variant); font-size: 14px; }
 .checksums dd { margin: 0; color: var(--on-bg); }
 @media (max-width: 640px) { .checksums { grid-template-columns: 1fr; gap: 4px; } .checksums dd { margin-bottom: 10px; } }
+
+/* ---------- feature catalogue (optional; filled by the release timer via SSI) ---------- */
+.fc-lead { max-width: 64ch; color: var(--on-variant); }
+.fc-total { white-space: nowrap; }
+.fc-total b { color: var(--on-bg); font-variant-numeric: tabular-nums; }
+.fc-tools { display: flex; flex-wrap: wrap; gap: 10px; margin: 20px 0 12px; }
+.fc-search {
+  flex: 1 1 260px; min-height: 44px; padding: 10px 16px; border-radius: 999px; font: inherit;
+  border: 1px solid color-mix(in srgb, var(--on-bg) 30%, transparent); background: var(--surface); color: var(--on-bg);
+}
+.fc-search:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.fc-toggle {
+  min-height: 44px; padding: 10px 18px; border-radius: 999px; font: inherit; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--outline-variant); background: var(--surface-high); color: var(--on-bg);
+}
+.fc-empty { color: var(--on-variant); }
+.fc-list { display: grid; gap: 10px; }
+.fc-area { border-radius: 18px; background: var(--surface); border: 1px solid var(--outline-variant); }
+.fc-area > summary {
+  display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 12px 18px; cursor: pointer;
+  font-weight: 700; list-style: none;
+}
+.fc-area > summary::-webkit-details-marker { display: none; }
+.fc-area > summary::after {
+  content: ""; margin-left: auto; width: 8px; height: 8px; border: solid var(--on-variant);
+  border-width: 0 2px 2px 0; transform: rotate(45deg) translateY(-3px); transition: transform .25s var(--ease-spring);
+}
+.fc-area[open] > summary::after { transform: rotate(-135deg) translateY(-2px); }
+.fc-count {
+  padding: 2px 9px; border-radius: 999px; font-size: .78rem; font-weight: 600;
+  background: var(--secondary-container); color: var(--on-secondary-container); font-variant-numeric: tabular-nums;
+}
+.fc-area ul { margin: 0; padding: 0 18px 16px 36px; }
+.fc-area li { margin: 8px 0; color: var(--on-variant); overflow-wrap: anywhere; }
+.fc-area li strong { color: var(--on-bg); }
+.fc-area li code { font-size: .9em; padding: 1px 5px; border-radius: 6px; background: var(--surface-high); color: var(--on-bg); }

@@ -9,6 +9,8 @@ and writes, each file only when its content changed:
   <webroot>/ssi/*            the same facts as tiny fragments, pulled into index.html / index.md by nginx
                              SSI — so they are in the document without JavaScript
   <webroot>/changelog.md     CHANGELOG.md from the default branch, for the changelog dialog
+  <webroot>/ssi/features.*   the project's feature catalogue (site.json "feature_catalog", a text file in
+                             the repo), rendered as HTML + Markdown — new features appear without a deploy
   /etc/nginx/inspector-rust-download.conf
                              /download/<target> -> 302 to that target's newest asset, and /download ->
                              the target the visitor's browser asks for (nginx map in the vhost)
@@ -27,6 +29,7 @@ CONFIG = json.loads(r'''{
  "webroot": "/var/www/inspector-rust.celox.io",
  "nginx_include": "/etc/nginx/inspector-rust-download.conf",
  "nginx_var": "inspector_rust",
+ "feature_catalog": "features.txt",
  "targets": [
   {
    "id": "macos",
@@ -75,6 +78,8 @@ NGINX_INC = os.environ.get("SITE_NGINX_INC", CONFIG["nginx_include"])
 URL_OK = re.compile(r"^https://github\.com/" + re.escape(REPO) + r"/releases/download/[^\s;\"'{}]+$")
 CHANGELOG_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/CHANGELOG.md"
 CHANGELOG_MAX = 2_000_000
+FEATURES_PATH = CONFIG.get("feature_catalog")
+FEATURES_URL = f"https://raw.githubusercontent.com/{REPO}/{BRANCH}/{FEATURES_PATH}" if FEATURES_PATH else None
 
 
 def get(url, accept=None):
@@ -129,6 +134,76 @@ def fetch_changelog():
     if len(body) > CHANGELOG_MAX or not text.startswith("# Changelog") or "\n## [" not in text:
         raise ValueError("unexpected CHANGELOG.md content")
     return text
+
+
+FEATURE_SECTION = re.compile(r"^==\s*(.+?)\s*==\s*$")
+FEATURE_SEPARATORS = (" \u2014 ", " \u2013 ", " - ")
+FEATURE_NAME_MAX = 80
+
+
+def parse_catalog(text):
+    """A feature catalogue: "== Area ==" headings, then one feature per line, "Name — description".
+
+    Lines before the first heading (a title) are skipped. A line without a separator, or whose part
+    before it is too long to be a name, becomes a feature without a name. Returns [(area, [(name, text)])].
+    """
+    areas = []
+    for raw in text.replace("\r", "").split("\n"):
+        line = raw.strip()
+        m = FEATURE_SECTION.match(line)
+        if m:
+            areas.append((m.group(1), []))
+            continue
+        if not line or not areas:
+            continue
+        name, desc = "", line
+        for sep in FEATURE_SEPARATORS:
+            i = line.find(sep)
+            if 0 < i <= FEATURE_NAME_MAX:
+                name, desc = line[:i].strip(), line[i + len(sep):].strip()
+                break
+        areas[-1][1].append((name, desc))
+    return [(a, items) for a, items in areas if items]
+
+
+def _feature_inline(text):
+    """Escaped text; `code` spans become <code>. Nothing else is interpreted."""
+    parts = text.split("`")
+    if len(parts) % 2 == 0:  # an unpaired backtick: keep it literal
+        return html.escape(text)
+    return "".join(f"<code>{html.escape(p)}</code>" if i % 2 else html.escape(p) for i, p in enumerate(parts))
+
+
+def feature_fragments(areas):
+    total = sum(len(items) for _, items in areas)
+    blocks = []
+    for n, (area, items) in enumerate(areas):
+        lis = "".join(
+            f"<li>{'<strong>' + _feature_inline(name) + '</strong> — ' if name else ''}{_feature_inline(desc)}</li>"
+            for name, desc in items
+        )
+        blocks.append(f'<details class="fc-area"{" open" if n == 0 else ""}><summary>{html.escape(area)}'
+                      f' <span class="fc-count">{len(items)}</span></summary><ul>{lis}</ul></details>')
+    md = []
+    for area, items in areas:
+        md.append(f"\n### {area}\n")
+        md.extend(f"- **{name}** — {desc}" if name else f"- {desc}" for name, desc in items)
+    return {
+        "features.html": "\n".join(blocks),
+        "features-count.txt": str(total),
+        "features-areas.txt": str(len(areas)),
+        "features.md": "\n".join(md).strip() + "\n",
+    }
+
+
+def fetch_features():
+    body = get(FEATURES_URL)
+    if len(body) > CHANGELOG_MAX:
+        raise ValueError("feature catalogue too large")
+    areas = parse_catalog(body.decode("utf-8"))
+    if not areas:
+        raise ValueError("feature catalogue has no \"== Area ==\" sections")
+    return feature_fragments(areas)
 
 
 def mb(size):
@@ -224,6 +299,14 @@ def main():
         print(f"{CONFIG['slug']}-latest: changelog not refreshed ({e})", file=sys.stderr)
         changed_log = False
 
+    changed_feat = False
+    if FEATURES_URL:
+        try:
+            for name, text in fetch_features().items():
+                changed_feat |= write_if_changed(os.path.join(ssi_dir, name), text)
+        except Exception as e:  # the page keeps showing the last good list
+            print(f"{CONFIG['slug']}-latest: features not refreshed ({e})", file=sys.stderr)
+
     conf = download_conf(d)
     changed_conf = False
     if not same(NGINX_INC, conf) and not os.environ.get("SITE_NO_NGINX"):
@@ -247,7 +330,8 @@ def main():
     print(
         f"{CONFIG['slug']}-latest: {d['version']} targets={','.join(a['target'] for a in d['assets'])} "
         f"json={'new' if changed_json else 'same'} ssi={'new' if changed_ssi else 'same'} "
-        f"changelog={'new' if changed_log else 'same'} nginx={'reloaded' if changed_conf else 'same'}"
+        f"changelog={'new' if changed_log else 'same'} "
+        f"features={'new' if changed_feat else ('off' if not FEATURES_URL else 'same')} nginx={'reloaded' if changed_conf else 'same'}"
     )
     return 0
 

@@ -14,6 +14,7 @@
   var nodes = document.querySelectorAll('[data-i18n]');
   var altNodes = document.querySelectorAll('[data-i18n-alt]');
   var ariaNodes = document.querySelectorAll('[data-i18n-aria]');
+  var phNodes = document.querySelectorAll('[data-i18n-placeholder]');
   var langBtn = document.getElementById('lang-btn');
   var langMenu = document.getElementById('lang-menu');
   var langItems = Array.prototype.slice.call(langMenu.querySelectorAll('[data-lang]'));
@@ -39,6 +40,11 @@
       var k = n.getAttribute('data-i18n-aria');
       if (!(k in EN)) EN[k] = n.getAttribute('aria-label');
       n.setAttribute('aria-label', dict[k] || EN[k]);
+    });
+    phNodes.forEach(function (n) {
+      var k = n.getAttribute('data-i18n-placeholder');
+      if (!(k + '#ph' in EN)) EN[k + '#ph'] = n.getAttribute('placeholder');
+      n.setAttribute('placeholder', dict[k] || EN[k + '#ph']);
     });
     document.documentElement.lang = lang;
     showLang(lang);
@@ -231,4 +237,52 @@
       io.observe(el);
     });
   }
+
+  // Feature catalogue (optional section, filled by the release timer via SSI): filter + expand all.
+  (function () {
+    var list = document.getElementById('fc-list');
+    if (!list) return;
+    var areas = Array.prototype.slice.call(list.querySelectorAll('details.fc-area'));
+    var tools = document.querySelector('.fc-tools');
+    if (!areas.length) { if (tools) tools.hidden = true; return; }
+    var input = document.getElementById('fc-search');
+    var toggle = document.getElementById('fc-toggle');
+    var empty = document.getElementById('fc-empty');
+    var saved = null; // open state before the first filter, restored when the filter is cleared
+
+    function setAll(open) { areas.forEach(function (d) { d.open = open; }); }
+    function syncToggle() {
+      var allOpen = areas.every(function (d) { return d.hidden || d.open; });
+      toggle.querySelector('[data-i18n="fc.expand"]').hidden = allOpen;
+      toggle.querySelector('[data-i18n="fc.collapse"]').hidden = !allOpen;
+    }
+    toggle.addEventListener('click', function () {
+      setAll(!areas.every(function (d) { return d.hidden || d.open; }));
+      syncToggle();
+    });
+    areas.forEach(function (d) { d.addEventListener('toggle', syncToggle); });
+
+    input.addEventListener('input', function () {
+      var terms = input.value.toLowerCase().split(/\s+/).filter(Boolean);
+      if (terms.length && !saved) saved = areas.map(function (d) { return d.open; });
+      var any = false;
+      areas.forEach(function (d, i) {
+        var hits = 0;
+        d.querySelectorAll('li').forEach(function (li) {
+          var text = li.textContent.toLowerCase();
+          var ok = terms.every(function (t) { return text.indexOf(t) >= 0; });
+          li.hidden = !ok;
+          if (ok) hits++;
+        });
+        d.hidden = hits === 0;
+        if (terms.length) d.open = hits > 0;
+        else if (saved) d.open = saved[i];
+        any = any || hits > 0;
+      });
+      if (!terms.length) saved = null;
+      empty.hidden = any;
+      syncToggle();
+    });
+    syncToggle();
+  })();
 })();

@@ -122,3 +122,11 @@ describe("suggestSettingsSections — main-search suggestions (v0.164.0)", () =>
     expect(new Set(ids).size).toBe(ids.length);
   });
 });
+
+describe("Repositories section (v0.183.0)", () => {
+  it("is found by German and English names", () => {
+    expect(matchSettingsSection("klonen")?.id).toBe("repos");
+    expect(matchSettingsSection("repositories")?.id).toBe("repos");
+    expect(matchSettingsSection("github")?.id).toBe("repos");
+  });
+});

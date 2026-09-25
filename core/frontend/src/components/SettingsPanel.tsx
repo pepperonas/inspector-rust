@@ -15,6 +15,7 @@ import {
   Download,
   Euro,
   Gauge,
+  GitBranch,
   Info,
   Keyboard,
   Monitor,
@@ -168,6 +169,10 @@ import type { DbSpace } from "../lib/ipc";
 import {
   getSyncConfig,
   getPagespeedKey,
+  getRepoConfig,
+  setRepoCloneDir,
+  setGithubToken,
+  type RepoConfig,
   setPagespeedKey,
   getAutoBackupConfig,
   setAutoBackupConfig,
@@ -3022,6 +3027,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
         {/* PageSpeed Insights API key */}
         <div className="mt-6">
           <PagespeedSection />
+          <RepositoriesSection />
         </div>
 
         {/* Device sync between several Macs (shared folder) */}
@@ -3576,6 +3582,91 @@ function PagespeedSection() {
         von der freigegebenen Adresse aus — von diesem Rechner meldet er dann
         „IP address restriction“. Die Beschränkung steht in der Google-Cloud-Konsole.
       </p>
+    </Section>
+  );
+}
+
+function RepositoriesSection() {
+  const [cfg, setCfg] = useState<RepoConfig | null>(null);
+  const [dir, setDir] = useState("");
+  const [token, setToken] = useState("");
+  const [note, setNote] = useState<string | null>(null);
+  const load = () =>
+    getRepoConfig()
+      .then((c) => {
+        setCfg(c);
+        setDir(c.clone_dir);
+      })
+      .catch(() => {});
+  useEffect(() => {
+    void load();
+  }, []);
+  return (
+    <Section
+      icon={<GitBranch size={16} className="text-[var(--color-accent)]" />}
+      title="Repositories"
+      subtitle="Wohin „Klonen“ im `repo`-Panel ein GitHub-Repository legt, und der Zugang für private Repos."
+      id="repos"
+    >
+      <Row label="Klon-Ordner" help="Ist der Ordner eines Repos schon belegt, entsteht „name (2)“, „name (3)“ … — nichts wird überschrieben.">
+        <div className="flex gap-2">
+          <input
+            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 font-[var(--font-mono)] text-[12px]"
+            value={dir}
+            onChange={(e) => setDir(e.target.value)}
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+            onClick={() => {
+              void setRepoCloneDir(dir)
+                .then(() => {
+                  setNote("Ordner gespeichert.");
+                  return load();
+                })
+                .catch((e) => setNote(String(e)));
+            }}
+          >
+            Speichern
+          </button>
+        </div>
+      </Row>
+      <Row
+        label="GitHub-Token"
+        help={
+          cfg?.gh_available
+            ? "`gh` ist installiert — ist es eingeloggt (`gh auth login`), wird dessen Token genutzt. Ein Token hier dient als Rückfall."
+            : "Für private Repos. Liegt im Schlüsselbund, geht nur an github.com und nie in eine Kommandozeile."
+        }
+      >
+        <div className="flex gap-2">
+          <input
+            type="password"
+            className="w-full rounded border border-[var(--color-border)] bg-transparent px-2 py-1 text-[12px]"
+            placeholder={cfg?.has_token ? "gespeichert" : "kein Token hinterlegt"}
+            value={token}
+            onChange={(e) => setToken(e.target.value)}
+            spellCheck={false}
+          />
+          <button
+            type="button"
+            className="shrink-0 rounded border border-[var(--color-border)] px-2 py-1 text-[12px]"
+            onClick={() => {
+              void setGithubToken(token)
+                .then(() => {
+                  setNote(token.trim() ? "Token gespeichert." : "Token entfernt.");
+                  setToken("");
+                  return load();
+                })
+                .catch((e) => setNote(String(e)));
+            }}
+          >
+            Speichern
+          </button>
+        </div>
+      </Row>
+      {note && <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note}</p>}
     </Section>
   );
 }

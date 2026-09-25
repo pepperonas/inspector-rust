@@ -993,6 +993,8 @@ pub fn calendar_svg(days: &[DayCount]) -> String {
 
 /// Build the self-contained HTML export for one range (no external requests —
 /// inline CSS + inline SVG, both survive the PDF render). Pure; tested structurally.
+/// Export without the activity table — only the tests still call it.
+#[cfg(test)]
 pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
     build_html_with(stats, range, None, None)
 }

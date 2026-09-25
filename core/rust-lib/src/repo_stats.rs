@@ -194,6 +194,9 @@ pub struct Commit {
     pub author_key: String,
     pub author_name: String,
     pub subject: String,
+    /// Committer timestamp (Unix seconds, `%ct`) — "when it happened" for the
+    /// 24 h / 7 d windows; `None` if git didn't print one.
+    pub committed: Option<i64>,
     /// (path, insertions, deletions)
     pub files: Vec<(String, u64, u64)>,
 }
@@ -303,6 +306,7 @@ pub fn parse_commits(raw: &str) -> Vec<Commit> {
         let name = f.next().unwrap_or("");
         let email = f.next().unwrap_or("");
         let subject = f.next().unwrap_or("");
+        let committed = f.next().and_then(|t| t.trim().parse::<i64>().ok());
         if iso.is_empty() {
             continue;
         }
@@ -325,6 +329,7 @@ pub fn parse_commits(raw: &str) -> Vec<Commit> {
             author_key: if email.is_empty() { name.to_lowercase() } else { email.to_lowercase() },
             author_name: name.to_string(),
             subject: subject.to_string(),
+            committed,
             files,
         });
     }
@@ -675,7 +680,7 @@ fn sanitize_slug(s: &str) -> String {
 /// Run `git log` with the repo2viz format in `dir` (`rev` e.g. `origin/HEAD`
 /// for the no-checkout cache, whose local branch is stale after a fetch).
 fn git_log(dir: &std::path::Path, rev: Option<&str>, env: &[(String, String)]) -> Result<String, String> {
-    let fmt = format!("{REC}%H{FLD}%aI{FLD}%aN{FLD}%aE{FLD}%s");
+    let fmt = format!("{REC}%H{FLD}%aI{FLD}%aN{FLD}%aE{FLD}%s{FLD}%ct");
     let mut cmd = std::process::Command::new("git");
     cmd.current_dir(dir) // not `-C <dir>` — keeps an untrusted path out of argv
         .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
@@ -736,6 +741,24 @@ fn has_remote_refs(dir: &std::path::Path) -> bool {
         .unwrap_or(false)
 }
 
+/// Creation time (Unix s) of every tag: annotated → tag date, lightweight →
+/// the tagged commit's date. Empty on any error (a repo without tags is normal).
+pub fn tag_times_from_dir(dir: &std::path::Path) -> Vec<i64> {
+    std::process::Command::new("git")
+        .current_dir(dir)
+        .args(["for-each-ref", "refs/tags", "--format=%(creatordate:unix)"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| {
+            String::from_utf8_lossy(&o.stdout)
+                .lines()
+                .filter_map(|l| l.trim().parse().ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 pub fn commits_from_dir(
     dir: &std::path::Path,
     rev: Option<&str>,
@@ -751,15 +774,30 @@ pub struct RepoAnalysis {
     /// Set for GitHub repos — the panel offers "Klonen" only then.
     pub github: Option<crate::repo_url::RepoUrl>,
     pub ranges: Vec<RangedStats>,
+    /// Rolling 24 h / 7 d windows from now (committer time), v0.185.0.
+    pub recent: crate::repo_activity::RecentActivity,
 }
 
-fn finish(name: String, source: String, github: Option<crate::repo_url::RepoUrl>, commits: &[Commit]) -> RepoAnalysis {
+fn now_unix() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |d| d.as_secs() as i64)
+}
+
+fn finish(
+    name: String,
+    source: String,
+    github: Option<crate::repo_url::RepoUrl>,
+    commits: &[Commit],
+    tag_times: &[i64],
+) -> RepoAnalysis {
     let mut ranges = analyze_ranges(commits);
     for r in &mut ranges {
         r.stats.name = name.clone();
         r.stats.source = source.clone();
     }
-    RepoAnalysis { name, source, github, ranges }
+    let recent = crate::repo_activity::recent_activity(commits, tag_times, now_unix());
+    RepoAnalysis { name, source, github, ranges, recent }
 }
 
 pub fn analyze_local(dir: &std::path::Path) -> Result<RepoAnalysis, String> {
@@ -768,7 +806,7 @@ pub fn analyze_local(dir: &std::path::Path) -> Result<RepoAnalysis, String> {
     }
     let commits = commits_from_dir(dir, None, &[])?;
     let (name, _slug) = repo_identity(&dir.to_string_lossy());
-    Ok(finish(name, dir.to_string_lossy().into_owned(), None, &commits))
+    Ok(finish(name, dir.to_string_lossy().into_owned(), None, &commits, &tag_times_from_dir(dir)))
 }
 
 /// GitHub: via the clone cache (fetch on repeat). Other hosts: bare temp
@@ -784,7 +822,8 @@ pub fn analyze_remote(
         let token = crate::repo_clone::github_token();
         let (dir, commits) = crate::repo_clone::cached_commits(&gh, token.as_deref(), on_progress)?;
         crate::repo_clone::prune_cache(&dir);
-        return Ok(finish(gh.repo.clone(), gh.web_url.clone(), Some(gh), &commits));
+        let tags = tag_times_from_dir(&dir);
+        return Ok(finish(gh.repo.clone(), gh.web_url.clone(), Some(gh), &commits, &tags));
     }
     let tmp = std::env::temp_dir().join(format!(
         "ir-repo-{}-{}",
@@ -802,9 +841,10 @@ pub fn analyze_remote(
         return Err(format!("Klonen fehlgeschlagen: {}", String::from_utf8_lossy(&clone.stderr).trim()));
     }
     let result = commits_from_dir(&tmp, None, &[]);
+    let tags = tag_times_from_dir(&tmp);
     let _ = std::fs::remove_dir_all(&tmp);
     let (name, _slug) = repo_identity(url);
-    Ok(finish(name, url.to_string(), None, &result?))
+    Ok(finish(name, url.to_string(), None, &result?, &tags))
 }
 
 // ── HTML export (self-contained, repo2viz-oriented) ─────────────────────────
@@ -1492,6 +1532,15 @@ mod tests {
         assert!(!html.contains("Aktivität nach Monat"));
         let all = build_html(ranged(&r, RangeKey::All), RangeKey::All);
         assert!(all.contains("Aktivität pro Monat"));
+    }
+
+    #[test]
+    fn committer_time_is_parsed_from_the_trailing_field() {
+        let raw = format!("{REC}sha{FLD}2020-01-01T00:00:00+00:00{FLD}A{FLD}a@x{FLD}feat: x{FLD}1790000000\n1\t0\tf.rs\n");
+        assert_eq!(parse_commits(&raw)[0].committed, Some(1_790_000_000));
+        // Old-format record (no trailing field) still parses, time unknown.
+        let old = format!("{REC}sha{FLD}2020-01-01T00:00:00+00:00{FLD}A{FLD}a@x{FLD}feat: x\n");
+        assert_eq!(parse_commits(&old)[0].committed, None);
     }
 
     /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`

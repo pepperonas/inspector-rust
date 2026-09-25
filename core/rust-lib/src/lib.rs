@@ -71,6 +71,7 @@ mod qr;
 mod recolor;
 mod region_picker;
 mod repo_stats;
+mod repo_activity;
 mod repo_url;
 mod repo_clone;
 mod report_style;

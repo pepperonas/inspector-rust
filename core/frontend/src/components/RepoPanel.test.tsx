@@ -18,12 +18,17 @@ function stats(commits: number): RepoStats {
   return {
     name: "r", source: "https://github.com/o/r", commits, contributors: commits ? 1 : 0,
     first_commit: "2026-08-01T00:00:00+00:00", last_commit: "2026-08-24T00:00:00+00:00",
-    active_days: commits, insertions: 1, deletions: 0,
+    active_days: commits, insertions: 30, deletions: 4,
     by_weekday: [1, 0, 0, 0, 0, 0, 0], by_hour: Array(24).fill(0), by_month: [],
     top_files: [], top_exts: [], top_authors: [], categories: [], longest_streak: 1, avg_msg_len: 3,
     heatmap: Array.from({ length: 7 }, () => Array(24).fill(0)), calendar: [],
     hotspots: [{ path: "src/a.rs", changes: 4, authors: 1 }], bus_factor: 1,
     dir_bus_factor: [], co_change: [],
+    granularity: "day",
+    timeline: [
+      { start: "2026-08-24", commits: commits, insertions: 30, deletions: 4 },
+      { start: "2026-08-25", commits: 0, insertions: 0, deletions: 0 },
+    ],
   };
 }
 const analysis: RepoAnalysis = {
@@ -108,5 +113,22 @@ describe("RepoPanel", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+  it("shows code changes near the top, before the charts", async () => {
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByText("Code-Änderungen"));
+    const html = v.container.innerHTML;
+    expect(html.indexOf("Code-Änderungen")).toBeLessThan(html.indexOf("Wochentag"));
+    // Also in the KPI tiles — the card must show them too.
+    expect(v.getAllByText("+30").length).toBeGreaterThanOrEqual(2);
+    expect(v.getAllByText("−4").length).toBeGreaterThanOrEqual(2);
+    expect(v.getByText(/\+26 netto/)).toBeTruthy();
+  });
+  it("titles activity by the chosen range, never by a month count", async () => {
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByRole("button", { name: "90 T" }));
+    fireEvent.click(v.getByRole("button", { name: "90 T" }));
+    expect(v.getByText("Aktivität · letzte 90 Tage")).toBeTruthy();
+    expect(v.queryByText(/Monate/)).toBeNull();
   });
 });

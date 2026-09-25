@@ -134,3 +134,87 @@ export function repoErrorHint(err: string): { title: string; body: string } {
     return { title: "Keine Verbindung zu GitHub.", body: "Netz prüfen und erneut versuchen." };
   return { title: "Analyse fehlgeschlagen", body: err.replace(/^repo\.git:\s*/, "") };
 }
+
+const RANGE_TITLES: Record<RangeKey, string> = {
+  d30: "letzte 30 Tage",
+  d90: "letzte 90 Tage",
+  d180: "letzte 180 Tage",
+  y1: "letztes Jahr",
+  all: "gesamt",
+};
+
+/** Activity heading names the RANGE — counting touched calendar months made a
+ *  30-day window read "2 Monate". Mirrors Rust `RangeKey::label`. */
+export function rangeTitle(range: RangeKey): string {
+  return RANGE_TITLES[range];
+}
+
+/** Short bucket label: `25.09.` (day) · `ab 21.09.` (week) · `09/2026` (month). */
+export function bucketLabel(start: string, granularity: string): string {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(start);
+  if (!m) return start;
+  if (granularity === "day") return `${m[3]}.${m[2]}.`;
+  if (granularity === "week") return `ab ${m[3]}.${m[2]}.`;
+  return `${m[2]}/${m[1]}`;
+}
+
+export function netTotal(insertions: number, deletions: number): number {
+  return insertions - deletions;
+}
+
+export interface ChurnBar {
+  x: number;
+  w: number;
+  addY: number;
+  addH: number;
+  delY: number;
+  delH: number;
+}
+
+/**
+ * Geometry of the code-changes chart — mirrors Rust `churn_svg`: ONE scale for
+ * added (up) and removed (down) lines so proportions stay honest, the zero line
+ * placed where that scale puts it (each side keeps ≥ 12 % when it has data),
+ * and the cumulative net line scaled into the band around the zero line.
+ */
+export function churnGeometry(
+  timeline: readonly { insertions: number; deletions: number }[],
+  w: number,
+  h: number,
+  pad = 4,
+): { zeroY: number; bars: ChurnBar[]; netPoints: [number, number][] } {
+  if (timeline.length === 0) return { zeroY: h / 2, bars: [], netPoints: [] };
+  const maxAdd = Math.max(0, ...timeline.map((b) => b.insertions));
+  const maxDel = Math.max(0, ...timeline.map((b) => b.deletions));
+  const span = h - 2 * pad;
+  let up = (span * maxAdd) / Math.max(1, maxAdd + maxDel);
+  if (maxDel > 0) up = Math.min(up, span * 0.88);
+  if (maxAdd > 0) up = Math.max(up, span * 0.12);
+  const zeroY = pad + up;
+  const kAdd = maxAdd > 0 ? up / maxAdd : 0;
+  const kDel = maxDel > 0 ? (span - up) / maxDel : 0;
+  const k = kAdd > 0 && kDel > 0 ? Math.min(kAdd, kDel) : Math.max(kAdd, kDel);
+  const bw = w / timeline.length;
+  let net = 0;
+  let hi = 0;
+  let lo = 0;
+  for (const b of timeline) {
+    net += b.insertions - b.deletions;
+    hi = Math.max(hi, net);
+    lo = Math.min(lo, net);
+  }
+  const knUp = hi > 0 ? (zeroY - pad) / hi : Infinity;
+  const knDn = lo < 0 ? (h - pad - zeroY) / -lo : Infinity;
+  const kn = Number.isFinite(Math.min(knUp, knDn)) ? Math.min(knUp, knDn) : 0;
+  net = 0;
+  const bars: ChurnBar[] = [];
+  const netPoints: [number, number][] = [];
+  timeline.forEach((b, i) => {
+    const addH = b.insertions * k;
+    const delH = b.deletions * k;
+    bars.push({ x: i * bw + bw * 0.15, w: Math.max(0.5, bw * 0.7), addY: zeroY - addH, addH, delY: zeroY, delH });
+    net += b.insertions - b.deletions;
+    netPoints.push([i * bw + bw / 2, zeroY - net * kn]);
+  });
+  return { zeroY, bars, netPoints };
+}

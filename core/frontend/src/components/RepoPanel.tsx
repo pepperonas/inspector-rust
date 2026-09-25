@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays, Download } from "lucide-react";
-import { repoAnalyze, repoExport, repoClone, type RepoAnalysis, type RepoProgress, type RangeKey } from "../lib/ipc";
+import { repoAnalyze, repoExport, repoClone, type RepoAnalysis, type RepoProgress, type RangeKey, type RepoStats } from "../lib/ipc";
 import { ExportRow, type ExportFormat } from "./ExportRow";
 import {
   WEEKDAY_LABELS,
@@ -16,6 +16,10 @@ import {
   heatLevel,
   calendarCells,
   repoErrorHint,
+  rangeTitle,
+  bucketLabel,
+  churnGeometry,
+  netTotal,
 } from "../lib/repo";
 
 /**
@@ -257,6 +261,7 @@ export function RepoPanel({
       <p className="-mt-1 text-[10px] text-[var(--color-muted)]">
         Zeiträume zählen ab dem letzten Commit ({shortDate(analysis.ranges.find((r) => r.range === "all")?.stats.last_commit ?? "")}).
       </p>
+      {stats.commits > 0 && <CodeChanges stats={stats} />}
       {analysis.github && (
         <button
           type="button"
@@ -297,12 +302,12 @@ export function RepoPanel({
         <Kpi value={String(stats.bus_factor)} label="Bus-Faktor" />
       </div>
 
-      {/* Month timeline sparkline. */}
-      {stats.by_month.length > 1 && (
-        <Card title={`Aktivität · ${stats.by_month.length} Monate`}>
+      {/* Activity over the range — buckets follow the range (days/weeks/months). */}
+      {stats.timeline.length > 1 && (
+        <Card title={`Aktivität · ${rangeTitle(range)}`}>
           <svg viewBox="0 0 300 44" preserveAspectRatio="none" className="h-11 w-full">
             <polyline
-              points={sparkPoints(stats.by_month.map((m) => m.commits), 300, 44)}
+              points={sparkPoints(stats.timeline.map((b) => b.commits), 300, 44)}
               fill="none"
               stroke="var(--color-accent)"
               strokeWidth={1.5}
@@ -310,8 +315,8 @@ export function RepoPanel({
             />
           </svg>
           <div className="mt-0.5 flex justify-between text-[10px] text-[var(--color-muted)]">
-            <span>{stats.by_month[0].month}</span>
-            <span>{stats.by_month[stats.by_month.length - 1].month}</span>
+            <span>{bucketLabel(stats.timeline[0].start, stats.granularity)}</span>
+            <span>{bucketLabel(stats.timeline[stats.timeline.length - 1].start, stats.granularity)}</span>
           </div>
         </Card>
       )}
@@ -470,6 +475,44 @@ export function RepoPanel({
 
 /** Pause after the last argument edit before re-analysing. */
 const ARG_DEBOUNCE_MS = 600;
+
+/** Lines added / removed / net for the range, with the per-bucket chart —
+ *  deliberately near the top: it's the "what changed" question. */
+function CodeChanges({ stats }: { stats: RepoStats }) {
+  const net = netTotal(stats.insertions, stats.deletions);
+  const g = churnGeometry(stats.timeline, 300, 70);
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
+      <p className="mb-1 text-[11px] font-medium">Code-Änderungen</p>
+      <div className="flex items-baseline gap-3 text-[15px] font-semibold tabular-nums">
+        <span style={{ color: "#81c995" }}>+{formatNum(stats.insertions)}</span>
+        <span style={{ color: "#f28b82" }}>−{formatNum(stats.deletions)}</span>
+        <span className="text-[12px] font-medium text-[var(--color-muted)]">
+          {net >= 0 ? "+" : "−"}
+          {formatNum(Math.abs(net))} netto
+        </span>
+      </div>
+      {g.bars.length > 1 && (
+        <svg viewBox="0 0 300 70" preserveAspectRatio="none" className="mt-1.5 h-[70px] w-full" role="img" aria-label="Zeilen hinzugefügt und gelöscht">
+          <line x1={0} x2={300} y1={g.zeroY} y2={g.zeroY} stroke="var(--color-border)" strokeWidth={0.6} vectorEffect="non-scaling-stroke" />
+          {g.bars.map((b, i) => (
+            <g key={i}>
+              {b.addH > 0 && <rect x={b.x} y={b.addY} width={b.w} height={b.addH} fill="#81c995" />}
+              {b.delH > 0 && <rect x={b.x} y={b.delY} width={b.w} height={b.delH} fill="#f28b82" />}
+            </g>
+          ))}
+          <polyline
+            points={g.netPoints.map(([x, y]) => `${x.toFixed(1)},${y.toFixed(1)}`).join(" ")}
+            fill="none"
+            stroke="var(--color-accent)"
+            strokeWidth={1.5}
+            vectorEffect="non-scaling-stroke"
+          />
+        </svg>
+      )}
+    </div>
+  );
+}
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i));
 

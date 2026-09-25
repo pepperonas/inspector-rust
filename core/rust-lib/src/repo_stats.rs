@@ -66,6 +66,14 @@ pub struct RepoStats {
     pub dir_bus_factor: Vec<DirStat>,
     /// File pairs often changed together (commits with > 30 files skipped).
     pub co_change: Vec<CoChange>,
+    /// Gapless time series for this range: commits + lines added/removed
+    /// per bucket. Bucket size follows the range (see `granularity`) — a
+    /// 30-day window used to be shown as "2 months" because it touched two
+    /// calendar months.
+    pub timeline: Vec<Bucket>,
+    /// "day" (30 T) · "week" (90/180 T, Monday-start) · "month" (1 J, Gesamt);
+    /// empty for a repo without commits.
+    pub granularity: String,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -95,6 +103,15 @@ pub struct AuthorStat {
 pub struct CatCount {
     pub cat: String,
     pub commits: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Bucket {
+    /// First day of the bucket, `YYYY-MM-DD`.
+    pub start: String,
+    pub commits: u64,
+    pub insertions: u64,
+    pub deletions: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -529,13 +546,82 @@ pub fn analyze_ranges(commits: &[Commit]) -> Vec<RangedStats> {
     RangeKey::ALL
         .iter()
         .map(|&range| {
-            let stats = match (range.days(), anchor) {
-                (Some(d), Some(a)) => aggregate(commits.iter().filter(|c| c.day.is_some_and(|x| x > a - d))),
-                _ => aggregate(commits.iter()),
+            let sel: Vec<&Commit> = match (range.days(), anchor) {
+                (Some(d), Some(a)) => commits.iter().filter(|c| c.day.is_some_and(|x| x > a - d)).collect(),
+                _ => commits.iter().collect(),
             };
+            let mut stats = aggregate(sel.iter().copied());
+            if let Some(a) = anchor {
+                let (granularity, timeline) = build_timeline(&sel, range, a);
+                stats.granularity = granularity.to_string();
+                stats.timeline = timeline;
+            }
             RangedStats { range, stats }
         })
         .collect()
+}
+
+/// Inverse of `day_ordinal` (Howard Hinnant's civil_from_days) → `YYYY-MM-DD`.
+fn date_from_ordinal(z: i64) -> String {
+    let z = z + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = z - era * 146097;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
+/// Ordinal of the first day of `o`'s calendar month.
+fn month_start(o: i64) -> i64 {
+    let date = date_from_ordinal(o);
+    day_ordinal(&format!("{}-01", &date[..7])).unwrap_or(o)
+}
+
+/// Gapless buckets over the range window (`anchor` = newest commit's day):
+/// days for 30 T, Monday-start weeks for 90/180 T, months for 1 J / Gesamt.
+fn build_timeline(commits: &[&Commit], range: RangeKey, anchor: i64) -> (&'static str, Vec<Bucket>) {
+    let granularity = match range {
+        RangeKey::D30 => "day",
+        RangeKey::D90 | RangeKey::D180 => "week",
+        RangeKey::Y1 | RangeKey::All => "month",
+    };
+    let first = commits.iter().filter_map(|c| c.day).min().unwrap_or(anchor);
+    let lo = range.days().map_or(first, |d| anchor - d + 1);
+    let key = |o: i64| match granularity {
+        "day" => o,
+        "week" => o - (o + 3).rem_euclid(7), // 1970-01-01 was a Thursday
+        _ => month_start(o),
+    };
+    let next = |k: i64| match granularity {
+        "day" => k + 1,
+        "week" => k + 7,
+        _ => month_start(k + 31),
+    };
+    let mut starts = Vec::new();
+    let (mut k, last) = (key(lo), key(anchor));
+    while k <= last {
+        starts.push(k);
+        k = next(k);
+    }
+    let mut buckets: Vec<Bucket> = starts
+        .iter()
+        .map(|&o| Bucket { start: date_from_ordinal(o), commits: 0, insertions: 0, deletions: 0 })
+        .collect();
+    for c in commits {
+        let Some(day) = c.day else { continue };
+        let Ok(i) = starts.binary_search(&key(day)) else { continue };
+        let b = &mut buckets[i];
+        b.commits += 1;
+        for (_, ins, del) in &c.files {
+            b.insertions += ins;
+            b.deletions += del;
+        }
+    }
+    (granularity, buckets)
 }
 
 /// Longest run of consecutive day-ordinals in a sorted, deduped slice.
@@ -739,6 +825,73 @@ fn bar_rows(items: &[(String, u64)], max: u64, color: &str) -> String {
     out
 }
 
+/// Short label for a timeline bucket: `25.09.` (day), `ab 21.09.` (week),
+/// `2026-09` (month).
+fn bucket_label(start: &str, granularity: &str) -> String {
+    match granularity {
+        "day" if start.len() >= 10 => format!("{}.{}.", &start[8..10], &start[5..7]),
+        "week" if start.len() >= 10 => format!("ab {}.{}.", &start[8..10], &start[5..7]),
+        _ => start.get(..7).unwrap_or(start).to_string(),
+    }
+}
+
+/// Lines added (green, up) / removed (red, down) per bucket plus the
+/// cumulative net line — inline SVG so it survives the PDF render.
+pub fn churn_svg(timeline: &[Bucket]) -> String {
+    if timeline.is_empty() {
+        return String::new();
+    }
+    let (w, h, pad) = (600.0_f64, 150.0_f64, 4.0_f64);
+    let max_add = timeline.iter().map(|b| b.insertions).max().unwrap_or(0) as f64;
+    let max_del = timeline.iter().map(|b| b.deletions).max().unwrap_or(0) as f64;
+    // ONE scale for both directions (honest proportions); the zero line sits
+    // where that scale puts it, so a mostly-additive history doesn't waste
+    // the lower half of the chart. Each side keeps at least 12 % when it has data.
+    let span = h - 2.0 * pad;
+    let total = (max_add + max_del).max(1.0);
+    let mut up = span * max_add / total;
+    if max_del > 0.0 { up = up.min(span * 0.88); }
+    if max_add > 0.0 { up = up.max(span * 0.12); }
+    let y0 = pad + up;
+    let k_add = if max_add > 0.0 { up / max_add } else { 0.0 };
+    let k_del = if max_del > 0.0 { (span - up) / max_del } else { 0.0 };
+    let k = if k_add > 0.0 && k_del > 0.0 { k_add.min(k_del) } else { k_add.max(k_del) };
+    let bw = w / timeline.len() as f64;
+    let mut s = format!("<svg class=\"churn\" viewBox=\"0 0 {w} {h}\" width=\"100%\" role=\"img\" aria-label=\"Zeilen hinzugefügt und gelöscht\">");
+    s.push_str(&format!("<line x1=\"0\" y1=\"{y0:.1}\" x2=\"{w}\" y2=\"{y0:.1}\" stroke=\"#c9ced6\" stroke-width=\"0.6\"/>"));
+    // Cumulative net line, scaled into the same band around y0.
+    let mut net = 0i64;
+    let (mut hi, mut lo) = (0i64, 0i64);
+    for b in timeline {
+        net += b.insertions as i64 - b.deletions as i64;
+        hi = hi.max(net);
+        lo = lo.min(net);
+    }
+    let kn_up = if hi > 0 { (y0 - pad) / hi as f64 } else { f64::INFINITY };
+    let kn_dn = if lo < 0 { (h - pad - y0) / (-lo) as f64 } else { f64::INFINITY };
+    let kn = kn_up.min(kn_dn);
+    let kn = if kn.is_finite() { kn } else { 0.0 };
+    net = 0;
+    let mut pts = Vec::with_capacity(timeline.len());
+    for (i, b) in timeline.iter().enumerate() {
+        let x = i as f64 * bw + bw * 0.15;
+        let bwi = (bw * 0.7).max(0.5);
+        let ha = b.insertions as f64 * k;
+        let hd = b.deletions as f64 * k;
+        if b.insertions > 0 {
+            s.push_str(&format!("<rect x=\"{x:.1}\" y=\"{:.1}\" width=\"{bwi:.1}\" height=\"{ha:.1}\" fill=\"#2e9e5b\"><title>{}: +{}</title></rect>", y0 - ha, esc(&b.start), b.insertions));
+        }
+        if b.deletions > 0 {
+            s.push_str(&format!("<rect x=\"{x:.1}\" y=\"{y0:.1}\" width=\"{bwi:.1}\" height=\"{hd:.1}\" fill=\"#d0493f\"><title>{}: −{}</title></rect>", esc(&b.start), b.deletions));
+        }
+        net += b.insertions as i64 - b.deletions as i64;
+        pts.push(format!("{:.1},{:.1}", i as f64 * bw + bw / 2.0, y0 - net as f64 * kn));
+    }
+    s.push_str(&format!("<polyline points=\"{}\" fill=\"none\" stroke=\"#3f6cd4\" stroke-width=\"1.4\"/>", pts.join(" ")));
+    s.push_str("</svg>");
+    s
+}
+
 /// Weekday×hour heatmap as inline SVG (survives the PDF render).
 pub fn heatmap_svg(h: &[[u64; 24]; 7]) -> String {
     let max = h.iter().flatten().copied().max().unwrap_or(0).max(1) as f64;
@@ -823,11 +976,25 @@ pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
         hr_max,
         "#c58af9",
     );
-    let mo_max = stats.by_month.iter().map(|m| m.commits).max().unwrap_or(1).max(1);
+    let mo_max = stats.timeline.iter().map(|b| b.commits).max().unwrap_or(1).max(1);
     let mo_rows = bar_rows(
-        &stats.by_month.iter().map(|m| (m.month.clone(), m.commits)).collect::<Vec<_>>(),
+        &stats.timeline.iter().map(|b| (bucket_label(&b.start, &stats.granularity), b.commits)).collect::<Vec<_>>(),
         mo_max,
         "#81c995",
+    );
+    let activity_title = match stats.granularity.as_str() {
+        "day" => "Aktivität pro Tag",
+        "week" => "Aktivität pro Woche",
+        _ => "Aktivität pro Monat",
+    };
+    let net = stats.insertions as i64 - stats.deletions as i64;
+    let code_changes = format!(
+        "<section><h2>Code-Änderungen</h2><div class=\"churn-kpis\"><span class=\"add\">+{}</span><span class=\"del\">−{}</span><span>{}{} netto</span></div>{}</section>",
+        stats.insertions,
+        stats.deletions,
+        if net >= 0 { "+" } else { "−" },
+        net.unsigned_abs(),
+        churn_svg(&stats.timeline),
     );
     let cat_max = stats.categories.iter().map(|c| c.commits).max().unwrap_or(1).max(1);
     let cat_rows = bar_rows(
@@ -873,11 +1040,12 @@ pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
 
     let body = format!(
         r#"{stats}
+{code_changes}
 <section><h2>Commits nach Wochentag</h2>{wd}</section>
 <section><h2>Commits nach Stunde</h2>{hr}</section>
 <section><h2>Heatmap Wochentag × Stunde</h2>{heat}</section>
 {calendar}
-<section><h2>Aktivität nach Monat</h2>{mo}</section>
+<section><h2>{activity_title}</h2>{mo}</section>
 <section><h2>Commit-Kategorien</h2>{cat}</section>
 <section><h2>Aktivste Dateien</h2><table>
 <thead><tr><th>Datei</th><th>Änderungen</th><th>Churn</th></tr></thead><tbody>{files}</tbody></table></section>
@@ -908,6 +1076,8 @@ pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
         exts = ext_rows,
         authors = author_rows,
         heat = heatmap_svg(&stats.heatmap),
+        code_changes = code_changes,
+        activity_title = activity_title,
         calendar = calendar,
         hot = hot_rows,
         dirs = dir_rows,
@@ -932,7 +1102,9 @@ const REPO_CSS: &str = r#"
 .bar i { display:block; height:100%; border-radius:4px }
 .val { width:56px; text-align:right; color:var(--muted); flex:none }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
-.heat, .cal { display:block; max-width:100% }
+.heat, .cal, .churn { display:block; max-width:100% }
+.churn-kpis { display:flex; gap:18px; font-size:15px; font-weight:600; margin:0 0 8px; font-variant-numeric:tabular-nums }
+.churn-kpis .add { color:#2e9e5b } .churn-kpis .del { color:#d0493f }
 td:nth-child(2), td:nth-child(3), td:nth-child(4), th:nth-child(2), th:nth-child(3), th:nth-child(4) { width:88px }
 "#;
 
@@ -1233,6 +1405,93 @@ mod tests {
     fn empty_range_html_says_so() {
         let html = build_html(&aggregate(std::iter::empty::<&Commit>()), RangeKey::D30);
         assert!(html.contains("Keine Commits in diesem Zeitraum"));
+    }
+
+    fn ranged(r: &[RangedStats], k: RangeKey) -> &RepoStats {
+        &r.iter().find(|x| x.range == k).unwrap().stats
+    }
+
+    /// Anchor 2026-09-25 (Friday); commits on 2026-09-25, 2026-09-10,
+    /// 2026-08-27 (inside 30 days) and 2026-03-02.
+    fn timeline_log() -> String {
+        [
+            rec("2026-09-25T10:00:00+02:00", "A", "a@x", "feat: 1", &[("a.rs", 10, 2)]),
+            rec("2026-09-10T10:00:00+02:00", "A", "a@x", "feat: 2", &[("a.rs", 5, 0), ("b.rs", 1, 1)]),
+            rec("2026-08-27T10:00:00+02:00", "B", "b@x", "fix: 3", &[("b.rs", 0, 7)]),
+            rec("2026-03-02T10:00:00+02:00", "B", "b@x", "chore: 4", &[("c.rs", 100, 0)]),
+        ]
+        .concat()
+    }
+
+    #[test]
+    fn thirty_days_are_thirty_daily_buckets_not_two_months() {
+        let r = analyze_ranges(&parse_commits(&timeline_log()));
+        let s = ranged(&r, RangeKey::D30);
+        assert_eq!(s.granularity, "day");
+        assert_eq!(s.timeline.len(), 30, "gapless, one bucket per day");
+        assert_eq!(s.timeline.first().unwrap().start, "2026-08-27");
+        assert_eq!(s.timeline.last().unwrap().start, "2026-09-25");
+        assert_eq!(s.timeline.iter().filter(|b| b.commits > 0).count(), 3);
+    }
+
+    #[test]
+    fn medium_ranges_bucket_by_monday_weeks() {
+        let r = analyze_ranges(&parse_commits(&timeline_log()));
+        let s = ranged(&r, RangeKey::D90);
+        assert_eq!(s.granularity, "week");
+        // Every bucket starts on a Monday; the last one holds 2026-09-25.
+        for b in &s.timeline {
+            let o = day_ordinal(&b.start).unwrap();
+            assert_eq!((o + 3).rem_euclid(7), 0, "{} is not a Monday", b.start);
+        }
+        assert_eq!(s.timeline.last().unwrap().start, "2026-09-21");
+        assert_eq!(ranged(&r, RangeKey::D180).granularity, "week");
+    }
+
+    #[test]
+    fn long_ranges_bucket_by_month_including_empty_months() {
+        let r = analyze_ranges(&parse_commits(&timeline_log()));
+        let all = ranged(&r, RangeKey::All);
+        assert_eq!(all.granularity, "month");
+        let starts: Vec<&str> = all.timeline.iter().map(|b| b.start.as_str()).collect();
+        assert_eq!(starts, ["2026-03-01", "2026-04-01", "2026-05-01", "2026-06-01", "2026-07-01", "2026-08-01", "2026-09-01"]);
+        assert_eq!(ranged(&r, RangeKey::Y1).granularity, "month");
+    }
+
+    #[test]
+    fn timeline_line_totals_match_the_kpis() {
+        let r = analyze_ranges(&parse_commits(&timeline_log()));
+        for x in &r {
+            let s = &x.stats;
+            assert_eq!(s.timeline.iter().map(|b| b.insertions).sum::<u64>(), s.insertions, "{:?}", x.range);
+            assert_eq!(s.timeline.iter().map(|b| b.deletions).sum::<u64>(), s.deletions, "{:?}", x.range);
+            assert_eq!(s.timeline.iter().map(|b| b.commits).sum::<u64>(), s.commits, "{:?}", x.range);
+        }
+        let d30 = ranged(&r, RangeKey::D30);
+        let sep25 = d30.timeline.iter().find(|b| b.start == "2026-09-25").unwrap();
+        assert_eq!((sep25.insertions, sep25.deletions), (10, 2));
+    }
+
+    #[test]
+    fn date_from_ordinal_inverts_day_ordinal() {
+        for d in ["1970-01-01", "2000-02-29", "2024-12-31", "2026-09-25", "1999-03-01"] {
+            assert_eq!(date_from_ordinal(day_ordinal(d).unwrap()), d);
+        }
+    }
+
+    #[test]
+    fn html_leads_with_code_changes_and_follows_the_range_granularity() {
+        let r = analyze_ranges(&parse_commits(&timeline_log()));
+        let html = build_html(ranged(&r, RangeKey::D30), RangeKey::D30);
+        let code = html.find("Code-Änderungen").expect("code-changes section");
+        let weekday = html.find("Commits nach Wochentag").unwrap();
+        assert!(code < weekday, "code changes must come first");
+        assert!(html.contains("class=\"churn\""), "churn chart");
+        assert!(html.contains("+16") && html.contains("−10") && html.contains("netto"), "totals");
+        assert!(html.contains("Aktivität pro Tag"));
+        assert!(!html.contains("Aktivität nach Monat"));
+        let all = build_html(ranged(&r, RangeKey::All), RangeKey::All);
+        assert!(all.contains("Aktivität pro Monat"));
     }
 
     /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`

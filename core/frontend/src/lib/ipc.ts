@@ -2860,6 +2860,7 @@ export interface RepoDayCount { date: string; commits: number }
 export interface RepoHotspot { path: string; changes: number; authors: number }
 export interface RepoDirStat { dir: string; commits: number; authors: number; bus_factor: number }
 export interface RepoCoChange { a: string; b: string; count: number }
+export interface RepoBucket { start: string; commits: number; insertions: number; deletions: number }
 export interface RepoStats {
   name: string;
   source: string;
@@ -2885,6 +2886,9 @@ export interface RepoStats {
   bus_factor: number;
   dir_bus_factor: RepoDirStat[];
   co_change: RepoCoChange[];
+  /** Gapless per-range series (day / Monday-week / month buckets). */
+  timeline: RepoBucket[];
+  granularity: "day" | "week" | "month" | "";
 }
 export interface RangedStats { range: RangeKey; stats: RepoStats }
 export interface RepoAnalysis { name: string; source: string; github: RepoUrl | null; ranges: RangedStats[] }

@@ -20,7 +20,7 @@
 //! renders the export as ONE self-contained file (inline SVG charts, no
 //! external requests) and is tested structurally.
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use crate::report_style as rs;
 use std::collections::BTreeMap;
 use std::process::Command;
@@ -29,7 +29,7 @@ use std::time::Duration;
 pub const REC: char = '\u{1e}';
 pub const FLD: char = '\u{1f}';
 
-#[derive(Serialize, Clone, Debug, Default, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq)]
 pub struct RepoStats {
     pub name: String,
     pub source: String,
@@ -55,35 +55,131 @@ pub struct RepoStats {
     /// Longest run of consecutive days with commits.
     pub longest_streak: u64,
     pub avg_msg_len: u64,
+    /// Weekday (Mon=0) × author-local hour.
+    pub heatmap: [[u64; 24]; 7],
+    /// Non-zero commit days within 365 days of the window's newest commit.
+    pub calendar: Vec<DayCount>,
+    /// Often-changed files with ≤ 2 authors — knowledge risk.
+    pub hotspots: Vec<Hotspot>,
+    /// Fewest authors that together hold ≥ 50 % of commits.
+    pub bus_factor: u32,
+    /// Per top-level directory ("(root)" for files at the root).
+    pub dir_bus_factor: Vec<DirStat>,
+    /// File pairs often changed together (commits with > 30 files skipped).
+    pub co_change: Vec<CoChange>,
 }
 
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct MonthCount {
     pub month: String, // "YYYY-MM"
     pub commits: u64,
 }
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct FileStat {
     pub path: String,
     pub changes: u64, // commits touching it
     pub churn: u64,   // insertions + deletions
 }
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct ExtStat {
     pub ext: String,
     pub commits: u64,
     pub churn: u64,
 }
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct AuthorStat {
     pub name: String,
     pub commits: u64,
     pub churn: u64,
 }
-#[derive(Serialize, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct CatCount {
     pub cat: String,
     pub commits: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DayCount {
+    pub date: String,
+    pub commits: u64,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct Hotspot {
+    pub path: String,
+    pub changes: u64,
+    pub authors: u64,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct DirStat {
+    pub dir: String,
+    pub commits: u64,
+    pub authors: u64,
+    pub bus_factor: u32,
+}
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct CoChange {
+    pub a: String,
+    pub b: String,
+    pub count: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum RangeKey {
+    D30,
+    D90,
+    D180,
+    Y1,
+    All,
+}
+
+impl RangeKey {
+    pub const ALL: [RangeKey; 5] = [RangeKey::D30, RangeKey::D90, RangeKey::D180, RangeKey::Y1, RangeKey::All];
+    pub fn days(self) -> Option<i64> {
+        match self {
+            RangeKey::D30 => Some(30),
+            RangeKey::D90 => Some(90),
+            RangeKey::D180 => Some(180),
+            RangeKey::Y1 => Some(365),
+            RangeKey::All => None,
+        }
+    }
+    pub fn parse(s: &str) -> Option<RangeKey> {
+        Some(match s {
+            "d30" => RangeKey::D30,
+            "d90" => RangeKey::D90,
+            "d180" => RangeKey::D180,
+            "y1" => RangeKey::Y1,
+            "all" => RangeKey::All,
+            _ => return None,
+        })
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            RangeKey::D30 => "letzte 30 Tage",
+            RangeKey::D90 => "letzte 90 Tage",
+            RangeKey::D180 => "letzte 180 Tage",
+            RangeKey::Y1 => "letztes Jahr",
+            RangeKey::All => "gesamt",
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
+pub struct RangedStats {
+    pub range: RangeKey,
+    pub stats: RepoStats,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Commit {
+    pub iso: String,
+    pub day: Option<i64>,
+    pub author_key: String,
+    pub author_name: String,
+    pub subject: String,
+    /// (path, insertions, deletions)
+    pub files: Vec<(String, u64, u64)>,
 }
 
 /// Conventional-commit category from a subject line (feat/fix/docs/refactor/
@@ -174,20 +270,10 @@ fn day_ordinal(iso: &str) -> Option<i64> {
     Some(era * 146097 + doe - 719468)
 }
 
-/// Pure: parse `git log --numstat` output (control-char separated) into stats.
-/// `name`/`source` are filled by the caller.
-pub fn parse_git_log(raw: &str) -> RepoStats {
-    let mut stats = RepoStats::default();
-    let mut author_idx: BTreeMap<String, usize> = BTreeMap::new();
-    let mut authors: Vec<(String, u64, u64)> = Vec::new(); // name, commits, churn
-    let mut files: BTreeMap<String, (u64, u64)> = BTreeMap::new(); // path → (changes, churn)
-    let mut exts: BTreeMap<String, (u64, u64)> = BTreeMap::new(); // ext → (commits, churn)
-    let mut months: BTreeMap<String, u64> = BTreeMap::new();
-    let mut cats: BTreeMap<&'static str, u64> = BTreeMap::new();
-    let mut days: Vec<i64> = Vec::new();
-    let mut msg_len_total: u64 = 0;
-    let (mut first, mut last): (Option<String>, Option<String>) = (None, None);
-
+/// Pure: `git log --numstat` output (control-char separated) → commits,
+/// newest first (git's order).
+pub fn parse_commits(raw: &str) -> Vec<Commit> {
+    let mut out = Vec::new();
     for rec in raw.split(REC) {
         let rec = rec.trim_matches('\n');
         if rec.is_empty() {
@@ -204,84 +290,171 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
         if iso.is_empty() {
             continue;
         }
-
-        stats.commits += 1;
-        msg_len_total += subject.chars().count() as u64;
-        *cats.entry(classify_commit(subject)).or_insert(0) += 1;
-
-        // Chronology: git log is newest-first, so the LAST record seen is the
-        // first commit; track both ends.
-        if last.is_none() {
-            last = Some(iso.to_string());
-        }
-        first = Some(iso.to_string());
-
-        if let Some((wd, hr)) = weekday_hour(iso) {
-            stats.by_weekday[wd] += 1;
-            stats.by_hour[hr] += 1;
-        }
-        if let Some(ord) = day_ordinal(iso) {
-            days.push(ord);
-        }
-        if iso.len() >= 7 {
-            *months.entry(iso[0..7].to_string()).or_insert(0) += 1;
-        }
-
-        let key = if email.is_empty() { name.to_lowercase() } else { email.to_lowercase() };
-        let a = *author_idx.entry(key).or_insert_with(|| {
-            authors.push((name.to_string(), 0, 0));
-            authors.len() - 1
-        });
-        authors[a].1 += 1;
-
-        // numstat lines: "<ins>\t<del>\t<path>" (ins/del are "-" for binary).
-        let mut touched_exts: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+        let mut files = Vec::new();
         for ln in lines {
             let ln = ln.trim();
             if ln.is_empty() {
                 continue;
             }
             let mut cols = ln.splitn(3, '\t');
-            let ins = cols.next().unwrap_or("0");
-            let del = cols.next().unwrap_or("0");
-            let path = match cols.next() {
-                Some(p) => p,
-                None => continue,
-            };
-            let ins: u64 = ins.parse().unwrap_or(0);
-            let del: u64 = del.parse().unwrap_or(0);
+            let ins = cols.next().unwrap_or("0").parse().unwrap_or(0);
+            let del = cols.next().unwrap_or("0").parse().unwrap_or(0);
+            if let Some(path) = cols.next() {
+                files.push((path.to_string(), ins, del));
+            }
+        }
+        out.push(Commit {
+            iso: iso.to_string(),
+            day: day_ordinal(iso),
+            author_key: if email.is_empty() { name.to_lowercase() } else { email.to_lowercase() },
+            author_name: name.to_string(),
+            subject: subject.to_string(),
+            files,
+        });
+    }
+    out
+}
+
+/// Pure: legacy entry point, kept for its callers + tests.
+pub fn parse_git_log(raw: &str) -> RepoStats {
+    aggregate(&parse_commits(raw))
+}
+
+/// Fewest authors whose commits together reach ≥ 50 % of the total.
+pub fn bus_factor(counts: &[u64]) -> u32 {
+    let total: u64 = counts.iter().sum();
+    if total == 0 {
+        return 0;
+    }
+    let mut v: Vec<u64> = counts.to_vec();
+    v.sort_unstable_by(|a, b| b.cmp(a));
+    let (mut acc, mut n) = (0u64, 0u32);
+    for c in v {
+        acc += c;
+        n += 1;
+        if acc * 2 >= total {
+            break;
+        }
+    }
+    n
+}
+
+const CO_CHANGE_MAX_FILES: usize = 30;
+
+fn top_dir(path: &str) -> String {
+    match path.split_once('/') {
+        Some((d, _)) if !d.is_empty() => d.to_string(),
+        _ => "(root)".to_string(),
+    }
+}
+
+/// Pure: aggregate any subset of commits (newest first) into stats.
+pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats {
+    use std::collections::{BTreeSet, HashMap};
+    let commits: Vec<&Commit> = commits.into_iter().collect();
+    let mut stats = RepoStats::default();
+    let mut author_idx: BTreeMap<String, usize> = BTreeMap::new();
+    let mut authors: Vec<(String, u64, u64)> = Vec::new();
+    let mut files: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+    let mut file_authors: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    let mut exts: BTreeMap<String, (u64, u64)> = BTreeMap::new();
+    let mut months: BTreeMap<String, u64> = BTreeMap::new();
+    let mut cats: BTreeMap<&'static str, u64> = BTreeMap::new();
+    let mut dirs: BTreeMap<String, BTreeMap<usize, u64>> = BTreeMap::new();
+    let mut pairs: HashMap<(String, String), u64> = HashMap::new();
+    let mut day_counts: BTreeMap<i64, (String, u64)> = BTreeMap::new();
+    let mut days: Vec<i64> = Vec::new();
+    let mut msg_len_total: u64 = 0;
+
+    for c in &commits {
+        stats.commits += 1;
+        msg_len_total += c.subject.chars().count() as u64;
+        *cats.entry(classify_commit(&c.subject)).or_insert(0) += 1;
+        if let Some((wd, hr)) = weekday_hour(&c.iso) {
+            stats.by_weekday[wd] += 1;
+            stats.by_hour[hr] += 1;
+            stats.heatmap[wd][hr] += 1;
+        }
+        if let Some(ord) = c.day {
+            days.push(ord);
+            let e = day_counts.entry(ord).or_insert_with(|| (c.iso.get(0..10).unwrap_or("").to_string(), 0));
+            e.1 += 1;
+        }
+        if c.iso.len() >= 7 {
+            *months.entry(c.iso[0..7].to_string()).or_insert(0) += 1;
+        }
+        let a = *author_idx.entry(c.author_key.clone()).or_insert_with(|| {
+            authors.push((c.author_name.clone(), 0, 0));
+            authors.len() - 1
+        });
+        authors[a].1 += 1;
+
+        let mut touched_exts: BTreeSet<String> = BTreeSet::new();
+        let mut touched_dirs: BTreeSet<String> = BTreeSet::new();
+        for (path, ins, del) in &c.files {
             let churn = ins + del;
             stats.insertions += ins;
             stats.deletions += del;
             authors[a].2 += churn;
-            let fe = files.entry(path.to_string()).or_insert((0, 0));
+            let fe = files.entry(path.clone()).or_insert((0, 0));
             fe.0 += 1;
             fe.1 += churn;
+            file_authors.entry(path.clone()).or_default().insert(a);
             let ext = extension_of(path);
-            let ee = exts.entry(ext.clone()).or_insert((0, 0));
-            ee.1 += churn;
+            exts.entry(ext.clone()).or_insert((0, 0)).1 += churn;
             touched_exts.insert(ext);
+            touched_dirs.insert(top_dir(path));
         }
         for e in touched_exts {
             exts.entry(e).and_modify(|v| v.0 += 1);
         }
+        for d in touched_dirs {
+            *dirs.entry(d).or_default().entry(a).or_insert(0) += 1;
+        }
+        if (2..=CO_CHANGE_MAX_FILES).contains(&c.files.len()) {
+            let mut ps: Vec<&String> = c.files.iter().map(|(p, _, _)| p).collect();
+            ps.sort();
+            ps.dedup();
+            for i in 0..ps.len() {
+                for j in i + 1..ps.len() {
+                    *pairs.entry((ps[i].clone(), ps[j].clone())).or_insert(0) += 1;
+                }
+            }
+        }
     }
 
+    // git log is newest-first.
+    stats.last_commit = commits.first().map(|c| c.iso.clone()).unwrap_or_default();
+    stats.first_commit = commits.last().map(|c| c.iso.clone()).unwrap_or_default();
     stats.contributors = authors.len() as u64;
-    stats.first_commit = first.unwrap_or_default();
-    stats.last_commit = last.unwrap_or_default();
     stats.avg_msg_len = msg_len_total.checked_div(stats.commits).unwrap_or(0);
 
-    // Active days + longest streak.
     days.sort_unstable();
     days.dedup();
     stats.active_days = days.len() as u64;
     stats.longest_streak = longest_streak(&days);
 
-    // Timeline (chronological).
+    if let Some(&anchor) = days.last() {
+        stats.calendar = day_counts
+            .into_iter()
+            .filter(|(ord, _)| *ord > anchor - 365)
+            .map(|(_, (date, commits))| DayCount { date, commits })
+            .collect();
+    }
+
     stats.by_month = months.into_iter().map(|(month, commits)| MonthCount { month, commits }).collect();
 
-    // Top files by change count (then churn).
+    let mut hs: Vec<Hotspot> = files
+        .iter()
+        .filter_map(|(path, (changes, _))| {
+            let n = file_authors.get(path).map_or(0, |s| s.len() as u64);
+            (*changes >= 3 && n <= 2).then(|| Hotspot { path: path.clone(), changes: *changes, authors: n })
+        })
+        .collect();
+    hs.sort_by(|a, b| b.changes.cmp(&a.changes).then(a.path.cmp(&b.path)));
+    hs.truncate(10);
+    stats.hotspots = hs;
+
     let mut fv: Vec<FileStat> = files
         .into_iter()
         .map(|(path, (changes, churn))| FileStat { path, changes, churn })
@@ -290,7 +463,6 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
     fv.truncate(15);
     stats.top_files = fv;
 
-    // Top extensions by churn.
     let mut ev: Vec<ExtStat> = exts
         .into_iter()
         .map(|(ext, (commits, churn))| ExtStat { ext, commits, churn })
@@ -299,7 +471,33 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
     ev.truncate(12);
     stats.top_exts = ev;
 
-    // Top authors by commits.
+    stats.bus_factor = bus_factor(&authors.iter().map(|a| a.1).collect::<Vec<_>>());
+
+    let mut dv: Vec<DirStat> = dirs
+        .into_iter()
+        .map(|(dir, by_author)| {
+            let counts: Vec<u64> = by_author.values().copied().collect();
+            DirStat {
+                dir,
+                commits: counts.iter().sum(),
+                authors: counts.len() as u64,
+                bus_factor: bus_factor(&counts),
+            }
+        })
+        .collect();
+    dv.sort_by(|a, b| b.commits.cmp(&a.commits).then(a.dir.cmp(&b.dir)));
+    dv.truncate(10);
+    stats.dir_bus_factor = dv;
+
+    let mut cv: Vec<CoChange> = pairs
+        .into_iter()
+        .filter(|(_, n)| *n >= 2)
+        .map(|((a, b), count)| CoChange { a, b, count })
+        .collect();
+    cv.sort_by(|x, y| y.count.cmp(&x.count).then(x.a.cmp(&y.a)).then(x.b.cmp(&y.b)));
+    cv.truncate(10);
+    stats.co_change = cv;
+
     let mut av: Vec<AuthorStat> = authors
         .into_iter()
         .map(|(name, commits, churn)| AuthorStat { name, commits, churn })
@@ -308,7 +506,6 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
     av.truncate(12);
     stats.top_authors = av;
 
-    // Categories in a stable, meaningful order.
     const ORDER: [&str; 12] = [
         "feat", "fix", "refactor", "perf", "docs", "test", "build", "ci", "chore", "style",
         "revert", "other",
@@ -319,6 +516,23 @@ pub fn parse_git_log(raw: &str) -> RepoStats {
         .collect();
 
     stats
+}
+
+/// Stats for every range, each anchored at the NEWEST commit's day (a
+/// dormant repo must not read "no commits in the last 30 days" for its whole
+/// recent history).
+pub fn analyze_ranges(commits: &[Commit]) -> Vec<RangedStats> {
+    let anchor = commits.iter().filter_map(|c| c.day).max();
+    RangeKey::ALL
+        .iter()
+        .map(|&range| {
+            let stats = match (range.days(), anchor) {
+                (Some(d), Some(a)) => aggregate(commits.iter().filter(|c| c.day.is_some_and(|x| x > a - d))),
+                _ => aggregate(commits.iter()),
+            };
+            RangedStats { range, stats }
+        })
+        .collect()
 }
 
 /// Longest run of consecutive day-ordinals in a sorted, deduped slice.
@@ -696,5 +910,106 @@ mod tests {
         assert!(!html.contains("<script>x</script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("a&lt;b&gt;&amp;&quot;"));
+    }
+
+    fn rec(iso: &str, name: &str, email: &str, subject: &str, files: &[(&str, u64, u64)]) -> String {
+        let mut s = format!("{REC}sha{FLD}{iso}{FLD}{name}{FLD}{email}{FLD}{subject}\n");
+        for (p, i, d) in files {
+            s.push_str(&format!("{i}\t{d}\t{p}\n"));
+        }
+        s
+    }
+
+    #[test]
+    fn parse_git_log_is_unchanged_by_the_commit_model() {
+        // The legacy entry point must still produce identical core numbers.
+        let s = parse_git_log(&synth_log());
+        let c = aggregate(&parse_commits(&synth_log()));
+        assert_eq!(s.commits, c.commits);
+        assert_eq!(s.top_files, c.top_files);
+        assert_eq!(s.by_weekday, c.by_weekday);
+    }
+
+    #[test]
+    fn ranges_are_anchored_at_the_last_commit_not_today() {
+        // Newest-first like git: 2020-06-30, 2020-06-10, 2019-06-30.
+        let raw = [
+            rec("2020-06-30T10:00:00+00:00", "A", "a@x", "feat: c", &[("a.rs", 1, 0)]),
+            rec("2020-06-10T10:00:00+00:00", "A", "a@x", "fix: b", &[("a.rs", 1, 0)]),
+            rec("2019-06-30T10:00:00+00:00", "B", "b@x", "chore: a", &[("b.rs", 1, 0)]),
+        ]
+        .concat();
+        let r = analyze_ranges(&parse_commits(&raw));
+        let get = |k: RangeKey| r.iter().find(|x| x.range == k).unwrap().stats.commits;
+        assert_eq!(get(RangeKey::D30), 2); // 06-10 is 20 days before 06-30
+        assert_eq!(get(RangeKey::D90), 2);
+        assert_eq!(get(RangeKey::Y1), 2); // 2019-06-30 is 366 days back → outside
+        assert_eq!(get(RangeKey::All), 3);
+        assert_eq!(r.len(), 5);
+    }
+
+    #[test]
+    fn empty_range_yields_a_zero_stats_block_without_panicking() {
+        let s = aggregate(std::iter::empty::<&Commit>());
+        assert_eq!(s.commits, 0);
+        assert_eq!(s.bus_factor, 0);
+        assert!(s.hotspots.is_empty() && s.calendar.is_empty() && s.co_change.is_empty());
+        assert_eq!(s.avg_msg_len, 0);
+    }
+
+    #[test]
+    fn bus_factor_is_the_smallest_group_covering_half() {
+        assert_eq!(bus_factor(&[]), 0);
+        assert_eq!(bus_factor(&[10]), 1);
+        assert_eq!(bus_factor(&[5, 5]), 1); // 5 of 10 = 50 % → one person suffices
+        assert_eq!(bus_factor(&[3, 3, 3, 3]), 2);
+        assert_eq!(bus_factor(&[1, 9]), 1);
+    }
+
+    #[test]
+    fn heatmap_calendar_hotspots_dirs_and_co_change() {
+        // 2026-08-24 is a Monday.
+        let raw = [
+            rec("2026-08-24T14:00:00+02:00", "A", "a@x", "feat: 1", &[("src/a.rs", 1, 0), ("src/b.rs", 1, 0)]),
+            rec("2026-08-24T14:30:00+02:00", "A", "a@x", "feat: 2", &[("src/a.rs", 1, 0), ("src/b.rs", 1, 0)]),
+            rec("2026-08-23T09:00:00+02:00", "A", "a@x", "fix: 3", &[("src/a.rs", 1, 0), ("README.md", 1, 0)]),
+            rec("2026-08-22T09:00:00+02:00", "B", "b@x", "fix: 4", &[("docs/x.md", 1, 0)]),
+        ]
+        .concat();
+        let s = aggregate(&parse_commits(&raw));
+        assert_eq!(s.heatmap[0][14], 2); // Monday 14h
+        assert_eq!(s.heatmap[6][9], 1); // Sunday 2026-08-23 09h
+        assert_eq!(s.calendar.iter().find(|d| d.date == "2026-08-24").unwrap().commits, 2);
+        // src/a.rs: 3 changes, 1 author → hotspot.
+        assert_eq!(s.hotspots[0], Hotspot { path: "src/a.rs".into(), changes: 3, authors: 1 });
+        // Directories: src (3 commits, 1 author), (root) (1), docs (1).
+        assert_eq!(s.dir_bus_factor[0], DirStat { dir: "src".into(), commits: 3, authors: 1, bus_factor: 1 });
+        assert!(s.dir_bus_factor.iter().any(|d| d.dir == "(root)"));
+        // a.rs+b.rs changed together twice.
+        assert_eq!(s.co_change[0], CoChange { a: "src/a.rs".into(), b: "src/b.rs".into(), count: 2 });
+        assert_eq!(s.bus_factor, 1); // A has 3 of 4
+    }
+
+    #[test]
+    fn co_change_ignores_commits_with_more_than_thirty_files() {
+        let many: Vec<(String, u64, u64)> = (0..31).map(|i| (format!("f{i}.rs"), 1, 0)).collect();
+        let many_ref: Vec<(&str, u64, u64)> = many.iter().map(|(p, i, d)| (p.as_str(), *i, *d)).collect();
+        let raw = [
+            rec("2026-08-24T10:00:00+00:00", "A", "a@x", "chore: big", &many_ref),
+            rec("2026-08-23T10:00:00+00:00", "A", "a@x", "chore: big", &many_ref),
+        ]
+        .concat();
+        assert!(aggregate(&parse_commits(&raw)).co_change.is_empty());
+    }
+
+    #[test]
+    fn range_key_serialises_lowercase_and_parses_back() {
+        assert_eq!(serde_json::to_string(&RangeKey::D30).unwrap(), "\"d30\"");
+        assert_eq!(serde_json::to_string(&RangeKey::All).unwrap(), "\"all\"");
+        for k in RangeKey::ALL {
+            let s = serde_json::to_string(&k).unwrap();
+            assert_eq!(RangeKey::parse(s.trim_matches('"')), Some(k));
+        }
+        assert_eq!(RangeKey::parse("x"), None);
     }
 }

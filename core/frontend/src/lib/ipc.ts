@@ -2863,7 +2863,9 @@ export interface RepoCoChange { a: string; b: string; count: number }
 export interface ActivityCounts { commits: number; insertions: number; deletions: number; files: number; authors: number; tags: number }
 export interface RecentActivity { now: number; day: ActivityCounts; day_prev: ActivityCounts; week: ActivityCounts; week_prev: ActivityCounts }
 export interface GithubCounts { pushes: number; prs_opened: number; prs_merged: number; issues_opened: number; issues_closed: number }
-export interface GithubActivity { day: GithubCounts; day_prev: GithubCounts; week: GithubCounts; week_prev: GithubCounts; pushes_capped: boolean }
+/** Per kind: data complete only for items newer than this (Unix s); null = complete. */
+export interface GithubCoverage { pushes: number | null; prs: number | null; issues: number | null }
+export interface GithubActivity { day: GithubCounts; day_prev: GithubCounts; week: GithubCounts; week_prev: GithubCounts; coverage: GithubCoverage }
 export interface RepoBucket { start: string; commits: number; insertions: number; deletions: number }
 export interface RepoStats {
   name: string;
@@ -2915,8 +2917,9 @@ export function repoExport(
   return invoke("repo_export", { stats, range, format, recent, github });
 }
 /** GitHub pushes / PRs / issues for 24 h and 7 days (+ previous periods). */
-export function repoGithubActivity(owner: string, repo: string): Promise<GithubActivity> {
-  return invoke("repo_github_activity", { owner, repo });
+export function repoGithubActivity(owner: string, repo: string, now?: number): Promise<GithubActivity> {
+  // Pass the analysis' `now` so git and GitHub rows describe the same windows.
+  return invoke("repo_github_activity", { owner, repo, now });
 }
 /** Clone into the configured folder (`name (2)` … when taken); returns the path. */
 export function repoClone(url: string): Promise<string> {

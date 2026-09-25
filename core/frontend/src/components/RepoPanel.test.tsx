@@ -5,12 +5,12 @@ import type { RepoAnalysis, RepoStats, RangeKey, GithubActivity } from "../lib/i
 const repoAnalyze = vi.fn<(t: string | null) => Promise<RepoAnalysis>>();
 const repoExport = vi.fn<(s: RepoStats, r: RangeKey, f: "html" | "pdf") => Promise<string>>();
 const repoClone = vi.fn<(u: string) => Promise<string>>();
-const repoGithubActivity = vi.fn<(o: string, r: string) => Promise<GithubActivity>>();
+const repoGithubActivity = vi.fn<(o: string, r: string, now?: number) => Promise<GithubActivity>>();
 vi.mock("../lib/ipc", () => ({
   repoAnalyze: (t: string | null) => repoAnalyze(t),
   repoExport: (s: RepoStats, r: RangeKey, f: "html" | "pdf") => repoExport(s, r, f),
   repoClone: (u: string) => repoClone(u),
-  repoGithubActivity: (o: string, r: string) => repoGithubActivity(o, r),
+  repoGithubActivity: (o: string, r: string, now?: number) => repoGithubActivity(o, r, now),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
@@ -53,7 +53,15 @@ const analysis: RepoAnalysis = {
 };
 
 const zero = { pushes: 0, prs_opened: 0, prs_merged: 0, issues_opened: 0, issues_closed: 0 };
-const gh: GithubActivity = { day: { ...zero, pushes: 4 }, day_prev: zero, week: { ...zero, pushes: 20 }, week_prev: zero, pushes_capped: true };
+// Push data complete only for the last 3 days (analysis.recent.now = 0):
+// both 24-h windows complete, the 7-day window and its previous week not.
+const gh: GithubActivity = {
+  day: { ...zero, pushes: 4 },
+  day_prev: zero,
+  week: { ...zero, pushes: 20 },
+  week_prev: zero,
+  coverage: { pushes: -3 * 86_400, prs: null, issues: null },
+};
 
 beforeEach(() => {
   repoGithubActivity.mockResolvedValue(gh);
@@ -154,10 +162,14 @@ describe("RepoPanel", () => {
   });
   it("loads GitHub numbers for a GitHub repo and marks a capped push count", async () => {
     const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
-    await waitFor(() => expect(repoGithubActivity).toHaveBeenCalledWith("o", "r"));
+    await waitFor(() => expect(repoGithubActivity).toHaveBeenCalledWith("o", "r", 0));
     await waitFor(() => v.getByText("Pushes"));
     // "≥ ", "20" and the delta are separate nodes inside one cell.
     expect(v.getByText(/^≥ 20\b/)).toBeTruthy();
+    // No delta against an incomplete previous week; the complete 24 h keeps its delta.
+    const cells = [...v.getByText("Pushes").closest("tr")!.querySelectorAll("td")].map((c) => c.textContent ?? "");
+    expect(cells[1]).toMatch(/^4 ↑ 4$/);
+    expect(cells[2]).toMatch(/^≥ 20 —$/);
     // GitHub delivers events late (30 s – hours) — the card has to say so.
     expect(v.getByText(/Verzögerung/)).toBeTruthy();
   });

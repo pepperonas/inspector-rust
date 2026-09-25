@@ -33,6 +33,7 @@ import {
   netTotal,
   deltaLabel,
   githubErrorHint,
+  windowsComplete,
 } from "../lib/repo";
 
 /**
@@ -130,7 +131,7 @@ export function RepoPanel({
     if (!ghRepo) return;
     let dead = false;
     const [o, r] = ghRepo.split("/");
-    repoGithubActivity(o, r)
+    repoGithubActivity(o, r, analysis?.recent.now)
       .then((a) => { if (!dead) setGh(a); })
       .catch((e) => { if (!dead) setGhErr(String(e)); });
     return () => { dead = true; };
@@ -502,13 +503,22 @@ export function RepoPanel({
   );
 }
 
-function DeltaCell({ cur, prev, capped }: { cur: number; prev: number; capped?: boolean }) {
+/** `ok` = this window's data is complete; `prevOk` = the previous period's.
+ *  "≥" marks an incomplete window; the delta is shown only when BOTH are
+ *  complete — a "↑" against a truncated previous period would be false. */
+function DeltaCell({ cur, prev, ok = true, prevOk = true }: { cur: number; prev: number; ok?: boolean; prevOk?: boolean }) {
   const d = deltaLabel(cur, prev);
+  const showDelta = ok && prevOk;
   return (
     <td className="py-0.5 text-right tabular-nums">
-      {capped ? "≥ " : ""}
+      {ok ? "" : "≥ "}
       {formatNum(cur)}{" "}
-      <span className="text-[10px] text-[var(--color-muted)]" title={d.title}>{d.text}</span>
+      <span
+        className="text-[10px] text-[var(--color-muted)]"
+        title={showDelta ? d.title : "Vorperiode unvollständig (GitHub-Abfragegrenze)"}
+      >
+        {showDelta ? d.text : "—"}
+      </span>
     </td>
   );
 }
@@ -522,13 +532,13 @@ function RecentCard({ recent, gh, ghErr, isGithub }: { recent: RecentActivity; g
     ["Mitwirkende", (c) => c.authors],
     ["Tags", (c) => c.tags],
   ];
-  const hub: [string, (c: GithubActivity["day"]) => number, boolean][] = gh
+  const hub: [string, (c: GithubActivity["day"]) => number, [boolean, boolean, boolean, boolean]][] = gh
     ? [
-        ["Pushes", (c) => c.pushes, gh.pushes_capped],
-        ["PRs geöffnet", (c) => c.prs_opened, false],
-        ["PRs gemergt", (c) => c.prs_merged, false],
-        ["Issues geöffnet", (c) => c.issues_opened, false],
-        ["Issues geschlossen", (c) => c.issues_closed, false],
+        ["Pushes", (c) => c.pushes, windowsComplete(gh.coverage.pushes, recent.now)],
+        ["PRs geöffnet", (c) => c.prs_opened, windowsComplete(gh.coverage.prs, recent.now)],
+        ["PRs gemergt", (c) => c.prs_merged, windowsComplete(gh.coverage.prs, recent.now)],
+        ["Issues geöffnet", (c) => c.issues_opened, windowsComplete(gh.coverage.issues, recent.now)],
+        ["Issues geschlossen", (c) => c.issues_closed, windowsComplete(gh.coverage.issues, recent.now)],
       ]
     : [];
   return (
@@ -550,11 +560,11 @@ function RecentCard({ recent, gh, ghErr, isGithub }: { recent: RecentActivity; g
               <DeltaCell cur={f(recent.week)} prev={f(recent.week_prev)} />
             </tr>
           ))}
-          {hub.map(([label, f, capped]) => (
+          {hub.map(([label, f, c]) => (
             <tr key={label}>
               <td className="py-0.5 text-[var(--color-muted)]">{label}</td>
-              <DeltaCell cur={f(gh!.day)} prev={f(gh!.day_prev)} capped={capped} />
-              <DeltaCell cur={f(gh!.week)} prev={f(gh!.week_prev)} capped={capped} />
+              <DeltaCell cur={f(gh!.day)} prev={f(gh!.day_prev)} ok={c[0]} prevOk={c[1]} />
+              <DeltaCell cur={f(gh!.week)} prev={f(gh!.week_prev)} ok={c[2]} prevOk={c[3]} />
             </tr>
           ))}
         </tbody>

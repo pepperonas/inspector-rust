@@ -1007,19 +1007,35 @@ fn delta(cur: u64, prev: u64) -> String {
     }
 }
 
-fn activity_row(label: &str, d: u64, dp: u64, w: u64, wp: u64, capped: bool) -> String {
-    let ge = if capped { "≥ " } else { "" };
+/// One window cell: "≥ " when that window's data is incomplete; the delta
+/// only when BOTH the window and its previous period are complete —
+/// otherwise "—" (a "↑" against a truncated previous period is a false claim).
+fn activity_cell(cur: u64, prev: u64, cur_ok: bool, prev_ok: bool) -> String {
+    let ge = if cur_ok { "" } else { "≥ " };
+    let dl = if cur_ok && prev_ok { delta(cur, prev) } else { "—".into() };
+    format!("<td>{ge}{cur} <span class=\"dl\">{dl}</span></td>")
+}
+
+/// Completeness of (day, day_prev, week, week_prev) for data complete from `from`.
+fn windows_complete(from: Option<i64>, now: i64) -> [bool; 4] {
+    use crate::github_api::window_complete as ok;
+    use crate::repo_activity::{DAY, WEEK};
+    [ok(from, now - DAY), ok(from, now - 2 * DAY), ok(from, now - WEEK), ok(from, now - 2 * WEEK)]
+}
+
+fn activity_row(label: &str, (d, dp, w, wp): (u64, u64, u64, u64), c: [bool; 4]) -> String {
     format!(
-        "<tr><td>{label}</td><td>{ge}{d} <span class=\"dl\">{}</span></td><td>{ge}{w} <span class=\"dl\">{}</span></td></tr>",
-        delta(d, dp),
-        delta(w, wp)
+        "<tr><td>{label}</td>{}{}</tr>",
+        activity_cell(d, dp, c[0], c[1]),
+        activity_cell(w, wp, c[2], c[3])
     )
 }
 
 fn activity_section(r: &crate::repo_activity::RecentActivity, gh: Option<&crate::github_api::GithubActivity>) -> String {
     let mut rows = String::new();
+    let all = [true; 4];
     let g = |f: fn(&crate::repo_activity::ActivityCounts) -> u64| (f(&r.day), f(&r.day_prev), f(&r.week), f(&r.week_prev));
-    for (label, (d, dp, w, wp)) in [
+    for (label, v) in [
         ("Commits", g(|c| c.commits)),
         ("Zeilen +", g(|c| c.insertions)),
         ("Zeilen −", g(|c| c.deletions)),
@@ -1027,23 +1043,23 @@ fn activity_section(r: &crate::repo_activity::RecentActivity, gh: Option<&crate:
         ("Mitwirkende", g(|c| c.authors)),
         ("Tags", g(|c| c.tags)),
     ] {
-        rows.push_str(&activity_row(label, d, dp, w, wp, false));
+        rows.push_str(&activity_row(label, v, all));
     }
     if let Some(gh) = gh {
         let h = |f: fn(&crate::github_api::GithubCounts) -> u64| (f(&gh.day), f(&gh.day_prev), f(&gh.week), f(&gh.week_prev));
-        let (d, dp, w, wp) = h(|c| c.pushes);
-        rows.push_str(&activity_row("Pushes", d, dp, w, wp, gh.pushes_capped));
-        for (label, (d, dp, w, wp)) in [
-            ("PRs geöffnet", h(|c| c.prs_opened)),
-            ("PRs gemergt", h(|c| c.prs_merged)),
-            ("Issues geöffnet", h(|c| c.issues_opened)),
-            ("Issues geschlossen", h(|c| c.issues_closed)),
+        let cov = &gh.coverage;
+        for (label, v, from) in [
+            ("Pushes", h(|c| c.pushes), cov.pushes),
+            ("PRs geöffnet", h(|c| c.prs_opened), cov.prs),
+            ("PRs gemergt", h(|c| c.prs_merged), cov.prs),
+            ("Issues geöffnet", h(|c| c.issues_opened), cov.issues),
+            ("Issues geschlossen", h(|c| c.issues_closed), cov.issues),
         ] {
-            rows.push_str(&activity_row(label, d, dp, w, wp, false));
+            rows.push_str(&activity_row(label, v, windows_complete(from, r.now)));
         }
     }
     format!(
-        "<section><h2>Aktivität 24 h / 7 Tage</h2><table class=\"act\"><thead><tr><th>Wert</th><th>24 h</th><th>7 Tage</th></tr></thead><tbody>{rows}</tbody></table><p class=\"rp-lede\">Vergleich jeweils zur gleich langen Vorperiode. Git: Haupt-Branch ohne Merges · Pushes: alle Branches.</p></section>"
+        "<section><h2>Aktivität 24 h / 7 Tage</h2><table class=\"act\"><thead><tr><th>Wert</th><th>24 h</th><th>7 Tage</th></tr></thead><tbody>{rows}</tbody></table><p class=\"rp-lede\">Vergleich jeweils zur gleich langen Vorperiode (— = Vorperiode unvollständig, ≥ = GitHub-Abfragegrenze erreicht). Git: Haupt-Branch ohne Merges · Pushes: alle Branches.</p></section>"
     )
 }
 
@@ -1619,14 +1635,46 @@ mod tests {
             week: ActivityCounts { commits: 9, ..Default::default() },
             week_prev: ActivityCounts { commits: 12, ..Default::default() },
         };
-        let gh = crate::github_api::GithubActivity { pushes_capped: true, ..Default::default() };
+        let gh = crate::github_api::GithubActivity { coverage: crate::github_api::GithubCoverage { pushes: Some(-1), ..Default::default() }, ..Default::default() };
         let html = build_html_with(&s, RangeKey::All, Some(&recent), Some(&gh));
         let a = html.find("Aktivität 24 h / 7 Tage").expect("section");
         assert!(a < html.find("Code-Änderungen").unwrap());
         assert!(html.contains("↑ 2") && html.contains("↓ 3"), "deltas vs previous period");
-        assert!(html.contains("Pushes") && html.contains("≥"), "capped push count marked");
+        assert!(html.contains("Pushes") && html.contains("<td>≥ 0 "), "capped push count marked in the cell, not just the legend");
         let plain = build_html(&s, RangeKey::All);
         assert!(!plain.contains("Aktivität 24 h / 7 Tage"));
+    }
+
+    #[test]
+    fn capped_github_rows_mark_only_incomplete_windows_and_hide_false_deltas() {
+        use crate::github_api::{GithubActivity, GithubCounts, GithubCoverage};
+        use crate::repo_activity::{RecentActivity, DAY};
+        let now = 1_790_000_000;
+        let recent = RecentActivity { now, ..Default::default() };
+        let c = |pushes| GithubCounts { pushes, ..Default::default() };
+        // Push data complete only for the last 3 days: both 24-h windows are
+        // complete, the 7-day window and its previous period are not.
+        let gh = GithubActivity {
+            day: c(5), day_prev: c(2), week: c(40), week_prev: c(0),
+            coverage: GithubCoverage { pushes: Some(now - 3 * DAY), ..Default::default() },
+        };
+        let html = build_html_with(&parse_git_log(&synth_log()), RangeKey::All, Some(&recent), Some(&gh));
+        let row = &html[html.find("<td>Pushes</td>").unwrap()..];
+        let row = &row[..row.find("</tr>").unwrap()];
+        assert!(row.contains(">5 <span class=\"dl\">↑ 3</span>"), "24 h complete: plain value + delta\n{row}");
+        assert!(row.contains("≥ 40"), "7 d incomplete: ≥\n{row}");
+        assert!(!row.contains("↑ 40"), "no delta against an incomplete previous week\n{row}");
+        assert!(row.contains("—"), "{row}");
+        // 24 h complete but its PREVIOUS day truncated → value without ≥,
+        // but no delta either.
+        let gh2 = GithubActivity {
+            day: c(5), day_prev: c(2), week: c(40), week_prev: c(0),
+            coverage: GithubCoverage { pushes: Some(now - DAY - DAY / 2), ..Default::default() },
+        };
+        let html2 = build_html_with(&parse_git_log(&synth_log()), RangeKey::All, Some(&recent), Some(&gh2));
+        let row2 = &html2[html2.find("<td>Pushes</td>").unwrap()..];
+        let row2 = &row2[..row2.find("</tr>").unwrap()];
+        assert!(row2.contains("<td>5 <span class=\"dl\">—</span>"), "{row2}");
     }
 
     /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`

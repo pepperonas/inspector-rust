@@ -6,7 +6,7 @@
 //! ref/before/head), so pushes are counted, not pushed commits. The Events
 //! API returns at most 300 events / 90 days: three FULL pages whose oldest
 //! event is still inside the 14-day horizon mean the count is incomplete
-//! (`pushes_capped`). The token only ever travels as an Authorization header.
+//! (`coverage`). The token only ever travels as an Authorization header.
 
 use crate::repo_activity::{in_window, DAY, WEEK};
 use serde::{Deserialize, Serialize};
@@ -25,13 +25,47 @@ pub struct GithubCounts {
     pub issues_closed: u64,
 }
 
+/// Where each kind's data becomes incomplete: `Some(t)` = the 3-page cut
+/// hit inside the 14-day horizon and only items newer than `t` were seen;
+/// `None` = complete. A window `(start, end]` is complete iff `t <= start`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
+pub struct GithubCoverage {
+    pub pushes: Option<i64>,
+    pub prs: Option<i64>,
+    pub issues: Option<i64>,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Default)]
 pub struct GithubActivity {
     pub day: GithubCounts,
     pub day_prev: GithubCounts,
     pub week: GithubCounts,
     pub week_prev: GithubCounts,
-    pub pushes_capped: bool,
+    /// Per-kind truncation point — drives "≥" and hides deltas that would
+    /// compare against an incomplete previous period.
+    pub coverage: GithubCoverage,
+}
+
+/// `(start, end]` fully covered by data that is complete from `from` on.
+pub fn window_complete(from: Option<i64>, start: i64) -> bool {
+    from.is_none_or(|t| t <= start)
+}
+
+/// Oldest `field` seen when three FULL pages are still inside the 14-day
+/// horizon (the cut dropped older items), else `None` (complete).
+pub fn coverage_from(pages: &[Vec<Value>], field: &str, now: i64) -> Option<i64> {
+    let full = pages.len() >= MAX_PAGES && pages.iter().all(|p| p.len() >= PAGE);
+    let oldest = pages.iter().flatten().filter_map(|v| ts(&v[field])).min()?;
+    (full && oldest > now - 2 * WEEK).then_some(oldest)
+}
+
+/// Issues sorted by LAST UPDATE (API default is creation): with creation
+/// order the 3-page cut dropped old issues closed this week.
+pub fn issues_path(now: i64) -> String {
+    let since = chrono::DateTime::from_timestamp(now - 2 * WEEK, 0)
+        .map(|d| d.format("%Y-%m-%dT%H:%M:%SZ").to_string())
+        .unwrap_or_default();
+    format!("issues?state=all&sort=updated&direction=desc&since={since}")
 }
 
 /// Four window counts for one kind of timestamp.
@@ -57,7 +91,6 @@ pub struct EventCounts {
     pub day_prev: u64,
     pub week: u64,
     pub week_prev: u64,
-    pub capped: bool,
 }
 
 pub struct TwoWin {
@@ -77,12 +110,7 @@ pub fn count_events(pages: &[Vec<Value>], now: i64) -> EventCounts {
             if let Some(t) = ts(&e["created_at"]) { w.add(t, now); }
         }
     }
-    let oldest_inside_horizon = pages
-        .last()
-        .and_then(|p| p.iter().filter_map(|e| ts(&e["created_at"])).min())
-        .is_some_and(|t| t > now - 2 * WEEK);
-    let capped = pages.len() >= MAX_PAGES && pages.iter().all(|p| p.len() >= PAGE) && oldest_inside_horizon;
-    EventCounts { day: w.day, day_prev: w.day_prev, week: w.week, week_prev: w.week_prev, capped }
+    EventCounts { day: w.day, day_prev: w.day_prev, week: w.week, week_prev: w.week_prev }
 }
 
 pub fn count_pulls(pulls: &[Value], now: i64) -> TwoWin {
@@ -170,11 +198,10 @@ fn get_pages(owner: &str, repo: &str, path: &str, token: Option<&str>, stop: imp
 pub fn fetch_activity(owner: &str, repo: &str, token: Option<&str>, now: i64) -> Result<GithubActivity, String> {
     let horizon = now - 2 * WEEK;
     let too_old = |field: &'static str| move |items: &[Value]| items.iter().filter_map(|v| ts(&v[field])).min().is_some_and(|t| t <= horizon);
-    let since = chrono::DateTime::from_timestamp(horizon, 0).map(|d| d.format("%Y-%m-%dT%H:%M:%SZ").to_string()).unwrap_or_default();
     crate::repo_clone::retry_without_token(token, |t| {
         let events = get_pages(owner, repo, "events", t, too_old("created_at"))?;
         let pulls = get_pages(owner, repo, "pulls?state=all&sort=updated&direction=desc", t, too_old("updated_at"))?;
-        let issues = get_pages(owner, repo, &format!("issues?state=all&since={since}"), t, |_| false)?;
+        let issues = get_pages(owner, repo, &issues_path(now), t, too_old("updated_at"))?;
         let e = count_events(&events, now);
         let p = count_pulls(&pulls.concat(), now);
         let i = count_issues(&issues.concat(), now);
@@ -190,7 +217,11 @@ pub fn fetch_activity(owner: &str, repo: &str, token: Option<&str>, now: i64) ->
             day_prev: mk(e.day_prev, |w| w.day_prev),
             week: mk(e.week, |w| w.week),
             week_prev: mk(e.week_prev, |w| w.week_prev),
-            pushes_capped: e.capped,
+            coverage: GithubCoverage {
+                pushes: coverage_from(&events, "created_at", now),
+                prs: coverage_from(&pulls, "updated_at", now),
+                issues: coverage_from(&issues, "updated_at", now),
+            },
         })
     })
 }
@@ -215,23 +246,22 @@ mod tests {
             json!({"type":"PushEvent","created_at": iso(NOW - 8 * DAY)}),
         ];
         let e = count_events(&[page], NOW);
-        assert_eq!((e.day, e.day_prev, e.week, e.week_prev, e.capped), (1, 1, 2, 1, false));
+        assert_eq!((e.day, e.day_prev, e.week, e.week_prev), (1, 1, 2, 1));
     }
 
     #[test]
     fn full_pages_inside_the_horizon_mark_the_count_capped() {
         let page: Vec<Value> = (0..100).map(|i| json!({"type":"PushEvent","created_at": iso(NOW - 100 - i)})).collect();
-        let e = count_events(&[page.clone(), page.clone(), page], NOW);
-        assert!(e.capped, "300 events all within 14 days → incomplete");
+        assert!(coverage_from(&[page.clone(), page.clone(), page], "created_at", NOW).is_some(), "300 events all within 14 days → incomplete");
         let short = vec![json!({"type":"PushEvent","created_at": iso(NOW - 5)})];
-        assert!(!count_events(&[short], NOW).capped);
+        assert!(coverage_from(&[short], "created_at", NOW).is_none());
     }
 
     #[test]
     fn a_short_last_page_means_everything_was_fetched() {
         let full: Vec<Value> = (0..100).map(|i| json!({"type":"PushEvent","created_at": iso(NOW - 100 - i)})).collect();
         let short: Vec<Value> = (0..50).map(|i| json!({"type":"PushEvent","created_at": iso(NOW - 500 - i)})).collect();
-        assert!(!count_events(&[full.clone(), full, short], NOW).capped, "250 events < 300 → complete");
+        assert!(coverage_from(&[full.clone(), full, short], "created_at", NOW).is_none(), "250 events < 300 → complete");
     }
 
     #[test]
@@ -241,6 +271,48 @@ mod tests {
         assert!(h.iter().any(|(k, v)| *k == "User-Agent" && v == "inspector-rust"));
         assert!(!request_headers(None).iter().any(|(k, _)| *k == "Authorization"));
         assert!(!request_headers(Some("  ")).iter().any(|(k, _)| *k == "Authorization"));
+    }
+
+    fn page_of(n: usize, field: &str, from: i64) -> Vec<Value> {
+        (0..n).map(|i| json!({ field: iso(from - i as i64 * 60) })).collect()
+    }
+
+    #[test]
+    fn coverage_marks_where_truncated_data_starts() {
+        // Three full pages, all inside 14 days → data only complete from the
+        // oldest item on; windows starting earlier are incomplete.
+        let pages = vec![
+            page_of(100, "updated_at", NOW - 10),
+            page_of(100, "updated_at", NOW - 10 - 6000),
+            page_of(100, "updated_at", NOW - 10 - 12000),
+        ];
+        let oldest = NOW - 10 - 12000 - 99 * 60;
+        assert_eq!(coverage_from(&pages, "updated_at", NOW), Some(oldest));
+        // A short page or items older than the horizon → complete.
+        assert_eq!(coverage_from(&pages[..1], "updated_at", NOW), None);
+        let short_last = vec![pages[0].clone(), pages[1].clone(), page_of(50, "updated_at", NOW - 20000)];
+        assert_eq!(coverage_from(&short_last, "updated_at", NOW), None, "250 items < 300 → everything was fetched");
+        let mut old = pages.clone();
+        old[2].push(json!({"updated_at": iso(NOW - 15 * DAY)}));
+        old[2].remove(0);
+        assert_eq!(coverage_from(&old, "updated_at", NOW), None);
+    }
+
+    #[test]
+    fn a_window_is_complete_only_if_it_starts_after_the_coverage_point() {
+        assert!(window_complete(None, NOW - WEEK));
+        assert!(window_complete(Some(NOW - 2 * DAY), NOW - DAY));
+        assert!(window_complete(Some(NOW - DAY), NOW - DAY));
+        assert!(!window_complete(Some(NOW - DAY + 1), NOW - DAY));
+    }
+
+    #[test]
+    fn issues_are_fetched_newest_update_first() {
+        // Sorted by creation (the API default) the 3-page cut dropped old
+        // issues closed this week — exactly what "Issues geschlossen" counts.
+        let p = issues_path(NOW);
+        assert!(p.contains("state=all") && p.contains("sort=updated") && p.contains("direction=desc"), "{p}");
+        assert!(p.contains("since="), "{p}");
     }
 
     #[test]

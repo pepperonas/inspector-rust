@@ -422,8 +422,8 @@ describe("repo wrappers (v0.183.0)", () => {
 
 describe("repo github activity wrapper (v0.185.0)", () => {
   it("repoGithubActivity passes owner + repo", async () => {
-    await ipc.repoGithubActivity("o", "r");
-    expect(mockInvoke).toHaveBeenCalledWith("repo_github_activity", { owner: "o", repo: "r" });
+    await ipc.repoGithubActivity("o", "r", 123);
+    expect(mockInvoke).toHaveBeenCalledWith("repo_github_activity", { owner: "o", repo: "r", now: 123 });
   });
   it("repoExport forwards recent + github", async () => {
     const stats = { commits: 1 } as unknown as ipc.RepoStats;

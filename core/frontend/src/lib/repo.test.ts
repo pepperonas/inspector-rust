@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint } from "./repo";
+import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint, windowsComplete } from "./repo";
 import {
   WEEKDAY_LABELS,
   categoryColor,
@@ -141,3 +141,17 @@ describe("recent activity helpers", () => {
     expect(githubErrorHint("repo.auth: HTTP 401")).toMatch(/Token/);
   });
 });
+
+describe("GitHub coverage (review fix)", () => {
+  const NOW = 1_790_000_000;
+  const DAY = 86_400;
+  it("a window is complete only if it starts at/after the coverage point", () => {
+    expect(windowsComplete(null, NOW)).toEqual([true, true, true, true]);
+    // data complete for the last 3 days: both 24-h windows yes, both weeks no
+    expect(windowsComplete(NOW - 3 * DAY, NOW)).toEqual([true, true, false, false]);
+    // 1.5 days: 24 h complete, the previous day not
+    expect(windowsComplete(NOW - 1.5 * DAY, NOW)).toEqual([true, false, false, false]);
+    expect(windowsComplete(NOW - DAY, NOW)[0]).toBe(true);
+  });
+});
+

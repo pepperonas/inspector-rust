@@ -232,3 +232,15 @@ export function githubErrorHint(err: string): string {
   if (err.startsWith("github.network")) return "GitHub nicht erreichbar — Git-Werte oben sind trotzdem aktuell.";
   return "GitHub-Werte nicht verfügbar.";
 }
+
+/**
+ * Completeness of the four windows (24 h, previous 24 h, 7 d, previous 7 d)
+ * for data that is complete only from `from` on (`null` = complete). Mirrors
+ * Rust `windows_complete`: a window `(start, end]` is complete iff `from <= start`.
+ */
+export function windowsComplete(from: number | null, now: number): [boolean, boolean, boolean, boolean] {
+  const ok = (start: number) => from === null || from <= start;
+  const DAY = 86_400;
+  return [ok(now - DAY), ok(now - 2 * DAY), ok(now - 7 * DAY), ok(now - 14 * DAY)];
+}
+

@@ -1407,7 +1407,7 @@ pub async fn repo_export(
     };
     let range = crate::repo_stats::RangeKey::parse(&range).ok_or_else(|| format!("Unbekannter Zeitraum: {range}"))?;
     let (_name, slug) = crate::repo_stats::repo_identity(&stats.source);
-    let html = crate::repo_stats::build_html(&stats);
+    let html = crate::repo_stats::build_html(&stats, range);
     let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
     let suffix = if range == crate::repo_stats::RangeKey::All { String::new() } else { format!("-{}", serde_json::to_string(&range).unwrap_or_default().trim_matches('"')) };
     let out = dir.join(format!("{slug}-activity{suffix}.{ext}"));

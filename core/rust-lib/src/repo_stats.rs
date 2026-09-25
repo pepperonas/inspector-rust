@@ -701,9 +701,77 @@ fn bar_rows(items: &[(String, u64)], max: u64, color: &str) -> String {
     out
 }
 
-/// Build the self-contained HTML export (no external requests — inline CSS +
-/// SVG-free CSS bar charts). Pure; tested structurally.
-pub fn build_html(stats: &RepoStats) -> String {
+/// Weekday×hour heatmap as inline SVG (survives the PDF render).
+pub fn heatmap_svg(h: &[[u64; 24]; 7]) -> String {
+    let max = h.iter().flatten().copied().max().unwrap_or(0).max(1) as f64;
+    let days = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
+    let (cw, ch, lx) = (14.0, 14.0, 22.0);
+    let mut s = format!(
+        "<svg class=\"heat\" viewBox=\"0 0 {} {}\" width=\"100%\" role=\"img\" aria-label=\"Heatmap Wochentag × Stunde\">",
+        lx + 24.0 * cw,
+        7.0 * ch + 12.0
+    );
+    for (d, row) in h.iter().enumerate() {
+        s.push_str(&format!("<text x=\"0\" y=\"{}\" font-size=\"8\" fill=\"#6b7280\">{}</text>", d as f64 * ch + 10.0, days[d]));
+        for (hr, &v) in row.iter().enumerate() {
+            let op = if v == 0 { 0.06 } else { 0.18 + 0.82 * (v as f64 / max) };
+            s.push_str(&format!(
+                "<rect x=\"{:.1}\" y=\"{:.1}\" width=\"{:.1}\" height=\"{:.1}\" rx=\"2\" fill=\"#3f6cd4\" fill-opacity=\"{op:.2}\"><title>{} {hr:02} Uhr: {v}</title></rect>",
+                lx + hr as f64 * cw,
+                d as f64 * ch,
+                cw - 2.0,
+                ch - 2.0,
+                days[d]
+            ));
+        }
+    }
+    for hr in (0..24).step_by(6) {
+        s.push_str(&format!("<text x=\"{}\" y=\"{}\" font-size=\"8\" fill=\"#6b7280\">{hr}</text>", lx + hr as f64 * cw, 7.0 * ch + 10.0));
+    }
+    s.push_str("</svg>");
+    s
+}
+
+/// GitHub-style contribution calendar (weeks as columns, Mon..Sun rows).
+pub fn calendar_svg(days: &[DayCount]) -> String {
+    let parsed: Vec<(i64, &DayCount)> = days.iter().filter_map(|d| day_ordinal(&d.date).map(|o| (o, d))).collect();
+    let Some(last) = parsed.iter().map(|(o, _)| *o).max() else { return String::new() };
+    let first = parsed.iter().map(|(o, _)| *o).min().unwrap_or(last);
+    // 1970-01-01 (ordinal 0) was a Thursday → Mon=0 weekday = (ord+3) mod 7.
+    let wd = |o: i64| (o + 3).rem_euclid(7);
+    let start = first - wd(first); // Monday of the first week
+    let weeks = ((last - start) / 7 + 1) as f64;
+    let max = parsed.iter().map(|(_, d)| d.commits).max().unwrap_or(1).max(1) as f64;
+    let c = 10.0;
+    let mut s = format!("<svg class=\"cal\" viewBox=\"0 0 {} {}\" width=\"100%\" role=\"img\" aria-label=\"Beitragskalender\">", weeks * c, 7.0 * c);
+    for (o, d) in &parsed {
+        let col = ((o - start) / 7) as f64;
+        let row = wd(*o) as f64;
+        let op = 0.2 + 0.8 * (d.commits as f64 / max);
+        s.push_str(&format!(
+            "<rect x=\"{:.0}\" y=\"{:.0}\" width=\"8\" height=\"8\" rx=\"1.5\" fill=\"#2e9e5b\" fill-opacity=\"{op:.2}\"><title>{}: {}</title></rect>",
+            col * c,
+            row * c,
+            esc(&d.date),
+            d.commits
+        ));
+    }
+    s.push_str("</svg>");
+    s
+}
+
+/// Build the self-contained HTML export for one range (no external requests —
+/// inline CSS + inline SVG, both survive the PDF render). Pure; tested structurally.
+pub fn build_html(stats: &RepoStats, range: RangeKey) -> String {
+    if stats.commits == 0 {
+        return rs::shell(
+            "Repo-Aktivität",
+            &esc(&stats.name),
+            &format!("{} · {}", esc(&stats.source), range.label()),
+            "<p class=\"rp-lede\">Keine Commits in diesem Zeitraum.</p>",
+            "Erstellt mit Inspector Rust, orientiert an repo2viz.",
+        );
+    }
     let weekdays = ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"];
     let wd_max = stats.by_weekday.iter().copied().max().unwrap_or(1).max(1);
     let wd_rows = bar_rows(
@@ -744,11 +812,33 @@ pub fn build_html(stats: &RepoStats) -> String {
         .iter()
         .map(|e| format!("<tr><td class=\"mono\">.{}</td><td>{}</td><td>{}</td></tr>", esc(&e.ext), e.commits, e.churn))
         .collect();
+    let hot_rows: String = stats
+        .hotspots
+        .iter()
+        .map(|h| format!("<tr><td class=\"mono\">{}</td><td>{}</td><td>{}</td></tr>", esc(&h.path), h.changes, h.authors))
+        .collect();
+    let dir_rows: String = stats
+        .dir_bus_factor
+        .iter()
+        .map(|d| format!("<tr><td class=\"mono\">{}</td><td>{}</td><td>{}</td><td>{}</td></tr>", esc(&d.dir), d.commits, d.authors, d.bus_factor))
+        .collect();
+    let co_rows: String = stats
+        .co_change
+        .iter()
+        .map(|p| format!("<tr><td class=\"mono\">{} ↔ {}</td><td>{}</td></tr>", esc(&p.a), esc(&p.b), p.count))
+        .collect();
+    let calendar = if matches!(range, RangeKey::Y1 | RangeKey::All) && !stats.calendar.is_empty() {
+        format!("<section><h2>Beitragskalender</h2>{}</section>", calendar_svg(&stats.calendar))
+    } else {
+        String::new()
+    };
 
     let body = format!(
         r#"{stats}
 <section><h2>Commits nach Wochentag</h2>{wd}</section>
 <section><h2>Commits nach Stunde</h2>{hr}</section>
+<section><h2>Heatmap Wochentag × Stunde</h2>{heat}</section>
+{calendar}
 <section><h2>Aktivität nach Monat</h2>{mo}</section>
 <section><h2>Commit-Kategorien</h2>{cat}</section>
 <section><h2>Aktivste Dateien</h2><table>
@@ -756,7 +846,13 @@ pub fn build_html(stats: &RepoStats) -> String {
 <section><h2>Dateitypen</h2><table>
 <thead><tr><th>Typ</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{exts}</tbody></table></section>
 <section><h2>Top-Mitwirkende</h2><table>
-<thead><tr><th>Name</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{authors}</tbody></table></section>"#,
+<thead><tr><th>Name</th><th>Commits</th><th>Churn</th></tr></thead><tbody>{authors}</tbody></table></section>
+<section><h2>Hotspots (viel geändert, ≤ 2 Autoren)</h2><table>
+<thead><tr><th>Datei</th><th>Änderungen</th><th>Autoren</th></tr></thead><tbody>{hot}</tbody></table></section>
+<section><h2>Bus-Faktor je Verzeichnis</h2><table>
+<thead><tr><th>Verzeichnis</th><th>Commits</th><th>Autoren</th><th>Bus-Faktor</th></tr></thead><tbody>{dirs}</tbody></table></section>
+<section><h2>Co-Change</h2><table>
+<thead><tr><th>Dateipaar</th><th>Gemeinsam</th></tr></thead><tbody>{co}</tbody></table></section>"#,
         stats = rs::stats(&[
             rs::Stat { label: "Commits", value: stats.commits.to_string(), unit: None },
             rs::Stat { label: "Mitwirkende", value: stats.contributors.to_string(), unit: None },
@@ -764,6 +860,7 @@ pub fn build_html(stats: &RepoStats) -> String {
             rs::Stat { label: "Längste Serie", value: stats.longest_streak.to_string(), unit: Some("Tage") },
             rs::Stat { label: "Zeilen ein", value: format!("+{}", stats.insertions), unit: None },
             rs::Stat { label: "Zeilen aus", value: format!("−{}", stats.deletions), unit: None },
+            rs::Stat { label: "Bus-Faktor", value: stats.bus_factor.to_string(), unit: None },
         ]),
         wd = wd_rows,
         hr = hr_rows,
@@ -772,12 +869,17 @@ pub fn build_html(stats: &RepoStats) -> String {
         files = file_rows,
         exts = ext_rows,
         authors = author_rows,
+        heat = heatmap_svg(&stats.heatmap),
+        calendar = calendar,
+        hot = hot_rows,
+        dirs = dir_rows,
+        co = co_rows,
     );
 
     let doc = rs::shell(
         "Repo-Aktivität",
         &esc(&stats.name),
-        &format!("{} · {} → {}", esc(&stats.source), esc(&stats.first_commit), esc(&stats.last_commit)),
+        &format!("{} · {} · {} → {}", esc(&stats.source), range.label(), esc(&stats.first_commit), esc(&stats.last_commit)),
         &body,
         "Aus der Git-Historie gerechnet (Merges ausgenommen); <b>Churn</b> = geänderte Zeilen ein + aus.<br>Erstellt mit Inspector Rust, orientiert an repo2viz.",
     );
@@ -792,7 +894,8 @@ const REPO_CSS: &str = r#"
 .bar i { display:block; height:100%; border-radius:4px }
 .val { width:56px; text-align:right; color:var(--muted); flex:none }
 .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace }
-td:nth-child(2), td:nth-child(3), th:nth-child(2), th:nth-child(3) { width:88px }
+.heat, .cal { display:block; max-width:100% }
+td:nth-child(2), td:nth-child(3), td:nth-child(4), th:nth-child(2), th:nth-child(3), th:nth-child(4) { width:88px }
 "#;
 
 #[cfg(test)]
@@ -917,8 +1020,17 @@ mod tests {
         let dir = std::path::PathBuf::from(
             std::env::var("IR_DUMP_DIR").unwrap_or_else(|_| "/tmp".into()),
         );
+        // IR_DUMP_REPO=<path> renders a real repo (all ranges) instead of the synthetic log.
+        if let Ok(repo) = std::env::var("IR_DUMP_REPO") {
+            let a = analyze_local(std::path::Path::new(&repo)).unwrap();
+            for r in &a.ranges {
+                let name = format!("repo-report-{}.html", serde_json::to_string(&r.range).unwrap().trim_matches('"'));
+                std::fs::write(dir.join(name), build_html(&r.stats, r.range)).unwrap();
+            }
+            return;
+        }
         let stats = parse_git_log(&synth_log());
-        std::fs::write(dir.join("repo-report.html"), build_html(&stats)).unwrap();
+        std::fs::write(dir.join("repo-report.html"), build_html(&stats, RangeKey::All)).unwrap();
     }
 
     #[test]
@@ -926,7 +1038,7 @@ mod tests {
         let mut s = parse_git_log(&synth_log());
         s.name = "inspector-rust".into();
         s.source = "https://github.com/pepperonas/inspector-rust".into();
-        let html = build_html(&s);
+        let html = build_html(&s, RangeKey::All);
         assert!(html.starts_with("<!doctype html>"), "gemeinsames Dokument-Gerüst");
         assert!(html.contains("inspector-rust"));
         // No external requests — the whole point of the repo2viz-style export.
@@ -941,9 +1053,9 @@ mod tests {
 
     #[test]
     fn html_escapes_injected_names() {
-        let mut s = RepoStats { name: "<script>x</script>".into(), ..Default::default() };
+        let mut s = RepoStats { name: "<script>x</script>".into(), commits: 1, ..Default::default() };
         s.top_authors.push(AuthorStat { name: "a<b>&\"".into(), commits: 1, churn: 1 });
-        let html = build_html(&s);
+        let html = build_html(&s, RangeKey::All);
         assert!(!html.contains("<script>x</script>"));
         assert!(html.contains("&lt;script&gt;"));
         assert!(html.contains("a&lt;b&gt;&amp;&quot;"));
@@ -1048,5 +1160,40 @@ mod tests {
             assert_eq!(RangeKey::parse(s.trim_matches('"')), Some(k));
         }
         assert_eq!(RangeKey::parse("x"), None);
+    }
+
+    #[test]
+    fn html_carries_range_heatmap_calendar_and_new_tables() {
+        let mut s = parse_git_log(&synth_log());
+        s.hotspots = vec![Hotspot { path: "src/<x>.rs".into(), changes: 5, authors: 1 }];
+        s.co_change = vec![CoChange { a: "a.rs".into(), b: "b.rs".into(), count: 3 }];
+        s.dir_bus_factor = vec![DirStat { dir: "src".into(), commits: 5, authors: 2, bus_factor: 1 }];
+        s.bus_factor = 1;
+        let html = build_html(&s, RangeKey::D90);
+        assert!(html.contains("letzte 90 Tage"));
+        assert!(html.contains("<svg") && html.contains("class=\"heat\""));
+        assert!(html.contains("Hotspots") && html.contains("src/&lt;x&gt;.rs"));
+        assert!(html.contains("Co-Change") && html.contains("Bus-Faktor"));
+        assert!(!html.contains("<script"), "must stay self-contained");
+    }
+
+    #[test]
+    fn calendar_svg_places_days_by_weekday_and_week() {
+        let days = vec![
+            DayCount { date: "2026-08-24".into(), commits: 2 }, // Monday
+            DayCount { date: "2026-08-30".into(), commits: 1 }, // Sunday, same week
+        ];
+        let svg = calendar_svg(&days);
+        assert_eq!(svg.matches("<rect").count(), 2);
+        assert!(svg.contains("2026-08-24: 2"));
+        // Monday lands in row 0 (y=0), Sunday in row 6 (y=60), same week column.
+        assert!(svg.contains("x=\"0\" y=\"0\"") && svg.contains("x=\"0\" y=\"60\""), "{svg}");
+        assert_eq!(calendar_svg(&[]), "");
+    }
+
+    #[test]
+    fn empty_range_html_says_so() {
+        let html = build_html(&aggregate(std::iter::empty::<&Commit>()), RangeKey::D30);
+        assert!(html.contains("Keine Commits in diesem Zeitraum"));
     }
 }

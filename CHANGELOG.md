@@ -4,6 +4,19 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.183.0] - 2026-09-25
+
+### Added
+- **Paste a GitHub repo URL into the search bar and get its statistics — and clone it with one key.** A bare repo URL (`https://github.com/o/r`, with `.git`, `/tree/…`, `/blob/…`, schemeless, or `git@github.com:o/r.git`) now gets its own red **Repo analysieren** row — no `repo` keyword needed; issue/PR/actions links, profiles and gists are deliberately not matched. A clip containing a repo URL shows the same action in its preview.
+- **Time ranges in the `repo` panel:** 30 T · 90 T · 180 T · 1 J · Gesamt switch instantly, counted back from the newest commit (a dormant repo isn't empty for "30 days").
+- **New cards:** weekday × hour heatmap, GitHub-style contribution calendar, hotspots (often changed, ≤ 2 authors), bus factor overall and per top-level folder, co-change pairs (commits with more than 30 files ignored).
+- **Clone with ⌘K** into a fixed folder (Settings → **Repositories**; default `~/claude`, else Downloads). An occupied name becomes `name (2)`, `name (3)` … — nothing is overwritten, and a failed clone leaves no half folder.
+- **Private repos** via the `gh` login (`gh auth token`) or a token in the keychain. The token only ever reaches git as an environment variable for github.com — never on a command line — and is redacted from error messages.
+
+### Changed
+- **GitHub analyses go through a clone cache** (max. 5 repos / 2 GB) instead of a throw-away bare clone: the next analysis is a `git fetch`, and cloning copies the cached repo instead of downloading it again.
+- **Export writes the selected range** and uses the statistics already in the panel instead of re-cloning the repo; the HTML/PDF report gained the heatmap, calendar, hotspot, bus-factor and co-change sections.
+
 ## [0.182.0] - 2026-09-22
 
 ### Added

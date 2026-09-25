@@ -596,6 +596,31 @@ mod tests {
         let _ = std::fs::remove_dir_all(&tmp);
     }
 
+    /// Live probe against real GitHub (opt-in, never in CI):
+    /// `IR_LIVE_REPO=https://github.com/o/r IR_LIVE_DEST=/tmp/x cargo test -p inspector-rust-core --lib live_github_roundtrip -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn live_github_roundtrip() {
+        let (Ok(url), Ok(dest)) = (std::env::var("IR_LIVE_REPO"), std::env::var("IR_LIVE_DEST")) else { return };
+        let t0 = std::time::Instant::now();
+        let mut log = |p: &str, n: u8| if n % 25 == 0 { eprintln!("  {p} {n} %") };
+        let a = crate::repo_stats::analyze_remote(&url, &mut log).unwrap();
+        let all = a.ranges.iter().find(|r| r.range == crate::repo_stats::RangeKey::All).unwrap();
+        eprintln!("first analysis {:?}: {} commits, bus factor {}", t0.elapsed(), all.stats.commits, all.stats.bus_factor);
+        let t1 = std::time::Instant::now();
+        let b = crate::repo_stats::analyze_remote(&url, &mut |_, _| {}).unwrap();
+        eprintln!("second analysis (fetch) {:?}", t1.elapsed());
+        assert_eq!(b.ranges.len(), 5);
+        let gh = crate::repo_url::parse_repo_url(&url).unwrap();
+        let parent = std::path::Path::new(&dest);
+        let p1 = clone_to(&gh, parent, github_token().as_deref(), &mut |_, _| {}).unwrap();
+        let p2 = clone_to(&gh, parent, github_token().as_deref(), &mut |_, _| {}).unwrap();
+        eprintln!("cloned to {} and {}", p1.display(), p2.display());
+        assert_ne!(p1, p2);
+        assert!(p2.to_string_lossy().ends_with(" (2)"));
+        assert!(std::fs::read_dir(&p1).unwrap().count() > 1, "working tree checked out");
+    }
+
     #[test]
     fn failed_checkout_after_cache_copy_leaves_no_half_folder() {
         // A cache entry without an origin/HEAD: the copy succeeds, the

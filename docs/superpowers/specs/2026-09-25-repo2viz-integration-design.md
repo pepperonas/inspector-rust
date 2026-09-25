@@ -68,8 +68,8 @@ nichts ausgelöst.
   Tilde wird über `path_arg::expand_user` aufgelöst. Settings-Sektion „Repositories“
   (id `repos`, auch in `settings-sections.ts`).
 - Ordnername: `<repo>`; ist er belegt, `<repo> (2)`, `<repo> (3)`, … — reine Funktion
-  `free_dir_name(base, exists)` mit Tests (Lücken werden nicht aufgefüllt, sondern ab 2
-  der erste freie Name genommen; Obergrenze 999, danach Fehler).
+  `free_dir_name(base, exists)` mit Tests: gezählt wird ab 2, der erste freie Name gewinnt
+  (wie der Finder; eine Lücke wird also gefüllt); Obergrenze 999, danach Fehler.
 - Mit Cache-Eintrag: Verzeichnis wird in das Ziel **kopiert** (nicht verschoben — der Cache
   bleibt für die nächste Analyse), dann `git checkout` des Default-Branches. Liegt Cache und Ziel
   auf demselben Volume, `cp -c` (APFS-Clone, praktisch kostenlos).
@@ -117,7 +117,8 @@ Neue Felder in `RepoStats`, alle aus reinen, getesteten Funktionen:
   Heatmap, Kalender, Hotspots, Bus-Faktor (gesamt + Verzeichnisse), Co-Change; Knopf „Klonen"
   mit Fortschrittsbalken. Zeitraum-Wechsel rechnet nichts neu, er wählt nur den Datensatz.
 - Export HTML/PDF über denselben Renderer (`build_html` + `report_style`), Grafiken inline-SVG,
-  gewählter Zeitraum im Kopf. IPC `repo_export(target, format, range)`.
+  gewählter Zeitraum im Kopf. IPC `repo_export(stats, range, format)`: das Panel reicht die schon
+  berechnete Statistik durch, der Export klont nicht erneut (Muster wie `loc_export`).
 
 ## 7. Fehlerfälle
 

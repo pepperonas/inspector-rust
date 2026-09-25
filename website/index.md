@@ -25,6 +25,21 @@ Files in the current release:
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
 
+### A look inside
+
+- **Clipboard history** — Every copy, searchable as you type — with a preview, notes and pins. ([image](https://inspector-rust.celox.io/assets/gallery/history.jpg))
+- **Snippets** — Type a short abbreviation and get the whole text: signatures, addresses, prompts. ([image](https://inspector-rust.celox.io/assets/gallery/snippets.jpg))
+- **Calculator and converter** — Maths and unit conversions straight from the search field. ([image](https://inspector-rust.celox.io/assets/gallery/calculator.jpg))
+- **Live translation** — `tren`, `trde` and friends translate while you type. Enter copies the result. ([image](https://inspector-rust.celox.io/assets/gallery/translate.jpg))
+- **Built-in help** — Type `?` for every command, each with its syntax, examples and tips. ([image](https://inspector-rust.celox.io/assets/gallery/commands.jpg))
+- **Weather** — Current conditions, the next twelve hours and five days ahead, for any city. ([image](https://inspector-rust.celox.io/assets/gallery/weather.jpg))
+- **System stats** — CPU, memory, battery, temperatures and fans, live or as history. ([image](https://inspector-rust.celox.io/assets/gallery/stats.jpg))
+- **2FA codes** — An encrypted authenticator: import from Google Authenticator, Aegis or 2FAS. ([image](https://inspector-rust.celox.io/assets/gallery/totp.jpg))
+- **Disk usage** — See what fills your drive as rings, drill in and move files to the Trash. ([image](https://inspector-rust.celox.io/assets/gallery/disk.jpg))
+- **World clock** — Your time zones at a glance, day or night. ([image](https://inspector-rust.celox.io/assets/gallery/clock.jpg))
+- **Philips Hue** — Switch and dim your lamps and pick colours, from the keyboard. ([image](https://inspector-rust.celox.io/assets/gallery/hue.jpg))
+- **QR codes** — Make a code from any text, copy it, or save it as PNG or a printable STL. ([image](https://inspector-rust.celox.io/assets/gallery/qr.jpg))
+
 ### Every feature
 
 The complete feature catalogue, mirrored from the repository:

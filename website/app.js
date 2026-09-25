@@ -238,6 +238,61 @@
     });
   }
 
+  // Dialogs close on a click outside their box (the backdrop is the dialog element itself).
+  function closeOnBackdrop(d) {
+    d.addEventListener('click', function (e) {
+      if (e.target !== d) return;
+      var r = d.getBoundingClientRect();
+      if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) d.close();
+    });
+  }
+
+  // Gallery: a click on a mockup opens it large, with the (already translated) caption.
+  (function () {
+    var view = document.getElementById('shot-view');
+    if (!view || typeof view.showModal !== 'function') return;
+    var img = document.getElementById('shot-view-img');
+    var webp = document.getElementById('shot-view-webp');
+    var title = document.getElementById('shot-view-title');
+    var text = document.getElementById('shot-view-text');
+    document.querySelectorAll('.shot-open').forEach(function (b) {
+      b.addEventListener('click', function () {
+        var fig = b.closest('.shot');
+        var small = b.querySelector('img');
+        var source = b.querySelector('source');
+        webp.srcset = source ? source.srcset : '';
+        img.src = small.currentSrc || small.src;
+        img.alt = small.alt;
+        title.innerHTML = fig.querySelector('figcaption h3').innerHTML;
+        text.innerHTML = fig.querySelector('figcaption p').innerHTML;
+        view.showModal();
+      });
+    });
+    document.getElementById('shot-view-close').addEventListener('click', function () { view.close(); });
+    closeOnBackdrop(view);
+  })();
+
+  // Easter eggs: a LONG press on the footer's copyright opens them. A short click does nothing, so
+  // the text behaves like text; only the cursor hints that it is more.
+  (function () {
+    var trigger = document.getElementById('egg-trigger');
+    var eggs = document.getElementById('eggs');
+    if (!trigger || !eggs || typeof eggs.showModal !== 'function') return;
+    var HOLD_MS = 700;
+    var timer = null;
+    function cancel() { if (timer) { clearTimeout(timer); timer = null; } }
+    trigger.addEventListener('pointerdown', function (e) {
+      if (e.button !== 0) return;
+      cancel();
+      timer = setTimeout(function () { timer = null; eggs.showModal(); }, HOLD_MS);
+    });
+    ['pointerup', 'pointerleave', 'pointercancel'].forEach(function (t) { trigger.addEventListener(t, cancel); });
+    // A long touch would otherwise open the system's context menu over the dialog.
+    trigger.addEventListener('contextmenu', function (e) { e.preventDefault(); });
+    document.getElementById('eggs-close').addEventListener('click', function () { eggs.close(); });
+    closeOnBackdrop(eggs);
+  })();
+
   // Feature catalogue (optional section, filled by the release timer via SSI): filter + expand all.
   (function () {
     var list = document.getElementById('fc-list');

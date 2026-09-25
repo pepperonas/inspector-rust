@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Inspector Rust — mockup harness</title>
+  </head>
+  <body>
+    <!-- Dev-only: the REAL app UI against a dummy backend (src/mockup/). Never bundled into the app
+         (vite build uses index.html only); driven by scripts/website-mockups.mjs. -->
+    <div id="root"></div>
+    <script type="module" src="/src/mockup/boot.ts"></script>
+  </body>
+</html>

@@ -97,6 +97,7 @@ export function FlappyGame({ onExit }: Props) {
 
   const resetMatch = () => {
     const s = stateRef.current;
+    keepResumed.current = false;
     s.game = initialState(s.fieldH);
     s.lastTs = 0;
     s.running = true;
@@ -194,11 +195,10 @@ export function FlappyGame({ onExit }: Props) {
     const s = stateRef.current;
     s.fieldW = canvas.width;
     s.fieldH = canvas.height;
-    if (keepResumed.current) {
-      keepResumed.current = false; // restored coords already match the field
-    } else {
-      s.game = initialState(s.fieldH);
-    }
+    // A resumed run keeps its restored coords (they already match the field). The flag is cleared
+    // by resetMatch, never here: under StrictMode this effect runs twice on mount, and clearing it on
+    // the first run made the second one reseed the game — pipes gone, restored score still shown.
+    if (!keepResumed.current) s.game = initialState(s.fieldH);
 
     const colors = readThemeColors();
     let raf = 0;

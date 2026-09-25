@@ -17,9 +17,9 @@
   <meta name="color-scheme" content="dark">
   <meta name="format-detection" content="telephone=no">
   <link rel="canonical" href="https://inspector-rust.celox.io/">
-  <link rel="icon" href="assets/mark.svg?v=3" type="image/svg+xml">
-  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=3">
-  <link rel="preload" as="image" type="image/webp" imagesrcset="assets/hero-1400.webp?v=3 1400w, assets/hero-2400.webp?v=3 2400w" imagesizes="100vw">
+  <link rel="icon" href="assets/mark.svg?v=4" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png?v=4">
+  <link rel="preload" as="image" type="image/webp" imagesrcset="assets/hero-1400.webp?v=4 1400w, assets/hero-2400.webp?v=4 2400w" imagesizes="100vw">
   <!-- For agents and tools: machine-readable facts about the app and its newest release. -->
   <link rel="ai-catalog" href="/.well-known/ai-catalog.json" type="application/json">
   <link rel="alternate" type="text/markdown" href="/llms.txt" title="Inspector Rust for LLMs and agents">
@@ -37,17 +37,17 @@
   <meta property="og:locale:alternate" content="es_ES">
   <meta property="og:locale:alternate" content="it_IT">
   <meta property="og:locale:alternate" content="fr_FR">
-  <meta property="og:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
-  <meta property="og:image:secure_url" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
+  <meta property="og:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=4">
+  <meta property="og:image:secure_url" content="https://inspector-rust.celox.io/assets/og.jpg?v=4">
   <meta property="og:image:type" content="image/jpeg">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
-  <meta property="og:image:alt" content="Inspector Rust panels on a dark background: a live audio equalizer, a disk-usage sunburst and a five-day weather forecast">
+  <meta property="og:image:alt" content="Three Inspector Rust windows on a dark background: the clipboard history with an image preview, the weather for Lisbon and the 2FA codes">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Inspector Rust — one hotkey for everything you copy">
   <meta name="twitter:description" content="Clipboard history, text expander and 66 commands behind Ctrl+Space. Free and open source for macOS, Windows and Linux.">
-  <meta name="twitter:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=3">
-  <meta name="twitter:image:alt" content="Inspector Rust panels on a dark background: a live audio equalizer, a disk-usage sunburst and a five-day weather forecast">
+  <meta name="twitter:image" content="https://inspector-rust.celox.io/assets/og.jpg?v=4">
+  <meta name="twitter:image:alt" content="Three Inspector Rust windows on a dark background: the clipboard history with an image preview, the weather for Lisbon and the 2FA codes">
 
   <script type="application/ld+json">
 [
@@ -58,7 +58,7 @@
   "name": "Inspector Rust",
   "description": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
   "url": "https://inspector-rust.celox.io/",
-  "image": "https://inspector-rust.celox.io/assets/og.jpg?v=3",
+  "image": "https://inspector-rust.celox.io/assets/og.jpg?v=4",
   "operatingSystem": "macOS 11 or later (Apple silicon), Windows 10/11 (x64), Linux x86-64",
   "applicationCategory": "UtilitiesApplication",
   "downloadUrl": "https://inspector-rust.celox.io/download",
@@ -112,7 +112,20 @@
    "url": "https://celox.io"
   },
   "applicationSubCategory": "Clipboard manager and command palette",
-  "screenshot": "https://inspector-rust.celox.io/assets/screens.jpg?v=3"
+  "screenshot": [
+   "https://inspector-rust.celox.io/assets/gallery/history.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/snippets.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/calculator.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/translate.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/commands.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/weather.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/stats.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/totp.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/disk.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/clock.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/hue.jpg?v=4",
+   "https://inspector-rust.celox.io/assets/gallery/qr.jpg?v=4"
+  ]
  },
  {
   "@context": "https://schema.org",
@@ -198,18 +211,18 @@
 ]
   </script>
 
-  <link rel="stylesheet" href="styles.css?v=3">
-  <script src="i18n.js?v=3" defer></script>
-  <script src="app.js?v=3" defer></script>
-  <script src="changelog.js?v=3" defer></script>
-  <script src="webmcp.js?v=3" defer></script>
+  <link rel="stylesheet" href="styles.css?v=4">
+  <script src="i18n.js?v=4" defer></script>
+  <script src="app.js?v=4" defer></script>
+  <script src="changelog.js?v=4" defer></script>
+  <script src="webmcp.js?v=4" defer></script>
 </head>
 <body>
   <a class="skip" href="#main" data-i18n="skip">Skip to content</a>
 
   <header class="bar">
     <a class="brand" href="#top" aria-label="Inspector Rust">
-      <img src="assets/mark.svg?v=3" alt="" width="28" height="28">
+      <img src="assets/mark.svg?v=4" alt="" width="28" height="28">
       <span>Inspector Rust</span>
     </a>
     <nav class="bar-links" aria-label="Main">
@@ -242,8 +255,8 @@
     <section class="hero" id="top">
       <picture class="hero-bg" aria-hidden="true">
         <source type="image/webp" sizes="100vw"
-                srcset="assets/hero-1400.webp?v=3 1400w, assets/hero-2400.webp?v=3 2400w">
-        <img src="assets/hero.jpg?v=3" alt="" width="2400" height="1200" fetchpriority="high">
+                srcset="assets/hero-1400.webp?v=4 1400w, assets/hero-2400.webp?v=4 2400w">
+        <img src="assets/hero.jpg?v=4" alt="" width="2400" height="1200" fetchpriority="high">
       </picture>
       <div class="hero-scrim" aria-hidden="true"></div>
 
@@ -303,13 +316,130 @@
       </div>
     </section>
 
-    <section class="section shots" aria-labelledby="s-h">
-      <h2 id="s-h" data-i18n="s.h">Panels that open right in the popup</h2>
-      <picture>
-        <source srcset="assets/screens.webp?v=3" type="image/webp">
-        <img src="assets/screens.jpg?v=3" width="1600" height="1126" loading="lazy" decoding="async"
-             data-i18n-alt="s.alt" alt="Four panels: the weather forecast, the audio equalizer, Philips Hue lamp control and the month calendar">
-      </picture>
+    <section class="section gallery" aria-labelledby="s-h">
+      <h2 id="s-h" data-i18n="s.h">A look inside</h2>
+      <div class="shot-grid">
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="history" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/history.webp?v=4" type="image/webp">
+              <img src="assets/gallery/history.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g1.t" alt="Clipboard history">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g1.t">Clipboard history</h3><p data-i18n="g1.p">Every copy, searchable as you type — with a preview, notes and pins.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="snippets" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/snippets.webp?v=4" type="image/webp">
+              <img src="assets/gallery/snippets.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g2.t" alt="Snippets">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g2.t">Snippets</h3><p data-i18n="g2.p">Type a short abbreviation and get the whole text: signatures, addresses, prompts.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="calculator" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/calculator.webp?v=4" type="image/webp">
+              <img src="assets/gallery/calculator.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g3.t" alt="Calculator and converter">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g3.t">Calculator and converter</h3><p data-i18n="g3.p">Maths and unit conversions straight from the search field.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="translate" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/translate.webp?v=4" type="image/webp">
+              <img src="assets/gallery/translate.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g4.t" alt="Live translation">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g4.t">Live translation</h3><p data-i18n="g4.p"><code>tren</code>, <code>trde</code> and friends translate while you type. Enter copies the result.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="commands" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/commands.webp?v=4" type="image/webp">
+              <img src="assets/gallery/commands.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g5.t" alt="Built-in help">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g5.t">Built-in help</h3><p data-i18n="g5.p">Type <code>?</code> for every command, each with its syntax, examples and tips.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="weather" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/weather.webp?v=4" type="image/webp">
+              <img src="assets/gallery/weather.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g6.t" alt="Weather">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g6.t">Weather</h3><p data-i18n="g6.p">Current conditions, the next twelve hours and five days ahead, for any city.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="stats" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/stats.webp?v=4" type="image/webp">
+              <img src="assets/gallery/stats.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g7.t" alt="System stats">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g7.t">System stats</h3><p data-i18n="g7.p">CPU, memory, battery, temperatures and fans, live or as history.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="totp" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/totp.webp?v=4" type="image/webp">
+              <img src="assets/gallery/totp.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g8.t" alt="2FA codes">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g8.t">2FA codes</h3><p data-i18n="g8.p">An encrypted authenticator: import from Google Authenticator, Aegis or 2FAS.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="disk" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/disk.webp?v=4" type="image/webp">
+              <img src="assets/gallery/disk.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g9.t" alt="Disk usage">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g9.t">Disk usage</h3><p data-i18n="g9.p">See what fills your drive as rings, drill in and move files to the Trash.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="clock" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/clock.webp?v=4" type="image/webp">
+              <img src="assets/gallery/clock.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g10.t" alt="World clock">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g10.t">World clock</h3><p data-i18n="g10.p">Your time zones at a glance, day or night.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="hue" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/hue.webp?v=4" type="image/webp">
+              <img src="assets/gallery/hue.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g11.t" alt="Philips Hue">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g11.t">Philips Hue</h3><p data-i18n="g11.p">Switch and dim your lamps and pick colours, from the keyboard.</p></figcaption>
+        </figure>
+        <figure class="shot">
+          <button type="button" class="shot-open" data-shot="qr" data-i18n-aria="g.zoom" aria-label="Enlarge">
+            <picture>
+              <source srcset="assets/gallery/qr.webp?v=4" type="image/webp">
+              <img src="assets/gallery/qr.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+                   data-i18n-alt="g12.t" alt="QR codes">
+            </picture>
+          </button>
+          <figcaption><h3 data-i18n="g12.t">QR codes</h3><p data-i18n="g12.p">Make a code from any text, copy it, or save it as PNG or a printable STL.</p></figcaption>
+        </figure>
+      </div>
     </section>
 
     <section class="section catalog" id="all-features" aria-labelledby="fc-h">
@@ -411,7 +541,7 @@
   </main>
 
   <footer class="foot">
-    <p>© <span id="year">2026</span> Martin Pfeffer · <a href="https://celox.io" target="_blank" rel="noopener noreferrer">celox.io</a></p>
+    <p><span class="egg-trigger" id="egg-trigger">© <span id="year">2026</span> Martin Pfeffer</span> · <a href="https://celox.io" target="_blank" rel="noopener noreferrer">celox.io</a></p>
     <p class="foot-links">
       <button type="button" class="linklike" id="license-open" aria-haspopup="dialog" data-i18n="ft.license">MIT licence</button>
       <button type="button" class="linklike" id="changelog-open" aria-haspopup="dialog" data-i18n="ft.changelog">Changelog</button>
@@ -452,6 +582,81 @@ THE SOFTWARE IS PROVIDED &quot;AS IS&quot;, WITHOUT WARRANTY OF ANY KIND, EXPRES
     </div>
     <p hidden id="changelog-error" data-i18n="cl.error">The changelog could not be loaded. Read it on</p>
     <p hidden id="changelog-more" data-i18n="cl.more">Older versions</p>
+  </dialog>
+
+  <dialog class="shot-view" id="shot-view" aria-labelledby="shot-view-title">
+    <div class="license-head">
+      <h2 id="shot-view-title"></h2>
+      <button type="button" class="license-close" id="shot-view-close" data-i18n-aria="lic.close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5l5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6Z"/></svg></button>
+    </div>
+    <picture><source id="shot-view-webp" type="image/webp"><img id="shot-view-img" alt="" width="1120" height="800"></picture>
+    <p id="shot-view-text"></p>
+  </dialog>
+
+  <dialog class="license eggs" id="eggs" aria-labelledby="eggs-title">
+    <div class="license-head">
+      <h2 id="eggs-title" data-i18n="egg.h">Easter eggs</h2>
+      <button type="button" class="license-close" id="eggs-close" data-i18n-aria="lic.close" aria-label="Close"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M6.4 19 5 17.6l5.6-5.6L5 6.4 6.4 5l5.6 5.6L17.6 5 19 6.4 13.4 12l5.6 5.6-1.4 1.4-5.6-5.6Z"/></svg></button>
+    </div>
+    <div class="eggs-body" tabindex="-1" autofocus>
+      <p class="eggs-lead" data-i18n="egg.lead">Hidden in the search bar: type the word and press Enter. Esc takes you back.</p>
+      <ul class="egg-list">
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/pong.webp?v=4" type="image/webp">
+          <img src="assets/eggs/pong.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg1.t" alt="Pong">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg1.t">Pong</span> <code>getshaky</code></h3>
+          <p data-i18n="egg1.p">Against a bot that gets faster with every point it loses.</p></div>
+      </li>
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/snake.webp?v=4" type="image/webp">
+          <img src="assets/eggs/snake.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg2.t" alt="Snake">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg2.t">Snake</span> <code>rockthebox</code></h3>
+          <p data-i18n="egg2.p">The walls kill. <code>rockthabox</code> lets you wrap around the edges instead.</p></div>
+      </li>
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/spacer.webp?v=4" type="image/webp">
+          <img src="assets/eggs/spacer.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg3.t" alt="Space Invaders">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg3.t">Space Invaders</span> <code>spacer</code></h3>
+          <p data-i18n="egg3.p">Five rows of invaders, a starfield and explosions.</p></div>
+      </li>
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/flappy.webp?v=4" type="image/webp">
+          <img src="assets/eggs/flappy.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg4.t" alt="Flappy Bird">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg4.t">Flappy Bird</span> <code>learningtofly</code></h3>
+          <p data-i18n="egg4.p">Hold the flap key when you hit the ground and an autopilot takes over.</p></div>
+      </li>
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/equalizer.webp?v=4" type="image/webp">
+          <img src="assets/eggs/equalizer.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg5.t" alt="Equalizer">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg5.t">Equalizer</span> <code>equalizer</code></h3>
+          <p data-i18n="egg5.p">A live spectrum from the microphone, with tempo and loudness.</p></div>
+      </li>
+      <li class="egg">
+        <picture>
+          <source srcset="assets/eggs/x.webp?v=4" type="image/webp">
+          <img src="assets/eggs/x.jpg?v=4" width="1120" height="800" loading="lazy" decoding="async"
+               data-i18n-alt="egg6.t" alt="The show">
+        </picture>
+        <div class="egg-text"><h3><span data-i18n="egg6.t">The show</span> <code>x!</code></h3>
+          <p data-i18n="egg6.p">Thirty seconds of full-screen spectacle. <code>x!!</code> plays today’s headlines.</p></div>
+      </li>
+      </ul>
+    </div>
   </dialog>
 
   <svg class="defs" width="0" height="0" aria-hidden="true">

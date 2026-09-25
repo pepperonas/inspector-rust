@@ -10,7 +10,7 @@
  "tagline": "One hotkey. Everything you copy, and a lot more.",
  "license": "MIT",
  "year": 2026,
- "asset_version": 3,
+ "asset_version": 4,
  "theme_source": "core/frontend/src/styles.css — @theme (dark)",
  "theme": {
   "bg": "#0c0d11",
@@ -37,10 +37,7 @@
   "width": 2400,
   "height": 1200
  },
- "screens": {
-  "width": 1600,
-  "height": 1126
- },
+ "screens": null,
  "ld": {
   "type": "SoftwareApplication",
   "category": "UtilitiesApplication",
@@ -111,7 +108,7 @@
    "og_title": "Inspector Rust — one hotkey for everything you copy",
    "og_description": "Free, open-source clipboard manager with a text expander and 66 commands — screenshots, OCR, translation, weather, system tools. Local, encrypted, no account.",
    "twitter_description": "Clipboard history, text expander and 66 commands behind Ctrl+Space. Free and open source for macOS, Windows and Linux.",
-   "image_alt": "Inspector Rust panels on a dark background: a live audio equalizer, a disk-usage sunburst and a five-day weather forecast"
+   "image_alt": "Three Inspector Rust windows on a dark background: the clipboard history with an image preview, the weather for Lisbon and the 2FA codes"
   },
   "summary": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
   "meta_fallback": "Newest release · macOS (Apple silicon), Windows, Linux · free, MIT licence",
@@ -266,18 +263,11 @@
    }
   ],
   "s.h": {
-   "en": "Panels that open right in the popup",
-   "de": "Panels, die sich direkt im Popup öffnen",
-   "es": "Paneles que se abren en la propia ventana",
-   "it": "Pannelli che si aprono direttamente nel popup",
-   "fr": "Des panneaux qui s’ouvrent dans la fenêtre"
-  },
-  "s.alt": {
-   "en": "Four panels: the weather forecast, the audio equalizer, Philips Hue lamp control and the month calendar",
-   "de": "Vier Panels: die Wettervorhersage, der Audio-Equalizer, die Philips-Hue-Steuerung und der Monatskalender",
-   "es": "Cuatro paneles: el pronóstico del tiempo, el ecualizador de audio, el control de lámparas Philips Hue y el calendario mensual",
-   "it": "Quattro pannelli: le previsioni meteo, l’equalizzatore audio, il controllo delle lampade Philips Hue e il calendario mensile",
-   "fr": "Quatre panneaux : les prévisions météo, l’égaliseur audio, le pilotage des lampes Philips Hue et le calendrier mensuel"
+   "en": "A look inside",
+   "de": "Ein Blick hinein",
+   "es": "Un vistazo por dentro",
+   "it": "Uno sguardo dentro",
+   "fr": "Un aperçu"
   },
   "install": [
    {
@@ -470,7 +460,337 @@
    "windows",
    "linux"
   ],
-  "skill_description": "Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows."
+  "skill_description": "Download and install the newest Inspector Rust — the free, open-source (MIT) clipboard manager, text expander and command palette for macOS (Apple silicon), Windows and Linux. Use when someone asks for the app, its latest version, a download link for their system, or how to get past the first-launch warning on macOS or Windows.",
+  "gallery": [
+   {
+    "id": "history",
+    "t": {
+     "en": "Clipboard history",
+     "de": "Zwischenablage-Verlauf",
+     "es": "Historial del portapapeles",
+     "it": "Cronologia degli appunti",
+     "fr": "Historique du presse-papiers"
+    },
+    "p": {
+     "en": "Every copy, searchable as you type — with a preview, notes and pins.",
+     "de": "Alles Kopierte, beim Tippen durchsuchbar — mit Vorschau, Notizen und Pins.",
+     "es": "Todo lo copiado, buscable mientras escribes, con vista previa, notas y fijados.",
+     "it": "Tutto ciò che copi, cercabile mentre scrivi, con anteprima, note e fissati.",
+     "fr": "Tout ce que vous copiez, consultable à la frappe, avec aperçu, notes et épingles."
+    }
+   },
+   {
+    "id": "snippets",
+    "t": {
+     "en": "Snippets",
+     "de": "Snippets",
+     "es": "Fragmentos",
+     "it": "Snippet",
+     "fr": "Extraits"
+    },
+    "p": {
+     "en": "Type a short abbreviation and get the whole text: signatures, addresses, prompts.",
+     "de": "Ein kurzes Kürzel tippen und den ganzen Text bekommen: Signaturen, Adressen, Prompts.",
+     "es": "Escribe una abreviatura y obtén el texto completo: firmas, direcciones, prompts.",
+     "it": "Digita un'abbreviazione e ottieni il testo intero: firme, indirizzi, prompt.",
+     "fr": "Tapez une abréviation et obtenez le texte entier : signatures, adresses, prompts."
+    }
+   },
+   {
+    "id": "calculator",
+    "t": {
+     "en": "Calculator and converter",
+     "de": "Rechner und Umrechner",
+     "es": "Calculadora y conversor",
+     "it": "Calcolatrice e convertitore",
+     "fr": "Calculatrice et convertisseur"
+    },
+    "p": {
+     "en": "Maths and unit conversions straight from the search field.",
+     "de": "Rechnen und Einheiten umrechnen direkt im Suchfeld.",
+     "es": "Cálculos y conversiones de unidades desde el campo de búsqueda.",
+     "it": "Calcoli e conversioni di unità direttamente nel campo di ricerca.",
+     "fr": "Calculs et conversions d’unités directement dans le champ de recherche."
+    }
+   },
+   {
+    "id": "translate",
+    "t": {
+     "en": "Live translation",
+     "de": "Live-Übersetzung",
+     "es": "Traducción en vivo",
+     "it": "Traduzione in tempo reale",
+     "fr": "Traduction en direct"
+    },
+    "p": {
+     "en": "<code>tren</code>, <code>trde</code> and friends translate while you type. Enter copies the result.",
+     "de": "<code>tren</code>, <code>trde</code> und Co. übersetzen beim Tippen. Enter kopiert das Ergebnis.",
+     "es": "<code>tren</code>, <code>trde</code> y compañía traducen mientras escribes. Intro copia el resultado.",
+     "it": "<code>tren</code>, <code>trde</code> e simili traducono mentre scrivi. Invio copia il risultato.",
+     "fr": "<code>tren</code>, <code>trde</code> et consorts traduisent à la frappe. Entrée copie le résultat."
+    }
+   },
+   {
+    "id": "commands",
+    "t": {
+     "en": "Built-in help",
+     "de": "Eingebaute Hilfe",
+     "es": "Ayuda integrada",
+     "it": "Guida integrata",
+     "fr": "Aide intégrée"
+    },
+    "p": {
+     "en": "Type <code>?</code> for every command, each with its syntax, examples and tips.",
+     "de": "<code>?</code> tippen zeigt jeden Befehl mit Syntax, Beispielen und Tipps.",
+     "es": "Escribe <code>?</code> para ver cada comando con su sintaxis, ejemplos y consejos.",
+     "it": "Digita <code>?</code> per ogni comando con sintassi, esempi e suggerimenti.",
+     "fr": "Tapez <code>?</code> pour chaque commande, avec syntaxe, exemples et astuces."
+    }
+   },
+   {
+    "id": "weather",
+    "t": {
+     "en": "Weather",
+     "de": "Wetter",
+     "es": "El tiempo",
+     "it": "Meteo",
+     "fr": "Météo"
+    },
+    "p": {
+     "en": "Current conditions, the next twelve hours and five days ahead, for any city.",
+     "de": "Aktuelles Wetter, die nächsten zwölf Stunden und fünf Tage, für jede Stadt.",
+     "es": "Condiciones actuales, las próximas doce horas y cinco días, para cualquier ciudad.",
+     "it": "Condizioni attuali, le prossime dodici ore e cinque giorni, per qualsiasi città.",
+     "fr": "Conditions actuelles, les douze prochaines heures et cinq jours, pour n’importe quelle ville."
+    }
+   },
+   {
+    "id": "stats",
+    "t": {
+     "en": "System stats",
+     "de": "Systemwerte",
+     "es": "Estadísticas del sistema",
+     "it": "Statistiche di sistema",
+     "fr": "Statistiques système"
+    },
+    "p": {
+     "en": "CPU, memory, battery, temperatures and fans, live or as history.",
+     "de": "CPU, Speicher, Akku, Temperaturen und Lüfter, live oder als Verlauf.",
+     "es": "CPU, memoria, batería, temperaturas y ventiladores, en vivo o como historial.",
+     "it": "CPU, memoria, batteria, temperature e ventole, dal vivo o come cronologia.",
+     "fr": "Processeur, mémoire, batterie, températures et ventilateurs, en direct ou en historique."
+    }
+   },
+   {
+    "id": "totp",
+    "t": {
+     "en": "2FA codes",
+     "de": "2FA-Codes",
+     "es": "Códigos 2FA",
+     "it": "Codici 2FA",
+     "fr": "Codes 2FA"
+    },
+    "p": {
+     "en": "An encrypted authenticator: import from Google Authenticator, Aegis or 2FAS.",
+     "de": "Ein verschlüsselter Authenticator: Import aus Google Authenticator, Aegis oder 2FAS.",
+     "es": "Un autenticador cifrado: importa desde Google Authenticator, Aegis o 2FAS.",
+     "it": "Un autenticatore cifrato: importa da Google Authenticator, Aegis o 2FAS.",
+     "fr": "Un authentificateur chiffré : import depuis Google Authenticator, Aegis ou 2FAS."
+    }
+   },
+   {
+    "id": "disk",
+    "t": {
+     "en": "Disk usage",
+     "de": "Speicherbelegung",
+     "es": "Uso del disco",
+     "it": "Uso del disco",
+     "fr": "Occupation du disque"
+    },
+    "p": {
+     "en": "See what fills your drive as rings, drill in and move files to the Trash.",
+     "de": "Sehen, was die Platte füllt, als Ringe, hineinzoomen und Dateien in den Papierkorb legen.",
+     "es": "Mira qué llena tu disco en anillos, entra en detalle y mueve archivos a la papelera.",
+     "it": "Guarda cosa riempie il disco in anelli, entra nel dettaglio e sposta file nel cestino.",
+     "fr": "Voyez ce qui remplit votre disque en anneaux, zoomez et mettez des fichiers à la corbeille."
+    }
+   },
+   {
+    "id": "clock",
+    "t": {
+     "en": "World clock",
+     "de": "Weltzeituhr",
+     "es": "Reloj mundial",
+     "it": "Orologio mondiale",
+     "fr": "Horloge mondiale"
+    },
+    "p": {
+     "en": "Your time zones at a glance, day or night.",
+     "de": "Die eigenen Zeitzonen auf einen Blick, bei Tag und Nacht.",
+     "es": "Tus zonas horarias de un vistazo, de día o de noche.",
+     "it": "I tuoi fusi orari a colpo d’occhio, di giorno o di notte.",
+     "fr": "Vos fuseaux horaires d’un coup d’œil, de jour comme de nuit."
+    }
+   },
+   {
+    "id": "hue",
+    "t": {
+     "en": "Philips Hue",
+     "de": "Philips Hue",
+     "es": "Philips Hue",
+     "it": "Philips Hue",
+     "fr": "Philips Hue"
+    },
+    "p": {
+     "en": "Switch and dim your lamps and pick colours, from the keyboard.",
+     "de": "Lampen schalten, dimmen und färben, per Tastatur.",
+     "es": "Enciende, atenúa y colorea tus lámparas desde el teclado.",
+     "it": "Accendi, regola e colora le lampade dalla tastiera.",
+     "fr": "Allumez, tamisez et colorez vos lampes au clavier."
+    }
+   },
+   {
+    "id": "qr",
+    "t": {
+     "en": "QR codes",
+     "de": "QR-Codes",
+     "es": "Códigos QR",
+     "it": "Codici QR",
+     "fr": "Codes QR"
+    },
+    "p": {
+     "en": "Make a code from any text, copy it, or save it as PNG or a printable STL.",
+     "de": "Aus jedem Text einen Code machen, kopieren oder als PNG oder druckbare STL speichern.",
+     "es": "Crea un código a partir de cualquier texto, cópialo o guárdalo como PNG o STL imprimible.",
+     "it": "Crea un codice da qualsiasi testo, copialo o salvalo come PNG o STL stampabile.",
+     "fr": "Créez un code à partir de n’importe quel texte, copiez-le ou enregistrez-le en PNG ou en STL imprimable."
+    }
+   }
+  ],
+  "eggs": [
+   {
+    "id": "pong",
+    "trigger": "getshaky",
+    "t": {
+     "en": "Pong",
+     "de": "Pong",
+     "es": "Pong",
+     "it": "Pong",
+     "fr": "Pong"
+    },
+    "p": {
+     "en": "Against a bot that gets faster with every point it loses.",
+     "de": "Gegen einen Bot, der mit jedem verlorenen Punkt schneller wird.",
+     "es": "Contra un bot que acelera con cada punto que pierde.",
+     "it": "Contro un bot che accelera a ogni punto perso.",
+     "fr": "Contre un bot qui accélère à chaque point perdu."
+    }
+   },
+   {
+    "id": "snake",
+    "trigger": "rockthebox",
+    "t": {
+     "en": "Snake",
+     "de": "Snake",
+     "es": "Snake",
+     "it": "Snake",
+     "fr": "Snake"
+    },
+    "p": {
+     "en": "The walls kill. <code>rockthabox</code> lets you wrap around the edges instead.",
+     "de": "Die Wände sind tödlich. Mit <code>rockthabox</code> geht es stattdessen über den Rand.",
+     "es": "Las paredes matan. Con <code>rockthabox</code> atraviesas los bordes.",
+     "it": "I muri uccidono. Con <code>rockthabox</code> si passa invece dai bordi.",
+     "fr": "Les murs tuent. Avec <code>rockthabox</code>, on passe par les bords."
+    }
+   },
+   {
+    "id": "spacer",
+    "trigger": "spacer",
+    "t": {
+     "en": "Space Invaders",
+     "de": "Space Invaders",
+     "es": "Space Invaders",
+     "it": "Space Invaders",
+     "fr": "Space Invaders"
+    },
+    "p": {
+     "en": "Five rows of invaders, a starfield and explosions.",
+     "de": "Fünf Reihen Invaders, ein Sternenfeld und Explosionen.",
+     "es": "Cinco filas de invasores, un campo de estrellas y explosiones.",
+     "it": "Cinque file di invasori, un campo stellare ed esplosioni.",
+     "fr": "Cinq rangées d’envahisseurs, un champ d’étoiles et des explosions."
+    }
+   },
+   {
+    "id": "flappy",
+    "trigger": "learningtofly",
+    "t": {
+     "en": "Flappy Bird",
+     "de": "Flappy Bird",
+     "es": "Flappy Bird",
+     "it": "Flappy Bird",
+     "fr": "Flappy Bird"
+    },
+    "p": {
+     "en": "Hold the flap key when you hit the ground and an autopilot takes over.",
+     "de": "Wer beim Aufprall die Flügeltaste hält, bekommt einen Autopiloten.",
+     "es": "Mantén la tecla al tocar el suelo y un piloto automático toma el control.",
+     "it": "Tieni premuto il tasto quando tocchi terra e subentra un pilota automatico.",
+     "fr": "Maintenez la touche en touchant le sol et un pilote automatique prend le relais."
+    }
+   },
+   {
+    "id": "equalizer",
+    "trigger": "equalizer",
+    "t": {
+     "en": "Equalizer",
+     "de": "Equalizer",
+     "es": "Ecualizador",
+     "it": "Equalizzatore",
+     "fr": "Égaliseur"
+    },
+    "p": {
+     "en": "A live spectrum from the microphone, with tempo and loudness.",
+     "de": "Ein Live-Spektrum vom Mikrofon, mit Tempo und Lautstärke.",
+     "es": "Un espectro en vivo del micrófono, con tempo y volumen.",
+     "it": "Uno spettro dal vivo del microfono, con tempo e volume.",
+     "fr": "Un spectre en direct du micro, avec tempo et volume."
+    }
+   },
+   {
+    "id": "x",
+    "trigger": "x!",
+    "t": {
+     "en": "The show",
+     "de": "Die Show",
+     "es": "El espectáculo",
+     "it": "Lo spettacolo",
+     "fr": "Le spectacle"
+    },
+    "p": {
+     "en": "Thirty seconds of full-screen spectacle. <code>x!!</code> plays today’s headlines.",
+     "de": "Dreißig Sekunden Vollbild-Spektakel. <code>x!!</code> spielt die Schlagzeilen des Tages.",
+     "es": "Treinta segundos de espectáculo a pantalla completa. <code>x!!</code> muestra los titulares del día.",
+     "it": "Trenta secondi di spettacolo a schermo intero. <code>x!!</code> mostra i titoli del giorno.",
+     "fr": "Trente secondes de spectacle plein écran. <code>x!!</code> joue les gros titres du jour."
+    }
+   }
+  ],
+  "egg.h": {
+   "en": "Easter eggs",
+   "de": "Easter Eggs",
+   "es": "Huevos de Pascua",
+   "it": "Easter egg",
+   "fr": "Easter eggs"
+  },
+  "egg.lead": {
+   "en": "Hidden in the search bar: type the word and press Enter. Esc takes you back.",
+   "de": "Versteckt in der Suchleiste: das Wort tippen und Enter drücken. Esc bringt dich zurück.",
+   "es": "Escondidos en la barra de búsqueda: escribe la palabra y pulsa Intro. Esc te devuelve.",
+   "it": "Nascosti nella barra di ricerca: digita la parola e premi Invio. Esc ti riporta indietro.",
+   "fr": "Cachés dans la barre de recherche : tapez le mot et appuyez sur Entrée. Échap vous ramène."
+  }
  },
  "feature_catalog": "features.txt",
  "feature_catalog_lang": "de"

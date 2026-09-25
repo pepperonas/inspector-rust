@@ -44,7 +44,7 @@ written for three readers — people, search engines, and **AI agents** — and 
 | `index.md` | The page as Markdown for agents, with the same SSI includes. |
 | `llms.txt` | One-screen summary for LLMs and agents: what the app is, every link, install, verification, limits. |
 | `robots.txt`, `sitemap.xml` | Allow everything; point at the sitemap, `llms.txt` and `index.md`. |
-| `assets/` | Hero art (`hero-1400.webp`, `hero-2400.webp`, `hero.jpg` fallback), `og.jpg` (1200 × 630), `screens.webp/.jpg`, `mark.svg` icon, `apple-touch-icon.png`. |
+| `assets/` | Hero art (`hero-1400.webp`, `hero-2400.webp`, `hero.jpg` fallback), `og.jpg` (1200 × 630), `screens.webp/.jpg` or the gallery images `gallery/<id>.webp/.jpg`, easter-egg images `eggs/<id>.webp/.jpg`, `mark.svg` icon, `apple-touch-icon.png`. |
 | `server/inspector-rust-latest.py` + `.service` / `.timer` | The timer (see below). Installed to `/usr/local/sbin/` and `/etc/systemd/system/`. |
 | `server/nginx/inspector-rust.celox.io` | Vendored vhost — the live file is `/etc/nginx/sites-available/inspector-rust.celox.io`. |
 | `deploy.sh` | Ships the page; `deploy.sh server` also installs timer and vhost. |

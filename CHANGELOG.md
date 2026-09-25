@@ -9,11 +9,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 ### Added
 - **Product page: [inspector-rust.celox.io](https://inspector-rust.celox.io)** (also reachable as `inspectorrust.celox.io` and `ir.celox.io`, which redirect there). Features, install steps, FAQ and a one-click download: `/download` picks the file for your system, `/download/<target>` names one (`macos`, `windows`, `windows-exe`, `linux-deb`, `linux-appimage`). A server timer follows new releases every 15 minutes, so the page never needs a redeploy for a version bump. Five languages; sources in `website/`, generated from `website/site.json`.
 - **Every feature on the website:** [inspector-rust.celox.io/#all-features](https://inspector-rust.celox.io/#all-features) lists all 174 features in 13 areas (collapsible, filterable), mirrored from `features.txt` by the site's release timer — a new feature appears within 15 minutes of its `features.txt` line reaching `main`, without a deploy. `website-features.test.ts` keeps the file in a shape the website can read.
+- **Mockups on the website:** the hero, a gallery of twelve captioned screens ("A look inside") and the easter eggs now show the real app with invented data — rendered by `scripts/website-mockups.mjs` from `core/frontend/mockup.html`, which runs the UI against a dummy backend. A long press on "© 2026 Martin Pfeffer" in the footer opens the easter eggs.
 
 ### Fixed
 - **README download table:** Linux lists the released `.deb` and AppImage instead of "build from source", and macOS says 11+ (Apple silicon never ran 10.15).
 - **The website's changelog** showed 494 of 539 releases as sub-headings (their headings use an em dash) and rendered all of them at once — ~11 000 elements, which stalled older machines. It now recognises every heading style, renders code blocks and tables, and loads 10 versions at a time ("Older versions" for the rest): opening takes ~50 ms instead of ~550 ms.
 - **Website scrolling on older Macs:** the top bar no longer blurs what's behind it on every frame.
+- **Flappy Bird resumed without its pipes** in development builds: React StrictMode ran the canvas effect twice and the second pass started a new game under the restored score.
 
 ## [0.185.0] - 2026-09-25
 

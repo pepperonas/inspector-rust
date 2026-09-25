@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- **Product page: [inspector-rust.celox.io](https://inspector-rust.celox.io)** (also reachable as `inspectorrust.celox.io` and `ir.celox.io`, which redirect there). Features, install steps, FAQ and a one-click download: `/download` picks the file for your system, `/download/<target>` names one (`macos`, `windows`, `windows-exe`, `linux-deb`, `linux-appimage`). A server timer follows new releases every 15 minutes, so the page never needs a redeploy for a version bump. Five languages; sources in `website/`, generated from `website/site.json`.
+
+### Fixed
+- **README download table:** Linux lists the released `.deb` and AppImage instead of "build from source", and macOS says 11+ (Apple silicon never ran 10.15).
+
 ## [0.185.0] - 2026-09-25
 
 ### Added

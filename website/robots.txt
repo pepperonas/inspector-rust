@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+
+# Machine-readable summary for LLMs and agents: /llms.txt
+# This page as Markdown: /index.md · Newest release as JSON: /latest.json
+Sitemap: https://inspector-rust.celox.io/sitemap.xml

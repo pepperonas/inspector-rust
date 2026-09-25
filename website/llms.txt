@@ -1,0 +1,48 @@
+# Inspector Rust
+
+> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
+
+## Get the app
+
+- Newest release, file for your platform: https://inspector-rust.celox.io/download (302 to the current GitHub release asset)
+- macOS: https://inspector-rust.celox.io/download/macos — macOS 11+ · Apple silicon
+- Windows: https://inspector-rust.celox.io/download/windows — Windows 10/11 · x64 · installer
+- Windows .exe: https://inspector-rust.celox.io/download/windows-exe — Windows 10/11 · x64 · no install
+- Linux .deb: https://inspector-rust.celox.io/download/linux-deb — Ubuntu 24.04+ / Debian 13 · x86-64
+- AppImage: https://inspector-rust.celox.io/download/linux-appimage — Linux x86-64
+- Newest release as JSON: https://inspector-rust.celox.io/latest.json — `version`, `published`, `notes`, and `assets[]` with `target`, `name`, `url`, `size` (bytes), `sha256`
+- This page as Markdown (with the current version and checksums): https://inspector-rust.celox.io/index.md — also served at / for `Accept: text/markdown`
+- All releases and notes: https://github.com/pepperonas/inspector-rust/releases
+
+## Install
+
+1. DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.
+2. On macOS, move the app to Applications and run `xattr -dr com.apple.quarantine /Applications/InspectorRust.app` once. On Windows, SmartScreen may ask — choose *More info → Run anyway*.
+3. The popup opens wherever you are. On macOS, grant Accessibility once so pasting and the expander can type for you.
+
+## Verify
+
+- SHA-256 of every file: `assets[].sha256` in https://inspector-rust.celox.io/latest.json
+
+
+## Features
+
+- Clipboard history: Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.
+- Text expander: Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.
+- 66 commands in the search bar: Calculate, convert units, translate, check the weather, generate passwords or QR codes. Add `?` to any command for its help.
+- Screen tools: Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.
+- System at your fingertips: Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
+- Private by design: Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.
+
+## Scope and limits
+
+- macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.
+- Some features are macOS-only (for example the network monitor and touchpad gestures).
+- Linux: global shortcuts may need to be bound in the desktop settings under Wayland.
+
+## Links
+
+- Source code: https://github.com/pepperonas/inspector-rust
+- Changelog (Markdown, mirrored from GitHub every 15 min): https://inspector-rust.celox.io/changelog.md — source: https://github.com/pepperonas/inspector-rust/blob/main/CHANGELOG.md
+- Licence: MIT — https://github.com/pepperonas/inspector-rust/blob/main/LICENSE
+- Author: Martin Pfeffer, https://celox.io

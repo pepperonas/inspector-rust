@@ -430,13 +430,16 @@
 
 **Aktueller Release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/inspector-rust/releases/latest) — siehe [CHANGELOG](./CHANGELOG.md) für die Neuerungen.
 
+**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) · **Download mit einem Klick für dein System:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
+
 | Plattform | Datei | Hinweise |
 |-----------|-------|----------|
 | **Windows 11 / 10** | [`InspectorRust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI-Installer — fügt Startmenü-Eintrag & Uninstaller hinzu |
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone-Exe — keine Installation nötig |
-| **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG für arm64-Macs |
+| **macOS 11+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG für arm64-Macs |
 | **macOS Intel** | — | Nicht baubar: die ONNX-Runtime-Abhängigkeit liefert kein Intel-macOS-Binary — [Details](./macos/README.md#apple-silicon-only-x86_64-does-not-build) |
-| **Linux (Ubuntu/Debian)** | Aus Source bauen — siehe [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
+| **Linux x86-64** | [`InspectorRust_<ver>_amd64.deb`](https://github.com/pepperonas/inspector-rust/releases/latest) | Debian-Paket — gebaut auf Ubuntu 24.04, also Ubuntu 24.04+ / Debian 13 |
+| **Linux x86-64** | [`InspectorRust_<ver>_amd64.AppImage`](https://github.com/pepperonas/inspector-rust/releases/latest) | Portabel; selbst bauen: [`linux/README.md`](./linux/README.md) |
 
 > **macOS-Gatekeeper-Hinweis.** Releases sind ad-hoc-signiert, **nicht von Apple notarisiert**. Ein von GitHub geladenes DMG wird vom Browser unter Quarantäne gestellt; macOS behauptet dann, die App sei **"beschädigt und kann nicht geöffnet werden"** — ist sie nicht, und Rechtsklick → **Öffnen** hilft gegen genau diese Meldung *nicht*. App in den Programme-Ordner ziehen, dann das Attribut einmalig entfernen:
 >

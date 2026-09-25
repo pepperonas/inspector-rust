@@ -1,0 +1,459 @@
+{
+ "name": "Inspector Rust",
+ "slug": "inspector-rust",
+ "aliases": [
+  "inspectorrust.celox.io",
+  "ir.celox.io"
+ ],
+ "repo": "pepperonas/inspector-rust",
+ "branch": "main",
+ "tagline": "One hotkey. Everything you copy, and a lot more.",
+ "license": "MIT",
+ "year": 2026,
+ "asset_version": 1,
+ "theme_source": "core/frontend/src/styles.css — @theme (dark)",
+ "theme": {
+  "bg": "#0c0d11",
+  "bg-lowest": "#08090c",
+  "surface-low": "#121419",
+  "surface": "#17191f",
+  "surface-high": "#1f2229",
+  "surface-highest": "#282b34",
+  "on-bg": "#f2f3f5",
+  "on-variant": "#b4b8c4",
+  "outline": "#80859a",
+  "outline-variant": "#2b2e38",
+  "primary": "#a5b4fc",
+  "on-primary": "#1e1b4b",
+  "primary-container": "#3730a3",
+  "on-primary-container": "#e0e7ff",
+  "secondary-container": "#272a44",
+  "on-secondary-container": "#dfe3ff",
+  "tertiary": "#f9a8d4",
+  "accent": "#6366f1"
+ },
+ "hero": {
+  "bg": "#0c0d11",
+  "width": 2400,
+  "height": 1200
+ },
+ "screens": {
+  "width": 1600,
+  "height": 1126
+ },
+ "ld": {
+  "type": "SoftwareApplication",
+  "category": "UtilitiesApplication",
+  "subcategory": "Clipboard manager and command palette",
+  "os": "macOS 11 or later (Apple silicon), Windows 10/11 (x64), Linux x86-64"
+ },
+ "targets": [
+  {
+   "id": "macos",
+   "label": "Download for macOS",
+   "short": "macOS",
+   "asset": "^InspectorRust_[0-9][0-9A-Za-z.\\-]*_aarch64\\.dmg$",
+   "requirement": "macOS 11+ · Apple silicon",
+   "ua": "mac"
+  },
+  {
+   "id": "windows",
+   "label": "Download for Windows",
+   "short": "Windows",
+   "asset": "^InspectorRust_[0-9][0-9A-Za-z.\\-]*_x64_en-US\\.msi$",
+   "requirement": "Windows 10/11 · x64 · installer",
+   "ua": "windows"
+  },
+  {
+   "id": "windows-exe",
+   "label": "Windows portable (.exe)",
+   "short": "Windows .exe",
+   "asset": "^inspector-rust\\.exe$",
+   "requirement": "Windows 10/11 · x64 · no install",
+   "optional": true
+  },
+  {
+   "id": "linux-deb",
+   "label": "Download .deb",
+   "short": "Linux .deb",
+   "asset": "^InspectorRust_[0-9][0-9A-Za-z.\\-]*_amd64\\.deb$",
+   "requirement": "Ubuntu 24.04+ / Debian 13 · x86-64",
+   "ua": "linux"
+  },
+  {
+   "id": "linux-appimage",
+   "label": "Download AppImage",
+   "short": "AppImage",
+   "asset": "^InspectorRust_[0-9][0-9A-Za-z.\\-]*_amd64\\.AppImage$",
+   "requirement": "Linux x86-64",
+   "optional": true
+  }
+ ],
+ "chips": [
+  {
+   "label": "macOS",
+   "color": "#e5e7eb"
+  },
+  {
+   "label": "Windows",
+   "color": "#38bdf8"
+  },
+  {
+   "label": "Linux",
+   "color": "#facc15"
+  }
+ ],
+ "verify_rows": [],
+ "content": {
+  "meta": {
+   "title": "Inspector Rust — Clipboard Manager & Command Palette",
+   "description": "Clipboard history, text expander and 66 search-bar commands behind one hotkey. Free and open source for macOS, Windows and Linux. Local and encrypted.",
+   "og_title": "Inspector Rust — one hotkey for everything you copy",
+   "og_description": "Free, open-source clipboard manager with a text expander and 66 commands — screenshots, OCR, translation, weather, system tools. Local, encrypted, no account.",
+   "twitter_description": "Clipboard history, text expander and 66 commands behind Ctrl+Space. Free and open source for macOS, Windows and Linux.",
+   "image_alt": "Inspector Rust panels on a dark background: a live audio equalizer, a disk-usage sunburst and a five-day weather forecast"
+  },
+  "summary": "Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.",
+  "meta_fallback": "Newest release · macOS (Apple silicon), Windows, Linux · free, MIT licence",
+  "feature_list": [
+   "Searchable clipboard history for text, images, files and rich text, with pins and notes",
+   "Text expander with abbreviations, hotkeys and placeholders such as date, clipboard and cursor",
+   "66 search-bar commands, each with built-in help (type a command followed by ?)",
+   "Calculator, unit and base converter, live translation",
+   "Screenshots with annotation editor, OCR of any screen region, screen recording to MP4",
+   "Colour picker with magnifier, QR codes, password generator, 2FA codes",
+   "System tools: brightness, audio output, disk usage, cache clean-up, system stats",
+   "Weather, world clock, calendar, song recognition, Philips Hue control",
+   "Local SQLite database, sensitive fields encrypted with AES-256-GCM",
+   "No account, no telemetry; network only for commands that need it"
+  ],
+  "limits": [
+   "macOS builds are Apple silicon only and not notarized; the first launch needs one Terminal command.",
+   "Some features are macOS-only (for example the network monitor and touchpad gestures).",
+   "Linux: global shortcuts may need to be bound in the desktop settings under Wayland."
+  ],
+  "hero.kicker": {
+   "en": "macOS · Windows · Linux · Open source",
+   "de": "macOS · Windows · Linux · Open Source",
+   "es": "macOS · Windows · Linux · Código abierto",
+   "it": "macOS · Windows · Linux · Open source",
+   "fr": "macOS · Windows · Linux · Open source"
+  },
+  "hero.title": {
+   "en": "One hotkey. <br>Everything you copy.",
+   "de": "Ein Tastenkürzel. <br>Alles, was du kopierst.",
+   "es": "Un atajo. <br>Todo lo que copias.",
+   "it": "Una scorciatoia. <br>Tutto ciò che copi.",
+   "fr": "Un raccourci. <br>Tout ce que vous copiez."
+  },
+  "hero.lead": {
+   "en": "Press <em>Ctrl+Space</em> for your clipboard history, snippets and 66 commands — screenshots, OCR, translation, weather and system tools. Local, encrypted, no account.",
+   "de": "Drück <em>Strg+Leertaste</em> für deinen Zwischenablage-Verlauf, Textbausteine und 66 Befehle — Screenshots, OCR, Übersetzung, Wetter und Systemwerkzeuge. Lokal, verschlüsselt, ohne Konto.",
+   "es": "Pulsa <em>Ctrl+Espacio</em> para ver tu historial del portapapeles, tus fragmentos y 66 comandos: capturas, OCR, traducción, tiempo y herramientas del sistema. Local, cifrado y sin cuenta.",
+   "it": "Premi <em>Ctrl+Spazio</em> per la cronologia degli appunti, i frammenti di testo e 66 comandi: screenshot, OCR, traduzione, meteo e strumenti di sistema. Locale, cifrato, senza account.",
+   "fr": "Appuyez sur <em>Ctrl+Espace</em> pour l’historique du presse-papiers, vos extraits et 66 commandes : captures, OCR, traduction, météo et outils système. Local, chiffré, sans compte."
+  },
+  "pl.h": {
+   "en": "Runs on",
+   "de": "Läuft auf",
+   "es": "Funciona en",
+   "it": "Funziona su",
+   "fr": "Fonctionne sur"
+  },
+  "f.h": {
+   "en": "A popup that does far more than paste",
+   "de": "Ein Popup, das weit mehr kann als einfügen",
+   "es": "Una ventana que hace mucho más que pegar",
+   "it": "Un popup che fa molto più che incollare",
+   "fr": "Une fenêtre qui fait bien plus que coller"
+  },
+  "features": [
+   {
+    "t": {
+     "en": "Clipboard history",
+     "de": "Zwischenablage-Verlauf",
+     "es": "Historial del portapapeles",
+     "it": "Cronologia degli appunti",
+     "fr": "Historique du presse-papiers"
+    },
+    "p": {
+     "en": "Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.",
+     "de": "Text, Bilder, Dateien und formatierter Text, durchsuchbar beim Tippen. Häufig Gebrauchtes anheften, eine Notiz dazuschreiben und mit Enter einfügen.",
+     "es": "Texto, imágenes, archivos y texto con formato, que puedes buscar mientras escribes. Fija lo que uses a menudo, añade una nota y pega con Intro.",
+     "it": "Testo, immagini, file e testo formattato, da cercare mentre scrivi. Fissa ciò che usi spesso, aggiungi una nota e incolla con Invio.",
+     "fr": "Texte, images, fichiers et texte mis en forme, consultables à la frappe. Épinglez ce qui sert souvent, ajoutez une note et collez avec Entrée."
+    }
+   },
+   {
+    "t": {
+     "en": "Text expander",
+     "de": "Textbausteine",
+     "es": "Expansor de texto",
+     "it": "Espansore di testo",
+     "fr": "Expanseur de texte"
+    },
+    "p": {
+     "en": "Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.",
+     "de": "Kürzel tippen, vollen Text erhalten — mit Platzhaltern für Datum, Zwischenablage oder Cursorposition. Funktioniert auch im Terminal.",
+     "es": "Escribe una abreviatura y obtén el texto completo, con marcadores para la fecha, el portapapeles o la posición del cursor. También en terminales.",
+     "it": "Scrivi un’abbreviazione e ottieni il testo completo, con segnaposto per data, appunti o posizione del cursore. Funziona anche nei terminali.",
+     "fr": "Tapez une abréviation et obtenez le texte complet, avec des champs pour la date, le presse-papiers ou la position du curseur. Fonctionne aussi dans les terminaux."
+    }
+   },
+   {
+    "t": {
+     "en": "66 commands in the search bar",
+     "de": "66 Befehle in der Suchleiste",
+     "es": "66 comandos en la barra de búsqueda",
+     "it": "66 comandi nella barra di ricerca",
+     "fr": "66 commandes dans la barre de recherche"
+    },
+    "p": {
+     "en": "Calculate, convert units, translate, check the weather, generate passwords or QR codes. Add <code>?</code> to any command for its help.",
+     "de": "Rechnen, Einheiten umrechnen, übersetzen, Wetter abfragen, Passwörter oder QR-Codes erzeugen. Ein <code>?</code> hinter jedem Befehl zeigt seine Hilfe.",
+     "es": "Calcula, convierte unidades, traduce, consulta el tiempo, genera contraseñas o códigos QR. Añade <code>?</code> a cualquier comando para ver su ayuda.",
+     "it": "Calcola, converti unità, traduci, controlla il meteo, genera password o codici QR. Aggiungi <code>?</code> a qualsiasi comando per la sua guida.",
+     "fr": "Calculez, convertissez des unités, traduisez, consultez la météo, générez des mots de passe ou des QR codes. Ajoutez <code>?</code> à une commande pour son aide."
+    }
+   },
+   {
+    "t": {
+     "en": "Screen tools",
+     "de": "Bildschirm-Werkzeuge",
+     "es": "Herramientas de pantalla",
+     "it": "Strumenti per lo schermo",
+     "fr": "Outils d’écran"
+    },
+    "p": {
+     "en": "Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.",
+     "de": "Screenshots mit Anmerkungs-Editor, Texterkennung (OCR) aus jedem Bildschirmbereich, Bildschirmaufnahme als MP4 und eine Pipette mit Lupe.",
+     "es": "Capturas con editor de anotaciones, reconocimiento de texto (OCR) de cualquier zona de la pantalla, grabación de pantalla en MP4 y un cuentagotas con lupa.",
+     "it": "Screenshot con editor di annotazioni, riconoscimento del testo (OCR) da qualsiasi area dello schermo, registrazione dello schermo in MP4 e un contagocce con lente.",
+     "fr": "Captures avec éditeur d’annotations, reconnaissance de texte (OCR) sur n’importe quelle zone, enregistrement de l’écran en MP4 et pipette avec loupe."
+    }
+   },
+   {
+    "t": {
+     "en": "System at your fingertips",
+     "de": "Das System im Griff",
+     "es": "El sistema a mano",
+     "it": "Il sistema a portata di mano",
+     "fr": "Le système sous la main"
+    },
+    "p": {
+     "en": "Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.",
+     "de": "Monitorhelligkeit, Audioausgabe, Speicherbelegung, Cache-Bereinigung, Live-Systemwerte, Weltuhr und Kalender — alles öffnet sich direkt im Popup.",
+     "es": "Brillo del monitor, salida de audio, uso del disco, limpieza de caché, estadísticas del sistema en vivo, reloj mundial y calendario, todo dentro de la ventana.",
+     "it": "Luminosità del monitor, uscita audio, uso del disco, pulizia della cache, statistiche di sistema in tempo reale, orologio mondiale e calendario, tutto nel popup.",
+     "fr": "Luminosité de l’écran, sortie audio, occupation du disque, nettoyage des caches, statistiques système en direct, horloge mondiale et calendrier, directement dans la fenêtre."
+    }
+   },
+   {
+    "t": {
+     "en": "Private by design",
+     "de": "Privat von Grund auf",
+     "es": "Privado por diseño",
+     "it": "Privato per progettazione",
+     "fr": "Privé par conception"
+    },
+    "p": {
+     "en": "Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.",
+     "de": "Alles liegt in einer lokalen Datenbank; Zwischenablage, Textbausteine und 2FA-Geheimnisse sind mit AES-256-GCM verschlüsselt. Kein Konto, keine Telemetrie.",
+     "es": "Todo se guarda en una base de datos local; el portapapeles, los fragmentos y los secretos 2FA se cifran con AES-256-GCM. Sin cuenta, sin telemetría.",
+     "it": "Tutto resta in un database locale; appunti, frammenti e segreti 2FA sono cifrati con AES-256-GCM. Nessun account, nessuna telemetria.",
+     "fr": "Tout reste dans une base de données locale ; presse-papiers, extraits et secrets 2FA sont chiffrés en AES-256-GCM. Sans compte, sans télémétrie."
+    }
+   }
+  ],
+  "s.h": {
+   "en": "Panels that open right in the popup",
+   "de": "Panels, die sich direkt im Popup öffnen",
+   "es": "Paneles que se abren en la propia ventana",
+   "it": "Pannelli che si aprono direttamente nel popup",
+   "fr": "Des panneaux qui s’ouvrent dans la fenêtre"
+  },
+  "s.alt": {
+   "en": "Four panels: the weather forecast, the audio equalizer, Philips Hue lamp control and the month calendar",
+   "de": "Vier Panels: die Wettervorhersage, der Audio-Equalizer, die Philips-Hue-Steuerung und der Monatskalender",
+   "es": "Cuatro paneles: el pronóstico del tiempo, el ecualizador de audio, el control de lámparas Philips Hue y el calendario mensual",
+   "it": "Quattro pannelli: le previsioni meteo, l’equalizzatore audio, il controllo delle lampade Philips Hue e il calendario mensile",
+   "fr": "Quatre panneaux : les prévisions météo, l’égaliseur audio, le pilotage des lampes Philips Hue et le calendrier mensuel"
+  },
+  "install": [
+   {
+    "t": {
+     "en": "Download for your system",
+     "de": "Für dein System laden",
+     "es": "Descarga para tu sistema",
+     "it": "Scarica per il tuo sistema",
+     "fr": "Téléchargez pour votre système"
+    },
+    "p": {
+     "en": "DMG for Macs with Apple silicon, MSI installer or portable exe for Windows, .deb or AppImage for Linux.",
+     "de": "DMG für Macs mit Apple-Chip, MSI-Installer oder portable EXE für Windows, .deb oder AppImage für Linux.",
+     "es": "DMG para Mac con Apple silicon, instalador MSI o exe portátil para Windows, .deb o AppImage para Linux.",
+     "it": "DMG per Mac con Apple silicon, installer MSI o exe portatile per Windows, .deb o AppImage per Linux.",
+     "fr": "DMG pour les Mac à puce Apple, installeur MSI ou exe portable pour Windows, .deb ou AppImage pour Linux."
+    }
+   },
+   {
+    "t": {
+     "en": "Allow the first launch",
+     "de": "Ersten Start erlauben",
+     "es": "Permite el primer inicio",
+     "it": "Consenti il primo avvio",
+     "fr": "Autorisez le premier lancement"
+    },
+    "p": {
+     "en": "On macOS, move the app to Applications and run <code>xattr -dr com.apple.quarantine /Applications/InspectorRust.app</code> once. On Windows, SmartScreen may ask — choose <em>More info → Run anyway</em>.",
+     "de": "Unter macOS die App in den Programme-Ordner ziehen und einmal <code>xattr -dr com.apple.quarantine /Applications/InspectorRust.app</code> ausführen. Unter Windows fragt eventuell SmartScreen — <em>Weitere Informationen → Trotzdem ausführen</em>.",
+     "es": "En macOS, mueve la app a Aplicaciones y ejecuta una vez <code>xattr -dr com.apple.quarantine /Applications/InspectorRust.app</code>. En Windows puede aparecer SmartScreen: elige <em>Más información → Ejecutar de todas formas</em>.",
+     "it": "Su macOS sposta l’app in Applicazioni ed esegui una volta <code>xattr -dr com.apple.quarantine /Applications/InspectorRust.app</code>. Su Windows potrebbe comparire SmartScreen: scegli <em>Ulteriori informazioni → Esegui comunque</em>.",
+     "fr": "Sur macOS, placez l’app dans Applications et exécutez une fois <code>xattr -dr com.apple.quarantine /Applications/InspectorRust.app</code>. Sous Windows, SmartScreen peut intervenir : choisissez <em>Informations complémentaires → Exécuter quand même</em>."
+    }
+   },
+   {
+    "t": {
+     "en": "Press Ctrl+Space",
+     "de": "Strg+Leertaste drücken",
+     "es": "Pulsa Ctrl+Espacio",
+     "it": "Premi Ctrl+Spazio",
+     "fr": "Appuyez sur Ctrl+Espace"
+    },
+    "p": {
+     "en": "The popup opens wherever you are. On macOS, grant Accessibility once so pasting and the expander can type for you.",
+     "de": "Das Popup öffnet sich, wo immer du gerade bist. Unter macOS einmal die Bedienungshilfen freigeben, damit Einfügen und Textbausteine für dich tippen dürfen.",
+     "es": "La ventana se abre estés donde estés. En macOS, concede una vez el permiso de Accesibilidad para que pegar y el expansor puedan escribir por ti.",
+     "it": "Il popup si apre ovunque tu sia. Su macOS concedi una volta l’Accessibilità, così incolla ed espansore possono scrivere al posto tuo.",
+     "fr": "La fenêtre s’ouvre où que vous soyez. Sur macOS, accordez une fois l’Accessibilité pour que le collage et l’expanseur puissent taper pour vous."
+    }
+   }
+  ],
+  "v.p": {
+   "en": "Compare the file with the SHA-256 shown here: <code>shasum -a 256</code> on macOS and Linux, <code>Get-FileHash</code> in PowerShell.",
+   "de": "Vergleiche die Datei mit der hier angezeigten SHA-256: <code>shasum -a 256</code> unter macOS und Linux, <code>Get-FileHash</code> in der PowerShell.",
+   "es": "Compara el archivo con el SHA-256 que se muestra aquí: <code>shasum -a 256</code> en macOS y Linux, <code>Get-FileHash</code> en PowerShell.",
+   "it": "Confronta il file con lo SHA-256 mostrato qui: <code>shasum -a 256</code> su macOS e Linux, <code>Get-FileHash</code> in PowerShell.",
+   "fr": "Comparez le fichier avec le SHA-256 affiché ici : <code>shasum -a 256</code> sur macOS et Linux, <code>Get-FileHash</code> dans PowerShell."
+  },
+  "i.note": {
+   "en": "Releases are not notarized by Apple and not signed with a Windows certificate — both cost a yearly fee. That is why macOS and Windows ask once on the first launch. Every release is built by GitHub Actions from the public source.",
+   "de": "Die Versionen sind weder von Apple notarisiert noch mit einem Windows-Zertifikat signiert — beides kostet jährlich Geld. Deshalb fragen macOS und Windows beim ersten Start einmal nach. Jede Version wird von GitHub Actions aus dem öffentlichen Quelltext gebaut.",
+   "es": "Las versiones no están notarizadas por Apple ni firmadas con un certificado de Windows: ambas cosas cuestan una cuota anual. Por eso macOS y Windows preguntan una vez en el primer inicio. Cada versión la compila GitHub Actions a partir del código público.",
+   "it": "Le versioni non sono notarizzate da Apple né firmate con un certificato Windows: entrambe le cose costano una quota annuale. Per questo macOS e Windows chiedono conferma una volta al primo avvio. Ogni versione è compilata da GitHub Actions a partire dal codice pubblico.",
+   "fr": "Les versions ne sont ni notariées par Apple ni signées avec un certificat Windows : les deux coûtent un abonnement annuel. C’est pourquoi macOS et Windows demandent une confirmation au premier lancement. Chaque version est compilée par GitHub Actions à partir du code public."
+  },
+  "faq": [
+   {
+    "q": {
+     "en": "Is Inspector Rust free?",
+     "de": "Ist Inspector Rust kostenlos?",
+     "es": "¿Inspector Rust es gratis?",
+     "it": "Inspector Rust è gratuito?",
+     "fr": "Inspector Rust est-il gratuit ?"
+    },
+    "a": {
+     "en": "Yes. It is free and open source under the MIT licence, with no account, no ads and no telemetry.",
+     "de": "Ja. Es ist kostenlos und quelloffen unter der MIT-Lizenz, ohne Konto, ohne Werbung und ohne Telemetrie.",
+     "es": "Sí. Es gratuito y de código abierto con licencia MIT, sin cuenta, sin anuncios y sin telemetría.",
+     "it": "Sì. È gratuito e open source con licenza MIT, senza account, senza pubblicità e senza telemetria.",
+     "fr": "Oui. Il est gratuit et open source sous licence MIT, sans compte, sans publicité et sans télémétrie."
+    }
+   },
+   {
+    "q": {
+     "en": "Does it send my clipboard anywhere?",
+     "de": "Schickt es meine Zwischenablage irgendwohin?",
+     "es": "¿Envía mi portapapeles a algún sitio?",
+     "it": "Invia i miei appunti da qualche parte?",
+     "fr": "Envoie-t-il mon presse-papiers quelque part ?"
+    },
+    "a": {
+     "en": "No. The history stays in a local SQLite database, and its contents are encrypted at rest. The app only goes online for commands that need it, such as weather or translation, and only when you run them.",
+     "de": "Nein. Der Verlauf bleibt in einer lokalen SQLite-Datenbank, und die Inhalte sind verschlüsselt gespeichert. Online geht die App nur für Befehle, die das brauchen, etwa Wetter oder Übersetzung — und nur, wenn du sie ausführst.",
+     "es": "No. El historial se queda en una base de datos SQLite local y su contenido se guarda cifrado. La app solo se conecta para los comandos que lo necesitan, como el tiempo o la traducción, y solo cuando los ejecutas.",
+     "it": "No. La cronologia resta in un database SQLite locale e il contenuto è cifrato. L’app va online solo per i comandi che lo richiedono, come meteo o traduzione, e solo quando li esegui.",
+     "fr": "Non. L’historique reste dans une base SQLite locale et son contenu est chiffré. L’app ne se connecte que pour les commandes qui en ont besoin, comme la météo ou la traduction, et seulement quand vous les lancez."
+    }
+   },
+   {
+    "q": {
+     "en": "Which systems does it run on?",
+     "de": "Auf welchen Systemen läuft es?",
+     "es": "¿En qué sistemas funciona?",
+     "it": "Su quali sistemi funziona?",
+     "fr": "Sur quels systèmes fonctionne-t-il ?"
+    },
+    "a": {
+     "en": "macOS 11 or later on Apple silicon, Windows 10 and 11 (x64), and Linux x86-64 (.deb for Ubuntu 24.04+ and Debian 13, or the AppImage). There is no build for Intel Macs, because the on-device background-removal model's runtime has no Intel macOS binary.",
+     "de": "macOS 11 oder neuer auf Apple-Chips, Windows 10 und 11 (x64) sowie Linux x86-64 (.deb für Ubuntu 24.04+ und Debian 13 oder das AppImage). Für Intel-Macs gibt es keinen Build, weil die Laufzeit des lokalen Freistell-Modells keine Intel-macOS-Binärdatei hat.",
+     "es": "macOS 11 o posterior en Apple silicon, Windows 10 y 11 (x64) y Linux x86-64 (.deb para Ubuntu 24.04+ y Debian 13, o el AppImage). No hay versión para Mac con Intel, porque el motor del modelo local que recorta fondos no tiene binario para macOS en Intel.",
+     "it": "macOS 11 o successivo su Apple silicon, Windows 10 e 11 (x64) e Linux x86-64 (.deb per Ubuntu 24.04+ e Debian 13, oppure l’AppImage). Non esiste una versione per Mac Intel, perché il runtime del modello locale di scontorno non ha un binario per macOS su Intel.",
+     "fr": "macOS 11 ou plus récent sur puce Apple, Windows 10 et 11 (x64) et Linux x86-64 (.deb pour Ubuntu 24.04+ et Debian 13, ou l’AppImage). Il n’existe pas de version pour les Mac Intel, car le moteur du modèle local de détourage n’a pas de binaire macOS Intel."
+    }
+   },
+   {
+    "q": {
+     "en": "macOS says the app is damaged. What now?",
+     "de": "macOS sagt, die App sei beschädigt. Was nun?",
+     "es": "macOS dice que la app está dañada. ¿Y ahora?",
+     "it": "macOS dice che l’app è danneggiata. E ora?",
+     "fr": "macOS indique que l’app est endommagée. Que faire ?"
+    },
+    "a": {
+     "en": "It is not. The release is not notarized, so macOS marks the download as quarantined. Move the app to Applications and run xattr -dr com.apple.quarantine /Applications/InspectorRust.app once in Terminal.",
+     "de": "Ist sie nicht. Die Version ist nicht notarisiert, deshalb setzt macOS eine Quarantäne-Markierung auf den Download. App in den Programme-Ordner ziehen und einmal im Terminal xattr -dr com.apple.quarantine /Applications/InspectorRust.app ausführen.",
+     "es": "No lo está. La versión no está notarizada y macOS pone el archivo en cuarentena. Mueve la app a Aplicaciones y ejecuta una vez en Terminal xattr -dr com.apple.quarantine /Applications/InspectorRust.app.",
+     "it": "Non lo è. La versione non è notarizzata e macOS mette il download in quarantena. Sposta l’app in Applicazioni ed esegui una volta nel Terminale xattr -dr com.apple.quarantine /Applications/InspectorRust.app.",
+     "fr": "Elle ne l’est pas. La version n’est pas notariée, donc macOS met le téléchargement en quarantaine. Placez l’app dans Applications et exécutez une fois dans le Terminal xattr -dr com.apple.quarantine /Applications/InspectorRust.app."
+    }
+   },
+   {
+    "q": {
+     "en": "Can I change the hotkey?",
+     "de": "Kann ich das Tastenkürzel ändern?",
+     "es": "¿Puedo cambiar el atajo?",
+     "it": "Posso cambiare la scorciatoia?",
+     "fr": "Puis-je changer le raccourci ?"
+    },
+    "a": {
+     "en": "Yes. Ctrl+Space is the default; the popup hotkey, a second clipboard-history hotkey and the feature hotkeys for OCR, screenshots, colour picker and recording can all be changed in the settings.",
+     "de": "Ja. Strg+Leertaste ist die Voreinstellung; das Popup-Kürzel, ein zweites Kürzel für den Verlauf und die Kürzel für OCR, Screenshots, Pipette und Aufnahme lassen sich in den Einstellungen ändern.",
+     "es": "Sí. Ctrl+Espacio es el predeterminado; el atajo de la ventana, un segundo atajo para el historial y los de OCR, capturas, cuentagotas y grabación se pueden cambiar en los ajustes.",
+     "it": "Sì. Ctrl+Spazio è l’impostazione predefinita; la scorciatoia del popup, una seconda per la cronologia e quelle per OCR, screenshot, contagocce e registrazione si cambiano nelle impostazioni.",
+     "fr": "Oui. Ctrl+Espace est le réglage par défaut ; le raccourci de la fenêtre, un second pour l’historique et ceux de l’OCR, des captures, de la pipette et de l’enregistrement se modifient dans les réglages."
+    }
+   },
+   {
+    "q": {
+     "en": "How do I back up my data?",
+     "de": "Wie sichere ich meine Daten?",
+     "es": "¿Cómo hago una copia de seguridad?",
+     "it": "Come faccio il backup dei miei dati?",
+     "fr": "Comment sauvegarder mes données ?"
+    },
+    "a": {
+     "en": "Settings has a password-protected export and import of history, snippets, notes, 2FA entries and settings, plus optional scheduled backups into a folder of your choice.",
+     "de": "Die Einstellungen bieten einen passwortgeschützten Export und Import von Verlauf, Textbausteinen, Notizen, 2FA-Einträgen und Einstellungen, dazu optional geplante Sicherungen in einen Ordner deiner Wahl.",
+     "es": "Los ajustes ofrecen exportar e importar con contraseña el historial, los fragmentos, las notas, las entradas 2FA y la configuración, además de copias programadas opcionales en la carpeta que elijas.",
+     "it": "Le impostazioni offrono esportazione e importazione protette da password di cronologia, frammenti, note, voci 2FA e impostazioni, oltre a backup pianificati opzionali in una cartella a tua scelta.",
+     "fr": "Les réglages proposent un export et un import protégés par mot de passe de l’historique, des extraits, des notes, des entrées 2FA et des réglages, ainsi que des sauvegardes planifiées facultatives dans le dossier de votre choix."
+    }
+   }
+  ],
+  "l.h": {
+   "en": "Your data stays on your machine",
+   "de": "Deine Daten bleiben auf deinem Rechner",
+   "es": "Tus datos se quedan en tu equipo",
+   "it": "I tuoi dati restano sul tuo computer",
+   "fr": "Vos données restent sur votre machine"
+  },
+  "l.p": {
+   "en": "Inspector Rust has no server and no account. Clipboard contents, snippets, notes and 2FA secrets are encrypted with a key kept in your system keychain. Commands that need the internet, such as weather or translation, contact their provider only when you run them.",
+   "de": "Inspector Rust hat keinen Server und kein Konto. Zwischenablage, Textbausteine, Notizen und 2FA-Geheimnisse sind mit einem Schlüssel verschlüsselt, der im Schlüsselbund deines Systems liegt. Befehle, die das Internet brauchen, etwa Wetter oder Übersetzung, kontaktieren ihren Anbieter nur, wenn du sie ausführst.",
+   "es": "Inspector Rust no tiene servidor ni cuenta. El portapapeles, los fragmentos, las notas y los secretos 2FA se cifran con una clave guardada en el llavero de tu sistema. Los comandos que necesitan internet, como el tiempo o la traducción, solo contactan con su proveedor cuando los ejecutas.",
+   "it": "Inspector Rust non ha server né account. Appunti, frammenti, note e segreti 2FA sono cifrati con una chiave conservata nel portachiavi del sistema. I comandi che richiedono internet, come meteo o traduzione, contattano il loro fornitore solo quando li esegui.",
+   "fr": "Inspector Rust n’a ni serveur ni compte. Presse-papiers, extraits, notes et secrets 2FA sont chiffrés avec une clé conservée dans le trousseau de votre système. Les commandes qui ont besoin d’internet, comme la météo ou la traduction, ne contactent leur fournisseur que lorsque vous les lancez."
+  }
+ }
+}

@@ -430,13 +430,16 @@
 
 **Latest release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/inspector-rust/releases/latest) — see the [CHANGELOG](./CHANGELOG.md) for what's new.
 
+**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) · **one-click download for your system:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
+
 | Platform | File | Notes |
 |----------|------|-------|
 | **Windows 11 / 10** | [`InspectorRust_<ver>_x64_en-US.msi`](https://github.com/pepperonas/inspector-rust/releases/latest) | MSI installer — adds Start-menu entry & uninstaller |
 | **Windows 11 / 10** | [`inspector-rust.exe`](https://github.com/pepperonas/inspector-rust/releases/latest) | Standalone exe — no install needed |
-| **macOS 10.15+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
+| **macOS 11+ (Apple Silicon)** | [`InspectorRust_<ver>_aarch64.dmg`](https://github.com/pepperonas/inspector-rust/releases/latest) | DMG for arm64 Macs |
 | **macOS Intel** | — | Not buildable: the ONNX Runtime dependency ships no Intel-macOS binary — [details](./macos/README.md#apple-silicon-only-x86_64-does-not-build) |
-| **Linux (Ubuntu/Debian)** | Build from source — see [`linux/README.md`](./linux/README.md) | `.deb` + AppImage via `pnpm build:linux` |
+| **Linux x86-64** | [`InspectorRust_<ver>_amd64.deb`](https://github.com/pepperonas/inspector-rust/releases/latest) | Debian package — built on Ubuntu 24.04, so Ubuntu 24.04+ / Debian 13 |
+| **Linux x86-64** | [`InspectorRust_<ver>_amd64.AppImage`](https://github.com/pepperonas/inspector-rust/releases/latest) | Portable; building yourself: [`linux/README.md`](./linux/README.md) |
 
 > **macOS Gatekeeper note.** Releases are ad-hoc-signed, **not Apple-notarized**. A DMG downloaded from GitHub is quarantined by the browser, and macOS then claims the app is **"damaged and can't be opened"** — it isn't; right-click → **Open** does *not* help against that particular wording. Move the app to Applications, then clear the marker once:
 >

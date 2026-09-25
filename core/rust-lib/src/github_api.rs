@@ -316,6 +316,24 @@ mod tests {
     }
 
     #[test]
+    fn timestamps_parse_utc_and_offsets_and_reject_junk() {
+        assert_eq!(ts(&json!("2026-09-25T12:00:00Z")), Some(1_790_337_600));
+        assert_eq!(ts(&json!("2026-09-25T14:00:00+02:00")), Some(1_790_337_600));
+        assert_eq!(ts(&json!(null)), None);
+        assert_eq!(ts(&json!("gestern")), None);
+        assert_eq!(ts(&json!(17)), None);
+    }
+
+    #[test]
+    fn open_prs_and_open_issues_count_as_opened_only() {
+        // merged_at / closed_at null → nothing merged/closed, no panic.
+        let p = count_pulls(&[json!({"created_at": iso(NOW - 10), "merged_at": null})], NOW);
+        assert_eq!((p.opened.day, p.merged.day, p.merged.week), (1, 0, 0));
+        let i = count_issues(&[json!({"created_at": iso(NOW - 10), "closed_at": null})], NOW);
+        assert_eq!((i.opened.day, i.closed.day), (1, 0));
+    }
+
+    #[test]
     fn old_pr_merged_yesterday() {
         let pulls = vec![
             json!({"created_at": iso(NOW - 60 * DAY), "merged_at": iso(NOW - 3600), "updated_at": iso(NOW - 3600)}),

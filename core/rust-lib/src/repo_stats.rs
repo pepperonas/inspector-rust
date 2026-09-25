@@ -1677,6 +1677,117 @@ mod tests {
         assert!(row2.contains("<td>5 <span class=\"dl\">—</span>"), "{row2}");
     }
 
+    #[test]
+    fn bucket_label_formats_each_granularity_and_survives_junk() {
+        assert_eq!(bucket_label("2026-09-25", "day"), "25.09.");
+        assert_eq!(bucket_label("2026-09-21", "week"), "ab 21.09.");
+        assert_eq!(bucket_label("2026-09-01", "month"), "2026-09");
+        // Malformed input must never panic (byte slicing on short strings).
+        assert_eq!(bucket_label("2026", "day"), "2026");
+        assert_eq!(bucket_label("", "month"), "");
+    }
+
+    #[test]
+    fn month_start_handles_year_and_leap_boundaries() {
+        for (d, first) in [("2026-01-01", "2026-01-01"), ("2024-02-29", "2024-02-01"), ("2026-12-31", "2026-12-01"), ("2000-03-15", "2000-03-01")] {
+            assert_eq!(date_from_ordinal(month_start(day_ordinal(d).unwrap())), first, "{d}");
+        }
+    }
+
+    #[test]
+    fn top_dir_groups_root_files_and_nested_paths() {
+        assert_eq!(top_dir("src/a/b.rs"), "src");
+        assert_eq!(top_dir("README.md"), "(root)");
+        assert_eq!(top_dir("/weird"), "(root)"); // empty first segment is not a folder
+    }
+
+    #[test]
+    fn heatmap_svg_draws_every_cell_and_scales_to_the_busiest() {
+        let mut h = [[0u64; 24]; 7];
+        h[4][13] = 8; // Friday 13h = the maximum
+        h[0][9] = 2;
+        let svg = heatmap_svg(&h);
+        assert_eq!(svg.matches("<rect").count(), 7 * 24, "a gapless 7×24 grid");
+        assert!(svg.contains("fill-opacity=\"1.00\"><title>Fr 13 Uhr: 8</title>"), "max cell is full");
+        assert!(svg.contains("fill-opacity=\"0.06\"><title>Mo 00 Uhr: 0</title>"), "empty cells stay faint");
+        for d in ["Mo", "Di", "Mi", "Do", "Fr", "Sa", "So"] {
+            assert!(svg.contains(&format!(">{d}</text>")), "{d} label");
+        }
+    }
+
+    #[test]
+    fn churn_svg_uses_one_scale_and_one_point_per_bucket() {
+        assert_eq!(churn_svg(&[]), "");
+        let b = |ins, del| Bucket { start: "2026-01-01".into(), commits: 1, insertions: ins, deletions: del };
+        let svg = churn_svg(&[b(10, 0), b(0, 5), b(4, 4)]);
+        let heights: Vec<f64> = svg
+            .split("height=\"")
+            .skip(1)
+            .filter_map(|p| p.split('"').next()?.parse().ok())
+            .collect();
+        // bars: +10, −5, +4, −4 → the +10 bar is exactly twice the −5 bar.
+        assert_eq!(heights.len(), 4, "{svg}");
+        assert!((heights[0] - 2.0 * heights[1]).abs() < 0.2, "{heights:?}");
+        let pts = svg.split("points=\"").nth(1).unwrap().split('"').next().unwrap();
+        assert_eq!(pts.split(' ').count(), 3, "one net point per bucket");
+        // Skewed data (100 added vs 1 removed): the zero line is clamped, so
+        // the two sides get different room — the COMMON scale must still keep
+        // every bar inside the 150-unit chart and the 100:1 ratio intact.
+        let svg = churn_svg(&[b(100, 0), b(0, 1)]);
+        let rects: Vec<(f64, f64)> = svg
+            .split("<rect ")
+            .skip(1)
+            .map(|r| {
+                let num = |k: &str| r.split(&format!("{k}=\"")).nth(1).unwrap().split('"').next().unwrap().parse::<f64>().unwrap();
+                (num("y"), num("height"))
+            })
+            .collect();
+        assert_eq!(rects.len(), 2);
+        for (y, h) in &rects {
+            assert!(*y >= 0.0 && y + h <= 150.0, "bar leaves the chart: {rects:?}");
+        }
+        // Heights are printed with one decimal (1.25 → "1.2"), so allow that rounding.
+        assert!((rects[0].1 / rects[1].1 / 100.0 - 1.0).abs() < 0.06, "{rects:?}");
+    }
+
+    #[test]
+    fn tag_times_read_annotated_and_lightweight_tags() {
+        let dir = std::env::temp_dir().join(format!("ir-tags-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let git = |args: &[&str], date: &str| {
+            let st = std::process::Command::new("git")
+                .current_dir(&dir)
+                .args(args)
+                .env("GIT_AUTHOR_NAME", "T").env("GIT_AUTHOR_EMAIL", "t@x")
+                .env("GIT_COMMITTER_NAME", "T").env("GIT_COMMITTER_EMAIL", "t@x")
+                .env("GIT_COMMITTER_DATE", date).env("GIT_AUTHOR_DATE", date)
+                .status().unwrap();
+            assert!(st.success(), "git {args:?}");
+        };
+        git(&["init", "-q", "-b", "main"], "2020-01-01T00:00:00Z");
+        std::fs::write(dir.join("a"), "1").unwrap();
+        git(&["add", "."], "2020-01-01T00:00:00Z");
+        git(&["commit", "-q", "-m", "x"], "2020-01-01T00:00:00Z");
+        git(&["tag", "light"], "2021-01-01T00:00:00Z"); // lightweight → commit date
+        git(&["tag", "-a", "ann", "-m", "a"], "2022-01-01T00:00:00Z"); // annotated → tag date
+        let mut t = tag_times_from_dir(&dir);
+        t.sort_unstable();
+        assert_eq!(t, vec![1_577_836_800, 1_640_995_200]);
+        assert!(tag_times_from_dir(&std::env::temp_dir().join("ir-no-such-repo-xyz")).is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn range_labels_match_the_frontend_titles() {
+        // The panel titles ranges in TS (`rangeTitle`), the export in Rust
+        // (`RangeKey::label`) — pin that both say the same words.
+        let ts = include_str!("../../frontend/src/lib/repo.ts");
+        for k in RangeKey::ALL {
+            assert!(ts.contains(&format!("\"{}\"", k.label())), "{:?} label drifted", k);
+        }
+    }
+
     /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`
     #[test]
     #[ignore]

@@ -559,6 +559,12 @@ mod tests {
     }
 
     #[test]
+    fn default_clone_dir_without_home_falls_back_to_downloads() {
+        let dl = Path::new("/tmp/dl");
+        assert_eq!(default_clone_dir(None, Some(dl), |_| true), Some(dl.to_path_buf()));
+    }
+
+    #[test]
     fn default_clone_dir_prefers_claude_then_downloads() {
         let home = Path::new("/Users/u");
         let dl = Path::new("/Users/u/Downloads");

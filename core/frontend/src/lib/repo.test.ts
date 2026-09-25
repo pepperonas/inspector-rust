@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint, windowsComplete } from "./repo";
+import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint, windowsComplete, bucketLabel as bl, churnGeometry as cg, rangeTitle as rt } from "./repo";
 import {
   WEEKDAY_LABELS,
   categoryColor,
@@ -152,6 +152,41 @@ describe("GitHub coverage (review fix)", () => {
     // 1.5 days: 24 h complete, the previous day not
     expect(windowsComplete(NOW - 1.5 * DAY, NOW)).toEqual([true, false, false, false]);
     expect(windowsComplete(NOW - DAY, NOW)[0]).toBe(true);
+  });
+});
+
+describe("edge cases (release 0.185.0)", () => {
+  it("a shrinking codebase draws the net line BELOW the zero line", () => {
+    const g = cg([{ insertions: 1, deletions: 10 }, { insertions: 0, deletions: 5 }], 300, 100);
+    expect(g.netPoints.every(([, y]) => y > g.zeroY)).toBe(true);
+    // …and never outside the chart.
+    expect(g.netPoints.every(([, y]) => y <= 100)).toBe(true);
+    expect(g.bars.every((b) => b.addY >= 0 && b.delY + b.delH <= 100 + 1e-9)).toBe(true);
+  });
+  it("a single bucket still yields geometry (no division by zero)", () => {
+    const g = cg([{ insertions: 3, deletions: 0 }], 300, 100);
+    expect(g.bars).toHaveLength(1);
+    expect(Number.isFinite(g.netPoints[0][1])).toBe(true);
+  });
+  it("junk dates never throw", () => {
+    expect(bl("nope", "day")).toBe("nope");
+    expect(calendarCells([{ date: "31.12.2026", commits: 1 }, { date: "2026-01-05", commits: 2 }])).toEqual([
+      { col: 0, row: 0, date: "2026-01-05", commits: 2 },
+    ]);
+  });
+  it("every range has a title", () => {
+    for (const r of RANGES) expect(rt(r.key).length).toBeGreaterThan(0);
+  });
+  it("error hints strip the internal prefix and have a fallback", () => {
+    expect(repoErrorHint("repo.git: fatal: kaputt").body).toBe("fatal: kaputt");
+    expect(githubErrorHint("github.http: HTTP 500")).toMatch(/nicht verfügbar/);
+  });
+  it("a delta from zero is an increase, zero to zero is flat", () => {
+    expect(deltaLabel(3, 0).text).toBe("↑ 3");
+    expect(deltaLabel(0, 0).text).toBe("±0");
+  });
+  it("coverage exactly on a window start still counts as complete", () => {
+    expect(windowsComplete(1000 - 86_400, 1000)).toEqual([true, false, false, false]);
   });
 });
 

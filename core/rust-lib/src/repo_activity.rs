@@ -124,6 +124,18 @@ mod tests {
     }
 
     #[test]
+    fn authors_are_counted_by_identity_key_and_empty_commits_still_count() {
+        // Same author key (e-mail) twice → one contributor; a commit touching
+        // no files (e.g. an empty merge-less commit) still counts as a commit.
+        let mut a = c(Some(NOW - 10), "same@x", &[]);
+        a.author_name = "Ann".into();
+        let mut b = c(Some(NOW - 20), "same@x", &[("f", 1, 0)]);
+        b.author_name = "Ann B.".into();
+        let r = recent_activity(&[a, b], &[], NOW);
+        assert_eq!((r.day.commits, r.day.authors, r.day.files), (2, 1, 1));
+    }
+
+    #[test]
     fn nothing_recent_is_zero_not_missing() {
         let r = recent_activity(&[], &[], NOW);
         assert_eq!(r.day, ActivityCounts::default());

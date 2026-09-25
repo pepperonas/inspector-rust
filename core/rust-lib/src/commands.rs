@@ -1416,6 +1416,21 @@ pub async fn repo_export(
     Ok(out.display().to_string())
 }
 
+/// GitHub pushes / PRs / issues for the last 24 h and 7 days (+ previous
+/// periods). Separate from `repo_analyze` so the git numbers show at once.
+#[tauri::command]
+pub async fn repo_github_activity(owner: String, repo: String) -> Result<crate::github_api::GithubActivity, String> {
+    // Same validation as a parsed URL — owner/repo go into the API path.
+    let u = crate::repo_url::parse_repo_url(&format!("https://github.com/{owner}/{repo}"))
+        .ok_or_else(|| "github.http: ungültiges Repo".to_string())?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64);
+        crate::github_api::fetch_activity(&u.owner, &u.repo, crate::repo_clone::github_token().as_deref(), now)
+    })
+    .await
+    .map_err(|e| format!("github task: {e}"))?
+}
+
 #[derive(serde::Serialize)]
 pub struct RepoConfig {
     clone_dir: String,

@@ -74,6 +74,7 @@ mod repo_stats;
 mod repo_activity;
 mod repo_url;
 mod repo_clone;
+mod github_api;
 mod report_style;
 mod screen_picker;
 mod screen_record;
@@ -876,6 +877,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::repo_analyze,
             commands::repo_export,
             commands::repo_clone,
+            commands::repo_github_activity,
             commands::get_repo_config,
             commands::set_repo_clone_dir,
             commands::set_github_token,

@@ -430,7 +430,7 @@
 
 **Latest release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/inspector-rust/releases/latest) — see the [CHANGELOG](./CHANGELOG.md) for what's new.
 
-**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) (incl. [every feature](https://inspector-rust.celox.io/#all-features), mirrored from [`features.txt`](./features.txt)) · **one-click download for your system:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
+**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) (incl. [every feature](https://inspector-rust.celox.io/#all-features), mirrored from [`features.txt`](./features.txt), plus the current lines of code and unit-test count from [`.github/repo-stats.json`](./.github/repo-stats.json) — both follow every push within 15 minutes) · **one-click download for your system:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
 
 | Platform | File | Notes |
 |----------|------|-------|
@@ -978,7 +978,7 @@ cargo llvm-cov --lib -p inspector-rust-core --summary-only
 cd core/frontend && npx vitest run --coverage --coverage.provider=v8 --coverage.include='src/lib/**'
 ```
 
-The test commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR. The headline **lines-of-code + test-count badges are auto-computed** from the real sources/runners — never hand-edited — by `pnpm update-badges` (`scripts/update-badges.mjs`, which also runs automatically as a `posttest` hook and aborts if a suite is red).
+The test commands run in [GitHub Actions CI](./.github/workflows/ci.yml) on every push and PR. The headline **lines-of-code + test-count badges are auto-computed** from the real sources/runners — never hand-edited — by `pnpm update-badges` (`scripts/update-badges.mjs`, which also runs automatically as a `posttest` hook and aborts if a suite is red). The same run writes the numbers to [`.github/repo-stats.json`](./.github/repo-stats.json), which the [product page](https://inspector-rust.celox.io) reads; `repo-stats.test.ts` keeps file and badges in agreement.
 
 ### Static analysis
 

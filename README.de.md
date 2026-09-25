@@ -430,7 +430,7 @@
 
 **Aktueller Release:** [![Latest Release](https://img.shields.io/github/v/release/pepperonas/inspector-rust?style=flat-square&label=latest&color=green)](https://github.com/pepperonas/inspector-rust/releases/latest) — siehe [CHANGELOG](./CHANGELOG.md) für die Neuerungen.
 
-**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) (inkl. [aller Funktionen](https://inspector-rust.celox.io/#all-features), gespiegelt aus [`features.txt`](./features.txt)) · **Download mit einem Klick für dein System:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
+**Website:** [inspector-rust.celox.io](https://inspector-rust.celox.io) (inkl. [aller Funktionen](https://inspector-rust.celox.io/#all-features), gespiegelt aus [`features.txt`](./features.txt), dazu Codezeilen und Unit-Test-Anzahl aus [`.github/repo-stats.json`](./.github/repo-stats.json) — beides folgt jedem Push binnen 15 Minuten) · **Download mit einem Klick für dein System:** [inspector-rust.celox.io/download](https://inspector-rust.celox.io/download)
 
 | Plattform | Datei | Hinweise |
 |-----------|-------|----------|
@@ -976,7 +976,7 @@ cargo llvm-cov --lib -p inspector-rust-core --summary-only
 cd core/frontend && npx vitest run --coverage --coverage.provider=v8 --coverage.include='src/lib/**'
 ```
 
-Die Test-Commands laufen in [GitHub-Actions-CI](./.github/workflows/ci.yml) bei jedem Push und PR. Die **LOC- + Test-Count-Badges werden automatisch** aus den echten Quellen/Runnern berechnet — nie von Hand — via `pnpm update-badges` (`scripts/update-badges.mjs`, läuft auch als `posttest`-Hook; bricht ab, wenn eine Suite rot ist).
+Die Test-Commands laufen in [GitHub-Actions-CI](./.github/workflows/ci.yml) bei jedem Push und PR. Die **LOC- + Test-Count-Badges werden automatisch** aus den echten Quellen/Runnern berechnet — nie von Hand — via `pnpm update-badges` (`scripts/update-badges.mjs`, läuft auch als `posttest`-Hook; bricht ab, wenn eine Suite rot ist). Derselbe Lauf schreibt die Zahlen nach [`.github/repo-stats.json`](./.github/repo-stats.json), die die [Produktseite](https://inspector-rust.celox.io) liest; `repo-stats.test.ts` hält Datei und Badges deckungsgleich.
 
 ### Statische Analyse
 

@@ -83,9 +83,22 @@ export function RepoPanel({
     };
   }, []);
 
+  // First analysis runs at once; a later argument edit waits until typing
+  // settles — every parseable prefix (`o/rep`) would otherwise be a real
+  // clone into the persistent cache.
+  const firstRunRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
-    run();
+    if (firstRunRef.current) {
+      firstRunRef.current = false;
+      run();
+    } else {
+      const t = setTimeout(run, ARG_DEBOUNCE_MS);
+      return () => {
+        clearTimeout(t);
+        aliveRef.current = false;
+      };
+    }
     return () => {
       aliveRef.current = false;
     };
@@ -187,6 +200,13 @@ export function RepoPanel({
         <div className="rounded-xl border border-[var(--color-border)] p-4">
           <p className="text-[12px] font-medium">{hint.title}</p>
           <p className="mt-1 text-[11px] leading-snug text-[var(--color-muted)]">{hint.body}</p>
+          <button
+            type="button"
+            onClick={run}
+            className="mt-2 flex items-center gap-1.5 rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
+          >
+            <RefreshCw size={12} /> Erneut versuchen
+          </button>
         </div>
       </Shell>
     );
@@ -447,6 +467,9 @@ export function RepoPanel({
     </div>
   );
 }
+
+/** Pause after the last argument edit before re-analysing. */
+const ARG_DEBOUNCE_MS = 600;
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => String(i));
 

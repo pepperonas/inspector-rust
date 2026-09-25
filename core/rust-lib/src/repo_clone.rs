@@ -239,13 +239,62 @@ fn filetime_touch(dir: &Path) -> std::io::Result<()> {
     std::fs::write(dir.join(".git/ir-last-used"), b"")
 }
 
-pub fn ensure_cached(
+
+/// One lock per cache directory, process-wide. Every sequence that fills,
+/// fetches, reads or copies a cache entry holds it — two panels (or a reopen
+/// mid-clone) on the same repo otherwise race: the losing `git clone` failed
+/// on "already exists" and its cleanup deleted the winner's directory.
+fn cache_lock(dir: &Path) -> std::sync::Arc<parking_lot::Mutex<()>> {
+    use std::collections::HashMap;
+    use std::sync::{Arc, OnceLock};
+    static LOCKS: OnceLock<parking_lot::Mutex<HashMap<PathBuf, Arc<parking_lot::Mutex<()>>>>> = OnceLock::new();
+    LOCKS
+        .get_or_init(Default::default)
+        .lock()
+        .entry(dir.to_path_buf())
+        .or_default()
+        .clone()
+}
+
+/// Ensure the cache entry (clone or fetch) and run `then` on it, all under
+/// the entry's lock. A token GitHub rejects is retried once without it.
+pub(crate) fn with_cached<T>(
+    src: &str,
+    dir: &Path,
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+    then: impl FnOnce(&Path) -> Result<T, String>,
+) -> Result<T, String> {
+    let lock = cache_lock(dir);
+    let _held = lock.lock();
+    retry_without_token(token, |t| ensure_cached_at(src, dir, t, &mut *on_progress))?;
+    then(dir)
+}
+
+/// A stored token that expired or was revoked makes GitHub reject even
+/// PUBLIC repos — so an auth failure with a token is retried once without it.
+pub(crate) fn retry_without_token<T>(
+    token: Option<&str>,
+    mut f: impl FnMut(Option<&str>) -> Result<T, String>,
+) -> Result<T, String> {
+    match f(token) {
+        Err(e) if token.is_some() && e.starts_with("repo.auth") => f(None),
+        r => r,
+    }
+}
+
+/// Analyse-side entry: ensure the cache and read its commits under the lock.
+pub fn cached_commits(
     u: &crate::repo_url::RepoUrl,
     token: Option<&str>,
     on_progress: &mut dyn FnMut(&str, u8),
-) -> Result<PathBuf, String> {
+) -> Result<(PathBuf, Vec<crate::repo_stats::Commit>), String> {
     let dir = cache_dir_for(u)?;
-    ensure_cached_at(&u.clone_url, &dir, token, on_progress)
+    let env = auth_env(None); // `git log` is local — no token needed
+    let commits = with_cached(&u.clone_url, &dir, token, on_progress, |d| {
+        crate::repo_stats::commits_from_dir(d, Some("origin/HEAD"), &env)
+    })?;
+    Ok((dir, commits))
 }
 
 fn dir_size(p: &Path) -> u64 {
@@ -276,7 +325,13 @@ pub fn prune_cache(keep: &Path) {
         }
     }
     for k in cache_evictions(&entries, CACHE_MAX_REPOS, CACHE_MAX_BYTES, &keep.to_string_lossy()) {
-        let _ = std::fs::remove_dir_all(&k);
+        // Never delete an entry another analysis/clone is working in.
+        let lock = cache_lock(Path::new(&k));
+        let held = lock.try_lock();
+        if held.is_some() {
+            let _ = std::fs::remove_dir_all(&k);
+        }
+        drop(held);
     }
 }
 
@@ -356,12 +411,14 @@ pub fn clone_to(
     token: Option<&str>,
     on_progress: &mut dyn FnMut(&str, u8),
 ) -> Result<PathBuf, String> {
-    let cached = cache_dir_for(u).ok().filter(|d| d.join(".git").exists());
-    if let Some(c) = &cached {
-        // Freshen before copying so the clone is current.
-        ensure_cached_at(&u.clone_url, c, token, on_progress)?;
+    if let Some(c) = cache_dir_for(u).ok().filter(|d| d.join(".git").exists()) {
+        // Freshen and copy under the entry's lock (see `cache_lock`).
+        let mut prog = |p: &str, n: u8| on_progress(p, n);
+        return with_cached(&u.clone_url, &c, token, &mut prog, |c| {
+            clone_to_at(&u.clone_url, &u.repo, Some(c), parent, None, &mut |_, _| {})
+        });
     }
-    clone_to_at(&u.clone_url, &u.repo, cached.as_deref(), parent, token, on_progress)
+    retry_without_token(token, |t| clone_to_at(&u.clone_url, &u.repo, None, parent, t, &mut *on_progress))
 }
 
 fn gh_path() -> Option<PathBuf> {
@@ -603,7 +660,7 @@ mod tests {
     fn live_github_roundtrip() {
         let (Ok(url), Ok(dest)) = (std::env::var("IR_LIVE_REPO"), std::env::var("IR_LIVE_DEST")) else { return };
         let t0 = std::time::Instant::now();
-        let mut log = |p: &str, n: u8| if n % 25 == 0 { eprintln!("  {p} {n} %") };
+        let mut log = |p: &str, n: u8| if n.is_multiple_of(25) { eprintln!("  {p} {n} %") };
         let a = crate::repo_stats::analyze_remote(&url, &mut log).unwrap();
         let all = a.ranges.iter().find(|r| r.range == crate::repo_stats::RangeKey::All).unwrap();
         eprintln!("first analysis {:?}: {} commits, bus factor {}", t0.elapsed(), all.stats.commits, all.stats.bus_factor);
@@ -619,6 +676,64 @@ mod tests {
         assert_ne!(p1, p2);
         assert!(p2.to_string_lossy().ends_with(" (2)"));
         assert!(std::fs::read_dir(&p1).unwrap().count() > 1, "working tree checked out");
+    }
+
+    #[test]
+    fn concurrent_analyses_of_one_repo_do_not_destroy_each_other() {
+        // Reopening the panel mid-clone runs two ensure+log sequences on the
+        // same cache dir at once — the loser used to delete the winner's dir.
+        let tmp = tmpdir("race");
+        let up = upstream(&tmp);
+        let cache = tmp.join("cache/o/r");
+        let src = up.to_string_lossy().to_string();
+        let results: Vec<Result<usize, String>> = std::thread::scope(|sc| {
+            let hs: Vec<_> = (0..6)
+                .map(|_| {
+                    let (src, cache) = (src.clone(), cache.clone());
+                    sc.spawn(move || {
+                        with_cached(&src, &cache, None, &mut |_, _| {}, |d| {
+                            crate::repo_stats::commits_from_dir(d, Some("origin/HEAD"), &auth_env(None)).map(|c| c.len())
+                        })
+                    })
+                })
+                .collect();
+            hs.into_iter().map(|h| h.join().unwrap()).collect()
+        });
+        for r in &results {
+            assert_eq!(r.as_ref().ok(), Some(&1), "{results:?}");
+        }
+        assert!(cache.join(".git").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn a_rejected_token_is_retried_without_it() {
+        let mut seen: Vec<Option<String>> = Vec::new();
+        let r: Result<u8, String> = retry_without_token(Some("old"), |t| {
+            seen.push(t.map(String::from));
+            if t.is_some() { Err("repo.auth: remote: Invalid username or token".into()) } else { Ok(7) }
+        });
+        assert_eq!(r, Ok(7));
+        assert_eq!(seen, vec![Some("old".to_string()), None]);
+        // No token → no second attempt; other errors are not retried.
+        let mut n = 0;
+        let _: Result<u8, String> = retry_without_token(None, |_| { n += 1; Err("repo.auth: x".into()) });
+        assert_eq!(n, 1);
+        let mut m = 0;
+        let _: Result<u8, String> = retry_without_token(Some("t"), |_| { m += 1; Err("repo.network: x".into()) });
+        assert_eq!(m, 1);
+    }
+
+    #[test]
+    fn a_missing_origin_head_on_a_filled_cache_is_repaired_not_read_as_empty() {
+        let tmp = tmpdir("nohead");
+        let up = upstream(&tmp);
+        let cache = tmp.join("cache/o/r");
+        ensure_cached_at(&up.to_string_lossy(), &cache, None, &mut |_, _| {}).unwrap();
+        git(&cache, &["symbolic-ref", "-d", "refs/remotes/origin/HEAD"]);
+        let n = crate::repo_stats::commits_from_dir(&cache, Some("origin/HEAD"), &auth_env(None)).unwrap().len();
+        assert_eq!(n, 1, "a repo with commits must not read as empty");
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

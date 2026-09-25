@@ -86,4 +86,27 @@ describe("RepoPanel", () => {
     const v = render(<RepoPanel arg="https://github.com/o/private" autoExport={false} focused onExit={() => {}} />);
     await waitFor(() => expect(v.getByText(/Kein Zugriff/)).toBeTruthy());
   });
+  it("the error card really retries (the hint promises it)", async () => {
+    repoAnalyze.mockRejectedValueOnce("repo.network: Could not resolve host");
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByText(/Keine Verbindung/));
+    fireEvent.click(v.getByRole("button", { name: /Erneut versuchen/ }));
+    await waitFor(() => expect(repoAnalyze).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(v.getAllByText("7").length).toBeGreaterThan(0));
+  });
+  it("editing the argument re-analyses once, after typing settles", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+      await waitFor(() => expect(repoAnalyze).toHaveBeenCalledTimes(1));
+      v.rerender(<RepoPanel arg="https://github.com/o/re" autoExport={false} focused onExit={() => {}} />);
+      v.rerender(<RepoPanel arg="https://github.com/o/rep" autoExport={false} focused onExit={() => {}} />);
+      v.rerender(<RepoPanel arg="https://github.com/o/repo" autoExport={false} focused onExit={() => {}} />);
+      await vi.advanceTimersByTimeAsync(1000);
+      expect(repoAnalyze).toHaveBeenCalledTimes(2);
+      expect(repoAnalyze).toHaveBeenLastCalledWith("https://github.com/o/repo");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

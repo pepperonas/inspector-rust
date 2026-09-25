@@ -356,13 +356,15 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
     let mut stats = RepoStats::default();
     let mut author_idx: BTreeMap<String, usize> = BTreeMap::new();
     let mut authors: Vec<(String, u64, u64)> = Vec::new();
-    let mut files: BTreeMap<String, (u64, u64)> = BTreeMap::new();
-    let mut file_authors: BTreeMap<String, BTreeSet<usize>> = BTreeMap::new();
+    // Borrowed keys (&'a str from the commits) — no per-file String clones;
+    // `analyze_ranges` runs this five times, so allocation dominates.
+    let mut files: BTreeMap<&'a str, (u64, u64)> = BTreeMap::new();
+    let mut file_authors: BTreeMap<&'a str, BTreeSet<usize>> = BTreeMap::new();
     let mut exts: BTreeMap<String, (u64, u64)> = BTreeMap::new();
     let mut months: BTreeMap<String, u64> = BTreeMap::new();
     let mut cats: BTreeMap<&'static str, u64> = BTreeMap::new();
     let mut dirs: BTreeMap<String, BTreeMap<usize, u64>> = BTreeMap::new();
-    let mut pairs: HashMap<(String, String), u64> = HashMap::new();
+    let mut pairs: HashMap<(&'a str, &'a str), u64> = HashMap::new();
     let mut day_counts: BTreeMap<i64, (String, u64)> = BTreeMap::new();
     let mut days: Vec<i64> = Vec::new();
     let mut msg_len_total: u64 = 0;
@@ -397,10 +399,10 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
             stats.insertions += ins;
             stats.deletions += del;
             authors[a].2 += churn;
-            let fe = files.entry(path.clone()).or_insert((0, 0));
+            let fe = files.entry(path.as_str()).or_insert((0, 0));
             fe.0 += 1;
             fe.1 += churn;
-            file_authors.entry(path.clone()).or_default().insert(a);
+            file_authors.entry(path.as_str()).or_default().insert(a);
             let ext = extension_of(path);
             exts.entry(ext.clone()).or_insert((0, 0)).1 += churn;
             touched_exts.insert(ext);
@@ -413,12 +415,12 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
             *dirs.entry(d).or_default().entry(a).or_insert(0) += 1;
         }
         if (2..=CO_CHANGE_MAX_FILES).contains(&c.files.len()) {
-            let mut ps: Vec<&String> = c.files.iter().map(|(p, _, _)| p).collect();
-            ps.sort();
+            let mut ps: Vec<&'a str> = c.files.iter().map(|(p, _, _)| p.as_str()).collect();
+            ps.sort_unstable();
             ps.dedup();
             for i in 0..ps.len() {
                 for j in i + 1..ps.len() {
-                    *pairs.entry((ps[i].clone(), ps[j].clone())).or_insert(0) += 1;
+                    *pairs.entry((ps[i], ps[j])).or_insert(0) += 1;
                 }
             }
         }
@@ -449,7 +451,7 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
         .iter()
         .filter_map(|(path, (changes, _))| {
             let n = file_authors.get(path).map_or(0, |s| s.len() as u64);
-            (*changes >= 3 && n <= 2).then(|| Hotspot { path: path.clone(), changes: *changes, authors: n })
+            (*changes >= 3 && n <= 2).then(|| Hotspot { path: (*path).to_string(), changes: *changes, authors: n })
         })
         .collect();
     hs.sort_by(|a, b| b.changes.cmp(&a.changes).then(a.path.cmp(&b.path)));
@@ -458,7 +460,7 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
 
     let mut fv: Vec<FileStat> = files
         .into_iter()
-        .map(|(path, (changes, churn))| FileStat { path, changes, churn })
+        .map(|(path, (changes, churn))| FileStat { path: path.to_string(), changes, churn })
         .collect();
     fv.sort_by(|a, b| b.changes.cmp(&a.changes).then(b.churn.cmp(&a.churn)).then(a.path.cmp(&b.path)));
     fv.truncate(15);
@@ -493,7 +495,7 @@ pub fn aggregate<'a>(commits: impl IntoIterator<Item = &'a Commit>) -> RepoStats
     let mut cv: Vec<CoChange> = pairs
         .into_iter()
         .filter(|(_, n)| *n >= 2)
-        .map(|((a, b), count)| CoChange { a, b, count })
+        .map(|((a, b), count)| CoChange { a: a.to_string(), b: b.to_string(), count })
         .collect();
     cv.sort_by(|x, y| y.count.cmp(&x.count).then(x.a.cmp(&y.a)).then(x.b.cmp(&y.b)));
     cv.truncate(10);
@@ -600,14 +602,52 @@ fn git_log(dir: &std::path::Path, rev: Option<&str>, env: &[(String, String)]) -
     }
     let out = cmd.output().map_err(|e| format!("git nicht gefunden: {e}"))?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
-        // An empty repo has no HEAD / origin/HEAD — that is "no commits", not a failure.
-        if err.contains("does not have any commits") || err.contains("unknown revision") || err.contains("ambiguous argument") {
+        let err = String::from_utf8_lossy(&out.stderr).into_owned();
+        let missing_ref = err.contains("does not have any commits")
+            || err.contains("unknown revision")
+            || err.contains("ambiguous argument");
+        if missing_ref {
+            // Truly empty (no remote refs at all) → "no commits". A FILLED
+            // cache whose origin/HEAD went missing (default branch renamed,
+            // set-head failed) must not read as empty: repair once, re-read.
+            if let Some(r) = rev.filter(|r| r.starts_with("origin/")) {
+                if has_remote_refs(dir) {
+                    let _ = std::process::Command::new("git")
+                        .current_dir(dir)
+                        .args(["remote", "set-head", "origin", "--auto"])
+                        .env("GIT_TERMINAL_PROMPT", "0")
+                        .envs(env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
+                        .output();
+                    let mut retry = std::process::Command::new("git");
+                    retry
+                        .current_dir(dir)
+                        .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
+                        .arg(format!("--pretty=format:{fmt}"))
+                        .arg(r);
+                    let again = retry.output().map_err(|e| format!("git nicht gefunden: {e}"))?;
+                    if again.status.success() {
+                        return Ok(String::from_utf8_lossy(&again.stdout).into_owned());
+                    }
+                    return Err(format!(
+                        "repo.git: {r} fehlt im Cache — {}",
+                        String::from_utf8_lossy(&again.stderr).trim()
+                    ));
+                }
+            }
             return Ok(String::new());
         }
         return Err(format!("git log fehlgeschlagen: {}", err.trim()));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn has_remote_refs(dir: &std::path::Path) -> bool {
+    std::process::Command::new("git")
+        .current_dir(dir)
+        .args(["for-each-ref", "--count=1", "refs/remotes/origin/"])
+        .output()
+        .map(|o| o.status.success() && !o.stdout.is_empty())
+        .unwrap_or(false)
 }
 
 pub fn commits_from_dir(
@@ -656,9 +696,7 @@ pub fn analyze_remote(
     }
     if let Some(gh) = crate::repo_url::parse_repo_url(url) {
         let token = crate::repo_clone::github_token();
-        let dir = crate::repo_clone::ensure_cached(&gh, token.as_deref(), on_progress)?;
-        let env = crate::repo_clone::auth_env(token.as_deref());
-        let commits = commits_from_dir(&dir, Some("origin/HEAD"), &env)?;
+        let (dir, commits) = crate::repo_clone::cached_commits(&gh, token.as_deref(), on_progress)?;
         crate::repo_clone::prune_cache(&dir);
         return Ok(finish(gh.repo.clone(), gh.web_url.clone(), Some(gh), &commits));
     }
@@ -1195,5 +1233,25 @@ mod tests {
     fn empty_range_html_says_so() {
         let html = build_html(&aggregate(std::iter::empty::<&Commit>()), RangeKey::D30);
         assert!(html.contains("Keine Commits in diesem Zeitraum"));
+    }
+
+    /// Manual benchmark: `cargo test --release -p inspector-rust-core --lib repo_bench -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn repo_bench_analyze_ranges() {
+        let mut raw = String::new();
+        for i in 0..30_000u32 {
+            let day = 1 + (i % 28);
+            let month = 1 + (i / 2500) % 12;
+            let n = 3 + (i % 25) as usize; // up to 27 files per commit
+            let files: Vec<(String, u64, u64)> =
+                (0..n).map(|f| (format!("src/mod{}/file{}.rs", (i as usize + f) % 40, (i as usize * 7 + f) % 400), 3, 1)).collect();
+            let fr: Vec<(&str, u64, u64)> = files.iter().map(|(p, a, d)| (p.as_str(), *a, *d)).collect();
+            raw.push_str(&rec(&format!("2025-{month:02}-{day:02}T10:00:00+00:00"), &format!("A{}", i % 17), &format!("a{}@x", i % 17), "feat: x", &fr));
+        }
+        let commits = parse_commits(&raw);
+        let t = std::time::Instant::now();
+        let r = analyze_ranges(&commits);
+        eprintln!("analyze_ranges: {} commits, {:?}, co_change[0]={:?}", commits.len(), t.elapsed(), r[4].stats.co_change.first());
     }
 }

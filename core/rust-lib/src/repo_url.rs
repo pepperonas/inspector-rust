@@ -43,11 +43,10 @@ fn valid_repo(s: &str) -> bool {
 }
 
 fn strip_prefix_ci<'a>(s: &'a str, p: &str) -> Option<&'a str> {
-    if s.len() >= p.len() && s[..p.len()].eq_ignore_ascii_case(p) {
-        Some(&s[p.len()..])
-    } else {
-        None
-    }
+    // `get` instead of `[..]`: a byte index inside a multi-byte char must
+    // yield "no match", never a panic (user input reaches this).
+    s.get(..p.len()).filter(|h| h.eq_ignore_ascii_case(p))?;
+    s.get(p.len()..)
 }
 
 pub fn parse_repo_url(text: &str) -> Option<RepoUrl> {
@@ -83,10 +82,9 @@ pub fn parse_repo_url(text: &str) -> Option<RepoUrl> {
     }
     let owner = segs[0];
     let repo = segs[1];
-    let repo = if repo.len() > 4 && repo[repo.len() - 4..].eq_ignore_ascii_case(".git") {
-        &repo[..repo.len() - 4]
-    } else {
-        repo
+    let repo = match repo.len().checked_sub(4).and_then(|i| repo.get(i..).map(|t| (i, t))) {
+        Some((i, tail)) if i > 0 && tail.eq_ignore_ascii_case(".git") => &repo[..i],
+        _ => repo,
     };
     if RESERVED_OWNERS.contains(&owner.to_ascii_lowercase().as_str()) {
         return None;

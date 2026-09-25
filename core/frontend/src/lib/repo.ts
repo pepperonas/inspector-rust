@@ -131,6 +131,6 @@ export function repoErrorHint(err: string): { title: string; body: string } {
       body: "Privat oder nicht vorhanden. `gh auth login` im Terminal ausführen oder ein Token in Settings → Repositories hinterlegen.",
     };
   if (err.startsWith("repo.network"))
-    return { title: "Keine Verbindung zu GitHub.", body: "Netz prüfen und mit R erneut versuchen." };
+    return { title: "Keine Verbindung zu GitHub.", body: "Netz prüfen und erneut versuchen." };
   return { title: "Analyse fehlgeschlagen", body: err.replace(/^repo\.git:\s*/, "") };
 }

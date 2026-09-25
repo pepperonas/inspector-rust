@@ -64,8 +64,12 @@ Pull Requests geöffnet und gemergt, Issues geöffnet und geschlossen. Grenzen:
 
 - Ein Push-Ereignis enthält seit 2025 keine Commit-Anzahl mehr — gezählt werden
   Pushes, nicht gepushte Commits.
-- Die Events-API liefert höchstens 300 Ereignisse; ist die Grenze erreicht,
-  steht „≥ n“.
+- Je Art (Pushes, Pull Requests, Issues) werden höchstens drei Seiten à 100
+  geholt (Pull Requests und Issues nach letzter Änderung sortiert). Reicht das
+  nicht über 14 Tage, weiß die App, ab wann die Daten vollständig sind: nur die
+  Fenster davor zeigen „≥ n“, und ein Vergleich erscheint nur, wenn beide
+  Perioden vollständig sind — sonst „—“. So entsteht nie ein falsches „↑“
+  gegen eine abgeschnittene Vorwoche.
 - GitHub meldet Ereignisse mit 30 Sekunden bis einigen Stunden Verzögerung —
   ein gerade eben gemachter Push fehlt eventuell noch.
 - Private Repos brauchen `gh auth login` oder ein Token (Settings →

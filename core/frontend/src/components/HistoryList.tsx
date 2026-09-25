@@ -302,6 +302,8 @@ export function HistoryList({
                                                         ? `clown-${entry.data.key}`
                                                       : entry.kind === "xhype"
                                                         ? "xhype"
+                                                      : entry.kind === "repo-url"
+                                                        ? `repo-${entry.data.owner}/${entry.data.repo}`
                                                         : `c-${entry.data.id}`;
               return (
                 <HistoryItem

@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import {
-  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, Image, KeyRound, Laugh, Palette, Pin, Skull, SlidersHorizontal, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
+  BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, GitBranch, Image, KeyRound, Laugh, Palette, Pin, Skull, SlidersHorizontal, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
 import { isCustomCommandEntry, type ListEntry } from "../lib/types";
 import { LANE_W, derivedKindLabel, visibleRails, type Rail } from "../lib/lineage";
@@ -102,6 +102,7 @@ function TypeIcon({ entry }: { entry: ListEntry }) {
   if (entry.kind === "clown") return <Drama size={size} className={cls} />;
   if (entry.kind === "figlet-font") return <Type size={size} className={cls} />;
   if (entry.kind === "social") return <Download size={size} className={cls} />;
+  if (entry.kind === "repo-url") return <GitBranch size={size} className={cls} />;
   if (entry.kind === "settings-section") return <SlidersHorizontal size={size} className={cls} />;
   switch (entry.data.content_type) {
     case "text":  return <Type size={size} className={cls} />;
@@ -161,6 +162,7 @@ export const HistoryItem = memo(function HistoryItem({
   const isFiglet = entry.kind === "figlet-font";
   const isSocial = entry.kind === "social";
   const isSettingsSection = entry.kind === "settings-section";
+  const isRepoUrl = entry.kind === "repo-url";
   // Custom commands get a reddish treatment so the user immediately sees
   // they're about to trigger a command rather than paste a clip / launch an
   // app. The kind set lives in `lib/types.ts::CUSTOM_COMMAND_KINDS` (one
@@ -187,6 +189,8 @@ export const HistoryItem = memo(function HistoryItem({
       ? `${entry.data.abbreviation}  ${entry.data.title || entry.data.body.split("\n")[0]}`
       : isMeme && entry.kind === "meme"
         ? entry.data.name
+        : isRepoUrl && entry.kind === "repo-url"
+          ? `Repo analysieren · ${entry.data.owner}/${entry.data.repo}`
         : isSocial && entry.kind === "social"
           ? `Download from ${platformLabel(entry.data.platform)}`
           : isCalc || isColor || isCommand || isSuggestion || isKillTarget || isOpener || isBruno || isHelp || isApp || isPwgen || isBpm || isEqualizer || isTotpManage || isTotp || isFinderFile || isFiglet || isXhype || isSettingsSection

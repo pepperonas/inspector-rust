@@ -10,6 +10,8 @@
  * against GitHub's character rules, so a parsed value can never smuggle a git
  * option or a path escape.
  */
+import type { ListEntry } from "./types";
+
 export interface RepoUrl {
   owner: string;
   repo: string;
@@ -66,4 +68,12 @@ export function findRepoUrl(text: string): RepoUrl | null {
     if (r) return r;
   }
   return null;
+}
+
+/** The search-bar row for a bare GitHub repo URL. Suppressed while an
+ *  explicit command parses (e.g. `repo <url>` already has its own row). */
+export function repoUrlEntry(query: string, hasCommand: boolean): ListEntry | null {
+  if (hasCommand) return null;
+  const r = parseRepoUrl(query);
+  return r ? { kind: "repo-url", data: r } : null;
 }

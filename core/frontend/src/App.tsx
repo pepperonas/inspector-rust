@@ -83,6 +83,7 @@ import { useSnippets } from "./hooks/useSnippets";
 import { playCrtOn, playCrtOff, primeCrtHidden, crtOffMs, CRT_ON_MS } from "./lib/md3-motion";
 import { currentAnimationStage } from "./lib/motion-stage";
 import { detectSocial } from "./lib/social";
+import { repoUrlEntry } from "./lib/repo-url";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
@@ -2618,6 +2619,23 @@ function App() {
     return t ? { kind: "social", data: t } : null;
   }, [query]);
 
+  // A bare GitHub repo URL → "Repo analysieren" row (v0.183.0). Enter opens
+  // the `repo` panel via dispatchCommand, so the panel/canonicalisation path
+  // is the one the `repo` command already uses.
+  const repoUrlRow = useMemo<ListEntry | null>(
+    () => repoUrlEntry(query, !!parsedCommand),
+    [query, parsedCommand],
+  );
+  // Same steps as the `repo` branch of dispatchCommand (canonical query +
+  // panel on + focus) — dispatchCommand lives inside `activate`, so the
+  // clip-preview button needs its own component-level entry point.
+  const openRepoPanel = useCallback((webUrl: string) => {
+    setQuery(`repo ${webUrl}`);
+    setRepoAutoExport(false);
+    setRepoMode(true);
+    setRepoFocus(true);
+  }, []);
+
   // Memoised so unrelated state changes (pwgen editing, brightness/sound focus,
   // toast state, …) don't rebuild the whole list and hand a fresh array
   // reference to HistoryList / the virtualizer every render. Every input below
@@ -2729,6 +2747,7 @@ function App() {
       ...(shazamSubEntry ? [shazamSubEntry] : []),
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
+      ...(repoUrlRow ? [repoUrlRow] : []),
       ...(openerEntry ? [openerEntry] : []),
       // EVERY keyword-triggered custom command outranks the app-launcher hit.
       // These dedicated command rows (bruno/pwgen/bpm/2fa+otp/rz) must therefore
@@ -2775,6 +2794,7 @@ function App() {
     shazamSubEntry,
     suggestionEntries,
     socialEntry,
+    repoUrlRow,
     openerEntry,
     appEntry,
     brunoEntry,
@@ -4423,6 +4443,9 @@ function App() {
         // reveals the file in Finder on completion.
         setSocialRunSignal((n) => n + 1);
         return;
+      } else if (target.kind === "repo-url") {
+        await dispatchCommand("repo", target.data.web_url);
+        return;
       } else if (target.kind === "help") {
         // `?`-index row: put the command into the search bar, ready to use —
         // with a trailing space when it takes an argument, so typing continues
@@ -5380,6 +5403,7 @@ function App() {
                     socialMode={socialMode}
                     onSocialModeChange={setSocialMode}
                     socialRunSignal={socialRunSignal}
+                    onAnalyzeRepo={openRepoPanel}
                     fakerCatalog={fakerCat}
                     fakerDefaults={fakerDef}
                     fakerReroll={fakerReroll}

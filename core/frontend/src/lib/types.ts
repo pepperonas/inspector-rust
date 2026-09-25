@@ -9,6 +9,7 @@ export interface ClownEntryView {
 }
 import type { CommandKind } from "./commands";
 import type { SocialTarget } from "./social";
+import type { RepoUrl } from "./repo-url";
 
 export type ContentType = "text" | "rtf" | "html" | "image" | "files";
 
@@ -228,7 +229,8 @@ export type ListEntry =
   | { kind: "meme"; data: MemeEntry }
   | { kind: "clown"; data: ClownEntryView }
   | { kind: "figlet-font"; data: FigletFontView }
-  | { kind: "social"; data: SocialTarget };
+  | { kind: "social"; data: SocialTarget }
+  | { kind: "repo-url"; data: RepoUrl };
 
 /** One font row in the `figlet` gallery: the font's metadata + a compact
  *  live sample of the user's text in that font (empty until fetched). The big
@@ -319,6 +321,7 @@ export const CUSTOM_COMMAND_KINDS: ReadonlySet<ListEntry["kind"]> = new Set([
   "xhype",
   "figlet-font",
   "social",
+  "repo-url",
   "calc",
 ] satisfies ListEntry["kind"][]);
 

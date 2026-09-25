@@ -3,7 +3,7 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { QrPreview } from "./QrPreview";
 import { STATE_LABELS, brunoSelfAssumptions, buildBrunoExport } from "../lib/bruno";
 import {
-  AudioLines, Calculator, Check, Copy, Download, ExternalLink, Loader2, Mail, MapPin, Music, Palette,
+  AudioLines, Calculator, Check, Copy, Download, ExternalLink, GitBranch, Loader2, Mail, MapPin, Music, Palette,
   Pencil, Phone, Plus, QrCode, Scissors, StickyNote, Type, Wand2, Zap,
 } from "lucide-react";
 import { SnippetEditor, type SnippetDraft } from "./SnippetEditor";
@@ -25,6 +25,7 @@ import { ExportRow } from "./ExportRow";
 import { TrimBar } from "./TrimBar";
 import { fmtClock, fullRange, isFullRange, sectionFor, type Range } from "../lib/trim-range";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
+import { findRepoUrl } from "../lib/repo-url";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
@@ -75,6 +76,8 @@ interface Props {
   onSocialModeChange?: (m: "video" | "audio") => void;
   /** Bumped by the global Enter key to trigger a download of `socialMode`. */
   socialRunSignal?: number;
+  /** A GitHub repo URL (row or inside a clip) should open the `repo` panel. */
+  onAnalyzeRepo?: (webUrl: string) => void;
   /** Faker catalogue + defaults (for the `faker` command preview) + a reroll
    *  signal bumped by ⌘/Ctrl+R. */
   fakerCatalog?: CatalogEntry[];
@@ -311,6 +314,7 @@ export function PreviewPanel({
   socialMode,
   onSocialModeChange,
   socialRunSignal,
+  onAnalyzeRepo,
   fakerCatalog = [],
   fakerDefaults,
   fakerReroll = 0,
@@ -407,6 +411,23 @@ export function PreviewPanel({
 
   // ── Color preview ──────────────────────────────────────────────────────────
   // ── Social download (URL typed/pasted into the search bar) ──────────────────
+  if (entry.kind === "repo-url") {
+    return (
+      <div className="flex h-full flex-col gap-3 p-4">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+          <GitBranch size={12} className="text-rose-500" />
+          <span>GitHub-Repository</span>
+        </div>
+        <p className="text-[15px] font-medium">{entry.data.owner}/{entry.data.repo}</p>
+        <p className="break-all font-[var(--font-mono)] text-[11px] text-[var(--color-muted)]">{entry.data.web_url}</p>
+        <p className="text-[12px] leading-snug text-[var(--color-muted)]">
+          Enter analysiert die Historie: Commits, Zeiträume, Heatmap, Hotspots, Bus-Faktor —
+          danach Export als HTML/PDF und Klonen mit ⌘K.
+        </p>
+      </div>
+    );
+  }
+
   if (entry.kind === "social") {
     return (
       <div className="flex h-full flex-col p-4">
@@ -1355,6 +1376,18 @@ export function PreviewPanel({
       {(() => {
         const social = detectSocial(clip.content_text);
         return social ? <SocialDownloadBar target={social} /> : null;
+      })()}
+      {(() => {
+        const gh = onAnalyzeRepo ? findRepoUrl(clip.content_text) : null;
+        return gh ? (
+          <button
+            type="button"
+            onClick={() => onAnalyzeRepo!(gh.web_url)}
+            className="mt-2 flex items-center gap-1.5 self-start rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
+          >
+            <GitBranch size={12} /> Repo analysieren · {gh.owner}/{gh.repo}
+          </button>
+        ) : null;
       })()}
       <TransformBar text={clip.content_text} sourceId={clip.id} />
     </div>

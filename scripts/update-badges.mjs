@@ -188,7 +188,44 @@ function countMetrics() {
   // binary, not the count of direct dependencies.
   const crates = (read("Cargo.lock").match(/^name = /gm) ?? []).length;
 
-  return { commands, docs, modules, crates, features };
+  // Every file below a directory (recursive), as paths relative to ROOT.
+  const walk = (dir) =>
+    readdirSync(join(ROOT, dir), { withFileTypes: true }).flatMap((e) =>
+      e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)],
+    );
+  const rustFiles = walk("core/rust-lib/src").filter((f) => f.endsWith(".rs"));
+  const rustSrc = rustFiles.map(read);
+
+  // Commands registered with Tauri's invoke_handler (one line each in lib.rs).
+  const ipc = (read("core/rust-lib/src/lib.rs").match(/^\s+commands::[a-z0-9_]+,/gm) ?? []).length;
+
+  // React components (one file each), without their tests.
+  const components = readdirSync(join(ROOT, "core/frontend/src/components")).filter(
+    (f) => f.endsWith(".tsx") && !f.endsWith(".test.tsx"),
+  ).length;
+
+  // Test suites: frontend test files + Rust files that carry a test module.
+  const tsTests = walk("core/frontend/src").filter((f) => /\.test\.tsx?$/.test(f)).length;
+  const suites = tsTests + rustSrc.filter((src) => src.includes("#[cfg(test)]")).length;
+
+  // Distinct SQLite tables the code creates.
+  const tableNames = new Set();
+  for (const src of rustSrc) {
+    for (const m of src.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)/gi)) tableNames.add(m[1].toLowerCase());
+  }
+
+  // Distinct event names Rust emits to the frontend (literal names).
+  const eventNames = new Set();
+  for (const src of rustSrc) {
+    for (const m of src.matchAll(/\.emit(?:_to)?\(\s*(?:[^,()]+,\s*)?"([a-z0-9:_-]+)"/g)) eventNames.add(m[1]);
+  }
+
+  // ⚠️ The frontend test `readme-badges.test.ts` recomputes each of these with
+  // the SAME patterns — change one side, change both.
+  return {
+    commands, docs, modules, crates, features,
+    ipc, components, suites, tables: tableNames.size, events: eventNames.size,
+  };
 }
 
 // ── Badge rewriting (idempotent) ─────────────────────────────────────────────
@@ -198,14 +235,21 @@ function countMetrics() {
 // READMEs: a rule that exists in only one language IS the drift it was written
 // to prevent (docs-22/modules-84 once sat beside the English 24/87 for weeks).
 // The "%20Seiten" variant simply doesn't match in the English file.
-function applyMetricBadges(s, { commands, docs, modules, crates, features }) {
+function applyMetricBadges(s, { commands, docs, modules, crates, features, ipc, components, suites, tables, events }) {
   return s
     .replace(/badge\/commands-\d+/g, `badge/commands-${commands}`)
     .replace(/badge\/docs-\d+%20pages/g, `badge/docs-${docs}%20pages`)
     .replace(/badge\/docs-\d+%20Seiten/g, `badge/docs-${docs}%20Seiten`)
     .replace(/badge\/rust%20modules-\d+/g, `badge/rust%20modules-${modules}`)
     .replace(/badge\/crates-\d+/g, `badge/crates-${crates}`)
-    .replace(/badge\/features-\d+/g, `badge/features-${features}`);
+    .replace(/badge\/features-\d+/g, `badge/features-${features}`)
+    // A second, capital-R modules badge once sat at 71 beside the computed 97.
+    .replace(/badge\/Rust%20modules-\d+/g, `badge/Rust%20modules-${modules}`)
+    .replace(/badge\/IPC%20commands-\d+/g, `badge/IPC%20commands-${ipc}`)
+    .replace(/badge\/UI%20components-\d+/g, `badge/UI%20components-${components}`)
+    .replace(/badge\/test%20suites-\d+/g, `badge/test%20suites-${suites}`)
+    .replace(/badge\/SQLite%20tables-\d+/g, `badge/SQLite%20tables-${tables}`)
+    .replace(/badge\/events-\d+/g, `badge/events-${events}`);
 }
 
 function writeEdits(edits) {

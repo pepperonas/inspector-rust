@@ -10,6 +10,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **What happened in the last 24 hours and 7 days — at the top of the `repo` panel.** A new **Aktivität 24 h / 7 Tage** card shows commits, lines added / removed, files changed, active contributors and new tags, each with the change vs the equally long period before (↑ / ↓ / ±0, deliberately neutral colours — fewer isn't automatically worse). Windows are rolling from now and half-open, so a commit exactly 24 h old counts to the previous day, never twice; the time used is the **commit** time, so a commit rewritten today (rebase, cherry-pick) counts today.
 - **GitHub numbers for GitHub repos:** pushes (Events API — since 2025 a push event no longer carries its commit count, so pushes are counted), pull requests opened / merged and issues opened / closed (pull requests filtered out of the issues list). Loaded separately after the analysis, with the saved token or `gh` login; rate limits, missing access and network errors show a hint while the git numbers stay. The Events API returns at most 300 events — when that cap is reached the count reads **≥ n**. Pull requests and issues are fetched newest-update-first; when any kind hits the 3-page limit inside the 14-day horizon, only the windows it no longer fully covers read **≥ n**, and a comparison is shown only when both periods are complete (— otherwise), so a truncated previous week can never produce a false ↑. GitHub also delivers events with a delay of up to several hours; the card says so.
 - The HTML/PDF export leads with the same table (GitHub rows when they were loaded).
+- **Six more computed README badges:** IPC commands, UI components, test suites, SQLite tables, events and Rust modules — all counted from the source by `scripts/update-badges.mjs` and pinned by `readme-badges.test.ts`.
+
+### Fixed
+- **Four README badges were hand-typed and stale:** IPC commands said 284 (real: 419), Rust modules 71 (97), SQLite tables 5 (16), events 33 (55). They are computed now, so they cannot drift again.
+
+### Tests
+- New unit tests for the repo feature's edge cases: bucket labels on junk input, month starts across year and leap boundaries, top-level-dir grouping, heatmap and churn SVG scaling (incl. a 100:1 skew), annotated vs lightweight tag dates on a real temp repo, GitHub timestamp parsing with offsets, open PRs/issues counted as opened only, contributor identity keys, clone-dir fallback, and frontend range titles / error hints / delta-from-zero / coverage boundaries. Every new test was mutation-checked.
 
 ## [0.184.0] - 2026-09-25
 

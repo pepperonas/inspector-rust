@@ -16,6 +16,18 @@ import winConf from "../../../../win/src-tauri/tauri.conf.json?raw";
 import linuxConf from "../../../../linux/src-tauri/tauri.conf.json?raw";
 import { COMMAND_DOCS } from "./commandDocs";
 import { COMMANDS } from "./commands";
+import libRs from "../../../rust-lib/src/lib.rs?raw";
+
+// The source trees the new count badges describe — the same globs the
+// update script walks, so a badge can't drift from what is actually there.
+const componentFiles = Object.keys(import.meta.glob("../components/*.tsx")).filter((f) => !f.endsWith(".test.tsx"));
+// ⚠️ Vite's glob leaves out the module that contains it — this very file —
+// so it is added back (the update script's directory walk sees it).
+const globbedTests = Object.keys(import.meta.glob("../**/*.test.{ts,tsx}"));
+const tsTestFiles = globbedTests.some((f) => f.endsWith("/readme-badges.test.ts"))
+  ? globbedTests
+  : [...globbedTests, "./readme-badges.test.ts"];
+const rustSources = import.meta.glob("../../../rust-lib/src/**/*.rs", { query: "?raw", import: "default", eager: true }) as Record<string, string>;
 
 /**
  * Badges are documentation, and documentation that quietly stops being true is
@@ -117,11 +129,60 @@ describe("badge parity and manifest agreement", () => {
     expect(badge(readmeDe, "features")).toBe(lines);
   });
 
+  it("IPC-commands badge equals the commands registered with Tauri", () => {
+    const ipc = (libRs.match(/^\s+commands::[a-z0-9_]+,/gm) ?? []).length;
+    expect(ipc, "no commands found — the pattern broke, not the app").toBeGreaterThan(100);
+    expect(badge(readmeEn, "IPC%20commands")).toBe(ipc);
+    expect(badge(readmeDe, "IPC%20commands")).toBe(ipc);
+  });
+
+  it("UI-components badge equals the component files", () => {
+    expect(componentFiles.length, "glob found nothing").toBeGreaterThan(10);
+    expect(badge(readmeEn, "UI%20components")).toBe(componentFiles.length);
+    expect(badge(readmeDe, "UI%20components")).toBe(componentFiles.length);
+  });
+
+  it("test-suites badge equals frontend test files + Rust files with a test module", () => {
+    const rust = Object.values(rustSources).filter((src) => src.includes("#[cfg(test)]")).length;
+    expect(tsTestFiles.length).toBeGreaterThan(10);
+    expect(rust).toBeGreaterThan(10);
+    expect(badge(readmeEn, "test%20suites")).toBe(tsTestFiles.length + rust);
+    expect(badge(readmeDe, "test%20suites")).toBe(tsTestFiles.length + rust);
+  });
+
+  it("SQLite-tables badge equals the distinct tables the code creates", () => {
+    const names = new Set<string>();
+    for (const src of Object.values(rustSources)) {
+      for (const m of src.matchAll(/CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?([a-z_][a-z0-9_]*)/gi)) names.add(m[1].toLowerCase());
+    }
+    expect(names.size).toBeGreaterThan(5);
+    expect(badge(readmeEn, "SQLite%20tables")).toBe(names.size);
+    expect(badge(readmeDe, "SQLite%20tables")).toBe(names.size);
+  });
+
+  it("events badge equals the distinct event names Rust emits", () => {
+    const names = new Set<string>();
+    for (const src of Object.values(rustSources)) {
+      for (const m of src.matchAll(/\.emit(?:_to)?\(\s*(?:[^,()]+,\s*)?"([a-z0-9:_-]+)"/g)) names.add(m[1]);
+    }
+    expect(names.size).toBeGreaterThan(10);
+    expect(badge(readmeEn, "events")).toBe(names.size);
+    expect(badge(readmeDe, "events")).toBe(names.size);
+  });
+
+  it("the capital-R 'Rust modules' badge agrees with the computed modules count", () => {
+    const m = badge(readmeEn, "rust%20modules");
+    for (const r of [readmeEn, readmeDe]) {
+      const cap = badge(r, "Rust%20modules");
+      if (cap !== null) expect(cap, "a second, hand-typed modules badge drifted").toBe(m);
+    }
+  });
+
   it("every computed badge shows the SAME value in English and German", () => {
     // ⚠️ This is the drift that actually happened: the German README sat at
     // docs-22/modules-84 beside the English 24/87 for weeks, because the
     // update script only carried rules for one language.
-    for (const key of ["commands", "docs", "rust%20modules", "crates", "features"]) {
+    for (const key of ["commands", "docs", "rust%20modules", "crates", "features", "IPC%20commands", "UI%20components", "test%20suites", "SQLite%20tables", "events"]) {
       expect(badge(readmeEn, key), `${key} missing in EN`).not.toBeNull();
       expect(badge(readmeDe, key), `${key} missing in DE`).toBe(badge(readmeEn, key));
     }

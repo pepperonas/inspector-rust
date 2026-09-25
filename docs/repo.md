@@ -39,11 +39,36 @@ wird **ab dem letzten Commit**, nicht ab heute: bei einem Repo, an dem seit
 Monaten niemand arbeitet, wären „30 Tage" sonst leer. Ein Zeitraum ohne
 Commits zeigt „Keine Commits in diesem Zeitraum".
 
+## Code-Änderungen
+
+Direkt unter den Zeitraum-Chips steht die Karte **Code-Änderungen**:
+hinzugefügte Zeilen (grün), gelöschte (rot) und das Netto, darunter ein
+Balkendiagramm je Zeitschritt — hinzugefügt nach oben, gelöscht nach unten,
+beide mit **derselben** Skala, damit die Proportionen stimmen — und die
+kumulative Netto-Linie. Die Null-Linie sitzt dort, wo die Daten sie brauchen:
+bei fast nur hinzugefügtem Code liegt sie weit unten, statt die halbe Fläche
+leer zu lassen. Der Export beginnt mit demselben Abschnitt.
+
+### Zeitachse
+
+Die Zeitschritte folgen dem Zeitraum und sind lückenlos (auch Tage/Wochen/
+Monate ohne Commit erscheinen):
+
+| Zeitraum | Zeitschritt |
+|---|---|
+| 30 T | Tag |
+| 90 T, 180 T | Woche (ab Montag) |
+| 1 J, Gesamt | Monat |
+
+Die Überschrift nennt den Zeitraum („Aktivität · letzte 30 Tage") — früher
+zählte sie die berührten Kalendermonate, sodass 30 Tage als „2 Monate"
+erschienen.
+
 ## Was gezeigt wird
 
 - **KPI-Kacheln:** Commits, Mitwirkende, aktive Tage, längste Commit-Serie,
   Zeilen ein/aus, Bus-Faktor.
-- **Aktivitäts-Timeline:** Commits pro Monat als Sparkline.
+- **Aktivitäts-Timeline:** Commits je Zeitschritt (Tag/Woche/Monat) als Sparkline.
 - **Wochentag & Uhrzeit:** wann committet wird, inkl. Spitzenzeit.
 - **Heatmap Wochentag × Stunde.**
 - **Beitragskalender** im GitHub-Stil (bei „1 J" und „Gesamt").

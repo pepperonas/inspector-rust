@@ -4,6 +4,14 @@ All notable changes to Inspector Rust are documented here.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.184.0] - 2026-09-25
+
+### Added
+- **Code changes at a glance in the `repo` panel.** Right under the range chips a **Code-Änderungen** card shows lines added, removed and net for the selected range, with a bar chart per time step (added up in green, removed down in red, one common scale) and the cumulative net line. The HTML/PDF export leads with the same section.
+
+### Fixed
+- **The 30-day view no longer says "2 Monate".** The activity heading counted the calendar months a 30-day window touches. Every range now has its own gapless timeline — **days** for 30 T, **Monday-weeks** for 90/180 T, **months** for 1 J / Gesamt — and the heading names the range ("Aktivität · letzte 30 Tage"); the export's activity section follows the same buckets.
+
 ## [0.183.0] - 2026-09-25
 
 ### Added

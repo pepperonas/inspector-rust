@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { RANGES, heatLevel, calendarCells, repoErrorHint } from "./repo";
+import { RANGES, heatLevel, calendarCells, repoErrorHint, deltaLabel, githubErrorHint } from "./repo";
 import {
   WEEKDAY_LABELS,
   categoryColor,
@@ -125,5 +125,19 @@ describe("timeline display (v0.183.x)", () => {
   });
   it("empty timeline → no geometry", () => {
     expect(churnGeometry([], 300, 100).bars).toEqual([]);
+  });
+});
+
+describe("recent activity helpers", () => {
+  it("labels the change vs the previous period neutrally", () => {
+    expect(deltaLabel(5, 2)).toEqual({ text: "↑ 3", title: "Vorperiode: 2" });
+    expect(deltaLabel(1, 4)).toEqual({ text: "↓ 3", title: "Vorperiode: 4" });
+    expect(deltaLabel(3, 3)).toEqual({ text: "±0", title: "Vorperiode: 3" });
+  });
+  it("turns GitHub API errors into hints", () => {
+    expect(githubErrorHint("github.rate_limit: HTTP 403")).toMatch(/Abfragelimit/);
+    expect(githubErrorHint("github.not_found: HTTP 404")).toMatch(/nicht gefunden|kein Zugriff/i);
+    expect(githubErrorHint("github.network: timeout")).toMatch(/nicht erreichbar/);
+    expect(githubErrorHint("repo.auth: HTTP 401")).toMatch(/Token/);
   });
 });

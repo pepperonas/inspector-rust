@@ -2860,6 +2860,10 @@ export interface RepoDayCount { date: string; commits: number }
 export interface RepoHotspot { path: string; changes: number; authors: number }
 export interface RepoDirStat { dir: string; commits: number; authors: number; bus_factor: number }
 export interface RepoCoChange { a: string; b: string; count: number }
+export interface ActivityCounts { commits: number; insertions: number; deletions: number; files: number; authors: number; tags: number }
+export interface RecentActivity { now: number; day: ActivityCounts; day_prev: ActivityCounts; week: ActivityCounts; week_prev: ActivityCounts }
+export interface GithubCounts { pushes: number; prs_opened: number; prs_merged: number; issues_opened: number; issues_closed: number }
+export interface GithubActivity { day: GithubCounts; day_prev: GithubCounts; week: GithubCounts; week_prev: GithubCounts; pushes_capped: boolean }
 export interface RepoBucket { start: string; commits: number; insertions: number; deletions: number }
 export interface RepoStats {
   name: string;
@@ -2891,7 +2895,7 @@ export interface RepoStats {
   granularity: "day" | "week" | "month" | "";
 }
 export interface RangedStats { range: RangeKey; stats: RepoStats }
-export interface RepoAnalysis { name: string; source: string; github: RepoUrl | null; ranges: RangedStats[] }
+export interface RepoAnalysis { name: string; source: string; github: RepoUrl | null; ranges: RangedStats[]; recent: RecentActivity }
 export interface RepoConfig { clone_dir: string; has_token: boolean; gh_available: boolean }
 export interface RepoProgress { op: "analyze" | "clone"; phase: string; percent: number }
 
@@ -2901,8 +2905,18 @@ export function repoAnalyze(target: string | null): Promise<RepoAnalysis> {
   return invoke("repo_analyze", { target });
 }
 /** Write one range's stats to ~/Downloads (no re-clone); returns the path. */
-export function repoExport(stats: RepoStats, range: RangeKey, format: "html" | "pdf" = "html"): Promise<string> {
-  return invoke("repo_export", { stats, range, format });
+export function repoExport(
+  stats: RepoStats,
+  range: RangeKey,
+  format: "html" | "pdf" = "html",
+  recent?: RecentActivity,
+  github: GithubActivity | null = null,
+): Promise<string> {
+  return invoke("repo_export", { stats, range, format, recent, github });
+}
+/** GitHub pushes / PRs / issues for 24 h and 7 days (+ previous periods). */
+export function repoGithubActivity(owner: string, repo: string): Promise<GithubActivity> {
+  return invoke("repo_github_activity", { owner, repo });
 }
 /** Clone into the configured folder (`name (2)` … when taken); returns the path. */
 export function repoClone(url: string): Promise<string> {

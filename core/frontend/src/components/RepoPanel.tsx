@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { GitBranch, RefreshCw, Users, GitCommit, Flame, CalendarDays, Download } from "lucide-react";
-import { repoAnalyze, repoExport, repoClone, type RepoAnalysis, type RepoProgress, type RangeKey, type RepoStats } from "../lib/ipc";
+import {
+  repoAnalyze,
+  repoExport,
+  repoClone,
+  repoGithubActivity,
+  type RepoAnalysis,
+  type RepoProgress,
+  type RangeKey,
+  type RepoStats,
+  type GithubActivity,
+  type RecentActivity,
+} from "../lib/ipc";
 import { ExportRow, type ExportFormat } from "./ExportRow";
 import {
   WEEKDAY_LABELS,
@@ -20,6 +31,8 @@ import {
   bucketLabel,
   churnGeometry,
   netTotal,
+  deltaLabel,
+  githubErrorHint,
 } from "../lib/repo";
 
 /**
@@ -108,18 +121,33 @@ export function RepoPanel({
     };
   }, [run]);
 
+  const [gh, setGh] = useState<GithubActivity | null>(null);
+  const [ghErr, setGhErr] = useState<string | null>(null);
+  const ghRepo = analysis?.github ? `${analysis.github.owner}/${analysis.github.repo}` : null;
+  useEffect(() => {
+    setGh(null);
+    setGhErr(null);
+    if (!ghRepo) return;
+    let dead = false;
+    const [o, r] = ghRepo.split("/");
+    repoGithubActivity(o, r)
+      .then((a) => { if (!dead) setGh(a); })
+      .catch((e) => { if (!dead) setGhErr(String(e)); });
+    return () => { dead = true; };
+  }, [ghRepo, analysis]);
+
   const [exporting, setExporting] = useState<string | null>(null);
   const doExport = useCallback(
     (fmt: ExportFormat = "html") => {
       if (!stats) return;
       setExporting(fmt);
       setNote("Exportiere…");
-      repoExport(stats, range, fmt === "pdf" ? "pdf" : "html")
+      repoExport(stats, range, fmt === "pdf" ? "pdf" : "html", analysis?.recent, gh)
         .then((path) => setNote(`Gespeichert: ${path.split("/").pop()}`))
         .catch((e) => setNote(String(e)))
         .finally(() => setExporting(null));
     },
-    [stats, range],
+    [stats, range, analysis, gh],
   );
 
   const [cloning, setCloning] = useState(false);
@@ -240,6 +268,7 @@ export function RepoPanel({
       <p className="-mt-1 text-[10px] text-[var(--color-muted)]">
         {shortDate(stats.first_commit)} → {shortDate(stats.last_commit)}
       </p>
+      <RecentCard recent={analysis.recent} gh={gh} ghErr={ghErr} isGithub={!!analysis.github} />
       <div className="flex flex-wrap items-center gap-1" role="group" aria-label="Zeitraum">
         {RANGES.map((r) => (
           <button
@@ -469,6 +498,73 @@ export function RepoPanel({
           ⌘E HTML · ⌘P PDF{analysis.github ? " · ⌘K klonen" : ""} · Esc schließen
         </p>
       )}
+    </div>
+  );
+}
+
+function DeltaCell({ cur, prev, capped }: { cur: number; prev: number; capped?: boolean }) {
+  const d = deltaLabel(cur, prev);
+  return (
+    <td className="py-0.5 text-right tabular-nums">
+      {capped ? "≥ " : ""}
+      {formatNum(cur)}{" "}
+      <span className="text-[10px] text-[var(--color-muted)]" title={d.title}>{d.text}</span>
+    </td>
+  );
+}
+
+function RecentCard({ recent, gh, ghErr, isGithub }: { recent: RecentActivity; gh: GithubActivity | null; ghErr: string | null; isGithub: boolean }) {
+  const git: [string, (c: RecentActivity["day"]) => number][] = [
+    ["Commits", (c) => c.commits],
+    ["Zeilen +", (c) => c.insertions],
+    ["Zeilen −", (c) => c.deletions],
+    ["Dateien", (c) => c.files],
+    ["Mitwirkende", (c) => c.authors],
+    ["Tags", (c) => c.tags],
+  ];
+  const hub: [string, (c: GithubActivity["day"]) => number, boolean][] = gh
+    ? [
+        ["Pushes", (c) => c.pushes, gh.pushes_capped],
+        ["PRs geöffnet", (c) => c.prs_opened, false],
+        ["PRs gemergt", (c) => c.prs_merged, false],
+        ["Issues geöffnet", (c) => c.issues_opened, false],
+        ["Issues geschlossen", (c) => c.issues_closed, false],
+      ]
+    : [];
+  return (
+    <div className="rounded-xl border border-[var(--color-border)] p-3 [contain:content]">
+      <p className="mb-1 text-[11px] font-medium">Aktivität 24 h / 7 Tage</p>
+      <table className="w-full text-[11px]">
+        <thead>
+          <tr className="text-[10px] text-[var(--color-muted)]">
+            <th className="text-left font-normal" />
+            <th className="text-right font-normal">24 h</th>
+            <th className="text-right font-normal">7 Tage</th>
+          </tr>
+        </thead>
+        <tbody>
+          {git.map(([label, f]) => (
+            <tr key={label}>
+              <td className="py-0.5 text-[var(--color-muted)]">{label}</td>
+              <DeltaCell cur={f(recent.day)} prev={f(recent.day_prev)} />
+              <DeltaCell cur={f(recent.week)} prev={f(recent.week_prev)} />
+            </tr>
+          ))}
+          {hub.map(([label, f, capped]) => (
+            <tr key={label}>
+              <td className="py-0.5 text-[var(--color-muted)]">{label}</td>
+              <DeltaCell cur={f(gh!.day)} prev={f(gh!.day_prev)} capped={capped} />
+              <DeltaCell cur={f(gh!.week)} prev={f(gh!.week_prev)} capped={capped} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {isGithub && !gh && !ghErr && <p className="mt-1 text-[10px] text-[var(--color-muted)]">GitHub-Werte werden geladen…</p>}
+      {ghErr && <p className="mt-1 text-[10px] text-[var(--color-muted)]">{githubErrorHint(ghErr)}</p>}
+      <p className="mt-1 text-[10px] text-[var(--color-muted)]">
+        Vergleich zur gleich langen Vorperiode · Git: Haupt-Branch ohne Merges
+        {isGithub ? " · Pushes: alle Branches, GitHub meldet sie mit bis zu einigen Stunden Verzögerung" : ""}
+      </p>
     </div>
   );
 }

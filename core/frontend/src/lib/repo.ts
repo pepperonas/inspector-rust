@@ -218,3 +218,17 @@ export function churnGeometry(
   });
   return { zeroY, bars, netPoints };
 }
+
+/** Neutral change vs the previous period — fewer isn't automatically worse. */
+export function deltaLabel(cur: number, prev: number): { text: string; title: string } {
+  const text = cur > prev ? `↑ ${cur - prev}` : cur < prev ? `↓ ${prev - cur}` : "±0";
+  return { text, title: `Vorperiode: ${prev}` };
+}
+
+export function githubErrorHint(err: string): string {
+  if (err.startsWith("github.rate_limit")) return "GitHub-Abfragelimit erreicht — `gh auth login` oder ein Token in Settings → Repositories erhöht es.";
+  if (err.startsWith("github.not_found")) return "Repo bei GitHub nicht gefunden oder kein Zugriff (privat?).";
+  if (err.startsWith("repo.auth")) return "GitHub lehnt das Token ab — Token in Settings → Repositories prüfen.";
+  if (err.startsWith("github.network")) return "GitHub nicht erreichbar — Git-Werte oben sind trotzdem aktuell.";
+  return "GitHub-Werte nicht verfügbar.";
+}

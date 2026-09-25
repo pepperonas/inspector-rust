@@ -1,14 +1,16 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, cleanup, fireEvent, waitFor } from "@testing-library/react";
-import type { RepoAnalysis, RepoStats, RangeKey } from "../lib/ipc";
+import type { RepoAnalysis, RepoStats, RangeKey, GithubActivity } from "../lib/ipc";
 
 const repoAnalyze = vi.fn<(t: string | null) => Promise<RepoAnalysis>>();
 const repoExport = vi.fn<(s: RepoStats, r: RangeKey, f: "html" | "pdf") => Promise<string>>();
 const repoClone = vi.fn<(u: string) => Promise<string>>();
+const repoGithubActivity = vi.fn<(o: string, r: string) => Promise<GithubActivity>>();
 vi.mock("../lib/ipc", () => ({
   repoAnalyze: (t: string | null) => repoAnalyze(t),
   repoExport: (s: RepoStats, r: RangeKey, f: "html" | "pdf") => repoExport(s, r, f),
   repoClone: (u: string) => repoClone(u),
+  repoGithubActivity: (o: string, r: string) => repoGithubActivity(o, r),
 }));
 vi.mock("@tauri-apps/api/event", () => ({ listen: async () => () => undefined }));
 
@@ -34,6 +36,13 @@ function stats(commits: number): RepoStats {
 const analysis: RepoAnalysis = {
   name: "r", source: "https://github.com/o/r",
   github: { owner: "o", repo: "r", web_url: "https://github.com/o/r", clone_url: "https://github.com/o/r.git" },
+  recent: {
+    now: 0,
+    day: { commits: 3, insertions: 10, deletions: 1, files: 4, authors: 1, tags: 0 },
+    day_prev: { commits: 1, insertions: 0, deletions: 0, files: 0, authors: 0, tags: 0 },
+    week: { commits: 9, insertions: 50, deletions: 5, files: 7, authors: 3, tags: 1 },
+    week_prev: { commits: 12, insertions: 0, deletions: 0, files: 0, authors: 0, tags: 0 },
+  },
   ranges: [
     { range: "d30", stats: stats(0) },
     { range: "d90", stats: stats(2) },
@@ -43,7 +52,11 @@ const analysis: RepoAnalysis = {
   ],
 };
 
+const zero = { pushes: 0, prs_opened: 0, prs_merged: 0, issues_opened: 0, issues_closed: 0 };
+const gh: GithubActivity = { day: { ...zero, pushes: 4 }, day_prev: zero, week: { ...zero, pushes: 20 }, week_prev: zero, pushes_capped: true };
+
 beforeEach(() => {
+  repoGithubActivity.mockResolvedValue(gh);
   repoAnalyze.mockResolvedValue(analysis);
   repoExport.mockResolvedValue("/Users/u/Downloads/o-r-activity.html");
   repoClone.mockResolvedValue("/Users/u/claude/r (2)");
@@ -130,5 +143,35 @@ describe("RepoPanel", () => {
     fireEvent.click(v.getByRole("button", { name: "90 T" }));
     expect(v.getByText("Aktivität · letzte 90 Tage")).toBeTruthy();
     expect(v.queryByText(/Monate/)).toBeNull();
+  });
+  it("shows the 24 h / 7 day activity above the range chips, with deltas", async () => {
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByText("Aktivität 24 h / 7 Tage"));
+    const html = v.container.innerHTML;
+    expect(html.indexOf("Aktivität 24 h / 7 Tage")).toBeLessThan(html.indexOf('aria-label="Zeitraum"'));
+    expect(v.getByText("↑ 2")).toBeTruthy(); // commits 24 h: 3 vs 1
+    expect(v.getByText("↓ 3")).toBeTruthy(); // commits 7 d: 9 vs 12
+  });
+  it("loads GitHub numbers for a GitHub repo and marks a capped push count", async () => {
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => expect(repoGithubActivity).toHaveBeenCalledWith("o", "r"));
+    await waitFor(() => v.getByText("Pushes"));
+    // "≥ ", "20" and the delta are separate nodes inside one cell.
+    expect(v.getByText(/^≥ 20\b/)).toBeTruthy();
+    // GitHub delivers events late (30 s – hours) — the card has to say so.
+    expect(v.getByText(/Verzögerung/)).toBeTruthy();
+  });
+  it("no GitHub block for a local repo", async () => {
+    repoAnalyze.mockResolvedValue({ ...analysis, github: null });
+    const v = render(<RepoPanel arg="~/x" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByText("Aktivität 24 h / 7 Tage"));
+    expect(repoGithubActivity).not.toHaveBeenCalled();
+    expect(v.queryByText("Pushes")).toBeNull();
+  });
+  it("a GitHub error shows a hint and keeps the git numbers", async () => {
+    repoGithubActivity.mockRejectedValue("github.rate_limit: HTTP 403");
+    const v = render(<RepoPanel arg="https://github.com/o/r" autoExport={false} focused onExit={() => {}} />);
+    await waitFor(() => v.getByText(/Abfragelimit/));
+    expect(v.getByText("↑ 2")).toBeTruthy();
   });
 });

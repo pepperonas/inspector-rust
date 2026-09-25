@@ -404,7 +404,7 @@ describe("repo wrappers (v0.183.0)", () => {
   it("repoExport passes the panel's stats + range + format", async () => {
     const stats = { commits: 3 } as unknown as ipc.RepoStats;
     await ipc.repoExport(stats, "d90", "pdf");
-    expect(mockInvoke).toHaveBeenCalledWith("repo_export", { stats, range: "d90", format: "pdf" });
+    expect(mockInvoke).toHaveBeenCalledWith("repo_export", { stats, range: "d90", format: "pdf", recent: undefined, github: null });
   });
   it("repoClone passes the url", async () => {
     await ipc.repoClone("u");
@@ -417,5 +417,18 @@ describe("repo wrappers (v0.183.0)", () => {
   it("setGithubToken passes the token", async () => {
     await ipc.setGithubToken("t");
     expect(mockInvoke).toHaveBeenCalledWith("set_github_token", { token: "t" });
+  });
+});
+
+describe("repo github activity wrapper (v0.185.0)", () => {
+  it("repoGithubActivity passes owner + repo", async () => {
+    await ipc.repoGithubActivity("o", "r");
+    expect(mockInvoke).toHaveBeenCalledWith("repo_github_activity", { owner: "o", repo: "r" });
+  });
+  it("repoExport forwards recent + github", async () => {
+    const stats = { commits: 1 } as unknown as ipc.RepoStats;
+    const recent = { now: 1 } as unknown as ipc.RecentActivity;
+    await ipc.repoExport(stats, "all", "html", recent, null);
+    expect(mockInvoke).toHaveBeenCalledWith("repo_export", { stats, range: "all", format: "html", recent, github: null });
   });
 });

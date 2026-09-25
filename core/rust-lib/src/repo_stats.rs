@@ -24,7 +24,6 @@ use serde::{Deserialize, Serialize};
 use crate::report_style as rs;
 use std::collections::BTreeMap;
 use std::process::Command;
-use std::time::Duration;
 
 pub const REC: char = '\u{1e}';
 pub const FLD: char = '\u{1f}';
@@ -315,7 +314,9 @@ pub fn parse_commits(raw: &str) -> Vec<Commit> {
     out
 }
 
-/// Pure: legacy entry point, kept for its callers + tests.
+/// Pure: the pre-v0.183 single-shot entry point; only the tests still use it
+/// (they pin that the commit model reproduces the old numbers exactly).
+#[cfg(test)]
 pub fn parse_git_log(raw: &str) -> RepoStats {
     aggregate(&parse_commits(raw))
 }
@@ -583,67 +584,103 @@ fn sanitize_slug(s: &str) -> String {
         .to_string()
 }
 
-const T_GIT: Duration = Duration::from_secs(30);
-
-/// Run `git log` with the repo2viz format in `dir`. Impure shell.
-fn git_log(dir: &std::path::Path) -> Result<String, String> {
+/// Run `git log` with the repo2viz format in `dir` (`rev` e.g. `origin/HEAD`
+/// for the no-checkout cache, whose local branch is stale after a fetch).
+fn git_log(dir: &std::path::Path, rev: Option<&str>, env: &[(String, String)]) -> Result<String, String> {
     let fmt = format!("{REC}%H{FLD}%aI{FLD}%aN{FLD}%aE{FLD}%s");
-    let out = std::process::Command::new("git")
-        .current_dir(dir) // not `-C <dir>` — keeps an untrusted path out of argv
+    let mut cmd = std::process::Command::new("git");
+    cmd.current_dir(dir) // not `-C <dir>` — keeps an untrusted path out of argv
         .args(["log", "--no-merges", "--numstat", "--date=iso-strict"])
-        .arg(format!("--pretty=format:{fmt}"))
-        .output()
-        .map_err(|e| format!("git nicht gefunden: {e}"))?;
+        .arg(format!("--pretty=format:{fmt}"));
+    if let Some(r) = rev {
+        cmd.arg(r);
+    }
+    for (k, v) in env {
+        cmd.env(k, v);
+    }
+    let out = cmd.output().map_err(|e| format!("git nicht gefunden: {e}"))?;
     if !out.status.success() {
-        return Err(format!("git log fehlgeschlagen: {}", String::from_utf8_lossy(&out.stderr).trim()));
+        let err = String::from_utf8_lossy(&out.stderr);
+        // An empty repo has no HEAD / origin/HEAD — that is "no commits", not a failure.
+        if err.contains("does not have any commits") || err.contains("unknown revision") || err.contains("ambiguous argument") {
+            return Ok(String::new());
+        }
+        return Err(format!("git log fehlgeschlagen: {}", err.trim()));
     }
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
-/// Analyse a LOCAL git repo directory (Finder selection / path). Errors if it
-/// isn't a git repo.
-pub fn analyze_local(dir: &std::path::Path) -> Result<RepoStats, String> {
+pub fn commits_from_dir(
+    dir: &std::path::Path,
+    rev: Option<&str>,
+    env: &[(String, String)],
+) -> Result<Vec<Commit>, String> {
+    Ok(parse_commits(&git_log(dir, rev, env)?))
+}
+
+#[derive(Serialize, Clone, Debug)]
+pub struct RepoAnalysis {
+    pub name: String,
+    pub source: String,
+    /// Set for GitHub repos — the panel offers "Klonen" only then.
+    pub github: Option<crate::repo_url::RepoUrl>,
+    pub ranges: Vec<RangedStats>,
+}
+
+fn finish(name: String, source: String, github: Option<crate::repo_url::RepoUrl>, commits: &[Commit]) -> RepoAnalysis {
+    let mut ranges = analyze_ranges(commits);
+    for r in &mut ranges {
+        r.stats.name = name.clone();
+        r.stats.source = source.clone();
+    }
+    RepoAnalysis { name, source, github, ranges }
+}
+
+pub fn analyze_local(dir: &std::path::Path) -> Result<RepoAnalysis, String> {
     if !dir.join(".git").exists() {
         return Err("Kein Git-Repository (kein .git gefunden).".into());
     }
-    let raw = git_log(dir)?;
+    let commits = commits_from_dir(dir, None, &[])?;
     let (name, _slug) = repo_identity(&dir.to_string_lossy());
-    let mut stats = parse_git_log(&raw);
-    stats.name = name;
-    stats.source = dir.to_string_lossy().into_owned();
-    Ok(stats)
+    Ok(finish(name, dir.to_string_lossy().into_owned(), None, &commits))
 }
 
-/// Clone a remote read-only (bare, full history) into a temp dir, analyse, and
-/// clean up. Impure.
-pub fn analyze_remote(url: &str) -> Result<RepoStats, String> {
-    // Reject obviously non-URL junk before spawning git — AND anything starting
-    // with '-', which git would parse as a flag (argv smuggling, e.g.
-    // `--upload-pack=…`). The `--` below is the belt to this suspenders.
+/// GitHub: via the clone cache (fetch on repeat). Other hosts: bare temp
+/// clone, analysed, deleted (the pre-v0.183 path).
+pub fn analyze_remote(
+    url: &str,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<RepoAnalysis, String> {
     if url.starts_with('-') || !(url.contains("://") || (url.contains('@') && url.contains(':'))) {
         return Err("Keine gültige Repository-URL.".into());
     }
-    let tmp = std::env::temp_dir().join(format!("ir-repo-{}-{}", std::process::id(), sanitize_slug(url).chars().take(24).collect::<String>()));
+    if let Some(gh) = crate::repo_url::parse_repo_url(url) {
+        let token = crate::repo_clone::github_token();
+        let dir = crate::repo_clone::ensure_cached(&gh, token.as_deref(), on_progress)?;
+        let env = crate::repo_clone::auth_env(token.as_deref());
+        let commits = commits_from_dir(&dir, Some("origin/HEAD"), &env)?;
+        crate::repo_clone::prune_cache(&dir);
+        return Ok(finish(gh.repo.clone(), gh.web_url.clone(), Some(gh), &commits));
+    }
+    let tmp = std::env::temp_dir().join(format!(
+        "ir-repo-{}-{}",
+        std::process::id(),
+        sanitize_slug(url).chars().take(24).collect::<String>()
+    ));
     let _ = std::fs::remove_dir_all(&tmp);
     let clone = Command::new("git")
+        .env("GIT_TERMINAL_PROMPT", "0")
         .args(["clone", "--bare", "--quiet", "--", url, &tmp.to_string_lossy()])
         .output()
         .map_err(|e| format!("git nicht gefunden: {e}"))?;
-    let _ = T_GIT; // (clone has no built-in timeout here; git itself will fail fast on a bad URL)
     if !clone.status.success() {
         let _ = std::fs::remove_dir_all(&tmp);
         return Err(format!("Klonen fehlgeschlagen: {}", String::from_utf8_lossy(&clone.stderr).trim()));
     }
-    let result = (|| {
-        let raw = git_log(&tmp)?;
-        let (name, _slug) = repo_identity(url);
-        let mut stats = parse_git_log(&raw);
-        stats.name = name;
-        stats.source = url.to_string();
-        Ok(stats)
-    })();
+    let result = commits_from_dir(&tmp, None, &[]);
     let _ = std::fs::remove_dir_all(&tmp);
-    result
+    let (name, _slug) = repo_identity(url);
+    Ok(finish(name, url.to_string(), None, &result?))
 }
 
 // ── HTML export (self-contained, repo2viz-oriented) ─────────────────────────
@@ -867,10 +904,10 @@ mod tests {
     fn analyze_remote_rejects_flag_smuggling_and_junk() {
         // argv injection: a URL that is actually a git flag must be refused
         // BEFORE spawning git (the `--` guard is belt-and-braces on top).
-        assert!(analyze_remote("--upload-pack=touch /tmp/pwn").is_err());
-        assert!(analyze_remote("-x").is_err());
+        assert!(analyze_remote("--upload-pack=touch /tmp/pwn", &mut |_, _| {}).is_err());
+        assert!(analyze_remote("-x", &mut |_, _| {}).is_err());
         // Plain non-URL junk is refused too (no scheme / scp form).
-        assert!(analyze_remote("not a url").is_err());
+        assert!(analyze_remote("not a url", &mut |_, _| {}).is_err());
     }
 
     /// Offline sight check — see the timesheet dump for why.

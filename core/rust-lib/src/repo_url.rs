@@ -103,6 +103,8 @@ pub fn parse_repo_url(text: &str) -> Option<RepoUrl> {
 }
 
 /// First repo URL among the whitespace-separated tokens of `text`.
+/// Kept in lock-step with `findRepoUrl` (TS) for parity; the app calls the TS one.
+#[allow(dead_code)]
 pub fn find_repo_url(text: &str) -> Option<RepoUrl> {
     text.split_whitespace().find_map(|raw| {
         let tok = raw

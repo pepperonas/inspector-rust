@@ -1347,46 +1347,123 @@ enum RepoTarget {
     Local(std::path::PathBuf),
 }
 
-fn run_repo(target: RepoTarget) -> Result<crate::repo_stats::RepoStats, String> {
+fn run_repo(
+    target: RepoTarget,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<crate::repo_stats::RepoAnalysis, String> {
     match target {
-        RepoTarget::Remote(url) => crate::repo_stats::analyze_remote(&url),
+        RepoTarget::Remote(url) => crate::repo_stats::analyze_remote(&url, on_progress),
         RepoTarget::Local(path) => crate::repo_stats::analyze_local(&path),
+    }
+}
+
+#[derive(serde::Serialize, Clone)]
+struct RepoProgress {
+    op: &'static str,
+    phase: String,
+    percent: u8,
+}
+
+fn progress_emitter(app: &AppHandle, op: &'static str) -> impl FnMut(&str, u8) {
+    let app = app.clone();
+    let mut last = std::time::Instant::now() - std::time::Duration::from_secs(1);
+    move |phase: &str, percent: u8| {
+        // ~10 events/s is plenty; always pass 100 %.
+        if percent == 100 || last.elapsed() >= std::time::Duration::from_millis(100) {
+            last = std::time::Instant::now();
+            let _ = app.emit("repo-progress", RepoProgress { op, phase: phase.to_string(), percent });
+        }
     }
 }
 
 /// Analyse a repo (URL, local path, or the Finder selection when omitted).
 #[tauri::command]
-pub async fn repo_analyze(target: Option<String>) -> Result<crate::repo_stats::RepoStats, String> {
+pub async fn repo_analyze(
+    app: AppHandle,
+    target: Option<String>,
+) -> Result<crate::repo_stats::RepoAnalysis, String> {
     let t = resolve_repo_target(target)?;
-    tauri::async_runtime::spawn_blocking(move || run_repo(t))
-        .await
-        .map_err(|e| format!("repo task: {e}"))?
+    tauri::async_runtime::spawn_blocking(move || {
+        let mut emit = progress_emitter(&app, "analyze");
+        run_repo(t, &mut emit)
+    })
+    .await
+    .map_err(|e| format!("repo task: {e}"))?
 }
 
-/// Analyse + write the self-contained HTML export to ~/Downloads; reveals it
-/// and returns the path.
+/// Write the panel's already-computed stats (one range) as HTML/PDF to
+/// ~/Downloads — no re-clone (the `loc_export` pattern).
 #[tauri::command]
 pub async fn repo_export(
     app: AppHandle,
-    target: Option<String>,
+    stats: crate::repo_stats::RepoStats,
+    range: String,
     format: Option<String>,
 ) -> Result<String, String> {
-    let t = resolve_repo_target(target)?;
     let ext = match format.as_deref().unwrap_or("html") {
         "html" => "html",
         "pdf" => "pdf",
         other => return Err(format!("Unbekanntes Format: {other}")),
     };
-    let (html, slug) = tauri::async_runtime::spawn_blocking(move || {
-        let stats = run_repo(t)?;
-        let (_name, slug) = crate::repo_stats::repo_identity(&stats.source);
-        Ok::<_, String>((crate::repo_stats::build_html(&stats), slug))
+    let range = crate::repo_stats::RangeKey::parse(&range).ok_or_else(|| format!("Unbekannter Zeitraum: {range}"))?;
+    let (_name, slug) = crate::repo_stats::repo_identity(&stats.source);
+    let html = crate::repo_stats::build_html(&stats);
+    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
+    let suffix = if range == crate::repo_stats::RangeKey::All { String::new() } else { format!("-{}", serde_json::to_string(&range).unwrap_or_default().trim_matches('"')) };
+    let out = dir.join(format!("{slug}-activity{suffix}.{ext}"));
+    write_report(&app, html, &out)?;
+    reveal_in_file_manager(&out);
+    Ok(out.display().to_string())
+}
+
+#[derive(serde::Serialize)]
+pub struct RepoConfig {
+    clone_dir: String,
+    has_token: bool,
+    gh_available: bool,
+}
+
+fn repo_clone_dir(db: &DbHandle) -> Option<std::path::PathBuf> {
+    let home = dirs::home_dir();
+    match crate::settings::get(db, "repo.clone_dir").ok().flatten().filter(|s| !s.trim().is_empty()) {
+        Some(s) => Some(crate::path_arg::expand_user(&s, home.as_deref())),
+        None => crate::repo_clone::default_clone_dir(home.as_deref(), dirs::download_dir().as_deref(), |p| p.is_dir()),
+    }
+}
+
+#[tauri::command]
+pub fn get_repo_config(db: State<'_, DbHandle>) -> RepoConfig {
+    RepoConfig {
+        clone_dir: repo_clone_dir(&db).map(|p| p.display().to_string()).unwrap_or_default(),
+        has_token: crate::repo_clone::has_stored_token(),
+        gh_available: crate::repo_clone::gh_available(),
+    }
+}
+
+#[tauri::command]
+pub fn set_repo_clone_dir(db: State<'_, DbHandle>, dir: String) -> Result<(), String> {
+    crate::settings::set(&db, "repo.clone_dir", dir.trim()).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn set_github_token(token: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || crate::repo_clone::set_stored_token(&token))
+        .await
+        .map_err(|e| format!("token task: {e}"))?
+}
+
+/// Clone a GitHub repo into the configured folder (`name (2)`, … when taken).
+#[tauri::command]
+pub async fn repo_clone(app: AppHandle, db: State<'_, DbHandle>, url: String) -> Result<String, String> {
+    let u = crate::repo_url::parse_repo_url(&url).ok_or_else(|| "Keine GitHub-Repo-URL.".to_string())?;
+    let parent = repo_clone_dir(&db).ok_or_else(|| "Kein Zielordner — in Settings → Repositories festlegen.".to_string())?;
+    let out = tauri::async_runtime::spawn_blocking(move || {
+        let token = crate::repo_clone::github_token();
+        let mut emit = progress_emitter(&app, "clone");
+        crate::repo_clone::clone_to(&u, &parent, token.as_deref(), &mut emit)
     })
     .await
-    .map_err(|e| format!("repo task: {e}"))??;
-    let dir = dirs::download_dir().ok_or_else(|| "Kein Downloads-Ordner".to_string())?;
-    let out = dir.join(format!("{slug}-activity.{ext}"));
-    write_report(&app, html, &out)?;
+    .map_err(|e| format!("clone task: {e}"))??;
     reveal_in_file_manager(&out);
     Ok(out.display().to_string())
 }

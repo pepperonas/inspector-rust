@@ -141,6 +141,274 @@ pub fn default_clone_dir(
     downloads.map(Path::to_path_buf)
 }
 
+const KEYRING_SERVICE: &str = "io.celox.inspector-rust";
+const KEYRING_USER: &str = "github-token-v1";
+
+pub fn cache_root() -> Option<PathBuf> {
+    dirs::cache_dir().map(|d| d.join("InspectorRust").join("repos"))
+}
+
+fn cache_dir_for(u: &crate::repo_url::RepoUrl) -> Result<PathBuf, String> {
+    // owner/repo already passed GitHub's character rules (no `..`, no `/`).
+    cache_root()
+        .map(|r| r.join(&u.owner).join(&u.repo))
+        .ok_or_else(|| "Kein Cache-Ordner".to_string())
+}
+
+/// Run git with `--progress` stderr parsed line by line (git separates
+/// progress updates with `\r`). On failure: class sentinel + redacted tail.
+fn run_git(
+    cwd: Option<&Path>,
+    args: &[String],
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<(), String> {
+    use std::io::Read;
+    let mut cmd = std::process::Command::new("git");
+    if let Some(c) = cwd {
+        cmd.current_dir(c);
+    }
+    cmd.args(args).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::piped());
+    for (k, v) in auth_env(token) {
+        cmd.env(k, v);
+    }
+    let mut child = cmd.spawn().map_err(|e| format!("git nicht gefunden: {e}"))?;
+    let mut stderr = child.stderr.take().expect("piped");
+    let mut buf = [0u8; 4096];
+    let mut line = Vec::<u8>::new();
+    let mut tail = String::new();
+    loop {
+        let n = stderr.read(&mut buf).unwrap_or(0);
+        if n == 0 {
+            break;
+        }
+        for &b in &buf[..n] {
+            if b == b'\r' || b == b'\n' {
+                let l = String::from_utf8_lossy(&line).into_owned();
+                if let Some((phase, pct)) = parse_git_progress(&l) {
+                    on_progress(&phase, pct);
+                } else if !l.trim().is_empty() {
+                    tail.push_str(&l);
+                    tail.push('\n');
+                    if tail.len() > 4000 {
+                        tail.drain(..tail.len() - 4000);
+                    }
+                }
+                line.clear();
+            } else {
+                line.push(b);
+            }
+        }
+    }
+    let status = child.wait().map_err(|e| format!("git: {e}"))?;
+    if status.success() {
+        Ok(())
+    } else {
+        let class = classify_git_error(&tail);
+        Err(format!("{class}: {}", redact(tail.trim(), token)))
+    }
+}
+
+pub(crate) fn ensure_cached_at(
+    src: &str,
+    dir: &Path,
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<PathBuf, String> {
+    if dir.join(".git").exists() {
+        run_git(Some(dir), &["fetch", "--prune", "--progress", "origin"].map(String::from), token, on_progress)?;
+        // Keep origin/HEAD pointing at the remote's default branch.
+        let _ = run_git(Some(dir), &["remote", "set-head", "origin", "--auto"].map(String::from), token, &mut |_, _| {});
+    } else {
+        if let Some(p) = dir.parent() {
+            std::fs::create_dir_all(p).map_err(|e| format!("Cache: {e}"))?;
+        }
+        let res = run_git(None, &clone_args(src, &dir.to_string_lossy(), true), token, on_progress);
+        if res.is_err() {
+            let _ = std::fs::remove_dir_all(dir);
+        }
+        res?;
+    }
+    // Touch for LRU eviction.
+    let _ = filetime_touch(dir);
+    Ok(dir.to_path_buf())
+}
+
+fn filetime_touch(dir: &Path) -> std::io::Result<()> {
+    // Recreate a marker file; its mtime is the entry's "last used".
+    std::fs::write(dir.join(".git/ir-last-used"), b"")
+}
+
+pub fn ensure_cached(
+    u: &crate::repo_url::RepoUrl,
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<PathBuf, String> {
+    let dir = cache_dir_for(u)?;
+    ensure_cached_at(&u.clone_url, &dir, token, on_progress)
+}
+
+fn dir_size(p: &Path) -> u64 {
+    let Ok(rd) = std::fs::read_dir(p) else { return 0 };
+    rd.flatten()
+        .map(|e| match e.file_type() {
+            Ok(t) if t.is_dir() => dir_size(&e.path()),
+            Ok(t) if t.is_file() => e.metadata().map(|m| m.len()).unwrap_or(0),
+            _ => 0,
+        })
+        .sum()
+}
+
+/// Enforce CACHE_MAX_REPOS / CACHE_MAX_BYTES; `keep` is never removed.
+pub fn prune_cache(keep: &Path) {
+    let Some(root) = cache_root() else { return };
+    let mut entries = Vec::new();
+    for owner in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        for repo in std::fs::read_dir(owner.path()).into_iter().flatten().flatten() {
+            let p = repo.path();
+            let mtime_ms = std::fs::metadata(p.join(".git/ir-last-used"))
+                .or_else(|_| std::fs::metadata(&p))
+                .and_then(|m| m.modified())
+                .ok()
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |d| d.as_millis() as u64);
+            entries.push(CacheEntry { key: p.to_string_lossy().into_owned(), mtime_ms, bytes: dir_size(&p) });
+        }
+    }
+    for k in cache_evictions(&entries, CACHE_MAX_REPOS, CACHE_MAX_BYTES, &keep.to_string_lossy()) {
+        let _ = std::fs::remove_dir_all(&k);
+    }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for e in std::fs::read_dir(src)? {
+        let e = e?;
+        let t = e.file_type()?;
+        let to = dst.join(e.file_name());
+        if t.is_dir() {
+            copy_dir_all(&e.path(), &to)?;
+        } else if t.is_symlink() {
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(std::fs::read_link(e.path())?, &to)?;
+        } else {
+            std::fs::copy(e.path(), &to)?;
+        }
+    }
+    Ok(())
+}
+
+fn copy_tree(src: &Path, dst: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        // APFS clone: near-free on the same volume. Falls back below.
+        let ok = std::process::Command::new("cp")
+            .arg("-cR")
+            .arg(src)
+            .arg(dst)
+            .status()
+            .map(|s| s.success())
+            .unwrap_or(false);
+        if ok {
+            return Ok(());
+        }
+        let _ = std::fs::remove_dir_all(dst);
+    }
+    copy_dir_all(src, dst).map_err(|e| format!("Kopieren fehlgeschlagen: {e}"))
+}
+
+pub(crate) fn clone_to_at(
+    src: &str,
+    repo_name: &str,
+    cached: Option<&Path>,
+    parent: &Path,
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(parent).map_err(|e| format!("Zielordner {}: {e}", parent.display()))?;
+    let name = free_dir_name(repo_name, |n| parent.join(n).exists())
+        .ok_or_else(|| "Kein freier Ordnername (bis 999 belegt)".to_string())?;
+    let dest = parent.join(&name);
+    let res = (|| {
+        match cached {
+            Some(c) if c.join(".git").exists() => {
+                on_progress("Kopiere aus dem Cache", 0);
+                copy_tree(c, &dest)?;
+                on_progress("Checke Dateien aus", 50);
+                run_git(Some(&dest), &["reset", "--hard", "--quiet", "origin/HEAD"].map(String::from), token, &mut |_, _| {})?;
+                let _ = std::fs::remove_file(dest.join(".git/ir-last-used"));
+                on_progress("Checke Dateien aus", 100);
+                Ok(())
+            }
+            _ => run_git(None, &clone_args(src, &dest.to_string_lossy(), false), token, on_progress),
+        }
+    })();
+    if let Err(e) = res {
+        let _ = std::fs::remove_dir_all(&dest);
+        return Err(e);
+    }
+    Ok(dest)
+}
+
+pub fn clone_to(
+    u: &crate::repo_url::RepoUrl,
+    parent: &Path,
+    token: Option<&str>,
+    on_progress: &mut dyn FnMut(&str, u8),
+) -> Result<PathBuf, String> {
+    let cached = cache_dir_for(u).ok().filter(|d| d.join(".git").exists());
+    if let Some(c) = &cached {
+        // Freshen before copying so the clone is current.
+        ensure_cached_at(&u.clone_url, c, token, on_progress)?;
+    }
+    clone_to_at(&u.clone_url, &u.repo, cached.as_deref(), parent, token, on_progress)
+}
+
+fn gh_path() -> Option<PathBuf> {
+    ["/opt/homebrew/bin/gh", "/usr/local/bin/gh", "/usr/bin/gh"]
+        .iter()
+        .map(PathBuf::from)
+        .find(|p| p.exists())
+}
+
+pub fn gh_available() -> bool {
+    gh_path().is_some()
+}
+
+/// `gh auth token` first (the user is already logged in there), else the
+/// keychain entry from Settings. Never logged.
+pub fn github_token() -> Option<String> {
+    if let Some(gh) = gh_path() {
+        if let Ok(out) = std::process::Command::new(gh).args(["auth", "token"]).output() {
+            let t = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if out.status.success() && !t.is_empty() {
+                return Some(t);
+            }
+        }
+    }
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .ok()?
+        .get_password()
+        .ok()
+        .filter(|t| !t.trim().is_empty())
+}
+
+pub fn set_stored_token(t: &str) -> Result<(), String> {
+    let e = keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER).map_err(|e| e.to_string())?;
+    if t.trim().is_empty() {
+        let _ = e.delete_credential();
+        return Ok(());
+    }
+    e.set_password(t.trim()).map_err(|e| e.to_string())
+}
+
+pub fn has_stored_token() -> bool {
+    keyring::Entry::new(KEYRING_SERVICE, KEYRING_USER)
+        .ok()
+        .and_then(|e| e.get_password().ok())
+        .is_some_and(|t| !t.trim().is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -243,5 +511,117 @@ mod tests {
         );
         assert_eq!(default_clone_dir(Some(home), Some(dl), |_| false), Some(dl.to_path_buf()));
         assert_eq!(default_clone_dir(None, None, |_| false), None);
+    }
+
+    fn git(dir: &Path, args: &[&str]) {
+        let st = std::process::Command::new("git")
+            .current_dir(dir)
+            .args(args)
+            .env("GIT_AUTHOR_NAME", "T")
+            .env("GIT_AUTHOR_EMAIL", "t@x")
+            .env("GIT_COMMITTER_NAME", "T")
+            .env("GIT_COMMITTER_EMAIL", "t@x")
+            .status()
+            .unwrap();
+        assert!(st.success(), "git {args:?}");
+    }
+
+    fn upstream(tmp: &Path) -> PathBuf {
+        let up = tmp.join("up");
+        std::fs::create_dir_all(&up).unwrap();
+        git(&up, &["init", "-q", "-b", "main"]);
+        std::fs::write(up.join("a.txt"), "1").unwrap();
+        git(&up, &["add", "."]);
+        git(&up, &["commit", "-q", "-m", "feat: one"]);
+        up
+    }
+
+    fn tmpdir(tag: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("ir-repo-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn refetch_sees_new_upstream_commits() {
+        let tmp = tmpdir("refetch");
+        let up = upstream(&tmp);
+        let cache = tmp.join("cache/o/r");
+        let src = up.to_string_lossy().to_string();
+        let mut noop = |_: &str, _: u8| {};
+        ensure_cached_at(&src, &cache, None, &mut noop).unwrap();
+        let n1 = crate::repo_stats::commits_from_dir(&cache, Some("origin/HEAD"), &auth_env(None)).unwrap().len();
+        std::fs::write(up.join("b.txt"), "2").unwrap();
+        git(&up, &["add", "."]);
+        git(&up, &["commit", "-q", "-m", "fix: two"]);
+        ensure_cached_at(&src, &cache, None, &mut noop).unwrap();
+        let n2 = crate::repo_stats::commits_from_dir(&cache, Some("origin/HEAD"), &auth_env(None)).unwrap().len();
+        assert_eq!((n1, n2), (1, 2));
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn clone_from_cache_never_overwrites_and_checks_out_files() {
+        let tmp = tmpdir("clone");
+        let up = upstream(&tmp);
+        let cache = tmp.join("cache/o/r");
+        let src = up.to_string_lossy().to_string();
+        let mut noop = |_: &str, _: u8| {};
+        ensure_cached_at(&src, &cache, None, &mut noop).unwrap();
+        let parent = tmp.join("dest");
+        std::fs::create_dir_all(parent.join("r")).unwrap();
+        std::fs::create_dir_all(parent.join("r (2)")).unwrap();
+        std::fs::write(parent.join("r/keep.txt"), "mine").unwrap();
+        let out = clone_to_at(&src, "r", Some(&cache), &parent, None, &mut noop).unwrap();
+        assert_eq!(out, parent.join("r (3)"));
+        assert_eq!(std::fs::read_to_string(out.join("a.txt")).unwrap(), "1");
+        assert_eq!(std::fs::read_to_string(parent.join("r/keep.txt")).unwrap(), "mine");
+        // Cache survives the clone (copy, not move).
+        assert!(cache.join(".git").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn empty_upstream_analyses_as_zero_commits() {
+        let tmp = tmpdir("empty");
+        let up = tmp.join("up");
+        std::fs::create_dir_all(&up).unwrap();
+        git(&up, &["init", "-q", "-b", "main"]);
+        let cache = tmp.join("cache/o/r");
+        let mut noop = |_: &str, _: u8| {};
+        ensure_cached_at(&up.to_string_lossy(), &cache, None, &mut noop).unwrap();
+        let commits = crate::repo_stats::commits_from_dir(&cache, Some("origin/HEAD"), &auth_env(None)).unwrap();
+        assert!(commits.is_empty());
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn failed_checkout_after_cache_copy_leaves_no_half_folder() {
+        // A cache entry without an origin/HEAD: the copy succeeds, the
+        // checkout (`reset --hard origin/HEAD`) fails — the copied folder
+        // must not be left behind.
+        let tmp = tmpdir("halfcopy");
+        let cache = tmp.join("cache/o/r");
+        std::fs::create_dir_all(&cache).unwrap();
+        git(&cache, &["init", "-q", "-b", "main"]);
+        let parent = tmp.join("dest");
+        let mut noop = |_: &str, _: u8| {};
+        let res = clone_to_at("https://github.com/o/r.git", "r", Some(&cache), &parent, None, &mut noop);
+        assert!(res.is_err());
+        assert!(!parent.join("r").exists(), "half-copied folder left behind");
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn failed_clone_leaves_no_half_folder() {
+        let tmp = tmpdir("fail");
+        let parent = tmp.join("dest");
+        std::fs::create_dir_all(&parent).unwrap();
+        let mut noop = |_: &str, _: u8| {};
+        let err = clone_to_at(&tmp.join("missing").to_string_lossy(), "r", None, &parent, None, &mut noop);
+        assert!(err.is_err());
+        assert!(!parent.join("r").exists());
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 }

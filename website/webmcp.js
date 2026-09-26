@@ -62,7 +62,7 @@
     }
   };
   var SITE = FACTS.links.page.replace(/\/$/, '');
-  var LANGS = ['en', 'de', 'es', 'it', 'fr'];
+  var LANGS = ["en", "de", "es", "it", "fr"];
 
   function latest(signal) {
     return fetch('/latest.json', { cache: 'no-cache', signal: signal }).then(function (r) {

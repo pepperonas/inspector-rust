@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { qrMatrix, drawQr } from "./qr";
+import { qrMatrix, drawQr, QR_QUIET_MODULES } from "./qr";
 
 describe("qrMatrix", () => {
   it("returns a square boolean matrix", () => {
@@ -103,5 +103,27 @@ describe("drawQr", () => {
     expect(canvas.width).toBe(n * 2);
     drawQr(canvas, "hi", 10, 1);
     expect(canvas.width).toBe((n + 2) * 10);
+  });
+});
+
+describe("quiet zone", () => {
+  it("defaults to the slim 2-module border", () => {
+    const canvas = document.createElement("canvas");
+    const n = qrMatrix("hi").length;
+    drawQr(canvas, "hi", 6);
+    expect(QR_QUIET_MODULES).toBe(2);
+    expect(canvas.width).toBe((n + 2 * QR_QUIET_MODULES) * 6);
+  });
+
+  it("the STL (Rust) uses the SAME quiet zone as the PNG/preview", async () => {
+    // Read from disk (no @types/node → computed specifier, see motion-stage.test).
+    const { readFileSync } = (await import("node:" + "fs")) as unknown as {
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const cwd = (globalThis as unknown as { process: { cwd(): string } }).process.cwd();
+    const rs = readFileSync(cwd + "/../rust-lib/src/qr.rs", "utf8");
+    const m = rs.match(/const QUIET: usize = (\d+);/);
+    expect(m, "QUIET const in qr.rs").not.toBeNull();
+    expect(Number(m![1])).toBe(QR_QUIET_MODULES);
   });
 });

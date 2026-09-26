@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { drawQr, qrMatrix, qrPngBase64 } from "../lib/qr";
+import { drawQr, qrMatrix, qrPngBase64, QR_QUIET_MODULES } from "../lib/qr";
 import { qrSave } from "../lib/ipc";
 
 /** Canvas QR preview for the `qr <text>` command. Always renders black-on-white
@@ -65,8 +65,9 @@ export function QrPreview({ text }: { text: string }) {
       <p className="text-xs text-[var(--color-muted)]">Saves to Downloads.</p>
       {result.matrix && (
         <p className="text-xs text-[var(--color-muted)]">
-          STL: {result.matrix.length + 8} × {result.matrix.length + 8} × 2.6 mm · 1 mm
-          modules. Print a light base, then switch to dark filament at 2 mm for the raised
+          STL: {result.matrix.length + 2 * QR_QUIET_MODULES} ×{" "}
+          {result.matrix.length + 2 * QR_QUIET_MODULES} × 2.6 mm · 1 mm modules · rounded
+          corners. Print a light base, then switch to dark filament at 2 mm for the raised
           code. STL contains no colours. Test scanning the finished print.
         </p>
       )}

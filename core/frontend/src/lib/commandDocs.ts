@@ -366,7 +366,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "QR-Code erzeugen — Live-Vorschau, PNG- und druckbarer STL-Export.",
     synopsis: "qr <text>",
     description:
-      "Renders text or URLs as a black-on-white QR code live in the preview. Enter copies PNG to the clipboard and history. Save PNG / Save STL writes directly to Downloads. Offline, with UTF-8 support. STL uses millimetres: 1 mm modules, four-module quiet zone, 2 mm base and 0.6 mm raised code.",
+      "Renders text or URLs as a black-on-white QR code live in the preview. Enter copies PNG to the clipboard and history. Save PNG / Save STL writes directly to Downloads. Offline, with UTF-8 support. STL uses millimetres: 1 mm modules, two-module quiet zone, 2 mm base with rounded corners and 0.6 mm raised code. Pasting a bare link into the search bar offers the same QR row.",
     arguments: [{ name: "text", required: true, description: "The text/URL to encode.", default: undefined }],
     flags: [],
     examples: [

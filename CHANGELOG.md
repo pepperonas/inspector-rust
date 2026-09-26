@@ -12,6 +12,9 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Lines of code and unit tests on the website:** an "In numbers" strip on [inspector-rust.celox.io](https://inspector-rust.celox.io) shows both, from `.github/repo-stats.json` — written by the same script as the README badges and picked up by the site within 15 minutes of a push.
 - **Mockups on the website:** the hero, a gallery of twelve captioned screens ("A look inside") and the easter eggs now show the real app with invented data — rendered by `scripts/website-mockups.mjs` from `core/frontend/mockup.html`, which runs the UI against a dummy backend. A long press on "© 2026 Martin Pfeffer" in the footer opens the easter eggs.
 
+- **Pasting a link offers a QR code:** a bare `http(s)://…` or `www.…` link in the search bar gets the same row as `qr <link>` — live preview, Enter copies the PNG, Save PNG / STL.
+- **3D-printable QR codes have rounded corners** on the base plate.
+
 ### Fixed
 - **README download table:** Linux lists the released `.deb` and AppImage instead of "build from source", and macOS says 11+ (Apple silicon never ran 10.15).
 - **The website's changelog** showed 494 of 539 releases as sub-headings (their headings use an em dash) and rendered all of them at once — ~11 000 elements, which stalled older machines. It now recognises every heading style, renders code blocks and tables, and loads 10 versions at a time ("Older versions" for the rest): opening takes ~50 ms instead of ~550 ms.
@@ -30,6 +33,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Buttons with a press effect snapped their hover colour** instead of fading it.
 
 ### Changed
+- **Generated QR codes have a slimmer border:** two modules instead of four (preview, PNG and STL alike). Phone scanners read it fine; the codes no longer look undersized in their frame.
 - **Faster popup and list:** the history list no longer decrypts and transfers every text clip twice (the preview fetches the full text only when the list row carries a shortened preview); moving the selection re-renders only the two affected rows instead of every visible one; each keystroke rebuilds the list once instead of twice; timestamps reuse one date formatter.
 - **Every auxiliary window starts lighter:** the start-up bundle each window parses dropped from 332 KB to 216 KB (the `x!` window was the last one loaded eagerly and pulled in all command docs).
 - **2FA codes are fetched when they change, not every second** (`otp …` rows and the `2fa` overlay); the "N s remaining" text ticks on its own.

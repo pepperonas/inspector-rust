@@ -26,13 +26,20 @@ export function qrMatrix(text: string): boolean[][] {
   return rows;
 }
 
+/** Quiet zone around every generated code, in modules. 2 instead of the ISO
+ *  recommendation of 4 (2026-09-26, "less margin"): phone scanners read a
+ *  2-module border reliably, and the extra blank frame made the pasted/printed
+ *  codes look undersized. Mirrored by `QUIET` in `core/rust-lib/src/qr.rs`
+ *  (the STL) — a test pins both to the same number. */
+export const QR_QUIET_MODULES = 2;
+
 /** Draw a QR matrix onto a canvas at `scale` px per module with a quiet-zone
  *  `margin` (in modules). Sizes the canvas to fit. Browser-only. */
 export function drawQr(
   canvas: HTMLCanvasElement,
   text: string,
   scale = 6,
-  margin = 4,
+  margin = QR_QUIET_MODULES,
   dark = "#000000",
   light = "#ffffff",
 ): void {
@@ -57,7 +64,7 @@ export function drawQr(
 
 /** Render the QR to an offscreen canvas and return the **base64 PNG** body
  *  (no `data:` prefix) — what the `qr_copy_png` IPC expects. Browser-only. */
-export function qrPngBase64(text: string, scale = 8, margin = 4): string {
+export function qrPngBase64(text: string, scale = 8, margin = QR_QUIET_MODULES): string {
   const canvas = document.createElement("canvas");
   // Always black-on-white so the QR scans regardless of the app theme.
   drawQr(canvas, text, scale, margin, "#000000", "#ffffff");

@@ -84,6 +84,7 @@ import { playCrtOn, playCrtOff, primeCrtHidden, crtOffMs, CRT_ON_MS } from "./li
 import { currentAnimationStage } from "./lib/motion-stage";
 import { detectSocial } from "./lib/social";
 import { repoUrlEntry } from "./lib/repo-url";
+import { qrLinkEntry } from "./lib/qr-link";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
@@ -2652,6 +2653,12 @@ function App() {
     () => repoUrlEntry(query, !!parsedCommand),
     [query, parsedCommand],
   );
+  // A pasted link also follows the `qr` workflow: the same command row
+  // `qr <link>` produces (preview, Enter copies PNG, Save PNG / STL).
+  const qrLinkRow = useMemo<ListEntry | null>(
+    () => qrLinkEntry(query, !!parsedCommand),
+    [query, parsedCommand],
+  );
   // Same steps as the `repo` branch of dispatchCommand (canonical query +
   // panel on + focus) — dispatchCommand lives inside `activate`, so the
   // clip-preview button needs its own component-level entry point.
@@ -2780,6 +2787,7 @@ function App() {
       ...suggestionEntries,
       ...(socialEntry ? [socialEntry] : []),
       ...(repoUrlRow ? [repoUrlRow] : []),
+      ...(qrLinkRow ? [qrLinkRow] : []),
       ...(openerEntry ? [openerEntry] : []),
       // EVERY keyword-triggered custom command outranks the app-launcher hit.
       // These dedicated command rows (bruno/pwgen/bpm/2fa+otp/rz) must therefore
@@ -2826,6 +2834,7 @@ function App() {
     shazamSubEntry,
     suggestionEntries,
     socialEntry,
+    qrLinkRow,
     repoUrlRow,
     openerEntry,
     appEntry,

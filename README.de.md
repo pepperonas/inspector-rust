@@ -13,6 +13,19 @@
 
   Drück **`Ctrl+Space`** irgendwo → rahmenloses Popup über dem aktiven Monitor → Suche durch 1 000 deduplizierte Clipboard-Einträge → Enter pastet zurück in die zuvor fokussierte App. Ganzer Loop unter 200 ms, unter 50 MB RAM, AES-256-GCM-verschlüsselt at-rest mit Keys im OS-Keychain. **Gebaut für die Art Mensch, die schon Muskelgedächtnis für drei Clipboard-Manager hat und von allen genervt ist.**
 
+  <h3>🌐 <a href="https://inspector-rust.celox.io">inspector-rust.celox.io</a> — die Produktseite</h3>
+
+  <p>
+    <a href="https://inspector-rust.celox.io">
+      <img src="https://img.shields.io/badge/%F0%9F%8C%90_Produktseite-inspector--rust.celox.io-6366F1?style=for-the-badge" height="80" alt="Produktseite: inspector-rust.celox.io" />
+    </a>
+    <a href="https://inspector-rust.celox.io/download">
+      <img src="https://img.shields.io/badge/%E2%AC%87%EF%B8%8F_Download-f%C3%BCr_dein_System-22C55E?style=for-the-badge" height="80" alt="Download für dein System" />
+    </a>
+  </p>
+
+  <em>Bilder aller Funktionen, die komplette Funktionsliste, das Changelog, Prüfsummen und ein Download mit einem Klick, der die richtige Datei für dein System wählt.</em>
+
   <p>
     <a href="https://www.paypal.com/donate/?business=martin.pfeffer@celox.io&item_name=Inspector+Rust&currency_code=EUR">
       <img src="https://img.shields.io/badge/%E2%98%95_Spendier_dem_Dev_einen_Kaffee-Spenden_via_PayPal-00457C?style=for-the-badge&logo=paypal&logoColor=white" height="80" alt="Spenden via PayPal" />

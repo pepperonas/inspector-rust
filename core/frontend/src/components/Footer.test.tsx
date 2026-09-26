@@ -56,6 +56,16 @@ describe("Footer", () => {
     expect(screen.getByText("v0.2.6")).toBeTruthy();
   });
 
+  it("shows the version as the LAST element — bottom right of the footer", () => {
+    const { container } = render(<Footer index={2} total={9} version="0.185.0" />);
+    const chip = screen.getByText("v0.185.0");
+    // Every text-bearing leaf of the footer, in document order.
+    const leaves = [...container.querySelectorAll("span")].filter(
+      (el) => el.children.length === 0 && el.textContent?.trim(),
+    );
+    expect(leaves[leaves.length - 1]).toBe(chip);
+  });
+
   it("omits the version chip when version is undefined", () => {
     render(<Footer index={0} total={1} />);
     expect(screen.queryByText(/^v\d/)).toBeNull();

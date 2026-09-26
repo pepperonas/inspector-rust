@@ -3893,3 +3893,8 @@ import type { MailCheckResult } from "./mailcheck";
 export function mailcheckRun(email: string): Promise<MailCheckResult> {
   return invoke("mailcheck_run", { email });
 }
+
+/** App version (e.g. "0.185.0") via a custom command — see `app_version`. */
+export function appVersion(): Promise<string> {
+  return invoke<string>("app_version");
+}

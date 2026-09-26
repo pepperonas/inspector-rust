@@ -47,6 +47,17 @@ pub fn get_history(
 /// Fetch a single history entry **with its full payload** (including the image
 /// blob the slim list omits). Used by the preview when an image clip is
 /// selected.
+/// The app's version (tauri.conf.json `version`). A CUSTOM command on purpose:
+/// custom commands are not ACL-governed, whereas the plugin route
+/// (`@tauri-apps/api/app` → `plugin:app|version`) depends on the capability's
+/// `core:app:default` set actually granting it — the same set-vs-explicit trap
+/// that silently broke `listen` (see CLAUDE.md, "Tauri events"). The footer's
+/// version chip swallowed that rejection and simply never appeared.
+#[tauri::command]
+pub fn app_version(app: AppHandle) -> String {
+    app.package_info().version.to_string()
+}
+
 #[tauri::command]
 pub fn get_clip(db: State<'_, DbHandle>, id: i64) -> Result<Option<ClipEntry>, String> {
     db::get(&db, id).map_err(map_err)

@@ -1378,6 +1378,17 @@ pub fn register_direct_slots(
 #[allow(clippy::items_after_test_module)]
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn toggle_hides_only_a_visible_focused_popup() {
+        assert_eq!(toggle_action(true, true), ToggleAction::Hide);
+        // Lingering unfocused (close_on_blur off / behind other windows):
+        // the press must SHOW it, not hide what the user cannot see.
+        assert_eq!(toggle_action(true, false), ToggleAction::Show);
+        assert_eq!(toggle_action(false, false), ToggleAction::Show);
+        assert_eq!(toggle_action(false, true), ToggleAction::Show);
+    }
+
     use super::*;
 
     #[test]
@@ -1742,14 +1753,42 @@ mod tests {
     }
 }
 
+/// What the popup hotkey does in the popup's current state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToggleAction {
+    Show,
+    Hide,
+}
+
+/// Decide the hotkey's effect (2026-09-26 — "sometimes the overlay doesn't
+/// appear"). ⚠️ `visible` alone is NOT "the user can see it": with
+/// `popup.close_on_blur` off the popup lingers visible but UNFOCUSED — behind
+/// other windows, on another monitor or Space — and a window re-ordered in by
+/// the OS can carry the frontend's primed-invisible CRT start state. Toggling
+/// on `visible` alone then HID a popup the user couldn't see, so the press
+/// seemed to do nothing (log: `visible=true` right after a hide, then a second
+/// press that finally showed it). Only a popup that is both visible AND
+/// focused is closed; anything else runs the normal show path, which
+/// re-positions on the cursor's monitor, takes focus and emits `window-shown`
+/// (cancels an in-flight frontend hide, replays the CRT power-on).
+pub fn toggle_action(visible: bool, focused: bool) -> ToggleAction {
+    if visible && focused {
+        ToggleAction::Hide
+    } else {
+        ToggleAction::Show
+    }
+}
+
 pub fn toggle_popup(app: &AppHandle) -> Result<()> {
     let window = app
         .get_webview_window(POPUP_LABEL)
         .context("popup window not found")?;
 
     let visible = window.is_visible().unwrap_or(false);
-    tracing::info!(visible, "toggle_popup");
-    if visible {
+    let focused = window.is_focused().unwrap_or(false);
+    let action = toggle_action(visible, focused);
+    tracing::info!(visible, focused, ?action, "toggle_popup");
+    if action == ToggleAction::Hide {
         // Through hide_popup, NOT a bare window.hide() (the pre-v0.105 bug):
         // the bare hide skipped the "popup-hidden" event (stale tab/query/
         // overlay on the next open), skipped macOS app.hide() (focus not

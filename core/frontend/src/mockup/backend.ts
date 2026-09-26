@@ -221,6 +221,7 @@ export function handle(cmd: string, args: Record<string, unknown>): unknown {
     case "get_sleep_status":
       return { supported: true, sleep_disabled: false, prevented: false, indefinite: false, max_timeout_secs: null, holders: [] };
     case "plugin:app|version": return "0.185.0";
+    case "app_version": return "0.185.0";
     case "plugin:window|outer_size": return { width: 1680, height: 1200 };
     case "plugin:window|scale_factor": return 2;
     case "faker_catalog": return [];

@@ -1,5 +1,5 @@
+import { appVersion as fetchAppVersion } from "../lib/ipc";
 import { useEffect, useRef, useState } from "react";
-import { getVersion } from "@tauri-apps/api/app";
 import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
@@ -708,7 +708,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   // independent of the Tauri context (matters for component tests).
   const [appVersion, setAppVersion] = useState<string | undefined>(undefined);
   useEffect(() => {
-    getVersion()
+    fetchAppVersion()
       .then(setAppVersion)
       .catch(() => undefined);
   }, []);

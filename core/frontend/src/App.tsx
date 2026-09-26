@@ -1,3 +1,4 @@
+import { appVersion } from "./lib/ipc";
 import { lazy, Suspense, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { ChevronDown } from "lucide-react";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
@@ -16,7 +17,6 @@ const POPUP_NUB_H = 36;
 // hotkey→visible latency is untouched. Suspense boundaries sit per REGION
 // (preview column / tab content / each takeover) so a first-time chunk load
 // never blanks more than that region for a frame.
-import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { useTauriEvent } from "./hooks/useTauriEvent";
 const FeaturesPanel = lazy(() => import("./components/FeaturesPanel").then((m) => ({ default: m.FeaturesPanel })));
@@ -677,11 +677,12 @@ function App() {
     }
   }, []);
 
-  // Pulled once from tauri.conf.json via the core:app permission set.
+  // Pulled once via the custom `app_version` command (NOT the core:app plugin —
+  // see the Rust doc comment: that route can be silently ACL-rejected).
   // Failure (e.g. browser dev preview without Tauri context) is silent —
   // the footer just hides the version chip.
   useEffect(() => {
-    getVersion()
+    appVersion()
       .then(setVersion)
       .catch(() => undefined);
   }, []);

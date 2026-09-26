@@ -83,13 +83,14 @@ export function Footer({
         <Hint k={screenshotKey} label="Shot" />
         <Hint k={colorKey} label="Color" />
       </div>
+      {/* Version sits at the FAR right — the footer's fixed anchor. */}
       <div className="flex shrink-0 items-center gap-3">
+        <span>{label}</span>
         {version && (
           <span title="Inspector Rust version" className="font-[var(--font-mono)]">
             v{version}
           </span>
         )}
-        <span>{label}</span>
       </div>
     </div>
   );

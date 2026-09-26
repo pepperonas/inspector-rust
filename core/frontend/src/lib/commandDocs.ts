@@ -734,11 +734,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
     aliases: ["db"],
     category: CAT_SYS,
     version_added: "0.154.0",
-    tagline: "Live microphone loudness below full scale, animated in the preview.",
-    tagline_de: "Live-Lautstärke vom Mikrofon unter Vollaussteuerung, animiert in der Vorschau.",
+    tagline: "Live microphone loudness in dB (SPL estimate), animated in the preview.",
+    tagline_de: "Live-Lautstärke vom Mikrofon in dB (SPL-Schätzung), animiert in der Vorschau.",
     synopsis: "dezibel    ·    db",
     description:
-      "Opens the microphone and shows the current distance below digital full scale as a positive **dB** value in the preview: a large monospace number whose glow and scale follow the level, plus a meter bar. The underlying reading is dBFS, smoothed with a fast attack and a slow release, so peaks register while the display stays calm. Same audio path and same smoothing as the `bpm` detector's dB readout — the mic capture is native (cpal) and shared, so running `bpm` or `disco` at the same time does not open a second stream. Esc closes it and releases the microphone.",
+      "Opens the microphone and shows the current loudness as a positive **dB** value (SPL estimate based on dBFS + 90) in the preview: a large monospace number whose glow and scale follow the level, plus a meter bar. The underlying reading is dBFS, smoothed with a fast attack and a slow release, so peaks register while the display stays calm. Same audio path and same smoothing as the `bpm` detector's dB readout — the mic capture is native (cpal) and shared, so running `bpm` or `disco` at the same time does not open a second stream. Esc closes it and releases the microphone.",
     arguments: [],
     flags: [],
     examples: [
@@ -747,11 +747,11 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "db?", result: "This help — the trailing ? never opens the microphone." },
     ],
     tips: [
-      "0 dB is digital full scale; the display reports the positive distance below it, so quiet is around 60 and loud around 10.",
+      "A quiet room reads around 35–50 dB, speech around 60–75 dB, loud noise 80+ dB — rough guides, the exact number depends on the microphone and its input gain.",
       "Enter-activated on purpose: a panel that opens the microphone must not start from a stray keystroke.",
     ],
     caveats: [
-      "The reading is relative to the input's full scale, not a calibrated sound-pressure level — it is not an SPL meter.",
+      "The reading is relative to the input's full scale (SPL convention dBFS + 90 dB), not a calibrated sound-level meter.",
       "The first mic open makes macOS reconfigure the shared audio device; other apps can stutter briefly.",
     ],
     related: ["shazam", "sound"],

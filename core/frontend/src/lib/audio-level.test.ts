@@ -34,14 +34,19 @@ describe("rmsToDbfs", () => {
 });
 
 describe("dbfsToDisplayDb", () => {
-  it("shows the distance below full scale as a positive value", () => {
-    expect(dbfsToDisplayDb(-20)).toBe(20);
-    expect(dbfsToDisplayDb(-6)).toBe(6);
+  it("converts dBFS to positive SPL sound level (dBFS + 90)", () => {
+    expect(dbfsToDisplayDb(-20)).toBe(70);
+    expect(dbfsToDisplayDb(-6)).toBe(84);
+    expect(dbfsToDisplayDb(0)).toBe(90);
   });
 
-  it("keeps full scale at zero and never returns a negative value", () => {
-    expect(dbfsToDisplayDb(0)).toBe(0);
-    expect(dbfsToDisplayDb(3)).toBe(0);
+  it("clamps values below 0 to 0", () => {
+    expect(dbfsToDisplayDb(-90)).toBe(0);
+    expect(dbfsToDisplayDb(-100)).toBe(0);
+  });
+
+  it("handles levels above full scale", () => {
+    expect(dbfsToDisplayDb(3)).toBe(93);
   });
 });
 

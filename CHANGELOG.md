@@ -16,6 +16,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **3D-printable QR codes have rounded corners** on the base plate.
 
 ### Fixed
+- **`dezibel` / `db` shows a positive sound-level estimate (SPL convention dBFS + 90, the same as `iris`).** The previous readout showed the distance below full scale, so louder sound produced *smaller* numbers. Now a quiet room reads around 35–50 dB and speech around 60–75 dB. It is an estimate from the microphone signal, not a calibrated sound-level meter.
 - **README download table:** Linux lists the released `.deb` and AppImage instead of "build from source", and macOS says 11+ (Apple silicon never ran 10.15).
 - **The website's changelog** showed 494 of 539 releases as sub-headings (their headings use an em dash) and rendered all of them at once — ~11 000 elements, which stalled older machines. It now recognises every heading style, renders code blocks and tables, and loads 10 versions at a time ("Older versions" for the rest): opening takes ~50 ms instead of ~550 ms.
 - **Website scrolling on older Macs:** the top bar no longer blurs what's behind it on every frame.

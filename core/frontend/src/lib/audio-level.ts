@@ -18,9 +18,13 @@ export function rmsToDbfs(amplitude: number, silentDb = -120): number {
   return amplitude > 1e-5 ? 20 * Math.log10(amplitude) : silentDb;
 }
 
-/** Convert a dBFS reading to its positive distance below digital full scale. */
-export function dbfsToDisplayDb(dbfs: number): number {
-  return Math.max(0, -dbfs);
+/** dBFS → SPL offset convention, matching iris.rs / iris.ts (disco-controller standard). */
+export const SPL_OFFSET = 90;
+
+/** Convert a dBFS reading to a positive estimated sound pressure level (dB SPL).
+ *  Uses the disco-controller / iris convention: spl = dBFS + 90. */
+export function dbfsToDisplayDb(dbfs: number, offset = SPL_OFFSET): number {
+  return Math.max(0, Math.round(dbfs + offset));
 }
 
 /** Map a dBFS value onto a 0..1 gauge within `[floorDb, ceilDb]` (clamped).

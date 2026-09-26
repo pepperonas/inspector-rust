@@ -573,7 +573,7 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     kind: "dezibel",
     keyword: "dezibel",
     syntax: "dezibel",
-    description: "Live-Lautstärke unter Vollaussteuerung — positive dB-Anzeige in der Vorschau (Mikrofon).",
+    description: "Live-Lautstärke in dB (SPL-Schätzung) — animierte Anzeige in der Vorschau (Mikrofon).",
     requiresArg: false,
   },
   {

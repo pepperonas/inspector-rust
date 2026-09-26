@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Mic } from "lucide-react";
-import { dbfsToDisplayDb, dbfsToLevel, smoothStep } from "../lib/audio-level";
+import { dbfsToDisplayDb, dbfsToLevel, smoothStep, SPL_OFFSET } from "../lib/audio-level";
 import { subscribeMicLevel } from "../lib/mic-feed";
 
 /**
@@ -162,7 +162,7 @@ export function DezibelPanel() {
       <div className="text-center text-[11px] leading-relaxed text-[var(--color-muted)]">
         Schalldruckpegel-Schätzung (SPL) · Zimmerlautstärke ca. 35–50 dB, Sprache 60–75 dB.
         <br />
-        Skala ca. {FLOOR_DB + 90} … {CEIL_DB + 90} dB · Esc schließt und gibt das Mikrofon frei.
+        Skala ca. {FLOOR_DB + SPL_OFFSET} … {CEIL_DB + SPL_OFFSET} dB · Esc schließt und gibt das Mikrofon frei.
       </div>
     </div>
   );

@@ -260,8 +260,14 @@ export function ShazamPanel({
     // backend (the overlay was closed mid-listen and reopened): then reconnect
     // to it (show live state, result arrives via `shazam-done`) instead of
     // opening the mic a second time.
+    // `alive` guards the async gap: closing the panel while the status IPC is
+    // in flight used to still call run() AFTER unmount — a hidden 10 s mic
+    // recording with nobody listening (run() takes a fresh run id, so the
+    // unmount's runId bump alone could not stop it).
+    let alive = true;
     if (initialView !== "history") {
       void shazamIsListening().then((busy) => {
+        if (!alive) return;
         if (busy) {
           reconnectedRef.current = true;
           setPhase("searching");
@@ -271,6 +277,7 @@ export function ShazamPanel({
       });
     }
     return () => {
+      alive = false;
       runIdRef.current += 1; // invalidate in-flight run on unmount
     };
     // Run once on mount for the chosen initial view.
@@ -531,7 +538,7 @@ export function ShazamPanel({
 
       {/* ── Recognize view ── */}
       {view === "recognize" && (phase === "listening" || phase === "searching") && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-5">
+        <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-5">
           <div className="relative flex h-28 w-28 items-center justify-center">
             <span className="shazam-ring absolute inset-0 rounded-full border border-rose-400/50" />
             <span
@@ -569,7 +576,7 @@ export function ShazamPanel({
       )}
 
       {view === "recognize" && phase === "result" && match && (
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
+        <div className="panel-enter flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
           <div className="flex gap-3">
             {match.cover_url ? (
               <img src={match.cover_url} alt="" className="h-24 w-24 shrink-0 rounded-lg object-cover shadow-md" />
@@ -646,7 +653,7 @@ export function ShazamPanel({
 
       {view === "recognize" &&
         (phase === "nomatch" || phase === "error" || phase === "noperm") && (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+          <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
             {phase === "noperm" ? (
               <MicOff size={26} className="text-amber-400" />
             ) : (
@@ -678,7 +685,7 @@ export function ShazamPanel({
 
       {/* ── Lyrics view ── */}
       {view === "lyrics" && lyricsMeta && (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="panel-enter flex min-h-0 flex-1 flex-col gap-2">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -821,7 +828,7 @@ export function ShazamPanel({
 
       {/* ── History view ── */}
       {view === "history" && (
-        <div className="flex min-h-0 flex-1 flex-col gap-2">
+        <div className="panel-enter flex min-h-0 flex-1 flex-col gap-2">
           {history.length > 0 && (
             <div className="flex items-center gap-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] px-2 py-1">
               <Search size={13} className="shrink-0 text-[var(--color-muted)]" />

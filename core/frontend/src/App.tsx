@@ -242,7 +242,8 @@ import {
   targetSize,
 } from "./lib/resize";
 import { generatePassword, type PwgenMode } from "./lib/pwgen";
-import { matchTotpEntries, totpCommandRows } from "./lib/totp";
+import { matchTotpEntries, totpCommandRows, sameCodes, msUntilNextRollover } from "./lib/totp";
+import { sameSnippetList } from "./lib/snippet-list";
 import { applyTheme, normaliseTheme } from "./lib/theme";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import type { FinderFileView, ListEntry, Snippet } from "./lib/types";
@@ -358,6 +359,7 @@ function App() {
   const [settingsJump, setSettingsJump] = useState<{ id: string; nonce: number } | null>(null);
   /** True briefly after each popup open — drives the list-entrance cascade. */
   const [listEntrance, setListEntrance] = useState(true);
+  const listEntranceTimerRef = useRef<number | undefined>(undefined);
   /** Preview crossfade (v0.88.0): restart the enter animation on selection
    *  change WITHOUT remounting the panel (a remount would refetch images). */
   const previewFadeRef = useRef<HTMLDivElement | null>(null);
@@ -592,7 +594,11 @@ function App() {
   // Brief banner when a timer fires (4 s dwell) — separate from the
   // OS-native macOS notification so the user gets feedback even if
   // the popup is open at fire time.
-  const [timerFiredLabel, setTimerFiredLabel] = useState<string | null>(null);
+  // An OBJECT, not the bare label: two timers with the same label ("Timer
+  // done") would otherwise set an identical string, the 4 s effect would not
+  // restart, and the second banner vanished after the first one's remainder.
+  const [timerFired, setTimerFired] = useState<{ label: string } | null>(null);
+  const timerFiredLabel = timerFired?.label ?? null;
   // pwgen mode toggle (v0.40.0+). Persists across keystrokes so the
   // user can type `pwgen 16`, click `dict` once in the preview pane,
   // then re-type lengths without losing the mode. Re-generation is
@@ -873,6 +879,11 @@ function App() {
     ? `${translateReq.sl}|${translateReq.tl}|${translateReq.text}`
     : null;
   useEffect(() => {
+    // Bump the sequence in EVERY branch: an in-flight fetch for an older text
+    // must not land after the input moved on to a cached text or away from
+    // `tr` entirely — only bumping on the fetch path let a slow response
+    // overwrite the preview (and Enter then copied the wrong translation).
+    const seq = ++translateSeqRef.current;
     if (!translateReq || translateKey === null) {
       setLiveTranslation(null);
       return;
@@ -883,7 +894,6 @@ function App() {
       setLiveTranslation({ status: "ok", ...cached });
       return;
     }
-    const seq = ++translateSeqRef.current;
     setLiveTranslation({ status: "loading" });
     const timer = window.setTimeout(() => {
       translateText(translateReq.text, translateReq.sl, translateReq.tl)
@@ -2563,32 +2573,47 @@ function App() {
   );
 
   // `otp <query>` autocomplete: fuzzy-match against issuer/account.
-  // We poll codes once a second while at least one TOTP row is in
-  // the list, so the displayed codes stay current. Suppressed while the
-  // query is the `add` sub-command — `parseOtpQuery` would read the word
-  // `add` (and any prefill after it) as an issuer search.
+  // Suppressed while the query is the `add` sub-command — `parseOtpQuery`
+  // would read the word `add` (and any prefill after it) as an issuer search.
+  //
+  // Fetch cadence (2026-09-26): the entry list ONCE per otp session, codes
+  // only at the next period ROLLOVER — not every second. The old 1 s poll
+  // stored a fresh array + Map each tick, which rebuilt the whole `combined`
+  // list (+ lineage) and re-rendered every visible row, and made Rust
+  // AES-decrypt every secret each second. The "Ns remaining" text ticks
+  // locally in <TotpSecondsLeft>.
   const otpQuery = totpRows.manage?.mode === "add" ? null : parseOtpQuery(query);
   useEffect(() => {
     if (otpQuery === null) return;
     let cancelled = false;
-    const refresh = async () => {
+    let timer: number | undefined;
+    let periods: number[] = [];
+    const refreshCodes = async () => {
       try {
-        const [{ totpList, totpCurrentCodesAll }] = await Promise.all([
-          import("./lib/ipc"),
-        ]);
-        const [entries, codes] = await Promise.all([totpList(), totpCurrentCodesAll()]);
+        const { totpCurrentCodesAll } = await import("./lib/ipc");
+        const codes = await totpCurrentCodesAll();
         if (cancelled) return;
-        setTotpEntries(entries);
-        setTotpCodes(new Map(codes.map((c) => [c.id, c])));
+        setTotpCodes((cur) => (sameCodes(cur, codes) ? cur : new Map(codes.map((c) => [c.id, c]))));
       } catch (e) {
-        if (!cancelled) console.warn("totp poll failed", e);
+        if (!cancelled) console.warn("totp codes failed", e);
       }
+      if (!cancelled) timer = window.setTimeout(refreshCodes, msUntilNextRollover(periods, Date.now()));
     };
-    void refresh();
-    const interval = setInterval(refresh, 1000);
+    void (async () => {
+      try {
+        const { totpList } = await import("./lib/ipc");
+        const entries = await totpList();
+        if (cancelled) return;
+        periods = entries.map((e) => e.period);
+        setTotpEntries(entries);
+      } catch (e) {
+        if (!cancelled) console.warn("totp list failed", e);
+      }
+      void refreshCodes();
+    })();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      window.clearTimeout(timer);
     };
   }, [otpQuery !== null]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -2712,6 +2737,12 @@ function App() {
         };
   }, [isShazamCmd, parsedCommand]);
 
+  // Wrapped once per clip-list change, not on every `combined` rebuild
+  // (query, snippets, command rows… each rebuilt all ~1000 wrappers).
+  const clipRows = useMemo(
+    () => filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
+    [filteredClips],
+  );
   const combined: ListEntry[] = useMemo(() => {
     if (isKillMode) return killTargetEntries;
     if (isMemeMode) return memeEntries;
@@ -2774,7 +2805,7 @@ function App() {
       ...(convertResult ? [{ kind: "calc", data: convertResult } as ListEntry] : []),
       ...(colorResult ? [{ kind: "color", data: colorResult } as ListEntry] : []),
       ...matchingSnippets.map((s): ListEntry => ({ kind: "snippet", data: s })),
-      ...filteredClips.map((c): ListEntry => ({ kind: "clip", data: c })),
+      ...clipRows,
     ];
   }, [
     isKillMode,
@@ -2816,6 +2847,7 @@ function App() {
     colorResult,
     matchingSnippets,
     filteredClips,
+    clipRows,
   ]);
 
   // Social download: Tab toggles video↔audio for a selected YouTube `social`
@@ -3056,18 +3088,24 @@ function App() {
 
   // Find matching snippets whenever query changes. The cancelled guard keeps
   // an out-of-order older response from clobbering a newer query's result.
+  //
+  // Keep the SAME array when the result didn't change: every new array
+  // (even a fresh `[]`) invalidates `combined`, so each keystroke rebuilt
+  // the whole list (+ lineage rails) a second time when the lookup landed.
   useEffect(() => {
+    const keep = (next: Snippet[]) =>
+      setMatchingSnippets((cur) => (sameSnippetList(cur, next) ? cur : next));
     if (!query.trim()) {
-      setMatchingSnippets([]);
+      keep([]);
       return;
     }
     let cancelled = false;
     findSnippets(query)
       .then((s) => {
-        if (!cancelled) setMatchingSnippets(s);
+        if (!cancelled) keep(s);
       })
       .catch(() => {
-        if (!cancelled) setMatchingSnippets([]);
+        if (!cancelled) keep([]);
       });
     return () => {
       cancelled = true;
@@ -3197,7 +3235,13 @@ function App() {
     // popup OPEN (never per keystroke). The class is removed after the
     // animation so later virtualizer updates render instantly.
     setListEntrance(true);
-    window.setTimeout(() => setListEntrance(false), effectiveCrtMs() + 120);
+    // Clear the previous open's timer: a quick close→reopen otherwise let the
+    // OLD timeout cut the new entrance short.
+    window.clearTimeout(listEntranceTimerRef.current);
+    listEntranceTimerRef.current = window.setTimeout(
+      () => setListEntrance(false),
+      effectiveCrtMs() + 120,
+    );
     // Reconcile the footer keep-awake LED to the true state on every open.
     // `wakelock on` / `caffeine on` hide the popup before the footer can
     // observe the `wakelock-changed` event, so re-fetch here — guarantees
@@ -3537,13 +3581,13 @@ function App() {
       .catch(() => undefined);
   });
   useTauriEvent<{ id: number; label: string }>("timer-fired", (e) => {
-    setTimerFiredLabel(e.payload?.label ?? "Timer done");
+    setTimerFired({ label: e.payload?.label ?? "Timer done" });
   });
   useEffect(() => {
-    if (!timerFiredLabel) return;
-    const id = window.setTimeout(() => setTimerFiredLabel(null), 4000);
+    if (!timerFired) return;
+    const id = window.setTimeout(() => setTimerFired(null), 4000);
     return () => window.clearTimeout(id);
-  }, [timerFiredLabel]);
+  }, [timerFired]);
 
   // Preview crossfade restart — keyed on the selected entry identity.
   const previewCrossfadeKey =
@@ -4909,7 +4953,7 @@ function App() {
               </span>
             </span>
             <button
-              onClick={() => setTimerFiredLabel(null)}
+              onClick={() => setTimerFired(null)}
               className="rounded px-1.5 text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
               title="Dismiss"
             >

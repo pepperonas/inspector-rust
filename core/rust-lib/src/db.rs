@@ -332,6 +332,14 @@ pub fn list(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>
 /// blob for images (the `CASE` returns the literal `''` so the encrypted column
 /// is never read/decrypted) collapses the payload to a few MB.
 ///
+/// **Text rows are blanked too (2026-09-26):** for a text clip `content_data`
+/// is (almost always) byte-identical to `content_text`, so shipping both
+/// AES-decrypted + serialised + marshalled every text clip TWICE on each
+/// popup open. The list renders `content_text`; paste goes by id. The rare
+/// writer that stores only a short preview in `content_text` (generated
+/// pastes keep 200 chars) is caught by the preview's `needsFullText`, which
+/// re-reads the full row via `get_clip`.
+///
 /// `list` (full, with image data) is still used by the backup export, which
 /// genuinely needs every byte.
 pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipEntry>> {
@@ -340,7 +348,7 @@ pub fn list_slim(db: &DbHandle, limit: usize, offset: usize) -> Result<Vec<ClipE
         let mut stmt = conn.prepare(
             r#"
             SELECT id, content_type, content_text,
-                   CASE WHEN content_type = 'image' THEN '' ELSE content_data END AS content_data,
+                   CASE WHEN content_type IN ('image', 'text') THEN '' ELSE content_data END AS content_data,
                    hash, byte_size, created_at, last_used_at, pinned, note,
                    derived_from, derived_kind
             FROM entries
@@ -704,7 +712,7 @@ mod tests {
     }
 
     #[test]
-    fn list_slim_omits_image_data_but_keeps_text_and_other_fields() {
+    fn list_slim_omits_image_and_text_payloads_but_keeps_content_text() {
         let db = test_db();
         upsert_clip(&db, &image_clip("BIGBASE64IMAGEBLOB")).unwrap();
         upsert_clip(&db, &text_clip("hello world")).unwrap();
@@ -714,7 +722,8 @@ mod tests {
         let full_img = full.iter().find(|e| e.content_type == ContentType::Image).unwrap();
         assert_eq!(full_img.content_data, "BIGBASE64IMAGEBLOB");
 
-        // Slim list blanks ONLY the image blob; text + metadata are intact.
+        // Slim list blanks the image blob AND the (duplicate) text payload;
+        // content_text + metadata are intact.
         let slim = list_slim(&db, 10, 0).unwrap();
         assert_eq!(slim.len(), 2);
         let slim_img = slim.iter().find(|e| e.content_type == ContentType::Image).unwrap();
@@ -722,7 +731,11 @@ mod tests {
         assert_eq!(slim_img.byte_size, "BIGBASE64IMAGEBLOB".len() as i64); // metadata kept
         let slim_txt = slim.iter().find(|e| e.content_type == ContentType::Text).unwrap();
         assert_eq!(slim_txt.content_text, "hello world"); // text untouched
-        assert_eq!(slim_txt.content_data, "hello world"); // non-image data untouched
+        assert_eq!(slim_txt.content_data, "", "duplicate text payload must be stripped");
+        assert_eq!(slim_txt.byte_size, "hello world".len() as i64); // lets the preview detect truncation
+        // get() still returns the full payload (the preview's fallback path).
+        let full_txt = get(&db, slim_txt.id).unwrap().unwrap();
+        assert_eq!(full_txt.content_data, "hello world");
     }
 
     #[test]

@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { matchTotpEntries, totpCommandRows, type TotpEntry } from "./totp";
+import {
+  matchTotpEntries,
+  totpCommandRows,
+  secondsRemaining,
+  msUntilNextRollover,
+  sameCodes,
+  type TotpEntry,
+} from "./totp";
 
 function entry(id: number, issuer: string, account: string): TotpEntry {
   return { id, issuer, account, digits: 6, period: 30, algorithm: "SHA1", created_at: 0 };
@@ -151,5 +158,29 @@ describe("totpCommandRows", () => {
     for (const q of ["2fa addepar", "2fa amazon", "otp hosti", "hello", ""]) {
       expect(totpCommandRows(q)).toEqual({ manage: null, sub: null });
     }
+  });
+});
+
+
+describe("TOTP rollover scheduling", () => {
+  it("secondsRemaining matches period - (t % period)", () => {
+    expect(secondsRemaining(30, 0)).toBe(30);
+    expect(secondsRemaining(30, 28_999)).toBe(2);
+    expect(secondsRemaining(30, 29_000)).toBe(1);
+    expect(secondsRemaining(60, 45_000)).toBe(15);
+  });
+  it("schedules at the EARLIEST rollover across periods", () => {
+    // t = 25 s: a 30 s code rolls in 5 s, a 60 s one in 35 s.
+    expect(msUntilNextRollover([60, 30], 25_000, 0)).toBe(5_000);
+    expect(msUntilNextRollover([30], 25_000)).toBe(5_250);
+  });
+  it("falls back to 30 s with no usable period", () => {
+    expect(msUntilNextRollover([], 0)).toBe(30_000);
+  });
+  it("sameCodes detects only real changes", () => {
+    const cur = new Map([[1, { id: 1, code: "111111", seconds_remaining: 5 }]]);
+    expect(sameCodes(cur, [{ id: 1, code: "111111", seconds_remaining: 4 }])).toBe(true);
+    expect(sameCodes(cur, [{ id: 1, code: "222222", seconds_remaining: 30 }])).toBe(false);
+    expect(sameCodes(cur, [])).toBe(false);
   });
 });

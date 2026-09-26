@@ -123,7 +123,7 @@ function TimerBadge({ count }: { count: number }) {
   return (
     <span
       title={`${count} timer${count === 1 ? "" : "s"} running — will fire a macOS notification + Glass sound`}
-      className="flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
+      className="confirm-enter flex shrink-0 items-center gap-1 font-[var(--font-mono)] text-[10px] uppercase tracking-wider text-[var(--color-accent)]"
     >
       ⏰ {count}
     </span>
@@ -141,7 +141,7 @@ function TrackingLed({ paused }: { paused: boolean }) {
           ? "Time tracking paused (idle). Type `track off` to stop, or `track` to open the timesheet."
           : "Time tracking active. Type `track off` to stop, or `track` to open the timesheet."
       }
-      className="flex shrink-0 items-center gap-1"
+      className="confirm-enter flex shrink-0 items-center gap-1"
     >
       <span
         aria-hidden
@@ -231,9 +231,13 @@ function SleepLed({
   const style = SLEEP_STYLE[ind.kind];
   return (
     <span title={ind.title} className="flex shrink-0 items-center gap-1">
+      {/* Keyed on the state kind: a state change (wake → sleep …) remounts
+          the dot so it fades in as a CHANGE instead of silently recolouring
+          (colour itself is not transitioned — not an allowed property). */}
       <span
+        key={ind.kind}
         aria-hidden
-        className="h-2 w-2 rounded-full"
+        className="confirm-enter h-2 w-2 rounded-full"
         style={{
           backgroundColor: style.dot,
           boxShadow: style.glow,

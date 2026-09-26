@@ -3,7 +3,6 @@ import ReactDOM from "react-dom/client";
 import { getCurrentWebviewWindow } from "@tauri-apps/api/webviewWindow";
 import "./styles.css";
 import { initMotion } from "./lib/motion-stage";
-import { XOverlay } from "./components/XOverlay";
 
 // Animation layer (v0.163.0): synchronous `@starting-style` feature detection
 // (`has-enter-anim` on the root — old WKWebView shows elements instantly
@@ -66,6 +65,12 @@ const ColorLoupe = React.lazy(() =>
 );
 const IrisOverlay = React.lazy(() =>
   import("./components/IrisOverlay").then((m) => ({ default: m.IrisOverlay })),
+);
+// XOverlay was the one eager import (v0.133.0): it pulls `commandDocs.ts`
+// (~116 KB source) and so put the full command docs into the ENTRY chunk
+// every transient window parses.
+const XOverlay = React.lazy(() =>
+  import("./components/XOverlay").then((m) => ({ default: m.XOverlay })),
 );
 const AlarmOverlay = React.lazy(() =>
   import("./components/AlarmOverlay").then((m) => ({ default: m.AlarmOverlay })),

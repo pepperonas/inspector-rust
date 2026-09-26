@@ -206,7 +206,7 @@ export function ScreenshotPreview() {
         <div className="relative z-10 m-auto flex flex-col gap-2">
           <PillButton onClick={onCopy} title="Copy image to clipboard">
             {copied ? (
-              <span className="flex items-center gap-1">
+              <span className="md3-success-pop items-center gap-1">
                 <Copy size={13} /> Copied
               </span>
             ) : (

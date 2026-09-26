@@ -11,7 +11,10 @@ import { readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 const dist = new URL("../core/frontend/dist/assets/", import.meta.url).pathname;
-const BUDGET_KB = { App: 400, entry: 340, css: 110 };
+// entry 340 → 250 (2026-09-26): the XOverlay window was the last eager import
+// and dragged the whole command-docs registry into the entry chunk (332 KB);
+// lazy it measures ~216 KB. Every auxiliary window parses this chunk.
+const BUDGET_KB = { App: 400, entry: 250, css: 110 };
 
 let files;
 try {

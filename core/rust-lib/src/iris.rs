@@ -138,6 +138,15 @@ struct Running {
 #[derive(Default)]
 pub struct IrisState {
     inner: Mutex<Option<Running>>,
+    /// Serialises start/stop as whole transitions. `start` checks `inner`,
+    /// then spends a long time building overlays + the capture before it
+    /// writes `Some(Running)` — without this lock a `stop` in that gap saw
+    /// `None` and returned, and the start then armed the mic anyway (the
+    /// user had just disarmed); two concurrent starts both passed the check
+    /// and the second silently replaced the first. Held only on the async
+    /// command threads, never on the main thread (build_overlays hops there
+    /// and waits — holding this on main would deadlock).
+    transition: Mutex<()>,
 }
 
 /// Serialised status for the frontend.
@@ -348,6 +357,7 @@ pub fn start(
     state: &IrisState,
     threshold_spl: Option<f32>,
 ) -> Result<f32, String> {
+    let _transition = state.transition.lock();
     let threshold = clamp_threshold(threshold_spl.unwrap_or_else(|| saved_threshold(db)));
     persist_threshold(db, threshold);
 
@@ -430,6 +440,8 @@ pub fn start(
 
 /// Stop monitoring and tear the overlays down. Idempotent.
 pub fn stop(app: &AppHandle, state: &IrisState) {
+    // Waits for an in-flight start to finish, so it can be torn down.
+    let _transition = state.transition.lock();
     let running = state.inner.lock().take();
     if let Some(r) = running {
         close_overlays(app, &r.overlays);

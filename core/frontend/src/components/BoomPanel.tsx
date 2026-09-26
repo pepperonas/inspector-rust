@@ -323,13 +323,13 @@ export function BoomPanel({
           </span>
           <span
             className={
-              "relative inline-block h-5 w-9 rounded-full transition-colors " +
+              "relative inline-block h-5 w-9 rounded-full transition-colors duration-(--duration-fast) ease-sharp " +
               (cfg.enabled ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]")
             }
           >
             <span
               className={
-                "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform " +
+                "absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform duration-(--duration-fast) ease-sharp " +
                 (cfg.enabled ? "translate-x-4" : "")
               }
             />

@@ -1,4 +1,5 @@
 import { memo, useEffect, useRef, useState } from "react";
+import { TotpSecondsLeft } from "./TotpSecondsLeft";
 import {
   BookOpen, Activity, AudioLines, AppWindow, Bookmark, BookmarkCheck, Calculator, ChevronsRight, Download, Drama, Euro, Flame, FileCode2, FileText, Files, GitBranch, Image, KeyRound, Laugh, Palette, Pin, Skull, SlidersHorizontal, Sparkles, StickyNote, Terminal, Trash2, Type, Zap } from "lucide-react";
 import { getAppIcon } from "../lib/ipc";
@@ -736,7 +737,7 @@ export const HistoryItem = memo(function HistoryItem({
                     (selected ? "text-white/70" : "text-[var(--color-muted)]")
                   }
                 >
-                  {entry.data.account} · {entry.data.seconds_remaining}s remaining · ⏎ copies code
+                  {entry.data.account} · <TotpSecondsLeft period={entry.data.period} />s remaining · ⏎ copies code
                 </span>
               )}
             </span>

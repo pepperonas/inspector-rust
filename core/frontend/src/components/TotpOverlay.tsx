@@ -27,7 +27,7 @@ import {
   totpSetOrder,
   totpUpdate,
 } from "../lib/ipc";
-import { matchTotpEntries } from "../lib/totp";
+import { matchTotpEntries, msUntilNextRollover, sameCodes } from "../lib/totp";
 import { TotpBrandIcon } from "./TotpBrandIcon";
 import type { TotpCode, TotpEntry } from "../lib/totp";
 
@@ -78,6 +78,10 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
   const [tab, setTab] = useState<Tab>(initialTab ?? "list");
   const [entries, setEntries] = useState<TotpEntry[]>([]);
   const [codes, setCodes] = useState<Map<number, TotpCode>>(new Map());
+  const periodsRef = useRef<number[]>([]);
+  useEffect(() => {
+    periodsRef.current = entries.map((e) => e.period);
+  }, [entries]);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<{ kind: "ok" | "err"; message: string } | null>(
     null,
@@ -153,32 +157,41 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
     };
   }, []);
 
-  // Initial fetch + 1 s polling of live codes.
+  // Initial fetch, then codes only at the next period ROLLOVER (2026-09-26).
+  // The old 1 s poll re-fetched the list + every code (Rust AES-decrypts each
+  // secret per call) although codes only change at epoch-aligned boundaries;
+  // the countdown ring is a free-running CSS keyframe re-anchored per code.
+  // Mutations (add/edit/delete/import) still call `refreshList` explicitly.
   useEffect(() => {
     let cancelled = false;
-    const refresh = async () => {
+    let timer: number | undefined;
+    const refreshCodes = async () => {
       try {
-        const [list, currentCodes] = await Promise.all([
-          totpList(),
-          totpCurrentCodesAll(),
-        ]);
+        const currentCodes = await totpCurrentCodesAll();
+        if (cancelled) return;
+        setCodes((cur) =>
+          sameCodes(cur, currentCodes) ? cur : new Map(currentCodes.map((c) => [c.id, c])),
+        );
+      } catch (e) {
+        if (!cancelled) console.error("totp refresh failed", e);
+      }
+      // Read the LIVE periods: an entry added meanwhile may bring a new one.
+      if (!cancelled)
+        timer = window.setTimeout(refreshCodes, msUntilNextRollover(periodsRef.current, Date.now()));
+    };
+    void (async () => {
+      try {
+        const list = await totpList();
         if (cancelled) return;
         setEntries(list);
-        setCodes(new Map(currentCodes.map((c) => [c.id, c])));
       } catch (e) {
-        if (!cancelled) {
-          console.error("totp refresh failed", e);
-        }
+        if (!cancelled) console.error("totp list failed", e);
       }
-    };
-    void refresh();
-    const interval = setInterval(refresh, 1000);
-    // (The former 100 ms tickNow ticker is gone — the countdown ring is a
-    // free-running CSS keyframe now, Etappe 6; ten re-renders/s across every
-    // row bought nothing the compositor doesn't do for free.)
+      void refreshCodes();
+    })();
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      window.clearTimeout(timer);
     };
   }, [tab]);
 
@@ -467,8 +480,9 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
         </button>
       </div>
 
-      {/* Body */}
-      <div className="flex-1 overflow-auto p-4">
+      {/* Body — keyed on the tab so each switch plays the same quiet
+          panel-enter as the app's own TabBar. */}
+      <div key={tab} className="panel-enter flex-1 overflow-auto p-4">
         {tab === "list" && (
           <ListTab
             entries={entries}
@@ -524,8 +538,9 @@ export function TotpOverlay({ onExit, onHidePopup, initialTab, initialIssuer }: 
       {/* Toast */}
       {toast && (
         <div
+          key={`${toast.kind}:${toast.message}`}
           className={
-            "mx-4 mb-3 rounded border px-3 py-2 text-[12px] " +
+            "confirm-enter mx-4 mb-3 rounded border px-3 py-2 text-[12px] " +
             (toast.kind === "ok"
               ? "border-emerald-500/40 bg-emerald-500/10"
               : "border-rose-500/40 bg-rose-500/10")

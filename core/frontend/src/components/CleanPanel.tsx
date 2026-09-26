@@ -306,7 +306,7 @@ export function CleanPanel({
       </div>
 
       {phase === "scanning" && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
+        <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
           <Loader2 size={28} className="animate-spin" />
           <div>Scanning caches + projects…</div>
           <div className="text-xs">Esc closes the overlay — scan keeps running</div>
@@ -314,7 +314,7 @@ export function CleanPanel({
       )}
 
       {phase === "executing" && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
+        <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
           <Loader2 size={28} className="animate-spin" />
           <div>
             {totals.files > 0
@@ -326,7 +326,7 @@ export function CleanPanel({
       )}
 
       {phase === "error" && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
+        <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-3 px-4 text-center">
           <AlertTriangle size={24} className="text-amber-400" />
           <div className="text-[var(--color-fg)]">Cleaning failed</div>
           <div className="break-all text-xs text-[var(--color-muted)]">{error}</div>
@@ -335,7 +335,7 @@ export function CleanPanel({
       )}
 
       {phase === "pick" && rows.length === 0 && (
-        <div className="flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
+        <div className="panel-enter flex flex-1 flex-col items-center justify-center gap-2 text-[var(--color-muted)]">
           <Sparkles size={24} />
           <div>Nothing to clean — all tidy.</div>
           <div className="text-xs">Esc to close</div>

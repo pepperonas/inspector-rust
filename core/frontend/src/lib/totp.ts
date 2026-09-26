@@ -119,3 +119,36 @@ export function matchTotpEntries(query: string, entries: TotpEntry[]): TotpEntry
   scored.sort((a, b) => b.score - a.score);
   return scored.map((s) => s.entry);
 }
+
+// ── Rollover scheduling (2026-09-26) ───────────────────────────────────────
+// TOTP codes change only at period boundaries (epoch-aligned, RFC 6238), so
+// polling every second — which also rebuilt the popup's whole `combined` list
+// and made Rust AES-decrypt every secret each tick — was ~30× more work than
+// needed. Callers fetch at rollover and tick the "Ns remaining" text locally.
+
+/** Seconds until the current code of a `period`-second TOTP rolls over
+ *  (1..period), matching Rust's `period - (t % period)`. */
+export function secondsRemaining(period: number, nowMs: number): number {
+  const p = Math.max(1, Math.round(period) || 30);
+  return p - (Math.floor(nowMs / 1000) % p);
+}
+
+/** Milliseconds until the next rollover of ANY of `periods`, plus a small
+ *  settle margin so the backend already computes the new code. */
+export function msUntilNextRollover(periods: number[], nowMs: number, settleMs = 250): number {
+  const ps = periods.filter((p) => p > 0);
+  if (ps.length === 0) return 30_000;
+  let min = Infinity;
+  for (const p of ps) {
+    const span = Math.round(p) * 1000;
+    min = Math.min(min, span - (nowMs % span));
+  }
+  return min + settleMs;
+}
+
+/** True when `next` carries exactly the codes already in `cur` — lets the
+ *  caller skip a state update (and the re-render cascade behind it). */
+export function sameCodes(cur: Map<number, TotpCode>, next: TotpCode[]): boolean {
+  if (cur.size !== next.length) return false;
+  return next.every((c) => cur.get(c.id)?.code === c.code);
+}

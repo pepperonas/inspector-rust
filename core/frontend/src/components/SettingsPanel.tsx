@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import {
@@ -401,15 +402,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
   }, []);
   // Stay in sync when the tray menu toggles autostart — backend emits
   // `autostart-changed` with the now-effective boolean.
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    (async () => {
-      unlisten = await listen<boolean>("autostart-changed", (e) => {
-        setAutostart(e.payload);
-      });
-    })();
-    return () => unlisten?.();
-  }, []);
+  useTauriEvent<boolean>("autostart-changed", (e) => setAutostart(e.payload));
   const toggleAutostart = async (next: boolean) => {
     setAutostartBusy(true);
     try {
@@ -2160,7 +2153,7 @@ export function SettingsPanel({ onBackupImported, jumpTo }: Props = {}) {
                 </label>
 
                 {privacySaved && (
-                  <span className="flex items-center gap-1.5 text-[11px] text-green-500">
+                  <span className="confirm-enter flex items-center gap-1.5 text-[11px] text-green-500">
                     <CheckCircle2 size={12} /> Saved
                   </span>
                 )}
@@ -3436,7 +3429,7 @@ function TimesheetSection() {
           <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
         )}
         {savedOk && !dirty && (
-          <span className="text-[11px] text-[var(--color-muted)]">Saved</span>
+          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">Saved</span>
         )}
       </div>
       <Row
@@ -3813,9 +3806,18 @@ function AutoBackupSection({ onRestored }: { onRestored?: () => Promise<void> | 
   useEffect(() => {
     void getAutoBackupConfig().then(setCfg).catch(() => {});
     refresh();
+    // Unmount-before-resolve guard (SettingsPanel remounts on every tab
+    // switch; a bare `.then(u => unlisten = u)` orphaned the listener).
+    let cancelled = false;
     let unlisten: UnlistenFn | undefined;
-    void listen("auto-backup-status-changed", refresh).then((u) => (unlisten = u));
-    return () => unlisten?.();
+    void listen("auto-backup-status-changed", refresh).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
   }, []);
 
   const save = (next: AutoBackupConfig) => {
@@ -4098,12 +4100,19 @@ function CloudSyncSection() {
     refreshStatus();
     // The worker emits after EVERY cycle (success or failure) → chips update
     // live instead of blind-polling.
+    let cancelled = false;
     let unlisten: UnlistenFn | undefined;
     void listen("sync-status-changed", () => {
       refreshStatus();
       setSyncing(false);
-    }).then((u) => (unlisten = u));
-    return () => unlisten?.();
+    }).then((u) => {
+      if (cancelled) u();
+      else unlisten = u;
+    });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
      
   }, []);
 
@@ -5690,7 +5699,7 @@ function CrtAnimationRow() {
           >
             {busy ? "Saving…" : "Save"}
           </button>
-          {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
           {!valid && value.trim() !== "" && (
             <span className="text-[12px] text-amber-500">
               0 (off) or {cfg.min}–{cfg.max}
@@ -5902,7 +5911,7 @@ function HistoryLimitSection() {
           >
             {busy ? "Saving…" : "Save"}
           </button>
-          {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+          {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
           {!valid && value.trim() !== "" && (
             <span className="text-[12px] text-amber-500">
               {limit.min.toLocaleString()}–{limit.ceiling.toLocaleString()}
@@ -6017,7 +6026,7 @@ function WeatherSection() {
         >
           {busy ? "Saving…" : "Save"}
         </button>
-        {savedOk && <span className="text-[12px] text-emerald-500">Saved ✓</span>}
+        {savedOk && <span className="confirm-enter text-[12px] text-emerald-500">Saved ✓</span>}
         {!cfg.has_key && !savedOk && (
           <button
             onClick={() => void openUrl("https://home.openweathermap.org/api_keys")}
@@ -6136,7 +6145,7 @@ function MemeSection() {
           <span className="text-[11px] text-[var(--color-muted)]">Unsaved changes</span>
         )}
         {savedOk && !dirty && (
-          <span className="text-[11px] text-[var(--color-muted)]">Saved</span>
+          <span className="confirm-enter text-[11px] text-[var(--color-muted)]">Saved</span>
         )}
       </div>
       <p className="mt-1 text-[11px] text-[var(--color-muted)]">

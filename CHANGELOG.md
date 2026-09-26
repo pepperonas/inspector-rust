@@ -17,6 +17,23 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **The website's changelog** showed 494 of 539 releases as sub-headings (their headings use an em dash) and rendered all of them at once — ~11 000 elements, which stalled older machines. It now recognises every heading style, renders code blocks and tables, and loads 10 versions at a time ("Older versions" for the rest): opening takes ~50 ms instead of ~550 ms.
 - **Website scrolling on older Macs:** the top bar no longer blurs what's behind it on every frame.
 - **Flappy Bird resumed without its pipes** in development builds: React StrictMode ran the canvas effect twice and the second pass started a new game under the restored score.
+- **Screenshots and OCR no longer freeze the app while you pick a region.** `shot`, `shotfull`/`shotwin` (including the self-timer, up to 60 s), `shotlast` and OCR ran on the main thread, so tray, hotkeys and every window hung until the capture finished. The same applied to the Finder-selection read (used by `rz`), the Finder-automation check in Settings, the `kill` process list and the ffprobe calls of trim / audio swap. All of them now run in the background.
+- **Live translation could show the translation of an older input.** A slow response for text you had already edited away could overwrite the current preview, so Enter copied the wrong translation.
+- **Closing `shazam` right after opening it could still record for 10 s** in the background, with nothing on screen.
+- **Bluetooth live capture could keep running after the panel was closed** if you closed it while the capture was starting.
+- **`iris` could arm itself again after being disarmed** when the stop arrived while the start was still setting up (and two quick starts could replace each other). Start and stop now wait for each other.
+- **A second timer with the same label cut its own banner short**, and a quick close→reopen of the popup could cut the list entrance short.
+- **Event listeners leaked on tab switches** in Settings (autostart, auto-backup, cloud sync) and in the benchmark panel.
+- **The green REC and violet Dark-Wake LEDs pulsed with a red glow** — the shared pulse animation carried a hard-coded red shadow that overrode each LED's own colour.
+- **Buttons with a press effect snapped their hover colour** instead of fading it.
+
+### Changed
+- **Faster popup and list:** the history list no longer decrypts and transfers every text clip twice (the preview fetches the full text only when the list row carries a shortened preview); moving the selection re-renders only the two affected rows instead of every visible one; each keystroke rebuilds the list once instead of twice; timestamps reuse one date formatter.
+- **Every auxiliary window starts lighter:** the start-up bundle each window parses dropped from 332 KB to 216 KB (the `x!` window was the last one loaded eagerly and pulled in all command docs).
+- **2FA codes are fetched when they change, not every second** (`otp …` rows and the `2fa` overlay); the "N s remaining" text ticks on its own.
+- **Copies from excluded apps** (password managers) are dropped before the clipboard image is read and encoded, not after.
+- **Time tracking wakes up far less often** (was ~7 times a second while tracking).
+- **Subtle animations** where state changed abruptly: "Copied"/"Saved" confirmations, the clip-note popover, 2FA tab switches and toasts, the Snippets editor pane, phase changes in `weather`/`shazam`/`clean`, and footer indicators appearing or changing state. All use the existing timing tokens, animate only opacity/transform, and follow the Animations setting (Full/Reduced/Off).
 
 ## [0.185.0] - 2026-09-25
 

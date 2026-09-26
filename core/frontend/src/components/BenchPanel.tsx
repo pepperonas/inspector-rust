@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import { useTauriEvent } from "../hooks/useTauriEvent";
 import { Cpu, Play, Trash2, Upload, Check } from "lucide-react";
 import {
   benchPlan, benchRun, benchHistory, benchDelete, benchImport, benchExport,
@@ -41,13 +41,9 @@ export function BenchPanel({ focused, onExit }: { focused: boolean; onExit: () =
     reload();
   }, [reload]);
 
-  useEffect(() => {
-    let un: UnlistenFn | undefined;
-    void listen<{ done: number; total: number; name: string }>("bench-progress", (e) =>
-      setProgress(e.payload),
-    ).then((f) => (un = f));
-    return () => un?.();
-  }, []);
+  useTauriEvent<{ done: number; total: number; name: string }>("bench-progress", (e) =>
+    setProgress(e.payload),
+  );
 
   const start = useCallback(async () => {
     if (phase === "running") return;

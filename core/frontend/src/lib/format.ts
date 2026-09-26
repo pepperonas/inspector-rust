@@ -11,15 +11,19 @@ export function relativeTime(unixMs: number): string {
  *  and click-to-reveal chips. Uses the user's locale via Intl —
  *  on macOS that's whatever System Settings → Language & Region says,
  *  matches Finder / mail / calendar formatting muscle memory. */
+// One formatter for the process: `toLocaleString(undefined, options)` builds
+// a fresh Intl.DateTimeFormat on EVERY call, and each visible history row
+// formats its timestamp on render.
+const ABSOLUTE_FMT = new Intl.DateTimeFormat(undefined, {
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+  second: "2-digit",
+});
 export function formatAbsolute(unixMs: number): string {
-  return new Date(unixMs).toLocaleString(undefined, {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-  });
+  return ABSOLUTE_FMT.format(new Date(unixMs));
 }
 
 export function formatBytes(n: number): string {

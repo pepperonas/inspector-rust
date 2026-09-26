@@ -119,3 +119,40 @@ describe("stageLabel", () => {
     expect(stageLabel("off")).toBe("Off");
   });
 });
+
+describe("shared motion utilities stay within the animation rules", () => {
+  /** The body of one `selector { … }` / `@keyframes name { … }` block. */
+  const block = (head: string): string => {
+    const i = css.indexOf(head);
+    expect(i, `${head} exists`).toBeGreaterThanOrEqual(0);
+    let depth = 0;
+    for (let j = css.indexOf("{", i); j < css.length; j++) {
+      if (css[j] === "{") depth++;
+      else if (css[j] === "}" && --depth === 0) return css.slice(i, j + 1);
+    }
+    return "";
+  };
+
+  it("the LED pulse animates opacity only (no hard-coded colour glow)", () => {
+    // A red box-shadow here overrode every caller's own glow colour.
+    const kf = block("@keyframes wakelockPulse");
+    expect(kf).not.toMatch(/box-shadow|rgba?\(/);
+    expect(kf).toMatch(/opacity/);
+  });
+
+  it(".md3-press uses longhands, not the shorthand that killed hover colours", () => {
+    const b = block(".md3-press {");
+    expect(b).not.toMatch(/\btransition\s*:/);
+    expect(b).not.toMatch(/spring-bounce/);
+  });
+
+  it("success confirmations use the tokens, no overshoot", () => {
+    const b = block(".md3-success-pop {");
+    expect(b).toMatch(/--duration-fast/);
+    expect(b).not.toMatch(/cubic-bezier\(0\.34/);
+  });
+
+  it("the new popover enter is gated on the feature class", () => {
+    expect(css).toMatch(/\.has-enter-anim \.pop-enter\s*\{/);
+  });
+});

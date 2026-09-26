@@ -498,7 +498,8 @@ export function ScreenshotEditor() {
             className="rounded-md border border-[var(--color-border)] px-3 py-1 text-[12px] hover:bg-[var(--color-bg)]"
           >
             <span className="flex items-center gap-1">
-              <Copy size={12} /> {copied ? "Copied" : "Copy (⌘C)"}
+              <Copy size={12} />{" "}
+              {copied ? <span className="md3-success-pop">Copied</span> : "Copy (⌘C)"}
             </span>
           </button>
           <button

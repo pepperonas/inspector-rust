@@ -154,7 +154,11 @@ html.anim-reduced
     .md3-cmd-icon,
     .md3-num-lock,
     .fade-in,
-    .recordPulse
+    .recordPulse,
+    .md3-success-pop,
+    .pop-enter,
+    .confirm-enter,
+    .hud-enter
   ),
 html.anim-reduced .md3-list-enter [data-vlist] > *,
 html.anim-reduced .md3-preview-in,
@@ -173,8 +177,14 @@ html.anim-off *:not(.anim-keep)::after {
 /* Tactile press: scale down quickly under the finger, spring back with a
    small overshoot on release. `transition` (not Tailwind's transition-colors)
    so it composes cleanly on buttons that only need press feedback. */
+/* ⚠️ Longhands, not the `transition` shorthand (2026-09-26): the shorthand
+   is unlayered and beat Tailwind's layered `transition-colors`, so every
+   button carrying both snapped its hover colour instantly. The retired
+   `--md3-spring-bounce` overshoot is gone too (animation rules). */
 .md3-press {
-  transition: transform var(--md3-short4) var(--md3-spring-bounce);
+  transition-property: transform, color, background-color, border-color;
+  transition-duration: var(--duration-fast);
+  transition-timing-function: var(--ease-sharp);
 }
 
 /* Timesheet "By app" groups — native <details>, chevron rotates when open. */
@@ -277,6 +287,21 @@ html.anim-off *:not(.anim-keep)::after {
 .banner-expand > * {
   overflow: hidden;
   min-height: 0;
+}
+
+/* Small anchored popovers (2026-09-26): the hud-enter language at the fast
+   token, scaling from the corner they hang off (top right — the note button
+   sits at the right edge of the preview meta row). Enter only; closing stays
+   instant, like every exit in this app. */
+.has-enter-anim .pop-enter {
+  transform-origin: top right;
+  transition:
+    opacity var(--duration-fast) var(--ease-sharp),
+    transform var(--duration-fast) var(--ease-sharp);
+  @starting-style {
+    opacity: 0;
+    transform: scale(0.97);
+  }
 }
 
 /* Settings confirmations (Etappe 6): the just-granted card fades in calmly
@@ -401,11 +426,11 @@ html.theme-switching * {
    drop in from the top. The six TOP-OF-POPUP banners moved to the
    .banner-expand unfold in Etappe 6. */
 @keyframes md3BannerIn {
-  from { opacity: 0; transform: translateY(-10px); }
+  from { opacity: 0; transform: translateY(-4px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .md3-banner-in {
-  animation: md3BannerIn var(--md3-medium2) var(--md3-emphasized-decelerate);
+  animation: md3BannerIn var(--duration-slow) var(--ease-sharp);
 }
 
 /* Accessibility: honour "reduce motion" for the app-chrome animations (the
@@ -506,17 +531,15 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
    gentle status pulse, not a frantic warning. The dot itself stays
    in the layout flow at full opacity at the *low* point so the
    indicator never visually disappears. */
+/* ⚠️ Opacity ONLY (2026-09-26). The keyframe used to animate a hard-coded
+   RED box-shadow — and a running animation beats inline styles, so every LED
+   that borrowed this pulse (the green REC dot, the violet Dark-Wake moon)
+   glowed red while pulsing, and it animated a non-compositable property.
+   Each caller now sets its own static glow in its own colour; fading the
+   element's opacity dims dot + glow together, which reads the same. */
 @keyframes wakelockPulse {
-  0%, 100% {
-    opacity: 0.55;
-    box-shadow: 0 0 3px rgba(239, 68, 68, 0.55),
-                0 0 6px rgba(239, 68, 68, 0.25);
-  }
-  50% {
-    opacity: 1;
-    box-shadow: 0 0 5px rgba(239, 68, 68, 1),
-                0 0 10px rgba(239, 68, 68, 0.6);
-  }
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
 }
 
 /* ── Screen-recording stop bar ─────────────────────────────────────────
@@ -1212,15 +1235,16 @@ html.crt-anim ::-webkit-scrollbar-thumb:hover {
   animation: md3-float 3.4s ease-in-out infinite;
 }
 
-/* 7 — success confirmations ("Copied!", "Saved") pop with a mini spring. */
+/* 7 — success confirmations ("Copied!", "Saved") settle in. Retimed to the
+   house tokens (2026-09-26): was 320 ms with an overshoot spring, which the
+   animation rules retired for this tool. Replays by conditional mount. */
 @keyframes md3-success-pop {
-  0% { transform: scale(0.82); opacity: 0.3; }
-  60% { transform: scale(1.08); opacity: 1; }
-  100% { transform: scale(1); }
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
 }
 .md3-success-pop {
   display: inline-flex;
-  animation: md3-success-pop 320ms cubic-bezier(0.34, 1.56, 0.64, 1) backwards;
+  animation: md3-success-pop var(--duration-fast) var(--ease-sharp) backwards;
 }
 
 /* 8 — unified footer LED pulse (wakelock + REC share one pulse language). */

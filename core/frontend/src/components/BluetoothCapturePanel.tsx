@@ -99,6 +99,7 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const mountedRef = useRef(true);
   const unlistenRef = useRef<UnlistenFn[]>([]);
   const autoScrollRef = useRef(true);
   const liveStateRef = useRef<LiveStatus["state"]>("idle");
@@ -214,10 +215,24 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
       liveStateRef.current = st.state;
       if (st.state === "error" && st.error) setError(st.error);
     });
+    // Closed while the listeners were attaching → never start (§20: a capture
+    // must not keep running unnoticed). The unmount cleanup ran before these
+    // listeners existed, so they are released here.
+    if (!mountedRef.current) {
+      u1();
+      u2();
+      return;
+    }
     unlistenRef.current = [u1, u2];
 
     try {
       const st = await btsniffLiveStart();
+      if (!mountedRef.current) {
+        // Closed while the start was in flight: the cleanup saw an idle
+        // state and stopped nothing — stop the capture that just began.
+        void btsniffLiveStop().catch(() => {});
+        return;
+      }
       setLiveStatus(st);
       liveStateRef.current = st.state;
       if (st.state === "error" && st.error) setError(st.error);
@@ -347,7 +362,9 @@ export function BluetoothCapturePanel({ focused, onExit }: Props) {
 
   // ── cleanup: never leave a capture running unnoticed (§20) ──
   useEffect(() => {
+    mountedRef.current = true;
     return () => {
+      mountedRef.current = false;
       if (isLiveRunning(liveStateRef.current)) {
         void btsniffLiveStop().catch(() => {});
       }

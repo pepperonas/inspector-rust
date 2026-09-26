@@ -438,7 +438,7 @@ export function WeatherPanel({
   // ── No-key connect card ───────────────────────────────────────────────────
   if (status === "no-key") {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
+      <div key="no-key" className="panel-enter flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
         <div className="rounded-full bg-[var(--color-accent)]/10 p-4">
           <KeyRound size={28} className="text-[var(--color-accent)]" />
         </div>
@@ -484,7 +484,7 @@ export function WeatherPanel({
   // ── Error card ────────────────────────────────────────────────────────────
   if (status === "error" && !report) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+      <div key="error" className="panel-enter flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
         <AlertTriangle size={26} className="text-amber-500" />
         <p className="max-w-xs text-[12px] leading-relaxed text-[var(--color-muted)]">{error}</p>
         <button
@@ -500,7 +500,7 @@ export function WeatherPanel({
   // ── Loading (first fetch) ─────────────────────────────────────────────────
   if (!report) {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
+      <div key="loading" className="panel-enter flex h-full flex-col items-center justify-center gap-3 text-[var(--color-muted)]">
         <RefreshCw size={22} className="animate-spin" />
         <p className="text-[12px]">Fetching weather…</p>
       </div>
@@ -518,7 +518,10 @@ export function WeatherPanel({
   const windDir = windCompass(c.wind_deg);
 
   return (
-    <div ref={scrollRef} className="flex h-full flex-col overflow-auto">
+    // Keyed per phase so loading → report actually remounts (same element
+    // type at the same position would otherwise be reused) and plays the
+    // panel-enter ONCE; later refreshes keep "report" mounted — no flicker.
+    <div key="report" ref={scrollRef} className="panel-enter flex h-full flex-col overflow-auto">
       {/* Hero — animated scene with the current conditions overlaid */}
       <div className="relative min-h-[220px] shrink-0 overflow-hidden">
         <WeatherScene kind={c.kind} />

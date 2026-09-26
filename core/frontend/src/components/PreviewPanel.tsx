@@ -26,6 +26,8 @@ import { TrimBar } from "./TrimBar";
 import { fmtClock, fullRange, isFullRange, sectionFor, type Range } from "../lib/trim-range";
 import { detectSocial, platformLabel, type SocialTarget } from "../lib/social";
 import { findRepoUrl } from "../lib/repo-url";
+import { needsFullText } from "../lib/clip-text";
+import { TotpSecondsLeft } from "./TotpSecondsLeft";
 import { AnimatedNumber } from "./AnimatedNumber";
 import { qrPngBase64 } from "../lib/qr";
 import { formatBytes } from "../lib/format";
@@ -237,7 +239,7 @@ function TranslatePreview({
               </div>
               <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
                 {copiedSide === "src" ? (
-                  <><Check size={11} /> Copied</>
+                  <span className="md3-success-pop items-center gap-1"><Check size={11} /> Copied</span>
                 ) : (
                   <><Copy size={11} /> Copy</>
                 )}
@@ -268,7 +270,7 @@ function TranslatePreview({
               ) : live?.status === "ok" ? (
                 <span className="flex items-center gap-1 text-[10px] text-[var(--color-muted)] opacity-0 transition-opacity group-hover:opacity-100">
                   {copiedSide === "tgt" ? (
-                    <><Check size={11} /> Copied</>
+                    <span className="md3-success-pop items-center gap-1"><Check size={11} /> Copied</span>
                   ) : (
                     <><Copy size={11} /> Copy</>
                   )}
@@ -956,7 +958,7 @@ export function PreviewPanel({
           {e.account && <div className="text-[var(--color-muted)]">{e.account}</div>}
         </div>
         <div className="mt-auto text-[11px] text-[var(--color-muted)]">
-          {e.seconds_remaining}s until next code · ⏎ kopiert in die Zwischenablage
+          <TotpSecondsLeft period={e.period} />s until next code · ⏎ kopiert in die Zwischenablage
         </div>
       </div>
     );
@@ -1367,30 +1369,40 @@ export function PreviewPanel({
   return (
     <div className="flex h-full flex-col p-4">
       {meta}
-      <CappedPre
-        key={clip.id}
-        text={clip.content_data}
-        className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5"
-      />
+      <ClipTextBody key={clip.id} clip={clip} />
       <SmartActionsBar text={clip.content_text} />
-      {(() => {
-        const social = detectSocial(clip.content_text);
-        return social ? <SocialDownloadBar target={social} /> : null;
-      })()}
-      {(() => {
-        const gh = onAnalyzeRepo ? findRepoUrl(clip.content_text) : null;
-        return gh ? (
-          <button
-            type="button"
-            onClick={() => onAnalyzeRepo!(gh.web_url)}
-            className="mt-2 flex items-center gap-1.5 self-start rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
-          >
-            <GitBranch size={12} /> Repo analysieren · {gh.owner}/{gh.repo}
-          </button>
-        ) : null;
-      })()}
+      <ClipLinkActions text={clip.content_text} onAnalyzeRepo={onAnalyzeRepo} />
       <TransformBar text={clip.content_text} sourceId={clip.id} />
     </div>
+  );
+}
+
+/** Social-download + repo-analysis affordances of a text clip. The two scans
+ *  (`findRepoUrl` splits the WHOLE text into tokens) are memoised on the text:
+ *  run inline they repeated on every PreviewPanel render — each keystroke and
+ *  arrow press — which for a multi-MB clip meant a full re-tokenisation. */
+function ClipLinkActions({
+  text,
+  onAnalyzeRepo,
+}: {
+  text: string;
+  onAnalyzeRepo?: (url: string) => void;
+}) {
+  const social = useMemo(() => detectSocial(text), [text]);
+  const gh = useMemo(() => findRepoUrl(text), [text]);
+  return (
+    <>
+      {social && <SocialDownloadBar target={social} />}
+      {gh && onAnalyzeRepo && (
+        <button
+          type="button"
+          onClick={() => onAnalyzeRepo(gh.web_url)}
+          className="mt-2 flex items-center gap-1.5 self-start rounded-lg border border-[var(--color-border)] px-2 py-1 text-[12px] hover:border-[var(--color-accent)]"
+        >
+          <GitBranch size={12} /> Repo analysieren · {gh.owner}/{gh.repo}
+        </button>
+      )}
+    </>
   );
 }
 
@@ -1416,6 +1428,35 @@ function CappedPre({ text, className }: { text: string; className: string }) {
         Show all ({text.length.toLocaleString()} chars) — may take a moment
       </button>
     </div>
+  );
+}
+
+/**
+ * Text body of a clip. The slim list omits `content_data` for text rows (it
+ * duplicates `content_text`), so this renders `content_text` directly and only
+ * fetches the full row by id when `content_text` is a truncated preview
+ * (`needsFullText`).
+ */
+function ClipTextBody({ clip }: { clip: ClipEntry }) {
+  const inline = clip.content_data || clip.content_text;
+  const [full, setFull] = useState<string | null>(null);
+  useEffect(() => {
+    if (!needsFullText(clip.content_data, clip.content_text, clip.byte_size)) return;
+    let cancelled = false;
+    void getClip(clip.id)
+      .then((e) => {
+        if (!cancelled && e && e.content_data) setFull(e.content_data);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [clip.id, clip.content_data, clip.content_text, clip.byte_size]);
+  return (
+    <CappedPre
+      text={full ?? inline}
+      className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] p-3 font-[var(--font-mono)] text-[12px] leading-5"
+    />
   );
 }
 
@@ -1694,8 +1735,15 @@ function CopyPlainButton({ text, sourceId }: { text: string; sourceId?: number }
       title="Copy as plain text"
       className="flex items-center gap-1 rounded-full border border-[var(--color-border)] px-2 py-0.5 text-[11px] font-medium text-[var(--color-muted)] hover:bg-[var(--color-surface)]"
     >
-      {done ? <Check size={12} /> : <Copy size={12} />}
-      {done ? "Copied" : "Copy text"}
+      {done ? (
+        <span className="md3-success-pop items-center gap-1">
+          <Check size={12} /> Copied
+        </span>
+      ) : (
+        <>
+          <Copy size={12} /> Copy text
+        </>
+      )}
     </button>
   );
 }
@@ -1742,7 +1790,7 @@ function NoteButton({ entry }: { entry: ClipEntry }) {
         {has ? "Note" : "Add note"}
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[12px] shadow-lg">
+        <div className="pop-enter absolute right-0 top-full z-20 mt-1 w-64 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] p-2 text-[12px] shadow-lg">
           {has && !editing ? (
             <>
               <p className="mb-2 max-h-32 overflow-auto whitespace-pre-wrap break-words text-[var(--color-fg)]">

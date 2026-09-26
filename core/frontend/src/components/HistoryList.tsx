@@ -1,5 +1,5 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import { listen } from "@tauri-apps/api/event";
 import { Palette, Pin, Trash2 } from "lucide-react";
 import { ColorPickerModal } from "./ColorPickerModal";
@@ -38,6 +38,14 @@ interface Props {
 
 const ROW_HEIGHT = 36;
 
+interface RowHandlers {
+  click: () => void;
+  doubleClick: () => void;
+  saveAsNote: () => void;
+  togglePin: (pinned: boolean) => void;
+  del: () => void;
+}
+
 export function HistoryList({
   entries,
   selectedIndex,
@@ -69,6 +77,51 @@ export function HistoryList({
   //    the indicator must not glide over reshuffled rows either. Detected
   //    by entries identity; the ref is only READ during render and updated
   //    in an effect (react-hooks/refs).
+  // Stable per-row handlers + style (2026-09-26). `HistoryItem` is `memo`,
+  // but every render handed each row FRESH closures and a fresh `style`
+  // object, so the memo never skipped: each arrow press re-rendered all
+  // ~20–30 visible rows. Handlers now read the LATEST parent callbacks via a
+  // ref (updated in a layout effect, before any user event can fire) and are
+  // cached per index; the style object is cached per (offset, size). An arrow
+  // press re-renders just the two rows whose `selected` flipped.
+  const latest = useRef({ onSelect, onActivate, onSaveAsNote, onDeleteClip, onTogglePin });
+  useLayoutEffect(() => {
+    latest.current = { onSelect, onActivate, onSaveAsNote, onDeleteClip, onTogglePin };
+  });
+  const rowHandlers = useMemo(() => new Map<number, RowHandlers>(), []);
+  const rowStyles = useMemo(() => new Map<string, CSSProperties>(), []);
+  const handlersFor = (i: number): RowHandlers => {
+    let h = rowHandlers.get(i);
+    if (!h) {
+      h = {
+        click: () => latest.current.onSelect(i),
+        doubleClick: () => latest.current.onActivate(i),
+        saveAsNote: () => latest.current.onSaveAsNote?.(i),
+        togglePin: (pinned: boolean) => latest.current.onTogglePin?.(i, pinned),
+        del: () => latest.current.onDeleteClip?.(i),
+      };
+      rowHandlers.set(i, h);
+    }
+    return h;
+  };
+  const styleFor = (start: number, size: number): CSSProperties => {
+    const k = `${start}|${size}`;
+    let st = rowStyles.get(k);
+    if (!st) {
+      if (rowStyles.size > 4000) rowStyles.clear();
+      st = {
+        position: "absolute",
+        top: 0,
+        left: 0,
+        width: "100%",
+        height: size,
+        transform: `translateY(${start}px)`,
+      };
+      rowStyles.set(k, st);
+    }
+    return st;
+  };
+
   const prevEntriesRef = useRef(entries);
   const listChanged = prevEntriesRef.current !== entries;
   useEffect(() => {
@@ -314,27 +367,16 @@ export function HistoryList({
                   key={key}
                   entry={entry}
                   selected={virtualRow.index === selectedIndex}
-                  onClick={() => onSelect(virtualRow.index)}
-                  onDoubleClick={() => onActivate(virtualRow.index)}
+                  onClick={handlersFor(virtualRow.index).click}
+                  onDoubleClick={handlersFor(virtualRow.index).doubleClick}
                   onSaveAsNote={
-                    onSaveAsNote ? () => onSaveAsNote(virtualRow.index) : undefined
+                    onSaveAsNote ? handlersFor(virtualRow.index).saveAsNote : undefined
                   }
                   onTogglePin={
-                    onTogglePin
-                      ? (pinned) => onTogglePin(virtualRow.index, pinned)
-                      : undefined
+                    onTogglePin ? handlersFor(virtualRow.index).togglePin : undefined
                   }
-                  onDelete={
-                    onDeleteClip ? () => onDeleteClip(virtualRow.index) : undefined
-                  }
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: virtualRow.size,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
+                  onDelete={onDeleteClip ? handlersFor(virtualRow.index).del : undefined}
+                  style={styleFor(virtualRow.start, virtualRow.size)}
                 />
               );
             })}

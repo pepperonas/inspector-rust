@@ -63,6 +63,8 @@ pub struct Runtime {
     stop: Option<Arc<AtomicBool>>,
     claude_stop: Option<Arc<AtomicBool>>,
     bridge_stop: Option<Arc<AtomicBool>>,
+    /// The run-loop thread, so `stop` can `unpark` it out of its tick sleep.
+    loop_thread: Option<std::thread::Thread>,
     /// Most recent active browser tab reported by the extension (loopback WS).
     /// Used to enrich the open interval while a browser is frontmost.
     pub last_tab: Option<TabInfo>,
@@ -260,7 +262,8 @@ pub fn start(
     drop(rt);
 
     let (a, d, s) = (app.clone(), db.clone(), state.0.clone());
-    std::thread::spawn(move || run_loop(a, d, s, sid, stop));
+    let h = std::thread::spawn(move || run_loop(a, d, s, sid, stop));
+    state.0.lock().loop_thread = Some(h.thread().clone());
     let _ = app.emit("track-status-changed", ());
     Ok(sid)
 }
@@ -321,7 +324,8 @@ pub fn resume_if_active(app: &AppHandle, db: &DbHandle, state: &TrackerState) {
     drop(rt);
 
     let (a, d, s) = (app.clone(), db.clone(), state.0.clone());
-    std::thread::spawn(move || run_loop(a, d, s, sid, stop));
+    let h = std::thread::spawn(move || run_loop(a, d, s, sid, stop));
+    state.0.lock().loop_thread = Some(h.thread().clone());
     let _ = app.emit("track-status-changed", ());
     tracing::info!("timesheet: resumed active session {sid}");
 }
@@ -357,6 +361,9 @@ pub fn stop(app: &AppHandle, db: &DbHandle, state: &TrackerState) -> Result<(), 
     };
     if let Some(s) = &rt.stop {
         s.store(true, Ordering::SeqCst);
+    }
+    if let Some(t) = &rt.loop_thread {
+        t.unpark(); // cut the tick sleep short — stop takes effect at once
     }
     if let Some(s) = &rt.claude_stop {
         s.store(true, Ordering::SeqCst);
@@ -492,12 +499,24 @@ fn run_loop(app: AppHandle, db: DbHandle, rt: Arc<Mutex<Runtime>>, sid: i64, sto
             let _ = app.emit("track-status-changed", ());
         }
 
-        // Responsive sleep so `stop` is honoured quickly.
-        let mut slept = 0u64;
-        while slept < TICK_MS && !stop.load(Ordering::SeqCst) {
-            std::thread::sleep(Duration::from_millis(150));
-            slept += 150;
+        // Park for the tick; `stop` unparks us so it is honoured at once.
+        // (Was a 150 ms sleep loop polling the flag: 10 wakeups per 1.5 s
+        // tick, ~6.7/s all day while tracking — the same pattern the gesture
+        // ticker dropped in PERFORMANCE-PLAN A2.)
+        sleep_until_stopped(&stop, Duration::from_millis(TICK_MS));
+    }
+}
+
+/// Sleep up to `dur`, returning early once `stop` is set and the thread is
+/// unparked. Tolerates spurious wakeups (re-parks for the remainder).
+fn sleep_until_stopped(stop: &AtomicBool, dur: Duration) {
+    let deadline = std::time::Instant::now() + dur;
+    while !stop.load(Ordering::SeqCst) {
+        let now = std::time::Instant::now();
+        if now >= deadline {
+            break;
         }
+        std::thread::park_timeout(deadline - now);
     }
 }
 
@@ -1187,6 +1206,29 @@ fn aggregate_day(
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn sleep_until_stopped_returns_at_once_on_unpark() {
+        use std::sync::Arc;
+        let stop = Arc::new(AtomicBool::new(false));
+        let s2 = stop.clone();
+        let started = std::time::Instant::now();
+        let h = std::thread::spawn(move || sleep_until_stopped(&s2, Duration::from_secs(10)));
+        std::thread::sleep(Duration::from_millis(50));
+        stop.store(true, Ordering::SeqCst);
+        h.thread().unpark();
+        h.join().unwrap();
+        assert!(started.elapsed() < Duration::from_secs(2), "stop must cut the sleep short");
+    }
+
+    #[test]
+    fn sleep_until_stopped_sleeps_the_full_tick_without_stop() {
+        let stop = AtomicBool::new(false);
+        let started = std::time::Instant::now();
+        sleep_until_stopped(&stop, Duration::from_millis(120));
+        assert!(started.elapsed() >= Duration::from_millis(120));
+    }
+
     use super::*;
     use parking_lot::Mutex as PMutex;
     use rusqlite::Connection;

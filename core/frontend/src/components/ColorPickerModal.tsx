@@ -328,8 +328,15 @@ export function ColorPickerModal({ open, onClose }: Props) {
             }
             title={hasSelection ? `Copy ${format.toUpperCase()} to clipboard` : "Pick a color first"}
           >
-            {copied ? <Check size={12} /> : <Copy size={12} />}
-            {copied ? "Copied!" : `Copy ${format.toUpperCase()}`}
+            {copied ? (
+              <span className="md3-success-pop items-center gap-1.5">
+                <Check size={12} /> Copied!
+              </span>
+            ) : (
+              <>
+                <Copy size={12} /> {`Copy ${format.toUpperCase()}`}
+              </>
+            )}
           </button>
         </div>
       </div>

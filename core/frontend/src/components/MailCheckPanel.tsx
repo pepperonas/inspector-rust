@@ -245,7 +245,7 @@ export function MailCheckPanel({ email, focused, onExit }: Props) {
             signals support.
           </p>
 
-          {copied && <div className="text-[9px] text-[var(--color-accent)]">Zusammenfassung kopiert ✓</div>}
+          {copied && <div className="confirm-enter text-[9px] text-[var(--color-accent)]">Zusammenfassung kopiert ✓</div>}
         </>
       )}
     </div>

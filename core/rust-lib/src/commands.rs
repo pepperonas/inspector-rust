@@ -3267,8 +3267,18 @@ pub fn force_reset_screen_recording_grant() -> bool {
 /// and once the user grants it the check is silent every time after.
 ///
 /// Always `true` on non-macOS (no equivalent permission).
+///
+/// `async` + `spawn_blocking`: the probe is an osascript spawn with a 2 s
+/// watchdog, and Settings polls it while the grant is missing — as a sync
+/// command every probe parked the main thread.
 #[tauri::command]
-pub fn get_finder_automation_status() -> bool {
+pub async fn get_finder_automation_status() -> bool {
+    tauri::async_runtime::spawn_blocking(finder_automation_granted)
+        .await
+        .unwrap_or(true)
+}
+
+fn finder_automation_granted() -> bool {
     #[cfg(target_os = "macos")]
     {
         // Match `finder_selection::read` — re-use it so the probe goes
@@ -3330,15 +3340,19 @@ pub fn open_full_disk_access_settings() -> Result<(), String> {
 /// reset by bundle id wipes our entry on every target app (currently
 /// only Finder).
 #[tauri::command]
-pub fn force_reset_finder_automation_grant() -> bool {
+pub async fn force_reset_finder_automation_grant() -> bool {
     #[cfg(target_os = "macos")]
     {
-        let _ = std::process::Command::new("tccutil")
-            .args(["reset", "AppleEvents", "io.celox.inspector-rust"])
-            .status();
-        // Re-probe to fire the prompt; result is ignored — the caller
-        // polls `get_finder_automation_status` on a 1 s tick anyway.
-        get_finder_automation_status()
+        tauri::async_runtime::spawn_blocking(|| {
+            let _ = std::process::Command::new("tccutil")
+                .args(["reset", "AppleEvents", "io.celox.inspector-rust"])
+                .status();
+            // Re-probe to fire the prompt; result is ignored — the caller
+            // polls `get_finder_automation_status` on a 1 s tick anyway.
+            finder_automation_granted()
+        })
+        .await
+        .unwrap_or(true)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -4253,15 +4267,17 @@ pub fn run_ocr_pipeline(app: &AppHandle) -> Result<OcrResult, String> {
     })
 }
 
-/// IPC entry point — the menu / button caller. Dispatched to a thread
-/// so the screencapture wait doesn't block the IPC main thread.
+/// IPC entry point — the menu / button caller.
+///
+/// ⚠️ MUST stay `async` + `spawn_blocking`: a SYNC Tauri command runs ON the
+/// main thread (the old comment here claimed otherwise). The pipeline waits
+/// 5–30 s on the interactive `screencapture -i` marquee — as a sync command
+/// that froze tray, hotkeys and every webview for the whole drag.
 #[tauri::command]
-pub fn ocr_region(app: AppHandle) -> Result<OcrResult, String> {
-    // Run synchronously here. The Tauri IPC layer already gives us a
-    // worker thread, so wrapping in std::thread::spawn would just add
-    // hand-off overhead. Worst case the JS promise sits open for 5–30 s
-    // while the user drags the marquee.
-    run_ocr_pipeline(&app)
+pub async fn ocr_region(app: AppHandle) -> Result<OcrResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_ocr_pipeline(&app))
+        .await
+        .map_err(|e| format!("ocr task: {e}"))?
 }
 
 /// Result of a screenshot region capture. `cancelled` distinguishes
@@ -4431,11 +4447,14 @@ pub fn run_capture_pipeline(
     })
 }
 
-/// IPC entry point. Same threading note as `ocr_region` — the Tauri
-/// IPC layer already provides a worker thread.
+/// IPC entry point. Same threading rule as `ocr_region`: off the main
+/// thread, or the capture wait (and the preview-window build, which needs
+/// the main thread's event loop) stalls/deadlocks the app.
 #[tauri::command]
-pub fn screenshot_region(app: AppHandle) -> Result<ScreenshotResult, String> {
-    run_screenshot_pipeline(&app)
+pub async fn screenshot_region(app: AppHandle) -> Result<ScreenshotResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_screenshot_pipeline(&app))
+        .await
+        .map_err(|e| format!("screenshot task: {e}"))?
 }
 
 /// Settings key: the last capture mode used (for `screenshot_repeat_last`).
@@ -4444,8 +4463,11 @@ const KEY_SHOT_LAST_MODE: &str = "screenshot.last_mode";
 /// Capture in a specific `mode` ("region" | "fullscreen" | "window") with an
 /// optional self-timer `delay_seconds`. Remembers the mode so
 /// `screenshot_repeat_last` can replay it. (v0.57.0)
+///
+/// `async`: the self-timer alone sleeps up to 60 s — on the main thread
+/// that froze the whole app until the shot was taken.
 #[tauri::command]
-pub fn screenshot_capture(
+pub async fn screenshot_capture(
     app: AppHandle,
     db: State<'_, DbHandle>,
     mode: String,
@@ -4453,19 +4475,24 @@ pub fn screenshot_capture(
 ) -> Result<ScreenshotResult, String> {
     let m = region_picker::CaptureMode::from_str_loose(&mode);
     let _ = settings::set(&db, KEY_SHOT_LAST_MODE, m.as_str());
-    run_capture_pipeline(&app, m, delay_seconds.unwrap_or(0))
+    let delay = delay_seconds.unwrap_or(0);
+    tauri::async_runtime::spawn_blocking(move || run_capture_pipeline(&app, m, delay))
+        .await
+        .map_err(|e| format!("screenshot task: {e}"))?
 }
 
 /// Repeat the last capture mode (defaults to region if none stored). (v0.57.0)
 #[tauri::command]
-pub fn screenshot_repeat_last(
+pub async fn screenshot_repeat_last(
     app: AppHandle,
     db: State<'_, DbHandle>,
 ) -> Result<ScreenshotResult, String> {
     let stored = settings::get_or(&db, KEY_SHOT_LAST_MODE, "region")
         .unwrap_or_else(|_| "region".to_string());
     let m = region_picker::CaptureMode::from_str_loose(&stored);
-    run_capture_pipeline(&app, m, 0)
+    tauri::async_runtime::spawn_blocking(move || run_capture_pipeline(&app, m, 0))
+        .await
+        .map_err(|e| format!("screenshot task: {e}"))?
 }
 
 /// Run the eyedropper pipeline: hide popup → fire screen color picker
@@ -4787,10 +4814,16 @@ fn finder_item_from_path(p: &std::path::Path) -> FinderItem {
 /// nothing is selected. Errors with the `finder.automation_denied`
 /// sentinel when the user hasn't granted Automation→Finder in System
 /// Settings (frontend turns that into a tailored banner).
+///
+/// `async`: the read is an osascript spawn (~300 ms, up to the watchdog).
 #[tauri::command]
-pub fn get_finder_selection() -> Result<Vec<FinderItem>, String> {
-    let paths = crate::finder_selection::read()?;
-    Ok(paths.iter().map(|p| finder_item_from_path(p)).collect())
+pub async fn get_finder_selection() -> Result<Vec<FinderItem>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let paths = crate::finder_selection::read()?;
+        Ok(paths.iter().map(|p| finder_item_from_path(p)).collect())
+    })
+    .await
+    .map_err(|e| format!("finder task: {e}"))?
 }
 
 /// Resize a single image file with Lanczos3, writing the output next
@@ -5045,9 +5078,15 @@ pub fn remove_vowels_to_clipboard(app: AppHandle, text: String) -> Result<String
 
 /// List running processes for the `kill` live picker. Sorted by memory
 /// usage descending so the picker surfaces heavy apps first.
+///
+/// `async`: a full sysinfo process refresh is too slow for the main thread.
 #[tauri::command]
-pub fn list_processes() -> Result<Vec<crate::system_commands::ProcessInfo>, String> {
-    crate::system_commands::list_running_processes().map_err(map_err)
+pub async fn list_processes() -> Result<Vec<crate::system_commands::ProcessInfo>, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        crate::system_commands::list_running_processes().map_err(map_err)
+    })
+    .await
+    .map_err(|e| format!("process task: {e}"))?
 }
 
 /// `kill <pid>` — send SIGTERM (graceful) by default, or SIGKILL (force
@@ -6546,8 +6585,14 @@ pub fn audio_swap_get_selected_video(state: State<'_, AudioSwapState>) -> Option
 
 /// Media duration in seconds (video or audio), for the overlay's timeline.
 #[tauri::command]
-pub fn audio_swap_probe(path: String) -> Option<f64> {
-    crate::audio_swap::probe_duration(std::path::Path::new(&path))
+pub async fn audio_swap_probe(path: String) -> Option<f64> {
+    // ffprobe spawn — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::audio_swap::probe_duration(std::path::Path::new(&path))
+    })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Whether `yt-dlp` is installed (gates the YouTube field in the overlay).
@@ -6820,13 +6865,19 @@ pub struct TrimFileInfo {
 }
 
 #[tauri::command]
-pub fn trim_file_info(path: String) -> Option<TrimFileInfo> {
-    let p = std::path::Path::new(&path);
-    let duration = crate::audio_swap::probe_duration(p)?;
-    Some(TrimFileInfo {
-        duration,
-        is_video: crate::media_trim::has_video_stream(p),
+pub async fn trim_file_info(path: String) -> Option<TrimFileInfo> {
+    // Two ffprobe spawns — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || {
+        let p = std::path::Path::new(&path);
+        let duration = crate::audio_swap::probe_duration(p)?;
+        Some(TrimFileInfo {
+            duration,
+            is_video: crate::media_trim::has_video_stream(p),
+        })
     })
+    .await
+    .ok()
+    .flatten()
 }
 
 /// Trim a file; returns the output path (revealed). `async` → off main thread.

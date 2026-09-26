@@ -472,26 +472,33 @@ export function SnippetsPanel({ snippets, categories, onRefresh }: Props) {
       {/* Right: manage-groups OR edit form OR empty state */}
       <div className="flex w-3/5 flex-col p-4">
         {managing ? (
-          <ManageGroups categories={categories} onRefresh={onRefresh} onClose={() => setManaging(false)} />
+          <div key="manage" className="panel-enter flex h-full flex-col">
+            <ManageGroups categories={categories} onRefresh={onRefresh} onClose={() => setManaging(false)} />
+          </div>
         ) : form === null ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 text-[12px] text-[var(--color-muted)]">
+          <div
+            key="empty"
+            className="panel-enter flex h-full flex-col items-center justify-center gap-2 text-[12px] text-[var(--color-muted)]"
+          >
             <Zap size={24} className="opacity-30" />
             <span>
               Select a snippet to edit or click&nbsp;<b>+ New Snippet</b>
             </span>
           </div>
         ) : (
-          <SnippetEditor
-            // Remount on a different snippet so the draft state resets.
-            key={form.id ?? "new"}
-            initial={form}
-            categories={categories}
-            onSaved={async () => {
-              await onRefresh();
-              setForm(null);
-            }}
-            onCancel={cancel}
-          />
+          // Remount on a different snippet so the draft state resets; the
+          // wrapper carries the same key so each switch plays panel-enter.
+          <div key={form.id ?? "new"} className="panel-enter flex h-full flex-col">
+            <SnippetEditor
+              initial={form}
+              categories={categories}
+              onSaved={async () => {
+                await onRefresh();
+                setForm(null);
+              }}
+              onCancel={cancel}
+            />
+          </div>
         )}
       </div>
     </div>

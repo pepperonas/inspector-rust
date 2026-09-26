@@ -86,7 +86,31 @@ impl ClipboardHandler for Handler {
 }
 
 impl Handler {
+    /// App exclusion: when the frontmost app (the one that just copied) is on
+    /// the user's exclude list — password managers etc. — the clip is dropped
+    /// silently so secrets never reach the history. Only pays the frontmost
+    /// lookup when the list is non-empty.
+    fn frontmost_is_excluded(&self) -> bool {
+        let exclude =
+            crate::settings::get_or(&self.db, KEY_EXCLUDE_APPS, "").unwrap_or_default();
+        if exclude.trim().is_empty() {
+            return false;
+        }
+        crate::frontmost_app::name().is_some_and(|front| is_excluded_app(&front, &exclude))
+    }
+
     fn capture(&self) -> Result<()> {
+        // App exclusion FIRST (2026-09-26): it used to run inside `store`,
+        // i.e. AFTER the pasteboard read — so a copy from an excluded app
+        // (password manager) still paid a full image decode + PNG encode +
+        // base64 + hash before being thrown away. The event is dropped
+        // either way; consume a pending self-write fuse too, exactly as the
+        // old order did (fuse check came first there), so it can't linger
+        // and swallow a later identical user copy.
+        if self.frontmost_is_excluded() {
+            *self.self_written.lock() = None;
+            return Ok(());
+        }
         // Priority: image > files > html > rtf > text.
         //
         // macOS puts both image data AND file paths on the pasteboard when
@@ -196,20 +220,6 @@ impl Handler {
             if self_written.as_deref() == Some(payload_hash.as_str()) {
                 *self_written = None;
                 return Ok(());
-            }
-        }
-
-        // App exclusion: when the frontmost app (the one that just copied) is
-        // on the user's exclude list — password managers etc. — drop the clip
-        // silently so secrets never reach the history. Only pay the frontmost
-        // lookup when the list is non-empty.
-        let exclude =
-            crate::settings::get_or(&self.db, KEY_EXCLUDE_APPS, "").unwrap_or_default();
-        if !exclude.trim().is_empty() {
-            if let Some(front) = crate::frontmost_app::name() {
-                if is_excluded_app(&front, &exclude) {
-                    return Ok(());
-                }
             }
         }
 

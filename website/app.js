@@ -8,7 +8,7 @@
   var LANGS = ["en", "de", "es", "it", "fr"];
   var LANG_KEY = 'inspector-rust-lang';
   // The only host download links may point at — the timer writes GitHub release URLs.
-  var ASSET_URL = /^https:\/\/github\.com\/pepperonas\/inspector\-rust\/releases\/download\//;
+  var ASSET_URL = /^https:\/\/(github\.com\/pepperonas\/inspector\-rust\/releases\/download\/|inspector\-rust\.celox\.io\/files\/)/;
 
   var EN = {}; // captured from the markup on first switch, so English lives in one place only
   var nodes = document.querySelectorAll('[data-i18n]');

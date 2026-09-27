@@ -477,19 +477,6 @@ fn seconds_since_last_keydown() -> f64 {
     f64::INFINITY
 }
 
-/// Seconds since the pointer last did anything (moved, dragged, scrolled).
-/// Deliberately NOT keyboard: this answers "is a pointing device in use right
-/// now", which on a MacBook is the trackpad — and a trackpad in use MUST be
-/// producing multitouch frames. See [`liveness_should_rebuild`].
-#[cfg(target_os = "macos")]
-fn seconds_since_pointer_activity() -> f64 {
-    // kCGEventMouseMoved = 5, kCGEventLeftMouseDragged = 6, kCGEventScrollWheel = 22
-    [5u32, 6, 22]
-        .iter()
-        .map(|t| seconds_since_hid_event(*t))
-        .fold(f64::INFINITY, f64::min)
-}
-
 /// Perform an action via the existing volume / mute pipeline + show a passive,
 /// centred on-screen toast (the gesture's only visible feedback, since macOS
 /// shows no HUD for programmatic volume changes). Runs on a worker thread so the
@@ -1977,36 +1964,43 @@ pub fn apply(app: &tauri::AppHandle, db: &DbHandle, state: &GestureState) {
 // pointing device is the trackpad, and a trackpad in use MUST produce frames —
 // that combination means the registration is dead, not the user idle.
 
-/// No multitouch frame for this long → the registration is suspect.
-pub const LIVENESS_STALE_MS: u64 = 45_000;
-/// … but only when the pointer moved this recently. An idle Mac legitimately
-/// produces no frames for hours; rebuilding then would be pure churn.
-pub const LIVENESS_POINTER_ACTIVE_S: f64 = 12.0;
+/// A finger-driven (trackpad) scroll counts as "trackpad in use" this long.
+pub const LIVENESS_TRACKPAD_ACTIVE_MS: u64 = 12_000;
+/// … and the registration is dead if its last multitouch frame is at least
+/// this much OLDER than that scroll. A live trackpad delivers frames during
+/// every finger scroll, so the gap is ~0; the margin only absorbs timing slop
+/// (momentum scroll carries no scroll phase, so it never counts).
+pub const LIVENESS_GAP_MS: u64 = 5_000;
 /// Base gap between rebuild attempts.
 pub const LIVENESS_COOLDOWN_S: u64 = 60;
 /// The gap doubles after each attempt that doesn't bring frames back, capped
-/// here. This bounds the one false positive the design accepts: someone using
-/// an EXTERNAL mouse and never touching the trackpad looks exactly like a dead
-/// registration. A rebuild is cheap (~30 ms, no user-visible effect), so the
-/// trade is a few wasted re-registrations against gestures silently dying.
+/// here.
 pub const LIVENESS_MAX_COOLDOWN_S: u64 = 900;
 
 /// Pure: should the capture be rebuilt right now?
 ///
-/// `since_frame_ms = None` means no frame has EVER arrived — the device may
-/// simply not exist (no trackpad), so we never rebuild on that; only a source
-/// that once worked and then went quiet is treated as stale.
+/// Keyed on PROOF, not on a guess (2026-09-27): the old rule fired whenever
+/// the POINTER moved without multitouch frames — which is exactly what an
+/// external mouse does all day. In the field that meant ~100 capture
+/// teardowns/rebuilds per day for a Logitech-mouse user, and gestures that
+/// intermittently didn't answer. Now it fires only when a FINGER-driven
+/// scroll (non-zero scroll phase — only a multitouch surface produces one)
+/// happened recently while the capture delivered nothing: the trackpad is
+/// demonstrably in use and the registration demonstrably deaf.
+///
+/// `None` for either input = never seen → never rebuild (no trackpad, no
+/// Accessibility for the scroll tap, or simply not used yet).
 pub fn liveness_should_rebuild(
     since_frame_ms: Option<u64>,
-    pointer_idle_s: f64,
+    since_trackpad_scroll_ms: Option<u64>,
     since_rebuild_s: u64,
     cooldown_s: u64,
 ) -> bool {
-    let Some(since_frame_ms) = since_frame_ms else {
+    let (Some(frame), Some(scroll)) = (since_frame_ms, since_trackpad_scroll_ms) else {
         return false;
     };
-    since_frame_ms >= LIVENESS_STALE_MS
-        && pointer_idle_s <= LIVENESS_POINTER_ACTIVE_S
+    scroll <= LIVENESS_TRACKPAD_ACTIVE_MS
+        && frame >= scroll.saturating_add(LIVENESS_GAP_MS)
         && since_rebuild_s >= cooldown_s
 }
 
@@ -2077,18 +2071,19 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
                         continue; // gestures off — nothing to heal
                     }
                     let since_frame = macos::ms_since_last_frame();
-                    if since_frame.is_some_and(|ms| ms < LIVENESS_STALE_MS) {
+                    let since_scroll = macos::ms_since_trackpad_scroll();
+                    if since_frame.is_some_and(|ms| ms < LIVENESS_GAP_MS) {
                         cooldown_s = LIVENESS_COOLDOWN_S; // healthy → drop the backoff
                         continue;
                     }
                     let since_rebuild_s = last_rebuild
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(u64::MAX);
-                    let idle = seconds_since_pointer_activity();
-                    if liveness_should_rebuild(since_frame, idle, since_rebuild_s, cooldown_s) {
+                    if liveness_should_rebuild(since_frame, since_scroll, since_rebuild_s, cooldown_s) {
                         let secs = since_frame.unwrap_or(0) / 1000;
+                        let ago = since_scroll.unwrap_or(0) / 1000;
                         if rebuild(&format!(
-                            "no touch frames for {secs}s while the pointer was active {idle:.0}s ago (stale registration; next check in {cooldown_s}s)"
+                            "no touch frames for {secs}s although the trackpad scrolled {ago}s ago (dead registration; next check in {cooldown_s}s)"
                         )) {
                             last_rebuild = Some(std::time::Instant::now());
                             cooldown_s = next_liveness_cooldown_s(cooldown_s);
@@ -2104,34 +2099,38 @@ pub fn spawn_wake_watchdog(app: &tauri::AppHandle) {
 mod tests {
     use super::*;
 
-    // ── Liveness watchdog (v0.113.1) ─────────────────────────────────────
+    // ── Liveness watchdog (v0.113.1; trackpad-scroll proof 2026-09-27) ───
 
     #[test]
-    fn liveness_rebuilds_only_when_frames_stopped_while_the_pointer_was_active() {
-        let stale = LIVENESS_STALE_MS + 1;
-        // The whole point: silent capture + a pointing device in use.
-        assert!(liveness_should_rebuild(Some(stale), 1.0, u64::MAX, LIVENESS_COOLDOWN_S));
-        // Frames still flowing → nothing wrong.
-        assert!(!liveness_should_rebuild(Some(1_000), 1.0, u64::MAX, LIVENESS_COOLDOWN_S));
-        // Nobody at the machine → no frames is the CORRECT state, not a fault.
-        assert!(!liveness_should_rebuild(Some(stale), 600.0, u64::MAX, LIVENESS_COOLDOWN_S));
-        // Just rebuilt → wait out the cooldown instead of hammering.
-        assert!(!liveness_should_rebuild(Some(stale), 1.0, 5, LIVENESS_COOLDOWN_S));
+    fn liveness_rebuilds_only_when_a_trackpad_scroll_got_no_frames() {
+        // Trackpad scrolled 2 s ago, last frame 60 s ago → registration deaf.
+        assert!(liveness_should_rebuild(Some(60_000), Some(2_000), u64::MAX, LIVENESS_COOLDOWN_S));
+        // Frames arrived with the scroll → healthy.
+        assert!(!liveness_should_rebuild(Some(2_100), Some(2_000), u64::MAX, LIVENESS_COOLDOWN_S));
+        // Just rebuilt → wait out the cooldown.
+        assert!(!liveness_should_rebuild(Some(60_000), Some(2_000), 5, LIVENESS_COOLDOWN_S));
+    }
+
+    #[test]
+    fn an_external_mouse_alone_never_triggers_a_rebuild() {
+        // The field false positive: pointer busy (mouse), trackpad untouched,
+        // no multitouch frames for minutes. No finger scroll → no proof.
+        assert!(!liveness_should_rebuild(Some(600_000), None, u64::MAX, 0));
+        // An OLD trackpad scroll (user switched to the mouse) proves nothing now.
+        assert!(!liveness_should_rebuild(Some(600_000), Some(300_000), u64::MAX, 0));
     }
 
     #[test]
     fn liveness_never_fires_before_the_device_has_ever_delivered_a_frame() {
-        // A machine with no trackpad would otherwise be rebuilt forever.
-        assert!(!liveness_should_rebuild(None, 0.0, u64::MAX, LIVENESS_COOLDOWN_S));
+        assert!(!liveness_should_rebuild(None, Some(1_000), u64::MAX, 0));
     }
 
     #[test]
     fn liveness_is_exactly_at_the_boundaries_it_documents() {
-        // Pinning the comparisons themselves: >= stale, <= active window.
-        assert!(liveness_should_rebuild(Some(LIVENESS_STALE_MS), LIVENESS_POINTER_ACTIVE_S, u64::MAX, 0));
-        assert!(!liveness_should_rebuild(Some(LIVENESS_STALE_MS - 1), 0.0, u64::MAX, 0));
-        let just_idle = LIVENESS_POINTER_ACTIVE_S + 0.1;
-        assert!(!liveness_should_rebuild(Some(LIVENESS_STALE_MS), just_idle, u64::MAX, 0));
+        let s = LIVENESS_TRACKPAD_ACTIVE_MS;
+        assert!(liveness_should_rebuild(Some(s + LIVENESS_GAP_MS), Some(s), u64::MAX, 0));
+        assert!(!liveness_should_rebuild(Some(s + LIVENESS_GAP_MS - 1), Some(s), u64::MAX, 0));
+        assert!(!liveness_should_rebuild(Some(10 * s), Some(s + 1), u64::MAX, 0));
     }
 
     #[test]

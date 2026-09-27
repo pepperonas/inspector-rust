@@ -135,7 +135,12 @@ extern "C" {
         user_info: *mut c_void,
     ) -> CFMachPortRef;
     fn CGEventTapEnable(tap: CFMachPortRef, enable: bool);
+    fn CGEventGetIntegerValueField(event: CGEventRef, field: u32) -> i64;
 }
+/// `kCGScrollWheelEventScrollPhase`: non-zero only for a scroll driven by
+/// fingers on a multitouch surface (trackpad / Magic Mouse) — a wheel mouse,
+/// incl. smooth-scrolling ones, reports 0.
+const CG_FIELD_SCROLL_PHASE: u32 = 99;
 
 /// Resolved MultitouchSupport entry points.
 #[derive(Clone, Copy)]
@@ -145,6 +150,8 @@ struct Mt {
     register_cb: unsafe extern "C" fn(MTDeviceRef, MTContactCallback),
     start: unsafe extern "C" fn(MTDeviceRef, c_int) -> c_int,
     stop: unsafe extern "C" fn(MTDeviceRef) -> c_int,
+    /// Optional: absent on some OS builds; without it stop() just stops.
+    unregister_cb: Option<unsafe extern "C" fn(MTDeviceRef, MTContactCallback)>,
 }
 
 unsafe fn load_mt() -> Option<Mt> {
@@ -159,6 +166,7 @@ unsafe fn load_mt() -> Option<Mt> {
     let register_cb = sym(b"MTRegisterContactFrameCallback\0");
     let start = sym(b"MTDeviceStart\0");
     let stop = sym(b"MTDeviceStop\0");
+    let unregister_cb = sym(b"MTUnregisterContactFrameCallback\0");
     if create_list.is_null() || register_cb.is_null() || start.is_null() || stop.is_null() {
         return None;
     }
@@ -172,6 +180,13 @@ unsafe fn load_mt() -> Option<Mt> {
         register_cb: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef, MTContactCallback)>(register_cb),
         start: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef, c_int) -> c_int>(start),
         stop: std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef) -> c_int>(stop),
+        unregister_cb: if unregister_cb.is_null() {
+            None
+        } else {
+            Some(std::mem::transmute::<*mut c_void, unsafe extern "C" fn(MTDeviceRef, MTContactCallback)>(
+                unregister_cb,
+            ))
+        },
     })
 }
 
@@ -189,6 +204,14 @@ static FIRST_FRAME_LOGGED: AtomicBool = AtomicBool::new(false);
 /// see `gestures::liveness_should_rebuild`. `START` is an `Instant`, which does
 /// NOT advance while the Mac sleeps, so a wake can never look "stale" here.
 static LAST_FRAME_MS: AtomicU64 = AtomicU64::new(0);
+/// Time (ms since `START`) of the last FINGER-driven scroll (non-zero scroll
+/// phase) seen by the scroll tap; `0` = none. Only a multitouch surface makes
+/// those, so "trackpad scroll just happened but no multitouch frame" is proof
+/// of a dead registration — unlike plain pointer movement, which an external
+/// mouse produces all day (the false positive behind ~100 needless capture
+/// rebuilds a day, 2026-09-27).
+static LAST_TRACKPAD_SCROLL_MS: AtomicU64 = AtomicU64::new(0);
+
 static LAST_COUNT: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
 /// The scroll tap swallows scroll-wheel events until this timestamp (ms since
 /// `START`). Each ≥3-finger multitouch frame pushes it to `now + GRACE_MS`, so
@@ -242,6 +265,16 @@ pub(crate) fn ms_since_last_frame() -> Option<u64> {
 
 /// Whether the capture is currently armed — the liveness watchdog must never
 /// resurrect a source the user deliberately switched off.
+/// Milliseconds since the last finger-driven scroll, `None` = none yet.
+pub(crate) fn ms_since_trackpad_scroll() -> Option<u64> {
+    let last = LAST_TRACKPAD_SCROLL_MS.load(Ordering::Relaxed);
+    if last == 0 {
+        return None;
+    }
+    let now = START.get()?.elapsed().as_millis() as u64;
+    Some(now.saturating_sub(last))
+}
+
 pub(crate) fn is_running() -> bool {
     RUNNING.load(Ordering::Relaxed)
 }
@@ -486,6 +519,9 @@ extern "C" fn scroll_tap_callback(
         }
         CG_EVT_SCROLL_WHEEL => {
             let now = START.get().map(|s| s.elapsed().as_millis() as u64).unwrap_or(0);
+            if now > 0 && unsafe { CGEventGetIntegerValueField(event, CG_FIELD_SCROLL_PHASE) } != 0 {
+                LAST_TRACKPAD_SCROLL_MS.store(now, Ordering::Relaxed);
+            }
             if now <= SWALLOW_UNTIL_MS.load(Ordering::Relaxed) {
                 SCROLL_SWALLOWED.fetch_add(1, Ordering::Relaxed);
                 std::ptr::null_mut() // consume — drop the scroll
@@ -650,7 +686,14 @@ impl GestureSource for MacGestureSource {
         }
         if let Some(mt) = *MT_API.lock() {
             for &dev in MT_DEVICES.lock().iter() {
-                unsafe { (mt.stop)(dev as MTDeviceRef) };
+                unsafe {
+                    // Unregister FIRST so the driver stops calling into us,
+                    // then stop the device.
+                    if let Some(unreg) = mt.unregister_cb {
+                        unreg(dev as MTDeviceRef, frame_callback);
+                    }
+                    (mt.stop)(dev as MTDeviceRef);
+                }
             }
         }
         let rl = RUN_LOOP.swap(0, Ordering::SeqCst);

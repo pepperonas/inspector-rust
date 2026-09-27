@@ -565,12 +565,26 @@ pub fn track_bcsbook_preview(
 /// collide with an existing entry are added, leaving git-derived rows,
 /// presence rows and manual corrections intact.
 #[tauri::command]
-pub fn track_push_bcsbook(
+pub async fn track_push_bcsbook(
     db: State<'_, DbHandle>,
     date: String,
     base_url: Option<String>,
     replace: bool,
 ) -> Result<crate::tracking::bcsbook::PushResult, String> {
+    // Two HTTP round trips with 10 s timeouts each.
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || track_push_bcsbook_blocking(&db, date, base_url, replace))
+        .await
+        .map_err(|e| format!("bcsbook task: {e}"))?
+}
+
+fn track_push_bcsbook_blocking(
+    db_ref: &DbHandle,
+    date: String,
+    base_url: Option<String>,
+    replace: bool,
+) -> Result<crate::tracking::bcsbook::PushResult, String> {
+    let db: DbHandle = db_ref.clone(); // owned, so the body's `&db` stays a single borrow
     use crate::tracking::bcsbook as bb;
     let base = base_url
         .filter(|u| !u.trim().is_empty())
@@ -1011,14 +1025,32 @@ pub fn refresh_apps(state: State<'_, crate::app_launcher::AppIndex>) -> usize {
 /// If the app is already running, this activates the existing instance
 /// instead of spawning a duplicate.
 #[tauri::command]
-pub fn launch_app(path: String) -> Result<(), String> {
+pub async fn launch_app(path: String) -> Result<(), String> {
+    // `open` waits for LaunchServices (up to ~0.5 s on a cold launch).
+    tauri::async_runtime::spawn_blocking(move || launch_app_blocking(path))
+        .await
+        .map_err(|e| format!("launch task: {e}"))?
+}
+
+fn launch_app_blocking(path: String) -> Result<(), String> {
     crate::app_launcher::launch(std::path::Path::new(&path)).map_err(map_err)
 }
 
 /// Lazy icon fetch. First call per `path` shells out to sips
 /// (~50 ms); subsequent calls hit the in-memory LRU cache.
 #[tauri::command]
-pub fn get_app_icon(
+pub async fn get_app_icon(app: AppHandle, path: String) -> Result<String, String> {
+    // `plutil` + `sips` per uncached icon — off the main thread (it froze typing
+    // whenever the app-launcher row switched to a new app).
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<crate::app_launcher::AppIndex>();
+        get_app_icon_blocking(state, path)
+    })
+    .await
+    .map_err(|e| format!("icon task: {e}"))?
+}
+
+fn get_app_icon_blocking(
     state: State<'_, crate::app_launcher::AppIndex>,
     path: String,
 ) -> Result<String, String> {
@@ -1213,7 +1245,13 @@ pub fn sec_set_defaults(
 /// caller (frontend) has already shell-quoted `command` and confirmed any sharp
 /// preset. `auto_enter` defaults to false (the user submits it themselves).
 #[tauri::command]
-pub fn sec_open_in_terminal(command: String, auto_enter: bool) -> Result<(), String> {
+pub async fn sec_open_in_terminal(command: String, auto_enter: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || sec_open_in_terminal_blocking(command, auto_enter))
+        .await
+        .map_err(|e| format!("terminal task: {e}"))?
+}
+
+fn sec_open_in_terminal_blocking(command: String, auto_enter: bool) -> Result<(), String> {
     crate::sec::open_in_terminal(&command, auto_enter)
 }
 
@@ -2958,7 +2996,14 @@ pub fn boom_driver_installed() -> bool {
 
 /// Install the bundled driver (admin prompt + coreaudiod restart).
 #[tauri::command]
-pub fn boom_install_driver(app: AppHandle) -> Result<(), String> {
+pub async fn boom_install_driver(app: AppHandle) -> Result<(), String> {
+    // Waits on the admin password dialog — the app must stay responsive.
+    tauri::async_runtime::spawn_blocking(move || boom_install_driver_blocking(app))
+        .await
+        .map_err(|e| format!("install task: {e}"))?
+}
+
+fn boom_install_driver_blocking(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         crate::boom::macos::install_driver(&app)
@@ -2972,7 +3017,13 @@ pub fn boom_install_driver(app: AppHandle) -> Result<(), String> {
 
 /// Uninstall the driver (admin prompt + coreaudiod restart).
 #[tauri::command]
-pub fn boom_uninstall_driver() -> Result<(), String> {
+pub async fn boom_uninstall_driver() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(boom_uninstall_driver_blocking)
+        .await
+        .map_err(|e| format!("uninstall task: {e}"))?
+}
+
+fn boom_uninstall_driver_blocking() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         crate::boom::macos::uninstall_driver()
@@ -4003,12 +4054,25 @@ fn parse_hex_rgb(hex: &str) -> Result<(u8, u8, u8), String> {
 /// entry. The original is left untouched so the user can recover it.
 /// Emits `clipboard-changed` to refresh the popup list.
 #[tauri::command]
-pub fn recolor_image_entry(
+pub async fn recolor_image_entry(
     app: AppHandle,
     db: State<'_, DbHandle>,
     id: i64,
     hex: String,
 ) -> Result<i64, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || recolor_image_entry_blocking(app, &db, id, hex))
+        .await
+        .map_err(|e| format!("recolor task: {e}"))?
+}
+
+fn recolor_image_entry_blocking(
+    app: AppHandle,
+    db_ref: &DbHandle,
+    id: i64,
+    hex: String,
+) -> Result<i64, String> {
+    let db: DbHandle = db_ref.clone(); // owned, so the body's `&db` stays a single borrow
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let (r, g, b) = parse_hex_rgb(&hex)?;
@@ -4137,7 +4201,16 @@ pub fn figlet_copy_png(
 /// is in [0, 1] — frontend treats anything below ~0.1 as "looks
 /// monochrome, recolor button worth showing".
 #[tauri::command]
-pub fn image_chromaticity(db: State<'_, DbHandle>, id: i64) -> Result<f32, String> {
+pub async fn image_chromaticity(db: State<'_, DbHandle>, id: i64) -> Result<f32, String> {
+    // Full PNG decode per image preview (every arrow step through images).
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || image_chromaticity_blocking(&db, id))
+        .await
+        .map_err(|e| format!("chromaticity task: {e}"))?
+}
+
+fn image_chromaticity_blocking(db_ref: &DbHandle, id: i64) -> Result<f32, String> {
+    let db: DbHandle = db_ref.clone(); // owned, so the body's `&db` stays a single borrow
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -4866,7 +4939,13 @@ pub async fn image_sizes(paths: Vec<String>) -> Vec<crate::image_ops::ImageInfo>
 }
 
 #[tauri::command]
-pub fn resize_file(path: String, width: u32, height: u32) -> Result<String, String> {
+pub async fn resize_file(path: String, width: u32, height: u32) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || resize_file_blocking(path, width, height))
+        .await
+        .map_err(|e| format!("resize task: {e}"))?
+}
+
+fn resize_file_blocking(path: String, width: u32, height: u32) -> Result<String, String> {
     let src = std::path::PathBuf::from(&path);
     let r = crate::image_ops::resize_file_to_neighbor(&src, width, height).map_err(map_err)?;
     Ok(r.path.display().to_string())
@@ -4876,7 +4955,13 @@ pub fn resize_file(path: String, width: u32, height: u32) -> Result<String, Stri
 /// result next to the source as `<stem>-optim.png`. Returns the output
 /// path + before/after byte counts.
 #[tauri::command]
-pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, String> {
+pub async fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, String> {
+    tauri::async_runtime::spawn_blocking(move || optimize_file_blocking(path))
+        .await
+        .map_err(|e| format!("optimize task: {e}"))?
+}
+
+fn optimize_file_blocking(path: String) -> Result<crate::image_ops::OptimResult, String> {
     let src = std::path::PathBuf::from(&path);
     crate::image_ops::optimize_file_to_neighbor(&src).map_err(map_err)
 }
@@ -4887,7 +4972,15 @@ pub fn optimize_file(path: String) -> Result<crate::image_ops::OptimResult, Stri
 /// the Automation→Finder TCC grant (returns the `finder.automation_denied`
 /// sentinel on a miss).
 #[tauri::command]
-pub fn finder_touch(name: String, content: Option<String>) -> Result<String, String> {
+pub async fn finder_touch(name: String, content: Option<String>) -> Result<String, String> {
+    // Two osascript round trips (front dir + reveal) — off the main thread,
+    // like its sibling `finder_open_terminal`.
+    tauri::async_runtime::spawn_blocking(move || finder_touch_blocking(name, content))
+        .await
+        .map_err(|e| format!("touch task: {e}"))?
+}
+
+fn finder_touch_blocking(name: String, content: Option<String>) -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::finder_selection::create_file(&name, content.as_deref().unwrap_or(""))
@@ -4904,7 +4997,13 @@ pub fn finder_touch(name: String, content: Option<String>) -> Result<String, Str
 /// folder (Finder on macOS, Explorer on Windows), or the Desktop when none
 /// is open. Returns the absolute path created.
 #[tauri::command]
-pub fn finder_mkdir(name: String) -> Result<String, String> {
+pub async fn finder_mkdir(name: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || finder_mkdir_blocking(name))
+        .await
+        .map_err(|e| format!("mkdir task: {e}"))?
+}
+
+fn finder_mkdir_blocking(name: String) -> Result<String, String> {
     #[cfg(any(target_os = "macos", target_os = "windows"))]
     {
         crate::finder_selection::create_dir(&name).map(|p| p.display().to_string())
@@ -4945,7 +5044,15 @@ pub async fn finder_open_terminal() -> Result<String, String> {
 /// main thread, dispatched from the worker; Windows uses Edge headless on
 /// the worker). Result is surfaced via the same notification as the hotkey.
 #[tauri::command]
-pub fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String> {
+pub async fn md_to_pdf_run(app: AppHandle, path: Option<String>) -> Result<(), String> {
+    // Without a path it reads the Finder selection (osascript, up to the 2 s
+    // watchdog) — off the main thread.
+    tauri::async_runtime::spawn_blocking(move || md_to_pdf_run_blocking(app, path))
+        .await
+        .map_err(|e| format!("md2pdf task: {e}"))?
+}
+
+fn md_to_pdf_run_blocking(app: AppHandle, path: Option<String>) -> Result<(), String> {
     // Resolve the target paths up front so a bad/empty selection errors
     // synchronously (the frontend can show it) before we spawn.
     let arg_path = path.map(|p| p.trim().to_string()).filter(|p| !p.is_empty());
@@ -5027,7 +5134,17 @@ pub fn run_finder_selection_pipeline(app: &AppHandle) {
 /// (Lanczos3 sampling) and write it back. Also pushes the resized image
 /// into history as a new entry so the user can recover it.
 #[tauri::command]
-pub fn resize_clipboard_image(
+pub async fn resize_clipboard_image(
+    app: AppHandle,
+    width: u32,
+    height: u32,
+) -> Result<crate::image_ops::ResizeResult, String> {
+    tauri::async_runtime::spawn_blocking(move || resize_clipboard_image_blocking(app, width, height))
+        .await
+        .map_err(|e| format!("resize task: {e}"))?
+}
+
+fn resize_clipboard_image_blocking(
     app: AppHandle,
     width: u32,
     height: u32,
@@ -5049,7 +5166,13 @@ pub fn resize_clipboard_image(
 /// to `~/Downloads/inspector-rust-optim-<ts>.png`. Does NOT touch the
 /// clipboard.
 #[tauri::command]
-pub fn optimize_clipboard_image() -> Result<crate::image_ops::OptimResult, String> {
+pub async fn optimize_clipboard_image() -> Result<crate::image_ops::OptimResult, String> {
+    tauri::async_runtime::spawn_blocking(optimize_clipboard_image_blocking)
+        .await
+        .map_err(|e| format!("optimize task: {e}"))?
+}
+
+fn optimize_clipboard_image_blocking() -> Result<crate::image_ops::OptimResult, String> {
     crate::image_ops::optimize_clipboard_png().map_err(map_err)
 }
 
@@ -5104,7 +5227,13 @@ pub async fn list_processes() -> Result<Vec<crate::system_commands::ProcessInfo>
 /// quit) when `force = true`. Requires no special permission for
 /// processes owned by the current user.
 #[tauri::command]
-pub fn kill_process(pid: u32, force: bool) -> Result<(), String> {
+pub async fn kill_process(pid: u32, force: bool) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || kill_process_blocking(pid, force))
+        .await
+        .map_err(|e| format!("kill task: {e}"))?
+}
+
+fn kill_process_blocking(pid: u32, force: bool) -> Result<(), String> {
     crate::system_commands::kill_process_by_pid(pid, force).map_err(map_err)
 }
 
@@ -5546,7 +5675,16 @@ fn clear_eyedropper_no_popup(app: &AppHandle) {
 /// this is a "save the cutout to a file" action, not a clipboard
 /// modification.
 #[tauri::command]
-pub fn cut_out_image_entry(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
+pub async fn cut_out_image_entry(db: State<'_, DbHandle>, id: i64) -> Result<String, String> {
+    // Full decode + U2Net inference (0.3–2 s) — never on the main thread.
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || cut_out_image_entry_blocking(&db, id))
+        .await
+        .map_err(|e| format!("cutout task: {e}"))?
+}
+
+fn cut_out_image_entry_blocking(db_ref: &DbHandle, id: i64) -> Result<String, String> {
+    let db: DbHandle = db_ref.clone(); // owned, so the body's `&db` stays a single borrow
     use base64::{engine::general_purpose::STANDARD as B64, Engine};
 
     let entry = db::get(&db, id)
@@ -5676,7 +5814,13 @@ pub fn figlet_save_png(png_b64: String, label: String) -> Result<String, String>
 /// of Finder is the typical path. Output is still PNG with alpha so
 /// the cutout's transparency survives.
 #[tauri::command]
-pub fn cut_out_image_file(path: String) -> Result<String, String> {
+pub async fn cut_out_image_file(path: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || cut_out_image_file_blocking(path))
+        .await
+        .map_err(|e| format!("cutout task: {e}"))?
+}
+
+fn cut_out_image_file_blocking(path: String) -> Result<String, String> {
     let bytes = std::fs::read(&path).map_err(|e| format!("read {path}: {e}"))?;
     // The output filename embeds the input's stem so the user can
     // tell two cutouts apart in Downloads (timestamp alone makes them
@@ -7956,4 +8100,55 @@ pub async fn mailcheck_run(email: String) -> Result<crate::mailcheck::MailCheckR
     tauri::async_runtime::spawn_blocking(move || crate::mailcheck::check(&email))
         .await
         .map_err(|e| format!("mailcheck task: {e}"))
+}
+
+#[cfg(test)]
+mod main_thread_tests {
+    /// A SYNC `#[tauri::command]` runs ON the main thread; these spawn
+    /// processes, decode images, run ML inference or do network I/O and froze
+    /// tray, hotkeys and every window while they ran ("app hangs",
+    /// 2026-09-27). Pinned so none of them quietly goes back to `pub fn`.
+    #[test]
+    fn blocking_commands_stay_off_the_main_thread() {
+        let src = include_str!("commands.rs");
+        for name in [
+            "ocr_region",
+            "screenshot_region",
+            "screenshot_capture",
+            "screenshot_repeat_last",
+            "get_finder_automation_status",
+            "force_reset_finder_automation_grant",
+            "get_finder_selection",
+            "list_processes",
+            "audio_swap_probe",
+            "trim_file_info",
+            "get_app_icon",
+            "image_chromaticity",
+            "optimize_file",
+            "optimize_clipboard_image",
+            "resize_file",
+            "resize_clipboard_image",
+            "recolor_image_entry",
+            "cut_out_image_entry",
+            "cut_out_image_file",
+            "finder_touch",
+            "finder_mkdir",
+            "kill_process",
+            "launch_app",
+            "track_push_bcsbook",
+            "boom_install_driver",
+            "boom_uninstall_driver",
+            "sec_open_in_terminal",
+            "md_to_pdf_run",
+        ] {
+            assert!(
+                src.contains(&format!("pub async fn {name}(")),
+                "{name} must be an async command (spawn_blocking), not run on the main thread"
+            );
+            assert!(
+                !src.contains(&format!("pub fn {name}(")),
+                "{name} is a sync command again — it would block the main thread"
+            );
+        }
+    }
 }

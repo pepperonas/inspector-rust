@@ -657,6 +657,9 @@ function App() {
   // stale hide is dropped. The animation await is capped at 200 ms so a hung
   // `finished` promise can never block hiding.
   const showGenRef = useRef(0);
+  // True while the shell sits in the CRT-hidden state (primed dot / finished
+  // power-off) — i.e. the content is INVISIBLE even if the window is shown.
+  const crtHiddenRef = useRef(false);
   const hidingRef = useRef(false);
   const hidePopup = useCallback(async () => {
     if (hidingRef.current) return;
@@ -672,7 +675,16 @@ function App() {
         new Promise((r) => window.setTimeout(r, offMs + 90)),
       ]);
       if (showGenRef.current !== gen) return; // re-shown → stale hide, drop it
-      await hidePopupRaw();
+      crtHiddenRef.current = true;
+      try {
+        await hidePopupRaw();
+      } catch (e) {
+        // The window is still on screen but its content just powered off —
+        // an invisible always-on-top window. Bring the content back.
+        console.error("hide_popup failed", e);
+        crtHiddenRef.current = false;
+        playCrtOn(shellRef.current, effectiveCrtMs());
+      }
     } finally {
       hidingRef.current = false;
     }
@@ -3268,11 +3280,41 @@ function App() {
     // by a full frame (~8–16 ms) on the single path where latency is felt
     // most. Focus keeps its rAF — the input must exist and be laid out.
     playCrtOn(shellRef.current, effectiveCrtMs());
+    crtHiddenRef.current = false;
     requestAnimationFrame(() => {
       searchRef.current?.focus();
       searchRef.current?.select();
     });
   });
+
+  // Unveil guard (2026-09-27, "overlay sometimes doesn't appear"). The shell
+  // is primed invisible while hidden and only `window-shown` powers it on. If
+  // the window ever becomes visible WITHOUT that event, the popup is an
+  // invisible always-on-top window: the hotkey sees it as open (so the press
+  // "does nothing") and it swallows clicks over its area. WebKit reports the
+  // window's visibility to the page, so react to it becoming visible or
+  // focused — after a beat, so a normal open's own window-shown wins first.
+  useEffect(() => {
+    let timer: number | undefined;
+    const check = () => {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => {
+        if (!crtHiddenRef.current || hidingRef.current || document.hidden) return;
+        crtHiddenRef.current = false;
+        playCrtOn(shellRef.current, effectiveCrtMs());
+      }, 180);
+    };
+    const onVis = () => {
+      if (!document.hidden) check();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", check);
+    return () => {
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", check);
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle tray "Manage Snippets": switch to snippets tab.
   useTauriEvent(
@@ -3521,6 +3563,7 @@ function App() {
     // window-shown handler runs) shows the dark tube + dot, never a flash of
     // full-opacity content, before `playCrtOn` blooms it. `playCrtOn` clears it.
     primeCrtHidden(shellRef.current, effectiveCrtMs());
+    crtHiddenRef.current = true;
   });
 
   // Wakelock LED state. v0.37.1+: register the `wakelock-changed`

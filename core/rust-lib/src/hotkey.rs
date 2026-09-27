@@ -1380,13 +1380,26 @@ pub fn register_direct_slots(
 mod tests {
 
     #[test]
-    fn toggle_hides_only_a_visible_focused_popup() {
+    fn rect_contains_is_half_open() {
+        let r = (0., 0., 100., 50.);
+        assert!(rect_contains(r, (0., 0.)));
+        assert!(rect_contains(r, (99.9, 49.9)));
+        assert!(!rect_contains(r, (100., 10.))); // far edge belongs to the neighbour
+        assert!(!rect_contains(r, (-0.1, 10.)));
+        // A second display to the right: its left edge is ours to own.
+        assert!(rect_contains((100., 0., 50., 50.), (100., 10.)));
+    }
+
+    #[test]
+    fn toggle_closes_a_visible_popup_and_fetches_one_from_another_monitor() {
+        // Visible where the user is (focused or not — it's always-on-top):
+        // the hotkey closes it. Regression of 2026-09-26: an unfocused but
+        // visible popup was re-opened instead.
         assert_eq!(toggle_action(true, true), ToggleAction::Hide);
-        // Lingering unfocused (close_on_blur off / behind other windows):
-        // the press must SHOW it, not hide what the user cannot see.
+        // Visible on ANOTHER monitor: the user can't see it → bring it here.
         assert_eq!(toggle_action(true, false), ToggleAction::Show);
-        assert_eq!(toggle_action(false, false), ToggleAction::Show);
         assert_eq!(toggle_action(false, true), ToggleAction::Show);
+        assert_eq!(toggle_action(false, false), ToggleAction::Show);
     }
 
     use super::*;
@@ -1760,22 +1773,119 @@ pub enum ToggleAction {
     Hide,
 }
 
-/// Decide the hotkey's effect (2026-09-26 — "sometimes the overlay doesn't
-/// appear"). ⚠️ `visible` alone is NOT "the user can see it": with
-/// `popup.close_on_blur` off the popup lingers visible but UNFOCUSED — behind
-/// other windows, on another monitor or Space — and a window re-ordered in by
-/// the OS can carry the frontend's primed-invisible CRT start state. Toggling
-/// on `visible` alone then HID a popup the user couldn't see, so the press
-/// seemed to do nothing (log: `visible=true` right after a hide, then a second
-/// press that finally showed it). Only a popup that is both visible AND
-/// focused is closed; anything else runs the normal show path, which
-/// re-positions on the cursor's monitor, takes focus and emits `window-shown`
-/// (cancels an in-flight frontend hide, replays the CRT power-on).
-pub fn toggle_action(visible: bool, focused: bool) -> ToggleAction {
-    if visible && focused {
+/// Decide the hotkey's effect.
+///
+/// History: 2026-09-26 this keyed on `visible && focused`, to stop the hotkey
+/// hiding a popup the user couldn't see. That was WRONG for this window: the
+/// popup is `alwaysOnTop`, so after a click elsewhere (with
+/// `popup.close_on_blur` off) it stays visible ABOVE everything, merely
+/// unfocused — and the hotkey then re-opened it (reset + replayed CRT)
+/// instead of closing it ("opens/closes wrongly", 2026-09-27). The popup
+/// the user genuinely can't see is one on ANOTHER monitor than the pointer;
+/// that one is brought over. The invisible-content case (window shown while
+/// the shell is still primed) is fixed at the source by the frontend's
+/// unveil guard, not guessed at here.
+pub fn toggle_action(visible: bool, on_cursor_monitor: bool) -> ToggleAction {
+    if visible && on_cursor_monitor {
         ToggleAction::Hide
     } else {
         ToggleAction::Show
+    }
+}
+
+/// Whether the popup sits on the monitor under the pointer. Unknown → `true`
+/// (the historical behaviour: a visible popup is closed).
+///
+/// macOS asks AppKit directly — window frame centre vs the `NSScreen` under
+/// `NSEvent.mouseLocation`, both in the same Cocoa point space, exactly how
+/// the popup positions itself. Tauri's `Monitor` objects were tried first and
+/// gave the WRONG answer on a mixed-scale two-display setup (live test
+/// 2026-09-27: the popup on the pointer's screen reported "another monitor",
+/// so the hotkey could never close it).
+fn on_cursor_monitor(window: &WebviewWindow) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        popup_on_cursor_screen_macos(window).unwrap_or(true)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (Some(cur), Ok(Some(own))) = (pick_cursor_monitor(window), window.current_monitor())
+        else {
+            return true;
+        };
+        cur.position() == own.position() && cur.size() == own.size()
+    }
+}
+
+/// Pure: is `point` inside `rect` (origin + size, half-open on the far edges)?
+fn rect_contains(rect: (f64, f64, f64, f64), point: (f64, f64)) -> bool {
+    let (x, y, w, h) = rect;
+    point.0 >= x && point.0 < x + w && point.1 >= y && point.1 < y + h
+}
+
+#[cfg(target_os = "macos")]
+fn popup_on_cursor_screen_macos(window: &WebviewWindow) -> Option<bool> {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::msg_send;
+    use objc2::runtime::{AnyClass, AnyObject};
+
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Copy, Clone, Default)]
+    struct NSRect {
+        origin: NSPoint,
+        size: NSSize,
+    }
+    unsafe impl Encode for NSPoint {
+        const ENCODING: Encoding = Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSSize {
+        const ENCODING: Encoding = Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+    unsafe impl Encode for NSRect {
+        const ENCODING: Encoding = Encoding::Struct("CGRect", &[NSPoint::ENCODING, NSSize::ENCODING]);
+    }
+    let r = |f: NSRect| (f.origin.x, f.origin.y, f.size.width, f.size.height);
+
+    let nswindow = window.ns_window().ok()? as *mut AnyObject;
+    if nswindow.is_null() {
+        return None;
+    }
+    unsafe {
+        let ns_event = AnyClass::get(c"NSEvent")?;
+        let ns_screen = AnyClass::get(c"NSScreen")?;
+        let cursor: NSPoint = msg_send![ns_event, mouseLocation];
+        let wf: NSRect = msg_send![nswindow, frame];
+        let centre = (wf.origin.x + wf.size.width / 2., wf.origin.y + wf.size.height / 2.);
+        let screens: *mut AnyObject = msg_send![ns_screen, screens];
+        if screens.is_null() {
+            return None;
+        }
+        let count: usize = msg_send![screens, count];
+        for i in 0..count {
+            let sc: *mut AnyObject = msg_send![screens, objectAtIndex: i];
+            if sc.is_null() {
+                continue;
+            }
+            let sf: NSRect = msg_send![sc, frame];
+            if rect_contains(r(sf), (cursor.x, cursor.y)) {
+                let same = rect_contains(r(sf), centre);
+                tracing::debug!(same, "toggle: popup vs cursor screen");
+                return Some(same);
+            }
+        }
+        None
     }
 }
 
@@ -1785,9 +1895,9 @@ pub fn toggle_popup(app: &AppHandle) -> Result<()> {
         .context("popup window not found")?;
 
     let visible = window.is_visible().unwrap_or(false);
-    let focused = window.is_focused().unwrap_or(false);
-    let action = toggle_action(visible, focused);
-    tracing::info!(visible, focused, ?action, "toggle_popup");
+    let here = !visible || on_cursor_monitor(&window);
+    let action = toggle_action(visible, here);
+    tracing::info!(visible, on_cursor_monitor = here, ?action, "toggle_popup");
     if action == ToggleAction::Hide {
         // Through hide_popup, NOT a bare window.hide() (the pre-v0.105 bug):
         // the bare hide skipped the "popup-hidden" event (stale tab/query/

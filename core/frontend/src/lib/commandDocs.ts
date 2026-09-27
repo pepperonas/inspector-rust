@@ -366,7 +366,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
     tagline_de: "QR-Code erzeugen — Live-Vorschau, PNG- und druckbarer STL-Export.",
     synopsis: "qr <text>",
     description:
-      "Renders text or URLs as a black-on-white QR code live in the preview. Enter copies PNG to the clipboard and history. Save PNG / Save STL writes directly to Downloads. Offline, with UTF-8 support. STL uses millimetres: 1 mm modules, two-module quiet zone, 1 mm base with rounded corners and 0.6 mm raised code. Pasting a bare link into the search bar offers the same QR row.",
+      "Renders text or URLs as a black-on-white QR code live in the preview. Enter copies PNG to the clipboard and history. Save PNG / Save STL writes directly to Downloads. Offline, with UTF-8 support. STL uses millimetres: 1 mm modules, two-module quiet zone, 0.8 mm base with rounded corners and 0.6 mm raised code. Pasting a bare link into the search bar offers the same QR row.",
     arguments: [{ name: "text", required: true, description: "The text/URL to encode.", default: undefined }],
     flags: [],
     examples: [
@@ -374,7 +374,7 @@ export const COMMAND_DOCS: CommandDoc[] = [
       { input: "qr WIFI:T:WPA;S:MyNet;P:secret;;", result: "A Wi-Fi join QR." },
       { input: "qr +49 170 1234567", result: "Encode a phone number." },
     ],
-    tips: ["For STL, print a light base and switch to dark filament at 1 mm. STL stores no colours; test scanning the finished print."],
+    tips: ["For STL, print a light base and switch to dark filament at 0.8 mm. STL stores no colours; test scanning the finished print."],
     caveats: ["Very long inputs make dense codes that scan poorly. Maximum 2331 UTF-8 bytes."],
     related: ["uuid"],
   },

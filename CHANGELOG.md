@@ -38,7 +38,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 - **Buttons with a press effect snapped their hover colour** instead of fading it.
 
 ### Changed
-- **Thinner base plate for 3D-printed QR codes:** 1 mm instead of 2 mm (the raised code stays 0.6 mm), so switch filament at 1 mm. Still five layers at 0.2 mm, half the print time and material.
+- **Thinner base plate for 3D-printed QR codes:** 0.8 mm instead of 2 mm (the raised code stays 0.6 mm), so switch filament at 0.8 mm. Four layers at 0.2 mm.
 - **Generated QR codes have a slimmer border:** two modules instead of four (preview, PNG and STL alike). Phone scanners read it fine; the codes no longer look undersized in their frame.
 - **Faster popup and list:** the history list no longer decrypts and transfers every text clip twice (the preview fetches the full text only when the list row carries a shortened preview); moving the selection re-renders only the two affected rows instead of every visible one; each keystroke rebuilds the list once instead of twice; timestamps reuse one date formatter.
 - **Every auxiliary window starts lighter:** the start-up bundle each window parses dropped from 332 KB to 216 KB (the `x!` window was the last one loaded eagerly and pulled in all command docs).

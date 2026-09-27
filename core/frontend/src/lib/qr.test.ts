@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { qrMatrix, drawQr, QR_QUIET_MODULES } from "./qr";
+import { qrMatrix, drawQr, QR_QUIET_MODULES, QR_BASE_MM, QR_RELIEF_MM } from "./qr";
 
 describe("qrMatrix", () => {
   it("returns a square boolean matrix", () => {
@@ -125,5 +125,19 @@ describe("quiet zone", () => {
     const m = rs.match(/const QUIET: usize = (\d+);/);
     expect(m, "QUIET const in qr.rs").not.toBeNull();
     expect(Number(m![1])).toBe(QR_QUIET_MODULES);
+  });
+
+  it("the STL base thickness and relief match what the UI states", async () => {
+    const { readFileSync } = (await import("node:" + "fs")) as unknown as {
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const cwd = (globalThis as unknown as { process: { cwd(): string } }).process.cwd();
+    const rs = readFileSync(cwd + "/../rust-lib/src/qr.rs", "utf8");
+    const base = rs.match(/const BASE_Z: f32 = ([\d.]+);/);
+    const relief = rs.match(/const RELIEF_Z: f32 = BASE_Z \+ ([\d.]+);/);
+    expect(base, "BASE_Z in qr.rs").not.toBeNull();
+    expect(relief, "RELIEF_Z in qr.rs").not.toBeNull();
+    expect(Number(base![1])).toBe(QR_BASE_MM);
+    expect(Number(relief![1])).toBe(QR_RELIEF_MM);
   });
 });

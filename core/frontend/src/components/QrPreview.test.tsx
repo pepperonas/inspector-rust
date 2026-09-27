@@ -31,7 +31,7 @@ describe("QR exports", () => {
     await screen.findByRole("status");
     const output = vi.mocked(qrSave).mock.calls[0][0];
     expect("matrix" in output && output.matrix.length).toBe(21);
-    expect(screen.getByText(/switch to dark filament at 2 mm/)).toBeTruthy();
+    expect(screen.getByText(/switch to dark filament at 0\.8 mm/)).toBeTruthy();
   });
 
   it("shows write failures and allows retry", async () => {

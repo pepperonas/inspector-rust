@@ -1,5 +1,5 @@
 //! QR exports. STL coordinates are millimetres: 1 mm modules, a two-module
-//! quiet zone (`QUIET`, mirrored by `QR_QUIET_MODULES` in lib/qr.ts), 1 mm base
+//! quiet zone (`QUIET`, mirrored by `QR_QUIET_MODULES` in lib/qr.ts), 0.8 mm base
 //! and 0.6 mm relief. Slightly inset raised modules avoid non-manifold diagonal
 //! contacts; all faces share matching edges.
 //!
@@ -18,9 +18,10 @@ type Point = [f32; 3];
 const QUIET: usize = 2;
 /// Segments per rounded corner (a quarter circle).
 const CORNER_SEGMENTS: usize = 16;
-/// Base plate thickness. 1 mm (was 2 mm, halved 2026-09-27 on request):
-/// 5 layers at 0.2 mm — still a solid plate, half the print time/material.
-const BASE_Z: f32 = 1.;
+/// Base plate thickness in mm: 0.8 (was 2, then 1 — thinned 2026-09-27 on
+/// request): 4 layers at 0.2 mm. Mirrored by `QR_BASE_MM` in lib/qr.ts (the
+/// UI text), pinned equal by a test there.
+const BASE_Z: f32 = 0.8;
 /// Relief height stays 0.6 mm on top of the base.
 const RELIEF_Z: f32 = BASE_Z + 0.6;
 

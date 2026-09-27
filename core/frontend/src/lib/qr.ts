@@ -33,6 +33,12 @@ export function qrMatrix(text: string): boolean[][] {
  *  (the STL) — a test pins both to the same number. */
 export const QR_QUIET_MODULES = 2;
 
+/** STL base-plate thickness (mm) and raised-code height on top of it.
+ *  Mirrored by `BASE_Z` / `RELIEF_Z` in `core/rust-lib/src/qr.rs`; a test pins
+ *  both sides equal so the UI never states a thickness the STL doesn't have. */
+export const QR_BASE_MM = 0.8;
+export const QR_RELIEF_MM = 0.6;
+
 /** Draw a QR matrix onto a canvas at `scale` px per module with a quiet-zone
  *  `margin` (in modules). Sizes the canvas to fit. Browser-only. */
 export function drawQr(

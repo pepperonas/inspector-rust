@@ -1,5 +1,5 @@
 //! QR exports. STL coordinates are millimetres: 1 mm modules, a two-module
-//! quiet zone (`QUIET`, mirrored by `QR_QUIET_MODULES` in lib/qr.ts), 2 mm base
+//! quiet zone (`QUIET`, mirrored by `QR_QUIET_MODULES` in lib/qr.ts), 1 mm base
 //! and 0.6 mm relief. Slightly inset raised modules avoid non-manifold diagonal
 //! contacts; all faces share matching edges.
 //!
@@ -18,8 +18,11 @@ type Point = [f32; 3];
 const QUIET: usize = 2;
 /// Segments per rounded corner (a quarter circle).
 const CORNER_SEGMENTS: usize = 16;
-const BASE_Z: f32 = 2.;
-const RELIEF_Z: f32 = 2.6;
+/// Base plate thickness. 1 mm (was 2 mm, halved 2026-09-27 on request):
+/// 5 layers at 0.2 mm — still a solid plate, half the print time/material.
+const BASE_Z: f32 = 1.;
+/// Relief height stays 0.6 mm on top of the base.
+const RELIEF_Z: f32 = BASE_Z + 0.6;
 
 fn facet(out: &mut Vec<u8>, [a, b, c]: [Point; 3]) {
     let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
@@ -292,7 +295,7 @@ mod tests {
             .sum();
         assert!(patch > 0., "corner outline must be counter-clockwise");
         let plate = (SIZE as f64).powi(2) - 4. * ((R as f64).powi(2) - patch);
-        assert!((volume - (plate * 2. + 3. * 0.92 * 0.92 * 0.6)).abs() < 0.01);
+        assert!((volume - (plate * BASE_Z as f64 + 3. * 0.92 * 0.92 * 0.6)).abs() < 0.01);
         // Corners really are rounded: less area than the sharp square.
         assert!(plate < (SIZE as f64).powi(2) - 0.5);
         // Dark modules at matrix (0,0), (1,1), (1,2) → top-left, not mirrored.

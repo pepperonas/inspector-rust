@@ -66,8 +66,8 @@ export function QrPreview({ text }: { text: string }) {
       {result.matrix && (
         <p className="text-xs text-[var(--color-muted)]">
           STL: {result.matrix.length + 2 * QR_QUIET_MODULES} ×{" "}
-          {result.matrix.length + 2 * QR_QUIET_MODULES} × 2.6 mm · 1 mm modules · rounded
-          corners. Print a light base, then switch to dark filament at 2 mm for the raised
+          {result.matrix.length + 2 * QR_QUIET_MODULES} × 1.6 mm · 1 mm modules · rounded
+          corners. Print a light base, then switch to dark filament at 1 mm for the raised
           code. STL contains no colours. Test scanning the finished print.
         </p>
       )}

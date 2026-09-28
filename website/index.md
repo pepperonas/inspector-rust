@@ -1,7 +1,7 @@
 <!--# block name="none" --><!--# endblock -->
 # Inspector Rust — Clipboard Manager & Command Palette
 
-> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 66 search-bar commands: calculator and unit converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
+> Free, open-source (MIT) desktop utility for macOS, Windows and Linux. Ctrl+Space opens a popup with a searchable, encrypted clipboard history, a text expander and 67 search-bar commands: calculator, unit and currency converter, translation, weather, screenshots with OCR and annotation, screen recording, colour picker, system and audio tools. Data stays in a local SQLite database with AES-256-GCM encryption at rest; there is no account and no telemetry.
 
 This is the Markdown version of https://inspector-rust.celox.io/ for agents and text tools. A short summary with every link lives at https://inspector-rust.celox.io/llms.txt.
 
@@ -20,7 +20,7 @@ Files in the current release:
 
 - **Clipboard history** — Text, images, files and rich text, searchable as you type. Pin what you need often, add a note, and paste with Enter.
 - **Text expander** — Type an abbreviation and get the full text — with placeholders for the date, the clipboard or the cursor position. Works in terminals too.
-- **66 commands in the search bar** — Calculate, convert units, translate, check the weather, generate passwords or QR codes. Add `?` to any command for its help.
+- **67 commands in the search bar** — Calculate, convert units, translate, check the weather, generate passwords or QR codes. Add `?` to any command for its help.
 - **Screen tools** — Screenshots with an annotation editor, text recognition (OCR) from any screen region, screen recording to MP4 and a colour picker with a magnifier.
 - **System at your fingertips** — Monitor brightness, audio output, disk usage, cache clean-up, live system stats, world clock and calendar — each opens right in the popup.
 - **Private by design** — Everything lives in a local database; clipboard contents, snippets and 2FA secrets are encrypted with AES-256-GCM. No account, no telemetry.

@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.186.0] - 2026-09-28
+
 ### Added
 - **`convert` / `cv` — units and currencies.** `cv 165 mph` shows every speed unit in the preview as you type; add `in kmh` (or `to`, `nach`, `->`, `=`) and Enter pastes that number. Fourteen categories (length, area, volume, mass, temperature, speed, time, data SI + binary, energy, power, pressure, fuel consumption, angle, currency). Unit autocomplete with a live sample while you type (`cv 165 mp` → mph · 265,5 km/h). The preview has category chips and its own value / unit / target controls that write back into the search bar. Currencies from the ECB reference rates (frankfurter) plus Bitcoin and Ether (CoinGecko), cached and shown with their date when offline. Only the rate URLs are fetched — never the amount.
 - **Product page: [inspector-rust.celox.io](https://inspector-rust.celox.io)** (also reachable as `inspectorrust.celox.io` and `ir.celox.io`, which redirect there). Features, install steps, FAQ and a one-click download: `/download` picks the file for your system, `/download/<target>` names one (`macos`, `windows`, `windows-exe`, `linux-deb`, `linux-appimage`). A server timer follows new releases every 15 minutes, so the page never needs a redeploy for a version bump. Five languages; sources in `website/`, generated from `website/site.json`.

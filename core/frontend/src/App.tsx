@@ -45,6 +45,7 @@ const BenchPanel = lazy(() => import("./components/BenchPanel").then((m) => ({ d
 const AliasPanel = lazy(() => import("./components/AliasPanel").then((m) => ({ default: m.AliasPanel })));
 const IrisPanel = lazy(() => import("./components/IrisPanel").then((m) => ({ default: m.IrisPanel })));
 const BoomPanel = lazy(() => import("./components/BoomPanel").then((m) => ({ default: m.BoomPanel })));
+const ConvertPanel = lazy(() => import("./components/ConvertPanel").then((m) => ({ default: m.ConvertPanel })));
 const CalendarPanel = lazy(() => import("./components/CalendarPanel").then((m) => ({ default: m.CalendarPanel })));
 const CleanPanel = lazy(() => import("./components/CleanPanel").then((m) => ({ default: m.CleanPanel })));
 const SnitchPanel = lazy(() => import("./components/SnitchPanel").then((m) => ({ default: m.SnitchPanel })));
@@ -88,6 +89,14 @@ import { qrLinkEntry } from "./lib/qr-link";
 import { pinnedClips } from "./lib/history-filter";
 import { tryEvaluate } from "./lib/calc";
 import { tryConvert } from "./lib/convert";
+import {
+  parseConvertArg,
+  convertSuggestions,
+  headline as convertHeadline,
+  pasteNumber as convertPasteNumber,
+  type ConvertParse,
+} from "./lib/convert-cmd";
+import { fxRates, type FxRates } from "./lib/ipc";
 import { tryParseColor } from "./lib/colors";
 import {
   COMMANDS,
@@ -1568,6 +1577,44 @@ function App() {
     }
   }, [isCalendarCmd, calendarMode]);
 
+  // Convert (`convert` / `cv`) shows directly while typed — pure maths, rates
+  // cached in Rust — and Enter only hands the panel the arrow keys.
+  const isConvertCmd = parsedCommand?.spec.kind === "convert";
+  const [convertMode, setConvertMode] = useState(false);
+  const [convertFocus, setConvertFocus] = useState(false);
+  useEffect(() => {
+    if (isConvertCmd && !convertMode) setConvertMode(true);
+    else if (!isConvertCmd && convertMode) {
+      setConvertMode(false);
+      setConvertFocus(false);
+    }
+  }, [isConvertCmd, convertMode]);
+  const convertParse: ConvertParse = useMemo(
+    () => (isConvertCmd ? parseConvertArg(parsedCommand?.arg ?? "") : { kind: "browse" }),
+    [isConvertCmd, parsedCommand],
+  );
+  // Exchange rates: fetched when the command opens (Rust serves the cache —
+  // 6 h ECB / 10 min crypto — so this is cheap after the first call).
+  const [fx, setFx] = useState<FxRates | null>(null);
+  const [fxLoading, setFxLoading] = useState(false);
+  const fxAtRef = useRef(0);
+  const loadFx = useCallback((force: boolean) => {
+    setFxLoading(true);
+    fxAtRef.current = Date.now();
+    fxRates(force)
+      .then((r) => setFx(r))
+      .catch(() => undefined)
+      .finally(() => setFxLoading(false));
+  }, []);
+  useEffect(() => {
+    if (isConvertCmd && Date.now() - fxAtRef.current > 5 * 60 * 1000) loadFx(false);
+  }, [isConvertCmd, loadFx]);
+  const fxEurPer = fx?.eur_per;
+  const convertRates = useMemo(
+    () => (fxEurPer && Object.keys(fxEurPer).length > 0 ? fxEurPer : undefined),
+    [fxEurPer],
+  );
+
   // Clean mode auto-exits when the query is no longer the `clean` command
   // (it is entered via Enter, not while typing — the scan is heavy).
   const isCleanCmd = parsedCommand?.spec.kind === "clean";
@@ -2037,6 +2084,26 @@ function App() {
         hint =
           "Enter → cost, projects, sessions & models from the local Token Tracker";
         break;
+      case "convert": {
+        const p = convertParse;
+        if (p.kind === "ready") {
+          const h = convertHeadline(p, convertRates);
+          label = h ? `${h.from} = ${h.to}` : `${p.unit.name} — Kurse werden geladen…`;
+          hint = p.target
+            ? "Enter fügt die Zahl ein · Vorschau zeigt alle Einheiten"
+            : "Alle Einheiten in der Vorschau · Enter: ↑↓ wählen · `in <ziel>` für eine Zieleinheit";
+        } else if (p.kind === "value") {
+          label = `${arg} — Einheit dahinter tippen (mph, kg, €, …)`;
+          hint = "z. B. cv 165 mph · cv 20 usd in eur";
+        } else if (p.kind === "invalid") {
+          label = "Keine lesbare Zahl";
+          hint = "cv <wert> <einheit> [in <ziel>]";
+        } else {
+          label = "Umrechnen — Einheiten & Währungen";
+          hint = "Kategorie in der Vorschau wählen · oder z. B. cv 165 mph";
+        }
+        break;
+      }
       case "calendar":
         label = arg ? `Calendar: ${arg}` : "Calendar — month view";
         hint = "Enter to navigate: ←→ month · ↑↓ year · T today — or type e.g. märz 1990";
@@ -2119,7 +2186,7 @@ function App() {
         hint,
       },
     };
-  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake]);
+  }, [parsedCommand, query, fakerCat, fakerDef, secCat, secDef, irisActive, darkWake, convertParse, convertRates]);
 
   // Hidden `opener` easter egg — typing the word surfaces a random
   // German pickup-line from the embedded top-100 list (curated from the
@@ -2228,6 +2295,25 @@ function App() {
       }),
     );
   }, [isWeatherCmd, weatherFocus, weatherArg]);
+
+  // `cv` unit autocomplete: an unfinished unit (`cv 165 mp`), the longer
+  // units a short one starts (`cv 165 m` → mi, mm, mph …) and an open target
+  // (`cv 165 mph in k`). Tab/→ and Enter fill the query; the preview follows.
+  const convertSuggestionEntries: ListEntry[] = useMemo(() => {
+    if (!isConvertCmd || convertFocus) return [];
+    const kw = parsedCommand?.spec.keyword ?? "cv";
+    return convertSuggestions(convertParse, convertRates).map(
+      (sug): ListEntry => ({
+        kind: "command-suggestion",
+        data: {
+          keyword: sug.unit.symbol,
+          syntax: `${sug.unit.symbol} · ${sug.unit.name}`,
+          description: sug.sample,
+          completion: `${kw} ${sug.arg}`,
+        },
+      }),
+    );
+  }, [isConvertCmd, convertFocus, parsedCommand, convertParse, convertRates]);
 
   // Faker catalogue rows (bare `faker` list, or fuzzy matches for a partial /
   // unknown generator). Rendered as command-suggestion rows (like the resize
@@ -2790,9 +2876,12 @@ function App() {
       // OpenWeather tries the typed name).
       ...(weatherCitySuggestionEntries.length > 0
         ? weatherCitySuggestionEntries
-        : commandEntry
-          ? [commandEntry]
-          : []),
+        : convertParse.kind === "partial" && convertSuggestionEntries.length > 0
+          ? convertSuggestionEntries
+          : commandEntry
+            ? [commandEntry]
+            : []),
+      ...(convertParse.kind !== "partial" ? convertSuggestionEntries : []),
       ...(snitchSubEntry ? [snitchSubEntry] : []),
       ...adbSubEntries,
       ...(shazamSubEntry ? [shazamSubEntry] : []),
@@ -2860,6 +2949,8 @@ function App() {
     totpAutocompleteEntries,
     resizePresetEntries,
     weatherCitySuggestionEntries,
+    convertSuggestionEntries,
+    convertParse,
     settingsSectionEntries,
     fakerCatalogEntries,
     secPresetEntries,
@@ -3529,6 +3620,8 @@ function App() {
     // The TOTP overlay is transient too — its Enter-copies-top-match hides the
     // popup, and the next open must start on the normal history view.
     setTotpMode(false);
+    setConvertMode(false);
+    setConvertFocus(false);
     setLocMode(false);
     setLocFocus(false);
     setAdbMode(false);
@@ -3683,11 +3776,12 @@ function App() {
       // behind a partial suggestion). Keep any typed argument for the commands
       // whose arg selects a sub-view (`calendar <date>`, `snitch map`).
       const PANEL_KINDS: CommandKind[] = [
-        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth",
+        "brightness", "sound", "hue", "stats", "lumen", "boom", "uptime", "weather", "ip", "tokens", "calendar", "clean", "snitch", "shazam", "iris", "loc", "adb", "disk", "btsniff", "mailcheck", "clock", "rickroll", "repo", "repo-export", "nosleep", "alias", "pagespeed", "benchmark", "dezibel", "bluetooth", "convert",
       ];
       if (PANEL_KINDS.includes(commandKind)) {
         const keepArg =
           commandKind === "calendar" ||
+          commandKind === "convert" ||
           commandKind === "snitch" ||
           commandKind === "shazam" ||
           commandKind === "weather" ||
@@ -4259,6 +4353,21 @@ function App() {
         setTokensMode(true);
         setTokensFocus(true);
         return true;
+      } else if (commandKind === "convert") {
+        // With a target: paste that number. Otherwise hand the arrows to the
+        // preview (←→ category, ↑↓ row, Enter pastes the chosen row).
+        const p = parseConvertArg(arg);
+        if (p.kind === "ready" && p.target) {
+          const h = convertHeadline(p, convertRates);
+          if (h) {
+            await pasteText(convertPasteNumber(h.value, h.toUnit));
+            await hidePopup();
+            return true;
+          }
+        }
+        setConvertMode(true);
+        setConvertFocus(true);
+        return true;
       } else if (commandKind === "calendar") {
         // Inline month-view calendar in the preview column.
         setCalendarMode(true);
@@ -4449,8 +4558,12 @@ function App() {
           }
         }
         const parsed = parseCommand(target.data.completion);
+        // `cv` unit completions only FILL — the preview already shows the
+        // result, and a target completion must not paste on the same Enter.
+        const isConvertFill = parsed?.spec.kind === "convert" && /\s\S/.test(parsed.arg);
         if (
           parsed &&
+          !isConvertFill &&
           (await dispatchCommand(parsed.spec.kind, parsed.arg, parsed.spec.keyword))
         ) {
           return;
@@ -4682,6 +4795,7 @@ function App() {
       !benchFocus &&
       !tokensFocus &&
       !calendarFocus &&
+      !convertFocus &&
       !cleanFocus &&
       !snitchFocus &&
       !shazamFocus,
@@ -5407,6 +5521,36 @@ function App() {
                       onInteract={() =>
                         requestAnimationFrame(() => searchRef.current?.focus())
                       }
+                    />
+                  </div>
+                ) : convertMode ? (
+                  <div className="md3-pop-in h-full">
+                    <ConvertPanel
+                      parse={convertParse}
+                      rates={convertRates}
+                      fx={fx}
+                      fxLoading={fxLoading}
+                      focused={convertFocus}
+                      onArgChange={(a) => {
+                        const kw = parsedCommand?.spec.keyword ?? "cv";
+                        setQuery(a ? `${kw} ${a}` : kw);
+                      }}
+                      onPick={(text) => {
+                        void pasteText(text).then(() => hidePopup());
+                      }}
+                      onRefreshRates={() => loadFx(true)}
+                      onEngage={() => setConvertFocus(true)}
+                      onInteract={() => {
+                        // Keep typing in the panel's own value field; any
+                        // other click hands focus back to the search bar.
+                        const el = document.activeElement as HTMLElement | null;
+                        if (el && (el.tagName === "INPUT" || el.tagName === "SELECT")) return;
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
+                      onExit={() => {
+                        setConvertFocus(false);
+                        requestAnimationFrame(() => searchRef.current?.focus());
+                      }}
                     />
                   </div>
                 ) : calendarMode ? (

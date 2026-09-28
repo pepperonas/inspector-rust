@@ -46,6 +46,7 @@ mod hue;
 mod image_ops;
 mod input_lock;
 mod ip;
+mod fx_rates;
 mod iris;
 mod keepalive;
 mod loc;
@@ -1006,6 +1007,7 @@ pub fn run(context: tauri::Context<Wry>) {
             commands::hue_set_all,
             commands::weather_fetch,
             commands::ip_fetch,
+            commands::fx_rates,
             commands::mailcheck_run,
             commands::btsniff_open_file,
             commands::btsniff_packet,

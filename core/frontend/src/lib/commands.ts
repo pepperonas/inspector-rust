@@ -81,6 +81,7 @@ export type CommandKind =
   | "hue"
   | "disco"
   | "random"
+  | "convert"
   | "meme"
   | "websearch"
   | "uuid"
@@ -404,6 +405,22 @@ export const COMMANDS: ReadonlyArray<CommandSpec> = [
     keyword: "clock",
     syntax: "clock",
     description: "Weltzeituhr — Live-Zeiten wichtiger Städte, per Autocomplete erweiterbar",
+    requiresArg: false,
+  },
+  // ── convert / cv — units + currencies, live preview ───────────────
+  {
+    kind: "convert",
+    keyword: "convert",
+    syntax: "convert [wert] [einheit] [in ziel]",
+    description:
+      "Einheiten & Währungen umrechnen — `cv 165 mph` zeigt alle Geschwindigkeiten, `cv 20 usd in eur`",
+    requiresArg: false,
+  },
+  {
+    kind: "convert",
+    keyword: "cv",
+    syntax: "cv [wert] [einheit] [in ziel]",
+    description: "Einheiten & Währungen umrechnen — Kurzform von convert",
     requiresArg: false,
   },
   // ── disk / daisy — DaisyDisk-style disk usage ─────────────────────

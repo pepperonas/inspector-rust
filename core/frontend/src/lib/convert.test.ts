@@ -292,3 +292,19 @@ describe("tryConvert — octal + negative bases", () => {
     expect(tryConvert("9 in octal")?.display).toBe("0o11");
   });
 });
+
+describe("tryConvert — registry fallback (units.ts)", () => {
+  it("units the legacy table never had now convert inline", () => {
+    expect(tryConvert("1 bar in psi")?.value).toBeCloseTo(14.5037738, 6);
+    expect(tryConvert("1 ha in qm")?.display).toBe("10000 qm");
+    expect(tryConvert("1 kwh in kj")?.display).toBe("3600 kj");
+  });
+
+  it("the legacy table still wins where both know a unit (binary gb)", () => {
+    expect(tryConvert("2 gb in mb")?.display).toBe("2048 mb");
+  });
+
+  it("currencies are not converted inline (no rates in this path)", () => {
+    expect(tryConvert("5 usd in eur")).toBeNull();
+  });
+});

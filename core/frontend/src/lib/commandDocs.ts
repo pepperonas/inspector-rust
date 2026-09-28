@@ -1417,6 +1417,43 @@ export const COMMAND_DOCS: CommandDoc[] = [
     related: ["calendar", "weather"],
   },
   {
+    command: "convert",
+    aliases: ["cv"],
+    category: CAT_PROD,
+    version_added: "0.186.0",
+    tagline: "Units and currencies — `cv 165 mph` lists every speed unit live, with unit autocomplete.",
+    tagline_de: "Einheiten & Währungen — `cv 165 mph` zeigt alle Geschwindigkeiten live, mit Einheiten-Autocomplete.",
+    synopsis: "cv [wert] [einheit] [in|to|nach ziel]   ·   convert …",
+    description:
+      "Converts while you type. `cv 165 mph` shows the whole category in the preview — km/h, m/s, knots, ft/s — with the typed value highlighted; add a target (`in kmh`, `to kn`, `nach mph`, `->`, `=`) and that row is highlighted and pasted by Enter. **Fourteen categories:** length, area, volume, mass, temperature, speed, time, data (SI **and** binary: GB vs GiB), energy, power, pressure, fuel consumption (L/100 km ↔ km/L ↔ mpg, reciprocal), angle and **currency** — ECB reference rates for ~30 currencies plus Bitcoin and Ether. While the unit is unfinished the list offers completions with a live sample (`cv 165 mp` → mph · Geschwindigkeit · 265,5 km/h), Tab fills. Bare `cv` opens a category browser: pick a category, type a value, choose a unit — the controls write back into the search bar, so the query is always the full state. Values accept both decimal conventions (`2,5` / `1.234,5` / `1,234.5`), arithmetic (`cv 2*60 km`) and currency symbols (`cv 20€`, `cv $5`).",
+    arguments: [
+      { name: "wert", required: false, description: "Number or arithmetic expression; omitted = 1.", default: "1" },
+      { name: "einheit", required: false, description: "Source unit — id, symbol or name (`mph`, `km/h`, `knoten`, `°F`, `€`, `bitcoin`). Omit for the category browser." },
+      { name: "ziel", required: false, description: "Target unit of the same category after `in`/`to`/`nach`/`->`/`=`; Enter pastes that value." },
+    ],
+    flags: [],
+    examples: [
+      { input: "cv 165 mph", result: "Every speed unit: 265,5418 km/h · 73,7616 m/s · 143,3811 kn …" },
+      { input: "cv 20 usd in eur", result: "Today's ECB rate; Enter pastes the euro amount." },
+      { input: "cv 72 f", result: "22,22 °C · 295,37 K — temperature is affine, not a factor." },
+      { input: "cv 5 l/100km in mpg", result: "47,04 mpg (US) — consumption converts reciprocally." },
+      { input: "cv", result: "Category browser with its own value + unit controls." },
+    ],
+    tips: [
+      "`cv 165 m` is already metres, but the list still offers the longer units starting with m (mi, mm, mph …) — keep typing or Tab one in.",
+      "`in` only becomes the target keyword once a complete value + unit precede it: `cv 5 in` is five inches, `cv 5 in in cm` converts them.",
+      "In the preview: ←/→ switch category, ↑/↓ pick a row, Enter copies it (a plain `265.54176`, readable by spreadsheets); click a row to copy it too.",
+      "Rates are cached (ECB 6 h, crypto 10 min) and still shown offline with their date — the ↻ button refetches.",
+    ],
+    caveats: [
+      "ECB rates are reference rates published on working days around 16:00 CET — not a bank's buy/sell price. Crypto prices move by the minute. Not financial advice.",
+      "US and imperial volumes differ (gal vs gal (UK), pt vs pt (UK)); the plain spellings mean US.",
+      "Only the rate URLs are fetched (frankfurter.dev, api.coingecko.com); the amount you convert never leaves the machine.",
+    ],
+    related: ["bruno", "qr", "calendar"],
+    see_also: "docs/convert.md",
+  },
+  {
     command: "disk",
     aliases: ["daisy"],
     category: CAT_INFO,

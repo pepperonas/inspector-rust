@@ -3803,6 +3803,21 @@ export function ipFetch(): Promise<IpReport> {
   return invoke("ip_fetch");
 }
 
+/** Exchange rates for `convert` / `cv`: every rate as the EUR value of ONE
+ *  unit (`EUR: 1`, `USD: 0.85…`, `BTC: 73319`). Backend: `fx_rates.rs`. */
+export interface FxRates {
+  eur_per: Record<string, number>;
+  ecb_date: string | null;
+  ecb_fetched_ms: number | null;
+  crypto_fetched_ms: number | null;
+  stale: boolean;
+  error: string | null;
+}
+
+export function fxRates(force = false): Promise<FxRates> {
+  return invoke("fx_rates", { force });
+}
+
 // ── btsniff: Bluetooth capture analyzer ──────────────────────────────────────
 import type {
   BtPacketDetail,

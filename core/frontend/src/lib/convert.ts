@@ -11,6 +11,7 @@
  */
 
 import type { CalcEntry } from "./types";
+import { convertBetween, lookupUnit } from "./units";
 
 // ── Unit tables (factor = how many base units in one of this unit) ──────────
 
@@ -106,6 +107,13 @@ function convertUnit(value: number, from: string, to: string): number | null {
   return (value * a.factor) / b.factor;
 }
 
+function viaRegistry(value: number, from: string, to: string): number | null {
+  const a = lookupUnit(from);
+  const b = lookupUnit(to);
+  if (!a || !b || a.cat === "currency" || b.cat === "currency") return null;
+  return convertBetween(value, a, b);
+}
+
 // ── Number base ─────────────────────────────────────────────────────────────
 
 function parseIntLike(token: string): number | null {
@@ -172,7 +180,10 @@ export function tryConvert(input: string): CalcEntry | null {
     const value = Number(unitM[1]);
     const from = unitM[2].toLowerCase().replace("°", "");
     const to = unitM[3].toLowerCase().replace("°", "");
-    const out = convertUnit(value, from, to);
+    // The `cv` registry (`units.ts`) covers what this legacy table doesn't
+    // (area, volume, energy, pressure, …). The table stays first so its
+    // pinned semantics (binary `gb`, lower-case echo) don't change.
+    const out = convertUnit(value, from, to) ?? viaRegistry(value, from, to);
     if (out !== null) {
       const display = `${fmtNum(out)} ${to}`;
       return { expression: q, value: out, display };

@@ -7836,6 +7836,19 @@ pub async fn ip_fetch() -> Result<crate::ip::IpReport, String> {
         .map_err(|e| format!("ip task: {e}"))?
 }
 
+/// Exchange rates for `convert` / `cv` (ECB via frankfurter + BTC/ETH via
+/// CoinGecko), cached in the settings table. Network → off the main thread.
+#[tauri::command]
+pub async fn fx_rates(
+    db: State<'_, DbHandle>,
+    force: Option<bool>,
+) -> Result<crate::fx_rates::FxRates, String> {
+    let db = db.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || crate::fx_rates::get(&db, force.unwrap_or(false)))
+        .await
+        .map_err(|e| format!("fx task: {e}"))
+}
+
 // ── btsniff: Bluetooth capture analyzer ──────────────────────────────────
 // Stage 1 — deterministic file analyzer (.pklg / btsnoop / pcapng). The
 // heavy IO/parse runs in `spawn_blocking`; committing to the session state is

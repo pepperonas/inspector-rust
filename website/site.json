@@ -116,9 +116,10 @@
    "Searchable clipboard history for text, images, files and rich text, with pins and notes",
    "Text expander with abbreviations, hotkeys and placeholders such as date, clipboard and cursor",
    "67 search-bar commands, each with built-in help (type a command followed by ?)",
-   "Calculator, unit and base converter, live translation",
+   "Calculator, unit, currency and base converter, live translation",
    "Screenshots with annotation editor, OCR of any screen region, screen recording to MP4",
    "Colour picker with magnifier, QR codes, password generator, 2FA codes",
+   "Markdown to paginated A4 PDF next to the source file (code, math, diagrams), never overwriting",
    "System tools: brightness, audio output, disk usage, cache clean-up, system stats",
    "Weather, world clock, calendar, song recognition, Philips Hue control",
    "Local SQLite database, sensitive fields encrypted with AES-256-GCM",
@@ -206,11 +207,11 @@
      "fr": "67 commandes dans la barre de recherche"
     },
     "p": {
-     "en": "Calculate, convert units, translate, check the weather, generate passwords or QR codes. Add <code>?</code> to any command for its help.",
-     "de": "Rechnen, Einheiten umrechnen, übersetzen, Wetter abfragen, Passwörter oder QR-Codes erzeugen. Ein <code>?</code> hinter jedem Befehl zeigt seine Hilfe.",
-     "es": "Calcula, convierte unidades, traduce, consulta el tiempo, genera contraseñas o códigos QR. Añade <code>?</code> a cualquier comando para ver su ayuda.",
-     "it": "Calcola, converti unità, traduci, controlla il meteo, genera password o codici QR. Aggiungi <code>?</code> a qualsiasi comando per la sua guida.",
-     "fr": "Calculez, convertissez des unités, traduisez, consultez la météo, générez des mots de passe ou des QR codes. Ajoutez <code>?</code> à une commande pour son aide."
+     "en": "Calculate, convert units and currencies, translate, check the weather, turn Markdown into A4 PDFs, generate passwords or QR codes. Add <code>?</code> to any command for its help.",
+     "de": "Rechnen, Einheiten und Währungen umrechnen, übersetzen, Wetter abfragen, Markdown in A4-PDFs verwandeln, Passwörter oder QR-Codes erzeugen. Ein <code>?</code> hinter jedem Befehl zeigt seine Hilfe.",
+     "es": "Calcula, convierte unidades y divisas, traduce, consulta el tiempo, convierte Markdown en PDF A4, genera contraseñas o códigos QR. Añade <code>?</code> a cualquier comando para ver su ayuda.",
+     "it": "Calcola, converti unità e valute, traduci, controlla il meteo, trasforma Markdown in PDF A4, genera password o codici QR. Aggiungi <code>?</code> a qualsiasi comando per la sua guida.",
+     "fr": "Calculez, convertissez unités et devises, traduisez, consultez la météo, transformez du Markdown en PDF A4, générez des mots de passe ou des QR codes. Ajoutez <code>?</code> à une commande pour son aide."
     }
    },
    {

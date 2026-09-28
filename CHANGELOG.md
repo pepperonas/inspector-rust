@@ -6,6 +6,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and 
 
 ## [Unreleased]
 
+## [0.187.0] - 2026-09-28
+
 ### Changed
 - **`md2pdf` looks like mrxdown and prints real A4 pages.** mrxdown's default PDF template: page numbers, 20/15 mm margins, syntax-highlighted code, math (`$…$`, `$$…$$`), Mermaid diagrams, GitHub callouts (`> [!NOTE]` …), local images embedded, and a title page when the frontmatter has a `title`. Scripts inside the Markdown never run (content policy like mrxdown's CLI).
 - **`md2pdf` never overwrites.** The PDF lands in the same folder under the same name; if that name is taken it becomes `name 2.pdf`, `name 3.pdf` … like the Finder's "keep both". A typed path wins over the Finder selection, and a missing/unsuitable file is named in a message instead of a generic error.

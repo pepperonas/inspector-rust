@@ -120,7 +120,7 @@ describe("StatusToast — one-shot kinds", () => {
   it("hides directly, without the persistent fade-out step", async () => {
     await mount(toast());
     await advance(1600);
-    expect(card()?.className).not.toContain("status-toast-out");
+    expect(document.querySelector(".status-toast-out")).toBeNull();
     expect(hideStatusToast).toHaveBeenCalledTimes(1);
   });
 
@@ -300,5 +300,43 @@ describe("StatusToast — Klangaura (v0.118.0)", () => {
     // level-carrying tracks that unmute.)
     expect(document.querySelector(".vol-wave-up")).toBeTruthy();
     expect(document.querySelector(".vol-dip")).toBeNull();
+  });
+});
+
+describe("StatusToast — the window is never hidden, only emptied (2026-09-28)", () => {
+  // Regression: a toast window that was ordered out came back blank (its
+  // webview suspended) — gestures changed the volume but showed no HUD.
+  // The backend now keeps the window on screen; dismissing must therefore
+  // leave an EMPTY transparent surface, and the next trigger must draw again.
+  const vol = (title: string) => toast({ kind: "volume", title, subtitle: "" });
+  const bodyText = () => document.body.textContent ?? "";
+  it("a dismissed volume HUD leaves no visible content behind", async () => {
+    await mount(vol("45"));
+    await advance(1100);
+    await advance(260);
+    expect(hideStatusToast).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".vol-card")).toBeNull();
+    expect(bodyText()).toBe("");
+  });
+
+  it("a dismissed one-shot toast leaves no visible content behind", async () => {
+    await mount(toast());
+    await advance(1600);
+    expect(card()).toBeNull();
+    expect(bodyText()).toBe("");
+  });
+
+  it("the next gesture after a dismiss draws a fresh HUD in the same window", async () => {
+    await mount(vol("30"));
+    await advance(1100);
+    await advance(260);
+    expect(document.querySelector(".vol-card")).toBeNull();
+
+    await retrigger(vol("60"));
+    expect(document.querySelector(".vol-overlay-in")).toBeTruthy();
+    expect(volNumText()).toBe("60");
+
+    await retrigger({ kind: "mute", on: true, title: "Muted", subtitle: "Volume" });
+    expect(document.querySelector(".vol-card")).toBeTruthy();
   });
 });

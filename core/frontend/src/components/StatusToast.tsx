@@ -80,6 +80,20 @@ export function StatusToast() {
     };
   }, []);
 
+  // ⚠️ Dismiss = clear the CONTENT, never hide the window (2026-09-28). The
+  // backend keeps this window on screen permanently (transparent, click-
+  // through, `setCanHide:NO` — the iris-overlay recipe): a toast window that
+  // was ordered out came back blank, its webview suspended, and never
+  // dismissed itself. The idle state is therefore an empty transparent
+  // surface; `hideStatusToast` only hands focus back on the Rust side.
+  const dismiss = () => {
+    visibleRef.current = false;
+    payloadRef.current = null;
+    setPayload(null);
+    setExiting(false);
+    void hideStatusToast();
+  };
+
   // Auto-dismiss. Each (re)trigger (tick) resets the timer. Persistent toasts
   // play a fade-out first; one-shots hide directly (their pop already faded).
   useEffect(() => {
@@ -94,8 +108,7 @@ export function StatusToast() {
       if (persistent) {
         setExiting(true); // triggers the fade-out effect below
       } else {
-        visibleRef.current = false;
-        void hideStatusToast();
+        dismiss();
       }
     }, hold);
     return () => window.clearTimeout(t);
@@ -104,10 +117,7 @@ export function StatusToast() {
   // Persistent fade-out → hide the window once the out animation has played.
   useEffect(() => {
     if (!exiting) return;
-    const t = window.setTimeout(() => {
-      visibleRef.current = false;
-      void hideStatusToast();
-    }, OUT_MS);
+    const t = window.setTimeout(dismiss, OUT_MS);
     return () => window.clearTimeout(t);
   }, [exiting]);
 

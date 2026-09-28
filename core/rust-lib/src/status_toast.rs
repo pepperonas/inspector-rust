@@ -10,9 +10,21 @@
 //! Lifecycle mirrors `screenshot_preview`: the React side pulls the
 //! current payload via `get_status_toast` on mount and re-animates on
 //! each `"status-toast-changed"` event (so a reused window picks up a
-//! fresh toggle), then calls `hide_status_toast` when its timer fires.
-//! The window is **hidden**, not closed, between toasts so re-showing is
-//! instant.
+//! fresh toggle), then clears itself and calls `hide_status_toast` when its
+//! timer fires.
+//!
+//! ⚠️ Once built, the window is NEVER ordered out again (2026-09-28). A toast
+//! window that had been hidden came back blank: the NSWindow was on screen
+//! again (CGWindowList: on-screen, alpha 1) but its WKWebView stayed
+//! suspended — no paint, no JS — so it never dismissed itself either. Field
+//! symptom: "gestures change the volume but show no HUD", with an empty
+//! click-through window parked on screen for hours; reproduced live (the
+//! first toast of a process works, every later one is blank). So the toast
+//! follows the iris-overlay recipe, which has always rendered reliably: a
+//! permanently shown, transparent, click-through window with
+//! `setCanHide:NO` (survives `app.hide()`); "hidden" = the frontend renders
+//! nothing. Destroying + rebuilding per toast also worked but leaked a native
+//! window per toast (7 → 12 after six toasts), so it was dropped.
 
 use parking_lot::Mutex;
 use serde::Serialize;
@@ -156,6 +168,9 @@ fn elevate_toast_window(win: &WebviewWindow) {
     let behavior: u64 = (1 << 0) | (1 << 4) | (1 << 8);
     unsafe {
         let _: () = objc2::msg_send![nswindow, setCollectionBehavior: behavior];
+        // Survive `app.hide()` (every popup close runs it): an ordered-out
+        // toast webview never renders again (module doc).
+        let _: () = objc2::msg_send![nswindow, setCanHide: false];
         let _: () = objc2::msg_send![nswindow, orderFrontRegardless];
     }
 }
@@ -195,12 +210,17 @@ pub fn announce_keeping_popup(app: &AppHandle, toast: StatusToast) {
     });
 }
 
-/// Hide (not close) the toast window so the next toast re-shows instantly.
-/// On macOS this also fires `app.hide()` to return key focus to whatever
+/// The frontend has emptied the toast (it is now an invisible, click-through
+/// surface). The window itself stays ordered in — see the module doc. On
+/// macOS this also fires `app.hide()` to return key focus to whatever
 /// app was frontmost before the popup opened — deferred to here (rather
 /// than at toggle time) so the toast isn't swallowed by the app-hide while
 /// it's still animating.
 pub fn hide(app: &AppHandle) {
+    // Deliberately NO `win.hide()`: an ordered-out toast webview comes back
+    // suspended and blank (module doc). Non-macOS keeps hiding — the bug is
+    // WebKit-on-macOS, and a hidden window there costs nothing.
+    #[cfg(not(target_os = "macos"))]
     if let Some(win) = app.get_webview_window(TOAST_LABEL) {
         let _ = win.hide();
     }
@@ -368,4 +388,27 @@ fn center_native_macos(win: &WebviewWindow) -> bool {
         let _: () = msg_send![nswindow, setFrame: frame, display: true];
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    /// Regression 2026-09-28: an ordered-out toast webview came back blank, so
+    /// gestures showed no HUD. The macOS toast must survive `app.hide()` and
+    /// must never be ordered out by our own hide path.
+    #[test]
+    fn macos_toast_is_never_ordered_out() {
+        let src = include_str!("status_toast.rs");
+        let code: String = src
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Needle assembled at runtime so this test can't find its own text.
+        let needle = format!("{}: false]", "setCanHide");
+        assert!(code.contains(&needle), "toast must opt out of app.hide()");
+        let hide = code.split("pub fn hide(").nth(1).unwrap();
+        let hide = &hide[..hide.find("\n}\n").unwrap()];
+        let before_cfg = hide.split("#[cfg(not(target_os = \"macos\"))]").next().unwrap();
+        assert!(!before_cfg.contains("win.hide()"), "hide() must not order the toast out on macOS");
+    }
 }

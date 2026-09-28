@@ -1,10 +1,10 @@
 {
-  "loc": 186812,
-  "loc_rust": 95885,
-  "loc_ts": 90927,
-  "tests": 4611,
-  "tests_rust": 1751,
-  "tests_frontend": 2860,
+  "loc": 186903,
+  "loc_rust": 95928,
+  "loc_ts": 90975,
+  "tests": 4615,
+  "tests_rust": 1752,
+  "tests_frontend": 2863,
   "commands": 66,
   "features": 188,
   "docs": 27,
@@ -12,7 +12,7 @@
   "crates": 864,
   "ipc": 420,
   "components": 86,
-  "suites": 240,
+  "suites": 241,
   "tables": 16,
   "events": 55
 }
